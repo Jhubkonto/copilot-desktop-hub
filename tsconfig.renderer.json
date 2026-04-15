@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": true,
+    "outDir": "dist/renderer",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "noEmit": true
+  },
+  "include": ["src/renderer/**/*", "src/shared/**/*"]
+}
