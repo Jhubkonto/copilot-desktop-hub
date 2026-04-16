@@ -1,5 +1,10 @@
 import { app, BrowserWindow, shell, globalShortcut, Tray, Menu, nativeImage } from 'electron'
 import { join } from 'path'
+import { getDatabase, closeDatabase } from './database'
+import { registerIpcHandlers } from './ipc-handlers'
+import { registerAuthHandlers } from './auth'
+import { registerCliHandlers, checkCliOnStartup } from './cli-detection'
+import { shutdownCopilot } from './copilot'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -87,6 +92,20 @@ function registerGlobalHotkey(): void {
 }
 
 app.whenReady().then(() => {
+  // Initialize database
+  getDatabase()
+
+  // Register all IPC handlers
+  registerIpcHandlers()
+  registerAuthHandlers()
+  registerCliHandlers()
+
+  // Check for Copilot CLI
+  const cliStatus = checkCliOnStartup()
+  if (!cliStatus.installed) {
+    console.log('Copilot CLI not found — will show setup guidance in the UI')
+  }
+
   createWindow()
   createTray()
   registerGlobalHotkey()
@@ -106,4 +125,6 @@ app.on('window-all-closed', () => {
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
+  shutdownCopilot().catch(() => {})
+  closeDatabase()
 })
