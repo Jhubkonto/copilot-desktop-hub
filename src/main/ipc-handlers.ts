@@ -16,7 +16,8 @@ import {
   sendOpenAIMessage,
   sendAnthropicMessage,
   sendAzureMessage,
-  getAzureEndpoint
+  getAzureEndpoint,
+  abortActiveStream
 } from './providers'
 import { safeHandle } from './safe-handle'
 
@@ -241,7 +242,7 @@ function registerChatHandlers(): void {
       let providerName = 'copilot'
       let providerModel = 'default'
       const agentCfg2 = convRow?.agent_id ? getAgentConfig(convRow.agent_id) : null
-      const agentModel = agentCfg2?.model as string | undefined
+      const agentModel = typeof agentCfg2?.model === 'string' ? agentCfg2.model : undefined
       if (agentModel && agentModel !== 'default') {
         const resolved = getProviderForAgent(agentModel)
         providerName = resolved.provider
@@ -266,7 +267,7 @@ function registerChatHandlers(): void {
         }
       } else if (byokKey && providerName === 'anthropic') {
         try {
-          const systemPrompt = agentCfg2?.systemPrompt as string | undefined
+          const systemPrompt = typeof agentCfg2?.systemPrompt === 'string' ? agentCfg2.systemPrompt : undefined
           const messages = [{ role: 'user', content: augmentedContent }]
           responseContent = await sendAnthropicMessage(
             byokKey,
@@ -341,6 +342,7 @@ function registerChatHandlers(): void {
   )
 
   safeHandle('chat:stop-generation', async () => {
+    abortActiveStream()
     await stopGeneration()
     return true
   })

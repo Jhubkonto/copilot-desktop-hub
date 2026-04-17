@@ -233,7 +233,4 @@ export function registerAuthHandlers(): void {
     return true
   })
 
-  safeHandle('auth:get-token', () => {
-    return retrieveToken()
-  })
 }

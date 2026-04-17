@@ -38,7 +38,7 @@ export function OnboardingModal({ onComplete }: OnboardingProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" role="dialog" aria-modal="true" aria-label="Welcome setup">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-label="Welcome setup">
       <div className="w-full max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
         {/* Progress dots */}
         <div className="flex justify-center gap-2 pt-5">

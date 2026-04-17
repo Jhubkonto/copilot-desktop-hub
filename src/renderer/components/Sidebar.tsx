@@ -267,7 +267,7 @@ export function Sidebar({
             <div className="space-y-3">
               {dateGroups.map((group) => (
                 <div key={group.label}>
-                  <div className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider px-2 mb-1">
+                  <div className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider px-2 mb-1">
                     {group.label}
                   </div>
                   <div className="space-y-0.5">
@@ -295,7 +295,7 @@ export function Sidebar({
             </div>
             <button
               onClick={onLogout}
-              className="text-[10px] text-gray-400 hover:text-red-500 transition-colors"
+              className="text-xs text-gray-400 hover:text-red-500 transition-colors"
               title="Sign out"
             >
               Sign out

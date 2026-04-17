@@ -89,14 +89,24 @@ async function executeWebFetch(args: {
   url: string
   method?: string
 }): Promise<string> {
-  const response = await fetch(args.url, {
-    method: args.method || 'GET',
-    headers: { 'User-Agent': 'CopilotDesktopHub/0.1.0' }
-  })
-  const text = await response.text()
-  const statusLine = `HTTP ${response.status} ${response.statusText}\n\n`
-  const truncated = text.length > 50000 ? text.slice(0, 50000) + '\n\n... (truncated)' : text
-  return statusLine + truncated
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 30000)
+  try {
+    const response = await fetch(args.url, {
+      method: args.method || 'GET',
+      headers: { 'User-Agent': 'CopilotDesktopHub/0.1.0' },
+      signal: controller.signal
+    })
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+    }
+    const text = await response.text()
+    const statusLine = `HTTP ${response.status} ${response.statusText}\n\n`
+    const truncated = text.length > 50000 ? text.slice(0, 50000) + '\n\n... (truncated)' : text
+    return statusLine + truncated
+  } finally {
+    clearTimeout(timeout)
+  }
 }
 
 export async function executeTool(

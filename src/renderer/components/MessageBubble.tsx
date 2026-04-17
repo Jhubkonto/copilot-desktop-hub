@@ -53,7 +53,7 @@ export function MessageBubble({
                   className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-black/10 dark:bg-white/10 text-xs"
                 >
                   📎 {att.name}
-                  <span className="text-[10px] opacity-60">
+                  <span className="text-xs opacity-60">
                     ({formatFileSize(att.size)})
                   </span>
                 </span>
@@ -98,7 +98,7 @@ function ActionButton({
   return (
     <button
       onClick={onClick}
-      className="flex items-center gap-1 px-2 py-1 text-[10px] rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors whitespace-nowrap shadow-sm"
+      className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors whitespace-nowrap shadow-sm"
       title={label}
     >
       <span>{icon}</span>

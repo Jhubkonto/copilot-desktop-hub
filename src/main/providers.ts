@@ -2,8 +2,19 @@ import { safeStorage } from 'electron'
 import { getDatabase } from './database'
 import https from 'https'
 import { safeHandle } from './safe-handle'
+import http from 'http'
 
 export type ProviderName = 'copilot' | 'openai' | 'anthropic' | 'azure'
+
+// Track active streaming request so it can be aborted
+let activeStreamingRequest: http.ClientRequest | null = null
+
+export function abortActiveStream(): void {
+  if (activeStreamingRequest) {
+    activeStreamingRequest.destroy()
+    activeStreamingRequest = null
+  }
+}
 
 interface ProviderConfig {
   name: ProviderName
@@ -154,13 +165,21 @@ export async function sendOpenAIMessage(
         })
 
         res.on('end', () => {
+          activeStreamingRequest = null
           resolve(fullContent)
         })
 
-        res.on('error', reject)
+        res.on('error', (err) => {
+          activeStreamingRequest = null
+          reject(err)
+        })
       }
     )
-    req.on('error', reject)
+    req.on('error', (err) => {
+      activeStreamingRequest = null
+      reject(err)
+    })
+    activeStreamingRequest = req
     req.write(body)
     req.end()
   })
@@ -222,13 +241,21 @@ export async function sendAnthropicMessage(
         })
 
         res.on('end', () => {
+          activeStreamingRequest = null
           resolve(fullContent)
         })
 
-        res.on('error', reject)
+        res.on('error', (err) => {
+          activeStreamingRequest = null
+          reject(err)
+        })
       }
     )
-    req.on('error', reject)
+    req.on('error', (err) => {
+      activeStreamingRequest = null
+      reject(err)
+    })
+    activeStreamingRequest = req
     req.write(body)
     req.end()
   })
@@ -290,11 +317,21 @@ export async function sendAzureMessage(
           }
         })
 
-        res.on('end', () => resolve(fullContent))
-        res.on('error', reject)
+        res.on('end', () => {
+          activeStreamingRequest = null
+          resolve(fullContent)
+        })
+        res.on('error', (err) => {
+          activeStreamingRequest = null
+          reject(err)
+        })
       }
     )
-    req.on('error', reject)
+    req.on('error', (err) => {
+      activeStreamingRequest = null
+      reject(err)
+    })
+    activeStreamingRequest = req
     req.write(body)
     req.end()
   })

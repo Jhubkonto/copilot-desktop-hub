@@ -145,8 +145,9 @@ export async function callMcpTool(
 
   try {
     const result = await instance.client.callTool({ name: toolName, arguments: args })
-    const textContent = (result.content as { type: string; text?: string }[])
-      ?.filter((c) => c.type === 'text')
+    const contentArray = Array.isArray(result.content) ? result.content : []
+    const textContent = contentArray
+      .filter((c): c is { type: string; text: string } => c != null && typeof c === 'object' && 'type' in c && c.type === 'text' && typeof (c as { text?: unknown }).text === 'string')
       .map((c) => c.text)
       .join('\n')
     return { success: !result.isError, result: textContent || JSON.stringify(result.content) }
@@ -159,7 +160,9 @@ export async function initMcpServers(): Promise<void> {
   const configs = loadServerConfigs()
   for (const config of configs) {
     if (config.enabled) {
-      await connectServer(config).catch(() => {})
+      await connectServer(config).catch((err) => {
+        console.error(`Failed to start MCP server ${config.name}:`, err)
+      })
     }
   }
 }
@@ -167,7 +170,9 @@ export async function initMcpServers(): Promise<void> {
 export async function shutdownMcpServers(): Promise<void> {
   const ids = [...servers.keys()]
   for (const id of ids) {
-    await disconnectServer(id).catch(() => {})
+    await disconnectServer(id).catch((err) => {
+      console.error(`Failed to disconnect MCP server ${id}:`, err)
+    })
   }
 }
 

@@ -264,7 +264,7 @@ export function AgentPanel({
                   onChange={(e) => updateField('temperature', parseFloat(e.target.value))}
                   className="w-full accent-blue-500"
                 />
-                <div className="flex justify-between text-[10px] text-gray-400">
+                <div className="flex justify-between text-xs text-gray-400">
                   <span>Precise</span>
                   <span>Creative</span>
                 </div>
