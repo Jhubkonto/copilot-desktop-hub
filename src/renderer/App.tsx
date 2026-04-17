@@ -5,6 +5,8 @@ import { AgentPanel } from './components/AgentPanel'
 import { TerminalPanel } from './components/TerminalPanel'
 import { ToolApproval } from './components/ToolApproval'
 import { McpServerPanel } from './components/McpServerPanel'
+import { SettingsPanel } from './components/SettingsPanel'
+import { OnboardingModal } from './components/OnboardingModal'
 
 interface Conversation {
   id: string
@@ -54,6 +56,8 @@ export default function App() {
   const [editingAgentId, setEditingAgentId] = useState<string | null>(null)
   const [showTerminal, setShowTerminal] = useState(false)
   const [showMcpPanel, setShowMcpPanel] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
+  const [showOnboarding, setShowOnboarding] = useState(false)
   const [toolApprovalRequests, setToolApprovalRequests] = useState<
     { requestId: string; tool: string; args: Record<string, unknown>; description: string }[]
   >([])
@@ -81,6 +85,10 @@ export default function App() {
   useEffect(() => {
     window.api.authStatus().then(setAuthState)
     window.api.cliStatus().then(setCliState)
+    // Check if onboarding is completed
+    window.api.getSetting('onboarding_complete').then((val: string | null) => {
+      if (val !== 'true') setShowOnboarding(true)
+    })
   }, [])
 
   // Load conversations
@@ -237,16 +245,11 @@ export default function App() {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={toggleTheme}
+              onClick={() => setShowSettings(true)}
               className="text-xs px-3 py-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+              title="Settings"
             >
-              {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
-            </button>
-            <button
-              onClick={() => setShowMcpPanel(true)}
-              className="text-xs px-3 py-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-            >
-              🔌 MCP
+              ⚙️ Settings
             </button>
           </div>
         </header>
@@ -302,6 +305,26 @@ export default function App() {
         visible={showMcpPanel}
         onClose={() => setShowMcpPanel(false)}
       />
+
+      <SettingsPanel
+        visible={showSettings}
+        onClose={() => setShowSettings(false)}
+        theme={theme}
+        toggleTheme={toggleTheme}
+        onOpenMcp={() => {
+          setShowSettings(false)
+          setShowMcpPanel(true)
+        }}
+      />
+
+      {showOnboarding && (
+        <OnboardingModal
+          onComplete={() => {
+            window.api.setSetting('onboarding_complete', 'true')
+            setShowOnboarding(false)
+          }}
+        />
+      )}
     </div>
   )
 }

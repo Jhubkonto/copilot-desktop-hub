@@ -42,6 +42,7 @@ export function ChatWindow({
   const [streamingContent, setStreamingContent] = useState('')
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([])
   const [isDragging, setIsDragging] = useState(false)
+  const [isOnline, setIsOnline] = useState(navigator.onLine)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const activeConversationRef = useRef<string | null>(conversationId)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -49,6 +50,18 @@ export function ChatWindow({
   useEffect(() => {
     activeConversationRef.current = conversationId
   }, [conversationId])
+
+  // Track connectivity
+  useEffect(() => {
+    const goOnline = () => setIsOnline(true)
+    const goOffline = () => setIsOnline(false)
+    window.addEventListener('online', goOnline)
+    window.addEventListener('offline', goOffline)
+    return () => {
+      window.removeEventListener('online', goOnline)
+      window.removeEventListener('offline', goOffline)
+    }
+  }, [])
 
   // Load messages when conversation changes
   useEffect(() => {
@@ -301,9 +314,10 @@ export function ChatWindow({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Type a message..."
+            placeholder={isOnline ? 'Type a message...' : '⚠ Offline — reconnect to send messages'}
             rows={1}
-            className="flex-1 resize-none rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-4 py-2.5 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            disabled={!isOnline}
+            className="flex-1 resize-none rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-4 py-2.5 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
           />
           {isGenerating ? (
             <button
@@ -315,7 +329,7 @@ export function ChatWindow({
           ) : (
             <button
               onClick={handleSend}
-              disabled={!input.trim()}
+              disabled={!input.trim() || !isOnline}
               className="px-4 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               Send

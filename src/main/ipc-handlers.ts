@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow, dialog } from 'electron'
+import { ipcMain, BrowserWindow, dialog, app } from 'electron'
 import { getDatabase } from './database'
 import { randomUUID } from 'crypto'
 import { readFileSync, statSync } from 'fs'
@@ -9,6 +9,13 @@ import { registerAgentHandlers, getAgentConfig } from './agents'
 import { registerToolHandlers } from './tools'
 import { registerTerminalHandlers } from './terminal'
 import { registerMcpHandlers } from './mcp'
+import {
+  registerProviderHandlers,
+  getProviderForAgent,
+  getApiKey,
+  sendOpenAIMessage,
+  sendAnthropicMessage
+} from './providers'
 
 export function registerIpcHandlers(): void {
   registerSettingsHandlers()
@@ -20,6 +27,8 @@ export function registerIpcHandlers(): void {
   registerToolHandlers()
   registerTerminalHandlers()
   registerMcpHandlers()
+  registerProviderHandlers()
+  registerSystemHandlers()
 }
 
 function registerSettingsHandlers(): void {
@@ -35,6 +44,13 @@ function registerSettingsHandlers(): void {
       settings[row.key] = row.value
     }
     return settings
+  })
+
+  ipcMain.handle('app:get-setting', (_event, key: string) => {
+    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as {
+      value: string
+    } | undefined
+    return row?.value ?? null
   })
 
   ipcMain.handle('app:set-setting', (_event, key: string, value: string) => {
@@ -218,25 +234,75 @@ function registerChatHandlers(): void {
 
       let responseContent: string
 
-      // Try Copilot SDK first, fall back to placeholder
-      const cliStatus = checkCliOnStartup()
-      if (cliStatus.installed) {
+      // Determine which provider to use based on agent config
+      let providerName = 'copilot'
+      let providerModel = 'default'
+      const agentCfg2 = convRow?.agent_id ? getAgentConfig(convRow.agent_id) : null
+      const agentModel = agentCfg2?.model as string | undefined
+      if (agentModel && agentModel !== 'default') {
+        const resolved = getProviderForAgent(agentModel)
+        providerName = resolved.provider
+        providerModel = resolved.model
+      }
+
+      // Try BYOK provider if configured
+      const byokKey = providerName !== 'copilot' ? getApiKey(providerName as 'openai' | 'anthropic') : null
+      if (byokKey && providerName === 'openai') {
         try {
-          const copilotSessionId = sessionMap.get(conversationId)
-          const result = await sendCopilotMessage(
-            window,
-            conversationId,
-            augmentedContent,
-            copilotSessionId
-          )
-          responseContent = result.responseContent
-          sessionMap.set(conversationId, result.copilotSessionId)
+          const messages = [{ role: 'user', content: augmentedContent }]
+          responseContent = await sendOpenAIMessage(byokKey, providerModel, messages, (chunk) => {
+            window.webContents.send('chat:stream-response', chunk)
+          })
+          window.webContents.send('chat:stream-response', null)
         } catch (error) {
-          console.error('Copilot SDK error, falling back to placeholder:', error)
-          responseContent = await generatePlaceholderResponse(augmentedContent, window)
+          console.error('OpenAI error:', error)
+          responseContent = await generatePlaceholderResponse(
+            `OpenAI API error: ${(error as Error).message}`,
+            window
+          )
+        }
+      } else if (byokKey && providerName === 'anthropic') {
+        try {
+          const systemPrompt = agentCfg2?.systemPrompt as string | undefined
+          const messages = [{ role: 'user', content: augmentedContent }]
+          responseContent = await sendAnthropicMessage(
+            byokKey,
+            providerModel,
+            messages,
+            systemPrompt,
+            (chunk) => {
+              window.webContents.send('chat:stream-response', chunk)
+            }
+          )
+          window.webContents.send('chat:stream-response', null)
+        } catch (error) {
+          console.error('Anthropic error:', error)
+          responseContent = await generatePlaceholderResponse(
+            `Anthropic API error: ${(error as Error).message}`,
+            window
+          )
         }
       } else {
-        responseContent = await generatePlaceholderResponse(augmentedContent, window)
+        // Fall back to Copilot SDK or placeholder
+        const cliStatus = checkCliOnStartup()
+        if (cliStatus.installed) {
+          try {
+            const copilotSessionId = sessionMap.get(conversationId)
+            const result = await sendCopilotMessage(
+              window,
+              conversationId,
+              augmentedContent,
+              copilotSessionId
+            )
+            responseContent = result.responseContent
+            sessionMap.set(conversationId, result.copilotSessionId)
+          } catch (error) {
+            console.error('Copilot SDK error, falling back to placeholder:', error)
+            responseContent = await generatePlaceholderResponse(augmentedContent, window)
+          }
+        } else {
+          responseContent = await generatePlaceholderResponse(augmentedContent, window)
+        }
       }
 
       // Save assistant message
@@ -322,4 +388,20 @@ async function generatePlaceholderResponse(
 
   window.webContents.send('chat:stream-response', null)
   return response
+}
+
+function registerSystemHandlers(): void {
+  ipcMain.handle('app:set-auto-start', (_event, enabled: boolean) => {
+    app.setLoginItemSettings({
+      openAtLogin: enabled,
+      openAsHidden: true
+    })
+    return true
+  })
+
+  ipcMain.handle('app:check-updates', async () => {
+    // Auto-updater requires electron-updater which needs publish config
+    // Return a stub for now — will activate when publish config is set
+    return { updateAvailable: false, currentVersion: app.getVersion() }
+  })
 }

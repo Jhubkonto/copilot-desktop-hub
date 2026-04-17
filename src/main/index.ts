@@ -12,6 +12,24 @@ let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 
 const isDev = !app.isPackaged
+const PROTOCOL = 'copilot-hub'
+
+// Register deep link protocol
+if (process.defaultApp) {
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [
+      join(__dirname, '..')
+    ])
+  }
+} else {
+  app.setAsDefaultProtocolClient(PROTOCOL)
+}
+
+// Ensure single instance
+const gotTheLock = app.requestSingleInstanceLock()
+if (!gotTheLock) {
+  app.quit()
+}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -93,6 +111,35 @@ function registerGlobalHotkey(): void {
   })
 }
 
+function handleDeepLink(url: string): void {
+  if (!url.startsWith(`${PROTOCOL}://`)) return
+  const parsed = new URL(url)
+  // copilot-hub://chat/CONVERSATION_ID
+  // copilot-hub://agent/AGENT_ID
+  if (parsed.hostname === 'chat' && parsed.pathname.length > 1) {
+    const conversationId = parsed.pathname.slice(1)
+    mainWindow?.webContents.send('deeplink:open-chat', conversationId)
+  } else if (parsed.hostname === 'agent' && parsed.pathname.length > 1) {
+    const agentId = parsed.pathname.slice(1)
+    mainWindow?.webContents.send('deeplink:open-agent', agentId)
+  }
+  mainWindow?.show()
+  mainWindow?.focus()
+}
+
+// Handle deep links on second instance (Windows/Linux)
+app.on('second-instance', (_event, commandLine) => {
+  const url = commandLine.find((arg) => arg.startsWith(`${PROTOCOL}://`))
+  if (url) handleDeepLink(url)
+  mainWindow?.show()
+  mainWindow?.focus()
+})
+
+// Handle deep links on macOS
+app.on('open-url', (_event, url) => {
+  handleDeepLink(url)
+})
+
 app.whenReady().then(() => {
   // Initialize database
   getDatabase()
@@ -111,6 +158,13 @@ app.whenReady().then(() => {
   createWindow()
   createTray()
   registerGlobalHotkey()
+
+  // Apply auto-start setting
+  const db = getDatabase()
+  const autoStartRow = db.prepare("SELECT value FROM settings WHERE key = 'autoStart'").get() as { value: string } | undefined
+  if (autoStartRow?.value === 'true') {
+    app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true })
+  }
 
   // Initialize MCP servers
   initMcpServers().catch((err) =>

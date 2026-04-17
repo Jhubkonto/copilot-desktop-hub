@@ -1,8 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 const api = {
+  // Platform
+  platform: process.platform,
+
   // Settings
   getSettings: () => ipcRenderer.invoke('app:get-settings'),
+  getSetting: (key: string) => ipcRenderer.invoke('app:get-setting', key),
   setSetting: (key: string, value: unknown) => ipcRenderer.invoke('app:set-setting', key, value),
   getTheme: () => ipcRenderer.invoke('app:get-theme'),
   setTheme: (theme: 'light' | 'dark') => ipcRenderer.invoke('app:set-theme', theme),
@@ -138,6 +142,21 @@ const api = {
   callMcpTool: (serverId: string, toolName: string, args: Record<string, unknown>) =>
     ipcRenderer.invoke('mcp:call-tool', serverId, toolName, args),
   restartMcpServer: (id: string) => ipcRenderer.invoke('mcp:restart-server', id),
+
+  // Providers (BYOK)
+  listProviders: () => ipcRenderer.invoke('provider:list'),
+  setProviderKey: (provider: string, key: string) =>
+    ipcRenderer.invoke('provider:set-key', provider, key),
+  removeProviderKey: (provider: string) => ipcRenderer.invoke('provider:remove-key', provider),
+  hasProviderKey: (provider: string) => ipcRenderer.invoke('provider:has-key', provider),
+  testProviderKey: (provider: string, key: string) =>
+    ipcRenderer.invoke('provider:test-key', provider, key),
+
+  // Auto-start
+  setAutoStart: (enabled: boolean) => ipcRenderer.invoke('app:set-auto-start', enabled),
+
+  // Updates
+  checkForUpdates: () => ipcRenderer.invoke('app:check-updates'),
 
   // System events
   onNewChat: (callback: () => void) => {
