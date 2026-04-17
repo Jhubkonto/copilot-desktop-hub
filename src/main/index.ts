@@ -5,6 +5,7 @@ import { registerIpcHandlers } from './ipc-handlers'
 import { registerAuthHandlers } from './auth'
 import { registerCliHandlers, checkCliOnStartup } from './cli-detection'
 import { shutdownCopilot } from './copilot'
+import { disposeAllTerminals } from './terminal'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -125,6 +126,7 @@ app.on('window-all-closed', () => {
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
+  disposeAllTerminals()
   shutdownCopilot().catch(() => {})
   closeDatabase()
 })

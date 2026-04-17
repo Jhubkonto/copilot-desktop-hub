@@ -6,6 +6,8 @@ import { basename } from 'path'
 import { sendCopilotMessage, stopGeneration } from './copilot'
 import { checkCliOnStartup } from './cli-detection'
 import { registerAgentHandlers, getAgentConfig } from './agents'
+import { registerToolHandlers } from './tools'
+import { registerTerminalHandlers } from './terminal'
 
 export function registerIpcHandlers(): void {
   registerSettingsHandlers()
@@ -14,6 +16,8 @@ export function registerIpcHandlers(): void {
   registerMessageHandlers()
   registerFileHandlers()
   registerAgentHandlers()
+  registerToolHandlers()
+  registerTerminalHandlers()
 }
 
 function registerSettingsHandlers(): void {

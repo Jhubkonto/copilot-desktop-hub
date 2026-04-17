@@ -37,6 +37,8 @@
     "@github/copilot-sdk": "^0.2.2",
     "@tailwindcss/typography": "^0.5.0",
     "@types/better-sqlite3": "^7.6.13",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "better-sqlite3": "^12.9.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

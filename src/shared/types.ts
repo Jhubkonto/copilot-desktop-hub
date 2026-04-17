@@ -56,6 +56,22 @@ export interface AppSettings {
   autoUpdate: boolean
 }
 
+export interface ToolCall {
+  id: string
+  tool: string
+  args: Record<string, unknown>
+  status: 'pending' | 'approved' | 'denied' | 'running' | 'completed' | 'failed'
+  result?: string
+  error?: string
+}
+
+export interface ToolApprovalRequest {
+  requestId: string
+  tool: string
+  args: Record<string, unknown>
+  description: string
+}
+
 export type IpcChannels =
   | 'app:get-settings'
   | 'app:set-setting'
@@ -82,3 +98,14 @@ export type IpcChannels =
   | 'agent:export'
   | 'agent:import'
   | 'file:open-directory-dialog'
+  | 'tool:list'
+  | 'tool:execute'
+  | 'tool:request-approval'
+  | 'tool:approval-response'
+  | 'tool:set-preference'
+  | 'tool:get-preferences'
+  | 'terminal:create'
+  | 'terminal:write'
+  | 'terminal:data'
+  | 'terminal:exit'
+  | 'terminal:dispose'

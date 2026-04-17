@@ -23,6 +23,8 @@ interface ChatWindowProps {
   onRefresh: () => void
   activeAgentId?: string | null
   activeAgent?: { id: string; name: string; icon: string } | null
+  onToggleTerminal?: () => void
+  showTerminal?: boolean
 }
 
 export function ChatWindow({
@@ -30,7 +32,9 @@ export function ChatWindow({
   onConversationCreated,
   onRefresh,
   activeAgentId,
-  activeAgent
+  activeAgent,
+  onToggleTerminal,
+  showTerminal
 }: ChatWindowProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
@@ -280,6 +284,17 @@ export function ChatWindow({
             title="Attach files"
           >
             📎
+          </button>
+          <button
+            onClick={onToggleTerminal}
+            className={`px-3 py-2.5 rounded-lg border text-sm transition-colors ${
+              showTerminal
+                ? 'border-blue-500 text-blue-500 bg-blue-50 dark:bg-blue-900/30'
+                : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+            }`}
+            title="Toggle terminal"
+          >
+            &gt;_
           </button>
           <textarea
             ref={inputRef}

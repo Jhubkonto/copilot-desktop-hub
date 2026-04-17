@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { Sidebar } from './components/Sidebar'
 import { ChatWindow } from './components/ChatWindow'
 import { AgentPanel } from './components/AgentPanel'
+import { TerminalPanel } from './components/TerminalPanel'
+import { ToolApproval } from './components/ToolApproval'
 
 interface Conversation {
   id: string
@@ -49,6 +51,20 @@ export default function App() {
   const [activeAgentId, setActiveAgentId] = useState<string | null>(null)
   const [showAgentPanel, setShowAgentPanel] = useState(false)
   const [editingAgentId, setEditingAgentId] = useState<string | null>(null)
+  const [showTerminal, setShowTerminal] = useState(false)
+  const [toolApprovalRequests, setToolApprovalRequests] = useState<
+    { requestId: string; tool: string; args: Record<string, unknown>; description: string }[]
+  >([])
+
+  // Listen for tool approval requests
+  useEffect(() => {
+    const unsubscribe = window.api.onToolApprovalRequest(
+      (data: { requestId: string; tool: string; args: Record<string, unknown>; description: string }) => {
+        setToolApprovalRequests((prev) => [...prev, data])
+      }
+    )
+    return () => { unsubscribe() }
+  }, [])
 
   // Load persisted theme on mount
   useEffect(() => {
@@ -167,6 +183,15 @@ export default function App() {
     if (result) loadAgents()
   }
 
+  const handleToolApprovalRespond = async (
+    requestId: string,
+    approved: boolean,
+    remember: boolean
+  ) => {
+    await window.api.respondToToolApproval(requestId, approved, remember)
+    setToolApprovalRequests((prev) => prev.filter((r) => r.requestId !== requestId))
+  }
+
   const editingAgent = editingAgentId ? agents.find((a) => a.id === editingAgentId) ?? null : null
   const activeAgent = activeAgentId ? agents.find((a) => a.id === activeAgentId) ?? null : null
 
@@ -237,6 +262,13 @@ export default function App() {
           onRefresh={loadConversations}
           activeAgentId={activeAgentId}
           activeAgent={activeAgent}
+          onToggleTerminal={() => setShowTerminal((v) => !v)}
+          showTerminal={showTerminal}
+        />
+
+        <TerminalPanel
+          visible={showTerminal}
+          onClose={() => setShowTerminal(false)}
         />
       </main>
 
@@ -250,6 +282,11 @@ export default function App() {
           onExport={handleExportAgent}
         />
       )}
+
+      <ToolApproval
+        requests={toolApprovalRequests}
+        onRespond={handleToolApprovalRespond}
+      />
     </div>
   )
 }

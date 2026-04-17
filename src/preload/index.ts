@@ -74,6 +74,58 @@ const api = {
   // Directories
   openDirectoryDialog: () => ipcRenderer.invoke('file:open-directory-dialog'),
 
+  // Tools
+  listTools: () => ipcRenderer.invoke('tool:list'),
+  executeTool: (name: string, args: Record<string, unknown>) =>
+    ipcRenderer.invoke('tool:execute', name, args),
+  respondToToolApproval: (requestId: string, approved: boolean, remember: boolean) =>
+    ipcRenderer.invoke('tool:approval-response', requestId, approved, remember),
+  setToolPreference: (toolName: string, value: string) =>
+    ipcRenderer.invoke('tool:set-preference', toolName, value),
+  getToolPreferences: () => ipcRenderer.invoke('tool:get-preferences'),
+  onToolApprovalRequest: (
+    callback: (data: {
+      requestId: string
+      tool: string
+      args: Record<string, unknown>
+      description: string
+    }) => void
+  ) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      data: {
+        requestId: string
+        tool: string
+        args: Record<string, unknown>
+        description: string
+      }
+    ) => callback(data)
+    ipcRenderer.on('tool:request-approval', handler)
+    return () => ipcRenderer.removeListener('tool:request-approval', handler)
+  },
+
+  // Terminal
+  createTerminal: (id: string, cwd?: string) =>
+    ipcRenderer.invoke('terminal:create', id, cwd),
+  writeTerminal: (id: string, data: string) =>
+    ipcRenderer.invoke('terminal:write', id, data),
+  disposeTerminal: (id: string) => ipcRenderer.invoke('terminal:dispose', id),
+  onTerminalData: (callback: (id: string, data: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, id: string, data: string) =>
+      callback(id, data)
+    ipcRenderer.on('terminal:data', handler)
+    return () => ipcRenderer.removeListener('terminal:data', handler)
+  },
+  onTerminalExit: (callback: (id: string, code: number | null) => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      id: string,
+      code: number | null
+    ) => callback(id, code)
+    ipcRenderer.on('terminal:exit', handler)
+    return () => ipcRenderer.removeListener('terminal:exit', handler)
+  },
+
   // System events
   onNewChat: (callback: () => void) => {
     ipcRenderer.on('chat:new', callback)
