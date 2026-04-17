@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, memo } from 'react'
 import { MessageBubble } from './MessageBubble'
 import { MarkdownRenderer } from './MarkdownRenderer'
 
@@ -295,6 +295,7 @@ export function ChatWindow({
             disabled={isGenerating}
             className="px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
             title="Attach files"
+            aria-label="Attach files"
           >
             📎
           </button>
@@ -306,6 +307,8 @@ export function ChatWindow({
                 : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
             }`}
             title="Toggle terminal"
+            aria-label="Toggle terminal"
+            aria-pressed={showTerminal}
           >
             &gt;_
           </button>
@@ -317,12 +320,14 @@ export function ChatWindow({
             placeholder={isOnline ? 'Type a message...' : '⚠ Offline — reconnect to send messages'}
             rows={1}
             disabled={!isOnline}
+            aria-label="Message input"
             className="flex-1 resize-none rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-4 py-2.5 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
           />
           {isGenerating ? (
             <button
               onClick={handleStop}
               className="px-4 py-2.5 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 transition-colors"
+              aria-label="Stop generating"
             >
               ■ Stop
             </button>
@@ -331,6 +336,7 @@ export function ChatWindow({
               onClick={handleSend}
               disabled={!input.trim() || !isOnline}
               className="px-4 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              aria-label="Send message"
             >
               Send
             </button>
@@ -376,8 +382,10 @@ export function ChatWindow({
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
+      role="region"
+      aria-label="Chat conversation"
     >
-      <div className="flex-1 overflow-y-auto px-4 py-6">
+      <div className="flex-1 overflow-y-auto px-4 py-6" role="log" aria-live="polite" aria-label="Messages">
         <div className="max-w-3xl mx-auto space-y-8">
           {messages.map((msg, index) => (
             <MessageBubble

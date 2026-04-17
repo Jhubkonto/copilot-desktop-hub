@@ -172,7 +172,7 @@ export function Sidebar({
   }
 
   return (
-    <aside className="w-64 flex flex-col bg-gray-50 dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700">
+    <aside className="w-64 flex flex-col bg-gray-50 dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700" role="complementary" aria-label="Sidebar navigation">
       <div className="p-4 border-b border-gray-200 dark:border-gray-700">
         <h2 className="text-sm font-bold text-gray-800 dark:text-gray-100 tracking-wide">
           Copilot Desktop Hub

@@ -7,6 +7,7 @@ import { registerCliHandlers, checkCliOnStartup } from './cli-detection'
 import { shutdownCopilot } from './copilot'
 import { disposeAllTerminals } from './terminal'
 import { initMcpServers, shutdownMcpServers } from './mcp'
+import { initAutoUpdater, registerUpdaterHandlers, checkForUpdatesOnStartup } from './updater'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -148,6 +149,7 @@ app.whenReady().then(() => {
   registerIpcHandlers()
   registerAuthHandlers()
   registerCliHandlers()
+  registerUpdaterHandlers()
 
   // Check for Copilot CLI
   const cliStatus = checkCliOnStartup()
@@ -158,6 +160,12 @@ app.whenReady().then(() => {
   createWindow()
   createTray()
   registerGlobalHotkey()
+
+  // Initialize auto-updater
+  if (mainWindow) {
+    initAutoUpdater(mainWindow)
+    checkForUpdatesOnStartup()
+  }
 
   // Apply auto-start setting
   const db = getDatabase()

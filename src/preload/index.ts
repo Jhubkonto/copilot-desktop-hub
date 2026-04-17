@@ -149,14 +149,29 @@ const api = {
     ipcRenderer.invoke('provider:set-key', provider, key),
   removeProviderKey: (provider: string) => ipcRenderer.invoke('provider:remove-key', provider),
   hasProviderKey: (provider: string) => ipcRenderer.invoke('provider:has-key', provider),
-  testProviderKey: (provider: string, key: string) =>
-    ipcRenderer.invoke('provider:test-key', provider, key),
+  testProviderKey: (provider: string, key: string, endpoint?: string) =>
+    ipcRenderer.invoke('provider:test-key', provider, key, endpoint),
+  getAzureEndpoint: () => ipcRenderer.invoke('provider:get-azure-endpoint'),
+  setAzureEndpoint: (endpoint: string) =>
+    ipcRenderer.invoke('provider:set-azure-endpoint', endpoint),
 
   // Auto-start
   setAutoStart: (enabled: boolean) => ipcRenderer.invoke('app:set-auto-start', enabled),
 
   // Updates
   checkForUpdates: () => ipcRenderer.invoke('app:check-updates'),
+  downloadUpdate: () => ipcRenderer.invoke('app:download-update'),
+  installUpdate: () => ipcRenderer.invoke('app:install-update'),
+  onUpdateAvailable: (callback: (info: { version: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, info: { version: string }) =>
+      callback(info)
+    ipcRenderer.on('updater:update-available', handler)
+    return () => ipcRenderer.removeListener('updater:update-available', handler)
+  },
+  onUpdateDownloaded: (callback: () => void) => {
+    ipcRenderer.on('updater:update-downloaded', callback)
+    return () => ipcRenderer.removeListener('updater:update-downloaded', callback)
+  },
 
   // System events
   onNewChat: (callback: () => void) => {

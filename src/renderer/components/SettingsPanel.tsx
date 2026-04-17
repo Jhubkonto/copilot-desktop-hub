@@ -21,17 +21,19 @@ export function SettingsPanel({ visible, onClose, theme, toggleTheme, onOpenMcp 
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [editingProvider, setEditingProvider] = useState<string | null>(null)
   const [apiKeyInput, setApiKeyInput] = useState('')
+  const [azureEndpoint, setAzureEndpoint] = useState('')
   const [testResult, setTestResult] = useState<{ valid: boolean; error?: string } | null>(null)
   const [testing, setTesting] = useState(false)
 
   useEffect(() => {
     if (!visible) return
-    // Load auto-start setting
     window.api.getSettings().then((settings: Record<string, string>) => {
       setAutoStart(settings['autoStart'] === 'true')
     })
-    // Load providers
     window.api.listProviders().then(setProviders)
+    window.api.getAzureEndpoint().then((ep: string | null) => {
+      if (ep) setAzureEndpoint(ep)
+    })
   }, [visible])
 
   const handleAutoStartToggle = async () => {
@@ -43,6 +45,9 @@ export function SettingsPanel({ visible, onClose, theme, toggleTheme, onOpenMcp 
 
   const handleSaveKey = async () => {
     if (!editingProvider || !apiKeyInput.trim()) return
+    if (editingProvider === 'azure' && azureEndpoint.trim()) {
+      await window.api.setAzureEndpoint(azureEndpoint.trim())
+    }
     await window.api.setProviderKey(editingProvider, apiKeyInput.trim())
     setEditingProvider(null)
     setApiKeyInput('')
@@ -53,7 +58,8 @@ export function SettingsPanel({ visible, onClose, theme, toggleTheme, onOpenMcp 
   const handleTestKey = async () => {
     if (!editingProvider || !apiKeyInput.trim()) return
     setTesting(true)
-    const result = await window.api.testProviderKey(editingProvider, apiKeyInput.trim())
+    const endpoint = editingProvider === 'azure' ? azureEndpoint.trim() : undefined
+    const result = await window.api.testProviderKey(editingProvider, apiKeyInput.trim(), endpoint)
     setTestResult(result)
     setTesting(false)
   }
@@ -66,11 +72,11 @@ export function SettingsPanel({ visible, onClose, theme, toggleTheme, onOpenMcp 
   if (!visible) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-label="Settings">
       <div className="w-full max-w-lg bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 max-h-[80vh] flex flex-col">
         <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 dark:border-gray-700">
           <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">⚙ Settings</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-red-500 transition-colors">
+          <button onClick={onClose} className="text-gray-400 hover:text-red-500 transition-colors" aria-label="Close settings">
             ✕
           </button>
         </div>
@@ -220,6 +226,15 @@ export function SettingsPanel({ visible, onClose, theme, toggleTheme, onOpenMcp 
 
                   {editingProvider === provider.name && (
                     <div className="mt-3 space-y-2">
+                      {provider.name === 'azure' && (
+                        <input
+                          type="text"
+                          value={azureEndpoint}
+                          onChange={(e) => setAzureEndpoint(e.target.value)}
+                          placeholder="Azure endpoint (e.g. https://myresource.openai.azure.com)"
+                          className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      )}
                       <input
                         type="password"
                         value={apiKeyInput}

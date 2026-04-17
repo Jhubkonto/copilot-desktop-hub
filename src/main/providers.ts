@@ -2,7 +2,7 @@ import { ipcMain, safeStorage } from 'electron'
 import { getDatabase } from './database'
 import https from 'https'
 
-export type ProviderName = 'copilot' | 'openai' | 'anthropic'
+export type ProviderName = 'copilot' | 'openai' | 'anthropic' | 'azure'
 
 interface ProviderConfig {
   name: ProviderName
@@ -29,6 +29,12 @@ export const PROVIDERS: ProviderConfig[] = [
     label: 'Anthropic',
     apiKeySettingKey: 'byok_anthropic_key',
     models: ['claude-sonnet-4-20250514', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229']
+  },
+  {
+    name: 'azure',
+    label: 'Azure OpenAI',
+    apiKeySettingKey: 'byok_azure_key',
+    models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo']
   }
 ]
 
@@ -224,8 +230,91 @@ export async function sendAnthropicMessage(
   })
 }
 
+export async function sendAzureMessage(
+  apiKey: string,
+  endpoint: string,
+  deployment: string,
+  messages: { role: string; content: string }[],
+  onChunk: (chunk: string) => void
+): Promise<string> {
+  const apiVersion = '2024-02-01'
+  const url = `${endpoint.replace(/\/$/, '')}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`
+  const body = JSON.stringify({
+    messages,
+    stream: true,
+    max_tokens: 4096
+  })
+
+  return new Promise((resolve, reject) => {
+    const urlObj = new URL(url)
+    const req = https.request(
+      {
+        hostname: urlObj.hostname,
+        path: urlObj.pathname + urlObj.search,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'api-key': apiKey,
+          'Content-Length': Buffer.byteLength(body)
+        }
+      },
+      (res) => {
+        let fullContent = ''
+        let buffer = ''
+
+        res.on('data', (chunk: Buffer) => {
+          buffer += chunk.toString()
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+
+          for (const line of lines) {
+            const trimmed = line.trim()
+            if (!trimmed.startsWith('data: ')) continue
+            const data = trimmed.slice(6)
+            if (data === '[DONE]') continue
+
+            try {
+              const parsed = JSON.parse(data)
+              const delta = parsed.choices?.[0]?.delta?.content
+              if (delta) {
+                fullContent += delta
+                onChunk(delta)
+              }
+            } catch {
+              // Skip malformed chunks
+            }
+          }
+        })
+
+        res.on('end', () => resolve(fullContent))
+        res.on('error', reject)
+      }
+    )
+    req.on('error', reject)
+    req.write(body)
+    req.end()
+  })
+}
+
+export function getAzureEndpoint(): string | null {
+  const db = getDatabase()
+  const row = db.prepare("SELECT value FROM settings WHERE key = 'byok_azure_endpoint'").get() as { value: string } | undefined
+  return row?.value || null
+}
+
+export function setAzureEndpoint(endpoint: string): void {
+  const db = getDatabase()
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('byok_azure_endpoint', ?)").run(endpoint)
+}
+
 export function getProviderForAgent(agentModel: string): { provider: ProviderName; model: string } {
-  // Check if the model string includes a provider prefix
+  // Check if the model string includes a provider prefix (e.g. "azure:gpt-4o")
+  if (agentModel.includes(':')) {
+    const [prefix, model] = agentModel.split(':', 2)
+    const provider = PROVIDERS.find((p) => p.name === prefix)
+    if (provider) return { provider: provider.name, model }
+  }
+
   for (const p of PROVIDERS) {
     if (p.name === 'copilot') continue
     for (const m of p.models) {
@@ -269,7 +358,7 @@ export function registerProviderHandlers(): void {
     return !!retrieveApiKey(provider)
   })
 
-  ipcMain.handle('provider:test-key', async (_event, provider: string, key: string) => {
+  ipcMain.handle('provider:test-key', async (_event, provider: string, key: string, endpoint?: string) => {
     try {
       if (provider === 'openai') {
         const result = await httpsRequest(
@@ -301,12 +390,32 @@ export function registerProviderHandlers(): void {
             messages: [{ role: 'user', content: 'hi' }]
           })
         )
-        // 200 = valid, 401 = bad key, anything else = probably valid
         return { valid: result.status !== 401 }
+      } else if (provider === 'azure') {
+        if (!endpoint) return { valid: false, error: 'Azure endpoint is required' }
+        const testUrl = `${endpoint.replace(/\/$/, '')}/openai/models?api-version=2024-02-01`
+        const result = await httpsRequest(
+          testUrl,
+          {
+            method: 'GET',
+            headers: { 'api-key': key, 'Content-Length': '0' }
+          },
+          ''
+        )
+        return { valid: result.status === 200 }
       }
       return { valid: false, error: 'Unknown provider' }
     } catch (error) {
       return { valid: false, error: (error as Error).message }
     }
+  })
+
+  ipcMain.handle('provider:get-azure-endpoint', () => {
+    return getAzureEndpoint()
+  })
+
+  ipcMain.handle('provider:set-azure-endpoint', (_event, endpoint: string) => {
+    setAzureEndpoint(endpoint)
+    return true
   })
 }

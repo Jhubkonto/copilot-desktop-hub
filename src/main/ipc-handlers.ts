@@ -14,7 +14,9 @@ import {
   getProviderForAgent,
   getApiKey,
   sendOpenAIMessage,
-  sendAnthropicMessage
+  sendAnthropicMessage,
+  sendAzureMessage,
+  getAzureEndpoint
 } from './providers'
 
 export function registerIpcHandlers(): void {
@@ -282,6 +284,28 @@ function registerChatHandlers(): void {
             window
           )
         }
+      } else if (byokKey && providerName === 'azure') {
+        try {
+          const azureEndpoint = getAzureEndpoint()
+          if (!azureEndpoint) throw new Error('Azure endpoint not configured')
+          const messages = [{ role: 'user', content: augmentedContent }]
+          responseContent = await sendAzureMessage(
+            byokKey,
+            azureEndpoint,
+            providerModel,
+            messages,
+            (chunk) => {
+              window.webContents.send('chat:stream-response', chunk)
+            }
+          )
+          window.webContents.send('chat:stream-response', null)
+        } catch (error) {
+          console.error('Azure error:', error)
+          responseContent = await generatePlaceholderResponse(
+            `Azure API error: ${(error as Error).message}`,
+            window
+          )
+        }
       } else {
         // Fall back to Copilot SDK or placeholder
         const cliStatus = checkCliOnStartup()
@@ -397,11 +421,5 @@ function registerSystemHandlers(): void {
       openAsHidden: true
     })
     return true
-  })
-
-  ipcMain.handle('app:check-updates', async () => {
-    // Auto-updater requires electron-updater which needs publish config
-    // Return a stub for now — will activate when publish config is set
-    return { updateAvailable: false, currentVersion: app.getVersion() }
   })
 }
