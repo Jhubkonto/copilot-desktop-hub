@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, memo } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { MessageBubble } from './MessageBubble'
 import { MarkdownRenderer } from './MarkdownRenderer'
 
@@ -66,7 +66,7 @@ export function ChatWindow({
   // Load messages when conversation changes
   useEffect(() => {
     if (conversationId) {
-      window.api.getMessages(conversationId).then((msgs: any[]) => {
+      window.api.getMessages(conversationId).then((msgs: Array<{ id: string; role: string; content: string; timestamp: number; attachments?: string }>) => {
         setMessages(
           msgs.map((m) => ({
             id: m.id,
@@ -156,7 +156,6 @@ export function ChatWindow({
       inputRef.current?.focus()
 
       // Remove this message and all after it from state
-      const removedMessages = messages.slice(messageIndex)
       setMessages((prev) => prev.slice(0, messageIndex))
 
       // Delete from DB
@@ -196,7 +195,7 @@ export function ChatWindow({
     const attachments: Attachment[] = files.map((f) => ({
       id: crypto.randomUUID(),
       name: f.name,
-      path: (f as any).path || '',
+      path: (f as File & { path?: string }).path || '',
       size: f.size
     }))
 

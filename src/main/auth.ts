@@ -1,6 +1,7 @@
-import { ipcMain, safeStorage, BrowserWindow } from 'electron'
+import { safeStorage, BrowserWindow } from 'electron'
 import { getDatabase } from './database'
 import https from 'https'
+import { safeHandle } from './safe-handle'
 
 const GITHUB_CLIENT_ID = 'Iv1.PLACEHOLDER_ID' // Replace with real GitHub OAuth App client ID
 const GITHUB_DEVICE_CODE_URL = 'https://github.com/login/device/code'
@@ -50,6 +51,9 @@ function httpPost(url: string, body: Record<string, string>): Promise<string> {
       res.on('data', (chunk) => (result += chunk))
       res.on('end', () => resolve(result))
     })
+    req.setTimeout(30000, () => {
+      req.destroy(new Error('Request timed out'))
+    })
     req.on('error', reject)
     req.write(data)
     req.end()
@@ -73,6 +77,9 @@ function httpGet(url: string, token: string): Promise<string> {
       let result = ''
       res.on('data', (chunk) => (result += chunk))
       res.on('end', () => resolve(result))
+    })
+    req.setTimeout(30000, () => {
+      req.destroy(new Error('Request timed out'))
     })
     req.on('error', reject)
     req.end()
@@ -130,7 +137,7 @@ async function fetchGitHubUser(token: string): Promise<GitHubUser | null> {
 }
 
 export function registerAuthHandlers(): void {
-  ipcMain.handle('auth:status', async () => {
+  safeHandle('auth:status', async () => {
     const token = retrieveToken()
     if (!token) {
       return { authenticated: false, user: null }
@@ -154,7 +161,7 @@ export function registerAuthHandlers(): void {
     return { authenticated: false, user: null }
   })
 
-  ipcMain.handle('auth:login', async (event) => {
+  safeHandle('auth:login', async (event) => {
     const window = BrowserWindow.fromWebContents(event.sender)
 
     try {
@@ -217,7 +224,7 @@ export function registerAuthHandlers(): void {
     }
   })
 
-  ipcMain.handle('auth:logout', () => {
+  safeHandle('auth:logout', () => {
     if (pollTimer) {
       clearInterval(pollTimer)
       pollTimer = null
@@ -226,7 +233,7 @@ export function registerAuthHandlers(): void {
     return true
   })
 
-  ipcMain.handle('auth:get-token', () => {
+  safeHandle('auth:get-token', () => {
     return retrieveToken()
   })
 }

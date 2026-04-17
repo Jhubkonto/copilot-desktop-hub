@@ -1,8 +1,9 @@
 import { readFileSync, writeFileSync, existsSync } from 'fs'
 import { exec } from 'child_process'
-import { ipcMain, BrowserWindow } from 'electron'
+import { BrowserWindow } from 'electron'
 import { getDatabase } from './database'
 import { randomUUID } from 'crypto'
+import { safeHandle } from './safe-handle'
 
 export interface ToolDefinition {
   name: string
@@ -148,9 +149,9 @@ const pendingApprovals = new Map<
 >()
 
 export function registerToolHandlers(): void {
-  ipcMain.handle('tool:list', () => TOOL_DEFINITIONS)
+  safeHandle('tool:list', () => TOOL_DEFINITIONS)
 
-  ipcMain.handle(
+  safeHandle(
     'tool:execute',
     async (event, name: string, args: Record<string, unknown>) => {
       const window = BrowserWindow.fromWebContents(event.sender)
@@ -194,7 +195,7 @@ export function registerToolHandlers(): void {
     }
   )
 
-  ipcMain.handle(
+  safeHandle(
     'tool:approval-response',
     (_event, requestId: string, approved: boolean, remember: boolean) => {
       const pending = pendingApprovals.get(requestId)
@@ -209,12 +210,12 @@ export function registerToolHandlers(): void {
     }
   )
 
-  ipcMain.handle('tool:set-preference', (_event, toolName: string, value: string) => {
+  safeHandle('tool:set-preference', (_event, toolName: string, value: string) => {
     setToolPreference(toolName, value)
     return true
   })
 
-  ipcMain.handle('tool:get-preferences', () => {
+  safeHandle('tool:get-preferences', () => {
     const db = getDatabase()
     const rows = db
       .prepare("SELECT key, value FROM settings WHERE key LIKE 'tool_pref:%'")

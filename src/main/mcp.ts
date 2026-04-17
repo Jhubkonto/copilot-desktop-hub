@@ -1,8 +1,8 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
-import { ipcMain } from 'electron'
 import { getDatabase } from './database'
 import { randomUUID } from 'crypto'
+import { safeHandle } from './safe-handle'
 
 interface McpServerConfig {
   id: string
@@ -172,7 +172,7 @@ export async function shutdownMcpServers(): Promise<void> {
 }
 
 export function registerMcpHandlers(): void {
-  ipcMain.handle('mcp:list-servers', () => {
+  safeHandle('mcp:list-servers', () => {
     const configs = loadServerConfigs()
     return configs.map((config) => {
       const instance = servers.get(config.id)
@@ -185,7 +185,7 @@ export function registerMcpHandlers(): void {
     })
   })
 
-  ipcMain.handle('mcp:add-server', async (_event, config: Omit<McpServerConfig, 'id'>) => {
+  safeHandle('mcp:add-server', async (_event, config: Omit<McpServerConfig, 'id'>) => {
     const id = randomUUID()
     const fullConfig = { ...config, id } as McpServerConfig
     saveServerConfig(fullConfig)
@@ -195,7 +195,7 @@ export function registerMcpHandlers(): void {
     return fullConfig
   })
 
-  ipcMain.handle('mcp:update-server', async (_event, id: string, updates: Partial<McpServerConfig>) => {
+  safeHandle('mcp:update-server', async (_event, id: string, updates: Partial<McpServerConfig>) => {
     const configs = loadServerConfigs()
     const existing = configs.find((c) => c.id === id)
     if (!existing) return null
@@ -212,13 +212,13 @@ export function registerMcpHandlers(): void {
     return updated
   })
 
-  ipcMain.handle('mcp:remove-server', async (_event, id: string) => {
+  safeHandle('mcp:remove-server', async (_event, id: string) => {
     await disconnectServer(id)
     removeServerConfig(id)
     return true
   })
 
-  ipcMain.handle('mcp:get-server-status', (_event, id: string) => {
+  safeHandle('mcp:get-server-status', (_event, id: string) => {
     const instance = servers.get(id)
     return {
       status: instance?.status ?? 'disconnected',
@@ -227,18 +227,18 @@ export function registerMcpHandlers(): void {
     }
   })
 
-  ipcMain.handle('mcp:list-tools', (_event, serverIds?: string[]) => {
+  safeHandle('mcp:list-tools', (_event, serverIds?: string[]) => {
     return getAvailableMcpTools(serverIds)
   })
 
-  ipcMain.handle(
+  safeHandle(
     'mcp:call-tool',
     async (_event, serverId: string, toolName: string, args: Record<string, unknown>) => {
       return await callMcpTool(serverId, toolName, args)
     }
   )
 
-  ipcMain.handle('mcp:restart-server', async (_event, id: string) => {
+  safeHandle('mcp:restart-server', async (_event, id: string) => {
     const configs = loadServerConfigs()
     const config = configs.find((c) => c.id === id)
     if (!config) return false

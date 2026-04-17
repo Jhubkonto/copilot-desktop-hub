@@ -1,6 +1,7 @@
-import { ipcMain, safeStorage } from 'electron'
+import { safeStorage } from 'electron'
 import { getDatabase } from './database'
 import https from 'https'
+import { safeHandle } from './safe-handle'
 
 export type ProviderName = 'copilot' | 'openai' | 'anthropic' | 'azure'
 
@@ -89,6 +90,9 @@ function httpsRequest(
         res.on('end', () => resolve({ status: res.statusCode || 0, data }))
       }
     )
+    req.setTimeout(30000, () => {
+      req.destroy(new Error('Request timed out'))
+    })
     req.on('error', reject)
     req.write(body)
     req.end()
@@ -337,28 +341,28 @@ export function getApiKey(provider: ProviderName): string | null {
 }
 
 export function registerProviderHandlers(): void {
-  ipcMain.handle('provider:list', () => {
+  safeHandle('provider:list', () => {
     return PROVIDERS.map((p) => ({
       ...p,
       configured: p.name === 'copilot' || !!retrieveApiKey(p.name)
     }))
   })
 
-  ipcMain.handle('provider:set-key', (_event, provider: string, key: string) => {
+  safeHandle('provider:set-key', (_event, provider: string, key: string) => {
     storeApiKey(provider, key)
     return true
   })
 
-  ipcMain.handle('provider:remove-key', (_event, provider: string) => {
+  safeHandle('provider:remove-key', (_event, provider: string) => {
     removeApiKey(provider)
     return true
   })
 
-  ipcMain.handle('provider:has-key', (_event, provider: string) => {
+  safeHandle('provider:has-key', (_event, provider: string) => {
     return !!retrieveApiKey(provider)
   })
 
-  ipcMain.handle('provider:test-key', async (_event, provider: string, key: string, endpoint?: string) => {
+  safeHandle('provider:test-key', async (_event, provider: string, key: string, endpoint?: string) => {
     try {
       if (provider === 'openai') {
         const result = await httpsRequest(
@@ -410,11 +414,11 @@ export function registerProviderHandlers(): void {
     }
   })
 
-  ipcMain.handle('provider:get-azure-endpoint', () => {
+  safeHandle('provider:get-azure-endpoint', () => {
     return getAzureEndpoint()
   })
 
-  ipcMain.handle('provider:set-azure-endpoint', (_event, endpoint: string) => {
+  safeHandle('provider:set-azure-endpoint', (_event, endpoint: string) => {
     setAzureEndpoint(endpoint)
     return true
   })

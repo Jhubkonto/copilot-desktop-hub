@@ -64,15 +64,15 @@ export function TerminalPanel({ visible, onClose }: TerminalPanelProps) {
     // Create terminal session in main process
     const termId = crypto.randomUUID()
     termIdRef.current = termId
-    ;(window as any).api.createTerminal(termId)
+    ;window.api.createTerminal(termId)
 
     // Forward user input to main process
     term.onData((data: string) => {
-      ;(window as any).api.writeTerminal(termId, data)
+      ;window.api.writeTerminal(termId, data)
     })
 
     // Receive output from main process
-    const unsubscribe = (window as any).api.onTerminalData(
+    const unsubscribe = window.api.onTerminalData(
       (id: string, data: string) => {
         if (id === termId) {
           term.write(data)
@@ -81,7 +81,7 @@ export function TerminalPanel({ visible, onClose }: TerminalPanelProps) {
     )
 
     // Receive exit events
-    const unsubscribeExit = (window as any).api.onTerminalExit(
+    const unsubscribeExit = window.api.onTerminalExit(
       (id: string, code: number | null) => {
         if (id === termId) {
           term.writeln(`\r\n[Process exited with code ${code ?? 'unknown'}]`)
@@ -103,7 +103,7 @@ export function TerminalPanel({ visible, onClose }: TerminalPanelProps) {
       unsubscribe()
       unsubscribeExit()
       resizeObserver.disconnect()
-      ;(window as any).api.disposeTerminal(termId)
+      ;window.api.disposeTerminal(termId)
       term.dispose()
       initializedRef.current = false
       xtermRef.current = null

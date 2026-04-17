@@ -1,5 +1,6 @@
 import { autoUpdater } from 'electron-updater'
-import { BrowserWindow, ipcMain } from 'electron'
+import { BrowserWindow } from 'electron'
+import { safeHandle } from './safe-handle'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -39,7 +40,7 @@ export function initAutoUpdater(window: BrowserWindow): void {
 }
 
 export function registerUpdaterHandlers(): void {
-  ipcMain.handle('app:check-updates', async () => {
+  safeHandle('app:check-updates', async () => {
     try {
       const result = await autoUpdater.checkForUpdates()
       return {
@@ -55,7 +56,7 @@ export function registerUpdaterHandlers(): void {
     }
   })
 
-  ipcMain.handle('app:download-update', async () => {
+  safeHandle('app:download-update', async () => {
     try {
       await autoUpdater.downloadUpdate()
       return true
@@ -64,7 +65,7 @@ export function registerUpdaterHandlers(): void {
     }
   })
 
-  ipcMain.handle('app:install-update', () => {
+  safeHandle('app:install-update', () => {
     autoUpdater.quitAndInstall(false, true)
   })
 }

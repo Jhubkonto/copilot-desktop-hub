@@ -1,7 +1,8 @@
 import { getDatabase } from './database'
-import { ipcMain, dialog } from 'electron'
+import { dialog } from 'electron'
 import { randomUUID } from 'crypto'
 import { readFileSync, writeFileSync } from 'fs'
+import { safeHandle } from './safe-handle'
 
 interface AgentRow {
   id: string
@@ -99,17 +100,17 @@ export function registerAgentHandlers(): void {
   seedDefaultAgents()
   const db = getDatabase()
 
-  ipcMain.handle('agent:list', () => {
+  safeHandle('agent:list', () => {
     const rows = db.prepare('SELECT * FROM agents ORDER BY created_at ASC').all() as AgentRow[]
     return rows.map(rowToConfig)
   })
 
-  ipcMain.handle('agent:get', (_event, id: string) => {
+  safeHandle('agent:get', (_event, id: string) => {
     const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as AgentRow | undefined
     return row ? rowToConfig(row) : null
   })
 
-  ipcMain.handle('agent:create', (_event, config: Record<string, unknown>) => {
+  safeHandle('agent:create', (_event, config: Record<string, unknown>) => {
     const id = randomUUID()
     const now = Date.now()
     db.prepare(
@@ -118,7 +119,7 @@ export function registerAgentHandlers(): void {
     return { ...config, id, isDefault: false }
   })
 
-  ipcMain.handle('agent:update', (_event, id: string, config: Record<string, unknown>) => {
+  safeHandle('agent:update', (_event, id: string, config: Record<string, unknown>) => {
     const now = Date.now()
     db.prepare('UPDATE agents SET config_json = ?, updated_at = ? WHERE id = ?').run(
       JSON.stringify(config),
@@ -128,7 +129,7 @@ export function registerAgentHandlers(): void {
     return { ...config, id }
   })
 
-  ipcMain.handle('agent:delete', (_event, id: string) => {
+  safeHandle('agent:delete', (_event, id: string) => {
     const row = db.prepare('SELECT is_default FROM agents WHERE id = ?').get(id) as
       | { is_default: number }
       | undefined
@@ -138,7 +139,7 @@ export function registerAgentHandlers(): void {
     return true
   })
 
-  ipcMain.handle('agent:duplicate', (_event, id: string) => {
+  safeHandle('agent:duplicate', (_event, id: string) => {
     const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as AgentRow | undefined
     if (!row) return null
     const config = JSON.parse(row.config_json)
@@ -151,7 +152,7 @@ export function registerAgentHandlers(): void {
     return { ...config, id: newId, isDefault: false }
   })
 
-  ipcMain.handle('agent:export', async (_event, id: string) => {
+  safeHandle('agent:export', async (_event, id: string) => {
     const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as AgentRow | undefined
     if (!row) return false
     const config = JSON.parse(row.config_json)
@@ -164,7 +165,7 @@ export function registerAgentHandlers(): void {
     return true
   })
 
-  ipcMain.handle('agent:import', async () => {
+  safeHandle('agent:import', async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openFile'],
       filters: [{ name: 'JSON', extensions: ['json'] }]
@@ -199,7 +200,7 @@ export function registerAgentHandlers(): void {
     }
   })
 
-  ipcMain.handle('file:open-directory-dialog', async () => {
+  safeHandle('file:open-directory-dialog', async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openDirectory', 'multiSelections']
     })

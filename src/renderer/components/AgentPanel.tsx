@@ -67,11 +67,12 @@ export function AgentPanel({
 
   useEffect(() => {
     if (tab === 'json') {
-      const { id, isDefault: _d, ...rest } = config as AgentConfig & { isDefault?: boolean }
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { id: _id, isDefault: _d, ...rest } = config as AgentConfig & { isDefault?: boolean }
       setJsonText(JSON.stringify(rest, null, 2))
       setJsonError('')
     }
-  }, [tab])
+  }, [tab, config])
 
   const updateField = <K extends keyof AgentConfig>(key: K, value: AgentConfig[K]) => {
     setConfig((prev) => ({ ...prev, [key]: value }))
@@ -98,14 +99,14 @@ export function AgentPanel({
   }
 
   const handleAddDirectories = async () => {
-    const dirs = await (window as any).api.openDirectoryDialog()
+    const dirs = await window.api.openDirectoryDialog()
     if (dirs && dirs.length > 0) {
       updateField('contextDirectories', [...config.contextDirectories, ...dirs])
     }
   }
 
   const handleAddFiles = async () => {
-    const files = await (window as any).api.openFileDialog()
+    const files = await window.api.openFileDialog()
     if (files && files.length > 0) {
       const paths = files.map((f: { path: string }) => f.path)
       updateField('contextFiles', [...config.contextFiles, ...paths])

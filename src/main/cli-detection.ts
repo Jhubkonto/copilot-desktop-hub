@@ -1,7 +1,7 @@
-import { ipcMain } from 'electron'
 import { execSync } from 'child_process'
 import { existsSync } from 'fs'
 import { join } from 'path'
+import { safeHandle } from './safe-handle'
 
 interface CliStatus {
   installed: boolean
@@ -65,12 +65,12 @@ function findCopilotCli(): CliStatus {
 let cachedStatus: CliStatus | null = null
 
 export function registerCliHandlers(): void {
-  ipcMain.handle('cli:check', () => {
+  safeHandle('cli:check', () => {
     cachedStatus = findCopilotCli()
     return cachedStatus
   })
 
-  ipcMain.handle('cli:status', () => {
+  safeHandle('cli:status', () => {
     if (!cachedStatus) {
       cachedStatus = findCopilotCli()
     }

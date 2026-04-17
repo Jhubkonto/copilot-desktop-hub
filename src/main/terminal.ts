@@ -1,5 +1,6 @@
 import { spawn, ChildProcess } from 'child_process'
-import { ipcMain, BrowserWindow } from 'electron'
+import { BrowserWindow } from 'electron'
+import { safeHandle } from './safe-handle'
 
 const terminals = new Map<string, ChildProcess>()
 
@@ -9,7 +10,7 @@ function getDefaultShell(): string {
 }
 
 export function registerTerminalHandlers(): void {
-  ipcMain.handle('terminal:create', (event, id: string, cwd?: string) => {
+  safeHandle('terminal:create', (event, id: string, cwd?: string) => {
     const shell = getDefaultShell()
     const proc = spawn(shell, [], {
       cwd: cwd || process.env.HOME || process.env.USERPROFILE || process.cwd(),
@@ -44,7 +45,7 @@ export function registerTerminalHandlers(): void {
     return true
   })
 
-  ipcMain.handle('terminal:write', (_event, id: string, data: string) => {
+  safeHandle('terminal:write', (_event, id: string, data: string) => {
     const proc = terminals.get(id)
     if (proc?.stdin?.writable) {
       proc.stdin.write(data)
@@ -53,7 +54,7 @@ export function registerTerminalHandlers(): void {
     return false
   })
 
-  ipcMain.handle('terminal:dispose', (_event, id: string) => {
+  safeHandle('terminal:dispose', (_event, id: string) => {
     const proc = terminals.get(id)
     if (proc) {
       proc.kill()

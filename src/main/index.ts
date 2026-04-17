@@ -44,8 +44,20 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true
     }
+  })
+
+  // Content Security Policy
+  mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://api.openai.com https://api.anthropic.com https://*.openai.azure.com; font-src 'self'"
+        ]
+      }
+    })
   })
 
   mainWindow.on('ready-to-show', () => {
@@ -112,20 +124,26 @@ function registerGlobalHotkey(): void {
   })
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 function handleDeepLink(url: string): void {
   if (!url.startsWith(`${PROTOCOL}://`)) return
-  const parsed = new URL(url)
-  // copilot-hub://chat/CONVERSATION_ID
-  // copilot-hub://agent/AGENT_ID
-  if (parsed.hostname === 'chat' && parsed.pathname.length > 1) {
-    const conversationId = parsed.pathname.slice(1)
-    mainWindow?.webContents.send('deeplink:open-chat', conversationId)
-  } else if (parsed.hostname === 'agent' && parsed.pathname.length > 1) {
-    const agentId = parsed.pathname.slice(1)
-    mainWindow?.webContents.send('deeplink:open-agent', agentId)
+  try {
+    const parsed = new URL(url)
+    if (parsed.hostname === 'chat' && parsed.pathname.length > 1) {
+      const conversationId = parsed.pathname.slice(1)
+      if (!UUID_RE.test(conversationId)) return
+      mainWindow?.webContents.send('deeplink:open-chat', conversationId)
+    } else if (parsed.hostname === 'agent' && parsed.pathname.length > 1) {
+      const agentId = parsed.pathname.slice(1)
+      if (!UUID_RE.test(agentId)) return
+      mainWindow?.webContents.send('deeplink:open-agent', agentId)
+    }
+    mainWindow?.show()
+    mainWindow?.focus()
+  } catch {
+    console.warn('Invalid deep link URL:', url)
   }
-  mainWindow?.show()
-  mainWindow?.focus()
 }
 
 // Handle deep links on second instance (Windows/Linux)

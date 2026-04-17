@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow, dialog, app } from 'electron'
+import { BrowserWindow, dialog, app } from 'electron'
 import { getDatabase } from './database'
 import { randomUUID } from 'crypto'
 import { readFileSync, statSync } from 'fs'
@@ -18,6 +18,7 @@ import {
   sendAzureMessage,
   getAzureEndpoint
 } from './providers'
+import { safeHandle } from './safe-handle'
 
 export function registerIpcHandlers(): void {
   registerSettingsHandlers()
@@ -36,7 +37,7 @@ export function registerIpcHandlers(): void {
 function registerSettingsHandlers(): void {
   const db = getDatabase()
 
-  ipcMain.handle('app:get-settings', () => {
+  safeHandle('app:get-settings', () => {
     const rows = db.prepare('SELECT key, value FROM settings').all() as {
       key: string
       value: string
@@ -48,14 +49,14 @@ function registerSettingsHandlers(): void {
     return settings
   })
 
-  ipcMain.handle('app:get-setting', (_event, key: string) => {
+  safeHandle('app:get-setting', (_event, key: string) => {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as {
       value: string
     } | undefined
     return row?.value ?? null
   })
 
-  ipcMain.handle('app:set-setting', (_event, key: string, value: string) => {
+  safeHandle('app:set-setting', (_event, key: string, value: string) => {
     db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(
       key,
       value
@@ -63,14 +64,14 @@ function registerSettingsHandlers(): void {
     return true
   })
 
-  ipcMain.handle('app:get-theme', () => {
+  safeHandle('app:get-theme', () => {
     const row = db.prepare("SELECT value FROM settings WHERE key = 'theme'").get() as
       | { value: string }
       | undefined
     return row?.value ?? 'dark'
   })
 
-  ipcMain.handle('app:set-theme', (_event, theme: string) => {
+  safeHandle('app:set-theme', (_event, theme: string) => {
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('theme', ?)").run(
       theme
     )
@@ -81,13 +82,13 @@ function registerSettingsHandlers(): void {
 function registerConversationHandlers(): void {
   const db = getDatabase()
 
-  ipcMain.handle('conversation:list', () => {
+  safeHandle('conversation:list', () => {
     return db
       .prepare('SELECT * FROM conversations ORDER BY updated_at DESC')
       .all()
   })
 
-  ipcMain.handle('conversation:create', (_event, agentId?: string) => {
+  safeHandle('conversation:create', (_event, agentId?: string) => {
     const id = randomUUID()
     const now = Date.now()
     db.prepare(
@@ -102,12 +103,12 @@ function registerConversationHandlers(): void {
     }
   })
 
-  ipcMain.handle('conversation:delete', (_event, id: string) => {
+  safeHandle('conversation:delete', (_event, id: string) => {
     db.prepare('DELETE FROM conversations WHERE id = ?').run(id)
     return true
   })
 
-  ipcMain.handle('conversation:get-messages', (_event, conversationId: string) => {
+  safeHandle('conversation:get-messages', (_event, conversationId: string) => {
     return db
       .prepare(
         'SELECT * FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC'
@@ -115,7 +116,7 @@ function registerConversationHandlers(): void {
       .all(conversationId)
   })
 
-  ipcMain.handle('conversation:search', (_event, query: string) => {
+  safeHandle('conversation:search', (_event, query: string) => {
     if (!query.trim()) {
       return db
         .prepare('SELECT * FROM conversations ORDER BY updated_at DESC')
@@ -132,7 +133,7 @@ function registerConversationHandlers(): void {
       .all(searchTerm, searchTerm)
   })
 
-  ipcMain.handle('conversation:rename', (_event, id: string, title: string) => {
+  safeHandle('conversation:rename', (_event, id: string, title: string) => {
     db.prepare('UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?').run(
       title,
       Date.now(),
@@ -148,7 +149,7 @@ function registerChatHandlers(): void {
   // Track Copilot session IDs per conversation
   const sessionMap = new Map<string, string>()
 
-  ipcMain.handle(
+  safeHandle(
     'chat:send-message',
     async (
       event,
@@ -339,7 +340,7 @@ function registerChatHandlers(): void {
     }
   )
 
-  ipcMain.handle('chat:stop-generation', async () => {
+  safeHandle('chat:stop-generation', async () => {
     await stopGeneration()
     return true
   })
@@ -348,12 +349,12 @@ function registerChatHandlers(): void {
 function registerMessageHandlers(): void {
   const db = getDatabase()
 
-  ipcMain.handle('message:delete', (_event, id: string) => {
+  safeHandle('message:delete', (_event, id: string) => {
     db.prepare('DELETE FROM messages WHERE id = ?').run(id)
     return true
   })
 
-  ipcMain.handle(
+  safeHandle(
     'message:delete-after',
     (_event, conversationId: string, timestamp: number) => {
       db.prepare(
@@ -365,7 +366,7 @@ function registerMessageHandlers(): void {
 }
 
 function registerFileHandlers(): void {
-  ipcMain.handle('file:open-dialog', async () => {
+  safeHandle('file:open-dialog', async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openFile', 'multiSelections'],
       filters: [
@@ -415,7 +416,7 @@ async function generatePlaceholderResponse(
 }
 
 function registerSystemHandlers(): void {
-  ipcMain.handle('app:set-auto-start', (_event, enabled: boolean) => {
+  safeHandle('app:set-auto-start', (_event, enabled: boolean) => {
     app.setLoginItemSettings({
       openAtLogin: enabled,
       openAsHidden: true
