@@ -4,6 +4,7 @@ import { ChatWindow } from './components/ChatWindow'
 import { AgentPanel } from './components/AgentPanel'
 import { TerminalPanel } from './components/TerminalPanel'
 import { ToolApproval } from './components/ToolApproval'
+import { McpServerPanel } from './components/McpServerPanel'
 
 interface Conversation {
   id: string
@@ -52,6 +53,7 @@ export default function App() {
   const [showAgentPanel, setShowAgentPanel] = useState(false)
   const [editingAgentId, setEditingAgentId] = useState<string | null>(null)
   const [showTerminal, setShowTerminal] = useState(false)
+  const [showMcpPanel, setShowMcpPanel] = useState(false)
   const [toolApprovalRequests, setToolApprovalRequests] = useState<
     { requestId: string; tool: string; args: Record<string, unknown>; description: string }[]
   >([])
@@ -233,12 +235,20 @@ export default function App() {
               </span>
             )}
           </div>
-          <button
-            onClick={toggleTheme}
-            className="text-xs px-3 py-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-          >
-            {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={toggleTheme}
+              className="text-xs px-3 py-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+            >
+              {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
+            </button>
+            <button
+              onClick={() => setShowMcpPanel(true)}
+              className="text-xs px-3 py-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+            >
+              🔌 MCP
+            </button>
+          </div>
         </header>
 
         {cliState && !cliState.installed && (
@@ -286,6 +296,11 @@ export default function App() {
       <ToolApproval
         requests={toolApprovalRequests}
         onRespond={handleToolApprovalRespond}
+      />
+
+      <McpServerPanel
+        visible={showMcpPanel}
+        onClose={() => setShowMcpPanel(false)}
       />
     </div>
   )

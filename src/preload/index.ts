@@ -126,6 +126,19 @@ const api = {
     return () => ipcRenderer.removeListener('terminal:exit', handler)
   },
 
+  // MCP Servers
+  listMcpServers: () => ipcRenderer.invoke('mcp:list-servers'),
+  addMcpServer: (config: Record<string, unknown>) =>
+    ipcRenderer.invoke('mcp:add-server', config),
+  updateMcpServer: (id: string, updates: Record<string, unknown>) =>
+    ipcRenderer.invoke('mcp:update-server', id, updates),
+  removeMcpServer: (id: string) => ipcRenderer.invoke('mcp:remove-server', id),
+  getMcpServerStatus: (id: string) => ipcRenderer.invoke('mcp:get-server-status', id),
+  listMcpTools: (serverIds?: string[]) => ipcRenderer.invoke('mcp:list-tools', serverIds),
+  callMcpTool: (serverId: string, toolName: string, args: Record<string, unknown>) =>
+    ipcRenderer.invoke('mcp:call-tool', serverId, toolName, args),
+  restartMcpServer: (id: string) => ipcRenderer.invoke('mcp:restart-server', id),
+
   // System events
   onNewChat: (callback: () => void) => {
     ipcRenderer.on('chat:new', callback)

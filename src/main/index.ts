@@ -6,6 +6,7 @@ import { registerAuthHandlers } from './auth'
 import { registerCliHandlers, checkCliOnStartup } from './cli-detection'
 import { shutdownCopilot } from './copilot'
 import { disposeAllTerminals } from './terminal'
+import { initMcpServers, shutdownMcpServers } from './mcp'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -111,6 +112,11 @@ app.whenReady().then(() => {
   createTray()
   registerGlobalHotkey()
 
+  // Initialize MCP servers
+  initMcpServers().catch((err) =>
+    console.error('Failed to init MCP servers:', err)
+  )
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow()
@@ -127,6 +133,7 @@ app.on('window-all-closed', () => {
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
   disposeAllTerminals()
+  shutdownMcpServers().catch(() => {})
   shutdownCopilot().catch(() => {})
   closeDatabase()
 })

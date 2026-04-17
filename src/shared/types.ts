@@ -43,6 +43,16 @@ export interface AgentConfig {
   isDefault?: boolean
 }
 
+export interface McpServerConfig {
+  id: string
+  name: string
+  command: string
+  args: string[]
+  env: Record<string, string>
+  cwd?: string
+  enabled: boolean
+}
+
 export interface SendMessageOptions {
   attachments?: Attachment[]
   regenerate?: boolean
@@ -109,3 +119,11 @@ export type IpcChannels =
   | 'terminal:data'
   | 'terminal:exit'
   | 'terminal:dispose'
+  | 'mcp:list-servers'
+  | 'mcp:add-server'
+  | 'mcp:update-server'
+  | 'mcp:remove-server'
+  | 'mcp:get-server-status'
+  | 'mcp:list-tools'
+  | 'mcp:call-tool'
+  | 'mcp:restart-server'

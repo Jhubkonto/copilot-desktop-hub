@@ -8,6 +8,7 @@ import { checkCliOnStartup } from './cli-detection'
 import { registerAgentHandlers, getAgentConfig } from './agents'
 import { registerToolHandlers } from './tools'
 import { registerTerminalHandlers } from './terminal'
+import { registerMcpHandlers } from './mcp'
 
 export function registerIpcHandlers(): void {
   registerSettingsHandlers()
@@ -18,6 +19,7 @@ export function registerIpcHandlers(): void {
   registerAgentHandlers()
   registerToolHandlers()
   registerTerminalHandlers()
+  registerMcpHandlers()
 }
 
 function registerSettingsHandlers(): void {
