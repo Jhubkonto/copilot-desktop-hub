@@ -99,6 +99,7 @@ export default function App() {
         }}
         onNewChat={handleNewChat}
         onDeleteConversation={handleDeleteConversation}
+        onRefresh={loadConversations}
         authState={authState}
         onLogin={handleLogin}
         onLogout={handleLogout}
@@ -141,6 +142,7 @@ export default function App() {
         <ChatWindow
           conversationId={currentConversationId}
           onConversationCreated={handleConversationCreated}
+          onRefresh={loadConversations}
         />
       </main>
     </div>

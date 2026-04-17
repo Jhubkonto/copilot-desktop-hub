@@ -1,3 +1,6 @@
+import { useState, useCallback } from 'react'
+import { SearchBar } from './SearchBar'
+
 interface Conversation {
   id: string
   agent_id: string | null
@@ -17,21 +20,40 @@ interface SidebarProps {
   onSelectConversation: (id: string) => void
   onNewChat: () => void
   onDeleteConversation: (id: string) => void
+  onRefresh: () => void
   authState: AuthState
   onLogin: () => void
   onLogout: () => void
 }
 
-function formatDate(timestamp: number): string {
-  const date = new Date(timestamp)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+interface DateGroup {
+  label: string
+  conversations: Conversation[]
+}
 
-  if (diffDays === 0) return 'Today'
-  if (diffDays === 1) return 'Yesterday'
-  if (diffDays < 7) return `${diffDays} days ago`
-  return date.toLocaleDateString()
+function groupByDate(conversations: Conversation[]): DateGroup[] {
+  const now = new Date()
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const yesterdayStart = todayStart - 86400000
+  const weekStart = todayStart - 7 * 86400000
+
+  const groups: DateGroup[] = []
+
+  const today = conversations.filter((c) => c.updated_at >= todayStart)
+  const yesterday = conversations.filter(
+    (c) => c.updated_at >= yesterdayStart && c.updated_at < todayStart
+  )
+  const thisWeek = conversations.filter(
+    (c) => c.updated_at >= weekStart && c.updated_at < yesterdayStart
+  )
+  const older = conversations.filter((c) => c.updated_at < weekStart)
+
+  if (today.length) groups.push({ label: 'Today', conversations: today })
+  if (yesterday.length) groups.push({ label: 'Yesterday', conversations: yesterday })
+  if (thisWeek.length) groups.push({ label: 'This Week', conversations: thisWeek })
+  if (older.length) groups.push({ label: 'Older', conversations: older })
+
+  return groups
 }
 
 export function Sidebar({
@@ -40,10 +62,92 @@ export function Sidebar({
   onSelectConversation,
   onNewChat,
   onDeleteConversation,
+  onRefresh,
   authState,
   onLogin,
   onLogout
 }: SidebarProps) {
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<Conversation[] | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editTitle, setEditTitle] = useState('')
+
+  const handleSearch = useCallback(async (query: string) => {
+    setSearchQuery(query)
+    if (!query) {
+      setSearchResults(null)
+      return
+    }
+    try {
+      const results = await window.api.searchConversations(query)
+      setSearchResults(results)
+    } catch {
+      setSearchResults(null)
+    }
+  }, [])
+
+  const handleRename = async () => {
+    if (editingId && editTitle.trim()) {
+      await window.api.renameConversation(editingId, editTitle.trim())
+      onRefresh()
+    }
+    setEditingId(null)
+  }
+
+  const displayConversations = searchResults ?? conversations
+  const dateGroups = groupByDate(displayConversations)
+
+  const renderConversation = (conv: Conversation) => (
+    <div
+      key={conv.id}
+      className={`group flex items-center justify-between px-2 py-1.5 rounded-lg cursor-pointer text-sm transition-colors ${
+        currentConversationId === conv.id
+          ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
+          : 'text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+      }`}
+      onClick={() => onSelectConversation(conv.id)}
+    >
+      <div className="flex-1 min-w-0">
+        {editingId === conv.id ? (
+          <input
+            value={editTitle}
+            onChange={(e) => setEditTitle(e.target.value)}
+            onBlur={handleRename}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleRename()
+              if (e.key === 'Escape') setEditingId(null)
+            }}
+            onClick={(e) => e.stopPropagation()}
+            autoFocus
+            className="w-full text-xs font-medium bg-white dark:bg-gray-700 border border-blue-400 rounded px-1 py-0.5 focus:outline-none"
+          />
+        ) : (
+          <div
+            className="truncate text-xs font-medium"
+            onDoubleClick={(e) => {
+              e.stopPropagation()
+              setEditingId(conv.id)
+              setEditTitle(conv.title)
+            }}
+            title="Double-click to rename"
+          >
+            {conv.title}
+          </div>
+        )}
+      </div>
+      <button
+        onClick={(e) => {
+          e.stopPropagation()
+          onDeleteConversation(conv.id)
+        }}
+        className="hidden group-hover:block text-gray-400 hover:text-red-500 text-xs ml-1 px-1"
+        title="Delete conversation"
+      >
+        ×
+      </button>
+    </div>
+  )
+
   return (
     <aside className="w-64 flex flex-col bg-gray-50 dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700">
       <div className="p-4 border-b border-gray-200 dark:border-gray-700">
@@ -52,7 +156,7 @@ export function Sidebar({
         </h2>
       </div>
 
-      <div className="p-3">
+      <div className="p-3 space-y-2">
         <button
           onClick={onNewChat}
           className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
@@ -60,6 +164,7 @@ export function Sidebar({
           <span>+</span>
           <span>New Chat</span>
         </button>
+        <SearchBar onSearch={handleSearch} />
       </div>
 
       <div className="flex-1 overflow-y-auto px-3">
@@ -74,40 +179,22 @@ export function Sidebar({
 
         <div>
           <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-2 mb-2">
-            Conversations
+            {searchQuery ? `Results for "${searchQuery}"` : 'Conversations'}
           </h3>
-          {conversations.length === 0 ? (
+          {displayConversations.length === 0 ? (
             <div className="text-xs text-gray-400 dark:text-gray-500 px-2 italic">
-              No conversations yet
+              {searchQuery ? 'No matching conversations' : 'No conversations yet'}
             </div>
           ) : (
-            <div className="space-y-1">
-              {conversations.map((conv) => (
-                <div
-                  key={conv.id}
-                  className={`group flex items-center justify-between px-2 py-1.5 rounded-lg cursor-pointer text-sm transition-colors ${
-                    currentConversationId === conv.id
-                      ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
-                      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-                  }`}
-                  onClick={() => onSelectConversation(conv.id)}
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="truncate text-xs font-medium">{conv.title}</div>
-                    <div className="text-[10px] text-gray-400 dark:text-gray-500">
-                      {formatDate(conv.updated_at)}
-                    </div>
+            <div className="space-y-3">
+              {dateGroups.map((group) => (
+                <div key={group.label}>
+                  <div className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider px-2 mb-1">
+                    {group.label}
                   </div>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onDeleteConversation(conv.id)
-                    }}
-                    className="hidden group-hover:block text-gray-400 hover:text-red-500 text-xs ml-1 px-1"
-                    title="Delete conversation"
-                  >
-                    ×
-                  </button>
+                  <div className="space-y-0.5">
+                    {group.conversations.map(renderConversation)}
+                  </div>
                 </div>
               ))}
             </div>

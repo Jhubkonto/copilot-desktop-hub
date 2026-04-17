@@ -37,3 +37,122 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   @apply bg-gray-400 dark:bg-gray-500;
 }
+
+/* Markdown prose adjustments */
+.markdown-body > :first-child {
+  margin-top: 0 !important;
+}
+
+.markdown-body > :last-child {
+  margin-bottom: 0 !important;
+}
+
+.markdown-body p {
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  margin-top: 0.25em;
+  margin-bottom: 0.25em;
+}
+
+/* highlight.js syntax theme (Catppuccin Mocha) */
+.hljs {
+  color: #cdd6f4;
+  background: #1e1e2e;
+}
+
+.hljs-keyword,
+.hljs-selector-tag {
+  color: #cba6f7;
+}
+
+.hljs-string,
+.hljs-selector-class {
+  color: #a6e3a1;
+}
+
+.hljs-number,
+.hljs-literal {
+  color: #fab387;
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: #6c7086;
+  font-style: italic;
+}
+
+.hljs-function,
+.hljs-title,
+.hljs-title.function_ {
+  color: #89b4fa;
+}
+
+.hljs-built_in {
+  color: #f38ba8;
+}
+
+.hljs-type,
+.hljs-title.class_ {
+  color: #f9e2af;
+}
+
+.hljs-params {
+  color: #cdd6f4;
+}
+
+.hljs-meta,
+.hljs-meta .hljs-keyword {
+  color: #f5c2e7;
+}
+
+.hljs-attr,
+.hljs-attribute {
+  color: #89dceb;
+}
+
+.hljs-variable,
+.hljs-template-variable {
+  color: #cdd6f4;
+}
+
+.hljs-tag {
+  color: #f38ba8;
+}
+
+.hljs-name {
+  color: #89b4fa;
+}
+
+.hljs-addition {
+  color: #a6e3a1;
+  background: rgba(166, 227, 161, 0.1);
+}
+
+.hljs-deletion {
+  color: #f38ba8;
+  background: rgba(243, 139, 168, 0.1);
+}
+
+.hljs-regexp {
+  color: #f5c2e7;
+}
+
+.hljs-symbol {
+  color: #f2cdcd;
+}
+
+.hljs-property {
+  color: #89dceb;
+}
+
+.hljs-operator {
+  color: #94e2d5;
+}
+
+.hljs-punctuation {
+  color: #bac2de;
+}

@@ -4,6 +4,14 @@ export interface Message {
   role: 'user' | 'assistant' | 'system'
   content: string
   timestamp: number
+  attachments?: Attachment[]
+}
+
+export interface Attachment {
+  id: string
+  name: string
+  path: string
+  size: number
 }
 
 export interface Conversation {
@@ -34,6 +42,11 @@ export interface AgentConfig {
   responseFormat: 'concise' | 'detailed' | 'code-only' | 'default'
 }
 
+export interface SendMessageOptions {
+  attachments?: Attachment[]
+  regenerate?: boolean
+}
+
 export interface AppSettings {
   theme: 'light' | 'dark'
   globalHotkey: string
@@ -53,6 +66,11 @@ export type IpcChannels =
   | 'conversation:create'
   | 'conversation:delete'
   | 'conversation:get-messages'
+  | 'conversation:search'
+  | 'conversation:rename'
+  | 'message:delete'
+  | 'message:delete-after'
+  | 'file:open-dialog'
   | 'agent:list'
   | 'agent:create'
   | 'agent:update'

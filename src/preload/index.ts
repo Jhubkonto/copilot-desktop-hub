@@ -27,8 +27,11 @@ const api = {
   cliStatus: () => ipcRenderer.invoke('cli:status'),
 
   // Chat
-  sendMessage: (conversationId: string, content: string) =>
-    ipcRenderer.invoke('chat:send-message', conversationId, content),
+  sendMessage: (
+    conversationId: string,
+    content: string,
+    options?: { attachments?: { id: string; name: string; path: string; size: number }[]; regenerate?: boolean }
+  ) => ipcRenderer.invoke('chat:send-message', conversationId, content, options),
   onStreamResponse: (callback: (chunk: string | null) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, chunk: string | null) =>
       callback(chunk)
@@ -44,6 +47,18 @@ const api = {
   deleteConversation: (id: string) => ipcRenderer.invoke('conversation:delete', id),
   getMessages: (conversationId: string) =>
     ipcRenderer.invoke('conversation:get-messages', conversationId),
+  searchConversations: (query: string) =>
+    ipcRenderer.invoke('conversation:search', query),
+  renameConversation: (id: string, title: string) =>
+    ipcRenderer.invoke('conversation:rename', id, title),
+
+  // Messages
+  deleteMessage: (id: string) => ipcRenderer.invoke('message:delete', id),
+  deleteMessagesAfter: (conversationId: string, timestamp: number) =>
+    ipcRenderer.invoke('message:delete-after', conversationId, timestamp),
+
+  // Files
+  openFileDialog: () => ipcRenderer.invoke('file:open-dialog'),
 
   // Agents
   listAgents: () => ipcRenderer.invoke('agent:list'),

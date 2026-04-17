@@ -1,23 +1,42 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { MessageBubble } from './MessageBubble'
+import { MarkdownRenderer } from './MarkdownRenderer'
 
-interface ChatWindowProps {
-  conversationId: string | null
-  onConversationCreated: (id: string) => void
+interface Attachment {
+  id: string
+  name: string
+  path: string
+  size: number
 }
 
 interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
+  timestamp: number
+  attachments?: Attachment[]
 }
 
-export function ChatWindow({ conversationId, onConversationCreated }: ChatWindowProps) {
+interface ChatWindowProps {
+  conversationId: string | null
+  onConversationCreated: (id: string) => void
+  onRefresh: () => void
+}
+
+export function ChatWindow({
+  conversationId,
+  onConversationCreated,
+  onRefresh
+}: ChatWindowProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
   const [streamingContent, setStreamingContent] = useState('')
+  const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([])
+  const [isDragging, setIsDragging] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const activeConversationRef = useRef<string | null>(conversationId)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     activeConversationRef.current = conversationId
@@ -26,12 +45,14 @@ export function ChatWindow({ conversationId, onConversationCreated }: ChatWindow
   // Load messages when conversation changes
   useEffect(() => {
     if (conversationId) {
-      window.api.getMessages(conversationId).then((msgs: ChatMessage[]) => {
+      window.api.getMessages(conversationId).then((msgs: any[]) => {
         setMessages(
           msgs.map((m) => ({
             id: m.id,
             role: m.role as 'user' | 'assistant',
-            content: m.content
+            content: m.content,
+            timestamp: m.timestamp,
+            attachments: m.attachments ? JSON.parse(m.attachments) : undefined
           }))
         )
       })
@@ -46,19 +67,20 @@ export function ChatWindow({ conversationId, onConversationCreated }: ChatWindow
   useEffect(() => {
     const unsubscribe = window.api.onStreamResponse((chunk: string | null) => {
       if (chunk === null) {
-        // Stream complete — finalize the assistant message
         setStreamingContent((current) => {
           if (current) {
             const assistantMessage: ChatMessage = {
               id: crypto.randomUUID(),
               role: 'assistant',
-              content: current
+              content: current,
+              timestamp: Date.now()
             }
             setMessages((prev) => [...prev, assistantMessage])
           }
           return ''
         })
         setIsGenerating(false)
+        onRefresh()
       } else {
         setStreamingContent((prev) => prev + chunk)
       }
@@ -67,28 +89,124 @@ export function ChatWindow({ conversationId, onConversationCreated }: ChatWindow
     return () => {
       unsubscribe()
     }
-  }, [])
+  }, [onRefresh])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streamingContent])
 
+  const handleCopy = useCallback((content: string) => {
+    navigator.clipboard.writeText(content)
+  }, [])
+
+  const handleRegenerate = useCallback(async () => {
+    if (!conversationId || messages.length < 2 || isGenerating) return
+
+    const lastMsg = messages[messages.length - 1]
+    if (lastMsg.role !== 'assistant') return
+
+    const lastUser = [...messages].reverse().find((m) => m.role === 'user')
+    if (!lastUser) return
+
+    // Remove last assistant message from state
+    setMessages((prev) => prev.slice(0, -1))
+
+    // Delete from DB
+    await window.api.deleteMessage(lastMsg.id)
+
+    // Re-send the user message
+    setIsGenerating(true)
+    setStreamingContent('')
+
+    try {
+      await window.api.sendMessage(conversationId, lastUser.content, { regenerate: true })
+    } catch (error) {
+      console.error('Regenerate failed:', error)
+      setIsGenerating(false)
+    }
+  }, [conversationId, messages, isGenerating])
+
+  const handleEdit = useCallback(
+    (messageIndex: number) => {
+      if (isGenerating) return
+
+      const message = messages[messageIndex]
+      setInput(message.content)
+      inputRef.current?.focus()
+
+      // Remove this message and all after it from state
+      const removedMessages = messages.slice(messageIndex)
+      setMessages((prev) => prev.slice(0, messageIndex))
+
+      // Delete from DB
+      if (conversationId && message.timestamp) {
+        window.api.deleteMessagesAfter(conversationId, message.timestamp)
+      }
+    },
+    [conversationId, messages, isGenerating]
+  )
+
+  const handleFilePick = async () => {
+    const files = await window.api.openFileDialog()
+    if (files && files.length > 0) {
+      setPendingAttachments((prev) => [...prev, ...files])
+    }
+  }
+
+  const removeAttachment = (id: string) => {
+    setPendingAttachments((prev) => prev.filter((a) => a.id !== id))
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(false)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(false)
+
+    const files = Array.from(e.dataTransfer.files)
+    const attachments: Attachment[] = files.map((f) => ({
+      id: crypto.randomUUID(),
+      name: f.name,
+      path: (f as any).path || '',
+      size: f.size
+    }))
+
+    // Only add files with valid paths
+    const validAttachments = attachments.filter((a) => a.path)
+    if (validAttachments.length > 0) {
+      setPendingAttachments((prev) => [...prev, ...validAttachments])
+    }
+  }
+
   const handleSend = async () => {
     if (!input.trim() || isGenerating) return
 
     const content = input.trim()
+    const attachments =
+      pendingAttachments.length > 0 ? [...pendingAttachments] : undefined
+
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
-      content
+      content,
+      timestamp: Date.now(),
+      attachments
     }
 
     setMessages((prev) => [...prev, userMessage])
     setInput('')
+    setPendingAttachments([])
     setIsGenerating(true)
     setStreamingContent('')
 
-    // If no active conversation, create one
     let convId = activeConversationRef.current
     if (!convId) {
       convId = crypto.randomUUID()
@@ -97,17 +215,22 @@ export function ChatWindow({ conversationId, onConversationCreated }: ChatWindow
     }
 
     try {
-      await window.api.sendMessage(convId, content)
+      await window.api.sendMessage(convId, content, { attachments })
     } catch (error) {
       console.error('Failed to send message:', error)
       setIsGenerating(false)
       const errorMessage: ChatMessage = {
         id: crypto.randomUUID(),
         role: 'assistant',
-        content: 'An error occurred while sending your message. Please try again.'
+        content: 'An error occurred while sending your message. Please try again.',
+        timestamp: Date.now()
       }
       setMessages((prev) => [...prev, errorMessage])
     }
+  }
+
+  const handleStop = async () => {
+    await window.api.stopGeneration()
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -117,31 +240,81 @@ export function ChatWindow({ conversationId, onConversationCreated }: ChatWindow
     }
   }
 
+  // Find the last assistant message index for regenerate button
+  const lastAssistantIndex = messages.length > 0 && messages[messages.length - 1].role === 'assistant'
+    ? messages.length - 1
+    : -1
+
   const renderInput = () => (
     <div className="p-4 border-t border-gray-200 dark:border-gray-700">
-      <div className="max-w-3xl mx-auto flex gap-2">
-        <textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Type a message..."
-          rows={1}
-          className="flex-1 resize-none rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-4 py-2.5 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-        />
-        <button
-          onClick={handleSend}
-          disabled={!input.trim() || isGenerating}
-          className="px-4 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          Send
-        </button>
+      <div className="max-w-3xl mx-auto">
+        {/* Pending attachments */}
+        {pendingAttachments.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-2">
+            {pendingAttachments.map((att) => (
+              <span
+                key={att.id}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gray-100 dark:bg-gray-700 text-xs text-gray-700 dark:text-gray-300"
+              >
+                📎 {att.name}
+                <button
+                  onClick={() => removeAttachment(att.id)}
+                  className="text-gray-400 hover:text-red-500 ml-0.5"
+                >
+                  ✕
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div className="flex gap-2">
+          <button
+            onClick={handleFilePick}
+            disabled={isGenerating}
+            className="px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+            title="Attach files"
+          >
+            📎
+          </button>
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Type a message..."
+            rows={1}
+            className="flex-1 resize-none rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-4 py-2.5 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          {isGenerating ? (
+            <button
+              onClick={handleStop}
+              className="px-4 py-2.5 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 transition-colors"
+            >
+              ■ Stop
+            </button>
+          ) : (
+            <button
+              onClick={handleSend}
+              disabled={!input.trim()}
+              className="px-4 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Send
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )
 
   if (!conversationId && messages.length === 0) {
     return (
-      <div className="flex-1 flex flex-col">
+      <div
+        className={`flex-1 flex flex-col ${isDragging ? 'ring-2 ring-blue-500 ring-inset bg-blue-50/5' : ''}`}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center max-w-md">
             <h2 className="text-2xl font-semibold text-gray-700 dark:text-gray-200 mb-2">
@@ -150,6 +323,11 @@ export function ChatWindow({ conversationId, onConversationCreated }: ChatWindow
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
               Start a conversation with GitHub Copilot
             </p>
+            {isDragging && (
+              <p className="text-sm text-blue-500 animate-pulse">
+                Drop files to attach
+              </p>
+            )}
           </div>
         </div>
         {renderInput()}
@@ -158,30 +336,37 @@ export function ChatWindow({ conversationId, onConversationCreated }: ChatWindow
   }
 
   return (
-    <div className="flex-1 flex flex-col">
+    <div
+      className={`flex-1 flex flex-col ${isDragging ? 'ring-2 ring-blue-500 ring-inset bg-blue-50/5' : ''}`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       <div className="flex-1 overflow-y-auto px-4 py-6">
-        <div className="max-w-3xl mx-auto space-y-6">
-          {messages.map((msg) => (
-            <div
+        <div className="max-w-3xl mx-auto space-y-8">
+          {messages.map((msg, index) => (
+            <MessageBubble
               key={msg.id}
-              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
-              <div
-                className={`max-w-[80%] rounded-lg px-4 py-3 text-sm whitespace-pre-wrap ${
-                  msg.role === 'user'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
-                }`}
-              >
-                {msg.content}
-              </div>
-            </div>
+              id={msg.id}
+              role={msg.role}
+              content={msg.content}
+              attachments={msg.attachments}
+              isLastAssistant={index === lastAssistantIndex}
+              isGenerating={isGenerating}
+              onCopy={handleCopy}
+              onRegenerate={
+                index === lastAssistantIndex ? handleRegenerate : undefined
+              }
+              onEdit={
+                msg.role === 'user' ? () => handleEdit(index) : undefined
+              }
+            />
           ))}
           {isGenerating && streamingContent && (
             <div className="flex justify-start">
-              <div className="max-w-[80%] bg-gray-100 dark:bg-gray-800 rounded-lg px-4 py-3 text-sm text-gray-900 dark:text-gray-100 whitespace-pre-wrap">
-                {streamingContent}
-                <span className="animate-pulse">▊</span>
+              <div className="max-w-[80%] bg-gray-100 dark:bg-gray-800 rounded-lg px-4 py-3 text-sm text-gray-900 dark:text-gray-100">
+                <MarkdownRenderer content={streamingContent} />
+                <span className="animate-pulse text-blue-500">▊</span>
               </div>
             </div>
           )}
@@ -195,6 +380,13 @@ export function ChatWindow({ conversationId, onConversationCreated }: ChatWindow
           <div ref={messagesEndRef} />
         </div>
       </div>
+      {isDragging && (
+        <div className="absolute inset-0 flex items-center justify-center bg-blue-500/10 pointer-events-none z-10">
+          <div className="text-lg font-medium text-blue-500 bg-white dark:bg-gray-800 px-6 py-3 rounded-xl shadow-lg">
+            Drop files to attach
+          </div>
+        </div>
+      )}
       {renderInput()}
     </div>
   )

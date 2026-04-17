@@ -54,6 +54,13 @@ function initializeSchema(db: Database.Database): void {
     );
   `)
 
+  // Migrations: add columns that may not exist yet
+  try {
+    db.exec('ALTER TABLE messages ADD COLUMN attachments TEXT')
+  } catch {
+    // Column already exists
+  }
+
   // Insert default settings if they don't exist
   const insertSetting = db.prepare(
     'INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)'
