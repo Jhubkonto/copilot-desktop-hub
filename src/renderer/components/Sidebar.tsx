@@ -9,6 +9,13 @@ interface Conversation {
   updated_at: number
 }
 
+interface AgentConfig {
+  id: string
+  name: string
+  icon: string
+  isDefault?: boolean
+}
+
 interface AuthState {
   authenticated: boolean
   user: { login: string; avatar_url: string; name: string | null } | null
@@ -24,6 +31,12 @@ interface SidebarProps {
   authState: AuthState
   onLogin: () => void
   onLogout: () => void
+  agents: AgentConfig[]
+  activeAgentId: string | null
+  onSelectAgent: (id: string | null) => void
+  onEditAgent: (id: string) => void
+  onCreateAgent: () => void
+  onImportAgent: () => void
 }
 
 interface DateGroup {
@@ -65,7 +78,13 @@ export function Sidebar({
   onRefresh,
   authState,
   onLogin,
-  onLogout
+  onLogout,
+  agents,
+  activeAgentId,
+  onSelectAgent,
+  onEditAgent,
+  onCreateAgent,
+  onImportAgent
 }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<Conversation[] | null>(null)
@@ -97,56 +116,60 @@ export function Sidebar({
   const displayConversations = searchResults ?? conversations
   const dateGroups = groupByDate(displayConversations)
 
-  const renderConversation = (conv: Conversation) => (
-    <div
-      key={conv.id}
-      className={`group flex items-center justify-between px-2 py-1.5 rounded-lg cursor-pointer text-sm transition-colors ${
-        currentConversationId === conv.id
-          ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
-          : 'text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-      }`}
-      onClick={() => onSelectConversation(conv.id)}
-    >
-      <div className="flex-1 min-w-0">
-        {editingId === conv.id ? (
-          <input
-            value={editTitle}
-            onChange={(e) => setEditTitle(e.target.value)}
-            onBlur={handleRename}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleRename()
-              if (e.key === 'Escape') setEditingId(null)
-            }}
-            onClick={(e) => e.stopPropagation()}
-            autoFocus
-            className="w-full text-xs font-medium bg-white dark:bg-gray-700 border border-blue-400 rounded px-1 py-0.5 focus:outline-none"
-          />
-        ) : (
-          <div
-            className="truncate text-xs font-medium"
-            onDoubleClick={(e) => {
-              e.stopPropagation()
-              setEditingId(conv.id)
-              setEditTitle(conv.title)
-            }}
-            title="Double-click to rename"
-          >
-            {conv.title}
-          </div>
-        )}
-      </div>
-      <button
-        onClick={(e) => {
-          e.stopPropagation()
-          onDeleteConversation(conv.id)
-        }}
-        className="hidden group-hover:block text-gray-400 hover:text-red-500 text-xs ml-1 px-1"
-        title="Delete conversation"
+  const renderConversation = (conv: Conversation) => {
+    const agentForConv = agents.find((a) => a.id === conv.agent_id)
+    return (
+      <div
+        key={conv.id}
+        className={`group flex items-center justify-between px-2 py-1.5 rounded-lg cursor-pointer text-sm transition-colors ${
+          currentConversationId === conv.id
+            ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
+            : 'text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+        }`}
+        onClick={() => onSelectConversation(conv.id)}
       >
-        ×
-      </button>
-    </div>
-  )
+        <div className="flex-1 min-w-0">
+          {editingId === conv.id ? (
+            <input
+              value={editTitle}
+              onChange={(e) => setEditTitle(e.target.value)}
+              onBlur={handleRename}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleRename()
+                if (e.key === 'Escape') setEditingId(null)
+              }}
+              onClick={(e) => e.stopPropagation()}
+              autoFocus
+              className="w-full text-xs font-medium bg-white dark:bg-gray-700 border border-blue-400 rounded px-1 py-0.5 focus:outline-none"
+            />
+          ) : (
+            <div
+              className="truncate text-xs font-medium"
+              onDoubleClick={(e) => {
+                e.stopPropagation()
+                setEditingId(conv.id)
+                setEditTitle(conv.title)
+              }}
+              title="Double-click to rename"
+            >
+              {agentForConv && <span className="mr-1">{agentForConv.icon}</span>}
+              {conv.title}
+            </div>
+          )}
+        </div>
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            onDeleteConversation(conv.id)
+          }}
+          className="hidden group-hover:block text-gray-400 hover:text-red-500 text-xs ml-1 px-1"
+          title="Delete conversation"
+        >
+          ×
+        </button>
+      </div>
+    )
+  }
 
   return (
     <aside className="w-64 flex flex-col bg-gray-50 dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700">
@@ -172,8 +195,63 @@ export function Sidebar({
           <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-2 mb-2">
             Agents
           </h3>
-          <div className="text-xs text-gray-400 dark:text-gray-500 px-2 italic">
-            No agents configured
+          {agents.length === 0 ? (
+            <div className="text-xs text-gray-400 dark:text-gray-500 px-2 italic">
+              No agents configured
+            </div>
+          ) : (
+            <div className="space-y-0.5">
+              {/* None option */}
+              <div
+                className={`group flex items-center justify-between px-2 py-1.5 rounded-lg cursor-pointer text-sm transition-colors ${
+                  activeAgentId === null
+                    ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
+                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+                }`}
+                onClick={() => onSelectAgent(null)}
+              >
+                <span className="text-xs font-medium">💬 No Agent</span>
+              </div>
+              {agents.map((agent) => (
+                <div
+                  key={agent.id}
+                  className={`group flex items-center justify-between px-2 py-1.5 rounded-lg cursor-pointer text-sm transition-colors ${
+                    activeAgentId === agent.id
+                      ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
+                      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+                  }`}
+                  onClick={() => onSelectAgent(agent.id)}
+                >
+                  <span className="text-xs font-medium truncate">
+                    {agent.icon} {agent.name}
+                  </span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onEditAgent(agent.id)
+                    }}
+                    className="hidden group-hover:block text-gray-400 hover:text-blue-500 text-xs ml-1 px-1"
+                    title="Edit agent"
+                  >
+                    ⚙
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-2 mt-2 px-2">
+            <button
+              onClick={onCreateAgent}
+              className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+            >
+              + New Agent
+            </button>
+            <button
+              onClick={onImportAgent}
+              className="text-xs text-gray-500 dark:text-gray-400 hover:underline"
+            >
+              Import
+            </button>
           </div>
         </div>
 

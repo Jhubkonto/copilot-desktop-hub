@@ -40,11 +40,13 @@ export interface AgentConfig {
     webFetch: boolean
   }
   responseFormat: 'concise' | 'detailed' | 'code-only' | 'default'
+  isDefault?: boolean
 }
 
 export interface SendMessageOptions {
   attachments?: Attachment[]
   regenerate?: boolean
+  agentId?: string
 }
 
 export interface AppSettings {
@@ -72,6 +74,11 @@ export type IpcChannels =
   | 'message:delete-after'
   | 'file:open-dialog'
   | 'agent:list'
+  | 'agent:get'
   | 'agent:create'
   | 'agent:update'
   | 'agent:delete'
+  | 'agent:duplicate'
+  | 'agent:export'
+  | 'agent:import'
+  | 'file:open-directory-dialog'

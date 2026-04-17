@@ -21,12 +21,16 @@ interface ChatWindowProps {
   conversationId: string | null
   onConversationCreated: (id: string) => void
   onRefresh: () => void
+  activeAgentId?: string | null
+  activeAgent?: { id: string; name: string; icon: string } | null
 }
 
 export function ChatWindow({
   conversationId,
   onConversationCreated,
-  onRefresh
+  onRefresh,
+  activeAgentId,
+  activeAgent
 }: ChatWindowProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
@@ -215,7 +219,7 @@ export function ChatWindow({
     }
 
     try {
-      await window.api.sendMessage(convId, content, { attachments })
+      await window.api.sendMessage(convId, content, { attachments, agentId: activeAgentId ?? undefined })
     } catch (error) {
       console.error('Failed to send message:', error)
       setIsGenerating(false)
@@ -318,10 +322,12 @@ export function ChatWindow({
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center max-w-md">
             <h2 className="text-2xl font-semibold text-gray-700 dark:text-gray-200 mb-2">
-              Copilot Desktop Hub
+              {activeAgent ? `${activeAgent.icon} ${activeAgent.name}` : 'Copilot Desktop Hub'}
             </h2>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-              Start a conversation with GitHub Copilot
+              {activeAgent
+                ? `Start a conversation with ${activeAgent.name}`
+                : 'Start a conversation with GitHub Copilot'}
             </p>
             {isDragging && (
               <p className="text-sm text-blue-500 animate-pulse">

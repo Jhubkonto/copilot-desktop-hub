@@ -30,7 +30,7 @@ const api = {
   sendMessage: (
     conversationId: string,
     content: string,
-    options?: { attachments?: { id: string; name: string; path: string; size: number }[]; regenerate?: boolean }
+    options?: { attachments?: { id: string; name: string; path: string; size: number }[]; regenerate?: boolean; agentId?: string }
   ) => ipcRenderer.invoke('chat:send-message', conversationId, content, options),
   onStreamResponse: (callback: (chunk: string | null) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, chunk: string | null) =>
@@ -62,10 +62,17 @@ const api = {
 
   // Agents
   listAgents: () => ipcRenderer.invoke('agent:list'),
+  getAgent: (id: string) => ipcRenderer.invoke('agent:get', id),
   createAgent: (config: unknown) => ipcRenderer.invoke('agent:create', config),
   updateAgent: (id: string, config: unknown) =>
     ipcRenderer.invoke('agent:update', id, config),
   deleteAgent: (id: string) => ipcRenderer.invoke('agent:delete', id),
+  duplicateAgent: (id: string) => ipcRenderer.invoke('agent:duplicate', id),
+  exportAgent: (id: string) => ipcRenderer.invoke('agent:export', id),
+  importAgent: () => ipcRenderer.invoke('agent:import'),
+
+  // Directories
+  openDirectoryDialog: () => ipcRenderer.invoke('file:open-directory-dialog'),
 
   // System events
   onNewChat: (callback: () => void) => {

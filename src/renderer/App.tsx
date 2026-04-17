@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Sidebar } from './components/Sidebar'
 import { ChatWindow } from './components/ChatWindow'
+import { AgentPanel } from './components/AgentPanel'
 
 interface Conversation {
   id: string
@@ -8,6 +9,23 @@ interface Conversation {
   title: string
   created_at: number
   updated_at: number
+}
+
+interface AgentConfig {
+  id: string
+  name: string
+  icon: string
+  systemPrompt: string
+  model: string
+  temperature: number
+  maxTokens: number
+  contextDirectories: string[]
+  contextFiles: string[]
+  mcpServers: string[]
+  agenticMode: boolean
+  tools: { fileEdit: boolean; terminal: boolean; webFetch: boolean }
+  responseFormat: string
+  isDefault?: boolean
 }
 
 interface AuthState {
@@ -27,6 +45,10 @@ export default function App() {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [authState, setAuthState] = useState<AuthState>({ authenticated: false, user: null })
   const [cliState, setCliState] = useState<CliState | null>(null)
+  const [agents, setAgents] = useState<AgentConfig[]>([])
+  const [activeAgentId, setActiveAgentId] = useState<string | null>(null)
+  const [showAgentPanel, setShowAgentPanel] = useState(false)
+  const [editingAgentId, setEditingAgentId] = useState<string | null>(null)
 
   // Load persisted theme on mount
   useEffect(() => {
@@ -52,6 +74,15 @@ export default function App() {
     loadConversations()
   }, [loadConversations])
 
+  // Load agents
+  const loadAgents = useCallback(() => {
+    window.api.listAgents().then(setAgents)
+  }, [])
+
+  useEffect(() => {
+    loadAgents()
+  }, [loadAgents])
+
   const toggleTheme = () => {
     const next = theme === 'dark' ? 'light' : 'dark'
     setTheme(next)
@@ -65,7 +96,6 @@ export default function App() {
 
   const handleConversationCreated = (id: string) => {
     setCurrentConversationId(id)
-    // Refresh sidebar after a short delay to let the DB write complete
     setTimeout(loadConversations, 200)
   }
 
@@ -89,6 +119,57 @@ export default function App() {
     setAuthState({ authenticated: false, user: null })
   }
 
+  // Agent panel handlers
+  const handleCreateAgent = () => {
+    setEditingAgentId(null)
+    setShowAgentPanel(true)
+  }
+
+  const handleEditAgent = (id: string) => {
+    setEditingAgentId(id)
+    setShowAgentPanel(true)
+  }
+
+  const handleSaveAgent = async (config: AgentConfig) => {
+    if (config.id && editingAgentId) {
+      await window.api.updateAgent(config.id, config)
+    } else {
+      const result = await window.api.createAgent(config)
+      if (result && !activeAgentId) {
+        setActiveAgentId(result.id)
+      }
+    }
+    loadAgents()
+    setShowAgentPanel(false)
+  }
+
+  const handleDeleteAgent = async (id: string) => {
+    const success = await window.api.deleteAgent(id)
+    if (success) {
+      if (activeAgentId === id) setActiveAgentId(null)
+      loadAgents()
+      setShowAgentPanel(false)
+    }
+  }
+
+  const handleDuplicateAgent = async (id: string) => {
+    await window.api.duplicateAgent(id)
+    loadAgents()
+    setShowAgentPanel(false)
+  }
+
+  const handleExportAgent = async (id: string) => {
+    await window.api.exportAgent(id)
+  }
+
+  const handleImportAgent = async () => {
+    const result = await window.api.importAgent()
+    if (result) loadAgents()
+  }
+
+  const editingAgent = editingAgentId ? agents.find((a) => a.id === editingAgentId) ?? null : null
+  const activeAgent = activeAgentId ? agents.find((a) => a.id === activeAgentId) ?? null : null
+
   return (
     <div className={`flex h-screen w-screen ${theme === 'dark' ? 'dark' : ''}`}>
       <Sidebar
@@ -103,6 +184,12 @@ export default function App() {
         authState={authState}
         onLogin={handleLogin}
         onLogout={handleLogout}
+        agents={agents}
+        activeAgentId={activeAgentId}
+        onSelectAgent={setActiveAgentId}
+        onEditAgent={handleEditAgent}
+        onCreateAgent={handleCreateAgent}
+        onImportAgent={handleImportAgent}
       />
       <main className="flex-1 flex flex-col bg-white dark:bg-gray-900">
         <header className="flex items-center justify-between px-4 py-2 border-b border-gray-200 dark:border-gray-700">
@@ -110,6 +197,11 @@ export default function App() {
             <h1 className="text-sm font-semibold text-gray-700 dark:text-gray-200">
               Copilot Desktop Hub
             </h1>
+            {activeAgent && (
+              <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                {activeAgent.icon} {activeAgent.name}
+              </span>
+            )}
             {cliState && !cliState.installed && (
               <span className="text-xs px-2 py-0.5 rounded bg-yellow-100 dark:bg-yellow-900 text-yellow-700 dark:text-yellow-300">
                 Copilot CLI not found
@@ -143,8 +235,21 @@ export default function App() {
           conversationId={currentConversationId}
           onConversationCreated={handleConversationCreated}
           onRefresh={loadConversations}
+          activeAgentId={activeAgentId}
+          activeAgent={activeAgent}
         />
       </main>
+
+      {showAgentPanel && (
+        <AgentPanel
+          agent={editingAgent}
+          onSave={handleSaveAgent}
+          onClose={() => setShowAgentPanel(false)}
+          onDelete={handleDeleteAgent}
+          onDuplicate={handleDuplicateAgent}
+          onExport={handleExportAgent}
+        />
+      )}
     </div>
   )
 }

@@ -5,6 +5,7 @@ import { readFileSync, statSync } from 'fs'
 import { basename } from 'path'
 import { sendCopilotMessage, stopGeneration } from './copilot'
 import { checkCliOnStartup } from './cli-detection'
+import { registerAgentHandlers, getAgentConfig } from './agents'
 
 export function registerIpcHandlers(): void {
   registerSettingsHandlers()
@@ -12,6 +13,7 @@ export function registerIpcHandlers(): void {
   registerChatHandlers()
   registerMessageHandlers()
   registerFileHandlers()
+  registerAgentHandlers()
 }
 
 function registerSettingsHandlers(): void {
@@ -131,6 +133,7 @@ function registerChatHandlers(): void {
       options?: {
         attachments?: { id: string; name: string; path: string; size: number }[]
         regenerate?: boolean
+        agentId?: string
       }
     ) => {
       const window = BrowserWindow.fromWebContents(event.sender)
@@ -138,6 +141,7 @@ function registerChatHandlers(): void {
 
       const attachments = options?.attachments
       const regenerate = options?.regenerate === true
+      const agentId = options?.agentId
 
       if (!regenerate) {
         // Ensure conversation exists, create if needed
@@ -150,7 +154,7 @@ function registerChatHandlers(): void {
           const title = content.slice(0, 80) + (content.length > 80 ? '...' : '')
           db.prepare(
             'INSERT INTO conversations (id, agent_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
-          ).run(conversationId, null, title, now, now)
+          ).run(conversationId, agentId ?? null, title, now, now)
         }
 
         // Save user message
@@ -193,6 +197,17 @@ function registerChatHandlers(): void {
           }
         }
         augmentedContent = fileContext + content
+      }
+
+      // Look up agent system prompt for this conversation
+      const convRow = db
+        .prepare('SELECT agent_id FROM conversations WHERE id = ?')
+        .get(conversationId) as { agent_id: string | null } | undefined
+      if (convRow?.agent_id) {
+        const agentCfg = getAgentConfig(convRow.agent_id)
+        if (agentCfg?.systemPrompt) {
+          augmentedContent = `[System Instructions]\n${agentCfg.systemPrompt}\n[/System Instructions]\n\n${augmentedContent}`
+        }
       }
 
       let responseContent: string
