@@ -41,7 +41,7 @@ describe('SettingsPanel — General Tab', () => {
   it('set-r-1: theme toggle switches between light and dark', async () => {
     render(<SettingsPanel />)
 
-    const themeBtn = screen.getByText('☀️ Light')
+    const themeBtn = screen.getByText('Light')
     await user.click(themeBtn)
     expect(mockStore.toggleTheme).toHaveBeenCalledTimes(1)
   })
@@ -51,7 +51,7 @@ describe('SettingsPanel — General Tab', () => {
     setupStoreMock(useAppStore, mockStore)
 
     render(<SettingsPanel />)
-    expect(screen.getByText('🌙 Dark')).toBeInTheDocument()
+    expect(screen.getByText('Dark')).toBeInTheDocument()
   })
 
   it('set-r-2: auto-start toggle calls setAutoStart', async () => {
@@ -67,7 +67,7 @@ describe('SettingsPanel — General Tab', () => {
   it('set-r-9: "Configure" MCP button opens MCP panel', async () => {
     render(<SettingsPanel />)
 
-    await user.click(screen.getByText('🔌 Configure'))
+    await user.click(screen.getByText('Configure'))
     expect(mockStore.setShowSettings).toHaveBeenCalledWith(false)
     expect(mockStore.setShowMcpPanel).toHaveBeenCalledWith(true)
   })

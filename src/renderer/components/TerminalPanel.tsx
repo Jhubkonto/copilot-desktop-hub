@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
+import { X } from 'lucide-react'
 import '@xterm/xterm/css/xterm.css'
 
 interface TerminalPanelProps {
@@ -52,7 +53,6 @@ export function TerminalPanel({ visible, onClose }: TerminalPanelProps) {
     term.loadAddon(fitAddon)
     term.open(containerRef.current)
 
-    // Delay fit to ensure container has dimensions
     requestAnimationFrame(() => {
       fitAddon.fit()
     })
@@ -61,17 +61,14 @@ export function TerminalPanel({ visible, onClose }: TerminalPanelProps) {
     fitRef.current = fitAddon
     initializedRef.current = true
 
-    // Create terminal session in main process
     const termId = crypto.randomUUID()
     termIdRef.current = termId
     ;window.api.createTerminal(termId)
 
-    // Forward user input to main process
     term.onData((data: string) => {
       ;window.api.writeTerminal(termId, data)
     })
 
-    // Receive output from main process
     const unsubscribe = window.api.onTerminalData(
       (id: string, data: string) => {
         if (id === termId) {
@@ -80,7 +77,6 @@ export function TerminalPanel({ visible, onClose }: TerminalPanelProps) {
       }
     )
 
-    // Receive exit events
     const unsubscribeExit = window.api.onTerminalExit(
       (id: string, code: number | null) => {
         if (id === termId) {
@@ -89,7 +85,6 @@ export function TerminalPanel({ visible, onClose }: TerminalPanelProps) {
       }
     )
 
-    // Handle resize
     const resizeObserver = new ResizeObserver(() => {
       try {
         fitAddon.fit()
@@ -112,7 +107,6 @@ export function TerminalPanel({ visible, onClose }: TerminalPanelProps) {
     }
   }, [visible])
 
-  // Re-fit when visibility changes
   useEffect(() => {
     if (visible && fitRef.current) {
       requestAnimationFrame(() => {
@@ -128,16 +122,17 @@ export function TerminalPanel({ visible, onClose }: TerminalPanelProps) {
       className="border-t border-gray-200 dark:border-gray-700"
       style={{ height: '250px', backgroundColor: '#1e1e2e' }}
     >
-      <div className="flex items-center justify-between px-3 py-1 bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+      <div className="flex items-center justify-between px-3 py-1 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
         <span className="text-xs font-medium text-gray-600 dark:text-gray-300">
           Terminal
         </span>
         <button
           onClick={onClose}
-          className="text-xs text-gray-400 hover:text-red-500 transition-colors px-1"
+          className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
           title="Close terminal"
+          aria-label="Close terminal"
         >
-          ✕
+          <X className="w-3.5 h-3.5" />
         </button>
       </div>
       <div ref={containerRef} className="h-[calc(100%-28px)] w-full" />

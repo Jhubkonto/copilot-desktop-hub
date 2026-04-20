@@ -99,8 +99,8 @@ describe('McpServerPanel — CRUD Operations', () => {
     mockApi.listMcpServers = vi.fn().mockResolvedValue([])
     render(<McpServerPanel />)
 
-    await waitFor(() => expect(screen.getByText('+ Add MCP Server')).toBeInTheDocument())
-    await user.click(screen.getByText('+ Add MCP Server'))
+    await waitFor(() => expect(screen.getByText('Add MCP Server')).toBeInTheDocument())
+    await user.click(screen.getByText('Add MCP Server'))
 
     expect(screen.getByPlaceholderText('My MCP Server')).toBeInTheDocument()
     expect(screen.getByText('Add Server')).toBeInTheDocument()
@@ -110,8 +110,8 @@ describe('McpServerPanel — CRUD Operations', () => {
     mockApi.listMcpServers = vi.fn().mockResolvedValue([])
     render(<McpServerPanel />)
 
-    await waitFor(() => expect(screen.getByText('+ Add MCP Server')).toBeInTheDocument())
-    await user.click(screen.getByText('+ Add MCP Server'))
+    await waitFor(() => expect(screen.getByText('Add MCP Server')).toBeInTheDocument())
+    await user.click(screen.getByText('Add MCP Server'))
 
     await user.type(screen.getByPlaceholderText('My MCP Server'), 'Test Server')
     await user.type(screen.getByPlaceholderText('npx'), 'node')
@@ -162,8 +162,8 @@ describe('McpServerPanel — Error Handling', () => {
     mockApi.listMcpServers = vi.fn().mockResolvedValue([])
     render(<McpServerPanel />)
 
-    await waitFor(() => expect(screen.getByText('+ Add MCP Server')).toBeInTheDocument())
-    await user.click(screen.getByText('+ Add MCP Server'))
+    await waitFor(() => expect(screen.getByText('Add MCP Server')).toBeInTheDocument())
+    await user.click(screen.getByText('Add MCP Server'))
 
     await user.type(screen.getByPlaceholderText('My MCP Server'), 'Test')
     await user.type(screen.getByPlaceholderText('npx'), 'node')
@@ -237,7 +237,7 @@ describe('McpServerPanel — JSON Import', () => {
   it('close button calls setShowMcpPanel(false)', async () => {
     render(<McpServerPanel />)
 
-    await user.click(screen.getByText('✕'))
+    await user.click(screen.getByLabelText('Close MCP panel'))
     expect(mockStore.setShowMcpPanel).toHaveBeenCalledWith(false)
   })
 })

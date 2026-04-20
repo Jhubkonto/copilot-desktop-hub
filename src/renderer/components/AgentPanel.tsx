@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { X, Settings, Folder, FileText, Plus } from 'lucide-react'
 import { useAppStore, type AgentConfig } from '../store/app-store'
 
 const EMPTY_AGENT: Omit<AgentConfig, 'id'> = {
@@ -110,7 +111,7 @@ export function AgentPanel() {
       <div className="w-[440px] bg-white dark:bg-gray-900 shadow-xl flex flex-col border-l border-gray-200 dark:border-gray-700">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">
+          <h2 className="text-sm font-medium text-gray-800 dark:text-gray-100">
             {isEditing ? 'Edit Agent' : 'Create Agent'}
           </h2>
           <div className="flex items-center gap-2">
@@ -118,17 +119,20 @@ export function AgentPanel() {
               onClick={() => setTab(tab === 'settings' ? 'json' : 'settings')}
               className={`text-xs px-2 py-1 rounded ${
                 tab === 'json'
-                  ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
+                  ? 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200'
                   : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
               }`}
             >
-              {tab === 'json' ? '⚙ Settings' : '{ } JSON'}
+              <span className="flex items-center gap-1">
+                {tab === 'json' ? <><Settings className="w-3 h-3" /> Settings</> : '{ } JSON'}
+              </span>
             </button>
             <button
               onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-lg"
+              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+              aria-label="Close agent panel"
             >
-              ✕
+              <X className="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -167,7 +171,7 @@ export function AgentPanel() {
                       onClick={() => updateField('icon', emoji)}
                       className={`w-8 h-8 rounded text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
                         config.icon === emoji
-                          ? 'bg-blue-100 dark:bg-blue-900/40 ring-1 ring-blue-400'
+                          ? 'bg-gray-200 dark:bg-gray-700 ring-1 ring-gray-400'
                           : ''
                       }`}
                     >
@@ -317,13 +321,14 @@ export function AgentPanel() {
                         className="flex items-center gap-2 px-2 py-1 rounded bg-gray-50 dark:bg-gray-800 text-xs text-gray-600 dark:text-gray-400"
                       >
                         <span className="flex-1 truncate" title={dir}>
-                          📁 {dir}
+                          <Folder className="w-3 h-3 inline mr-1" />{dir}
                         </span>
                         <button
                           onClick={() => removeContextDir(i)}
-                          className="text-gray-400 hover:text-red-500"
+                          className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+                          aria-label="Remove directory"
                         >
-                          ✕
+                          <X className="w-3 h-3" />
                         </button>
                       </div>
                     ))}
@@ -331,9 +336,10 @@ export function AgentPanel() {
                 )}
                 <button
                   onClick={handleAddDirectories}
-                  className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                  className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                 >
-                  + Add Directory
+                  <Plus className="w-3 h-3" />
+                  Add Directory
                 </button>
               </div>
 
@@ -350,13 +356,14 @@ export function AgentPanel() {
                         className="flex items-center gap-2 px-2 py-1 rounded bg-gray-50 dark:bg-gray-800 text-xs text-gray-600 dark:text-gray-400"
                       >
                         <span className="flex-1 truncate" title={file}>
-                          📄 {file}
+                          <FileText className="w-3 h-3 inline mr-1" />{file}
                         </span>
                         <button
                           onClick={() => removeContextFile(i)}
-                          className="text-gray-400 hover:text-red-500"
+                          className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+                          aria-label="Remove file"
                         >
-                          ✕
+                          <X className="w-3 h-3" />
                         </button>
                       </div>
                     ))}
@@ -364,9 +371,10 @@ export function AgentPanel() {
                 )}
                 <button
                   onClick={handleAddFiles}
-                  className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                  className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                 >
-                  + Add Files
+                  <Plus className="w-3 h-3" />
+                  Add Files
                 </button>
               </div>
             </>
@@ -388,7 +396,7 @@ export function AgentPanel() {
               )}
               <button
                 onClick={handleJsonSave}
-                className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                className="text-xs px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 transition-colors"
               >
                 Apply JSON
               </button>
@@ -428,7 +436,7 @@ export function AgentPanel() {
             <button
               onClick={handleSave}
               disabled={!config.name.trim()}
-              className="text-xs px-4 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="text-xs px-4 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {isEditing ? 'Save' : 'Create'}
             </button>

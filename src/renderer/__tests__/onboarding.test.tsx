@@ -25,7 +25,7 @@ describe('OnboardingModal — Welcome Step', () => {
     render(<OnboardingModal onComplete={vi.fn()} />)
 
     await user.click(screen.getByText('Get Started'))
-    expect(screen.getByText('Sign in with GitHub')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Sign in with GitHub' })).toBeInTheDocument()
   })
 })
 
@@ -34,7 +34,7 @@ describe('OnboardingModal — Auth Step', () => {
     render(<OnboardingModal onComplete={vi.fn()} />)
 
     await user.click(screen.getByText('Get Started'))
-    expect(screen.getByText('🔑 Sign in with GitHub')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Sign in with GitHub' })).toBeInTheDocument()
     expect(screen.getByText('Skip for now')).toBeInTheDocument()
   })
 
@@ -64,7 +64,7 @@ describe('OnboardingModal — Auth Step', () => {
     render(<OnboardingModal onComplete={vi.fn()} />)
 
     await user.click(screen.getByText('Get Started'))
-    await user.click(screen.getByText('🔑 Sign in with GitHub'))
+    await user.click(screen.getByRole('button', { name: 'Sign in with GitHub' }))
 
     expect(mockApi.authLogin).toHaveBeenCalledTimes(1)
   })
@@ -79,7 +79,7 @@ describe('OnboardingModal — Auth Step', () => {
     render(<OnboardingModal onComplete={vi.fn()} />)
 
     await user.click(screen.getByText('Get Started'))
-    await user.click(screen.getByText('🔑 Sign in with GitHub'))
+    await user.click(screen.getByRole('button', { name: 'Sign in with GitHub' }))
 
     expect(screen.getByText('Waiting for browser...')).toBeInTheDocument()
 
@@ -91,7 +91,7 @@ describe('OnboardingModal — Auth Step', () => {
     render(<OnboardingModal onComplete={vi.fn()} />)
 
     await user.click(screen.getByText('Get Started'))
-    expect(screen.getByText('Sign in with GitHub')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Sign in with GitHub' })).toBeInTheDocument()
 
     await user.click(screen.getByText('Back'))
     expect(screen.getByText('Welcome to Copilot Desktop Hub')).toBeInTheDocument()
@@ -140,7 +140,7 @@ describe('OnboardingModal — CLI Step', () => {
     await user.click(screen.getByText('Skip for now'))
     await user.click(screen.getByText('Back'))
 
-    expect(screen.getByText('Sign in with GitHub')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Sign in with GitHub' })).toBeInTheDocument()
   })
 
   it('continue button navigates to done step', async () => {
@@ -183,9 +183,9 @@ describe('OnboardingModal — Done Step', () => {
   it('progress dots show correct active step', async () => {
     const { container } = render(<OnboardingModal onComplete={vi.fn()} />)
 
-    // On welcome step, first dot should be active (blue)
+    // On welcome step, first dot should be active (dark gray primary)
     const dots = container.querySelectorAll('.rounded-full')
-    expect(dots[0].className).toContain('bg-blue-500')
-    expect(dots[1].className).not.toContain('bg-blue-500')
+    expect(dots[0].className).toContain('bg-gray-900')
+    expect(dots[1].className).not.toContain('bg-gray-900')
   })
 })

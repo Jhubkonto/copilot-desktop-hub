@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { Check, X, Info } from 'lucide-react'
 
 export interface Toast {
   id: string
@@ -33,31 +34,25 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
     return () => clearTimeout(timer)
   }, [toast.id, onDismiss])
 
-  const bgColor = {
-    success: 'bg-green-600',
-    error: 'bg-red-600',
-    info: 'bg-blue-600'
-  }[toast.type]
-
-  const icon = {
-    success: '✓',
-    error: '✕',
-    info: 'ℹ'
+  const IconComponent = {
+    success: Check,
+    error: X,
+    info: Info
   }[toast.type]
 
   return (
     <div
-      className={`pointer-events-auto flex items-center gap-2 px-4 py-2.5 rounded-lg shadow-lg text-white text-sm ${bgColor} animate-slide-in`}
+      className="pointer-events-auto flex items-center gap-2 px-4 py-2.5 rounded-lg shadow-lg text-sm bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 animate-slide-in"
       role="alert"
     >
-      <span className="font-bold">{icon}</span>
+      <IconComponent className="w-4 h-4 shrink-0" />
       <span>{toast.message}</span>
       <button
         onClick={() => onDismiss(toast.id)}
-        className="ml-2 text-white/70 hover:text-white"
+        className="ml-2 text-white/70 dark:text-gray-900/50 hover:text-white dark:hover:text-gray-900"
         aria-label="Dismiss"
       >
-        ×
+        <X className="w-3.5 h-3.5" />
       </button>
     </div>
   )

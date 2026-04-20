@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { X, Sun, Moon, Plug } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 
 interface ProviderInfo {
@@ -92,9 +93,9 @@ export function SettingsPanel() {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-label="Settings">
       <div className="w-full max-w-lg bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 max-h-[80vh] flex flex-col">
         <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">⚙ Settings</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-red-500 transition-colors" aria-label="Close settings">
-            ✕
+          <h2 className="text-sm font-medium text-gray-800 dark:text-gray-100">Settings</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700" aria-label="Close settings">
+            <X className="w-4 h-4" />
           </button>
         </div>
 
@@ -106,7 +107,7 @@ export function SettingsPanel() {
               onClick={() => setTab(t)}
               className={`flex-1 text-xs py-2 font-medium transition-colors ${
                 tab === t
-                  ? 'text-blue-600 border-b-2 border-blue-600'
+                  ? 'text-gray-900 dark:text-gray-100 border-b-2 border-gray-900 dark:border-gray-100'
                   : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
               }`}
             >
@@ -128,7 +129,10 @@ export function SettingsPanel() {
                   onClick={toggleTheme}
                   className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
                 >
-                  {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
+                  <span className="flex items-center gap-1.5">
+                    {theme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+                    {theme === 'dark' ? 'Light' : 'Dark'}
+                  </span>
                 </button>
               </div>
 
@@ -181,7 +185,10 @@ export function SettingsPanel() {
                   onClick={onOpenMcp}
                   className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
                 >
-                  🔌 Configure
+                  <span className="flex items-center gap-1.5">
+                    <Plug className="w-3.5 h-3.5" />
+                    Configure
+                  </span>
                 </button>
               </div>
             </>
@@ -198,11 +205,11 @@ export function SettingsPanel() {
                         {provider.label}
                       </span>
                       {provider.name === 'copilot' ? (
-                        <span className="text-xs px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
                           Default
                         </span>
                       ) : provider.configured ? (
-                        <span className="text-xs px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300">
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
                           ✓ Configured
                         </span>
                       ) : (
@@ -279,7 +286,7 @@ export function SettingsPanel() {
                         <button
                           onClick={handleSaveKey}
                           disabled={!apiKeyInput.trim()}
-                          className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 font-medium"
+                          className="text-xs px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 disabled:opacity-50 font-medium"
                         >
                           Save Key
                         </button>

@@ -37,13 +37,13 @@ describe('SearchBar', () => {
   it('shows clear button when query is non-empty', () => {
     render(<SearchBar onSearch={vi.fn()} />)
 
-    expect(screen.queryByText('✕')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Clear search')).not.toBeInTheDocument()
 
     fireEvent.change(screen.getByPlaceholderText('Search conversations...'), {
       target: { value: 'test' }
     })
 
-    expect(screen.getByText('✕')).toBeInTheDocument()
+    expect(screen.getByLabelText('Clear search')).toBeInTheDocument()
   })
 
   it('clear button resets the query', () => {
@@ -53,7 +53,7 @@ describe('SearchBar', () => {
     const input = screen.getByPlaceholderText('Search conversations...') as HTMLInputElement
     fireEvent.change(input, { target: { value: 'query' } })
 
-    fireEvent.click(screen.getByText('✕'))
+    fireEvent.click(screen.getByLabelText('Clear search'))
 
     expect(input.value).toBe('')
 

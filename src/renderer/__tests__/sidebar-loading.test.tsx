@@ -95,7 +95,7 @@ describe('Sidebar — Loading States', () => {
     setupStoreMock(useAppStore, mockStore)
 
     render(<Sidebar />)
-    expect(screen.getByText('⏳ Signing in...')).toBeInTheDocument()
+    expect(screen.getByText('Signing in...')).toBeInTheDocument()
   })
 
   it('shows sign-in button when not loading', () => {
@@ -106,6 +106,6 @@ describe('Sidebar — Loading States', () => {
     setupStoreMock(useAppStore, mockStore)
 
     render(<Sidebar />)
-    expect(screen.getByText('🔑 Sign in with GitHub')).toBeInTheDocument()
+    expect(screen.getByText('Sign in with GitHub')).toBeInTheDocument()
   })
 })

@@ -52,6 +52,7 @@
     "better-sqlite3": "^12.9.0",
     "electron-updater": "^6.8.3",
     "immer": "^11.1.4",
+    "lucide-react": "^1.8.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-markdown": "^9.0.0",

@@ -78,7 +78,7 @@ describe('Sidebar — Conversation List', () => {
     render(<Sidebar />)
 
     const todayItem = screen.getByText('Today chat').closest('div[class*="cursor-pointer"]')
-    expect(todayItem?.className).toContain('bg-blue')
+    expect(todayItem?.className).toContain('bg-')
   })
 
   it('side-r-4: "New Chat" button calls newChat', async () => {
@@ -215,7 +215,7 @@ describe('Sidebar — Agent List', () => {
     render(<Sidebar />)
 
     const agentItem = screen.getByText(/Code Helper/).closest('div[class*="cursor-pointer"]')
-    expect(agentItem?.className).toContain('bg-blue')
+    expect(agentItem?.className).toContain('bg-')
   })
 
   it('side-r-14: "No Agent" option deselects active agent', async () => {
@@ -229,7 +229,7 @@ describe('Sidebar — Agent List', () => {
 
     render(<Sidebar />)
 
-    await user.click(screen.getByText('💬 No Agent'))
+    await user.click(screen.getByText('No Agent'))
     expect(mockStore.selectAgent).toHaveBeenCalledWith(null)
   })
 

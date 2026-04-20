@@ -225,7 +225,7 @@ describe('ChatWindow — File Attachments', () => {
       expect(screen.getByText(/test\.ts/)).toBeInTheDocument()
     })
 
-    const removeBtn = screen.getByText('✕')
+    const removeBtn = screen.getByLabelText(/Remove/)
     await user.click(removeBtn)
 
     expect(screen.queryByText(/test\.ts/)).not.toBeInTheDocument()

@@ -1,4 +1,5 @@
 import { useEffect, lazy, Suspense } from 'react'
+import { Settings, AlertTriangle } from 'lucide-react'
 import { Sidebar } from './components/Sidebar'
 import { ChatWindow } from './components/ChatWindow'
 import { ToolApproval } from './components/ToolApproval'
@@ -86,56 +87,58 @@ export default function App() {
     <div className={`flex h-screen w-screen ${theme === 'dark' ? 'dark' : ''}`} role="application">
       <Sidebar />
       <main className="flex-1 flex flex-col bg-white dark:bg-gray-900" role="main">
-        <header className="flex items-center justify-between px-4 py-2 border-b border-gray-200 dark:border-gray-700" role="banner">
+        <header className="flex items-center justify-between px-4 py-2 border-b border-gray-200 dark:border-gray-700/80" role="banner">
           <div className="flex items-center gap-3">
-            <h1 className="text-sm font-semibold text-gray-700 dark:text-gray-200">
+            <h1 className="text-sm font-medium text-gray-700 dark:text-gray-200">
               Copilot Desktop Hub
             </h1>
             {activeAgent && (
-              <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800" aria-label={`Active agent: ${activeAgent.name}`}>
+              <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700" aria-label={`Active agent: ${activeAgent.name}`}>
                 {activeAgent.icon} {activeAgent.name}
               </span>
             )}
             {cliState && !cliState.installed && (
-              <span className="text-xs px-2 py-0.5 rounded bg-yellow-100 dark:bg-yellow-900 text-yellow-700 dark:text-yellow-300">
-                Copilot CLI not found
+              <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
+                <AlertTriangle className="w-3 h-3" />
+                CLI not found
               </span>
             )}
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowSettings(true)}
-              className="text-xs px-3 py-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
               title="Settings"
               aria-label="Open settings"
             >
-              ⚙️ Settings
+              <Settings className="w-3.5 h-3.5" />
+              Settings
             </button>
           </div>
         </header>
 
         {/* Update notification banner */}
         {updateAvailable && !updateDownloaded && (
-          <div className="mx-4 mt-2 p-2 rounded-lg bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 flex items-center justify-between" role="alert">
-            <p className="text-xs text-blue-700 dark:text-blue-300">
+          <div className="mx-4 mt-2 p-2 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-between" role="alert">
+            <p className="text-xs text-gray-600 dark:text-gray-300">
               Update v{updateAvailable.version} is available
             </p>
             <button
               onClick={() => window.api.downloadUpdate()}
-              className="text-xs px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700"
+              className="text-xs px-2 py-1 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200"
             >
               Download
             </button>
           </div>
         )}
         {updateDownloaded && (
-          <div className="mx-4 mt-2 p-2 rounded-lg bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 flex items-center justify-between" role="alert">
-            <p className="text-xs text-green-700 dark:text-green-300">
+          <div className="mx-4 mt-2 p-2 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-between" role="alert">
+            <p className="text-xs text-gray-600 dark:text-gray-300">
               Update downloaded — restart to install
             </p>
             <button
               onClick={() => window.api.installUpdate()}
-              className="text-xs px-2 py-1 rounded bg-green-600 text-white hover:bg-green-700"
+              className="text-xs px-2 py-1 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200"
             >
               Restart
             </button>
@@ -143,13 +146,13 @@ export default function App() {
         )}
 
         {cliState && !cliState.installed && (
-          <div className="mx-4 mt-3 p-3 rounded-lg bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800">
-            <p className="text-sm font-medium text-yellow-800 dark:text-yellow-200">
+          <div className="mx-4 mt-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-200">
               GitHub Copilot CLI not detected
             </p>
-            <p className="text-xs text-yellow-700 dark:text-yellow-300 mt-1">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
               Install it with{' '}
-              <code className="px-1 py-0.5 bg-yellow-100 dark:bg-yellow-800 rounded text-xs">
+              <code className="px-1 py-0.5 bg-gray-100 dark:bg-gray-700 rounded text-xs">
                 npm install -g @githubnext/github-copilot-cli
               </code>{' '}
               then restart the app. Chat will use placeholder responses until the CLI is available.

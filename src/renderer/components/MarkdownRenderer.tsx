@@ -58,7 +58,7 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
             }
             return (
               <code
-                className="!px-1.5 !py-0.5 !rounded !bg-gray-200 dark:!bg-gray-700 !text-sm !font-mono !text-pink-600 dark:!text-pink-400"
+                className="!px-1.5 !py-0.5 !rounded !bg-gray-200 dark:!bg-gray-700 !text-sm !font-mono !text-gray-700 dark:!text-gray-300"
                 {...props}
               >
                 {children}

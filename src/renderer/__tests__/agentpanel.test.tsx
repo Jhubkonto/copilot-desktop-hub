@@ -176,7 +176,7 @@ describe('AgentPanel — Context Management', () => {
     setupEditMode()
     render(<AgentPanel />)
 
-    await user.click(screen.getByText('+ Add Directory'))
+    await user.click(screen.getByText('Add Directory'))
     await user.click(screen.getByText('Save'))
 
     expect(mockStore.saveAgent).toHaveBeenCalledWith(
@@ -321,7 +321,7 @@ describe('AgentPanel — Actions', () => {
 
     const dialog = screen.getByRole('dialog')
     const header = dialog.querySelector('.border-b')!
-    const closeBtn = within(header as HTMLElement).getByText('✕')
+    const closeBtn = within(header as HTMLElement).getByLabelText('Close agent panel')
     await user.click(closeBtn)
     expect(mockStore.closeAgentPanel).toHaveBeenCalledTimes(1)
   })

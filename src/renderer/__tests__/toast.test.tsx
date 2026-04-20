@@ -44,9 +44,10 @@ describe('Toast Component', () => {
       { id: 'i', message: 'Info', type: 'info' }
     ]
     render(<ToastContainer toasts={toasts} onDismiss={vi.fn()} />)
-    expect(screen.getByText('✓')).toBeInTheDocument()
-    expect(screen.getByText('✕')).toBeInTheDocument()
-    expect(screen.getByText('ℹ')).toBeInTheDocument()
+    // Icons are now Lucide SVGs; query by aria-label on dismiss and role on toast
+    const alerts = screen.getAllByRole('alert')
+    expect(alerts).toHaveLength(3)
+    expect(screen.getAllByLabelText('Dismiss')).toHaveLength(3)
   })
 
   it('renders empty when no toasts', () => {

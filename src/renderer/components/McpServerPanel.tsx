@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { Plug, X, RefreshCw, Settings, Trash2, Plus } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 
 interface McpServerConfig {
@@ -80,17 +81,19 @@ function EnvEditor({
           />
           <button
             onClick={() => removeEntry(key)}
-            className="text-xs text-red-400 hover:text-red-600 px-1"
+            className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 px-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+            aria-label="Remove variable"
           >
-            ✕
+            <X className="w-3 h-3" />
           </button>
         </div>
       ))}
       <button
         onClick={addEntry}
-        className="text-xs text-blue-500 hover:text-blue-600"
+        className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
       >
-        + Add variable
+        <Plus className="w-3 h-3" />
+        Add variable
       </button>
     </div>
   )
@@ -232,8 +235,9 @@ export function McpServerPanel() {
       <div className="w-full max-w-xl bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 max-h-[80vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">
-            🔌 MCP Servers
+          <h2 className="text-sm font-medium text-gray-800 dark:text-gray-100 flex items-center gap-1.5">
+            <Plug className="w-4 h-4" />
+            MCP Servers
           </h2>
           <div className="flex items-center gap-2">
             <button
@@ -247,9 +251,10 @@ export function McpServerPanel() {
             </button>
             <button
               onClick={onClose}
-              className="text-gray-400 hover:text-red-500 transition-colors"
+              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+              aria-label="Close MCP panel"
             >
-              ✕
+              <X className="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -272,7 +277,7 @@ export function McpServerPanel() {
               )}
               <button
                 onClick={handleJsonImport}
-                className="w-full text-xs px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 font-medium"
+                className="w-full text-xs px-3 py-2 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 font-medium"
               >
                 Import Servers
               </button>
@@ -289,7 +294,7 @@ export function McpServerPanel() {
                     setEditingServer({ ...editingServer, name: e.target.value })
                   }
                   placeholder="My MCP Server"
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 dark:focus:ring-gray-500"
                 />
               </div>
 
@@ -303,7 +308,7 @@ export function McpServerPanel() {
                     setEditingServer({ ...editingServer, command: e.target.value })
                   }
                   placeholder="npx"
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 dark:focus:ring-gray-500"
                 />
               </div>
 
@@ -320,7 +325,7 @@ export function McpServerPanel() {
                     })
                   }
                   placeholder="-y @modelcontextprotocol/server-github"
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 dark:focus:ring-gray-500"
                 />
               </div>
 
@@ -334,7 +339,7 @@ export function McpServerPanel() {
                     setEditingServer({ ...editingServer, cwd: e.target.value || undefined })
                   }
                   placeholder="(optional)"
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 dark:focus:ring-gray-500"
                 />
               </div>
 
@@ -352,7 +357,7 @@ export function McpServerPanel() {
                 <button
                   onClick={handleSave}
                   disabled={!editingServer.name || !editingServer.command}
-                  className="flex-1 text-xs px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 font-medium"
+                  className="flex-1 text-xs px-3 py-2 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 disabled:opacity-50 font-medium"
                 >
                   {isNew ? 'Add Server' : 'Save Changes'}
                 </button>
@@ -406,8 +411,8 @@ export function McpServerPanel() {
                         onClick={() => handleToggle(server)}
                         className={`text-xs px-2 py-1 rounded ${
                           server.enabled
-                            ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
-                            : 'bg-gray-100 dark:bg-gray-700 text-gray-500'
+                            ? 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 font-medium'
+                            : 'bg-gray-100 dark:bg-gray-800 text-gray-500'
                         }`}
                         title={server.enabled ? 'Disable' : 'Enable'}
                       >
@@ -415,24 +420,27 @@ export function McpServerPanel() {
                       </button>
                       <button
                         onClick={() => handleRestart(server.id)}
-                        className="text-xs px-2 py-1 rounded text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
+                        className="text-xs p-1 rounded text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
                         title="Restart"
+                        aria-label="Restart server"
                       >
-                        ↻
+                        <RefreshCw className="w-3.5 h-3.5" />
                       </button>
                       <button
                         onClick={() => handleEdit(server)}
-                        className="text-xs px-2 py-1 rounded text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
+                        className="text-xs p-1 rounded text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
                         title="Edit"
+                        aria-label="Edit server"
                       >
-                        ⚙
+                        <Settings className="w-3.5 h-3.5" />
                       </button>
                       <button
                         onClick={() => handleDelete(server.id)}
-                        className="text-xs px-2 py-1 rounded text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30"
+                        className="text-xs p-1 rounded text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700"
                         title="Remove"
+                        aria-label="Remove server"
                       >
-                        🗑
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>
@@ -441,9 +449,10 @@ export function McpServerPanel() {
 
               <button
                 onClick={handleNew}
-                className="w-full text-xs px-3 py-2 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-blue-400 hover:text-blue-500 transition-colors"
+                className="w-full flex items-center justify-center gap-1.5 text-xs px-3 py-2 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-gray-400 dark:hover:border-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
               >
-                + Add MCP Server
+                <Plus className="w-3.5 h-3.5" />
+                Add MCP Server
               </button>
             </div>
           )}

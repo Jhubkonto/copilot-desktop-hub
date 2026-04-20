@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { Paperclip, TerminalSquare, Square, Send, X } from 'lucide-react'
 import { MessageBubble } from './MessageBubble'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { useAppStore } from '../store/app-store'
@@ -274,7 +275,7 @@ export function ChatWindow() {
     : -1
 
   const renderInput = () => (
-    <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+    <div className="p-4 border-t border-gray-200 dark:border-gray-700/80">
       <div className="max-w-3xl mx-auto">
         {/* Pending attachments */}
         {pendingAttachments.length > 0 && (
@@ -284,12 +285,14 @@ export function ChatWindow() {
                 key={att.id}
                 className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gray-100 dark:bg-gray-700 text-xs text-gray-700 dark:text-gray-300"
               >
-                📎 {att.name}
+                <Paperclip className="w-3 h-3" />
+                {att.name}
                 <button
                   onClick={() => removeAttachment(att.id)}
-                  className="text-gray-400 hover:text-red-500 ml-0.5"
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 ml-0.5"
+                  aria-label={`Remove ${att.name}`}
                 >
-                  ✕
+                  <X className="w-3 h-3" />
                 </button>
               </span>
             ))}
@@ -300,52 +303,58 @@ export function ChatWindow() {
           <button
             onClick={handleFilePick}
             disabled={isGenerating}
-            className="px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+            className="px-3 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             title="Attach files"
             aria-label="Attach files"
           >
-            📎
+            <Paperclip className="w-4 h-4" />
           </button>
           <button
             onClick={toggleTerminal}
-            className={`px-3 py-2.5 rounded-lg border text-sm transition-colors ${
+            className={`px-3 py-2.5 rounded-lg border transition-colors ${
               showTerminal
-                ? 'border-blue-500 text-blue-500 bg-blue-50 dark:bg-blue-900/30'
-                : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                ? 'border-gray-400 dark:border-gray-500 text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-800'
+                : 'border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
             }`}
             title="Toggle terminal"
             aria-label="Toggle terminal"
             aria-pressed={showTerminal}
           >
-            &gt;_
+            <TerminalSquare className="w-4 h-4" />
           </button>
           <textarea
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={!authenticated ? '🔑 Sign in to start chatting' : isOnline ? 'Type a message...' : '⚠ Offline — reconnect to send messages'}
+            placeholder={!authenticated ? 'Sign in to start chatting' : isOnline ? 'Type a message...' : 'Offline — reconnect to send messages'}
             rows={1}
             disabled={!isOnline || !authenticated}
             aria-label="Message input"
-            className="flex-1 resize-none rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-4 py-2.5 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 resize-none rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-2.5 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-400 dark:focus:ring-gray-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
           />
           {isGenerating ? (
             <button
               onClick={handleStop}
-              className="px-4 py-2.5 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 transition-colors"
+              className="px-4 py-2.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-sm font-medium hover:bg-gray-800 dark:hover:bg-gray-200 transition-colors"
               aria-label="Stop generating"
             >
-              ■ Stop
+              <span className="flex items-center gap-1.5">
+                <Square className="w-3.5 h-3.5" />
+                Stop
+              </span>
             </button>
           ) : (
             <button
               onClick={handleSend}
               disabled={!input.trim() || !isOnline || !authenticated}
-              className="px-4 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="px-4 py-2.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-sm font-medium hover:bg-gray-800 dark:hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               aria-label="Send message"
             >
-              Send
+              <span className="flex items-center gap-1.5">
+                <Send className="w-3.5 h-3.5" />
+                Send
+              </span>
             </button>
           )}
         </div>
@@ -363,7 +372,7 @@ export function ChatWindow() {
       >
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center max-w-md">
-            <h2 className="text-2xl font-semibold text-gray-700 dark:text-gray-200 mb-2">
+            <h2 className="text-2xl font-medium text-gray-700 dark:text-gray-200 mb-2">
               {activeAgent ? `${activeAgent.icon} ${activeAgent.name}` : 'Copilot Desktop Hub'}
             </h2>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
@@ -416,7 +425,7 @@ export function ChatWindow() {
             <div className="flex justify-start">
               <div className="max-w-[80%] bg-gray-100 dark:bg-gray-800 rounded-lg px-4 py-3 text-sm text-gray-900 dark:text-gray-100">
                 <MarkdownRenderer content={streamingContent} />
-                <span className="animate-pulse text-blue-500">▊</span>
+                <span className="animate-pulse text-gray-400">▊</span>
               </div>
             </div>
           )}

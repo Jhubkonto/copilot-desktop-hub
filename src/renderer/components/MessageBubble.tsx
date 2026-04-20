@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Copy, RotateCcw, Pencil } from 'lucide-react'
 import { MarkdownRenderer } from './MarkdownRenderer'
 
 interface Attachment {
@@ -41,8 +42,8 @@ export function MessageBubble({
         <div
           className={`rounded-lg px-4 py-3 text-sm ${
             role === 'user'
-              ? 'bg-blue-600 text-white'
-              : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+              ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+              : 'bg-gray-50 dark:bg-gray-800/50 text-gray-900 dark:text-gray-100'
           }`}
         >
           {attachments && attachments.length > 0 && (
@@ -50,10 +51,10 @@ export function MessageBubble({
               {attachments.map((att) => (
                 <span
                   key={att.id}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-black/10 dark:bg-white/10 text-xs"
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-200/60 dark:bg-gray-700/60 text-xs text-gray-600 dark:text-gray-400"
                 >
-                  📎 {att.name}
-                  <span className="text-xs opacity-60">
+                  {att.name}
+                  <span className="opacity-60">
                     ({formatFileSize(att.size)})
                   </span>
                 </span>
@@ -72,12 +73,12 @@ export function MessageBubble({
           <div
             className={`absolute -bottom-7 ${role === 'user' ? 'right-0' : 'left-0'} flex gap-1 z-20`}
           >
-            <ActionButton icon="📋" label="Copy" onClick={() => onCopy(content)} />
+            <ActionButton icon={Copy} label="Copy" onClick={() => onCopy(content)} />
             {role === 'assistant' && isLastAssistant && onRegenerate && (
-              <ActionButton icon="🔄" label="Regenerate" onClick={onRegenerate} />
+              <ActionButton icon={RotateCcw} label="Regenerate" onClick={onRegenerate} />
             )}
             {role === 'user' && onEdit && (
-              <ActionButton icon="✏️" label="Edit" onClick={onEdit} />
+              <ActionButton icon={Pencil} label="Edit" onClick={onEdit} />
             )}
           </div>
         )}
@@ -87,21 +88,22 @@ export function MessageBubble({
 }
 
 function ActionButton({
-  icon,
+  icon: Icon,
   label,
   onClick
 }: {
-  icon: string
+  icon: React.ComponentType<{ className?: string }>
   label: string
   onClick: () => void
 }) {
   return (
     <button
       onClick={onClick}
-      className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors whitespace-nowrap shadow-sm"
+      className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-200 transition-colors whitespace-nowrap shadow-sm"
       title={label}
+      aria-label={label}
     >
-      <span>{icon}</span>
+      <Icon className="w-3 h-3" />
       <span>{label}</span>
     </button>
   )

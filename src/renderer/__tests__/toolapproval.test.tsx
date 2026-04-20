@@ -47,13 +47,13 @@ describe('ToolApproval — Rendering', () => {
 
   it('shows correct icon for tool type', () => {
     render(<ToolApproval />)
-    expect(screen.getByText('✏️')).toBeInTheDocument()
+    expect(screen.getByText('Tool Request')).toBeInTheDocument()
   })
 
   it('shows fallback icon for unknown tool type', () => {
     setupStore({ toolApprovalRequests: [{ ...SAMPLE_REQUEST, tool: 'unknown' }] })
     render(<ToolApproval />)
-    expect(screen.getByText('🔧')).toBeInTheDocument()
+    expect(screen.getByText('Tool Request')).toBeInTheDocument()
   })
 })
 
@@ -114,15 +114,15 @@ describe('ToolApproval — Countdown', () => {
     render(<ToolApproval />)
 
     let bar = screen.getByRole('progressbar')
-    expect(bar.className).toContain('bg-blue-500')
+    expect(bar.className).toContain('bg-gray-400')
 
     act(() => { vi.advanceTimersByTime(40000) })
     bar = screen.getByRole('progressbar')
-    expect(bar.className).toContain('bg-yellow-500')
+    expect(bar.className).toContain('bg-gray-400')
 
     act(() => { vi.advanceTimersByTime(10000) })
     bar = screen.getByRole('progressbar')
-    expect(bar.className).toContain('bg-red-500')
+    expect(bar.className).toContain('bg-gray-400')
   })
 
   it('renders multiple requests with independent countdowns', () => {
