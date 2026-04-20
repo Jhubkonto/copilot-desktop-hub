@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
+import { useEffect, lazy, Suspense } from 'react'
 import { Sidebar } from './components/Sidebar'
 import { ChatWindow } from './components/ChatWindow'
 import { ToolApproval } from './components/ToolApproval'
-import { ToastContainer, useToasts } from './components/Toast'
+import { ToastContainer } from './components/Toast'
+import { useAppStore } from './store/app-store'
 
 const AgentPanel = lazy(() =>
   import('./components/AgentPanel').then((m) => ({ default: m.AgentPanel }))
@@ -20,63 +21,33 @@ const OnboardingModal = lazy(() =>
   import('./components/OnboardingModal').then((m) => ({ default: m.OnboardingModal }))
 )
 
-interface Conversation {
-  id: string
-  agent_id: string | null
-  title: string
-  created_at: number
-  updated_at: number
-}
-
-interface AgentConfig {
-  id: string
-  name: string
-  icon: string
-  systemPrompt: string
-  model: string
-  temperature: number
-  maxTokens: number
-  contextDirectories: string[]
-  contextFiles: string[]
-  mcpServers: string[]
-  agenticMode: boolean
-  tools: { fileEdit: boolean; terminal: boolean; webFetch: boolean }
-  responseFormat: string
-  isDefault?: boolean
-}
-
-interface AuthState {
-  authenticated: boolean
-  user: { login: string; avatar_url: string; name: string | null } | null
-}
-
-interface CliState {
-  installed: boolean
-  path: string | null
-  version: string | null
-}
-
 export default function App() {
-  const [theme, setTheme] = useState<'light' | 'dark'>('dark')
-  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null)
-  const [conversations, setConversations] = useState<Conversation[]>([])
-  const [authState, setAuthState] = useState<AuthState>({ authenticated: false, user: null })
-  const [cliState, setCliState] = useState<CliState | null>(null)
-  const [agents, setAgents] = useState<AgentConfig[]>([])
-  const [activeAgentId, setActiveAgentId] = useState<string | null>(null)
-  const [showAgentPanel, setShowAgentPanel] = useState(false)
-  const [editingAgentId, setEditingAgentId] = useState<string | null>(null)
-  const [showTerminal, setShowTerminal] = useState(false)
-  const [showMcpPanel, setShowMcpPanel] = useState(false)
-  const [showSettings, setShowSettings] = useState(false)
-  const [showOnboarding, setShowOnboarding] = useState(false)
-  const [updateAvailable, setUpdateAvailable] = useState<{ version: string } | null>(null)
-  const [updateDownloaded, setUpdateDownloaded] = useState(false)
-  const [toolApprovalRequests, setToolApprovalRequests] = useState<
-    { requestId: string; tool: string; args: Record<string, unknown>; description: string }[]
-  >([])
-  const [deviceCode, setDeviceCode] = useState<{ userCode: string; verificationUri: string } | null>(null)
-  const { toasts, addToast, dismissToast } = useToasts()
+  const theme = useAppStore((s) => s.theme)
+  const cliState = useAppStore((s) => s.cliState)
+  const showTerminal = useAppStore((s) => s.showTerminal)
+  const showAgentPanel = useAppStore((s) => s.showAgentPanel)
+  const showSettings = useAppStore((s) => s.showSettings)
+  const showOnboarding = useAppStore((s) => s.showOnboarding)
+  const updateAvailable = useAppStore((s) => s.updateAvailable)
+  const updateDownloaded = useAppStore((s) => s.updateDownloaded)
+  const deviceCode = useAppStore((s) => s.deviceCode)
+  const toasts = useAppStore((s) => s.toasts)
+  const agents = useAppStore((s) => s.agents)
+  const activeAgentId = useAppStore((s) => s.activeAgentId)
+
+  const hydrate = useAppStore((s) => s.hydrate)
+  const setDeviceCode = useAppStore((s) => s.setDeviceCode)
+  const addToolApprovalRequest = useAppStore((s) => s.addToolApprovalRequest)
+  const setUpdateAvailable = useAppStore((s) => s.setUpdateAvailable)
+  const setUpdateDownloaded = useAppStore((s) => s.setUpdateDownloaded)
+  const dismissToast = useAppStore((s) => s.dismissToast)
+  const setShowSettings = useAppStore((s) => s.setShowSettings)
+  const setShowOnboarding = useAppStore((s) => s.setShowOnboarding)
+
+  // Hydrate store on mount
+  useEffect(() => {
+    hydrate()
+  }, [hydrate])
 
   // Listen for device code during auth
   useEffect(() => {
@@ -86,17 +57,17 @@ export default function App() {
       }
     )
     return () => { unsubscribe() }
-  }, [])
+  }, [setDeviceCode])
 
   // Listen for tool approval requests
   useEffect(() => {
     const unsubscribe = window.api.onToolApprovalRequest(
       (data: { requestId: string; tool: string; args: Record<string, unknown>; description: string }) => {
-        setToolApprovalRequests((prev) => [...prev, data])
+        addToolApprovalRequest(data)
       }
     )
     return () => { unsubscribe() }
-  }, [])
+  }, [addToolApprovalRequest])
 
   // Listen for auto-update events
   useEffect(() => {
@@ -107,177 +78,13 @@ export default function App() {
       setUpdateDownloaded(true)
     })
     return () => { unsub1(); unsub2() }
-  }, [])
+  }, [setUpdateAvailable, setUpdateDownloaded])
 
-  // Load persisted theme on mount
-  useEffect(() => {
-    window.api.getTheme().then((savedTheme: string) => {
-      const t = savedTheme === 'light' ? 'light' : 'dark'
-      setTheme(t)
-      document.documentElement.classList.toggle('dark', t === 'dark')
-    })
-  }, [])
-
-  // Check auth status and CLI on mount
-  useEffect(() => {
-    window.api.authStatus().then(setAuthState)
-    window.api.cliStatus().then(setCliState)
-    // Check if onboarding is completed
-    window.api.getSetting('onboarding_complete').then((val: string | null) => {
-      if (val !== 'true') setShowOnboarding(true)
-    })
-  }, [])
-
-  // Load conversations
-  const loadConversations = useCallback(() => {
-    window.api.listConversations().then(setConversations)
-  }, [])
-
-  useEffect(() => {
-    loadConversations()
-  }, [loadConversations])
-
-  // Load agents
-  const loadAgents = useCallback(() => {
-    window.api.listAgents().then(setAgents)
-  }, [])
-
-  useEffect(() => {
-    loadAgents()
-  }, [loadAgents])
-
-  const toggleTheme = () => {
-    const next = theme === 'dark' ? 'light' : 'dark'
-    setTheme(next)
-    document.documentElement.classList.toggle('dark', next === 'dark')
-    window.api.setTheme(next)
-  }
-
-  const handleNewChat = () => {
-    setCurrentConversationId(null)
-  }
-
-  const handleConversationCreated = (id: string) => {
-    setCurrentConversationId(id)
-    setTimeout(loadConversations, 200)
-  }
-
-  const handleDeleteConversation = async (id: string) => {
-    await window.api.deleteConversation(id)
-    if (currentConversationId === id) {
-      setCurrentConversationId(null)
-    }
-    loadConversations()
-  }
-
-  const handleLogin = async () => {
-    try {
-      const result = await window.api.authLogin()
-      setDeviceCode(null)
-      if (result?.error) {
-        const msg = result.error === 'Device code expired'
-          ? 'Login timed out. Please try again.'
-          : result.error
-        addToast(msg, 'error')
-        return
-      }
-      if (result.success) {
-        setAuthState({ authenticated: true, user: result.user ?? null })
-        addToast(`Signed in as ${result.user?.login ?? 'user'}`, 'success')
-      }
-    } catch (err) {
-      setDeviceCode(null)
-      addToast('Login failed. Please try again.', 'error')
-      console.error('Auth login error:', err)
-    }
-  }
-
-  const handleLogout = async () => {
-    await window.api.authLogout()
-    setAuthState({ authenticated: false, user: null })
-  }
-
-  // Agent panel handlers
-  const handleCreateAgent = () => {
-    setEditingAgentId(null)
-    setShowAgentPanel(true)
-  }
-
-  const handleEditAgent = (id: string) => {
-    setEditingAgentId(id)
-    setShowAgentPanel(true)
-  }
-
-  const handleSaveAgent = async (config: AgentConfig) => {
-    if (config.id && editingAgentId) {
-      await window.api.updateAgent(config.id, config)
-    } else {
-      const result = await window.api.createAgent(config)
-      if (result && !activeAgentId) {
-        setActiveAgentId(result.id)
-      }
-    }
-    loadAgents()
-    setShowAgentPanel(false)
-  }
-
-  const handleDeleteAgent = async (id: string) => {
-    const success = await window.api.deleteAgent(id)
-    if (success) {
-      if (activeAgentId === id) setActiveAgentId(null)
-      loadAgents()
-      setShowAgentPanel(false)
-    }
-  }
-
-  const handleDuplicateAgent = async (id: string) => {
-    await window.api.duplicateAgent(id)
-    loadAgents()
-    setShowAgentPanel(false)
-  }
-
-  const handleExportAgent = async (id: string) => {
-    await window.api.exportAgent(id)
-  }
-
-  const handleImportAgent = async () => {
-    const result = await window.api.importAgent()
-    if (result) loadAgents()
-  }
-
-  const handleToolApprovalRespond = async (
-    requestId: string,
-    approved: boolean,
-    remember: boolean
-  ) => {
-    await window.api.respondToToolApproval(requestId, approved, remember)
-    setToolApprovalRequests((prev) => prev.filter((r) => r.requestId !== requestId))
-  }
-
-  const editingAgent = editingAgentId ? agents.find((a) => a.id === editingAgentId) ?? null : null
   const activeAgent = activeAgentId ? agents.find((a) => a.id === activeAgentId) ?? null : null
 
   return (
     <div className={`flex h-screen w-screen ${theme === 'dark' ? 'dark' : ''}`} role="application">
-      <Sidebar
-        currentConversationId={currentConversationId}
-        conversations={conversations}
-        onSelectConversation={(id) => {
-          setCurrentConversationId(id)
-        }}
-        onNewChat={handleNewChat}
-        onDeleteConversation={handleDeleteConversation}
-        onRefresh={loadConversations}
-        authState={authState}
-        onLogin={handleLogin}
-        onLogout={handleLogout}
-        agents={agents}
-        activeAgentId={activeAgentId}
-        onSelectAgent={setActiveAgentId}
-        onEditAgent={handleEditAgent}
-        onCreateAgent={handleCreateAgent}
-        onImportAgent={handleImportAgent}
-      />
+      <Sidebar />
       <main className="flex-1 flex flex-col bg-white dark:bg-gray-900" role="main">
         <header className="flex items-center justify-between px-4 py-2 border-b border-gray-200 dark:border-gray-700" role="banner">
           <div className="flex items-center gap-3">
@@ -350,22 +157,13 @@ export default function App() {
           </div>
         )}
 
-        <ChatWindow
-          conversationId={currentConversationId}
-          onConversationCreated={handleConversationCreated}
-          onRefresh={loadConversations}
-          activeAgentId={activeAgentId}
-          activeAgent={activeAgent}
-          onToggleTerminal={() => setShowTerminal((v) => !v)}
-          showTerminal={showTerminal}
-          authenticated={authState.authenticated}
-        />
+        <ChatWindow />
 
         {showTerminal && (
           <Suspense fallback={null}>
             <TerminalPanel
               visible={showTerminal}
-              onClose={() => setShowTerminal(false)}
+              onClose={() => useAppStore.getState().toggleTerminal()}
             />
           </Suspense>
         )}
@@ -373,31 +171,12 @@ export default function App() {
 
       <Suspense fallback={null}>
         {showAgentPanel && (
-          <AgentPanel
-            agent={editingAgent}
-            onSave={handleSaveAgent}
-            onClose={() => setShowAgentPanel(false)}
-            onDelete={handleDeleteAgent}
-            onDuplicate={handleDuplicateAgent}
-            onExport={handleExportAgent}
-          />
+          <AgentPanel />
         )}
 
-        <McpServerPanel
-          visible={showMcpPanel}
-          onClose={() => setShowMcpPanel(false)}
-        />
+        <McpServerPanel />
 
-        <SettingsPanel
-          visible={showSettings}
-          onClose={() => setShowSettings(false)}
-          theme={theme}
-          toggleTheme={toggleTheme}
-          onOpenMcp={() => {
-            setShowSettings(false)
-            setShowMcpPanel(true)
-          }}
-        />
+        <SettingsPanel />
 
         {showOnboarding && (
           <OnboardingModal
@@ -409,10 +188,7 @@ export default function App() {
         )}
       </Suspense>
 
-      <ToolApproval
-        requests={toolApprovalRequests}
-        onRespond={handleToolApprovalRespond}
-      />
+      <ToolApproval />
 
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 

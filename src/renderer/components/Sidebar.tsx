@@ -1,43 +1,6 @@
 import { useState, useCallback } from 'react'
 import { SearchBar } from './SearchBar'
-
-interface Conversation {
-  id: string
-  agent_id: string | null
-  title: string
-  created_at: number
-  updated_at: number
-}
-
-interface AgentConfig {
-  id: string
-  name: string
-  icon: string
-  isDefault?: boolean
-}
-
-interface AuthState {
-  authenticated: boolean
-  user: { login: string; avatar_url: string; name: string | null } | null
-}
-
-interface SidebarProps {
-  currentConversationId: string | null
-  conversations: Conversation[]
-  onSelectConversation: (id: string) => void
-  onNewChat: () => void
-  onDeleteConversation: (id: string) => void
-  onRefresh: () => void
-  authState: AuthState
-  onLogin: () => void
-  onLogout: () => void
-  agents: AgentConfig[]
-  activeAgentId: string | null
-  onSelectAgent: (id: string | null) => void
-  onEditAgent: (id: string) => void
-  onCreateAgent: () => void
-  onImportAgent: () => void
-}
+import { useAppStore, type Conversation } from '../store/app-store'
 
 interface DateGroup {
   label: string
@@ -69,23 +32,27 @@ function groupByDate(conversations: Conversation[]): DateGroup[] {
   return groups
 }
 
-export function Sidebar({
-  currentConversationId,
-  conversations,
-  onSelectConversation,
-  onNewChat,
-  onDeleteConversation,
-  onRefresh,
-  authState,
-  onLogin,
-  onLogout,
-  agents,
-  activeAgentId,
-  onSelectAgent,
-  onEditAgent,
-  onCreateAgent,
-  onImportAgent
-}: SidebarProps) {
+export function Sidebar() {
+  const currentConversationId = useAppStore((s) => s.currentConversationId)
+  const conversations = useAppStore((s) => s.conversations)
+  const authState = useAppStore((s) => s.authState)
+  const agents = useAppStore((s) => s.agents)
+  const activeAgentId = useAppStore((s) => s.activeAgentId)
+  const authLoading = useAppStore((s) => s.authLoading)
+  const conversationsLoading = useAppStore((s) => s.conversationsLoading)
+  const agentsLoading = useAppStore((s) => s.agentsLoading)
+
+  const selectConversation = useAppStore((s) => s.selectConversation)
+  const newChat = useAppStore((s) => s.newChat)
+  const deleteConversation = useAppStore((s) => s.deleteConversation)
+  const loadConversations = useAppStore((s) => s.loadConversations)
+  const login = useAppStore((s) => s.login)
+  const logout = useAppStore((s) => s.logout)
+  const selectAgent = useAppStore((s) => s.selectAgent)
+  const openEditAgent = useAppStore((s) => s.openEditAgent)
+  const openCreateAgent = useAppStore((s) => s.openCreateAgent)
+  const importAgent = useAppStore((s) => s.importAgent)
+  const addToast = useAppStore((s) => s.addToast)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<Conversation[] | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -107,8 +74,12 @@ export function Sidebar({
 
   const handleRename = async () => {
     if (editingId && editTitle.trim()) {
-      await window.api.renameConversation(editingId, editTitle.trim())
-      onRefresh()
+      try {
+        await window.api.renameConversation(editingId, editTitle.trim())
+        loadConversations()
+      } catch {
+        addToast('Failed to rename conversation', 'error')
+      }
     }
     setEditingId(null)
   }
@@ -126,7 +97,7 @@ export function Sidebar({
             ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
             : 'text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
         }`}
-        onClick={() => onSelectConversation(conv.id)}
+        onClick={() => selectConversation(conv.id)}
       >
         <div className="flex-1 min-w-0">
           {editingId === conv.id ? (
@@ -160,7 +131,7 @@ export function Sidebar({
         <button
           onClick={(e) => {
             e.stopPropagation()
-            onDeleteConversation(conv.id)
+            deleteConversation(conv.id)
           }}
           className="hidden group-hover:block text-gray-400 hover:text-red-500 text-xs ml-1 px-1"
           title="Delete conversation"
@@ -181,7 +152,7 @@ export function Sidebar({
 
       <div className="p-3 space-y-2">
         <button
-          onClick={onNewChat}
+          onClick={newChat}
           className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
         >
           <span>+</span>
@@ -195,7 +166,13 @@ export function Sidebar({
           <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-2 mb-2">
             Agents
           </h3>
-          {agents.length === 0 ? (
+          {agentsLoading ? (
+            <div className="space-y-1 px-2" aria-label="Loading agents">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-7 bg-gray-200 dark:bg-gray-700 rounded-lg animate-pulse" />
+              ))}
+            </div>
+          ) : agents.length === 0 ? (
             <div className="text-xs text-gray-400 dark:text-gray-500 px-2 italic">
               No agents configured
             </div>
@@ -208,7 +185,7 @@ export function Sidebar({
                     ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
                     : 'text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
                 }`}
-                onClick={() => onSelectAgent(null)}
+                onClick={() => selectAgent(null)}
               >
                 <span className="text-xs font-medium">💬 No Agent</span>
               </div>
@@ -220,7 +197,7 @@ export function Sidebar({
                       ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
                       : 'text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
                   }`}
-                  onClick={() => onSelectAgent(agent.id)}
+                  onClick={() => selectAgent(agent.id)}
                 >
                   <span className="text-xs font-medium truncate">
                     {agent.icon} {agent.name}
@@ -228,7 +205,7 @@ export function Sidebar({
                   <button
                     onClick={(e) => {
                       e.stopPropagation()
-                      onEditAgent(agent.id)
+                      openEditAgent(agent.id)
                     }}
                     className="hidden group-hover:block text-gray-400 hover:text-blue-500 text-xs ml-1 px-1"
                     title="Edit agent"
@@ -241,13 +218,13 @@ export function Sidebar({
           )}
           <div className="flex gap-2 mt-2 px-2">
             <button
-              onClick={onCreateAgent}
+              onClick={openCreateAgent}
               className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
             >
               + New Agent
             </button>
             <button
-              onClick={onImportAgent}
+              onClick={importAgent}
               className="text-xs text-gray-500 dark:text-gray-400 hover:underline"
             >
               Import
@@ -259,7 +236,13 @@ export function Sidebar({
           <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-2 mb-2">
             {searchQuery ? `Results for "${searchQuery}"` : 'Conversations'}
           </h3>
-          {displayConversations.length === 0 ? (
+          {conversationsLoading && displayConversations.length === 0 ? (
+            <div className="space-y-1 px-2" aria-label="Loading conversations">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div key={i} className="h-7 bg-gray-200 dark:bg-gray-700 rounded-lg animate-pulse" />
+              ))}
+            </div>
+          ) : displayConversations.length === 0 ? (
             <div className="text-xs text-gray-400 dark:text-gray-500 px-2 italic">
               {searchQuery ? 'No matching conversations' : 'No conversations yet'}
             </div>
@@ -294,7 +277,7 @@ export function Sidebar({
               </div>
             </div>
             <button
-              onClick={onLogout}
+              onClick={logout}
               className="text-xs text-gray-400 hover:text-red-500 transition-colors"
               title="Sign out"
             >
@@ -303,10 +286,11 @@ export function Sidebar({
           </div>
         ) : (
           <button
-            onClick={onLogin}
-            className="w-full text-left text-xs text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 px-2 py-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+            onClick={login}
+            disabled={authLoading}
+            className="w-full text-left text-xs text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 px-2 py-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
           >
-            🔑 Sign in with GitHub
+            {authLoading ? '⏳ Signing in...' : '🔑 Sign in with GitHub'}
           </button>
         )}
       </div>

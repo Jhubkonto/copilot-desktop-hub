@@ -3,8 +3,18 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { SettingsPanel } from '../../renderer/components/SettingsPanel'
 import { setupMockApi, type MockApi } from '../../test/mocks/api'
+import { createMockAppStore, setupStoreMock } from '../../test/mocks/store'
+
+const { useAppStore } = vi.hoisted(() => ({
+  useAppStore: vi.fn()
+}))
+
+vi.mock('../../renderer/store/app-store', () => ({
+  useAppStore
+}))
 
 let mockApi: MockApi
+let mockStore: ReturnType<typeof createMockAppStore>
 const user = userEvent.setup()
 
 const PROVIDERS = [
@@ -14,40 +24,39 @@ const PROVIDERS = [
   { name: 'azure', label: 'Azure OpenAI', models: ['gpt-4o'], configured: false }
 ]
 
-const defaultProps = {
-  visible: true,
-  onClose: vi.fn(),
-  theme: 'dark' as const,
-  toggleTheme: vi.fn(),
-  onOpenMcp: vi.fn()
-}
-
 beforeEach(() => {
   mockApi = setupMockApi()
   mockApi.getSettings = vi.fn().mockResolvedValue({ autoStart: 'false' })
   mockApi.listProviders = vi.fn().mockResolvedValue(PROVIDERS)
   mockApi.getAzureEndpoint = vi.fn().mockResolvedValue(null)
+
+  mockStore = createMockAppStore({
+    showSettings: true,
+    theme: 'dark'
+  })
+  setupStoreMock(useAppStore, mockStore)
 })
 
 describe('SettingsPanel — General Tab', () => {
   it('set-r-1: theme toggle switches between light and dark', async () => {
-    const toggleTheme = vi.fn()
-    render(<SettingsPanel {...defaultProps} toggleTheme={toggleTheme} />)
+    render(<SettingsPanel />)
 
     const themeBtn = screen.getByText('☀️ Light')
     await user.click(themeBtn)
-    expect(toggleTheme).toHaveBeenCalledTimes(1)
+    expect(mockStore.toggleTheme).toHaveBeenCalledTimes(1)
   })
 
   it('shows light mode button text when in light theme', () => {
-    render(<SettingsPanel {...defaultProps} theme="light" />)
+    mockStore = createMockAppStore({ showSettings: true, theme: 'light' })
+    setupStoreMock(useAppStore, mockStore)
+
+    render(<SettingsPanel />)
     expect(screen.getByText('🌙 Dark')).toBeInTheDocument()
   })
 
   it('set-r-2: auto-start toggle calls setAutoStart', async () => {
-    render(<SettingsPanel {...defaultProps} />)
+    render(<SettingsPanel />)
 
-    // Click the auto-start toggle button
     const autoStartBtn = screen.getByText('Start on login').closest('div')!.parentElement!.querySelector('button')!
     await user.click(autoStartBtn)
 
@@ -55,26 +64,25 @@ describe('SettingsPanel — General Tab', () => {
     expect(mockApi.setAutoStart).toHaveBeenCalledWith(true)
   })
 
-  it('set-r-9: "Configure" MCP button calls onOpenMcp', async () => {
-    const onOpenMcp = vi.fn()
-    render(<SettingsPanel {...defaultProps} onOpenMcp={onOpenMcp} />)
+  it('set-r-9: "Configure" MCP button opens MCP panel', async () => {
+    render(<SettingsPanel />)
 
     await user.click(screen.getByText('🔌 Configure'))
-    expect(onOpenMcp).toHaveBeenCalledTimes(1)
+    expect(mockStore.setShowSettings).toHaveBeenCalledWith(false)
+    expect(mockStore.setShowMcpPanel).toHaveBeenCalledWith(true)
   })
 
-  it('set-r-10: close button calls onClose', async () => {
-    const onClose = vi.fn()
-    render(<SettingsPanel {...defaultProps} onClose={onClose} />)
+  it('set-r-10: close button calls setShowSettings(false)', async () => {
+    render(<SettingsPanel />)
 
     await user.click(screen.getByLabelText('Close settings'))
-    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(mockStore.setShowSettings).toHaveBeenCalledWith(false)
   })
 })
 
 describe('SettingsPanel — Providers Tab', () => {
   it('set-r-3: provider tabs render for each provider', async () => {
-    render(<SettingsPanel {...defaultProps} />)
+    render(<SettingsPanel />)
     await user.click(screen.getByText('API Providers'))
 
     await waitFor(() => {
@@ -86,7 +94,7 @@ describe('SettingsPanel — Providers Tab', () => {
   })
 
   it('shows configured badge for providers with keys', async () => {
-    render(<SettingsPanel {...defaultProps} />)
+    render(<SettingsPanel />)
     await user.click(screen.getByText('API Providers'))
 
     await waitFor(() => {
@@ -96,21 +104,17 @@ describe('SettingsPanel — Providers Tab', () => {
   })
 
   it('set-r-4 + set-r-5: API key input accepts text and save calls setProviderKey', async () => {
-    render(<SettingsPanel {...defaultProps} />)
+    render(<SettingsPanel />)
     await user.click(screen.getByText('API Providers'))
 
-    // Wait for providers to render
     await waitFor(() => expect(screen.getByText('OpenAI')).toBeInTheDocument())
 
-    // Click "Set Key" on OpenAI
     const setKeyButtons = screen.getAllByText('Set Key')
-    await user.click(setKeyButtons[0]) // OpenAI is first non-copilot provider
+    await user.click(setKeyButtons[0])
 
-    // Type API key
     const keyInput = screen.getByPlaceholderText(/Enter OpenAI API key/)
     await user.type(keyInput, 'sk-test123')
 
-    // Save
     await user.click(screen.getByText('Save Key'))
     expect(mockApi.setProviderKey).toHaveBeenCalledWith('openai', 'sk-test123')
   })
@@ -118,7 +122,7 @@ describe('SettingsPanel — Providers Tab', () => {
   it('set-r-6: test key calls testProviderKey and shows result', async () => {
     mockApi.testProviderKey = vi.fn().mockResolvedValue({ valid: true })
 
-    render(<SettingsPanel {...defaultProps} />)
+    render(<SettingsPanel />)
     await user.click(screen.getByText('API Providers'))
 
     await waitFor(() => expect(screen.getByText('OpenAI')).toBeInTheDocument())
@@ -140,7 +144,7 @@ describe('SettingsPanel — Providers Tab', () => {
   it('shows error for invalid test result', async () => {
     mockApi.testProviderKey = vi.fn().mockResolvedValue({ valid: false, error: 'Invalid key' })
 
-    render(<SettingsPanel {...defaultProps} />)
+    render(<SettingsPanel />)
     await user.click(screen.getByText('API Providers'))
 
     await waitFor(() => expect(screen.getByText('OpenAI')).toBeInTheDocument())
@@ -158,35 +162,34 @@ describe('SettingsPanel — Providers Tab', () => {
   })
 
   it('set-r-7: remove key calls removeProviderKey', async () => {
-    render(<SettingsPanel {...defaultProps} />)
+    render(<SettingsPanel />)
     await user.click(screen.getByText('API Providers'))
 
     await waitFor(() => expect(screen.getByText('Anthropic')).toBeInTheDocument())
 
-    // Anthropic is configured, should have a Remove button
     await user.click(screen.getByText('Remove'))
     expect(mockApi.removeProviderKey).toHaveBeenCalledWith('anthropic')
   })
 
   it('set-r-8: Azure endpoint field only shown for Azure', async () => {
-    render(<SettingsPanel {...defaultProps} />)
+    render(<SettingsPanel />)
     await user.click(screen.getByText('API Providers'))
 
     await waitFor(() => expect(screen.getByText('Azure OpenAI')).toBeInTheDocument())
 
-    // Before clicking Set Key on Azure, no endpoint field
     expect(screen.queryByPlaceholderText(/Azure endpoint/)).not.toBeInTheDocument()
 
-    // Click Set Key on Azure (last Set Key button)
     const setKeyButtons = screen.getAllByText('Set Key')
     await user.click(setKeyButtons[setKeyButtons.length - 1])
 
-    // Now Azure endpoint field should be visible
     expect(screen.getByPlaceholderText(/Azure endpoint/)).toBeInTheDocument()
   })
 
   it('does not render when not visible', () => {
-    const { container } = render(<SettingsPanel {...defaultProps} visible={false} />)
+    mockStore = createMockAppStore({ showSettings: false })
+    setupStoreMock(useAppStore, mockStore)
+
+    const { container } = render(<SettingsPanel />)
     expect(container.innerHTML).toBe('')
   })
 })

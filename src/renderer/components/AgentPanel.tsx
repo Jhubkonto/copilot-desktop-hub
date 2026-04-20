@@ -1,30 +1,5 @@
 import { useState, useEffect } from 'react'
-
-interface AgentConfig {
-  id: string
-  name: string
-  icon: string
-  systemPrompt: string
-  model: string
-  temperature: number
-  maxTokens: number
-  contextDirectories: string[]
-  contextFiles: string[]
-  mcpServers: string[]
-  agenticMode: boolean
-  tools: { fileEdit: boolean; terminal: boolean; webFetch: boolean }
-  responseFormat: string
-  isDefault?: boolean
-}
-
-interface AgentPanelProps {
-  agent: AgentConfig | null
-  onSave: (config: AgentConfig) => void
-  onClose: () => void
-  onDelete?: (id: string) => void
-  onDuplicate?: (id: string) => void
-  onExport?: (id: string) => void
-}
+import { useAppStore, type AgentConfig } from '../store/app-store'
 
 const EMPTY_AGENT: Omit<AgentConfig, 'id'> = {
   name: '',
@@ -45,14 +20,16 @@ const EMOJI_OPTIONS = ['🤖', '🔍', '🐛', '💡', '📝', '🎨', '🔧', '
 const MODEL_OPTIONS = ['default', 'gpt-4o', 'gpt-4o-mini', 'claude-3.5-sonnet', 'o1-preview']
 const FORMAT_OPTIONS = ['default', 'concise', 'detailed', 'code-only']
 
-export function AgentPanel({
-  agent,
-  onSave,
-  onClose,
-  onDelete,
-  onDuplicate,
-  onExport
-}: AgentPanelProps) {
+export function AgentPanel() {
+  const editingAgentId = useAppStore((s) => s.editingAgentId)
+  const agents = useAppStore((s) => s.agents)
+  const onSave = useAppStore((s) => s.saveAgent)
+  const onClose = useAppStore((s) => s.closeAgentPanel)
+  const onDelete = useAppStore((s) => s.deleteAgent)
+  const onDuplicate = useAppStore((s) => s.duplicateAgent)
+  const onExport = useAppStore((s) => s.exportAgent)
+
+  const agent = editingAgentId ? agents.find((a) => a.id === editingAgentId) ?? null : null
   const [tab, setTab] = useState<'settings' | 'json'>('settings')
   const [config, setConfig] = useState<AgentConfig>({
     id: '',
@@ -422,7 +399,7 @@ export function AgentPanel({
         {/* Footer */}
         <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-700">
           <div className="flex gap-2">
-            {isEditing && !isDefault && onDelete && (
+            {isEditing && !isDefault && (
               <button
                 onClick={() => onDelete(config.id)}
                 className="text-xs px-3 py-1.5 rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
@@ -432,7 +409,7 @@ export function AgentPanel({
             )}
           </div>
           <div className="flex gap-2">
-            {isEditing && onDuplicate && (
+            {isEditing && (
               <button
                 onClick={() => onDuplicate(config.id)}
                 className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
@@ -440,7 +417,7 @@ export function AgentPanel({
                 Duplicate
               </button>
             )}
-            {isEditing && onExport && (
+            {isEditing && (
               <button
                 onClick={() => onExport(config.id)}
                 className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"

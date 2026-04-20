@@ -1,14 +1,5 @@
-interface ToolApprovalRequest {
-  requestId: string
-  tool: string
-  args: Record<string, unknown>
-  description: string
-}
-
-interface ToolApprovalProps {
-  requests: ToolApprovalRequest[]
-  onRespond: (requestId: string, approved: boolean, remember: boolean) => void
-}
+import { useState, useEffect, useCallback } from 'react'
+import { useAppStore, type ToolApprovalRequest } from '../store/app-store'
 
 const TOOL_ICONS: Record<string, string> = {
   fileRead: '📄',
@@ -16,6 +7,8 @@ const TOOL_ICONS: Record<string, string> = {
   shellExec: '🖥️',
   webFetch: '🌐'
 }
+
+const AUTO_DENY_SECONDS = 60
 
 function formatArgs(args: Record<string, unknown>): string {
   return Object.entries(args)
@@ -27,7 +20,60 @@ function formatArgs(args: Record<string, unknown>): string {
     .join('\n')
 }
 
-export function ToolApproval({ requests, onRespond }: ToolApprovalProps) {
+function CountdownBar({ requestId, onExpire }: { requestId: string; onExpire: (id: string) => void }) {
+  const [remaining, setRemaining] = useState(AUTO_DENY_SECONDS)
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setRemaining((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer)
+          onExpire(requestId)
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+
+    return () => clearInterval(timer)
+  }, [requestId, onExpire])
+
+  const pct = (remaining / AUTO_DENY_SECONDS) * 100
+
+  return (
+    <div className="mt-2">
+      <div className="flex justify-between text-xs text-gray-400 mb-1">
+        <span>Auto-deny in {remaining}s</span>
+        <span>{remaining}s</span>
+      </div>
+      <div className="h-1 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all duration-1000 ease-linear ${
+            remaining <= 10 ? 'bg-red-500' : remaining <= 20 ? 'bg-yellow-500' : 'bg-blue-500'
+          }`}
+          style={{ width: `${pct}%` }}
+          role="progressbar"
+          aria-valuenow={remaining}
+          aria-valuemin={0}
+          aria-valuemax={AUTO_DENY_SECONDS}
+          aria-label={`Auto-deny countdown: ${remaining} seconds remaining`}
+        />
+      </div>
+    </div>
+  )
+}
+
+export function ToolApproval() {
+  const requests = useAppStore((s) => s.toolApprovalRequests)
+  const respondToToolApproval = useAppStore((s) => s.respondToToolApproval)
+
+  const handleExpire = useCallback(
+    (requestId: string) => {
+      respondToToolApproval(requestId, false, false)
+    },
+    [respondToToolApproval]
+  )
+
   if (requests.length === 0) return null
 
   return (
@@ -55,25 +101,27 @@ export function ToolApproval({ requests, onRespond }: ToolApprovalProps) {
 
           <div className="flex gap-2">
             <button
-              onClick={() => onRespond(req.requestId, true, false)}
+              onClick={() => respondToToolApproval(req.requestId, true, false)}
               className="flex-1 text-xs px-3 py-1.5 rounded-lg bg-green-600 text-white hover:bg-green-700 transition-colors font-medium"
             >
               Approve
             </button>
             <button
-              onClick={() => onRespond(req.requestId, false, false)}
+              onClick={() => respondToToolApproval(req.requestId, false, false)}
               className="flex-1 text-xs px-3 py-1.5 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors font-medium"
             >
               Deny
             </button>
             <button
-              onClick={() => onRespond(req.requestId, true, true)}
+              onClick={() => respondToToolApproval(req.requestId, true, true)}
               className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
               title="Approve and remember for this tool"
             >
               Always
             </button>
           </div>
+
+          <CountdownBar requestId={req.requestId} onExpire={handleExpire} />
         </div>
       ))}
     </div>

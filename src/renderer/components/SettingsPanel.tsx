@@ -1,12 +1,5 @@
 import { useState, useEffect } from 'react'
-
-interface SettingsPanelProps {
-  visible: boolean
-  onClose: () => void
-  theme: 'light' | 'dark'
-  toggleTheme: () => void
-  onOpenMcp: () => void
-}
+import { useAppStore } from '../store/app-store'
 
 interface ProviderInfo {
   name: string
@@ -15,7 +8,16 @@ interface ProviderInfo {
   configured: boolean
 }
 
-export function SettingsPanel({ visible, onClose, theme, toggleTheme, onOpenMcp }: SettingsPanelProps) {
+export function SettingsPanel() {
+  const visible = useAppStore((s) => s.showSettings)
+  const theme = useAppStore((s) => s.theme)
+  const toggleTheme = useAppStore((s) => s.toggleTheme)
+  const setShowSettings = useAppStore((s) => s.setShowSettings)
+  const setShowMcpPanel = useAppStore((s) => s.setShowMcpPanel)
+  const addToast = useAppStore((s) => s.addToast)
+
+  const onClose = () => setShowSettings(false)
+  const onOpenMcp = () => { setShowSettings(false); setShowMcpPanel(true) }
   const [tab, setTab] = useState<'general' | 'providers'>('general')
   const [autoStart, setAutoStart] = useState(false)
   const [providers, setProviders] = useState<ProviderInfo[]>([])
@@ -39,20 +41,30 @@ export function SettingsPanel({ visible, onClose, theme, toggleTheme, onOpenMcp 
   const handleAutoStartToggle = async () => {
     const next = !autoStart
     setAutoStart(next)
-    await window.api.setSetting('autoStart', String(next))
-    await window.api.setAutoStart(next)
+    try {
+      await window.api.setSetting('autoStart', String(next))
+      await window.api.setAutoStart(next)
+    } catch {
+      setAutoStart(!next)
+      addToast('Failed to update auto-start setting', 'error')
+    }
   }
 
   const handleSaveKey = async () => {
     if (!editingProvider || !apiKeyInput.trim()) return
-    if (editingProvider === 'azure' && azureEndpoint.trim()) {
-      await window.api.setAzureEndpoint(azureEndpoint.trim())
+    try {
+      if (editingProvider === 'azure' && azureEndpoint.trim()) {
+        await window.api.setAzureEndpoint(azureEndpoint.trim())
+      }
+      await window.api.setProviderKey(editingProvider, apiKeyInput.trim())
+      setEditingProvider(null)
+      setApiKeyInput('')
+      setTestResult(null)
+      window.api.listProviders().then(setProviders)
+      addToast('API key saved', 'success')
+    } catch {
+      addToast('Failed to save API key', 'error')
     }
-    await window.api.setProviderKey(editingProvider, apiKeyInput.trim())
-    setEditingProvider(null)
-    setApiKeyInput('')
-    setTestResult(null)
-    window.api.listProviders().then(setProviders)
   }
 
   const handleTestKey = async () => {
@@ -65,8 +77,13 @@ export function SettingsPanel({ visible, onClose, theme, toggleTheme, onOpenMcp 
   }
 
   const handleRemoveKey = async (provider: string) => {
-    await window.api.removeProviderKey(provider)
-    window.api.listProviders().then(setProviders)
+    try {
+      await window.api.removeProviderKey(provider)
+      window.api.listProviders().then(setProviders)
+      addToast('API key removed', 'success')
+    } catch {
+      addToast('Failed to remove API key', 'error')
+    }
   }
 
   if (!visible) return null

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useAppStore } from '../store/app-store'
 
 interface McpServerConfig {
   id: string
@@ -14,11 +15,6 @@ interface McpServerStatus extends McpServerConfig {
   status: 'connecting' | 'connected' | 'error' | 'disconnected'
   error?: string
   toolCount: number
-}
-
-interface McpServerPanelProps {
-  visible: boolean
-  onClose: () => void
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -100,7 +96,12 @@ function EnvEditor({
   )
 }
 
-export function McpServerPanel({ visible, onClose }: McpServerPanelProps) {
+export function McpServerPanel() {
+  const visible = useAppStore((s) => s.showMcpPanel)
+  const setShowMcpPanel = useAppStore((s) => s.setShowMcpPanel)
+  const addToast = useAppStore((s) => s.addToast)
+  const onClose = () => setShowMcpPanel(false)
+
   const [servers, setServers] = useState<McpServerStatus[]>([])
   const [editingServer, setEditingServer] = useState<McpServerConfig | null>(null)
   const [isNew, setIsNew] = useState(false)
@@ -109,8 +110,10 @@ export function McpServerPanel({ visible, onClose }: McpServerPanelProps) {
   const [jsonError, setJsonError] = useState<string | null>(null)
 
   const loadServers = useCallback(() => {
-    window.api.listMcpServers().then(setServers)
-  }, [])
+    window.api.listMcpServers().then(setServers).catch(() => {
+      addToast('Failed to load MCP servers', 'error')
+    })
+  }, [addToast])
 
   useEffect(() => {
     if (visible) loadServers()
@@ -137,29 +140,55 @@ export function McpServerPanel({ visible, onClose }: McpServerPanelProps) {
   const handleSave = async () => {
     if (!editingServer || !editingServer.name || !editingServer.command) return
 
-    if (isNew) {
-      await window.api.addMcpServer({ ...editingServer })
-    } else {
-      await window.api.updateMcpServer(editingServer.id, { ...editingServer })
+    try {
+      if (isNew) {
+        await window.api.addMcpServer({ ...editingServer })
+        addToast(`Server "${editingServer.name}" added`, 'success')
+      } else {
+        await window.api.updateMcpServer(editingServer.id, { ...editingServer })
+        addToast(`Server "${editingServer.name}" updated`, 'success')
+      }
+      setEditingServer(null)
+      loadServers()
+    } catch {
+      addToast(`Failed to ${isNew ? 'add' : 'update'} server`, 'error')
     }
-    setEditingServer(null)
-    loadServers()
   }
 
   const handleDelete = async (id: string) => {
-    await window.api.removeMcpServer(id)
-    if (editingServer?.id === id) setEditingServer(null)
-    loadServers()
+    try {
+      await window.api.removeMcpServer(id)
+      if (editingServer?.id === id) setEditingServer(null)
+      loadServers()
+      addToast('Server removed', 'success')
+    } catch {
+      addToast('Failed to remove server', 'error')
+    }
   }
 
   const handleRestart = async (id: string) => {
-    await window.api.restartMcpServer(id)
-    setTimeout(loadServers, 1000)
+    try {
+      await window.api.restartMcpServer(id)
+      // Poll for updated status instead of arbitrary timeout
+      let retries = 5
+      const poll = () => {
+        retries--
+        loadServers()
+        if (retries > 0) setTimeout(poll, 1000)
+      }
+      setTimeout(poll, 500)
+    } catch {
+      addToast('Failed to restart server', 'error')
+    }
   }
 
   const handleToggle = async (server: McpServerStatus) => {
-    await window.api.updateMcpServer(server.id, { enabled: !server.enabled })
-    loadServers()
+    try {
+      await window.api.updateMcpServer(server.id, { enabled: !server.enabled })
+      loadServers()
+    } catch {
+      addToast('Failed to toggle server', 'error')
+    }
   }
 
   const handleJsonImport = () => {
@@ -187,6 +216,9 @@ export function McpServerPanel({ visible, onClose }: McpServerPanelProps) {
         setJsonMode(false)
         setJsonText('')
         loadServers()
+        addToast('Servers imported successfully', 'success')
+      }).catch(() => {
+        addToast('Failed to import some servers', 'error')
       })
     } catch {
       setJsonError('Invalid JSON')

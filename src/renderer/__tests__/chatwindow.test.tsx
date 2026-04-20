@@ -3,50 +3,59 @@ import { render, screen, act, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ChatWindow } from '../../renderer/components/ChatWindow'
 import { setupMockApi, type MockApi } from '../../test/mocks/api'
+import { createMockAppStore, setupStoreMock } from '../../test/mocks/store'
+
+const { useAppStore } = vi.hoisted(() => ({
+  useAppStore: vi.fn()
+}))
+
+vi.mock('../../renderer/store/app-store', () => ({
+  useAppStore
+}))
 
 let mockApi: MockApi
 let streamCallback: ((chunk: string | null) => void) | null = null
+let mockStore: ReturnType<typeof createMockAppStore>
 
 beforeEach(() => {
   mockApi = setupMockApi()
   streamCallback = null
   mockApi.getMessages.mockResolvedValue([])
 
-  // Capture the stream callback when ChatWindow subscribes
   mockApi.onStreamResponse.mockImplementation((cb: (chunk: string | null) => void) => {
     streamCallback = cb
     return () => {
       streamCallback = null
     }
   })
-})
 
-const defaultProps = {
-  conversationId: null,
-  onConversationCreated: vi.fn(),
-  onRefresh: vi.fn(),
-  authenticated: true
-}
+  mockStore = createMockAppStore({
+    authState: { authenticated: true, user: null }
+  })
+  setupStoreMock(useAppStore, mockStore)
+})
 
 describe('ChatWindow — Empty State', () => {
   it('chat-r-1: shows welcome message with default title', () => {
-    render(<ChatWindow {...defaultProps} />)
+    render(<ChatWindow />)
     expect(screen.getByText('Copilot Desktop Hub')).toBeInTheDocument()
   })
 
   it('chat-r-1b: shows agent name when activeAgent provided', () => {
-    render(
-      <ChatWindow
-        {...defaultProps}
-        activeAgent={{ id: 'a1', name: 'Code Helper', icon: '🧑‍💻' }}
-      />
-    )
+    mockStore = createMockAppStore({
+      authState: { authenticated: true, user: null },
+      agents: [{ id: 'a1', name: 'Code Helper', icon: '🧑‍💻' }],
+      activeAgentId: 'a1'
+    })
+    setupStoreMock(useAppStore, mockStore)
+
+    render(<ChatWindow />)
     expect(screen.getByText('🧑‍💻 Code Helper')).toBeInTheDocument()
   })
 
   it('chat-r-9: empty input does not send', async () => {
     const user = userEvent.setup()
-    render(<ChatWindow {...defaultProps} />)
+    render(<ChatWindow />)
 
     const sendButton = screen.getByRole('button', { name: /send/i })
     await user.click(sendButton)
@@ -57,45 +66,39 @@ describe('ChatWindow — Empty State', () => {
 describe('ChatWindow — Sending Messages', () => {
   it('chat-r-3: user message appears immediately after send (optimistic)', async () => {
     const user = userEvent.setup()
-    render(<ChatWindow {...defaultProps} />)
+    render(<ChatWindow />)
 
     const textarea = screen.getByRole('textbox', { name: /message input/i })
     await user.type(textarea, 'Hello world')
     await user.click(screen.getByRole('button', { name: /send/i }))
 
-    // Optimistic: user message appears in the DOM immediately
     expect(screen.getByText('Hello world')).toBeInTheDocument()
   })
 
   it('chat-r-8: Enter sends message, Shift+Enter inserts newline', async () => {
     const user = userEvent.setup()
-    render(<ChatWindow {...defaultProps} />)
+    render(<ChatWindow />)
 
     const textarea = screen.getByRole('textbox', { name: /message input/i })
     await user.type(textarea, 'Line 1{Shift>}{Enter}{/Shift}Line 2')
 
-    // Shift+Enter should NOT send — textarea should still have content
     expect(mockApi.sendMessage).not.toHaveBeenCalled()
     expect(textarea).toHaveValue('Line 1\nLine 2')
 
-    // Now press Enter without shift to send
     await user.type(textarea, '{Enter}')
 
-    // After Enter, the message should be sent (onConversationCreated called since no convId)
-    expect(defaultProps.onConversationCreated).toHaveBeenCalled()
+    expect(mockStore.conversationCreated).toHaveBeenCalled()
   })
 
   it('chat-r-6: send button disabled while isGenerating', async () => {
     const user = userEvent.setup()
-    render(<ChatWindow {...defaultProps} />)
+    render(<ChatWindow />)
 
     const textarea = screen.getByRole('textbox', { name: /message input/i })
     await user.type(textarea, 'Test message')
     await user.click(screen.getByRole('button', { name: /send/i }))
 
-    // After sending, isGenerating becomes true — stop button should appear
     expect(screen.getByRole('button', { name: /stop/i })).toBeInTheDocument()
-    // Send button should be gone (replaced by stop)
     expect(screen.queryByRole('button', { name: /^send$/i })).not.toBeInTheDocument()
   })
 })
@@ -103,17 +106,14 @@ describe('ChatWindow — Sending Messages', () => {
 describe('ChatWindow — Streaming', () => {
   it('chat-r-4: streaming content renders with typing indicator', async () => {
     const user = userEvent.setup()
-    render(<ChatWindow {...defaultProps} />)
+    render(<ChatWindow />)
 
-    // Send a message to start generating
     const textarea = screen.getByRole('textbox', { name: /message input/i })
     await user.type(textarea, 'Test')
     await user.click(screen.getByRole('button', { name: /send/i }))
 
-    // Before any stream data, should show "Thinking..."
     expect(screen.getByText('Thinking...')).toBeInTheDocument()
 
-    // Simulate stream chunks
     act(() => {
       streamCallback?.('Hello ')
     })
@@ -121,56 +121,47 @@ describe('ChatWindow — Streaming', () => {
       streamCallback?.('world')
     })
 
-    // Streaming content should appear
     await waitFor(() => {
       expect(screen.getByText(/Hello world/)).toBeInTheDocument()
     })
-    // Typing indicator (▊) should be visible
     expect(screen.getByText('▊')).toBeInTheDocument()
   })
 
   it('chat-r-5: stream end appends final message and clears streaming', async () => {
     const user = userEvent.setup()
-    render(<ChatWindow {...defaultProps} />)
+    render(<ChatWindow />)
 
     const textarea = screen.getByRole('textbox', { name: /message input/i })
     await user.type(textarea, 'Test')
     await user.click(screen.getByRole('button', { name: /send/i }))
 
-    // Stream some content
     act(() => {
       streamCallback?.('Response text')
     })
 
-    // End stream
     act(() => {
       streamCallback?.(null)
     })
 
-    // The final message should be rendered as a message bubble
     await waitFor(() => {
       expect(screen.getByText('Response text')).toBeInTheDocument()
     })
 
-    // isGenerating should be false — send button should reappear
     expect(screen.getByRole('button', { name: /send/i })).toBeInTheDocument()
-    // Typing indicator should be gone
     expect(screen.queryByText('▊')).not.toBeInTheDocument()
   })
 
   it('chat-r-7: stop button visible while generating', async () => {
     const user = userEvent.setup()
-    render(<ChatWindow {...defaultProps} />)
+    render(<ChatWindow />)
 
     const textarea = screen.getByRole('textbox', { name: /message input/i })
     await user.type(textarea, 'Test')
     await user.click(screen.getByRole('button', { name: /send/i }))
 
-    // Stop button should appear
     const stopBtn = screen.getByRole('button', { name: /stop/i })
     expect(stopBtn).toBeInTheDocument()
 
-    // Click stop
     await user.click(stopBtn)
     expect(mockApi.stopGeneration).toHaveBeenCalled()
   })
@@ -184,7 +175,13 @@ describe('ChatWindow — Messages Display', () => {
       { id: 'm3', role: 'user', content: 'Second message', timestamp: 3000 }
     ])
 
-    render(<ChatWindow {...defaultProps} conversationId="conv-1" />)
+    mockStore = createMockAppStore({
+      authState: { authenticated: true, user: null },
+      currentConversationId: 'conv-1'
+    })
+    setupStoreMock(useAppStore, mockStore)
+
+    render(<ChatWindow />)
 
     await waitFor(() => {
       expect(screen.getByText('First message')).toBeInTheDocument()
@@ -204,7 +201,7 @@ describe('ChatWindow — File Attachments', () => {
       { id: 'f1', name: 'test.ts', path: '/tmp/test.ts', size: 500 }
     ])
 
-    render(<ChatWindow {...defaultProps} />)
+    render(<ChatWindow />)
 
     const attachBtn = screen.getByRole('button', { name: /attach/i })
     await user.click(attachBtn)
@@ -220,7 +217,7 @@ describe('ChatWindow — File Attachments', () => {
       { id: 'f1', name: 'test.ts', path: '/tmp/test.ts', size: 500 }
     ])
 
-    render(<ChatWindow {...defaultProps} />)
+    render(<ChatWindow />)
 
     await user.click(screen.getByRole('button', { name: /attach/i }))
 
@@ -228,21 +225,18 @@ describe('ChatWindow — File Attachments', () => {
       expect(screen.getByText(/test\.ts/)).toBeInTheDocument()
     })
 
-    // Find the remove button (✕) next to the attachment
     const removeBtn = screen.getByText('✕')
     await user.click(removeBtn)
 
-    // Attachment should be gone
     expect(screen.queryByText(/test\.ts/)).not.toBeInTheDocument()
   })
 })
 
 describe('ChatWindow — Offline State', () => {
   it('chat-r-13: offline placeholder shown when navigator.onLine is false', () => {
-    // Mock navigator.onLine
     Object.defineProperty(navigator, 'onLine', { value: false, writable: true })
 
-    render(<ChatWindow {...defaultProps} />)
+    render(<ChatWindow />)
 
     const textarea = screen.getByRole('textbox', { name: /message input/i })
     expect(textarea).toHaveAttribute(
@@ -250,14 +244,13 @@ describe('ChatWindow — Offline State', () => {
       expect.stringContaining('Offline')
     )
 
-    // Restore
     Object.defineProperty(navigator, 'onLine', { value: true, writable: true })
   })
 
   it('chat-r-14: input disabled when offline', () => {
     Object.defineProperty(navigator, 'onLine', { value: false, writable: true })
 
-    render(<ChatWindow {...defaultProps} />)
+    render(<ChatWindow />)
 
     const textarea = screen.getByRole('textbox', { name: /message input/i })
     expect(textarea).toBeDisabled()
@@ -273,17 +266,18 @@ describe('ChatWindow — Regenerate & Edit', () => {
       { id: 'm2', role: 'assistant', content: 'Answer', timestamp: 2000 }
     ])
 
-    render(<ChatWindow {...defaultProps} conversationId="conv-1" />)
+    mockStore = createMockAppStore({
+      authState: { authenticated: true, user: null },
+      currentConversationId: 'conv-1'
+    })
+    setupStoreMock(useAppStore, mockStore)
+
+    render(<ChatWindow />)
 
     await waitFor(() => {
       expect(screen.getByText('Answer')).toBeInTheDocument()
     })
 
-    // The regenerate button should be present (it's in the MessageBubble for lastAssistant)
-    // MessageBubble shows it on hover, but it's in the DOM
-    const regenBtn = screen.queryByRole('button', { name: /regenerate/i })
-    // It may only show on hover — check that the component is rendered with the right prop
-    // We can at least verify the message is rendered as the last assistant
     expect(screen.getByText('Answer')).toBeInTheDocument()
   })
 
@@ -293,14 +287,18 @@ describe('ChatWindow — Regenerate & Edit', () => {
       { id: 'm2', role: 'assistant', content: 'My answer', timestamp: 2000 }
     ])
 
-    render(<ChatWindow {...defaultProps} conversationId="conv-1" />)
+    mockStore = createMockAppStore({
+      authState: { authenticated: true, user: null },
+      currentConversationId: 'conv-1'
+    })
+    setupStoreMock(useAppStore, mockStore)
+
+    render(<ChatWindow />)
 
     await waitFor(() => {
       expect(screen.getByText('My question')).toBeInTheDocument()
     })
 
-    // Edit functionality is provided to user message bubbles
-    // Verify user message is displayed
     expect(screen.getByText('My question')).toBeInTheDocument()
   })
 })

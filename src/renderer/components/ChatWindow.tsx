@@ -1,6 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { MessageBubble } from './MessageBubble'
 import { MarkdownRenderer } from './MarkdownRenderer'
+import { useAppStore } from '../store/app-store'
+
+type ToastType = 'info' | 'success' | 'error'
 
 interface Attachment {
   id: string
@@ -17,27 +20,19 @@ interface ChatMessage {
   attachments?: Attachment[]
 }
 
-interface ChatWindowProps {
-  conversationId: string | null
-  onConversationCreated: (id: string) => void
-  onRefresh: () => void
-  activeAgentId?: string | null
-  activeAgent?: { id: string; name: string; icon: string } | null
-  onToggleTerminal?: () => void
-  showTerminal?: boolean
-  authenticated?: boolean
-}
+export function ChatWindow() {
+  const conversationId = useAppStore((s) => s.currentConversationId)
+  const activeAgentId = useAppStore((s) => s.activeAgentId)
+  const agents = useAppStore((s) => s.agents)
+  const authenticated = useAppStore((s) => s.authState.authenticated)
+  const showTerminal = useAppStore((s) => s.showTerminal)
 
-export function ChatWindow({
-  conversationId,
-  onConversationCreated,
-  onRefresh,
-  activeAgentId,
-  activeAgent,
-  onToggleTerminal,
-  showTerminal,
-  authenticated = false
-}: ChatWindowProps) {
+  const conversationCreated = useAppStore((s) => s.conversationCreated)
+  const loadConversations = useAppStore((s) => s.loadConversations)
+  const toggleTerminal = useAppStore((s) => s.toggleTerminal)
+  const addToast = useAppStore((s) => s.addToast) as (message: string, type?: ToastType) => void
+
+  const activeAgent = activeAgentId ? agents.find((a) => a.id === activeAgentId) ?? null : null
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
@@ -78,6 +73,9 @@ export function ChatWindow({
             attachments: m.attachments ? JSON.parse(m.attachments) : undefined
           }))
         )
+      }).catch(() => {
+        addToast('Failed to load messages', 'error')
+        setMessages([])
       })
     } else {
       setMessages([])
@@ -103,7 +101,7 @@ export function ChatWindow({
           return ''
         })
         setIsGenerating(false)
-        onRefresh()
+        loadConversations()
       } else {
         setStreamingContent((prev) => prev + chunk)
       }
@@ -112,7 +110,7 @@ export function ChatWindow({
     return () => {
       unsubscribe()
     }
-  }, [onRefresh])
+  }, [loadConversations])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -146,6 +144,7 @@ export function ChatWindow({
     } catch (error) {
       console.error('Regenerate failed:', error)
       setIsGenerating(false)
+      addToast('Failed to regenerate response', 'error')
     }
   }, [conversationId, messages, isGenerating])
 
@@ -162,7 +161,9 @@ export function ChatWindow({
 
       // Delete from DB
       if (conversationId && message.timestamp) {
-        window.api.deleteMessagesAfter(conversationId, message.timestamp)
+        window.api.deleteMessagesAfter(conversationId, message.timestamp).catch(() => {
+          addToast('Failed to delete messages', 'error')
+        })
       }
     },
     [conversationId, messages, isGenerating]
@@ -232,7 +233,7 @@ export function ChatWindow({
     let convId = activeConversationRef.current
     if (!convId) {
       convId = crypto.randomUUID()
-      onConversationCreated(convId)
+      conversationCreated(convId)
       activeConversationRef.current = convId
     }
 
@@ -241,6 +242,7 @@ export function ChatWindow({
     } catch (error) {
       console.error('Failed to send message:', error)
       setIsGenerating(false)
+      addToast('Failed to send message. Please try again.', 'error')
       const errorMessage: ChatMessage = {
         id: crypto.randomUUID(),
         role: 'assistant',
@@ -252,7 +254,11 @@ export function ChatWindow({
   }
 
   const handleStop = async () => {
-    await window.api.stopGeneration()
+    try {
+      await window.api.stopGeneration()
+    } catch {
+      addToast('Failed to stop generation', 'error')
+    }
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -301,7 +307,7 @@ export function ChatWindow({
             📎
           </button>
           <button
-            onClick={onToggleTerminal}
+            onClick={toggleTerminal}
             className={`px-3 py-2.5 rounded-lg border text-sm transition-colors ${
               showTerminal
                 ? 'border-blue-500 text-blue-500 bg-blue-50 dark:bg-blue-900/30'
