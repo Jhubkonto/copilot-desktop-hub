@@ -30,7 +30,12 @@ interface GitHubUser {
   name: string | null
 }
 
-let pollTimer: ReturnType<typeof setInterval> | null = null
+let pollTimer: ReturnType<typeof setTimeout> | null = null
+
+// Exported for testing
+export { storeToken as _storeToken, retrieveToken as _retrieveToken, clearToken as _clearToken }
+export { httpPost as _httpPost, httpGet as _httpGet }
+export { fetchGitHubUser as _fetchGitHubUser }
 
 function httpPost(url: string, body: Record<string, string>): Promise<string> {
   return new Promise((resolve, reject) => {

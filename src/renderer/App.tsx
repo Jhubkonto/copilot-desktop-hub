@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
 import { Sidebar } from './components/Sidebar'
 import { ChatWindow } from './components/ChatWindow'
 import { ToolApproval } from './components/ToolApproval'
+import { ToastContainer, useToasts } from './components/Toast'
 
 const AgentPanel = lazy(() =>
   import('./components/AgentPanel').then((m) => ({ default: m.AgentPanel }))
@@ -75,6 +76,7 @@ export default function App() {
     { requestId: string; tool: string; args: Record<string, unknown>; description: string }[]
   >([])
   const [deviceCode, setDeviceCode] = useState<{ userCode: string; verificationUri: string } | null>(null)
+  const { toasts, addToast, dismissToast } = useToasts()
 
   // Listen for device code during auth
   useEffect(() => {
@@ -173,14 +175,19 @@ export default function App() {
       const result = await window.api.authLogin()
       setDeviceCode(null)
       if (result?.error) {
-        console.error('Auth login failed:', result.error)
+        const msg = result.error === 'Device code expired'
+          ? 'Login timed out. Please try again.'
+          : result.error
+        addToast(msg, 'error')
         return
       }
       if (result.success) {
         setAuthState({ authenticated: true, user: result.user ?? null })
+        addToast(`Signed in as ${result.user?.login ?? 'user'}`, 'success')
       }
     } catch (err) {
       setDeviceCode(null)
+      addToast('Login failed. Please try again.', 'error')
       console.error('Auth login error:', err)
     }
   }
@@ -351,6 +358,7 @@ export default function App() {
           activeAgent={activeAgent}
           onToggleTerminal={() => setShowTerminal((v) => !v)}
           showTerminal={showTerminal}
+          authenticated={authState.authenticated}
         />
 
         {showTerminal && (
@@ -405,6 +413,8 @@ export default function App() {
         requests={toolApprovalRequests}
         onRespond={handleToolApprovalRespond}
       />
+
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
       {deviceCode && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-label="GitHub device code">

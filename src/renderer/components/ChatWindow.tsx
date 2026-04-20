@@ -25,6 +25,7 @@ interface ChatWindowProps {
   activeAgent?: { id: string; name: string; icon: string } | null
   onToggleTerminal?: () => void
   showTerminal?: boolean
+  authenticated?: boolean
 }
 
 export function ChatWindow({
@@ -34,7 +35,8 @@ export function ChatWindow({
   activeAgentId,
   activeAgent,
   onToggleTerminal,
-  showTerminal
+  showTerminal,
+  authenticated = false
 }: ChatWindowProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
@@ -316,9 +318,9 @@ export function ChatWindow({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={isOnline ? 'Type a message...' : '⚠ Offline — reconnect to send messages'}
+            placeholder={!authenticated ? '🔑 Sign in to start chatting' : isOnline ? 'Type a message...' : '⚠ Offline — reconnect to send messages'}
             rows={1}
-            disabled={!isOnline}
+            disabled={!isOnline || !authenticated}
             aria-label="Message input"
             className="flex-1 resize-none rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-4 py-2.5 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
           />
@@ -333,7 +335,7 @@ export function ChatWindow({
           ) : (
             <button
               onClick={handleSend}
-              disabled={!input.trim() || !isOnline}
+              disabled={!input.trim() || !isOnline || !authenticated}
               className="px-4 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               aria-label="Send message"
             >
