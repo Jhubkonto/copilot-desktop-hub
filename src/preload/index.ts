@@ -26,10 +26,6 @@ const api = {
     return () => ipcRenderer.removeListener('auth:device-code', handler)
   },
 
-  // CLI detection
-  checkCli: () => ipcRenderer.invoke('cli:check'),
-  cliStatus: () => ipcRenderer.invoke('cli:status'),
-
   // Chat
   sendMessage: (
     conversationId: string,

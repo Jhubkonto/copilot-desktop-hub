@@ -3,8 +3,6 @@ import { join } from 'path'
 import { getDatabase, closeDatabase } from './database'
 import { registerIpcHandlers } from './ipc-handlers'
 import { registerAuthHandlers } from './auth'
-import { registerCliHandlers, checkCliOnStartup } from './cli-detection'
-import { shutdownCopilot } from './copilot'
 import { disposeAllTerminals } from './terminal'
 import { initMcpServers, shutdownMcpServers } from './mcp'
 import { initAutoUpdater, registerUpdaterHandlers, checkForUpdatesOnStartup } from './updater'
@@ -56,7 +54,7 @@ function createWindow(): void {
       responseHeaders: {
         ...details.responseHeaders,
         'Content-Security-Policy': [
-          `default-src 'self'${devCsp}; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline'${devCsp}; img-src 'self' data: https:; connect-src 'self' https://api.openai.com https://api.anthropic.com https://*.openai.azure.com${devCsp}; font-src 'self'${devCsp}`
+          `default-src 'self'${devCsp}; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline'${devCsp}; img-src 'self' data: https:; connect-src 'self' https://api.openai.com https://api.anthropic.com https://*.openai.azure.com https://api.github.com https://api.githubcopilot.com${devCsp}; font-src 'self'${devCsp}`
         ]
       }
     })
@@ -171,14 +169,7 @@ app.whenReady().then(() => {
   // Register all IPC handlers
   registerIpcHandlers()
   registerAuthHandlers()
-  registerCliHandlers()
   registerUpdaterHandlers()
-
-  // Check for Copilot CLI
-  const cliStatus = checkCliOnStartup()
-  if (!cliStatus.installed) {
-    console.log('Copilot CLI not found — will show setup guidance in the UI')
-  }
 
   createWindow()
   createTray()
@@ -219,6 +210,5 @@ app.on('will-quit', () => {
   globalShortcut.unregisterAll()
   disposeAllTerminals()
   shutdownMcpServers().catch(() => {})
-  shutdownCopilot().catch(() => {})
   closeDatabase()
 })

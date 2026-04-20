@@ -10,7 +10,6 @@ const user = userEvent.setup()
 beforeEach(() => {
   mockApi = setupMockApi()
   mockApi.authStatus = vi.fn().mockResolvedValue({ authenticated: false, user: null })
-  mockApi.cliStatus = vi.fn().mockResolvedValue({ installed: false, version: null })
 })
 
 describe('OnboardingModal — Welcome Step', () => {
@@ -70,7 +69,6 @@ describe('OnboardingModal — Auth Step', () => {
   })
 
   it('shows waiting state during login', async () => {
-    // Make authLogin hang so we can check the loading state
     let resolveLogin: (v: unknown) => void
     mockApi.authLogin = vi.fn().mockImplementation(
       () => new Promise((resolve) => { resolveLogin = resolve })
@@ -83,7 +81,6 @@ describe('OnboardingModal — Auth Step', () => {
 
     expect(screen.getByText('Waiting for browser...')).toBeInTheDocument()
 
-    // Resolve to clean up
     resolveLogin!({ success: true, user: { login: 'test', avatar_url: '' } })
   })
 
@@ -97,58 +94,11 @@ describe('OnboardingModal — Auth Step', () => {
     expect(screen.getByText('Welcome to Copilot Desktop Hub')).toBeInTheDocument()
   })
 
-  it('skip button navigates to CLI step', async () => {
+  it('skip button navigates to done step', async () => {
     render(<OnboardingModal onComplete={vi.fn()} />)
 
     await user.click(screen.getByText('Get Started'))
     await user.click(screen.getByText('Skip for now'))
-
-    expect(screen.getByText('Copilot CLI Check')).toBeInTheDocument()
-  })
-})
-
-describe('OnboardingModal — CLI Step', () => {
-  it('shows CLI detected when installed', async () => {
-    mockApi.cliStatus = vi.fn().mockResolvedValue({ installed: true, version: '1.2.3' })
-
-    render(<OnboardingModal onComplete={vi.fn()} />)
-
-    await user.click(screen.getByText('Get Started'))
-    await user.click(screen.getByText('Skip for now'))
-
-    await waitFor(() => {
-      expect(screen.getByText(/Copilot CLI detected/)).toBeInTheDocument()
-      expect(screen.getByText(/v1.2.3/)).toBeInTheDocument()
-    })
-  })
-
-  it('shows CLI not found warning when not installed', async () => {
-    render(<OnboardingModal onComplete={vi.fn()} />)
-
-    await user.click(screen.getByText('Get Started'))
-    await user.click(screen.getByText('Skip for now'))
-
-    await waitFor(() => {
-      expect(screen.getByText(/Copilot CLI not found/)).toBeInTheDocument()
-    })
-  })
-
-  it('back button returns to auth step', async () => {
-    render(<OnboardingModal onComplete={vi.fn()} />)
-
-    await user.click(screen.getByText('Get Started'))
-    await user.click(screen.getByText('Skip for now'))
-    await user.click(screen.getByText('Back'))
-
-    expect(screen.getByRole('heading', { name: 'Sign in with GitHub' })).toBeInTheDocument()
-  })
-
-  it('continue button navigates to done step', async () => {
-    render(<OnboardingModal onComplete={vi.fn()} />)
-
-    await user.click(screen.getByText('Get Started'))
-    await user.click(screen.getByText('Skip for now'))
-    await user.click(screen.getByText('Continue'))
 
     expect(screen.getByText("You're all set!")).toBeInTheDocument()
   })
@@ -160,7 +110,6 @@ describe('OnboardingModal — Done Step', () => {
 
     await user.click(screen.getByText('Get Started'))
     await user.click(screen.getByText('Skip for now'))
-    await user.click(screen.getByText('Continue'))
 
     expect(screen.getByText("You're all set!")).toBeInTheDocument()
     expect(screen.getByText(/Start chatting with Copilot/)).toBeInTheDocument()
@@ -173,7 +122,6 @@ describe('OnboardingModal — Done Step', () => {
 
     await user.click(screen.getByText('Get Started'))
     await user.click(screen.getByText('Skip for now'))
-    await user.click(screen.getByText('Continue'))
     await user.click(screen.getByText('Start Using Copilot Desktop Hub'))
 
     expect(mockApi.setSetting).toHaveBeenCalledWith('onboarding_complete', 'true')

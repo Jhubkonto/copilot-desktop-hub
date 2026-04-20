@@ -7,9 +7,8 @@ const {
   mockIpcMain,
   mockBrowserWindow,
   mockWebContents,
-  mockSendCopilotMessage,
-  mockStopGeneration,
-  mockCheckCliOnStartup,
+  mockSendCopilotChatMessage,
+  mockAbortCopilotStream,
   mockGetAgentConfig,
   mockAbortActiveStream,
   mockGetProviderForAgent,
@@ -142,9 +141,8 @@ const {
     removeHandler: vi.fn()
   }
 
-  const mockSendCopilotMessage = vi.fn()
-  const mockStopGeneration = vi.fn()
-  const mockCheckCliOnStartup = vi.fn((): { installed: boolean; path: string | null; version: string | null } => ({ installed: false, path: null, version: null }))
+  const mockSendCopilotChatMessage = vi.fn()
+  const mockAbortCopilotStream = vi.fn()
   const mockGetAgentConfig = vi.fn((): Record<string, unknown> | null => null)
   const mockAbortActiveStream = vi.fn()
   const mockGetProviderForAgent = vi.fn(() => ({ provider: 'copilot', model: 'default' }))
@@ -160,9 +158,8 @@ const {
     mockIpcMain,
     mockBrowserWindow,
     mockWebContents,
-    mockSendCopilotMessage,
-    mockStopGeneration,
-    mockCheckCliOnStartup,
+    mockSendCopilotChatMessage,
+    mockAbortCopilotStream,
     mockGetAgentConfig,
     mockAbortActiveStream,
     mockGetProviderForAgent,
@@ -185,13 +182,9 @@ vi.mock('electron', () => ({
 
 vi.mock('../database', () => ({ getDatabase: () => mockDb }))
 
-vi.mock('../copilot', () => ({
-  sendCopilotMessage: mockSendCopilotMessage,
-  stopGeneration: mockStopGeneration
-}))
-
-vi.mock('../cli-detection', () => ({
-  checkCliOnStartup: mockCheckCliOnStartup
+vi.mock('../copilot-api', () => ({
+  sendCopilotChatMessage: mockSendCopilotChatMessage,
+  abortCopilotStream: mockAbortCopilotStream
 }))
 
 vi.mock('../agents', () => ({
@@ -235,6 +228,15 @@ describe('Chat — IPC Handlers', () => {
     vi.clearAllMocks()
     mockDb._conversations.clear()
     mockDb._messages.clear()
+
+    // Default: Copilot API mock streams a response
+    mockSendCopilotChatMessage.mockImplementation(
+      async (_window: unknown, _messages: unknown, onChunk: (c: string) => void) => {
+        onChunk('Hello ')
+        onChunk('world')
+        return 'Hello world'
+      }
+    )
 
     // Register all handlers
     const { registerIpcHandlers } = await import('../ipc-handlers')
@@ -398,15 +400,14 @@ describe('Chat — IPC Handlers', () => {
       expect(mockGetAgentConfig).toHaveBeenCalledWith('test-agent')
     })
 
-    it('chat-m-6: returns error when provider fails', async () => {
-      mockCheckCliOnStartup.mockReturnValue({ installed: true, path: '/usr/bin/copilot', version: '1.0' })
-      mockSendCopilotMessage.mockRejectedValue(new Error('SDK crash'))
+    it('chat-m-6: returns error when Copilot API fails', async () => {
+      mockSendCopilotChatMessage.mockRejectedValue(new Error('API crash'))
 
       const convId = 'error-conv'
-      // Should fall back to placeholder when SDK errors
+      // Should fall back to error placeholder when API errors
       const result = await invokeHandler('chat:send-message', convId, 'Hello')
       expect(result).toHaveProperty('assistantMsgId')
-      // The placeholder response should have been streamed
+      // The error response should have been streamed
       expect(mockWebContents.send).toHaveBeenCalled()
     })
 
@@ -442,10 +443,10 @@ describe('Chat — IPC Handlers', () => {
   })
 
   describe('chat:stop-generation', () => {
-    it('chat-m-9: aborts active stream', async () => {
+    it('chat-m-9: aborts active streams', async () => {
       await invokeHandler('chat:stop-generation')
       expect(mockAbortActiveStream).toHaveBeenCalled()
-      expect(mockStopGeneration).toHaveBeenCalled()
+      expect(mockAbortCopilotStream).toHaveBeenCalled()
     })
 
     it('chat-m-10: returns true', async () => {

@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react'
-import { Sparkles, Shield, Monitor, CheckCircle, MessageSquare, Bot, Plug, Wrench } from 'lucide-react'
+import { Sparkles, Shield, CheckCircle, MessageSquare, Bot, Plug, Wrench } from 'lucide-react'
 
 interface OnboardingProps {
   onComplete: () => void
 }
 
-type Step = 'welcome' | 'auth' | 'cli' | 'done'
+type Step = 'welcome' | 'auth' | 'done'
 
 export function OnboardingModal({ onComplete }: OnboardingProps) {
   const [step, setStep] = useState<Step>('welcome')
@@ -13,15 +13,10 @@ export function OnboardingModal({ onComplete }: OnboardingProps) {
     authenticated: boolean
     user: { login: string; avatar_url: string } | null
   }>({ authenticated: false, user: null })
-  const [cliState, setCliState] = useState<{
-    installed: boolean
-    version: string | null
-  } | null>(null)
   const [loggingIn, setLoggingIn] = useState(false)
 
   useEffect(() => {
     window.api.authStatus().then(setAuthState)
-    window.api.cliStatus().then(setCliState)
   }, [])
 
   const handleLogin = async () => {
@@ -43,7 +38,7 @@ export function OnboardingModal({ onComplete }: OnboardingProps) {
       <div className="w-full max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
         {/* Progress dots */}
         <div className="flex justify-center gap-2 pt-5">
-          {(['welcome', 'auth', 'cli', 'done'] as Step[]).map((s) => (
+          {(['welcome', 'auth', 'done'] as Step[]).map((s) => (
             <div
               key={s}
               className={`w-2 h-2 rounded-full transition-colors ${
@@ -113,65 +108,10 @@ export function OnboardingModal({ onComplete }: OnboardingProps) {
                   Back
                 </button>
                 <button
-                  onClick={() => setStep('cli')}
-                  className="flex-1 text-xs px-3 py-2 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 font-medium"
-                >
-                  {authState.authenticated ? 'Continue' : 'Skip for now'}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {step === 'cli' && (
-            <div className="text-center space-y-4">
-              <div className="flex justify-center">
-                <Monitor className="w-12 h-12 text-gray-400" />
-              </div>
-              <h2 className="text-lg font-medium text-gray-800 dark:text-gray-100">
-                Copilot CLI Check
-              </h2>
-
-              {cliState?.installed ? (
-                <div className="p-3 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600">
-                  <p className="text-sm text-gray-700 dark:text-gray-200 flex items-center justify-center gap-2">
-                    <CheckCircle className="w-4 h-4" />
-                    Copilot CLI detected
-                    {cliState.version && (
-                      <span className="text-xs opacity-75"> (v{cliState.version})</span>
-                    )}
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="p-3 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600">
-                    <p className="text-sm text-gray-600 dark:text-gray-300">
-                      Copilot CLI not found
-                    </p>
-                  </div>
-                  <p className="text-xs text-gray-500">
-                    The Copilot SDK requires the CLI. Install it with:
-                  </p>
-                  <code className="block text-xs px-3 py-2 rounded bg-gray-100 dark:bg-gray-900 text-gray-700 dark:text-gray-300">
-                    npm install -g @githubnext/github-copilot-cli
-                  </code>
-                  <p className="text-xs text-gray-400">
-                    You can still use BYOK providers (OpenAI, Anthropic) without the CLI.
-                  </p>
-                </div>
-              )}
-
-              <div className="flex gap-2 pt-2">
-                <button
-                  onClick={() => setStep('auth')}
-                  className="flex-1 text-xs px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-                >
-                  Back
-                </button>
-                <button
                   onClick={() => setStep('done')}
                   className="flex-1 text-xs px-3 py-2 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 font-medium"
                 >
-                  Continue
+                  {authState.authenticated ? 'Continue' : 'Skip for now'}
                 </button>
               </div>
             </div>

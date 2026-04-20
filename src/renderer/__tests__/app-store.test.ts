@@ -30,15 +30,6 @@ describe('Store — Auth Actions', () => {
     expect(useAppStore.getState().authState).toEqual(authResult)
   })
 
-  it('checkCli updates cliState from IPC', async () => {
-    const cliResult = { installed: true, path: '/usr/bin/copilot', version: '1.0.0' }
-    mockApi.cliStatus.mockResolvedValue(cliResult)
-
-    await useAppStore.getState().checkCli()
-
-    expect(useAppStore.getState().cliState).toEqual(cliResult)
-  })
-
   it('login success sets authState and shows toast', async () => {
     mockApi.authLogin.mockResolvedValue({
       success: true,
@@ -487,10 +478,9 @@ describe('Store — Tool Approval Actions', () => {
 // ── Hydration ──
 
 describe('Store — Hydration', () => {
-  it('hydrate loads theme, auth, CLI, conversations, and agents', async () => {
+  it('hydrate loads theme, auth, conversations, and agents', async () => {
     mockApi.getTheme.mockResolvedValue('light')
     mockApi.authStatus.mockResolvedValue({ authenticated: true, user: { login: 'u', avatar_url: '', name: '' } })
-    mockApi.cliStatus.mockResolvedValue({ installed: true, path: '/bin', version: '1.0' })
     mockApi.getSetting.mockResolvedValue('true')
     mockApi.listConversations.mockResolvedValue([{ id: 'c1', agent_id: null, title: 'Chat', created_at: 1, updated_at: 1 }])
     mockApi.listAgents.mockResolvedValue([{ id: 'a1', name: 'Agent', icon: '🤖' }])
@@ -500,7 +490,6 @@ describe('Store — Hydration', () => {
     const state = useAppStore.getState()
     expect(state.theme).toBe('light')
     expect(state.authState.authenticated).toBe(true)
-    expect(state.cliState?.installed).toBe(true)
     expect(state.conversations).toHaveLength(1)
     expect(state.agents).toHaveLength(1)
     expect(state.showOnboarding).toBe(false)

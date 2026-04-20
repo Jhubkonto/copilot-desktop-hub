@@ -18,7 +18,28 @@ const EMPTY_AGENT: Omit<AgentConfig, 'id'> = {
 }
 
 const EMOJI_OPTIONS = ['🤖', '🔍', '🐛', '💡', '📝', '🎨', '🔧', '🚀', '🧠', '⚡', '🛡️', '📊']
-const MODEL_OPTIONS = ['default', 'gpt-4o', 'gpt-4o-mini', 'claude-3.5-sonnet', 'o1-preview']
+const MODEL_OPTIONS = [
+  'default',
+  // OpenAI
+  'gpt-4.1',
+  'gpt-4o',
+  'gpt-4o-mini',
+  'gpt-5.4',
+  'gpt-5.4-mini',
+  'gpt-5.2',
+  'gpt-5-mini',
+  'o3-mini',
+  // Anthropic
+  'claude-sonnet-4.6',
+  'claude-sonnet-4.5',
+  'claude-opus-4.7',
+  'claude-opus-4.6',
+  'claude-opus-4.5',
+  'claude-haiku-4.5',
+  // Google
+  'gemini-2.5-pro',
+  'gemini-3-flash',
+]
 const FORMAT_OPTIONS = ['default', 'concise', 'detailed', 'code-only']
 
 export function AgentPanel() {

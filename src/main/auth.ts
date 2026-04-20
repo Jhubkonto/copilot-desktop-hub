@@ -3,7 +3,7 @@ import { getDatabase } from './database'
 import https from 'https'
 import { safeHandle } from './safe-handle'
 
-const GITHUB_CLIENT_ID = 'Ov23li2lYX52yQHvwNPf'
+const GITHUB_CLIENT_ID = 'Iv1.b507a08c87ecfe98'
 const GITHUB_DEVICE_CODE_URL = 'https://github.com/login/device/code'
 const GITHUB_ACCESS_TOKEN_URL = 'https://github.com/login/oauth/access_token'
 const GITHUB_USER_URL = 'https://api.github.com/user'
@@ -31,6 +31,9 @@ interface GitHubUser {
 }
 
 let pollTimer: ReturnType<typeof setTimeout> | null = null
+
+// Public export for copilot-api module
+export { retrieveToken }
 
 // Exported for testing
 export { storeToken as _storeToken, retrieveToken as _retrieveToken, clearToken as _clearToken }
@@ -261,6 +264,8 @@ export function registerAuthHandlers(): void {
       pollTimer = null
     }
     clearToken()
+    // Lazy import to avoid circular dependency (copilot-api imports auth)
+    import('./copilot-api').then(m => m.clearCopilotTokenCache())
     return true
   })
 

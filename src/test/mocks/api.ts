@@ -23,10 +23,6 @@ export function createMockApi() {
     authLogout: vi.fn().mockResolvedValue(undefined),
     onDeviceCode: vi.fn().mockReturnValue(() => {}),
 
-    // CLI
-    checkCli: vi.fn().mockResolvedValue({ installed: true, path: '/usr/bin/copilot', version: '1.0.0' }),
-    cliStatus: vi.fn().mockResolvedValue({ installed: true, path: '/usr/bin/copilot', version: '1.0.0' }),
-
     // Chat
     sendMessage: vi.fn().mockResolvedValue(undefined),
     onStreamResponse: vi.fn().mockReturnValue(() => {}),

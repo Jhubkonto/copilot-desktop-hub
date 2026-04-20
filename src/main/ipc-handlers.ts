@@ -3,8 +3,7 @@ import { getDatabase } from './database'
 import { randomUUID } from 'crypto'
 import { readFileSync, statSync } from 'fs'
 import { basename } from 'path'
-import { sendCopilotMessage, stopGeneration } from './copilot'
-import { checkCliOnStartup } from './cli-detection'
+import { sendCopilotChatMessage, abortCopilotStream } from './copilot-api'
 import { registerAgentHandlers, getAgentConfig } from './agents'
 import { registerToolHandlers } from './tools'
 import { registerTerminalHandlers } from './terminal'
@@ -146,9 +145,6 @@ function registerConversationHandlers(): void {
 
 function registerChatHandlers(): void {
   const db = getDatabase()
-
-  // Track Copilot session IDs per conversation
-  const sessionMap = new Map<string, string>()
 
   safeHandle(
     'chat:send-message',
@@ -309,25 +305,25 @@ function registerChatHandlers(): void {
           )
         }
       } else {
-        // Fall back to Copilot SDK or placeholder
-        const cliStatus = checkCliOnStartup()
-        if (cliStatus.installed) {
-          try {
-            const copilotSessionId = sessionMap.get(conversationId)
-            const result = await sendCopilotMessage(
-              window,
-              conversationId,
-              augmentedContent,
-              copilotSessionId
-            )
-            responseContent = result.responseContent
-            sessionMap.set(conversationId, result.copilotSessionId)
-          } catch (error) {
-            console.error('Copilot SDK error, falling back to placeholder:', error)
-            responseContent = await generatePlaceholderResponse(augmentedContent, window)
-          }
-        } else {
-          responseContent = await generatePlaceholderResponse(augmentedContent, window)
+        // Use Copilot API with GitHub OAuth token
+        try {
+          const agentSystemPrompt = typeof agentCfg2?.systemPrompt === 'string' ? agentCfg2.systemPrompt : undefined
+          const chatMessages: { role: string; content: string }[] = []
+          chatMessages.push({
+            role: 'system',
+            content: agentSystemPrompt || 'You are GitHub Copilot, an AI programming assistant.'
+          })
+          chatMessages.push({ role: 'user', content: augmentedContent })
+          responseContent = await sendCopilotChatMessage(window, chatMessages, (chunk) => {
+            window.webContents.send('chat:stream-response', chunk)
+          })
+          window.webContents.send('chat:stream-response', null)
+        } catch (error) {
+          console.error('Copilot API error:', error)
+          responseContent = await generatePlaceholderResponse(
+            `Copilot API error: ${(error as Error).message}`,
+            window
+          )
         }
       }
 
@@ -343,7 +339,7 @@ function registerChatHandlers(): void {
 
   safeHandle('chat:stop-generation', async () => {
     abortActiveStream()
-    await stopGeneration()
+    abortCopilotStream()
     return true
   })
 }
@@ -400,11 +396,10 @@ function registerFileHandlers(): void {
 }
 
 async function generatePlaceholderResponse(
-  _userMessage: string,
+  errorMessage: string,
   window: BrowserWindow
 ): Promise<string> {
-  const response =
-    'Copilot CLI is not available. Install it to get real AI responses, or this placeholder will be used instead. Your messages are being saved to the local database.'
+  const response = errorMessage
 
   const words = response.split(' ')
   for (let i = 0; i < words.length; i++) {

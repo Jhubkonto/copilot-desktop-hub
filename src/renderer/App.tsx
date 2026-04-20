@@ -1,5 +1,5 @@
 import { useEffect, lazy, Suspense } from 'react'
-import { Settings, AlertTriangle } from 'lucide-react'
+import { Settings } from 'lucide-react'
 import { Sidebar } from './components/Sidebar'
 import { ChatWindow } from './components/ChatWindow'
 import { ToolApproval } from './components/ToolApproval'
@@ -24,7 +24,6 @@ const OnboardingModal = lazy(() =>
 
 export default function App() {
   const theme = useAppStore((s) => s.theme)
-  const cliState = useAppStore((s) => s.cliState)
   const showTerminal = useAppStore((s) => s.showTerminal)
   const showAgentPanel = useAppStore((s) => s.showAgentPanel)
   const showSettings = useAppStore((s) => s.showSettings)
@@ -97,12 +96,6 @@ export default function App() {
                 {activeAgent.icon} {activeAgent.name}
               </span>
             )}
-            {cliState && !cliState.installed && (
-              <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
-                <AlertTriangle className="w-3 h-3" />
-                CLI not found
-              </span>
-            )}
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -142,21 +135,6 @@ export default function App() {
             >
               Restart
             </button>
-          </div>
-        )}
-
-        {cliState && !cliState.installed && (
-          <div className="mx-4 mt-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
-            <p className="text-sm font-medium text-gray-700 dark:text-gray-200">
-              GitHub Copilot CLI not detected
-            </p>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Install it with{' '}
-              <code className="px-1 py-0.5 bg-gray-100 dark:bg-gray-700 rounded text-xs">
-                npm install -g @githubnext/github-copilot-cli
-              </code>{' '}
-              then restart the app. Chat will use placeholder responses until the CLI is available.
-            </p>
           </div>
         )}
 

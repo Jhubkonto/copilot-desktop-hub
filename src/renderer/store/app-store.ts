@@ -33,12 +33,6 @@ export interface AuthState {
   user: { login: string; avatar_url: string; name: string | null } | null
 }
 
-export interface CliState {
-  installed: boolean
-  path: string | null
-  version: string | null
-}
-
 export interface Toast {
   id: string
   message: string
@@ -57,7 +51,6 @@ export interface ToolApprovalRequest {
 interface AppState {
   // Auth
   authState: AuthState
-  cliState: CliState | null
   deviceCode: { userCode: string; verificationUri: string } | null
   authLoading: boolean
 
@@ -90,7 +83,6 @@ interface AppState {
 
   // ── Auth Actions ──
   checkAuth: () => Promise<void>
-  checkCli: () => Promise<void>
   login: () => Promise<void>
   logout: () => Promise<void>
   setDeviceCode: (code: { userCode: string; verificationUri: string } | null) => void
@@ -142,7 +134,6 @@ export const useAppStore = create<AppState>()(
   immer((set, get) => ({
     // ── Initial State ──
     authState: { authenticated: false, user: null },
-    cliState: null,
     deviceCode: null,
     authLoading: false,
 
@@ -173,11 +164,6 @@ export const useAppStore = create<AppState>()(
     checkAuth: async () => {
       const result = await window.api.authStatus()
       set((s) => { s.authState = result })
-    },
-
-    checkCli: async () => {
-      const result = await window.api.cliStatus()
-      set((s) => { s.cliState = result })
     },
 
     login: async () => {
@@ -469,10 +455,9 @@ export const useAppStore = create<AppState>()(
         get().setTheme(t)
       } catch { /* use default */ }
 
-      // Check auth, CLI, onboarding
+      // Check auth and onboarding
       await Promise.all([
         get().checkAuth(),
-        get().checkCli(),
         window.api.getSetting('onboarding_complete').then((val: string | null) => {
           if (val !== 'true') set((s) => { s.showOnboarding = true })
         }).catch(() => {}),

@@ -8,7 +8,6 @@ export function createMockAppStore(overrides: Record<string, unknown> = {}) {
   return {
     // Auth state
     authState: { authenticated: false, user: null },
-    cliState: null,
     deviceCode: null,
     authLoading: false,
 
@@ -41,7 +40,6 @@ export function createMockAppStore(overrides: Record<string, unknown> = {}) {
 
     // Actions
     checkAuth: vi.fn(),
-    checkCli: vi.fn(),
     login: vi.fn(),
     logout: vi.fn(),
     setDeviceCode: vi.fn(),
