@@ -8,7 +8,7 @@ let mockApi: MockApi
 beforeEach(() => {
   mockApi = setupMockApi()
   mockApi.getMessages = vi.fn().mockResolvedValue([])
-  mockApi.onChatStream = vi.fn().mockReturnValue(() => {})
+  mockApi.onStreamResponse = vi.fn().mockReturnValue(() => {})
 })
 
 describe('ChatWindow — Auth Gating (auth-r-8, auth-r-9)', () => {

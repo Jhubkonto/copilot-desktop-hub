@@ -11,7 +11,7 @@ const mockStatement = {
     // We can capture this from the SQL string in prepare()
     return { changes: 1 }
   }),
-  get: vi.fn((..._args: unknown[]) => {
+  get: vi.fn((..._args: unknown[]): { value: string } | undefined => {
     return undefined
   }),
   all: vi.fn(() => [])

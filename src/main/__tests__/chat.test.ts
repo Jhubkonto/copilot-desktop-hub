@@ -129,7 +129,7 @@ const {
 
   const mockWebContents = { send: vi.fn() }
   const mockBrowserWindow = {
-    fromWebContents: vi.fn(() => ({
+    fromWebContents: vi.fn((): { webContents: { send: ReturnType<typeof vi.fn> } } | null => ({
       webContents: mockWebContents
     }))
   }
@@ -144,11 +144,11 @@ const {
 
   const mockSendCopilotMessage = vi.fn()
   const mockStopGeneration = vi.fn()
-  const mockCheckCliOnStartup = vi.fn(() => ({ installed: false, path: null, version: null }))
-  const mockGetAgentConfig = vi.fn(() => null)
+  const mockCheckCliOnStartup = vi.fn((): { installed: boolean; path: string | null; version: string | null } => ({ installed: false, path: null, version: null }))
+  const mockGetAgentConfig = vi.fn((): Record<string, unknown> | null => null)
   const mockAbortActiveStream = vi.fn()
   const mockGetProviderForAgent = vi.fn(() => ({ provider: 'copilot', model: 'default' }))
-  const mockGetApiKey = vi.fn(() => null)
+  const mockGetApiKey = vi.fn((): string | null => null)
   const mockSendOpenAIMessage = vi.fn()
   const mockSendAnthropicMessage = vi.fn()
   const mockSendAzureMessage = vi.fn()
@@ -222,8 +222,8 @@ vi.mock('fs', () => ({
   writeFileSync: vi.fn()
 }))
 
-// Helper to invoke an IPC handler the way Electron does (via safeHandle wrapper)
-async function invokeHandler(channel: string, ...args: unknown[]) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function invokeHandler(channel: string, ...args: unknown[]): Promise<any> {
   const handler = ipcHandlers.get(channel)
   if (!handler) throw new Error(`No handler for ${channel}`)
   const event = { sender: {} } // mock event with sender for BrowserWindow.fromWebContents
