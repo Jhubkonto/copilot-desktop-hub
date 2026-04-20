@@ -3,7 +3,7 @@ import { getDatabase } from './database'
 import https from 'https'
 import { safeHandle } from './safe-handle'
 
-const GITHUB_CLIENT_ID = 'Iv1.PLACEHOLDER_ID' // Replace with real GitHub OAuth App client ID
+const GITHUB_CLIENT_ID = 'Ov23li2lYX52yQHvwNPf'
 const GITHUB_DEVICE_CODE_URL = 'https://github.com/login/device/code'
 const GITHUB_ACCESS_TOKEN_URL = 'https://github.com/login/oauth/access_token'
 const GITHUB_USER_URL = 'https://api.github.com/user'
@@ -49,7 +49,12 @@ function httpPost(url: string, body: Record<string, string>): Promise<string> {
     const req = https.request(options, (res) => {
       let result = ''
       res.on('data', (chunk) => (result += chunk))
-      res.on('end', () => resolve(result))
+      res.on('end', () => {
+        if (res.statusCode && res.statusCode >= 400) {
+          console.error(`[auth] HTTP ${res.statusCode} from ${url}:`, result)
+        }
+        resolve(result)
+      })
     })
     req.setTimeout(30000, () => {
       req.destroy(new Error('Request timed out'))
@@ -162,13 +167,16 @@ export function registerAuthHandlers(): void {
   })
 
   safeHandle('auth:login', async (event) => {
+    console.log('[auth] Login initiated')
     const window = BrowserWindow.fromWebContents(event.sender)
 
     try {
+      console.log('[auth] Requesting device code...')
       const codeResponse = await httpPost(GITHUB_DEVICE_CODE_URL, {
         client_id: GITHUB_CLIENT_ID,
         scope: SCOPES
       })
+      console.log('[auth] Device code response:', codeResponse)
 
       const deviceData = JSON.parse(codeResponse) as DeviceCodeResponse
 
@@ -184,36 +192,54 @@ export function registerAuthHandlers(): void {
           const startTime = Date.now()
           const expiresMs = deviceData.expires_in * 1000
 
-          pollTimer = setInterval(async () => {
-            if (Date.now() - startTime > expiresMs) {
-              if (pollTimer) clearInterval(pollTimer)
+          let currentIntervalMs = (deviceData.interval || 5) * 1000
+          console.log(`[auth] Starting poll every ${currentIntervalMs}ms, expires in ${deviceData.expires_in}s`)
+
+          const poll = async (): Promise<void> => {
+            const elapsed = Date.now() - startTime
+            if (elapsed > expiresMs) {
+              console.log('[auth] Device code expired after', elapsed, 'ms')
               pollTimer = null
               resolve({ success: false, error: 'Device code expired' })
               return
             }
 
             try {
+              console.log(`[auth] Polling for access token (interval: ${currentIntervalMs}ms)...`)
               const tokenResponse = await httpPost(GITHUB_ACCESS_TOKEN_URL, {
                 client_id: GITHUB_CLIENT_ID,
                 device_code: deviceData.device_code,
                 grant_type: 'urn:ietf:params:oauth:grant-type:device_code'
               })
 
-              const tokenData = JSON.parse(tokenResponse) as TokenResponse
+              console.log('[auth] Poll response:', tokenResponse)
+              const tokenData = JSON.parse(tokenResponse) as TokenResponse & { interval?: number }
 
               if (tokenData.access_token) {
-                if (pollTimer) clearInterval(pollTimer)
+                console.log('[auth] Access token received, fetching user...')
                 pollTimer = null
 
                 storeToken(tokenData.access_token)
                 const user = await fetchGitHubUser(tokenData.access_token)
+                console.log('[auth] Login complete, user:', user?.login)
                 resolve({ success: true, user: user ?? undefined })
+                return
               }
-              // Otherwise keep polling (error will be 'authorization_pending')
-            } catch {
-              // Network error, keep polling
+
+              if (tokenData.error === 'slow_down' && tokenData.interval) {
+                currentIntervalMs = tokenData.interval * 1000
+                console.log(`[auth] Slowing down, new interval: ${currentIntervalMs}ms`)
+              } else if (tokenData.error) {
+                console.log('[auth] Poll pending:', tokenData.error)
+              }
+            } catch (err) {
+              console.error('[auth] Poll error:', err)
             }
-          }, (deviceData.interval || 5) * 1000)
+
+            pollTimer = setTimeout(poll, currentIntervalMs)
+          }
+
+          pollTimer = setTimeout(poll, currentIntervalMs)
         }
       )
     } catch (error) {
@@ -226,7 +252,7 @@ export function registerAuthHandlers(): void {
 
   safeHandle('auth:logout', () => {
     if (pollTimer) {
-      clearInterval(pollTimer)
+      clearTimeout(pollTimer)
       pollTimer = null
     }
     clearToken()

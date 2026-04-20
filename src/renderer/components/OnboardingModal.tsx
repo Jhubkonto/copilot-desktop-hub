@@ -183,7 +183,7 @@ export function OnboardingModal({ onComplete }: OnboardingProps) {
                   <li>🔌 Connect MCP servers for extended capabilities</li>
                   <li>🛠️ Use built-in tools (file editing, terminal, web fetch)</li>
                   <li>⌨️ Press <kbd className="px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-xs font-mono">
-                    {process.platform === 'darwin' ? 'Cmd' : 'Ctrl'}+Shift+H
+                    {window.api.platform === 'darwin' ? 'Cmd' : 'Ctrl'}+Shift+H
                   </kbd> to toggle the app</li>
                 </ul>
               </div>

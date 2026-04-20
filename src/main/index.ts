@@ -41,20 +41,22 @@ function createWindow(): void {
     title: 'Copilot Desktop Hub',
     show: false,
     webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
+      preload: join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
+      sandbox: false
     }
   })
 
-  // Content Security Policy
+  // Content Security Policy — relaxed in dev for Vite HMR
+  const devCsp = isDev ? " http://localhost:* ws://localhost:*" : ""
+  const scriptSrc = isDev ? "'self' 'unsafe-inline' http://localhost:* ws://localhost:*" : "'self'"
   mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
         ...details.responseHeaders,
         'Content-Security-Policy': [
-          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://api.openai.com https://api.anthropic.com https://*.openai.azure.com; font-src 'self'"
+          `default-src 'self'${devCsp}; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline'${devCsp}; img-src 'self' data: https:; connect-src 'self' https://api.openai.com https://api.anthropic.com https://*.openai.azure.com${devCsp}; font-src 'self'${devCsp}`
         ]
       }
     })
@@ -62,6 +64,9 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
+    if (isDev) {
+      mainWindow?.webContents.openDevTools()
+    }
   })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
