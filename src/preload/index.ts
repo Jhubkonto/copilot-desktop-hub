@@ -183,6 +183,21 @@ const api = {
   setConversationProject: (conversationId: string, projectId: string | null) =>
     ipcRenderer.invoke('project:set-conversation', conversationId, projectId),
 
+  // Window controls
+  minimizeWindow: () => ipcRenderer.invoke('window:minimize'),
+  maximizeWindow: () => ipcRenderer.invoke('window:maximize'),
+  closeWindow: () => ipcRenderer.invoke('window:close'),
+  isWindowMaximized: (): Promise<boolean> => ipcRenderer.invoke('window:is-maximized'),
+  editAction: (action: string) => ipcRenderer.invoke('window:edit-action', action),
+  zoomIn: () => ipcRenderer.invoke('window:zoom', 0.5),
+  zoomOut: () => ipcRenderer.invoke('window:zoom', -0.5),
+  resetZoom: () => ipcRenderer.invoke('window:zoom', 0),
+  onMaximizeChange: (callback: (maximized: boolean) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, maximized: boolean) => callback(maximized)
+    ipcRenderer.on('window:maximize-change', handler)
+    return () => ipcRenderer.removeListener('window:maximize-change', handler)
+  },
+
   // Auto-start
   setAutoStart: (enabled: boolean) => ipcRenderer.invoke('app:set-auto-start', enabled),
   saveTextFile: (defaultFileName: string, content: string) =>

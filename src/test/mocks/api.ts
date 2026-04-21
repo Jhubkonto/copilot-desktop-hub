@@ -112,7 +112,18 @@ export function createMockApi() {
     onUpdateDownloaded: vi.fn().mockReturnValue(() => {}),
 
     // System events
-    onNewChat: vi.fn().mockReturnValue(() => {})
+    onNewChat: vi.fn().mockReturnValue(() => {}),
+
+    // Window controls
+    minimizeWindow: vi.fn().mockResolvedValue(undefined),
+    maximizeWindow: vi.fn().mockResolvedValue(undefined),
+    closeWindow: vi.fn().mockResolvedValue(undefined),
+    isWindowMaximized: vi.fn().mockResolvedValue(false),
+    editAction: vi.fn().mockResolvedValue(undefined),
+    zoomIn: vi.fn().mockResolvedValue(undefined),
+    zoomOut: vi.fn().mockResolvedValue(undefined),
+    resetZoom: vi.fn().mockResolvedValue(undefined),
+    onMaximizeChange: vi.fn().mockReturnValue(() => {}),
   }
 }
 

@@ -84,6 +84,7 @@ interface AppState {
 
   // UI
   theme: 'light' | 'dark'
+  showSidebar: boolean
   showTerminal: boolean
   showMcpPanel: boolean
   showSettings: boolean
@@ -133,7 +134,9 @@ interface AppState {
   // ── UI Actions ──
   setTheme: (theme: 'light' | 'dark') => void
   toggleTheme: () => void
+  toggleSidebar: () => void
   toggleTerminal: () => void
+  toggleAgentPanel: () => void
   setShowMcpPanel: (show: boolean) => void
   setShowSettings: (show: boolean) => void
   setShowOnboarding: (show: boolean) => void
@@ -176,6 +179,7 @@ export const useAppStore = create<AppState>()(
     agentsLoading: false,
 
     theme: 'dark',
+    showSidebar: true,
     showTerminal: false,
     showMcpPanel: false,
     showSettings: false,
@@ -502,8 +506,16 @@ export const useAppStore = create<AppState>()(
       window.api.setTheme(next)
     },
 
+    toggleSidebar: () => {
+      set((s) => { s.showSidebar = !s.showSidebar })
+    },
+
     toggleTerminal: () => {
       set((s) => { s.showTerminal = !s.showTerminal })
+    },
+
+    toggleAgentPanel: () => {
+      set((s) => { s.showAgentPanel = !s.showAgentPanel })
     },
 
     setShowMcpPanel: (show) => {

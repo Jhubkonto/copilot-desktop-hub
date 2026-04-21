@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState, useCallback, lazy, Suspense } from 'react'
-import { Menu, Settings, Bot, Plug, TerminalSquare } from 'lucide-react'
+import { useEffect, useState, useCallback, lazy, Suspense } from 'react'
 import { Sidebar } from './components/Sidebar'
 import { ChatWindow } from './components/ChatWindow'
+import { TitleBar } from './components/TitleBar'
 import { ToolApproval } from './components/ToolApproval'
 import { ToastContainer } from './components/Toast'
 import { useAppStore } from './store/app-store'
@@ -28,12 +28,11 @@ export default function App() {
   const showAgentPanel = useAppStore((s) => s.showAgentPanel)
   const showSettings = useAppStore((s) => s.showSettings)
   const showOnboarding = useAppStore((s) => s.showOnboarding)
+  const showSidebar = useAppStore((s) => s.showSidebar)
   const updateAvailable = useAppStore((s) => s.updateAvailable)
   const updateDownloaded = useAppStore((s) => s.updateDownloaded)
   const deviceCode = useAppStore((s) => s.deviceCode)
   const toasts = useAppStore((s) => s.toasts)
-  const agents = useAppStore((s) => s.agents)
-  const activeAgentId = useAppStore((s) => s.activeAgentId)
 
   const hydrate = useAppStore((s) => s.hydrate)
   const setDeviceCode = useAppStore((s) => s.setDeviceCode)
@@ -41,13 +40,8 @@ export default function App() {
   const setUpdateAvailable = useAppStore((s) => s.setUpdateAvailable)
   const setUpdateDownloaded = useAppStore((s) => s.setUpdateDownloaded)
   const dismissToast = useAppStore((s) => s.dismissToast)
-  const setShowSettings = useAppStore((s) => s.setShowSettings)
-  const setShowMcpPanel = useAppStore((s) => s.setShowMcpPanel)
-  const openCreateAgent = useAppStore((s) => s.openCreateAgent)
-  const toggleTerminal = useAppStore((s) => s.toggleTerminal)
   const setShowOnboarding = useAppStore((s) => s.setShowOnboarding)
-  const [showToolbarMenu, setShowToolbarMenu] = useState(false)
-  const toolbarMenuRef = useRef<HTMLDivElement>(null)
+
   const [terminalHeight, setTerminalHeight] = useState(250)
   const [agentPanelWidth, setAgentPanelWidth] = useState(440)
 
@@ -101,139 +95,58 @@ export default function App() {
     return () => { unsub1(); unsub2() }
   }, [setUpdateAvailable, setUpdateDownloaded])
 
-  const activeAgent = activeAgentId ? agents.find((a) => a.id === activeAgentId) ?? null : null
-
-  useEffect(() => {
-    if (!showToolbarMenu) return
-    const onPointerDown = (event: MouseEvent) => {
-      if (toolbarMenuRef.current && !toolbarMenuRef.current.contains(event.target as Node)) {
-        setShowToolbarMenu(false)
-      }
-    }
-    window.addEventListener('mousedown', onPointerDown)
-    return () => {
-      window.removeEventListener('mousedown', onPointerDown)
-    }
-  }, [showToolbarMenu])
-
   return (
-    <div className={`flex h-screen w-screen overflow-hidden ${theme === 'dark' ? 'dark' : ''}`} role="application">
-      <Sidebar />
-      <main className="flex-1 flex flex-col min-h-0 min-w-0 bg-white dark:bg-gray-900" role="main">
-        <header className="flex items-center justify-between px-4 py-2 border-b border-gray-200 dark:border-gray-700/80" role="banner">
-          <div className="flex items-center gap-3">
-            <div className="relative" ref={toolbarMenuRef}>
+    <div className={`flex flex-col h-screen w-screen overflow-hidden ${theme === 'dark' ? 'dark' : ''}`} role="application">
+      {/* Custom frameless titlebar */}
+      <TitleBar />
+
+      {/* Content row: sidebar + main */}
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        {showSidebar && <Sidebar />}
+        <main className="flex-1 flex flex-col min-h-0 min-w-0 bg-white dark:bg-gray-900" role="main">
+
+          {/* Update notification banners */}
+          {updateAvailable && !updateDownloaded && (
+            <div className="mx-4 mt-2 p-2 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-between" role="alert">
+              <p className="text-xs text-gray-600 dark:text-gray-300">
+                Update v{updateAvailable.version} is available
+              </p>
               <button
-                onClick={() => setShowToolbarMenu((prev) => !prev)}
-                className="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                title="Open menu"
-                aria-label="Open toolbar menu"
-                aria-expanded={showToolbarMenu}
+                onClick={() => window.api.downloadUpdate()}
+                className="text-xs px-2 py-1 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200"
               >
-                <Menu className="w-4 h-4" />
+                Download
               </button>
-              {showToolbarMenu && (
-                <div className="absolute left-0 top-10 z-20 w-56 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xl p-1.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowToolbarMenu(false)
-                      setShowSettings(true)
-                    }}
-                    className="w-full text-left px-3 py-2 rounded-lg text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
-                  >
-                    <Settings className="w-4 h-4" />
-                    Settings
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowToolbarMenu(false)
-                      openCreateAgent()
-                    }}
-                    className="w-full text-left px-3 py-2 rounded-lg text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
-                  >
-                    <Bot className="w-4 h-4" />
-                    Agent Builder
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowToolbarMenu(false)
-                      setShowMcpPanel(true)
-                    }}
-                    className="w-full text-left px-3 py-2 rounded-lg text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
-                  >
-                    <Plug className="w-4 h-4" />
-                    MCP Servers
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowToolbarMenu(false)
-                      toggleTerminal()
-                    }}
-                    className="w-full text-left px-3 py-2 rounded-lg text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
-                  >
-                    <TerminalSquare className="w-4 h-4" />
-                    {showTerminal ? 'Hide Terminal' : 'Show Terminal'}
-                  </button>
-                </div>
-              )}
             </div>
-            <h1 className="text-sm font-medium text-gray-700 dark:text-gray-200">
-              Copilot Desktop Hub
-            </h1>
-            {activeAgent && (
-              <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700" aria-label={`Active agent: ${activeAgent.name}`}>
-                {activeAgent.icon} {activeAgent.name}
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2" />
-        </header>
+          )}
+          {updateDownloaded && (
+            <div className="mx-4 mt-2 p-2 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-between" role="alert">
+              <p className="text-xs text-gray-600 dark:text-gray-300">
+                Update downloaded — restart to install
+              </p>
+              <button
+                onClick={() => window.api.installUpdate()}
+                className="text-xs px-2 py-1 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200"
+              >
+                Restart
+              </button>
+            </div>
+          )}
 
-        {/* Update notification banner */}
-        {updateAvailable && !updateDownloaded && (
-          <div className="mx-4 mt-2 p-2 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-between" role="alert">
-            <p className="text-xs text-gray-600 dark:text-gray-300">
-              Update v{updateAvailable.version} is available
-            </p>
-            <button
-              onClick={() => window.api.downloadUpdate()}
-              className="text-xs px-2 py-1 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200"
-            >
-              Download
-            </button>
-          </div>
-        )}
-        {updateDownloaded && (
-          <div className="mx-4 mt-2 p-2 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-between" role="alert">
-            <p className="text-xs text-gray-600 dark:text-gray-300">
-              Update downloaded — restart to install
-            </p>
-            <button
-              onClick={() => window.api.installUpdate()}
-              className="text-xs px-2 py-1 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200"
-            >
-              Restart
-            </button>
-          </div>
-        )}
+          <ChatWindow />
 
-        <ChatWindow />
-
-        {showTerminal && (
-          <Suspense fallback={null}>
-            <TerminalPanel
-              visible={showTerminal}
-              onClose={() => useAppStore.getState().toggleTerminal()}
-              height={terminalHeight}
-              onResize={handleTerminalResize}
-            />
-          </Suspense>
-        )}
-      </main>
+          {showTerminal && (
+            <Suspense fallback={null}>
+              <TerminalPanel
+                visible={showTerminal}
+                onClose={() => useAppStore.getState().toggleTerminal()}
+                height={terminalHeight}
+                onResize={handleTerminalResize}
+              />
+            </Suspense>
+          )}
+        </main>
+      </div>
 
       <Suspense fallback={null}>
         {showAgentPanel && (

@@ -25,6 +25,7 @@ export function createMockAppStore(overrides: Record<string, unknown> = {}) {
 
     // UI
     theme: 'dark' as const,
+    showSidebar: true,
     showTerminal: false,
     showMcpPanel: false,
     showSettings: false,
@@ -65,7 +66,9 @@ export function createMockAppStore(overrides: Record<string, unknown> = {}) {
     importAgent: vi.fn(),
     setTheme: vi.fn(),
     toggleTheme: vi.fn(),
+    toggleSidebar: vi.fn(),
     toggleTerminal: vi.fn(),
+    toggleAgentPanel: vi.fn(),
     setShowMcpPanel: vi.fn(),
     setShowSettings: vi.fn(),
     setShowOnboarding: vi.fn(),

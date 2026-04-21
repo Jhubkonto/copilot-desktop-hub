@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, globalShortcut, Tray, Menu, nativeImage } from 'electron'
+import { app, BrowserWindow, shell, globalShortcut, Tray, Menu, nativeImage, ipcMain } from 'electron'
 import { join } from 'path'
 import { getDatabase, closeDatabase } from './database'
 import { registerIpcHandlers } from './ipc-handlers'
@@ -38,6 +38,8 @@ function createWindow(): void {
     minHeight: 400,
     title: 'Copilot Desktop Hub',
     show: false,
+    frame: false,
+    titleBarStyle: 'hidden',
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,
@@ -163,6 +165,9 @@ app.on('open-url', (_event, url) => {
 })
 
 app.whenReady().then(() => {
+  // Remove the default Electron application menu
+  Menu.setApplicationMenu(null)
+
   // Initialize database
   getDatabase()
 
@@ -174,6 +179,45 @@ app.whenReady().then(() => {
   createWindow()
   createTray()
   registerGlobalHotkey()
+
+  // Window control IPC handlers (use sender to target the correct window)
+  const EDIT_ACTIONS = new Set(['undo', 'redo', 'cut', 'copy', 'paste', 'selectAll'])
+
+  ipcMain.handle('window:minimize', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.minimize()
+  })
+  ipcMain.handle('window:maximize', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return
+    win.isMaximized() ? win.unmaximize() : win.maximize()
+  })
+  ipcMain.handle('window:close', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.close()
+  })
+  ipcMain.handle('window:is-maximized', (event) => {
+    return BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false
+  })
+  ipcMain.handle('window:edit-action', (event, action: string) => {
+    if (!EDIT_ACTIONS.has(action)) return
+    const wc = BrowserWindow.fromWebContents(event.sender)?.webContents
+    if (!wc) return
+    ;(wc as unknown as Record<string, () => void>)[action]?.()
+  })
+  ipcMain.handle('window:zoom', (event, delta: number) => {
+    const wc = BrowserWindow.fromWebContents(event.sender)?.webContents
+    if (!wc) return
+    wc.setZoomLevel(delta === 0 ? 0 : wc.getZoomLevel() + delta)
+  })
+
+  // Forward maximize/restore state changes to the renderer
+  if (mainWindow) {
+    const sendMaximizeChange = (maximized: boolean) =>
+      mainWindow?.webContents.send('window:maximize-change', maximized)
+    mainWindow.on('maximize', () => sendMaximizeChange(true))
+    mainWindow.on('unmaximize', () => sendMaximizeChange(false))
+    mainWindow.on('enter-full-screen', () => sendMaximizeChange(true))
+    mainWindow.on('leave-full-screen', () => sendMaximizeChange(false))
+  }
 
   // Initialize auto-updater
   if (mainWindow) {
