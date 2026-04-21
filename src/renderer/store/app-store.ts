@@ -6,7 +6,18 @@ import { immer } from 'zustand/middleware/immer'
 export interface Conversation {
   id: string
   agent_id: string | null
+  model?: string | null
+  pinned?: number
+  project_id?: string | null
   title: string
+  created_at: number
+  updated_at: number
+}
+
+export interface Project {
+  id: string
+  name: string
+  color: string
   created_at: number
   updated_at: number
 }
@@ -59,6 +70,11 @@ interface AppState {
   currentConversationId: string | null
   conversationsLoading: boolean
 
+  // Projects
+  projects: Project[]
+  activeProjectId: string | null
+  projectsLoading: boolean
+
   // Agents
   agents: AgentConfig[]
   activeAgentId: string | null
@@ -93,6 +109,14 @@ interface AppState {
   deleteConversation: (id: string) => Promise<void>
   conversationCreated: (id: string) => Promise<void>
   newChat: () => void
+
+  // ── Project Actions ──
+  loadProjects: () => Promise<void>
+  selectProject: (id: string | null) => void
+  createProject: (name: string, color: string) => Promise<void>
+  renameProject: (id: string, name: string) => Promise<void>
+  deleteProject: (id: string) => Promise<void>
+  setConversationProject: (conversationId: string, projectId: string | null) => Promise<void>
 
   // ── Agent Actions ──
   loadAgents: () => Promise<void>
@@ -140,6 +164,10 @@ export const useAppStore = create<AppState>()(
     conversations: [],
     currentConversationId: null,
     conversationsLoading: false,
+
+    projects: [],
+    activeProjectId: null,
+    projectsLoading: false,
 
     agents: [],
     activeAgentId: null,
@@ -252,6 +280,89 @@ export const useAppStore = create<AppState>()(
 
     newChat: () => {
       set((s) => { s.currentConversationId = null })
+    },
+
+    // ── Project Actions ──
+
+    loadProjects: async () => {
+      set((s) => { s.projectsLoading = true })
+      try {
+        const result = await window.api.listProjects()
+        if (result?.error) {
+          get().addToast('Failed to load projects', 'error')
+        } else {
+          set((s) => { s.projects = result })
+        }
+      } catch {
+        get().addToast('Failed to load projects', 'error')
+      } finally {
+        set((s) => { s.projectsLoading = false })
+      }
+    },
+
+    selectProject: (id) => {
+      set((s) => {
+        s.activeProjectId = id
+        s.currentConversationId = null
+      })
+    },
+
+    createProject: async (name, color) => {
+      try {
+        const result = await window.api.createProject(name, color)
+        if (result?.error) {
+          get().addToast('Failed to create project', 'error')
+          return
+        }
+        await get().loadProjects()
+        set((s) => { s.activeProjectId = result.id })
+        get().addToast(`Project "${name}" created`, 'success')
+      } catch {
+        get().addToast('Failed to create project', 'error')
+      }
+    },
+
+    renameProject: async (id, name) => {
+      try {
+        const result = await window.api.renameProject(id, name)
+        if (result?.error) {
+          get().addToast('Failed to rename project', 'error')
+          return
+        }
+        await get().loadProjects()
+      } catch {
+        get().addToast('Failed to rename project', 'error')
+      }
+    },
+
+    deleteProject: async (id) => {
+      try {
+        const result = await window.api.deleteProject(id)
+        if (result?.error) {
+          get().addToast('Failed to delete project', 'error')
+          return
+        }
+        set((s) => {
+          if (s.activeProjectId === id) s.activeProjectId = null
+        })
+        await Promise.all([get().loadProjects(), get().loadConversations()])
+        get().addToast('Project deleted', 'success')
+      } catch {
+        get().addToast('Failed to delete project', 'error')
+      }
+    },
+
+    setConversationProject: async (conversationId, projectId) => {
+      try {
+        const result = await window.api.setConversationProject(conversationId, projectId)
+        if (result?.error) {
+          get().addToast('Failed to move conversation', 'error')
+          return
+        }
+        await get().loadConversations()
+      } catch {
+        get().addToast('Failed to move conversation', 'error')
+      }
     },
 
     // ── Agent Actions ──
@@ -467,6 +578,7 @@ export const useAppStore = create<AppState>()(
       await Promise.all([
         get().loadConversations(),
         get().loadAgents(),
+        get().loadProjects(),
       ])
     },
   }))

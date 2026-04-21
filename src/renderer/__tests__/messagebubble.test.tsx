@@ -84,6 +84,41 @@ describe('MessageBubble', () => {
     expect(screen.getByText('Regenerate')).toBeInTheDocument()
   })
 
+  it('calls onRegenerateWithModel from regenerate dropdown', () => {
+    const onRegenerateWithModel = vi.fn()
+    render(
+      <MessageBubble
+        {...baseProps}
+        role="assistant"
+        isLastAssistant={true}
+        onRegenerate={vi.fn()}
+        onRegenerateWithModel={onRegenerateWithModel}
+      />
+    )
+
+    const container = screen.getByText('Hello there').closest('.group')!
+    fireEvent.mouseEnter(container)
+    fireEvent.click(screen.getByLabelText('Regenerate with model'))
+    fireEvent.click(screen.getByText('GPT-5.4'))
+
+    expect(onRegenerateWithModel).toHaveBeenCalledWith('gpt-5.4')
+  })
+
+  it('shows choose model action for model_not_available errors', () => {
+    const onPickModel = vi.fn()
+    render(
+      <MessageBubble
+        {...baseProps}
+        role="assistant"
+        isError={true}
+        errorType="model_not_available"
+        retryable={false}
+        onPickModel={onPickModel}
+      />
+    )
+    expect(screen.getByText('Choose model')).toBeInTheDocument()
+  })
+
   it('shows edit action for user messages', () => {
     const onEdit = vi.fn()
     render(<MessageBubble {...baseProps} onEdit={onEdit} />)
@@ -92,6 +127,19 @@ describe('MessageBubble', () => {
     fireEvent.mouseEnter(container)
 
     expect(screen.getByText('Edit')).toBeInTheDocument()
+  })
+
+  it('calls onEdit on user double-click', () => {
+    const onEdit = vi.fn()
+    render(<MessageBubble {...baseProps} onEdit={onEdit} />)
+    const container = screen.getByText('Hello there').closest('.group')!
+    fireEvent.doubleClick(container)
+    expect(onEdit).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows edited indicator for edited user message', () => {
+    render(<MessageBubble {...baseProps} isEdited={true} />)
+    expect(screen.getByText('edited')).toBeInTheDocument()
   })
 
   it('hides actions while generating', () => {

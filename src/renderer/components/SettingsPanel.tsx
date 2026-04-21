@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { X, Sun, Moon, Plug } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
+import { MODEL_OPTIONS, getModelLabel } from '../../shared/models'
 
 interface ProviderInfo {
   name: string
@@ -12,6 +13,10 @@ interface ProviderInfo {
 export function SettingsPanel() {
   const visible = useAppStore((s) => s.showSettings)
   const theme = useAppStore((s) => s.theme)
+  const conversations = useAppStore((s) => s.conversations)
+  const currentConversationId = useAppStore((s) => s.currentConversationId)
+  const agents = useAppStore((s) => s.agents)
+  const activeAgentId = useAppStore((s) => s.activeAgentId)
   const toggleTheme = useAppStore((s) => s.toggleTheme)
   const setShowSettings = useAppStore((s) => s.setShowSettings)
   const setShowMcpPanel = useAppStore((s) => s.setShowMcpPanel)
@@ -27,11 +32,31 @@ export function SettingsPanel() {
   const [azureEndpoint, setAzureEndpoint] = useState('')
   const [testResult, setTestResult] = useState<{ valid: boolean; error?: string } | null>(null)
   const [testing, setTesting] = useState(false)
+  const [defaultModel, setDefaultModel] = useState('default')
+  const [temperature, setTemperature] = useState(0.7)
+  const [maxTokens, setMaxTokens] = useState(4096)
+
+  const currentConversation = currentConversationId
+    ? conversations.find((c) => c.id === currentConversationId) ?? null
+    : null
+  const activeAgent = activeAgentId ? agents.find((a) => a.id === activeAgentId) ?? null : null
+  const effectiveModel = currentConversation?.model || activeAgent?.model || 'default'
+  const effectiveProvider =
+    effectiveModel === 'default'
+      ? 'GitHub Copilot'
+      : effectiveModel.startsWith('claude')
+        ? 'Anthropic'
+        : effectiveModel.startsWith('gemini')
+          ? 'Google'
+          : 'OpenAI / Copilot'
 
   useEffect(() => {
     if (!visible) return
     window.api.getSettings().then((settings: Record<string, string>) => {
       setAutoStart(settings['autoStart'] === 'true')
+      setDefaultModel(settings['default_model'] || 'default')
+      setTemperature(Number.parseFloat(settings['temperature'] || '0.7') || 0.7)
+      setMaxTokens(Number.parseInt(settings['max_tokens'] || '4096', 10) || 4096)
     })
     window.api.listProviders().then(setProviders)
     window.api.getAzureEndpoint().then((ep: string | null) => {
@@ -87,6 +112,19 @@ export function SettingsPanel() {
     }
   }
 
+  const handleSaveAdvanced = async () => {
+    try {
+      const safeTemp = Math.min(2, Math.max(0, temperature))
+      const safeMaxTokens = Math.min(16384, Math.max(256, maxTokens))
+      await window.api.setSetting('default_model', defaultModel)
+      await window.api.setSetting('temperature', String(safeTemp))
+      await window.api.setSetting('max_tokens', String(safeMaxTokens))
+      addToast('Advanced settings saved', 'success')
+    } catch {
+      addToast('Failed to save advanced settings', 'error')
+    }
+  }
+
   if (!visible) return null
 
   return (
@@ -134,6 +172,20 @@ export function SettingsPanel() {
                     {theme === 'dark' ? 'Light' : 'Dark'}
                   </span>
                 </button>
+              </div>
+
+              {/* Active model */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Active model</p>
+                  <p className="text-xs text-gray-500">Current chat model and provider</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs font-medium text-gray-700 dark:text-gray-200">
+                    {getModelLabel(effectiveModel)}
+                  </p>
+                  <p className="text-[11px] text-gray-500">{effectiveProvider}</p>
+                </div>
               </div>
 
               {/* Auto-start */}
@@ -189,6 +241,68 @@ export function SettingsPanel() {
                     <Plug className="w-3.5 h-3.5" />
                     Configure
                   </span>
+                </button>
+              </div>
+
+              {/* Advanced generation settings */}
+              <div className="p-3 rounded-lg border border-gray-200 dark:border-gray-700 space-y-3">
+                <div>
+                  <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Advanced</p>
+                  <p className="text-xs text-gray-500">Default model and generation parameters</p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                    Default model
+                  </label>
+                  <select
+                    value={defaultModel}
+                    onChange={(e) => setDefaultModel(e.target.value)}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    {MODEL_OPTIONS.map((model) => (
+                      <option key={model} value={model}>
+                        {getModelLabel(model)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                    Temperature: {temperature.toFixed(1)}
+                  </label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="2"
+                    step="0.1"
+                    value={temperature}
+                    onChange={(e) => setTemperature(Number.parseFloat(e.target.value))}
+                    className="w-full accent-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                    Max tokens
+                  </label>
+                  <input
+                    type="number"
+                    min={256}
+                    max={16384}
+                    step={256}
+                    value={maxTokens}
+                    onChange={(e) => setMaxTokens(Number.parseInt(e.target.value, 10) || 4096)}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <button
+                  onClick={handleSaveAdvanced}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 font-medium"
+                >
+                  Save advanced settings
                 </button>
               </div>
             </>

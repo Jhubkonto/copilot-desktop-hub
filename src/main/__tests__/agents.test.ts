@@ -42,7 +42,10 @@ const { mockDb, ipcHandlers, mockIpcMain, mockDialog, mockRandomUUID, mockReadFi
 
 vi.mock('electron', () => ({
   ipcMain: mockIpcMain,
-  dialog: mockDialog
+  dialog: mockDialog,
+  BrowserWindow: {
+    getAllWindows: vi.fn(() => [{}])
+  }
 }))
 
 vi.mock('../database', () => ({

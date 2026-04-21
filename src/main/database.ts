@@ -28,9 +28,20 @@ export function getDatabase(): Database.Database {
 
 function initializeSchema(db: Database.Database): void {
   db.exec(`
+    CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      color TEXT NOT NULL DEFAULT 'blue',
+      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+
     CREATE TABLE IF NOT EXISTS conversations (
       id TEXT PRIMARY KEY,
       agent_id TEXT,
+      model TEXT,
+      pinned INTEGER NOT NULL DEFAULT 0,
+      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
       title TEXT NOT NULL DEFAULT 'New Chat',
       created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
       updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
@@ -41,6 +52,9 @@ function initializeSchema(db: Database.Database): void {
       conversation_id TEXT NOT NULL,
       role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
       content TEXT NOT NULL,
+      model TEXT,
+      is_edited INTEGER NOT NULL DEFAULT 0,
+      previous_content TEXT,
       timestamp INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
       FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
     );
@@ -76,6 +90,44 @@ function initializeSchema(db: Database.Database): void {
   } catch {
     // Column already exists
   }
+
+  try {
+    db.exec('ALTER TABLE conversations ADD COLUMN model TEXT')
+  } catch {
+    // Column already exists
+  }
+
+  try {
+    db.exec('ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0')
+  } catch {
+    // Column already exists
+  }
+
+  try {
+    db.exec('ALTER TABLE messages ADD COLUMN model TEXT')
+  } catch {
+    // Column already exists
+  }
+
+  try {
+    db.exec('ALTER TABLE messages ADD COLUMN is_edited INTEGER NOT NULL DEFAULT 0')
+  } catch {
+    // Column already exists
+  }
+
+  try {
+    db.exec('ALTER TABLE messages ADD COLUMN previous_content TEXT')
+  } catch {
+    // Column already exists
+  }
+
+  // Migrations: add project_id to conversations for existing users
+  const convColumns = db.prepare('PRAGMA table_info(conversations)').all() as Array<{ name: string }>
+  if (!convColumns.some((col) => col.name === 'project_id')) {
+    db.exec('ALTER TABLE conversations ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE SET NULL')
+  }
+  // Always ensure the index exists (safe for both new and existing installs)
+  db.exec('CREATE INDEX IF NOT EXISTS idx_conversations_project ON conversations(project_id, updated_at)')
 
   // Insert default settings if they don't exist
   const insertSetting = db.prepare(

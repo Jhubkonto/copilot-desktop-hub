@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { X, Settings, Folder, FileText, Plus } from 'lucide-react'
 import { useAppStore, type AgentConfig } from '../store/app-store'
+import { MODEL_OPTIONS } from '../../shared/models'
+import { ResizeHandle } from './ResizeHandle'
 
 const EMPTY_AGENT: Omit<AgentConfig, 'id'> = {
   name: '',
@@ -18,31 +20,10 @@ const EMPTY_AGENT: Omit<AgentConfig, 'id'> = {
 }
 
 const EMOJI_OPTIONS = ['🤖', '🔍', '🐛', '💡', '📝', '🎨', '🔧', '🚀', '🧠', '⚡', '🛡️', '📊']
-const MODEL_OPTIONS = [
-  'default',
-  // OpenAI
-  'gpt-4.1',
-  'gpt-4o',
-  'gpt-4o-mini',
-  'gpt-5.4',
-  'gpt-5.4-mini',
-  'gpt-5.2',
-  'gpt-5-mini',
-  'o3-mini',
-  // Anthropic
-  'claude-sonnet-4.6',
-  'claude-sonnet-4.5',
-  'claude-opus-4.7',
-  'claude-opus-4.6',
-  'claude-opus-4.5',
-  'claude-haiku-4.5',
-  // Google
-  'gemini-2.5-pro',
-  'gemini-3-flash',
-]
 const FORMAT_OPTIONS = ['default', 'concise', 'detailed', 'code-only']
 
-export function AgentPanel() {
+export function AgentPanel({ width, onResize }: { width: number; onResize: (size: number) => void }) {
+  const panelRef = useRef<HTMLDivElement>(null)
   const editingAgentId = useAppStore((s) => s.editingAgentId)
   const agents = useAppStore((s) => s.agents)
   const onSave = useAppStore((s) => s.saveAgent)
@@ -129,7 +110,8 @@ export function AgentPanel() {
   return (
     <div className="fixed inset-0 z-50 flex" role="dialog" aria-modal="true" aria-label="Agent configuration">
       <div className="flex-1 bg-black/30" onClick={onClose} aria-hidden="true" />
-      <div className="w-[440px] bg-white dark:bg-gray-900 shadow-xl flex flex-col border-l border-gray-200 dark:border-gray-700">
+      <div ref={panelRef} className="relative bg-white dark:bg-gray-900 shadow-xl flex flex-col border-l border-gray-200 dark:border-gray-700" style={{ width }}>
+        <ResizeHandle direction="horizontal" align="start" containerRef={panelRef} onSetSize={onResize} />
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
           <h2 className="text-sm font-medium text-gray-800 dark:text-gray-100">

@@ -2,6 +2,7 @@ import https from 'https'
 import http from 'http'
 import { retrieveToken } from './auth'
 import { BrowserWindow } from 'electron'
+import type { ProviderMessage } from './providers'
 
 interface CopilotToken {
   token: string
@@ -114,19 +115,85 @@ export async function getCopilotToken(): Promise<string> {
   return cachedToken.token
 }
 
-export async function sendCopilotChatMessage(
-  window: BrowserWindow,
-  messages: { role: string; content: string }[],
-  onChunk: (chunk: string) => void
-): Promise<string> {
-  const token = await getCopilotToken()
+export interface CopilotApiError extends Error {
+  errorType: 'auth' | 'rate_limit' | 'server' | 'network' | 'empty_response' | 'model_not_available'
+  statusCode?: number
+  retryable: boolean
+  retryAfterSeconds?: number
+}
 
-  const body = JSON.stringify({
-    model: 'gpt-4o',
+function createApiError(
+  message: string,
+  errorType: CopilotApiError['errorType'],
+  statusCode?: number,
+  retryable = false,
+  retryAfterSeconds?: number
+): CopilotApiError {
+  const err = new Error(message) as CopilotApiError
+  err.errorType = errorType
+  err.statusCode = statusCode
+  err.retryable = retryable
+  err.retryAfterSeconds = retryAfterSeconds
+  return err
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function sendCopilotRequestWithRetry(
+  messages: ProviderMessage[],
+  onChunk: (chunk: string) => void,
+  model: string,
+  options: { maxTokens: number; temperature: number },
+  maxRetries = 3
+): Promise<string> {
+  let lastError: CopilotApiError | null = null
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0) {
+      const backoffMs = Math.min(1000 * Math.pow(2, attempt - 1), 16000)
+      console.log(`[copilot-api] Retry ${attempt}/${maxRetries} after ${backoffMs}ms`)
+      await delay(backoffMs)
+    }
+
+    try {
+      const token = await getCopilotToken()
+      const result = await sendCopilotRequest(token, messages, onChunk, model, options)
+      return result
+    } catch (err) {
+      const apiErr = err as CopilotApiError
+      lastError = apiErr
+
+      if (!apiErr.retryable || attempt === maxRetries) {
+        throw apiErr
+      }
+      console.log(`[copilot-api] Retryable error (${apiErr.errorType}): ${apiErr.message}`)
+    }
+  }
+
+  throw lastError!
+}
+
+function sendCopilotRequest(
+  token: string,
+  messages: ProviderMessage[],
+  onChunk: (chunk: string) => void,
+  model: string,
+  options: { maxTokens: number; temperature: number }
+): Promise<string> {
+  const bodyPayload: Record<string, unknown> = {
+    model,
     messages,
     stream: true,
-    max_tokens: 4096
-  })
+    temperature: options.temperature
+  }
+  if (model === 'gpt-5.4') {
+    bodyPayload.max_completion_tokens = options.maxTokens
+  } else {
+    bodyPayload.max_tokens = options.maxTokens
+  }
+  const body = JSON.stringify(bodyPayload)
 
   return new Promise((resolve, reject) => {
     const urlObj = new URL('https://api.githubcopilot.com/chat/completions')
@@ -157,11 +224,29 @@ export async function sendCopilotChatMessage(
               if (parsed.error?.message) message = parsed.error.message
               else if (parsed.message) message = parsed.message
             } catch { /* use default */ }
-            // Invalidate cached token on auth errors
+
             if (res.statusCode === 401 || res.statusCode === 403) {
               cachedToken = null
+              reject(createApiError(message, 'auth', res.statusCode, false))
+            } else if (res.statusCode === 404) {
+              reject(createApiError(message, 'model_not_available', res.statusCode, false))
+            } else if (res.statusCode === 429) {
+              const retryAfterHeader = res.headers['retry-after']
+              const retryAfterSeconds = Array.isArray(retryAfterHeader)
+                ? Number.parseInt(retryAfterHeader[0] ?? '', 10)
+                : Number.parseInt(retryAfterHeader ?? '', 10)
+              reject(createApiError(
+                message,
+                'rate_limit',
+                res.statusCode,
+                true,
+                Number.isFinite(retryAfterSeconds) ? retryAfterSeconds : undefined
+              ))
+            } else if (res.statusCode! >= 500) {
+              reject(createApiError(message, 'server', res.statusCode, true))
+            } else {
+              reject(createApiError(message, 'network', res.statusCode, false))
             }
-            reject(new Error(message))
           })
           return
         }
@@ -195,24 +280,56 @@ export async function sendCopilotChatMessage(
 
         res.on('end', () => {
           activeRequest = null
+          if (!fullContent) {
+            reject(createApiError(
+              'Empty response from Copilot API',
+              'empty_response',
+              res.statusCode ?? undefined,
+              true
+            ))
+            return
+          }
           resolve(fullContent)
         })
 
         res.on('error', (err) => {
           activeRequest = null
-          reject(err)
+          reject(createApiError(
+            err.message || 'Network error',
+            'network',
+            undefined,
+            true
+          ))
         })
       }
     )
 
     req.on('error', (err) => {
       activeRequest = null
-      reject(err)
+      reject(createApiError(
+        err.message || 'Network error',
+        'network',
+        undefined,
+        true
+      ))
     })
 
     activeRequest = req
     req.write(body)
     req.end()
+  })
+}
+
+export async function sendCopilotChatMessage(
+  _window: BrowserWindow,
+  messages: ProviderMessage[],
+  onChunk: (chunk: string) => void,
+  model = 'gpt-4o',
+  options: { maxTokens?: number; temperature?: number } = {}
+): Promise<string> {
+  return sendCopilotRequestWithRetry(messages, onChunk, model, {
+    maxTokens: options.maxTokens ?? 4096,
+    temperature: options.temperature ?? 0.7
   })
 }
 

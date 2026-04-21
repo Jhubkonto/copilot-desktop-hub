@@ -1,7 +1,8 @@
-import { useState, useCallback } from 'react'
-import { Plus, MessageSquare, Settings, X, LogIn, Pencil, Upload } from 'lucide-react'
+import { useState, useCallback, useRef, useEffect } from 'react'
+import { Plus, MessageSquare, Settings, X, LogIn, Upload, Pin, FolderOpen, Folder, MoreHorizontal, Check } from 'lucide-react'
 import { SearchBar } from './SearchBar'
-import { useAppStore, type Conversation } from '../store/app-store'
+import { useAppStore, type Conversation, type Project } from '../store/app-store'
+import { ResizeHandle } from './ResizeHandle'
 
 interface DateGroup {
   label: string
@@ -33,7 +34,33 @@ function groupByDate(conversations: Conversation[]): DateGroup[] {
   return groups
 }
 
+function isPinned(conversation: Conversation): boolean {
+  return conversation.pinned === 1
+}
+
+const PROJECT_COLOR_MAP: Record<string, { bg: string; dot: string }> = {
+  blue:   { bg: 'bg-blue-100 dark:bg-blue-900/40',   dot: 'bg-blue-500' },
+  green:  { bg: 'bg-green-100 dark:bg-green-900/40', dot: 'bg-green-500' },
+  red:    { bg: 'bg-red-100 dark:bg-red-900/40',     dot: 'bg-red-500' },
+  purple: { bg: 'bg-purple-100 dark:bg-purple-900/40', dot: 'bg-purple-500' },
+  orange: { bg: 'bg-orange-100 dark:bg-orange-900/40', dot: 'bg-orange-500' },
+  pink:   { bg: 'bg-pink-100 dark:bg-pink-900/40',   dot: 'bg-pink-500' },
+  yellow: { bg: 'bg-yellow-100 dark:bg-yellow-900/40', dot: 'bg-yellow-500' },
+  gray:   { bg: 'bg-gray-100 dark:bg-gray-800',      dot: 'bg-gray-400' },
+}
+const COLOR_OPTIONS = Object.keys(PROJECT_COLOR_MAP)
+
+const SIDEBAR_MIN = 160
+const SIDEBAR_MAX = 560
+
 export function Sidebar() {
+  const sidebarRef = useRef<HTMLElement>(null)
+  const [width, setWidth] = useState(256)
+
+  const handleSetSize = useCallback((size: number) => {
+    setWidth(Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, size)))
+  }, [])
+
   const currentConversationId = useAppStore((s) => s.currentConversationId)
   const conversations = useAppStore((s) => s.conversations)
   const authState = useAppStore((s) => s.authState)
@@ -42,6 +69,8 @@ export function Sidebar() {
   const authLoading = useAppStore((s) => s.authLoading)
   const conversationsLoading = useAppStore((s) => s.conversationsLoading)
   const agentsLoading = useAppStore((s) => s.agentsLoading)
+  const projects = useAppStore((s) => s.projects)
+  const activeProjectId = useAppStore((s) => s.activeProjectId)
 
   const selectConversation = useAppStore((s) => s.selectConversation)
   const newChat = useAppStore((s) => s.newChat)
@@ -54,10 +83,48 @@ export function Sidebar() {
   const openCreateAgent = useAppStore((s) => s.openCreateAgent)
   const importAgent = useAppStore((s) => s.importAgent)
   const addToast = useAppStore((s) => s.addToast)
+  const selectProject = useAppStore((s) => s.selectProject)
+  const createProject = useAppStore((s) => s.createProject)
+  const renameProject = useAppStore((s) => s.renameProject)
+  const deleteProject = useAppStore((s) => s.deleteProject)
+  const setConversationProject = useAppStore((s) => s.setConversationProject)
+
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<Conversation[] | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editTitle, setEditTitle] = useState('')
+
+  // Project creation state
+  const [creatingProject, setCreatingProject] = useState(false)
+  const [newProjectName, setNewProjectName] = useState('')
+  const [newProjectColor, setNewProjectColor] = useState('blue')
+
+  // Project rename state
+  const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null)
+  const [renameProjectTitle, setRenameProjectTitle] = useState('')
+
+  // Project menu state
+  const [projectMenuId, setProjectMenuId] = useState<string | null>(null)
+  const projectMenuRef = useRef<HTMLDivElement>(null)
+
+  // Conversation project picker state
+  const [convProjectPickerId, setConvProjectPickerId] = useState<string | null>(null)
+  const convProjectPickerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!projectMenuId && !convProjectPickerId) return
+    const onPointerDown = (e: MouseEvent) => {
+      if (
+        projectMenuRef.current && !projectMenuRef.current.contains(e.target as Node) &&
+        convProjectPickerRef.current && !convProjectPickerRef.current.contains(e.target as Node)
+      ) {
+        setProjectMenuId(null)
+        setConvProjectPickerId(null)
+      }
+    }
+    window.addEventListener('mousedown', onPointerDown)
+    return () => window.removeEventListener('mousedown', onPointerDown)
+  }, [projectMenuId, convProjectPickerId])
 
   const handleSearch = useCallback(async (query: string) => {
     setSearchQuery(query)
@@ -85,15 +152,40 @@ export function Sidebar() {
     setEditingId(null)
   }
 
-  const displayConversations = searchResults ?? conversations
-  const dateGroups = groupByDate(displayConversations)
+  const handleCreateProject = async () => {
+    const name = newProjectName.trim()
+    if (!name) return
+    await createProject(name, newProjectColor)
+    setCreatingProject(false)
+    setNewProjectName('')
+    setNewProjectColor('blue')
+  }
+
+  const handleRenameProject = async () => {
+    if (renamingProjectId && renameProjectTitle.trim()) {
+      await renameProject(renamingProjectId, renameProjectTitle.trim())
+    }
+    setRenamingProjectId(null)
+  }
+
+  // When a project is selected, filter conversations to that project.
+  // Search results are also filtered by active project.
+  const baseConversations = searchResults ?? conversations
+  const filteredConversations = activeProjectId !== null
+    ? baseConversations.filter((c) => c.project_id === activeProjectId)
+    : baseConversations
+
+  const pinnedConversations = filteredConversations.filter(isPinned)
+  const unpinnedConversations = filteredConversations.filter((c) => !isPinned(c))
+  const dateGroups = groupByDate(unpinnedConversations)
 
   const renderConversation = (conv: Conversation) => {
     const agentForConv = agents.find((a) => a.id === conv.agent_id)
+    const isPickingProject = convProjectPickerId === conv.id
     return (
       <div
         key={conv.id}
-        className={`group flex items-center justify-between px-2 py-1.5 rounded-lg cursor-pointer text-sm transition-colors ${
+        className={`group relative flex items-center justify-between px-2 py-1.5 rounded-lg cursor-pointer text-sm transition-colors ${
           currentConversationId === conv.id
             ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
             : 'text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
@@ -129,23 +221,103 @@ export function Sidebar() {
             </div>
           )}
         </div>
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            deleteConversation(conv.id)
-          }}
-          className="hidden group-hover:block text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 ml-1 p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
-          title="Delete conversation"
-          aria-label="Delete conversation"
-        >
-          <X className="w-3 h-3" />
-        </button>
+        <div className="hidden group-hover:flex items-center gap-0.5">
+          {/* Pin button */}
+          <button
+            onClick={async (e) => {
+              e.stopPropagation()
+              try {
+                await window.api.setConversationPinned(conv.id, !isPinned(conv))
+                loadConversations()
+              } catch {
+                addToast('Failed to update pin', 'error')
+              }
+            }}
+            className={`p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 ${
+              isPinned(conv) ? 'text-blue-500' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-200'
+            }`}
+            title={isPinned(conv) ? 'Unpin conversation' : 'Pin conversation'}
+            aria-label={isPinned(conv) ? 'Unpin conversation' : 'Pin conversation'}
+          >
+            <Pin className="w-3 h-3" />
+          </button>
+          {/* Move to project button */}
+          <div className="relative" ref={isPickingProject ? convProjectPickerRef : undefined}>
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                setConvProjectPickerId(isPickingProject ? null : conv.id)
+              }}
+              className="p-0.5 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700"
+              title="Move to project"
+              aria-label="Move to project"
+            >
+              <FolderOpen className="w-3 h-3" />
+            </button>
+            {isPickingProject && (
+              <div className="absolute right-0 top-5 z-30 w-44 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xl py-1">
+                <div className="px-2 py-1 text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">
+                  Move to project
+                </div>
+                <button
+                  className="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setConvProjectPickerId(null)
+                    setConversationProject(conv.id, null)
+                  }}
+                >
+                  <span className="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600 inline-block" />
+                  No project
+                  {conv.project_id === null && <Check className="w-3 h-3 ml-auto text-blue-500" />}
+                </button>
+                {projects.map((p) => {
+                  const colors = PROJECT_COLOR_MAP[p.color] ?? PROJECT_COLOR_MAP.blue
+                  return (
+                    <button
+                      key={p.id}
+                      className="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setConvProjectPickerId(null)
+                        setConversationProject(conv.id, p.id)
+                      }}
+                    >
+                      <span className={`w-2 h-2 rounded-full inline-block ${colors.dot}`} />
+                      <span className="truncate">{p.name}</span>
+                      {conv.project_id === p.id && <Check className="w-3 h-3 ml-auto text-blue-500" />}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+          {/* Delete button */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              deleteConversation(conv.id)
+            }}
+            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+            title="Delete conversation"
+            aria-label="Delete conversation"
+          >
+            <X className="w-3 h-3" />
+          </button>
+        </div>
       </div>
     )
   }
 
   return (
-    <aside className="w-64 flex flex-col bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700/80" role="complementary" aria-label="Sidebar navigation">
+    <aside
+      ref={sidebarRef}
+      className="h-screen flex flex-col shrink-0 bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700/80 relative"
+      style={{ width }}
+      role="complementary"
+      aria-label="Sidebar navigation"
+    >
+      <ResizeHandle direction="horizontal" containerRef={sidebarRef} onSetSize={handleSetSize} />
       <div className="p-4 border-b border-gray-200 dark:border-gray-700/80">
         <h2 className="text-sm font-medium text-gray-800 dark:text-gray-100 tracking-wide">
           Copilot Desktop Hub
@@ -163,8 +335,168 @@ export function Sidebar() {
         <SearchBar onSearch={handleSearch} />
       </div>
 
-      <div className="flex-1 overflow-y-auto px-3">
-        <div className="mb-4">
+      <div className="flex-1 overflow-y-auto px-3 space-y-4">
+        {/* ── Projects ── */}
+        <div>
+          <div className="flex items-center justify-between px-2 mb-1">
+            <h3 className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+              Projects
+            </h3>
+            <button
+              onClick={() => { setCreatingProject(true); setNewProjectName('') }}
+              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-0.5 rounded"
+              title="New project"
+              aria-label="Create new project"
+            >
+              <Plus className="w-3 h-3" />
+            </button>
+          </div>
+
+          <div className="space-y-0.5">
+            {/* All Chats entry */}
+            <div
+              className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-xs font-medium transition-colors ${
+                activeProjectId === null
+                  ? 'bg-gray-200 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+              }`}
+              onClick={() => selectProject(null)}
+            >
+              <MessageSquare className="w-3.5 h-3.5 shrink-0" />
+              All Chats
+            </div>
+
+            {/* Project rows */}
+            {projects.map((project) => {
+              const colors = PROJECT_COLOR_MAP[project.color] ?? PROJECT_COLOR_MAP.blue
+              const isActive = activeProjectId === project.id
+              const isMenuOpen = projectMenuId === project.id
+              const isRenaming = renamingProjectId === project.id
+              return (
+                <div key={project.id} className="relative group">
+                  <div
+                    className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-xs font-medium transition-colors ${
+                      isActive
+                        ? `${colors.bg} text-gray-900 dark:text-gray-100`
+                        : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                    }`}
+                    onClick={() => !isRenaming && selectProject(project.id)}
+                  >
+                    {isActive
+                      ? <FolderOpen className="w-3.5 h-3.5 shrink-0" />
+                      : <Folder className="w-3.5 h-3.5 shrink-0" />
+                    }
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${colors.dot}`} />
+                    {isRenaming ? (
+                      <input
+                        value={renameProjectTitle}
+                        onChange={(e) => setRenameProjectTitle(e.target.value)}
+                        onBlur={handleRenameProject}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleRenameProject()
+                          if (e.key === 'Escape') setRenamingProjectId(null)
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        autoFocus
+                        className="flex-1 min-w-0 text-xs bg-white dark:bg-gray-700 border border-blue-400 rounded px-1 py-0.5 focus:outline-none"
+                      />
+                    ) : (
+                      <span className="flex-1 truncate">{project.name}</span>
+                    )}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setProjectMenuId(isMenuOpen ? null : project.id)
+                      }}
+                      className="hidden group-hover:block p-0.5 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                      title="Project options"
+                      aria-label="Project options"
+                    >
+                      <MoreHorizontal className="w-3 h-3" />
+                    </button>
+                  </div>
+
+                  {isMenuOpen && (
+                    <div
+                      ref={projectMenuRef}
+                      className="absolute left-2 top-full z-30 w-36 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xl py-1"
+                    >
+                      <button
+                        className="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setProjectMenuId(null)
+                          setRenamingProjectId(project.id)
+                          setRenameProjectTitle(project.name)
+                        }}
+                      >
+                        Rename
+                      </button>
+                      <button
+                        className="w-full text-left px-3 py-1.5 text-xs text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setProjectMenuId(null)
+                          deleteProject(project.id)
+                        }}
+                      >
+                        Delete project
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+
+            {/* New project inline form */}
+            {creatingProject && (
+              <div className="flex flex-col gap-1.5 px-2 py-2 rounded-lg bg-gray-100 dark:bg-gray-800">
+                <input
+                  value={newProjectName}
+                  onChange={(e) => setNewProjectName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleCreateProject()
+                    if (e.key === 'Escape') setCreatingProject(false)
+                  }}
+                  placeholder="Project name…"
+                  autoFocus
+                  className="w-full text-xs bg-white dark:bg-gray-700 border border-blue-400 rounded px-2 py-1 focus:outline-none"
+                />
+                <div className="flex gap-1 flex-wrap">
+                  {COLOR_OPTIONS.map((c) => {
+                    const dot = PROJECT_COLOR_MAP[c].dot
+                    return (
+                      <button
+                        key={c}
+                        onClick={() => setNewProjectColor(c)}
+                        className={`w-4 h-4 rounded-full ${dot} ${newProjectColor === c ? 'ring-2 ring-offset-1 ring-blue-500' : ''}`}
+                        title={c}
+                        aria-label={`Color: ${c}`}
+                      />
+                    )
+                  })}
+                </div>
+                <div className="flex gap-1.5">
+                  <button
+                    onClick={handleCreateProject}
+                    className="flex-1 text-xs px-2 py-1 rounded bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200"
+                  >
+                    Create
+                  </button>
+                  <button
+                    onClick={() => setCreatingProject(false)}
+                    className="flex-1 text-xs px-2 py-1 rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Agents ── */}
+        <div>
           <h3 className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider px-2 mb-2">
             Agents
           </h3>
@@ -240,22 +572,41 @@ export function Sidebar() {
           </div>
         </div>
 
+        {/* ── Conversations ── */}
         <div>
           <h3 className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider px-2 mb-2">
-            {searchQuery ? `Results for "${searchQuery}"` : 'Conversations'}
+            {searchQuery
+              ? `Results for "${searchQuery}"`
+              : activeProjectId
+                ? `${projects.find((p) => p.id === activeProjectId)?.name ?? 'Project'} Chats`
+                : 'All Chats'}
           </h3>
-          {conversationsLoading && displayConversations.length === 0 ? (
+          {conversationsLoading && filteredConversations.length === 0 ? (
             <div className="space-y-1 px-2" aria-label="Loading conversations">
               {[1, 2, 3, 4, 5].map((i) => (
                 <div key={i} className="h-7 bg-gray-200 dark:bg-gray-800 rounded-lg animate-pulse" />
               ))}
             </div>
-          ) : displayConversations.length === 0 ? (
+          ) : filteredConversations.length === 0 ? (
             <div className="text-xs text-gray-400 dark:text-gray-500 px-2 italic">
-              {searchQuery ? 'No matching conversations' : 'No conversations yet'}
+              {searchQuery
+                ? 'No matching conversations'
+                : activeProjectId
+                  ? 'No chats in this project yet'
+                  : 'No conversations yet'}
             </div>
           ) : (
             <div className="space-y-3">
+              {pinnedConversations.length > 0 && (
+                <div>
+                  <div className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider px-2 mb-1">
+                    Pinned
+                  </div>
+                  <div className="space-y-0.5">
+                    {pinnedConversations.map(renderConversation)}
+                  </div>
+                </div>
+              )}
               {dateGroups.map((group) => (
                 <div key={group.label}>
                   <div className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider px-2 mb-1">

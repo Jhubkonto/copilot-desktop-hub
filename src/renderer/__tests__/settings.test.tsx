@@ -26,7 +26,12 @@ const PROVIDERS = [
 
 beforeEach(() => {
   mockApi = setupMockApi()
-  mockApi.getSettings = vi.fn().mockResolvedValue({ autoStart: 'false' })
+  mockApi.getSettings = vi.fn().mockResolvedValue({
+    autoStart: 'false',
+    default_model: 'default',
+    temperature: '0.7',
+    max_tokens: '4096'
+  })
   mockApi.listProviders = vi.fn().mockResolvedValue(PROVIDERS)
   mockApi.getAzureEndpoint = vi.fn().mockResolvedValue(null)
 
@@ -77,6 +82,22 @@ describe('SettingsPanel — General Tab', () => {
 
     await user.click(screen.getByLabelText('Close settings'))
     expect(mockStore.setShowSettings).toHaveBeenCalledWith(false)
+  })
+
+  it('shows active model details in general tab', () => {
+    render(<SettingsPanel />)
+    expect(screen.getByText('Active model')).toBeInTheDocument()
+    expect(screen.getAllByText('Default').length).toBeGreaterThan(0)
+    expect(screen.getByText('GitHub Copilot')).toBeInTheDocument()
+  })
+
+  it('saves advanced settings values', async () => {
+    render(<SettingsPanel />)
+    await user.click(screen.getByText('Save advanced settings'))
+
+    expect(mockApi.setSetting).toHaveBeenCalledWith('default_model', 'default')
+    expect(mockApi.setSetting).toHaveBeenCalledWith('temperature', '0.7')
+    expect(mockApi.setSetting).toHaveBeenCalledWith('max_tokens', '4096')
   })
 })
 

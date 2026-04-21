@@ -32,6 +32,11 @@ export function createMockAppStore(overrides: Record<string, unknown> = {}) {
     updateAvailable: null,
     updateDownloaded: false,
 
+    // Projects
+    projects: [],
+    activeProjectId: null,
+    projectsLoading: false,
+
     // Toasts
     toasts: [],
 
@@ -71,6 +76,12 @@ export function createMockAppStore(overrides: Record<string, unknown> = {}) {
     addToolApprovalRequest: vi.fn(),
     respondToToolApproval: vi.fn(),
     hydrate: vi.fn(),
+    loadProjects: vi.fn(),
+    createProject: vi.fn(),
+    renameProject: vi.fn(),
+    deleteProject: vi.fn(),
+    setActiveProject: vi.fn(),
+    moveConversationToProject: vi.fn(),
 
     ...overrides
   }

@@ -98,6 +98,17 @@ describe('Sidebar — Conversation List', () => {
     expect(mockStore.deleteConversation).toHaveBeenCalledWith('c1')
   })
 
+  it('pins a conversation from the list', async () => {
+    const user = userEvent.setup()
+    render(<Sidebar />)
+
+    const pinButtons = screen.getAllByTitle('Pin conversation')
+    await user.click(pinButtons[0])
+
+    expect(mockApi.setConversationPinned).toHaveBeenCalledWith('c1', true)
+    expect(mockStore.loadConversations).toHaveBeenCalled()
+  })
+
   it('shows "No conversations yet" when list is empty', () => {
     mockStore = createMockAppStore({ agents: testAgents })
     setupStoreMock(useAppStore, mockStore)

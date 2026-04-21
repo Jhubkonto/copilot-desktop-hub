@@ -64,7 +64,7 @@ function setupCreateMode() {
 describe('AgentPanel — Create Mode (agent-r-1)', () => {
   it('agent-r-1: opens with empty config for new agent', () => {
     setupCreateMode()
-    render(<AgentPanel />)
+    render(<AgentPanel width={440} onResize={() => {}} />)
 
     expect(screen.getByText('Create Agent')).toBeInTheDocument()
     const nameInput = screen.getByPlaceholderText('Agent name...')
@@ -76,7 +76,7 @@ describe('AgentPanel — Create Mode (agent-r-1)', () => {
 describe('AgentPanel — Edit Mode (agent-r-2)', () => {
   it('agent-r-2: opens with populated config for existing agent', () => {
     setupEditMode()
-    render(<AgentPanel />)
+    render(<AgentPanel width={440} onResize={() => {}} />)
 
     expect(screen.getByText('Edit Agent')).toBeInTheDocument()
     expect(screen.getByPlaceholderText('Agent name...')).toHaveValue('Test Agent')
@@ -87,7 +87,7 @@ describe('AgentPanel — Edit Mode (agent-r-2)', () => {
 describe('AgentPanel — Field Updates', () => {
   it('agent-r-3: name field updates config', async () => {
     setupEditMode()
-    render(<AgentPanel />)
+    render(<AgentPanel width={440} onResize={() => {}} />)
 
     const nameInput = screen.getByPlaceholderText('Agent name...')
     await user.clear(nameInput)
@@ -101,7 +101,7 @@ describe('AgentPanel — Field Updates', () => {
 
   it('agent-r-4: system prompt textarea updates config', async () => {
     setupEditMode()
-    render(<AgentPanel />)
+    render(<AgentPanel width={440} onResize={() => {}} />)
 
     const textarea = screen.getByPlaceholderText('Instructions for the agent...')
     await user.clear(textarea)
@@ -115,7 +115,7 @@ describe('AgentPanel — Field Updates', () => {
 
   it('agent-r-5: temperature slider updates config', async () => {
     setupEditMode()
-    render(<AgentPanel />)
+    render(<AgentPanel width={440} onResize={() => {}} />)
 
     const slider = screen.getByRole('slider')
     const { fireEvent } = await import('@testing-library/react')
@@ -129,21 +129,21 @@ describe('AgentPanel — Field Updates', () => {
 
   it('agent-r-6: model dropdown shows available models', () => {
     setupEditMode()
-    render(<AgentPanel />)
+    render(<AgentPanel width={440} onResize={() => {}} />)
 
     const modelSelect = screen.getAllByRole('combobox')[0]
     const options = within(modelSelect).getAllByRole('option')
     const values = options.map((o) => o.textContent)
     expect(values).toContain('default')
-    expect(values).toContain('gpt-4o')
-    expect(values).toContain('gpt-4o-mini')
-    expect(values).toContain('claude-3.5-sonnet')
-    expect(values).toContain('o1-preview')
+    expect(values).toContain('gpt-5.4')
+    expect(values).toContain('gpt-5.4-mini')
+    expect(values).toContain('claude-sonnet-4.5')
+    expect(values).toContain('gpt-4.1')
   })
 
   it('agent-r-7: toggle agentic mode updates config', async () => {
     setupEditMode()
-    render(<AgentPanel />)
+    render(<AgentPanel width={440} onResize={() => {}} />)
 
     const checkbox = screen.getByRole('checkbox', { name: /agentic mode/i })
     await user.click(checkbox)
@@ -156,7 +156,7 @@ describe('AgentPanel — Field Updates', () => {
 
   it('agent-r-8: tool toggles update config', async () => {
     setupEditMode()
-    render(<AgentPanel />)
+    render(<AgentPanel width={440} onResize={() => {}} />)
 
     const fileEditCheckbox = screen.getByRole('checkbox', { name: /file edit/i })
     await user.click(fileEditCheckbox)
@@ -174,7 +174,7 @@ describe('AgentPanel — Context Management', () => {
   it('agent-r-9: add context directory appends to list', async () => {
     mockApi.openDirectoryDialog = vi.fn().mockResolvedValue(['/new/dir'])
     setupEditMode()
-    render(<AgentPanel />)
+    render(<AgentPanel width={440} onResize={() => {}} />)
 
     await user.click(screen.getByText('Add Directory'))
     await user.click(screen.getByText('Save'))
@@ -188,7 +188,7 @@ describe('AgentPanel — Context Management', () => {
 
   it('agent-r-11: remove context directory updates list', async () => {
     setupEditMode()
-    render(<AgentPanel />)
+    render(<AgentPanel width={440} onResize={() => {}} />)
 
     const dirItem = screen.getByTitle('/home/user/project')
     const removeBtn = dirItem.closest('div')!.querySelector('button')!
@@ -204,7 +204,7 @@ describe('AgentPanel — Context Management', () => {
 describe('AgentPanel — JSON Tab', () => {
   it('agent-r-12: JSON tab shows serialized config', async () => {
     setupEditMode()
-    render(<AgentPanel />)
+    render(<AgentPanel width={440} onResize={() => {}} />)
 
     await user.click(screen.getByText('{ } JSON'))
 
@@ -218,7 +218,7 @@ describe('AgentPanel — JSON Tab', () => {
 
   it('agent-r-13: valid JSON edit updates config on apply', async () => {
     setupEditMode()
-    render(<AgentPanel />)
+    render(<AgentPanel width={440} onResize={() => {}} />)
 
     await user.click(screen.getByText('{ } JSON'))
 
@@ -246,7 +246,7 @@ describe('AgentPanel — JSON Tab', () => {
 
   it('agent-r-14: invalid JSON shows error and does not apply', async () => {
     setupEditMode()
-    render(<AgentPanel />)
+    render(<AgentPanel width={440} onResize={() => {}} />)
 
     await user.click(screen.getByText('{ } JSON'))
 
@@ -262,7 +262,7 @@ describe('AgentPanel — JSON Tab', () => {
 describe('AgentPanel — Actions', () => {
   it('agent-r-15: save button calls saveAgent with correct config', async () => {
     setupEditMode()
-    render(<AgentPanel />)
+    render(<AgentPanel width={440} onResize={() => {}} />)
 
     await user.click(screen.getByText('Save'))
 
@@ -278,7 +278,7 @@ describe('AgentPanel — Actions', () => {
 
   it('save disabled when name is empty', () => {
     setupCreateMode()
-    render(<AgentPanel />)
+    render(<AgentPanel width={440} onResize={() => {}} />)
 
     const createBtn = screen.getByText('Create')
     expect(createBtn).toBeDisabled()
@@ -286,7 +286,7 @@ describe('AgentPanel — Actions', () => {
 
   it('agent-r-16: delete button calls deleteAgent', async () => {
     setupEditMode()
-    render(<AgentPanel />)
+    render(<AgentPanel width={440} onResize={() => {}} />)
 
     await user.click(screen.getByText('Delete'))
     expect(mockStore.deleteAgent).toHaveBeenCalledWith('agent-1')
@@ -294,14 +294,14 @@ describe('AgentPanel — Actions', () => {
 
   it('agent-r-17: delete button hidden for default agents', () => {
     setupEditMode(DEFAULT_AGENT)
-    render(<AgentPanel />)
+    render(<AgentPanel width={440} onResize={() => {}} />)
 
     expect(screen.queryByText('Delete')).not.toBeInTheDocument()
   })
 
   it('agent-r-18: duplicate button calls duplicateAgent', async () => {
     setupEditMode()
-    render(<AgentPanel />)
+    render(<AgentPanel width={440} onResize={() => {}} />)
 
     await user.click(screen.getByText('Duplicate'))
     expect(mockStore.duplicateAgent).toHaveBeenCalledWith('agent-1')
@@ -309,7 +309,7 @@ describe('AgentPanel — Actions', () => {
 
   it('agent-r-19: export button calls exportAgent', async () => {
     setupEditMode()
-    render(<AgentPanel />)
+    render(<AgentPanel width={440} onResize={() => {}} />)
 
     await user.click(screen.getByText('Export'))
     expect(mockStore.exportAgent).toHaveBeenCalledWith('agent-1')
@@ -317,7 +317,7 @@ describe('AgentPanel — Actions', () => {
 
   it('agent-r-20: close button calls closeAgentPanel', async () => {
     setupEditMode({ ...SAMPLE_AGENT, contextDirectories: [], contextFiles: [] })
-    render(<AgentPanel />)
+    render(<AgentPanel width={440} onResize={() => {}} />)
 
     const dialog = screen.getByRole('dialog')
     const header = dialog.querySelector('.border-b')!
@@ -328,7 +328,7 @@ describe('AgentPanel — Actions', () => {
 
   it('duplicate/export buttons hidden in create mode', () => {
     setupCreateMode()
-    render(<AgentPanel />)
+    render(<AgentPanel width={440} onResize={() => {}} />)
 
     expect(screen.queryByText('Duplicate')).not.toBeInTheDocument()
     expect(screen.queryByText('Export')).not.toBeInTheDocument()

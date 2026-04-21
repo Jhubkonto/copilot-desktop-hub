@@ -10,6 +10,7 @@ const api = {
   setSetting: (key: string, value: unknown) => ipcRenderer.invoke('app:set-setting', key, value),
   getTheme: () => ipcRenderer.invoke('app:get-theme'),
   setTheme: (theme: 'light' | 'dark') => ipcRenderer.invoke('app:set-theme', theme),
+  getVersion: () => ipcRenderer.invoke('app:get-version'),
 
   // Auth
   authStatus: () => ipcRenderer.invoke('auth:status'),
@@ -30,7 +31,15 @@ const api = {
   sendMessage: (
     conversationId: string,
     content: string,
-    options?: { attachments?: { id: string; name: string; path: string; size: number }[]; regenerate?: boolean; agentId?: string }
+    options?: {
+      attachments?: { id: string; name: string; path: string; size: number }[]
+      images?: { id: string; name: string; dataUrl: string }[]
+      regenerate?: boolean
+      agentId?: string
+      model?: string
+      messageId?: string
+      projectId?: string
+    }
   ) => ipcRenderer.invoke('chat:send-message', conversationId, content, options),
   onStreamResponse: (callback: (chunk: string | null) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, chunk: string | null) =>
@@ -38,12 +47,18 @@ const api = {
     ipcRenderer.on('chat:stream-response', handler)
     return () => ipcRenderer.removeListener('chat:stream-response', handler)
   },
+  onStreamError: (callback: (error: { type: string; message: string; retryable: boolean; retryAfterSeconds?: number }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, error: { type: string; message: string; retryable: boolean; retryAfterSeconds?: number }) =>
+      callback(error)
+    ipcRenderer.on('chat:stream-error', handler)
+    return () => ipcRenderer.removeListener('chat:stream-error', handler)
+  },
   stopGeneration: () => ipcRenderer.invoke('chat:stop-generation'),
 
   // Conversations
   listConversations: () => ipcRenderer.invoke('conversation:list'),
-  createConversation: (agentId?: string) =>
-    ipcRenderer.invoke('conversation:create', agentId),
+  createConversation: (agentId?: string, projectId?: string) =>
+    ipcRenderer.invoke('conversation:create', agentId, projectId),
   deleteConversation: (id: string) => ipcRenderer.invoke('conversation:delete', id),
   getMessages: (conversationId: string) =>
     ipcRenderer.invoke('conversation:get-messages', conversationId),
@@ -51,6 +66,10 @@ const api = {
     ipcRenderer.invoke('conversation:search', query),
   renameConversation: (id: string, title: string) =>
     ipcRenderer.invoke('conversation:rename', id, title),
+  setConversationModel: (id: string, model: string | null) =>
+    ipcRenderer.invoke('conversation:set-model', id, model),
+  setConversationPinned: (id: string, pinned: boolean) =>
+    ipcRenderer.invoke('conversation:set-pinned', id, pinned),
 
   // Messages
   deleteMessage: (id: string) => ipcRenderer.invoke('message:delete', id),
@@ -59,6 +78,11 @@ const api = {
 
   // Files
   openFileDialog: () => ipcRenderer.invoke('file:open-dialog'),
+  getWorkingDirectory: () => ipcRenderer.invoke('file:get-cwd'),
+  setWorkingDirectory: (cwd: string) => ipcRenderer.invoke('file:set-cwd', cwd),
+  readContextFile: (filePath: string) => ipcRenderer.invoke('context:read-file', filePath),
+  getWorkspaceSummary: () => ipcRenderer.invoke('context:workspace-summary'),
+  getGitContext: () => ipcRenderer.invoke('context:git'),
 
   // Agents
   listAgents: () => ipcRenderer.invoke('agent:list'),
@@ -151,8 +175,20 @@ const api = {
   setAzureEndpoint: (endpoint: string) =>
     ipcRenderer.invoke('provider:set-azure-endpoint', endpoint),
 
+  // Projects
+  listProjects: () => ipcRenderer.invoke('project:list'),
+  createProject: (name: string, color: string) => ipcRenderer.invoke('project:create', name, color),
+  renameProject: (id: string, name: string) => ipcRenderer.invoke('project:rename', id, name),
+  deleteProject: (id: string) => ipcRenderer.invoke('project:delete', id),
+  setConversationProject: (conversationId: string, projectId: string | null) =>
+    ipcRenderer.invoke('project:set-conversation', conversationId, projectId),
+
   // Auto-start
   setAutoStart: (enabled: boolean) => ipcRenderer.invoke('app:set-auto-start', enabled),
+  saveTextFile: (defaultFileName: string, content: string) =>
+    ipcRenderer.invoke('app:save-text-file', defaultFileName, content),
+  createGist: (filename: string, content: string, description?: string) =>
+    ipcRenderer.invoke('app:create-gist', filename, content, description),
 
   // Updates
   checkForUpdates: () => ipcRenderer.invoke('app:check-updates'),

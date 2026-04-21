@@ -6,6 +6,17 @@ import http from 'http'
 
 export type ProviderName = 'copilot' | 'openai' | 'anthropic' | 'azure'
 
+export type MessageContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } }
+
+export type MessageContent = string | MessageContentPart[]
+
+export interface ProviderMessage {
+  role: string
+  content: MessageContent
+}
+
 // Track active streaming request so it can be aborted
 let activeStreamingRequest: http.ClientRequest | null = null
 
@@ -113,14 +124,16 @@ function httpsRequest(
 export async function sendOpenAIMessage(
   apiKey: string,
   model: string,
-  messages: { role: string; content: string }[],
-  onChunk: (chunk: string) => void
+  messages: ProviderMessage[],
+  onChunk: (chunk: string) => void,
+  options: { maxTokens?: number; temperature?: number } = {}
 ): Promise<string> {
   const body = JSON.stringify({
     model,
     messages,
     stream: true,
-    max_tokens: 4096
+    max_tokens: options.maxTokens ?? 4096,
+    temperature: options.temperature ?? 0.7
   })
 
   return new Promise((resolve, reject) => {
@@ -185,19 +198,42 @@ export async function sendOpenAIMessage(
   })
 }
 
+function toAnthropicContent(
+  content: MessageContent
+): string | Array<{ type: string; [key: string]: unknown }> {
+  if (typeof content === 'string') return content
+  return content.map((part) => {
+    if (part.type === 'text') return { type: 'text', text: part.text }
+    if (part.type === 'image_url') {
+      const url = part.image_url.url
+      const match = url.match(/^data:([^;]+);base64,(.+)$/)
+      if (match) {
+        return { type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } }
+      }
+      return { type: 'text', text: `[Image: ${url}]` }
+    }
+    return { type: 'text', text: '' }
+  })
+}
+
 export async function sendAnthropicMessage(
   apiKey: string,
   model: string,
-  messages: { role: string; content: string }[],
+  messages: ProviderMessage[],
   systemPrompt: string | undefined,
-  onChunk: (chunk: string) => void
+  onChunk: (chunk: string) => void,
+  options: { maxTokens?: number; temperature?: number } = {}
 ): Promise<string> {
+  const anthropicMessages = messages
+    .filter((m) => m.role !== 'system')
+    .map((m) => ({ role: m.role, content: toAnthropicContent(m.content) }))
   const body = JSON.stringify({
     model,
-    max_tokens: 4096,
+    max_tokens: options.maxTokens ?? 4096,
+    temperature: options.temperature ?? 0.7,
     stream: true,
     ...(systemPrompt ? { system: systemPrompt } : {}),
-    messages: messages.filter((m) => m.role !== 'system')
+    messages: anthropicMessages
   })
 
   return new Promise((resolve, reject) => {
@@ -265,15 +301,17 @@ export async function sendAzureMessage(
   apiKey: string,
   endpoint: string,
   deployment: string,
-  messages: { role: string; content: string }[],
-  onChunk: (chunk: string) => void
+  messages: ProviderMessage[],
+  onChunk: (chunk: string) => void,
+  options: { maxTokens?: number; temperature?: number } = {}
 ): Promise<string> {
   const apiVersion = '2024-02-01'
   const url = `${endpoint.replace(/\/$/, '')}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`
   const body = JSON.stringify({
     messages,
     stream: true,
-    max_tokens: 4096
+    max_tokens: options.maxTokens ?? 4096,
+    temperature: options.temperature ?? 0.7
   })
 
   return new Promise((resolve, reject) => {

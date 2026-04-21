@@ -37,13 +37,16 @@ const {
           return { changes: 1 }
         }
         if (sql.includes('INSERT INTO messages')) {
+          const hasAttachmentsArg = args.length >= 6
+          const hasModelArg = args.length >= 7
           const msg = {
             id: args[0],
             conversation_id: args[1],
             role: args[2],
             content: args[3],
-            attachments: args[4] ?? null,
-            timestamp: args[5]
+            attachments: hasAttachmentsArg ? (args[4] ?? null) : null,
+            timestamp: hasAttachmentsArg ? args[5] : args[4],
+            model: hasModelArg ? (args[6] ?? null) : null
           }
           messages.set(msg.id as string, msg)
           return { changes: 1 }
@@ -56,6 +59,14 @@ const {
         if (sql.includes('UPDATE conversations SET updated_at')) {
           const conv = conversations.get(args[1] as string)
           if (conv) conv.updated_at = args[0]
+          return { changes: conv ? 1 : 0 }
+        }
+        if (sql.includes('UPDATE conversations SET model')) {
+          const conv = conversations.get(args[2] as string)
+          if (conv) {
+            conv.model = args[0] ?? null
+            conv.updated_at = args[1]
+          }
           return { changes: conv ? 1 : 0 }
         }
         if (sql.includes('DELETE FROM conversations')) {
@@ -91,9 +102,9 @@ const {
           }
           return { count }
         }
-        if (sql.includes('SELECT agent_id FROM conversations')) {
+        if (sql.includes('SELECT agent_id, model FROM conversations')) {
           const conv = conversations.get(args[0] as string)
-          return conv ? { agent_id: conv.agent_id } : undefined
+          return conv ? { agent_id: conv.agent_id, model: conv.model ?? null } : undefined
         }
         if (sql.includes('SELECT value FROM settings')) {
           return undefined
@@ -496,7 +507,7 @@ describe('Chat — IPC Handlers', () => {
       expect(result).toHaveProperty('assistantMsgId')
     })
 
-    it('falls back to placeholder when OpenAI errors', async () => {
+    it('emits stream error when OpenAI errors', async () => {
       const convId = 'openai-error-conv'
       mockDb._conversations.set(convId, {
         id: convId,
@@ -512,9 +523,12 @@ describe('Chat — IPC Handlers', () => {
       mockSendOpenAIMessage.mockRejectedValue(new Error('Rate limited'))
 
       const result = await invokeHandler('chat:send-message', convId, 'Hello')
-      // Should fall back to placeholder and still return assistantMsgId
       expect(result).toHaveProperty('assistantMsgId')
-      expect(mockWebContents.send).toHaveBeenCalledWith('chat:stream-response', null)
+      expect(mockWebContents.send).toHaveBeenCalledWith('chat:stream-error', {
+        type: 'api',
+        message: 'OpenAI API error: Rate limited',
+        retryable: true
+      })
     })
   })
 })

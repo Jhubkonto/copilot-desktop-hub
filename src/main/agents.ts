@@ -1,5 +1,5 @@
 import { getDatabase } from './database'
-import { dialog } from 'electron'
+import { dialog, BrowserWindow } from 'electron'
 import { randomUUID } from 'crypto'
 import { readFileSync, writeFileSync } from 'fs'
 import { safeHandle } from './safe-handle'
@@ -156,7 +156,8 @@ export function registerAgentHandlers(): void {
     const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as AgentRow | undefined
     if (!row) return false
     const config = JSON.parse(row.config_json)
-    const result = await dialog.showSaveDialog({
+    const win = BrowserWindow.getAllWindows()[0]
+    const result = await dialog.showSaveDialog(win, {
       defaultPath: `${config.name.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()}.json`,
       filters: [{ name: 'JSON', extensions: ['json'] }]
     })
@@ -166,7 +167,8 @@ export function registerAgentHandlers(): void {
   })
 
   safeHandle('agent:import', async () => {
-    const result = await dialog.showOpenDialog({
+    const win = BrowserWindow.getAllWindows()[0]
+    const result = await dialog.showOpenDialog(win, {
       properties: ['openFile'],
       filters: [{ name: 'JSON', extensions: ['json'] }]
     })
@@ -201,7 +203,8 @@ export function registerAgentHandlers(): void {
   })
 
   safeHandle('file:open-directory-dialog', async () => {
-    const result = await dialog.showOpenDialog({
+    const win = BrowserWindow.getAllWindows()[0]
+    const result = await dialog.showOpenDialog(win, {
       properties: ['openDirectory', 'multiSelections']
     })
     if (result.canceled) return []

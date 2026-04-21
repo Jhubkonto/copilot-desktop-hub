@@ -16,6 +16,7 @@ export function createMockApi() {
     setSetting: vi.fn().mockResolvedValue(undefined),
     getTheme: vi.fn().mockResolvedValue('dark'),
     setTheme: vi.fn().mockResolvedValue(undefined),
+    getVersion: vi.fn().mockResolvedValue('0.1.0'),
 
     // Auth
     authStatus: vi.fn().mockResolvedValue({ authenticated: false, user: null }),
@@ -26,6 +27,7 @@ export function createMockApi() {
     // Chat
     sendMessage: vi.fn().mockResolvedValue(undefined),
     onStreamResponse: vi.fn().mockReturnValue(() => {}),
+    onStreamError: vi.fn().mockReturnValue(() => {}),
     stopGeneration: vi.fn().mockResolvedValue(undefined),
 
     // Conversations
@@ -35,6 +37,8 @@ export function createMockApi() {
     getMessages: vi.fn().mockResolvedValue([]),
     searchConversations: vi.fn().mockResolvedValue([]),
     renameConversation: vi.fn().mockResolvedValue(undefined),
+    setConversationModel: vi.fn().mockResolvedValue(true),
+    setConversationPinned: vi.fn().mockResolvedValue(true),
 
     // Messages
     deleteMessage: vi.fn().mockResolvedValue(true),
@@ -42,6 +46,11 @@ export function createMockApi() {
 
     // Files
     openFileDialog: vi.fn().mockResolvedValue([]),
+    getWorkingDirectory: vi.fn().mockResolvedValue('C:\\'),
+    setWorkingDirectory: vi.fn().mockResolvedValue(true),
+    readContextFile: vi.fn().mockResolvedValue({ path: 'README.md', content: 'context', truncated: false }),
+    getWorkspaceSummary: vi.fn().mockResolvedValue('workspace summary'),
+    getGitContext: vi.fn().mockResolvedValue('branch: main'),
 
     // Agents
     listAgents: vi.fn().mockResolvedValue([]),
@@ -92,6 +101,8 @@ export function createMockApi() {
 
     // Auto-start
     setAutoStart: vi.fn().mockResolvedValue(undefined),
+    saveTextFile: vi.fn().mockResolvedValue('C:\\conversation.md'),
+    createGist: vi.fn().mockResolvedValue('https://gist.github.com/example/abc123'),
 
     // Updates
     checkForUpdates: vi.fn().mockResolvedValue(undefined),

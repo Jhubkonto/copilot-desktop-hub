@@ -3,6 +3,9 @@ export interface Message {
   conversationId: string
   role: 'user' | 'assistant' | 'system'
   content: string
+  model?: string | null
+  isEdited?: boolean
+  previousContent?: string | null
   timestamp: number
   attachments?: Attachment[]
 }
@@ -57,6 +60,7 @@ export interface SendMessageOptions {
   attachments?: Attachment[]
   regenerate?: boolean
   agentId?: string
+  model?: string
 }
 
 export interface AppSettings {
@@ -96,9 +100,13 @@ export type IpcChannels =
   | 'conversation:get-messages'
   | 'conversation:search'
   | 'conversation:rename'
+  | 'conversation:set-pinned'
   | 'message:delete'
   | 'message:delete-after'
   | 'file:open-dialog'
+  | 'context:read-file'
+  | 'context:workspace-summary'
+  | 'context:git'
   | 'agent:list'
   | 'agent:get'
   | 'agent:create'

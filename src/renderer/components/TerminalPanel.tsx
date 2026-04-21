@@ -3,13 +3,17 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { X } from 'lucide-react'
 import '@xterm/xterm/css/xterm.css'
+import { ResizeHandle } from './ResizeHandle'
 
 interface TerminalPanelProps {
   visible: boolean
   onClose: () => void
+  height: number
+  onResize: (size: number) => void
 }
 
-export function TerminalPanel({ visible, onClose }: TerminalPanelProps) {
+export function TerminalPanel({ visible, onClose, height, onResize }: TerminalPanelProps) {
+  const outerRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
@@ -119,10 +123,12 @@ export function TerminalPanel({ visible, onClose }: TerminalPanelProps) {
 
   return (
     <div
-      className="border-t border-gray-200 dark:border-gray-700"
-      style={{ height: '250px', backgroundColor: '#1e1e2e' }}
+      ref={outerRef}
+      className="relative flex flex-col border-t border-gray-200 dark:border-gray-700"
+      style={{ height, backgroundColor: '#1e1e2e' }}
     >
-      <div className="flex items-center justify-between px-3 py-1 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+      <ResizeHandle direction="vertical" align="start" containerRef={outerRef} onSetSize={onResize} />
+      <div className="flex items-center justify-between px-3 py-1 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shrink-0">
         <span className="text-xs font-medium text-gray-600 dark:text-gray-300">
           Terminal
         </span>
@@ -135,7 +141,7 @@ export function TerminalPanel({ visible, onClose }: TerminalPanelProps) {
           <X className="w-3.5 h-3.5" />
         </button>
       </div>
-      <div ref={containerRef} className="h-[calc(100%-28px)] w-full" />
+      <div ref={containerRef} className="flex-1 min-h-0 w-full" />
     </div>
   )
 }

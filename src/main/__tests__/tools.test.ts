@@ -141,7 +141,11 @@ describe('Tools — executeTool', () => {
   })
 
   it('shellExec runs command and returns stdout', async () => {
-    mockExec.mockImplementation((_cmd: string, _opts: unknown, cb: Function) => {
+    mockExec.mockImplementation((
+      _cmd: string,
+      _opts: unknown,
+      cb: (error: Error | null, stdout: string, stderr: string) => void
+    ) => {
       cb(null, 'output text', '')
     })
     const r = await executeTool('shellExec', { command: 'echo hi' })
@@ -150,7 +154,11 @@ describe('Tools — executeTool', () => {
   })
 
   it('shellExec returns error on failure with no output', async () => {
-    mockExec.mockImplementation((_cmd: string, _opts: unknown, cb: Function) => {
+    mockExec.mockImplementation((
+      _cmd: string,
+      _opts: unknown,
+      cb: (error: Error | null, stdout: string, stderr: string) => void
+    ) => {
       cb(new Error('command failed'), '', '')
     })
     const r = await executeTool('shellExec', { command: 'bad' })

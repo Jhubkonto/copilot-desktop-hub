@@ -225,7 +225,9 @@ describe('Auth — IPC Handler Registration', () => {
     _storeToken('valid-token')
     dbStore.set('auth_user', JSON.stringify({ login: 'testuser', avatar_url: '', name: null }))
 
-    const handler = ipcHandlers.get('auth:status') as Function
+    const handler = ipcHandlers.get('auth:status') as (
+      event: Electron.IpcMainInvokeEvent
+    ) => Promise<{ authenticated: boolean; user: unknown }>
     const result = await handler({} as Electron.IpcMainInvokeEvent)
     expect(result).toEqual({
       authenticated: true,
@@ -234,7 +236,9 @@ describe('Auth — IPC Handler Registration', () => {
   })
 
   it('auth-m-7: auth:status returns unauthenticated when no token', async () => {
-    const handler = ipcHandlers.get('auth:status') as Function
+    const handler = ipcHandlers.get('auth:status') as (
+      event: Electron.IpcMainInvokeEvent
+    ) => Promise<{ authenticated: boolean; user: unknown }>
     const result = await handler({} as Electron.IpcMainInvokeEvent)
     expect(result).toEqual({ authenticated: false, user: null })
   })
@@ -242,7 +246,9 @@ describe('Auth — IPC Handler Registration', () => {
   it('auth-m-8: auth:logout clears token', async () => {
     _storeToken('token-to-logout')
     expect(_retrieveToken()).not.toBeNull()
-    const handler = ipcHandlers.get('auth:logout') as Function
+    const handler = ipcHandlers.get('auth:logout') as (
+      event: Electron.IpcMainInvokeEvent
+    ) => Promise<boolean>
     await handler({} as Electron.IpcMainInvokeEvent)
     expect(_retrieveToken()).toBeNull()
   })
@@ -269,7 +275,9 @@ describe('Auth — IPC Handler Registration', () => {
       { statusCode: 200, body: userResponse }
     ])
 
-    const handler = ipcHandlers.get('auth:login') as Function
+    const handler = ipcHandlers.get('auth:login') as (
+      event: Electron.IpcMainInvokeEvent
+    ) => Promise<{ success: boolean; error?: string }>
     // Don't await — the handler is blocked on setTimeout for polling.
     // We just check that device code was sent to renderer synchronously.
     handler({ sender: {} } as Electron.IpcMainInvokeEvent)
@@ -299,7 +307,9 @@ describe('Auth — IPC Handler Registration', () => {
       return req
     })
 
-    const handler = ipcHandlers.get('auth:login') as Function
+    const handler = ipcHandlers.get('auth:login') as (
+      event: Electron.IpcMainInvokeEvent
+    ) => Promise<{ success: boolean; error?: string }>
     const result = await handler({ sender: {} } as Electron.IpcMainInvokeEvent)
     expect(result).toMatchObject({ success: false, error: 'Network fail' })
   })
