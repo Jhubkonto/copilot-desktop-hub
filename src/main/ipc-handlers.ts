@@ -82,6 +82,15 @@ function registerProjectHandlers(): void {
     )
     return true
   })
+
+  safeHandle('project:set-default-model', (_event, id: string, model: string | null) => {
+    db.prepare('UPDATE projects SET default_model = ?, updated_at = ? WHERE id = ?').run(
+      model ?? null,
+      Date.now(),
+      id
+    )
+    return true
+  })
 }
 
 function registerSettingsHandlers(): void {

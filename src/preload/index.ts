@@ -182,6 +182,8 @@ const api = {
   deleteProject: (id: string) => ipcRenderer.invoke('project:delete', id),
   setConversationProject: (conversationId: string, projectId: string | null) =>
     ipcRenderer.invoke('project:set-conversation', conversationId, projectId),
+  setProjectDefaultModel: (id: string, model: string | null) =>
+    ipcRenderer.invoke('project:set-default-model', id, model),
 
   // Window controls
   minimizeWindow: () => ipcRenderer.invoke('window:minimize'),

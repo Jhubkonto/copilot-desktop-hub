@@ -114,6 +114,14 @@ export function createMockApi() {
     // System events
     onNewChat: vi.fn().mockReturnValue(() => {}),
 
+    // Projects
+    listProjects: vi.fn().mockResolvedValue([]),
+    createProject: vi.fn().mockResolvedValue({ id: 'proj-1' }),
+    renameProject: vi.fn().mockResolvedValue(true),
+    deleteProject: vi.fn().mockResolvedValue(true),
+    setConversationProject: vi.fn().mockResolvedValue(true),
+    setProjectDefaultModel: vi.fn().mockResolvedValue(true),
+
     // Window controls
     minimizeWindow: vi.fn().mockResolvedValue(undefined),
     maximizeWindow: vi.fn().mockResolvedValue(undefined),

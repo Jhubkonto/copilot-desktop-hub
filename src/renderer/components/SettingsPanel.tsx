@@ -40,7 +40,11 @@ export function SettingsPanel() {
     ? conversations.find((c) => c.id === currentConversationId) ?? null
     : null
   const activeAgent = activeAgentId ? agents.find((a) => a.id === activeAgentId) ?? null : null
-  const effectiveModel = currentConversation?.model || activeAgent?.model || 'default'
+  const activeProjectId = useAppStore((s) => s.activeProjectId)
+  const projects = useAppStore((s) => s.projects)
+  const projectId = currentConversation?.project_id ?? activeProjectId
+  const projectDefaultModel = projectId ? (projects.find((p) => p.id === projectId)?.default_model ?? null) : null
+  const effectiveModel = currentConversation?.model || activeAgent?.model || projectDefaultModel || 'default'
   const effectiveProvider =
     effectiveModel === 'default'
       ? 'GitHub Copilot'

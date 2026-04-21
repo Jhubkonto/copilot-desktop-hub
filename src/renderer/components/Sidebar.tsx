@@ -1,8 +1,9 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { Plus, MessageSquare, Settings, X, LogIn, Upload, Pin, FolderOpen, Folder, MoreHorizontal, Check } from 'lucide-react'
+import { Plus, MessageSquare, Settings, X, LogIn, Upload, Pin, FolderOpen, Folder, MoreHorizontal, Check, Cpu } from 'lucide-react'
 import { SearchBar } from './SearchBar'
 import { useAppStore, type Conversation, type Project } from '../store/app-store'
 import { ResizeHandle } from './ResizeHandle'
+import { MODEL_OPTIONS, getModelLabel } from '../../shared/models'
 
 interface DateGroup {
   label: string
@@ -88,6 +89,7 @@ export function Sidebar() {
   const renameProject = useAppStore((s) => s.renameProject)
   const deleteProject = useAppStore((s) => s.deleteProject)
   const setConversationProject = useAppStore((s) => s.setConversationProject)
+  const setProjectDefaultModel = useAppStore((s) => s.setProjectDefaultModel)
 
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<Conversation[] | null>(null)
@@ -110,6 +112,21 @@ export function Sidebar() {
   // Conversation project picker state
   const [convProjectPickerId, setConvProjectPickerId] = useState<string | null>(null)
   const convProjectPickerRef = useRef<HTMLDivElement>(null)
+
+  // Project model picker state
+  const [modelPickerProjectId, setModelPickerProjectId] = useState<string | null>(null)
+  const modelPickerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!modelPickerProjectId) return
+    const onPointerDown = (e: MouseEvent) => {
+      if (modelPickerRef.current && !modelPickerRef.current.contains(e.target as Node)) {
+        setModelPickerProjectId(null)
+      }
+    }
+    window.addEventListener('mousedown', onPointerDown)
+    return () => window.removeEventListener('mousedown', onPointerDown)
+  }, [modelPickerProjectId])
 
   useEffect(() => {
     if (!projectMenuId && !convProjectPickerId) return
@@ -372,6 +389,7 @@ export function Sidebar() {
               const isActive = activeProjectId === project.id
               const isMenuOpen = projectMenuId === project.id
               const isRenaming = renamingProjectId === project.id
+              const isModelPickerOpen = modelPickerProjectId === project.id
               return (
                 <div key={project.id} className="relative group">
                   <div
@@ -403,6 +421,14 @@ export function Sidebar() {
                     ) : (
                       <span className="flex-1 truncate">{project.name}</span>
                     )}
+                    {project.default_model && (
+                      <span
+                        className="flex items-center gap-0.5 text-[10px] text-gray-400 dark:text-gray-500 shrink-0"
+                        title={`Default model: ${getModelLabel(project.default_model)}`}
+                      >
+                        <Cpu className="w-2.5 h-2.5" />
+                      </span>
+                    )}
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
@@ -419,7 +445,7 @@ export function Sidebar() {
                   {isMenuOpen && (
                     <div
                       ref={projectMenuRef}
-                      className="absolute left-2 top-full z-30 w-36 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xl py-1"
+                      className="absolute left-2 top-full z-30 w-44 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xl py-1"
                     >
                       <button
                         className="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
@@ -433,6 +459,17 @@ export function Sidebar() {
                         Rename
                       </button>
                       <button
+                        className="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setProjectMenuId(null)
+                          setModelPickerProjectId(project.id)
+                        }}
+                      >
+                        <Cpu className="w-3 h-3" />
+                        Set default model
+                      </button>
+                      <button
                         className="w-full text-left px-3 py-1.5 text-xs text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700"
                         onClick={(e) => {
                           e.stopPropagation()
@@ -442,6 +479,42 @@ export function Sidebar() {
                       >
                         Delete project
                       </button>
+                    </div>
+                  )}
+
+                  {isModelPickerOpen && (
+                    <div
+                      ref={modelPickerRef}
+                      className="absolute left-2 top-full z-30 w-52 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xl py-1"
+                    >
+                      <div className="px-3 py-1.5 text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide">
+                        Default model
+                      </div>
+                      <button
+                        className="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center justify-between"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setModelPickerProjectId(null)
+                          setProjectDefaultModel(project.id, null)
+                        }}
+                      >
+                        <span>No default (use global)</span>
+                        {!project.default_model && <Check className="w-3 h-3 text-blue-500" />}
+                      </button>
+                      {MODEL_OPTIONS.filter((m) => m !== 'default').map((model) => (
+                        <button
+                          key={model}
+                          className="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center justify-between"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setModelPickerProjectId(null)
+                            setProjectDefaultModel(project.id, model)
+                          }}
+                        >
+                          <span>{getModelLabel(model)}</span>
+                          {project.default_model === model && <Check className="w-3 h-3 text-blue-500" />}
+                        </button>
+                      ))}
                     </div>
                   )}
                 </div>

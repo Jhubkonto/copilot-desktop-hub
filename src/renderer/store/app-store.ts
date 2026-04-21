@@ -18,6 +18,7 @@ export interface Project {
   id: string
   name: string
   color: string
+  default_model?: string | null
   created_at: number
   updated_at: number
 }
@@ -118,6 +119,7 @@ interface AppState {
   renameProject: (id: string, name: string) => Promise<void>
   deleteProject: (id: string) => Promise<void>
   setConversationProject: (conversationId: string, projectId: string | null) => Promise<void>
+  setProjectDefaultModel: (id: string, model: string | null) => Promise<void>
 
   // ── Agent Actions ──
   loadAgents: () => Promise<void>
@@ -366,6 +368,19 @@ export const useAppStore = create<AppState>()(
         await get().loadConversations()
       } catch {
         get().addToast('Failed to move conversation', 'error')
+      }
+    },
+
+    setProjectDefaultModel: async (id, model) => {
+      try {
+        const result = await window.api.setProjectDefaultModel(id, model)
+        if (result?.error) {
+          get().addToast('Failed to set project default model', 'error')
+          return
+        }
+        await get().loadProjects()
+      } catch {
+        get().addToast('Failed to set project default model', 'error')
       }
     },
 

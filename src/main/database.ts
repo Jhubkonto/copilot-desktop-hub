@@ -86,6 +86,12 @@ function initializeSchema(db: Database.Database): void {
 
   // Migrations: add columns that may not exist yet
   try {
+    db.exec('ALTER TABLE projects ADD COLUMN default_model TEXT')
+  } catch {
+    // Column already exists
+  }
+
+  try {
     db.exec('ALTER TABLE messages ADD COLUMN attachments TEXT')
   } catch {
     // Column already exists

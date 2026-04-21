@@ -91,6 +91,7 @@ export function ChatWindow() {
   const conversationId = useAppStore((s) => s.currentConversationId)
   const activeAgentId = useAppStore((s) => s.activeAgentId)
   const activeProjectId = useAppStore((s) => s.activeProjectId)
+  const projects = useAppStore((s) => s.projects)
   const agents = useAppStore((s) => s.agents)
   const conversations = useAppStore((s) => s.conversations)
   const authenticated = useAppStore((s) => s.authState.authenticated)
@@ -113,7 +114,9 @@ export function ChatWindow() {
     : null
   const [defaultModelSetting, setDefaultModelSetting] = useState('default')
   const conversationModel = currentConversation?.model ?? null
-  const effectiveModel = conversationModel || activeAgent?.model || defaultModelSetting || 'default'
+  const projectId = currentConversation?.project_id ?? activeProjectId
+  const projectDefaultModel = projectId ? (projects.find((p) => p.id === projectId)?.default_model ?? null) : null
+  const effectiveModel = conversationModel || activeAgent?.model || projectDefaultModel || defaultModelSetting || 'default'
   const effectiveModelLabel = getModelLabel(effectiveModel)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
