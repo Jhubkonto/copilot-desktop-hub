@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { Paperclip, TerminalSquare, Square, Send, X } from 'lucide-react'
+import { Paperclip, TerminalSquare, Square, Send, X, Eye } from 'lucide-react'
 import { MessageBubble } from './MessageBubble'
 import { MarkdownRenderer } from './MarkdownRenderer'
+import { ContextInspector, type ContextSnapshot } from './ContextInspector'
 import { useAppStore } from '../store/app-store'
 import { MODEL_OPTIONS, getModelLabel, getModelMultiplier } from '../../shared/models'
 
@@ -33,6 +34,7 @@ interface ChatMessage {
   errorType?: string
   retryable?: boolean
   isStopped?: boolean
+  contextSnapshot?: string
 }
 
 interface SlashCommandDef {
@@ -78,7 +80,8 @@ const SLASH_COMMANDS: SlashCommandDef[] = [
   { name: '/tests', usage: '/tests [text]', description: 'Generate tests' },
   { name: '/refactor', usage: '/refactor [text]', description: 'Refactor code' },
   { name: '/docs', usage: '/docs [text]', description: 'Generate documentation' },
-  { name: '/review', usage: '/review [text]', description: 'Review code for issues' }
+  { name: '/review', usage: '/review [text]', description: 'Review code for issues' },
+  { name: '/context', usage: '/context', description: 'Show context snapshot of the last sent message' }
 ]
 
 const AT_CONTEXT_OPTIONS = [
@@ -128,6 +131,7 @@ export function ChatWindow() {
   const [streamingContent, setStreamingContent] = useState('')
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([])
   const [pendingImages, setPendingImages] = useState<PastedImage[]>([])
+  const [showContextInspector, setShowContextInspector] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const dragDepthRef = useRef(0)
   const [isOnline, setIsOnline] = useState(navigator.onLine)
@@ -198,6 +202,7 @@ export function ChatWindow() {
         model?: string | null
         is_edited?: number
         attachments?: string
+        context_snapshot?: string | null
       }>) => {
       setMessages((prev) => {
           const imageMap = new Map(
@@ -211,7 +216,8 @@ export function ChatWindow() {
             model: m.model ?? null,
             isEdited: m.is_edited === 1,
             attachments: m.attachments ? JSON.parse(m.attachments) : undefined,
-            images: imageMap.get(m.id)
+            images: imageMap.get(m.id),
+            contextSnapshot: m.context_snapshot ?? undefined
           }))
         })
       }).catch(() => {
@@ -779,9 +785,36 @@ export function ChatWindow() {
         pushSystemMessage('Compacted to recent context.')
         return true
       }
-      default:
+      case '/context': {
+        const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user')
+        if (!lastUserMsg?.contextSnapshot) {
+          pushSystemMessage('No context snapshot available. Send a message first.')
+          return true
+        }
+        try {
+          const snap: ContextSnapshot = JSON.parse(lastUserMsg.contextSnapshot)
+          const lines = ['**Last Message Context Snapshot**']
+          if (snap.systemPrompt) lines.push(`\n**System Prompt:** ${snap.systemPrompt.length} chars`)
+          if (snap.contextRefs?.length) lines.push(`**@refs:** ${snap.contextRefs.map((r) => r.token).join(', ')}`)
+          if (snap.attachments?.length) lines.push(`**Attachments:** ${snap.attachments.map((a) => a.name).join(', ')}`)
+          lines.push(`**History messages included:** ${snap.historyLength}`)
+          lines.push(`**Estimated tokens:** ${snap.estimatedTokens}`)
+          pushSystemMessage(lines.join('\n'))
+        } catch {
+          pushSystemMessage('Could not parse context snapshot.')
+        }
+        return true
+      }
+      default: {
+        // Check agent custom commands
+        const customCmd = (activeAgent?.customCommands ?? []).find((c) => c.name === command)
+        if (customCmd) {
+          setInput(customCmd.prompt)
+          return true
+        }
         pushSystemMessage(`Unknown command: ${command}. Use /help.`)
         return true
+      }
     }
   }, [
     conversationId,
@@ -797,7 +830,8 @@ export function ChatWindow() {
     conversationModel,
     loadConversations,
     theme,
-    setTheme
+    setTheme,
+    setInput
   ])
 
   const removeContextToken = useCallback((token: string) => {
@@ -859,15 +893,25 @@ export function ChatWindow() {
       pendingAttachments.length > 0 ? [...pendingAttachments] : undefined
     const images = pendingImages.length > 0 ? [...pendingImages] : undefined
 
+    // Auto-inject @workspace / @git from agent context rules
+    const autoRefs: ContextRef[] = []
+    if (activeAgent?.contextRules?.autoInjectWorkspace && !contextRefs.some((r) => r.key === 'workspace')) {
+      autoRefs.push({ key: 'workspace', token: '@workspace' })
+    }
+    if (activeAgent?.contextRules?.autoInjectGit && !contextRefs.some((r) => r.key === 'git')) {
+      autoRefs.push({ key: 'git', token: '@git' })
+    }
+    const effectiveRefs = [...contextRefs, ...autoRefs]
+
     const cleanedContent = content
       .replace(/(?:^|\s)@(workspace|git)\b/gi, ' ')
       .replace(/(?:^|\s)@file:[^\s]+/gi, ' ')
       .replace(/\s{2,}/g, ' ')
       .trim()
 
-    if (contextRefs.length > 0) {
+    if (effectiveRefs.length > 0) {
       try {
-        const contextBlock = await resolveContextBlock(contextRefs)
+        const contextBlock = await resolveContextBlock(effectiveRefs)
         if (contextBlock) {
           content = `${contextBlock}\n\n${cleanedContent || 'Please use the attached context.'}`
         }
@@ -877,6 +921,25 @@ export function ChatWindow() {
     }
 
     const userDisplayContent = input.trim()
+
+    // Build context snapshot for transparency badge
+    const systemPrompt = activeAgent?.systemPrompt ?? ''
+    const tokenEst = (str: string) => Math.ceil(str.length / 4)
+    const contextSnapshot: ContextSnapshot = {
+      systemPrompt,
+      contextRefs: effectiveRefs.map((r) => ({ token: r.token, key: r.key })),
+      attachments: pendingAttachments.map((a) => ({ name: a.name, size: a.size })),
+      historyLength: messages.filter((m) => m.role !== 'system').length,
+      estimatedTokens:
+        tokenEst(systemPrompt) +
+        effectiveRefs.reduce((s, r) => s + (r.key === 'workspace' ? 500 : r.key === 'git' ? 200 : 300), 0) +
+        messages.filter((m) => m.role !== 'system').length * 200 +
+        tokenEst(userDisplayContent),
+      model: effectiveModel,
+      timestamp: Date.now()
+    }
+    const contextSnapshotJson = JSON.stringify(contextSnapshot)
+
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
@@ -884,7 +947,8 @@ export function ChatWindow() {
       timestamp: Date.now(),
       attachments,
       images,
-      isEdited: pendingEditedResendRef.current
+      isEdited: pendingEditedResendRef.current,
+      contextSnapshot: contextSnapshotJson
     }
     pendingEditedResendRef.current = false
 
@@ -923,7 +987,8 @@ export function ChatWindow() {
         agentId: activeAgentId ?? undefined,
         model: requestModel,
         messageId: userMessage.id,
-        projectId: activeProjectId ?? undefined
+        projectId: activeProjectId ?? undefined,
+        contextSnapshot: contextSnapshotJson
       })
     } catch (error) {
       console.error('Failed to send message:', error)
@@ -1200,6 +1265,19 @@ export function ChatWindow() {
           </div>
         )}
 
+        {showContextInspector && (
+          <ContextInspector
+            systemPrompt={activeAgent?.systemPrompt ?? ''}
+            contextRefs={contextRefs}
+            attachments={pendingAttachments}
+            images={pendingImages}
+            historyMessages={messages.filter((m) => m.role !== 'system')}
+            currentInput={input}
+            model={effectiveModel}
+            onClose={() => setShowContextInspector(false)}
+          />
+        )}
+
         {contextRefs.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-2">
             {contextRefs.map((ref, idx) => (
@@ -1222,7 +1300,10 @@ export function ChatWindow() {
 
         {showSlashMenu && (
           <div className="mb-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden">
-            {SLASH_COMMANDS.filter((cmd) =>
+            {[
+              ...SLASH_COMMANDS,
+              ...(activeAgent?.customCommands ?? []).map((c) => ({ name: c.name, usage: c.name, description: c.description }))
+            ].filter((cmd) =>
               cmd.name.slice(1).startsWith(slashFilter.toLowerCase())
             ).slice(0, 8).map((cmd, idx) => (
               <button
@@ -1303,6 +1384,19 @@ export function ChatWindow() {
             aria-pressed={showTerminal}
           >
             <TerminalSquare className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => setShowContextInspector((v) => !v)}
+            className={`px-3 py-2.5 rounded-lg border transition-colors ${
+              showContextInspector
+                ? 'border-gray-400 dark:border-gray-500 text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-800'
+                : 'border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+            }`}
+            title="Toggle context inspector"
+            aria-label="Toggle context inspector"
+            aria-pressed={showContextInspector}
+          >
+            <Eye className="w-4 h-4" />
           </button>
           <textarea
             ref={inputRef}
@@ -1443,6 +1537,7 @@ export function ChatWindow() {
               modelLabel={msg.role === 'assistant' ? getModelLabel(msg.model ?? effectiveModel) : undefined}
               attachments={msg.attachments}
               images={msg.images}
+              contextSnapshot={msg.contextSnapshot}
               isLastAssistant={index === lastAssistantIndex}
               isGenerating={isGenerating}
               isError={msg.isError}

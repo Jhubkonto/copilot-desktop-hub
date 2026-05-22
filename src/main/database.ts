@@ -127,7 +127,13 @@ function initializeSchema(db: Database.Database): void {
     // Column already exists
   }
 
-  // Migrations: add project_id to conversations for existing users
+  try {
+    db.exec('ALTER TABLE messages ADD COLUMN context_snapshot TEXT')
+  } catch {
+    // Column already exists
+  }
+
+  // Migrations: add project_id to conversationsfor existing users
   const convColumns = db.prepare('PRAGMA table_info(conversations)').all() as Array<{ name: string }>
   if (!convColumns.some((col) => col.name === 'project_id')) {
     db.exec('ALTER TABLE conversations ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE SET NULL')

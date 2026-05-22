@@ -39,6 +39,7 @@ const api = {
       model?: string
       messageId?: string
       projectId?: string
+      contextSnapshot?: string
     }
   ) => ipcRenderer.invoke('chat:send-message', conversationId, content, options),
   onStreamResponse: (callback: (chunk: string | null) => void) => {

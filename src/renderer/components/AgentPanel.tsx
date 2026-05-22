@@ -16,7 +16,11 @@ const EMPTY_AGENT: Omit<AgentConfig, 'id'> = {
   mcpServers: [],
   agenticMode: false,
   tools: { fileEdit: false, terminal: false, webFetch: false },
-  responseFormat: 'default'
+  responseFormat: 'default',
+  rootDirectory: '',
+  contextRules: { ignoredGlobs: [], autoInjectWorkspace: false, autoInjectGit: false },
+  memory: '',
+  customCommands: []
 }
 
 const EMOJI_OPTIONS = ['🤖', '🔍', '🐛', '💡', '📝', '🎨', '🔧', '🚀', '🧠', '⚡', '🛡️', '📊']
@@ -107,6 +111,42 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
     )
   }
 
+  const handlePickRootDirectory = async () => {
+    const dirs = await window.api.openDirectoryDialog()
+    if (dirs && dirs.length > 0) {
+      updateField('rootDirectory', dirs[0])
+    }
+  }
+
+  const [newGlob, setNewGlob] = useState('')
+  const addIgnoredGlob = () => {
+    const g = newGlob.trim()
+    if (!g) return
+    const current = config.contextRules ?? { ignoredGlobs: [], autoInjectWorkspace: false, autoInjectGit: false }
+    updateField('contextRules', { ...current, ignoredGlobs: [...current.ignoredGlobs, g] })
+    setNewGlob('')
+  }
+  const removeIgnoredGlob = (i: number) => {
+    const current = config.contextRules ?? { ignoredGlobs: [], autoInjectWorkspace: false, autoInjectGit: false }
+    updateField('contextRules', { ...current, ignoredGlobs: current.ignoredGlobs.filter((_, idx) => idx !== i) })
+  }
+
+  const [newCmdName, setNewCmdName] = useState('')
+  const [newCmdDesc, setNewCmdDesc] = useState('')
+  const [newCmdPrompt, setNewCmdPrompt] = useState('')
+  const addCustomCommand = () => {
+    const name = newCmdName.trim().replace(/^\/+/, '')
+    if (!name) return
+    const cmd = { name: `/${name}`, description: newCmdDesc.trim(), prompt: newCmdPrompt.trim() }
+    updateField('customCommands', [...(config.customCommands ?? []), cmd])
+    setNewCmdName('')
+    setNewCmdDesc('')
+    setNewCmdPrompt('')
+  }
+  const removeCustomCommand = (i: number) => {
+    updateField('customCommands', (config.customCommands ?? []).filter((_, idx) => idx !== i))
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex" role="dialog" aria-modal="true" aria-label="Agent configuration">
       <div className="flex-1 bg-black/30" onClick={onClose} aria-hidden="true" />
@@ -194,6 +234,23 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
                   onChange={(e) => updateField('systemPrompt', e.target.value)}
                   placeholder="Instructions for the agent..."
                   rows={6}
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
+                />
+              </div>
+
+              {/* Agent Memory */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                  Agent Memory
+                </label>
+                <p className="text-[11px] text-gray-400 dark:text-gray-500">
+                  Always appended to the system prompt in every message.
+                </p>
+                <textarea
+                  value={config.memory ?? ''}
+                  onChange={(e) => updateField('memory', e.target.value)}
+                  placeholder="Persistent notes the agent always has access to..."
+                  rows={3}
                   className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
                 />
               </div>
@@ -379,6 +436,160 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
                   <Plus className="w-3 h-3" />
                   Add Files
                 </button>
+              </div>
+
+              {/* Root Directory */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                  Root Directory
+                </label>
+                <div className="flex items-center gap-2">
+                  <span className="flex-1 truncate text-xs text-gray-600 dark:text-gray-400 px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 min-h-[32px]">
+                    {config.rootDirectory ? config.rootDirectory : <span className="italic text-gray-400 dark:text-gray-500">Inherit global CWD</span>}
+                  </span>
+                  <button
+                    onClick={handlePickRootDirectory}
+                    className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors shrink-0"
+                    aria-label="Pick root directory"
+                  >
+                    <Folder className="w-3 h-3" />
+                    Browse
+                  </button>
+                  {config.rootDirectory && (
+                    <button
+                      onClick={() => updateField('rootDirectory', '')}
+                      className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+                      aria-label="Clear root directory"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Context Rules */}
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                  Context Rules
+                </label>
+                <div className="space-y-1.5">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={config.contextRules?.autoInjectWorkspace ?? false}
+                      onChange={(e) => updateField('contextRules', {
+                        ...(config.contextRules ?? { ignoredGlobs: [], autoInjectWorkspace: false, autoInjectGit: false }),
+                        autoInjectWorkspace: e.target.checked
+                      })}
+                      className="rounded border-gray-300 dark:border-gray-600 accent-blue-500"
+                    />
+                    <span className="text-xs text-gray-600 dark:text-gray-400">
+                      Auto-inject <code className="font-mono">@workspace</code>
+                    </span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={config.contextRules?.autoInjectGit ?? false}
+                      onChange={(e) => updateField('contextRules', {
+                        ...(config.contextRules ?? { ignoredGlobs: [], autoInjectWorkspace: false, autoInjectGit: false }),
+                        autoInjectGit: e.target.checked
+                      })}
+                      className="rounded border-gray-300 dark:border-gray-600 accent-blue-500"
+                    />
+                    <span className="text-xs text-gray-600 dark:text-gray-400">
+                      Auto-inject <code className="font-mono">@git</code>
+                    </span>
+                  </label>
+                </div>
+                {/* Ignored Globs */}
+                <div className="space-y-1">
+                  <p className="text-[11px] text-gray-400 dark:text-gray-500">Ignored glob patterns (workspace summary)</p>
+                  {(config.contextRules?.ignoredGlobs ?? []).map((g, i) => (
+                    <div key={i} className="flex items-center gap-2 px-2 py-1 rounded bg-gray-50 dark:bg-gray-800 text-xs text-gray-600 dark:text-gray-400">
+                      <code className="flex-1 font-mono truncate">{g}</code>
+                      <button
+                        onClick={() => removeIgnoredGlob(i)}
+                        className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+                        aria-label={`Remove glob ${g}`}
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                  <div className="flex gap-1.5">
+                    <input
+                      value={newGlob}
+                      onChange={(e) => setNewGlob(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addIgnoredGlob() } }}
+                      placeholder="**/node_modules/**"
+                      className="flex-1 px-2 py-1 text-xs rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
+                    />
+                    <button
+                      onClick={addIgnoredGlob}
+                      className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                      aria-label="Add glob pattern"
+                    >
+                      <Plus className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Custom Commands */}
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                  Custom Slash Commands
+                </label>
+                {(config.customCommands ?? []).map((cmd, i) => (
+                  <div key={i} className="rounded-lg border border-gray-200 dark:border-gray-700 p-2 space-y-1 text-xs text-gray-600 dark:text-gray-400">
+                    <div className="flex items-center justify-between">
+                      <code className="font-mono text-blue-600 dark:text-blue-400">{cmd.name}</code>
+                      <button
+                        onClick={() => removeCustomCommand(i)}
+                        className="text-gray-400 hover:text-red-500 p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+                        aria-label={`Remove command ${cmd.name}`}
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                    {cmd.description && <p className="text-gray-400 dark:text-gray-500 italic">{cmd.description}</p>}
+                    <p className="text-[11px] text-gray-400 truncate">{cmd.prompt}</p>
+                  </div>
+                ))}
+                {/* Add new command */}
+                <div className="rounded-lg border border-dashed border-gray-300 dark:border-gray-600 p-2 space-y-1.5">
+                  <p className="text-[11px] text-gray-400 dark:text-gray-500 font-medium">New command</p>
+                  <div className="flex gap-1.5">
+                    <input
+                      value={newCmdName}
+                      onChange={(e) => setNewCmdName(e.target.value)}
+                      placeholder="/command-name"
+                      className="w-32 px-2 py-1 text-xs rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
+                    />
+                    <input
+                      value={newCmdDesc}
+                      onChange={(e) => setNewCmdDesc(e.target.value)}
+                      placeholder="Short description"
+                      className="flex-1 px-2 py-1 text-xs rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+                  <textarea
+                    value={newCmdPrompt}
+                    onChange={(e) => setNewCmdPrompt(e.target.value)}
+                    placeholder="Prompt text loaded into the input when this command is invoked..."
+                    rows={2}
+                    className="w-full px-2 py-1 text-xs rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+                  />
+                  <button
+                    onClick={addCustomCommand}
+                    disabled={!newCmdName.trim()}
+                    className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <Plus className="w-3 h-3" />
+                    Add Command
+                  </button>
+                </div>
               </div>
             </>
           ) : (

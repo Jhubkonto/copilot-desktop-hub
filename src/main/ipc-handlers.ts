@@ -245,6 +245,7 @@ function registerChatHandlers(): void {
         model?: string
         messageId?: string
         projectId?: string
+        contextSnapshot?: string
       }
     ) => {
       const window = BrowserWindow.fromWebContents(event.sender)
@@ -256,6 +257,7 @@ function registerChatHandlers(): void {
       const agentId = options?.agentId
       const modelOverride = options?.model
       const projectId = options?.projectId
+      const contextSnapshot = options?.contextSnapshot ?? null
 
       if (!regenerate) {
         // Ensure conversation exists, create if needed
@@ -276,8 +278,8 @@ function registerChatHandlers(): void {
         const attachmentsJson =
           attachments && attachments.length > 0 ? JSON.stringify(attachments) : null
         db.prepare(
-          'INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model) VALUES (?, ?, ?, ?, ?, ?, ?)'
-        ).run(userMsgId, conversationId, 'user', content, attachmentsJson, Date.now(), null)
+          'INSERT INTO messages (id, conversation_id, role, content, attachments, context_snapshot, timestamp, model) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        ).run(userMsgId, conversationId, 'user', content, attachmentsJson, contextSnapshot, Date.now(), null)
 
         // Update conversation title if it's the first message
         const msgCount = db
@@ -352,7 +354,10 @@ function registerChatHandlers(): void {
       if (convRow?.agent_id) {
         const agentCfg = getAgentConfig(convRow.agent_id)
         if (agentCfg?.systemPrompt) {
-          augmentedContent = `[System Instructions]\n${agentCfg.systemPrompt}\n[/System Instructions]\n\n${augmentedContent}`
+          const memoryBlock = agentCfg.memory
+            ? `\n\n## Agent Memory\n${agentCfg.memory}`
+            : ''
+          augmentedContent = `[System Instructions]\n${agentCfg.systemPrompt}${memoryBlock}\n[/System Instructions]\n\n${augmentedContent}`
         }
       }
 

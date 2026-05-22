@@ -38,6 +38,15 @@ export interface AgentConfig {
   tools: { fileEdit: boolean; terminal: boolean; webFetch: boolean }
   responseFormat: string
   isDefault?: boolean
+  // Feature B
+  rootDirectory?: string
+  contextRules?: {
+    ignoredGlobs: string[]
+    autoInjectWorkspace: boolean
+    autoInjectGit: boolean
+  }
+  memory?: string
+  customCommands?: { name: string; description: string; prompt: string }[]
 }
 
 export interface AuthState {

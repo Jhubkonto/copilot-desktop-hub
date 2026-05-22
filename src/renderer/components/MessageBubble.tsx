@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react'
 import { Copy, RotateCcw, Pencil, AlertTriangle, RefreshCw, LogIn, StopCircle, ChevronDown } from 'lucide-react'
 import { MarkdownRenderer } from './MarkdownRenderer'
+import { ContextSnapshotBadge, type ContextSnapshot } from './ContextInspector'
 import { MODEL_OPTIONS, getModelLabel, getModelMultiplier } from '../../shared/models'
 
 interface Attachment {
@@ -23,6 +24,7 @@ interface MessageBubbleProps {
   modelLabel?: string
   attachments?: Attachment[]
   images?: PastedImage[]
+  contextSnapshot?: string
   isLastAssistant: boolean
   isGenerating: boolean
   isError?: boolean
@@ -45,6 +47,7 @@ export function MessageBubble({
   modelLabel,
   attachments,
   images,
+  contextSnapshot,
   isLastAssistant,
   isGenerating,
   isError,
@@ -184,6 +187,14 @@ export function MessageBubble({
               {role === 'user' && isEdited && (
                 <div className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">edited</div>
               )}
+              {role === 'user' && contextSnapshot && (() => {
+                try {
+                  const snap: ContextSnapshot = JSON.parse(contextSnapshot)
+                  return <ContextSnapshotBadge snapshot={snap} />
+                } catch {
+                  return null
+                }
+              })()}
             </>
           ) : null}
         </div>

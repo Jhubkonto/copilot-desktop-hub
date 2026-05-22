@@ -189,7 +189,11 @@ export function registerAgentHandlers(): void {
         mcpServers: config.mcpServers || [],
         agenticMode: config.agenticMode ?? false,
         tools: config.tools || { fileEdit: false, terminal: false, webFetch: false },
-        responseFormat: config.responseFormat || 'default'
+        responseFormat: config.responseFormat || 'default',
+        rootDirectory: config.rootDirectory || '',
+        contextRules: config.contextRules || { ignoredGlobs: [], autoInjectWorkspace: false, autoInjectGit: false },
+        memory: config.memory || '',
+        customCommands: config.customCommands || []
       }
       const id = randomUUID()
       const now = Date.now()
