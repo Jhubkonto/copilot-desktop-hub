@@ -11,6 +11,7 @@ import { registerAgentHandlers, getAgentConfig } from './agents'
 import { registerToolHandlers } from './tools'
 import { registerTerminalHandlers } from './terminal'
 import { registerMcpHandlers } from './mcp'
+import { registerKnowledgeHandlers } from './knowledge'
 import {
   registerProviderHandlers,
   getProviderForAgent,
@@ -34,6 +35,7 @@ export function registerIpcHandlers(): void {
   registerFileHandlers()
   registerContextHandlers()
   registerAgentHandlers()
+  registerKnowledgeHandlers()
   registerToolHandlers()
   registerTerminalHandlers()
   registerMcpHandlers()
@@ -354,10 +356,52 @@ function registerChatHandlers(): void {
       if (convRow?.agent_id) {
         const agentCfg = getAgentConfig(convRow.agent_id)
         if (agentCfg?.systemPrompt) {
+          let systemPromptText = agentCfg.systemPrompt as string
+
+          // C.3: Replace {{scratchpad}} with actual scratchpad file content
+          if (systemPromptText.includes('{{scratchpad}}')) {
+            const scratchpadRow = db
+              .prepare(
+                "SELECT file_path FROM agent_knowledge_files WHERE agent_id = ? AND file_path LIKE '%-scratchpad.md' LIMIT 1"
+              )
+              .get(convRow.agent_id) as { file_path: string } | undefined
+            const scratchpadContent =
+              scratchpadRow?.file_path && existsSync(scratchpadRow.file_path)
+                ? readFileSync(scratchpadRow.file_path, 'utf-8')
+                : ''
+            systemPromptText = systemPromptText.replace(/\{\{scratchpad\}\}/g, scratchpadContent)
+          }
+
           const memoryBlock = agentCfg.memory
             ? `\n\n## Agent Memory\n${agentCfg.memory}`
             : ''
-          augmentedContent = `[System Instructions]\n${agentCfg.systemPrompt}${memoryBlock}\n[/System Instructions]\n\n${augmentedContent}`
+
+          // C.1/C.4: Inject 'always' knowledge files (truncate if > 32 000 chars)
+          const knowledgeRows = db
+            .prepare(
+              "SELECT file_path FROM agent_knowledge_files WHERE agent_id = ? AND inject_mode = 'always' ORDER BY sort_order ASC"
+            )
+            .all(convRow.agent_id) as { file_path: string }[]
+          const knowledgeBlocks: string[] = []
+          for (const kf of knowledgeRows) {
+            if (!existsSync(kf.file_path)) continue
+            const raw = readFileSync(kf.file_path, 'utf-8')
+            const fileName = basename(kf.file_path)
+            if (raw.length > 32000) {
+              const truncated = raw.split('\n').slice(0, 100).join('\n')
+              knowledgeBlocks.push(
+                `### ${fileName}\n${truncated}\n\n<!-- [Knowledge file truncated — ${Math.ceil(raw.length / 4)} tokens total] -->`
+              )
+            } else {
+              knowledgeBlocks.push(`### ${fileName}\n${raw}`)
+            }
+          }
+          const knowledgeBlock =
+            knowledgeBlocks.length > 0
+              ? `\n\n## Knowledge Files\n${knowledgeBlocks.join('\n\n---\n\n')}`
+              : ''
+
+          augmentedContent = `[System Instructions]\n${systemPromptText}${memoryBlock}${knowledgeBlock}\n[/System Instructions]\n\n${augmentedContent}`
         }
       }
 

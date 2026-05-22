@@ -1,7 +1,8 @@
 import { getDatabase } from './database'
 import { dialog, BrowserWindow } from 'electron'
 import { randomUUID } from 'crypto'
-import { readFileSync, writeFileSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync } from 'fs'
+import { join } from 'path'
 import { safeHandle } from './safe-handle'
 
 interface AgentRow {
@@ -116,6 +117,30 @@ export function registerAgentHandlers(): void {
     db.prepare(
       'INSERT INTO agents (id, config_json, is_default, created_at, updated_at) VALUES (?, ?, 0, ?, ?)'
     ).run(id, JSON.stringify(config), now, now)
+
+    // C.3: Auto-create scratchpad when rootDirectory is set
+    if (config.rootDirectory && typeof config.rootDirectory === 'string') {
+      const kebabName = (config.name as string)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
+      const scratchpadPath = join(config.rootDirectory, `${kebabName}-scratchpad.md`)
+      if (!existsSync(scratchpadPath)) {
+        writeFileSync(
+          scratchpadPath,
+          `# ${config.name} Scratchpad\n\nUse this file to store notes and context for the ${config.name} agent.\n`,
+          'utf-8'
+        )
+      }
+      const sfId = randomUUID()
+      const maxRow = db
+        .prepare('SELECT MAX(sort_order) as m FROM agent_knowledge_files WHERE agent_id = ?')
+        .get(id) as { m: number | null }
+      db.prepare(
+        'INSERT INTO agent_knowledge_files (id, agent_id, file_path, inject_mode, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(sfId, id, scratchpadPath, 'on-demand', (maxRow.m ?? -1) + 1, now, now)
+    }
+
     return { ...config, id, isDefault: false }
   })
 

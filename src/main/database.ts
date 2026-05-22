@@ -82,6 +82,17 @@ function initializeSchema(db: Database.Database): void {
       created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
       updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
     );
+
+    CREATE TABLE IF NOT EXISTS agent_knowledge_files (
+      id          TEXT PRIMARY KEY,
+      agent_id    TEXT NOT NULL,
+      file_path   TEXT NOT NULL,
+      inject_mode TEXT NOT NULL DEFAULT 'always',
+      sort_order  INTEGER NOT NULL DEFAULT 0,
+      created_at  INTEGER NOT NULL,
+      updated_at  INTEGER NOT NULL,
+      FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+    );
   `)
 
   // Migrations: add columns that may not exist yet

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, within, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AgentPanel } from '../../renderer/components/AgentPanel'
 import { setupMockApi, type MockApi } from '../../test/mocks/api'
@@ -332,5 +332,103 @@ describe('AgentPanel — Actions', () => {
 
     expect(screen.queryByText('Duplicate')).not.toBeInTheDocument()
     expect(screen.queryByText('Export')).not.toBeInTheDocument()
+  })
+})
+
+const SAMPLE_FILE = {
+  id: 'kf-1',
+  agent_id: 'agent-1',
+  file_path: '/docs/notes.md',
+  inject_mode: 'always' as const,
+  sort_order: 0,
+  created_at: 1000,
+  updated_at: 1000
+}
+
+describe('AgentPanel — Knowledge Tab', () => {
+  it('agent-r-21: shows "Save agent first" message in create mode', async () => {
+    setupCreateMode()
+    render(<AgentPanel width={440} onResize={() => {}} />)
+
+    await user.click(screen.getByText('Knowledge'))
+    expect(screen.getByText(/Save the agent first/)).toBeInTheDocument()
+  })
+
+  it('agent-r-22: shows empty state when no files registered', async () => {
+    mockApi.listKnowledgeFiles = vi.fn().mockResolvedValue([])
+    setupEditMode()
+    render(<AgentPanel width={440} onResize={() => {}} />)
+
+    await user.click(screen.getByText('Knowledge'))
+    await screen.findByText(/No knowledge files yet/)
+  })
+
+  it('agent-r-23: calls listKnowledgeFiles with agent id on tab switch', async () => {
+    mockApi.listKnowledgeFiles = vi.fn().mockResolvedValue([])
+    setupEditMode()
+    render(<AgentPanel width={440} onResize={() => {}} />)
+
+    await user.click(screen.getByText('Knowledge'))
+    await waitFor(() => expect(mockApi.listKnowledgeFiles).toHaveBeenCalledWith('agent-1'))
+  })
+
+  it('agent-r-24: renders file row with filename, inject-mode pill, edit and remove buttons', async () => {
+    mockApi.listKnowledgeFiles = vi.fn().mockResolvedValue([SAMPLE_FILE])
+    setupEditMode()
+    render(<AgentPanel width={440} onResize={() => {}} />)
+
+    await user.click(screen.getByText('Knowledge'))
+    await screen.findByText('notes.md')
+
+    expect(screen.getByText('Always')).toBeInTheDocument()
+    expect(screen.getByLabelText('Edit /docs/notes.md')).toBeInTheDocument()
+    expect(screen.getByLabelText('Remove /docs/notes.md')).toBeInTheDocument()
+  })
+
+  it('agent-r-25: inject-mode pill toggles mode and calls updateKnowledgeInjectMode', async () => {
+    mockApi.listKnowledgeFiles = vi.fn().mockResolvedValue([SAMPLE_FILE])
+    mockApi.updateKnowledgeInjectMode = vi.fn().mockResolvedValue(true)
+    setupEditMode()
+    render(<AgentPanel width={440} onResize={() => {}} />)
+
+    await user.click(screen.getByText('Knowledge'))
+    await screen.findByText('Always')
+
+    await user.click(screen.getByTitle('Toggle inject mode'))
+    expect(mockApi.updateKnowledgeInjectMode).toHaveBeenCalledWith('kf-1', 'on-demand')
+    await screen.findByText('On demand')
+  })
+
+  it('agent-r-26: remove button calls removeKnowledgeFile and removes row', async () => {
+    mockApi.listKnowledgeFiles = vi.fn().mockResolvedValue([SAMPLE_FILE])
+    mockApi.removeKnowledgeFile = vi.fn().mockResolvedValue(true)
+    setupEditMode()
+    render(<AgentPanel width={440} onResize={() => {}} />)
+
+    await user.click(screen.getByText('Knowledge'))
+    await screen.findByText('notes.md')
+
+    await user.click(screen.getByLabelText('Remove /docs/notes.md'))
+    expect(mockApi.removeKnowledgeFile).toHaveBeenCalledWith('kf-1')
+    await waitFor(() => expect(screen.queryByText('notes.md')).not.toBeInTheDocument())
+  })
+
+  it('agent-r-27: add file button calls openFileDialog then addKnowledgeFile', async () => {
+    const newFile = { ...SAMPLE_FILE, id: 'kf-2', file_path: '/docs/new-file.md' }
+    mockApi.listKnowledgeFiles = vi.fn().mockResolvedValue([])
+    mockApi.openFileDialog = vi.fn().mockResolvedValue([
+      { path: '/docs/new-file.md', name: 'new-file.md', id: 'f-1', size: 100 }
+    ])
+    mockApi.addKnowledgeFile = vi.fn().mockResolvedValue(newFile)
+    setupEditMode()
+    render(<AgentPanel width={440} onResize={() => {}} />)
+
+    await user.click(screen.getByText('Knowledge'))
+    await screen.findByText(/No knowledge files yet/)
+
+    await user.click(screen.getByText('Add file…'))
+    await screen.findByText('new-file.md')
+    expect(mockApi.openFileDialog).toHaveBeenCalled()
+    expect(mockApi.addKnowledgeFile).toHaveBeenCalledWith('agent-1', '/docs/new-file.md', 'always')
   })
 })

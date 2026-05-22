@@ -62,6 +62,17 @@ export function createMockApi() {
     exportAgent: vi.fn().mockResolvedValue(true),
     importAgent: vi.fn().mockResolvedValue(null),
 
+    // Knowledge files
+    listKnowledgeFiles: vi.fn().mockResolvedValue([]),
+    addKnowledgeFile: vi.fn().mockResolvedValue({
+      id: 'kf-1', agent_id: 'agent-1', file_path: '/docs/notes.md',
+      inject_mode: 'always', sort_order: 0, created_at: 1000, updated_at: 1000
+    }),
+    removeKnowledgeFile: vi.fn().mockResolvedValue(true),
+    updateKnowledgeInjectMode: vi.fn().mockResolvedValue(true),
+    readKnowledgeFile: vi.fn().mockResolvedValue('# File Content'),
+    writeKnowledgeFile: vi.fn().mockResolvedValue(true),
+
     // Directories
     openDirectoryDialog: vi.fn().mockResolvedValue(null),
 

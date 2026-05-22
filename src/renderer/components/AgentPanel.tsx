@@ -1,8 +1,19 @@
 import { useState, useEffect, useRef } from 'react'
-import { X, Settings, Folder, FileText, Plus } from 'lucide-react'
+import { X, Settings, Folder, FileText, Plus, Pencil } from 'lucide-react'
 import { useAppStore, type AgentConfig } from '../store/app-store'
 import { MODEL_OPTIONS } from '../../shared/models'
 import { ResizeHandle } from './ResizeHandle'
+import { MarkdownRenderer } from './MarkdownRenderer'
+
+interface KnowledgeFile {
+  id: string
+  agent_id: string
+  file_path: string
+  inject_mode: 'always' | 'on-demand'
+  sort_order: number
+  created_at: number
+  updated_at: number
+}
 
 const EMPTY_AGENT: Omit<AgentConfig, 'id'> = {
   name: '',
@@ -37,7 +48,7 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
   const onExport = useAppStore((s) => s.exportAgent)
 
   const agent = editingAgentId ? agents.find((a) => a.id === editingAgentId) ?? null : null
-  const [tab, setTab] = useState<'settings' | 'json'>('settings')
+  const [tab, setTab] = useState<'settings' | 'knowledge' | 'json'>('settings')
   const [config, setConfig] = useState<AgentConfig>({
     id: '',
     ...EMPTY_AGENT,
@@ -45,6 +56,11 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
   })
   const [jsonText, setJsonText] = useState('')
   const [jsonError, setJsonError] = useState('')
+
+  // Knowledge tab state
+  const [knowledgeFiles, setKnowledgeFiles] = useState<KnowledgeFile[]>([])
+  const [editingKnowledgeFile, setEditingKnowledgeFile] = useState<{ id: string; filePath: string } | null>(null)
+  const [editingFileContent, setEditingFileContent] = useState('')
 
   const isEditing = !!agent?.id
   const isDefault = agent?.isDefault === true
@@ -56,7 +72,12 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
       setJsonText(JSON.stringify(rest, null, 2))
       setJsonError('')
     }
-  }, [tab, config])
+    if (tab === 'knowledge' && isEditing) {
+      window.api.listKnowledgeFiles(config.id).then((files) =>
+        setKnowledgeFiles(files as KnowledgeFile[])
+      )
+    }
+  }, [tab, config, isEditing])
 
   const updateField = <K extends keyof AgentConfig>(key: K, value: AgentConfig[K]) => {
     setConfig((prev) => ({ ...prev, [key]: value }))
@@ -147,6 +168,39 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
     updateField('customCommands', (config.customCommands ?? []).filter((_, idx) => idx !== i))
   }
 
+  const handleAddKnowledgeFile = async () => {
+    const files = await window.api.openFileDialog()
+    if (!files || files.length === 0) return
+    const filePath = (files[0] as { path: string }).path
+    const row = await window.api.addKnowledgeFile(config.id, filePath, 'always')
+    setKnowledgeFiles((prev) => [...prev, row as KnowledgeFile])
+  }
+
+  const handleRemoveKnowledgeFile = async (id: string) => {
+    await window.api.removeKnowledgeFile(id)
+    setKnowledgeFiles((prev) => prev.filter((f) => f.id !== id))
+  }
+
+  const handleToggleInjectMode = async (file: KnowledgeFile) => {
+    const newMode = file.inject_mode === 'always' ? 'on-demand' : 'always'
+    await window.api.updateKnowledgeInjectMode(file.id, newMode)
+    setKnowledgeFiles((prev) =>
+      prev.map((f) => (f.id === file.id ? { ...f, inject_mode: newMode } : f))
+    )
+  }
+
+  const handleEditKnowledgeFile = async (file: KnowledgeFile) => {
+    const content = (await window.api.readKnowledgeFile(config.id, file.file_path)) as string
+    setEditingKnowledgeFile({ id: file.id, filePath: file.file_path })
+    setEditingFileContent(content)
+  }
+
+  const handleSaveKnowledgeFile = async () => {
+    if (!editingKnowledgeFile) return
+    await window.api.writeKnowledgeFile(config.id, editingKnowledgeFile.filePath, editingFileContent)
+    setEditingKnowledgeFile(null)
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex" role="dialog" aria-modal="true" aria-label="Agent configuration">
       <div className="flex-1 bg-black/30" onClick={onClose} aria-hidden="true" />
@@ -158,18 +212,27 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
             {isEditing ? 'Edit Agent' : 'Create Agent'}
           </h2>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setTab(tab === 'settings' ? 'json' : 'settings')}
-              className={`text-xs px-2 py-1 rounded ${
-                tab === 'json'
-                  ? 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200'
-                  : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
-              }`}
-            >
-              <span className="flex items-center gap-1">
-                {tab === 'json' ? <><Settings className="w-3 h-3" /> Settings</> : '{ } JSON'}
-              </span>
-            </button>
+            <div className="flex items-center rounded-md border border-gray-200 dark:border-gray-700 overflow-hidden">
+              {(['settings', 'knowledge', 'json'] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setTab(t)}
+                  className={`text-xs px-2 py-1 ${
+                    tab === t
+                      ? 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200'
+                      : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                  }`}
+                >
+                  {t === 'settings' ? (
+                    <span className="flex items-center gap-1"><Settings className="w-3 h-3" /> Settings</span>
+                  ) : t === 'knowledge' ? (
+                    <span className="flex items-center gap-1"><FileText className="w-3 h-3" /> Knowledge</span>
+                  ) : (
+                    '{ } JSON'
+                  )}
+                </button>
+              ))}
+            </div>
             <button
               onClick={onClose}
               className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
@@ -592,6 +655,108 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
                 </div>
               </div>
             </>
+          ) : tab === 'knowledge' ? (
+            /* Knowledge Tab */
+            editingKnowledgeFile ? (
+              /* Split-pane editor */
+              <div className="flex flex-col gap-2 h-full">
+                <div className="flex items-center justify-between gap-2 shrink-0">
+                  <span className="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">
+                    {editingKnowledgeFile.filePath.split(/[\\/]/).pop()}
+                  </span>
+                  <div className="flex gap-1.5 shrink-0">
+                    <button
+                      onClick={handleSaveKnowledgeFile}
+                      aria-label="Save file"
+                      className="text-xs px-2.5 py-1 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={() => setEditingKnowledgeFile(null)}
+                      className="text-xs px-2.5 py-1 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                    >
+                      Back
+                    </button>
+                  </div>
+                </div>
+                <div className="flex gap-2 flex-1" style={{ minHeight: 0, height: 'calc(100vh - 220px)' }}>
+                  <textarea
+                    value={editingFileContent}
+                    onChange={(e) => setEditingFileContent(e.target.value)}
+                    spellCheck={false}
+                    className="flex-1 px-3 py-2 text-xs font-mono rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+                  />
+                  <div className="flex-1 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2">
+                    <MarkdownRenderer content={editingFileContent} />
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* File list */
+              <div className="space-y-2">
+                {!isEditing ? (
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Save the agent first to add knowledge files.</p>
+                ) : (
+                  <>
+                    {knowledgeFiles.length === 0 ? (
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        No knowledge files yet. Add <code className="font-mono">.md</code> files to give this agent structured context.
+                      </p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {knowledgeFiles.map((f) => (
+                          <div
+                            key={f.id}
+                            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50"
+                          >
+                            <FileText className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                            <span
+                              className="flex-1 text-xs text-gray-700 dark:text-gray-300 truncate"
+                              title={f.file_path}
+                            >
+                              {f.file_path.split(/[\\/]/).pop()}
+                            </span>
+                            <button
+                              onClick={() => handleToggleInjectMode(f)}
+                              className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 transition-colors ${
+                                f.inject_mode === 'always'
+                                  ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                                  : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
+                              }`}
+                              title="Toggle inject mode"
+                            >
+                              {f.inject_mode === 'always' ? 'Always' : 'On demand'}
+                            </button>
+                            <button
+                              onClick={() => handleEditKnowledgeFile(f)}
+                              className="text-gray-400 hover:text-blue-500 p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+                              aria-label={`Edit ${f.file_path}`}
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleRemoveKnowledgeFile(f.id)}
+                              className="text-gray-400 hover:text-red-500 p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+                              aria-label={`Remove ${f.file_path}`}
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <button
+                      onClick={handleAddKnowledgeFile}
+                      className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-dashed border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-200 transition-colors w-full justify-center"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      Add file…
+                    </button>
+                  </>
+                )}
+              </div>
+            )
           ) : (
             /* JSON Editor Tab */
             <div className="space-y-2">

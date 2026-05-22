@@ -96,6 +96,19 @@ const api = {
   exportAgent: (id: string) => ipcRenderer.invoke('agent:export', id),
   importAgent: () => ipcRenderer.invoke('agent:import'),
 
+  // Knowledge files
+  listKnowledgeFiles: (agentId: string) =>
+    ipcRenderer.invoke('agent:list-knowledge-files', agentId),
+  addKnowledgeFile: (agentId: string, filePath: string, injectMode: string) =>
+    ipcRenderer.invoke('agent:add-knowledge-file', agentId, filePath, injectMode),
+  removeKnowledgeFile: (id: string) => ipcRenderer.invoke('agent:remove-knowledge-file', id),
+  updateKnowledgeInjectMode: (id: string, mode: string) =>
+    ipcRenderer.invoke('agent:update-knowledge-inject-mode', id, mode),
+  readKnowledgeFile: (agentId: string, filePath: string) =>
+    ipcRenderer.invoke('fs:read-file', agentId, filePath),
+  writeKnowledgeFile: (agentId: string, filePath: string, content: string) =>
+    ipcRenderer.invoke('fs:write-file', agentId, filePath, content),
+
   // Directories
   openDirectoryDialog: () => ipcRenderer.invoke('file:open-directory-dialog'),
 
