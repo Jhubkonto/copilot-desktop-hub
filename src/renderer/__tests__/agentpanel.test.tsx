@@ -29,7 +29,11 @@ const SAMPLE_AGENT = {
   contextFiles: ['/home/user/project/main.ts'],
   mcpServers: [],
   agenticMode: false,
-  tools: { fileEdit: false, terminal: false, webFetch: false },
+  tools: {
+    fileEdit: { enabled: false, approval: 'always-ask', instructions: '' },
+    terminal: { enabled: false, approval: 'always-ask', instructions: '' },
+    webFetch: { enabled: false, approval: 'always-ask', instructions: '' }
+  },
   responseFormat: 'default',
   isDefault: false
 }
@@ -154,19 +158,90 @@ describe('AgentPanel — Field Updates', () => {
     )
   })
 
-  it('agent-r-8: tool toggles update config', async () => {
+  it('agent-r-8: save preserves structured tool config', async () => {
     setupEditMode()
     render(<AgentPanel width={440} onResize={() => {}} />)
 
-    const fileEditCheckbox = screen.getByRole('checkbox', { name: /file edit/i })
-    await user.click(fileEditCheckbox)
     await user.click(screen.getByText('Save'))
 
     expect(mockStore.saveAgent).toHaveBeenCalledWith(
       expect.objectContaining({
-        tools: expect.objectContaining({ fileEdit: true })
+        tools: expect.objectContaining({
+          fileEdit: expect.objectContaining({ enabled: false, approval: 'always-ask', instructions: '' })
+        })
       })
     )
+  })
+})
+
+describe('AgentPanel — Skills tab', () => {
+  it('ap-skills-1: Skills tab renders one card per built-in tool', async () => {
+    setupEditMode()
+    render(<AgentPanel width={440} onResize={() => {}} />)
+
+    await user.click(screen.getByText('Skills'))
+    expect(await screen.findByText('🗂 File Edit')).toBeInTheDocument()
+    expect(screen.getByText('💻 Terminal')).toBeInTheDocument()
+    expect(screen.getByText('🌐 Web Fetch')).toBeInTheDocument()
+  })
+
+  it('ap-skills-2: Enabled toggle updates agent config on save', async () => {
+    setupEditMode()
+    render(<AgentPanel width={440} onResize={() => {}} />)
+
+    await user.click(screen.getByText('Skills'))
+    await user.click(screen.getByRole('button', { name: /toggle file edit/i }))
+    await user.click(screen.getByText('Save'))
+
+    expect(mockStore.saveAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tools: expect.objectContaining({
+          fileEdit: expect.objectContaining({ enabled: true })
+        })
+      })
+    )
+  })
+
+  it('ap-skills-3: Approval dropdown renders Auto/Always ask/Disabled options', async () => {
+    setupEditMode()
+    render(<AgentPanel width={440} onResize={() => {}} />)
+
+    await user.click(screen.getByText('Skills'))
+    const select = screen.getAllByRole('combobox').find((el) => (el as HTMLSelectElement).value === 'always-ask') as HTMLSelectElement
+    const options = Array.from(select.options).map((option) => option.text)
+    expect(options).toEqual(expect.arrayContaining(['Auto', 'Always ask', 'Disabled']))
+  })
+
+  it('ap-skills-4: Instructions textarea updates on change', async () => {
+    setupEditMode()
+    render(<AgentPanel width={440} onResize={() => {}} />)
+
+    await user.click(screen.getByText('Skills'))
+    const textareas = screen.getAllByRole('textbox')
+    await user.type(textareas[0], 'Only edit src files')
+    await user.click(screen.getByText('Save'))
+
+    expect(mockStore.saveAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tools: expect.objectContaining({
+          fileEdit: expect.objectContaining({ instructions: 'Only edit src files' })
+        })
+      })
+    )
+  })
+
+  it('ap-skills-5: MCP tool cards rendered for tools returned by listMcpToolsForAgent', async () => {
+    mockApi.listMcpToolsForAgent = vi.fn().mockResolvedValue([
+      { name: 'search_code', serverId: 'github', serverName: 'GitHub', description: 'Search code' }
+    ])
+    mockApi.getMcpToolOverrides = vi.fn().mockResolvedValue([])
+    setupEditMode()
+    render(<AgentPanel width={440} onResize={() => {}} />)
+
+    await user.click(screen.getByText('Skills'))
+
+    expect(await screen.findByText('🔌 search_code')).toBeInTheDocument()
+    expect(screen.getByText('via GitHub')).toBeInTheDocument()
   })
 })
 
@@ -234,7 +309,11 @@ describe('AgentPanel — JSON Tab', () => {
       contextFiles: [],
       mcpServers: [],
       agenticMode: true,
-      tools: { fileEdit: true, terminal: false, webFetch: false },
+      tools: {
+        fileEdit: { enabled: true, approval: 'auto', instructions: 'Use for src only' },
+        terminal: { enabled: false, approval: 'always-ask', instructions: '' },
+        webFetch: { enabled: false, approval: 'disabled', instructions: '' }
+      },
       responseFormat: 'concise'
     }
     const { fireEvent } = await import('@testing-library/react')

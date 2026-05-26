@@ -26,7 +26,11 @@ const DEFAULT_AGENTS = [
     contextFiles: [] as string[],
     mcpServers: [] as string[],
     agenticMode: false,
-    tools: { fileEdit: false, terminal: false, webFetch: false },
+    tools: {
+      fileEdit: { enabled: false, approval: 'always-ask' as const, instructions: '' },
+      terminal: { enabled: false, approval: 'always-ask' as const, instructions: '' },
+      webFetch: { enabled: false, approval: 'always-ask' as const, instructions: '' }
+    },
     responseFormat: 'default' as const
   },
   {
@@ -41,7 +45,11 @@ const DEFAULT_AGENTS = [
     contextFiles: [] as string[],
     mcpServers: [] as string[],
     agenticMode: false,
-    tools: { fileEdit: false, terminal: false, webFetch: false },
+    tools: {
+      fileEdit: { enabled: false, approval: 'always-ask' as const, instructions: '' },
+      terminal: { enabled: false, approval: 'always-ask' as const, instructions: '' },
+      webFetch: { enabled: false, approval: 'always-ask' as const, instructions: '' }
+    },
     responseFormat: 'detailed' as const
   },
   {
@@ -56,13 +64,40 @@ const DEFAULT_AGENTS = [
     contextFiles: [] as string[],
     mcpServers: [] as string[],
     agenticMode: false,
-    tools: { fileEdit: false, terminal: false, webFetch: false },
+    tools: {
+      fileEdit: { enabled: false, approval: 'always-ask' as const, instructions: '' },
+      terminal: { enabled: false, approval: 'always-ask' as const, instructions: '' },
+      webFetch: { enabled: false, approval: 'always-ask' as const, instructions: '' }
+    },
     responseFormat: 'detailed' as const
   }
 ]
 
+export interface ToolConfig {
+  enabled: boolean
+  approval: 'auto' | 'always-ask' | 'disabled'
+  instructions: string
+}
+
+export function normaliseToolConfig(raw: unknown): ToolConfig {
+  if (typeof raw === 'boolean') {
+    return { enabled: raw, approval: 'always-ask', instructions: '' }
+  }
+  const r = (raw ?? {}) as Partial<ToolConfig>
+  return {
+    enabled: r.enabled ?? false,
+    approval: r.approval ?? 'always-ask',
+    instructions: r.instructions ?? ''
+  }
+}
+
 function rowToConfig(row: AgentRow) {
   const config = JSON.parse(row.config_json)
+  config.tools = {
+    fileEdit: normaliseToolConfig(config.tools?.fileEdit),
+    terminal: normaliseToolConfig(config.tools?.terminal),
+    webFetch: normaliseToolConfig(config.tools?.webFetch)
+  }
   return {
     ...config,
     id: row.id,
@@ -94,7 +129,13 @@ export function getAgentConfig(agentId: string): Record<string, unknown> | null 
     | { config_json: string }
     | undefined
   if (!row) return null
-  return JSON.parse(row.config_json)
+  const config = JSON.parse(row.config_json)
+  config.tools = {
+    fileEdit: normaliseToolConfig(config.tools?.fileEdit),
+    terminal: normaliseToolConfig(config.tools?.terminal),
+    webFetch: normaliseToolConfig(config.tools?.webFetch)
+  }
+  return config
 }
 
 export function registerAgentHandlers(): void {
@@ -213,7 +254,11 @@ export function registerAgentHandlers(): void {
         contextFiles: config.contextFiles || [],
         mcpServers: config.mcpServers || [],
         agenticMode: config.agenticMode ?? false,
-        tools: config.tools || { fileEdit: false, terminal: false, webFetch: false },
+        tools: {
+          fileEdit: normaliseToolConfig(config.tools?.fileEdit),
+          terminal: normaliseToolConfig(config.tools?.terminal),
+          webFetch: normaliseToolConfig(config.tools?.webFetch)
+        },
         responseFormat: config.responseFormat || 'default',
         rootDirectory: config.rootDirectory || '',
         contextRules: config.contextRules || { ignoredGlobs: [], autoInjectWorkspace: false, autoInjectGit: false },

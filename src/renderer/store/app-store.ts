@@ -23,6 +23,12 @@ export interface Project {
   updated_at: number
 }
 
+export interface ToolConfig {
+  enabled: boolean
+  approval: 'auto' | 'always-ask' | 'disabled'
+  instructions: string
+}
+
 export interface AgentConfig {
   id: string
   name: string
@@ -35,7 +41,7 @@ export interface AgentConfig {
   contextFiles: string[]
   mcpServers: string[]
   agenticMode: boolean
-  tools: { fileEdit: boolean; terminal: boolean; webFetch: boolean }
+  tools: { fileEdit: ToolConfig; terminal: ToolConfig; webFetch: ToolConfig }
   responseFormat: string
   isDefault?: boolean
   // Feature B

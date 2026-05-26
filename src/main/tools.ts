@@ -163,17 +163,28 @@ export function registerToolHandlers(): void {
 
   safeHandle(
     'tool:execute',
-    async (event, name: string, args: Record<string, unknown>) => {
+    async (
+      event,
+      name: string,
+      args: Record<string, unknown>,
+      agentToolConfig?: { enabled: boolean; approval: string; instructions: string }
+    ) => {
       const window = BrowserWindow.fromWebContents(event.sender)
       if (!window) return { success: false, error: 'No window' }
 
-      // Check stored preference
       const pref = getToolPreference(name)
       if (pref === 'always_deny') {
         return { success: false, error: 'Tool denied by preference' }
       }
+      if (agentToolConfig?.approval === 'disabled') {
+        return { success: false, error: 'Tool disabled for this agent' }
+      }
 
-      let approved = pref === 'always_allow'
+      let approved = agentToolConfig?.approval === 'auto'
+        ? true
+        : agentToolConfig?.approval === 'always-ask'
+          ? false
+          : pref === 'always_allow'
 
       if (!approved) {
         const requestId = randomUUID()

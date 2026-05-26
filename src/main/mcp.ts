@@ -136,8 +136,17 @@ export function getAvailableMcpTools(serverIds?: string[]): McpTool[] {
 export async function callMcpTool(
   serverId: string,
   toolName: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  agentId?: string
 ): Promise<{ success: boolean; result?: string; error?: string }> {
+  if (agentId) {
+    const db = getDatabase()
+    const override = db.prepare(
+      'SELECT enabled, approval FROM agent_mcp_tool_overrides WHERE agent_id=? AND server_id=? AND tool_name=?'
+    ).get(agentId, serverId, toolName) as { enabled: number; approval: string } | undefined
+    if (override?.enabled === 0) return { success: false, error: 'Tool disabled for this agent' }
+  }
+
   const instance = servers.get(serverId)
   if (!instance || instance.status !== 'connected') {
     return { success: false, error: `Server ${serverId} not connected` }
@@ -236,10 +245,32 @@ export function registerMcpHandlers(): void {
     return getAvailableMcpTools(serverIds)
   })
 
+  safeHandle('mcp:list-tools-for-agent', (_event, agentId: string) => {
+    const db = getDatabase()
+    const agentRow = db.prepare('SELECT config_json FROM agents WHERE id = ?').get(agentId) as { config_json: string } | undefined
+    if (!agentRow) return []
+    const cfg = JSON.parse(agentRow.config_json)
+    const serverIds: string[] = cfg.mcpServers ?? []
+    return getAvailableMcpTools(serverIds)
+  })
+
+  safeHandle('agent:get-mcp-tool-overrides', (_event, agentId: string) => {
+    const db = getDatabase()
+    return db.prepare('SELECT * FROM agent_mcp_tool_overrides WHERE agent_id = ?').all(agentId)
+  })
+
+  safeHandle('agent:set-mcp-tool-override', (_event, agentId: string, serverId: string, toolName: string, config: { enabled: boolean; approval: string; instructions: string }) => {
+    const db = getDatabase()
+    db.prepare(
+      'INSERT OR REPLACE INTO agent_mcp_tool_overrides (agent_id, server_id, tool_name, enabled, approval, instructions) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(agentId, serverId, toolName, config.enabled ? 1 : 0, config.approval, config.instructions)
+    return true
+  })
+
   safeHandle(
     'mcp:call-tool',
-    async (_event, serverId: string, toolName: string, args: Record<string, unknown>) => {
-      return await callMcpTool(serverId, toolName, args)
+    async (_event, serverId: string, toolName: string, args: Record<string, unknown>, agentId?: string) => {
+      return await callMcpTool(serverId, toolName, args, agentId)
     }
   )
 

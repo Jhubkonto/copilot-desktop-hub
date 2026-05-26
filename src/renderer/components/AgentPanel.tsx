@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { X, Settings, Folder, FileText, Plus, Pencil } from 'lucide-react'
+import { X, Settings, Folder, FileText, Plus, Pencil, Wrench, ToggleLeft, ToggleRight } from 'lucide-react'
 import { useAppStore, type AgentConfig } from '../store/app-store'
 import { MODEL_OPTIONS } from '../../shared/models'
 import { ResizeHandle } from './ResizeHandle'
@@ -15,6 +15,22 @@ interface KnowledgeFile {
   updated_at: number
 }
 
+interface McpTool {
+  name: string
+  description?: string
+  serverId: string
+  serverName: string
+}
+
+interface McpToolOverride {
+  agent_id: string
+  server_id: string
+  tool_name: string
+  enabled: number
+  approval: string
+  instructions: string
+}
+
 const EMPTY_AGENT: Omit<AgentConfig, 'id'> = {
   name: '',
   icon: '🤖',
@@ -26,7 +42,11 @@ const EMPTY_AGENT: Omit<AgentConfig, 'id'> = {
   contextFiles: [],
   mcpServers: [],
   agenticMode: false,
-  tools: { fileEdit: false, terminal: false, webFetch: false },
+  tools: {
+    fileEdit: { enabled: false, approval: 'always-ask', instructions: '' },
+    terminal: { enabled: false, approval: 'always-ask', instructions: '' },
+    webFetch: { enabled: false, approval: 'always-ask', instructions: '' },
+  },
   responseFormat: 'default',
   rootDirectory: '',
   contextRules: { ignoredGlobs: [], autoInjectWorkspace: false, autoInjectGit: false },
@@ -48,7 +68,7 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
   const onExport = useAppStore((s) => s.exportAgent)
 
   const agent = editingAgentId ? agents.find((a) => a.id === editingAgentId) ?? null : null
-  const [tab, setTab] = useState<'settings' | 'knowledge' | 'json'>('settings')
+  const [tab, setTab] = useState<'settings' | 'skills' | 'knowledge' | 'json'>('settings')
   const [config, setConfig] = useState<AgentConfig>({
     id: '',
     ...EMPTY_AGENT,
@@ -61,6 +81,8 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
   const [knowledgeFiles, setKnowledgeFiles] = useState<KnowledgeFile[]>([])
   const [editingKnowledgeFile, setEditingKnowledgeFile] = useState<{ id: string; filePath: string } | null>(null)
   const [editingFileContent, setEditingFileContent] = useState('')
+  const [agentMcpTools, setAgentMcpTools] = useState<McpTool[]>([])
+  const [mcpToolOverrides, setMcpToolOverrides] = useState<McpToolOverride[]>([])
 
   const isEditing = !!agent?.id
   const isDefault = agent?.isDefault === true
@@ -72,6 +94,10 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
       setJsonText(JSON.stringify(rest, null, 2))
       setJsonError('')
     }
+    if (tab === 'skills' && isEditing) {
+      window.api.listMcpToolsForAgent(config.id).then((tools) => setAgentMcpTools(tools as McpTool[]))
+      window.api.getMcpToolOverrides(config.id).then((overrides) => setMcpToolOverrides(overrides as McpToolOverride[]))
+    }
     if (tab === 'knowledge' && isEditing) {
       window.api.listKnowledgeFiles(config.id).then((files) =>
         setKnowledgeFiles(files as KnowledgeFile[])
@@ -81,6 +107,24 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
 
   const updateField = <K extends keyof AgentConfig>(key: K, value: AgentConfig[K]) => {
     setConfig((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const getMcpOverride = (serverId: string, toolName: string): McpToolOverride | undefined =>
+    mcpToolOverrides.find((o) => o.server_id === serverId && o.tool_name === toolName)
+
+  const handleSetMcpOverride = async (serverId: string, toolName: string, field: 'enabled' | 'approval' | 'instructions', value: string | boolean) => {
+    const existing = getMcpOverride(serverId, toolName)
+    const newOverride = {
+      enabled: existing?.enabled ?? 1,
+      approval: existing?.approval ?? 'always-ask',
+      instructions: existing?.instructions ?? '',
+      [field]: typeof value === 'boolean' ? (value ? 1 : 0) : value
+    }
+    await window.api.setMcpToolOverride(config.id, serverId, toolName, { ...newOverride, enabled: newOverride.enabled === 1 || newOverride.enabled === true })
+    setMcpToolOverrides((prev) => {
+      const filtered = prev.filter((o) => !(o.server_id === serverId && o.tool_name === toolName))
+      return [...filtered, { agent_id: config.id, server_id: serverId, tool_name: toolName, ...newOverride } as McpToolOverride]
+    })
   }
 
   const handleJsonSave = () => {
@@ -202,7 +246,7 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex" role="dialog" aria-modal="true" aria-label="Agent configuration">
+    <div className="fixed inset-0 top-9 z-50 flex" role="dialog" aria-modal="true" aria-label="Agent configuration">
       <div className="flex-1 bg-black/30" onClick={onClose} aria-hidden="true" />
       <div ref={panelRef} className="relative bg-white dark:bg-gray-900 shadow-xl flex flex-col border-l border-gray-200 dark:border-gray-700" style={{ width }}>
         <ResizeHandle direction="horizontal" align="start" containerRef={panelRef} onSetSize={onResize} />
@@ -213,7 +257,7 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
           </h2>
           <div className="flex items-center gap-2">
             <div className="flex items-center rounded-md border border-gray-200 dark:border-gray-700 overflow-hidden">
-              {(['settings', 'knowledge', 'json'] as const).map((t) => (
+              {(['settings', 'skills', 'knowledge', 'json'] as const).map((t) => (
                 <button
                   key={t}
                   onClick={() => setTab(t)}
@@ -225,6 +269,8 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
                 >
                   {t === 'settings' ? (
                     <span className="flex items-center gap-1"><Settings className="w-3 h-3" /> Settings</span>
+                  ) : t === 'skills' ? (
+                    <span className="flex items-center gap-1"><Wrench className="w-3 h-3" /> Skills</span>
                   ) : t === 'knowledge' ? (
                     <span className="flex items-center gap-1"><FileText className="w-3 h-3" /> Knowledge</span>
                   ) : (
@@ -389,7 +435,7 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
                 />
               </div>
 
-              {/* Agentic Mode + Tools */}
+              {/* Agentic Mode */}
               <div className="space-y-3">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -402,33 +448,6 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
                     Agentic Mode
                   </span>
                 </label>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
-                    Tools
-                  </label>
-                  <div className="flex gap-4">
-                    {(['fileEdit', 'terminal', 'webFetch'] as const).map((tool) => (
-                      <label key={tool} className="flex items-center gap-1.5 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={config.tools[tool]}
-                          onChange={(e) =>
-                            updateField('tools', { ...config.tools, [tool]: e.target.checked })
-                          }
-                          className="rounded border-gray-300 dark:border-gray-600 accent-blue-500"
-                        />
-                        <span className="text-xs text-gray-600 dark:text-gray-400 capitalize">
-                          {tool === 'fileEdit'
-                            ? 'File Edit'
-                            : tool === 'webFetch'
-                              ? 'Web Fetch'
-                              : 'Terminal'}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
               </div>
 
               {/* Context Directories */}
@@ -655,6 +674,118 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
                 </div>
               </div>
             </>
+          ) : tab === 'skills' ? (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Built-in Tools</h3>
+                {([
+                  { key: 'fileEdit' as const, label: 'File Edit', icon: '🗂' },
+                  { key: 'terminal' as const, label: 'Terminal', icon: '💻' },
+                  { key: 'webFetch' as const, label: 'Web Fetch', icon: '🌐' }
+                ]).map((tool) => {
+                  const toolConfig = config.tools[tool.key]
+                  return (
+                    <div key={tool.key} className="space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800/60">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-sm font-medium text-gray-800 dark:text-gray-100">{tool.icon} {tool.label}</div>
+                        <button
+                          type="button"
+                          onClick={() => updateField('tools', {
+                            ...config.tools,
+                            [tool.key]: { ...toolConfig, enabled: !toolConfig.enabled }
+                          })}
+                          className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs text-gray-600 hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-700"
+                          aria-label={`Toggle ${tool.label}`}
+                        >
+                          {toolConfig.enabled ? <ToggleRight className="h-4 w-4 text-green-500" /> : <ToggleLeft className="h-4 w-4 text-gray-400" />}
+                          <span>{toolConfig.enabled ? 'Enabled' : 'Disabled'}</span>
+                        </button>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Approval</label>
+                        <select
+                          value={toolConfig.approval}
+                          onChange={(e) => updateField('tools', {
+                            ...config.tools,
+                            [tool.key]: { ...toolConfig, approval: e.target.value as 'auto' | 'always-ask' | 'disabled' }
+                          })}
+                          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                        >
+                          <option value="auto">Auto</option>
+                          <option value="always-ask">Always ask</option>
+                          <option value="disabled">Disabled</option>
+                        </select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Instructions</label>
+                        <textarea
+                          value={toolConfig.instructions}
+                          onChange={(e) => updateField('tools', {
+                            ...config.tools,
+                            [tool.key]: { ...toolConfig, instructions: e.target.value }
+                          })}
+                          rows={3}
+                          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                        />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {agentMcpTools.length > 0 && (
+                <div className="space-y-2">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">MCP Tools</h3>
+                  {agentMcpTools.map((tool) => {
+                    const override = getMcpOverride(tool.serverId, tool.name)
+                    const enabled = (override?.enabled ?? 1) === 1
+                    const approval = override?.approval ?? 'always-ask'
+                    const instructions = override?.instructions ?? ''
+                    return (
+                      <div key={`${tool.serverId}:${tool.name}`} className="space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800/60">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-medium text-gray-800 dark:text-gray-100">🔌 {tool.name}</div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400">via {tool.serverName}</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void handleSetMcpOverride(tool.serverId, tool.name, 'enabled', !enabled)}
+                            className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs text-gray-600 hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-700"
+                            aria-label={`Toggle ${tool.name}`}
+                          >
+                            {enabled ? <ToggleRight className="h-4 w-4 text-green-500" /> : <ToggleLeft className="h-4 w-4 text-gray-400" />}
+                            <span>{enabled ? 'Enabled' : 'Disabled'}</span>
+                          </button>
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Approval</label>
+                          <select
+                            value={approval}
+                            onChange={(e) => void handleSetMcpOverride(tool.serverId, tool.name, 'approval', e.target.value)}
+                            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                          >
+                            <option value="auto">Auto</option>
+                            <option value="always-ask">Always ask</option>
+                            <option value="disabled">Disabled</option>
+                          </select>
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Instructions</label>
+                          <textarea
+                            value={instructions}
+                            onChange={(e) => void handleSetMcpOverride(tool.serverId, tool.name, 'instructions', e.target.value)}
+                            rows={3}
+                            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                          />
+                        </div>
+                        {tool.description && <p className="text-xs text-gray-500 dark:text-gray-400">{tool.description}</p>}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           ) : tab === 'knowledge' ? (
             /* Knowledge Tab */
             editingKnowledgeFile ? (

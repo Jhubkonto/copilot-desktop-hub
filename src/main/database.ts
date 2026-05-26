@@ -93,6 +93,16 @@ function initializeSchema(db: Database.Database): void {
       updated_at  INTEGER NOT NULL,
       FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS agent_mcp_tool_overrides (
+      agent_id     TEXT NOT NULL,
+      server_id    TEXT NOT NULL,
+      tool_name    TEXT NOT NULL,
+      enabled      INTEGER NOT NULL DEFAULT 1,
+      approval     TEXT NOT NULL DEFAULT 'always-ask',
+      instructions TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY (agent_id, server_id, tool_name)
+    );
   `)
 
   // Migrations: add columns that may not exist yet

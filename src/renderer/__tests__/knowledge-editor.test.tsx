@@ -29,7 +29,11 @@ const AGENT = {
   contextFiles: [],
   mcpServers: [],
   agenticMode: false,
-  tools: { fileEdit: false, terminal: false, webFetch: false },
+  tools: {
+    fileEdit: { enabled: false, approval: 'always-ask', instructions: '' },
+    terminal: { enabled: false, approval: 'always-ask', instructions: '' },
+    webFetch: { enabled: false, approval: 'always-ask', instructions: '' }
+  },
   responseFormat: 'default',
   isDefault: false
 }

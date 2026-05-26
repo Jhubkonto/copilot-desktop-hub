@@ -218,8 +218,8 @@ describe('Store — Conversation Actions', () => {
 
 describe('Store — Agent Actions', () => {
   const mockAgents = [
-    { id: 'a1', name: 'Agent 1', icon: '🤖', systemPrompt: '', model: 'gpt-4', temperature: 0.7, maxTokens: 4096, contextDirectories: [], contextFiles: [], mcpServers: [], agenticMode: false, tools: { fileEdit: false, terminal: false, webFetch: false }, responseFormat: 'markdown' },
-    { id: 'a2', name: 'Agent 2', icon: '📝', systemPrompt: '', model: 'gpt-4', temperature: 0.7, maxTokens: 4096, contextDirectories: [], contextFiles: [], mcpServers: [], agenticMode: false, tools: { fileEdit: false, terminal: false, webFetch: false }, responseFormat: 'markdown' }
+    { id: 'a1', name: 'Agent 1', icon: '🤖', systemPrompt: '', model: 'gpt-4', temperature: 0.7, maxTokens: 4096, contextDirectories: [], contextFiles: [], mcpServers: [], agenticMode: false, tools: { fileEdit: { enabled: false, approval: 'always-ask', instructions: '' }, terminal: { enabled: false, approval: 'always-ask', instructions: '' }, webFetch: { enabled: false, approval: 'always-ask', instructions: '' } }, responseFormat: 'markdown' },
+    { id: 'a2', name: 'Agent 2', icon: '📝', systemPrompt: '', model: 'gpt-4', temperature: 0.7, maxTokens: 4096, contextDirectories: [], contextFiles: [], mcpServers: [], agenticMode: false, tools: { fileEdit: { enabled: false, approval: 'always-ask', instructions: '' }, terminal: { enabled: false, approval: 'always-ask', instructions: '' }, webFetch: { enabled: false, approval: 'always-ask', instructions: '' } }, responseFormat: 'markdown' }
   ]
 
   it('loadAgents populates agents from IPC', async () => {
