@@ -200,3 +200,55 @@ describe('TitleBar — Hamburger menu', () => {
     expect(screen.queryByText(/Code Helper/)).not.toBeInTheDocument()
   })
 })
+
+describe('TitleBar — Directory breadcrumb', () => {
+  it('tb-18: breadcrumb not shown when rootDirectory is empty', () => {
+    mockStore = createMockAppStore({
+      agents: [{ id: 'a1', name: 'Code Helper', icon: '🧑‍💻', rootDirectory: '' }],
+      activeAgentId: 'a1'
+    })
+    setupStoreMock(useAppStore, mockStore)
+
+    render(<TitleBar />)
+    expect(screen.queryByRole('button', { name: /change directory/i })).not.toBeInTheDocument()
+  })
+
+  it('tb-19: breadcrumb shows last two path segments when rootDirectory is set', () => {
+    mockStore = createMockAppStore({
+      agents: [{ id: 'a1', name: 'Code Helper', icon: '🧑‍💻', rootDirectory: 'C:\\Users\\julian\\project\\src' }],
+      activeAgentId: 'a1'
+    })
+    setupStoreMock(useAppStore, mockStore)
+
+    render(<TitleBar />)
+    expect(screen.getByRole('button', { name: /change directory/i })).toHaveTextContent('…/project/src')
+  })
+
+  it('tb-20: clicking breadcrumb opens DirectoryPicker', async () => {
+    const user = userEvent.setup()
+    mockStore = createMockAppStore({
+      agents: [{ id: 'a1', name: 'Code Helper', icon: '🧑‍💻', rootDirectory: 'C:\\Users\\julian\\project\\src' }],
+      activeAgentId: 'a1'
+    })
+    setupStoreMock(useAppStore, mockStore)
+
+    render(<TitleBar />)
+    await user.click(screen.getByRole('button', { name: /change directory/i }))
+
+    expect(await screen.findByRole('dialog', { name: /directory picker/i })).toBeInTheDocument()
+  })
+
+  it('tb-21: pencil icon is shown when an agent is active and calls openEditAgent', async () => {
+    const user = userEvent.setup()
+    mockStore = createMockAppStore({
+      agents: [{ id: 'a1', name: 'Code Helper', icon: '🧑‍💻', rootDirectory: 'C:\\Users\\julian\\project\\src' }],
+      activeAgentId: 'a1'
+    })
+    setupStoreMock(useAppStore, mockStore)
+
+    render(<TitleBar />)
+    await user.click(screen.getByRole('button', { name: /edit agent/i }))
+
+    expect(mockStore.openEditAgent).toHaveBeenCalledWith('a1')
+  })
+})

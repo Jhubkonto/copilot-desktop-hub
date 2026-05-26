@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { Minus, Square, X, Menu, Maximize2, ChevronRight } from 'lucide-react'
+import { Minus, Square, X, Menu, Maximize2, ChevronRight, FolderOpen, Pencil } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
+import { DirectoryPicker } from './DirectoryPicker'
 
 // TypeScript doesn't include WebkitAppRegion in CSSProperties
 type DragStyle = React.CSSProperties & { WebkitAppRegion: 'drag' | 'no-drag' }
@@ -86,6 +87,7 @@ export function TitleBar() {
   const setShowSettings = useAppStore((s) => s.setShowSettings)
   const setShowMcpPanel = useAppStore((s) => s.setShowMcpPanel)
   const openCreateAgent = useAppStore((s) => s.openCreateAgent)
+  const openEditAgent = useAppStore((s) => s.openEditAgent)
   const toggleSidebar = useAppStore((s) => s.toggleSidebar)
   const toggleTerminal = useAppStore((s) => s.toggleTerminal)
   const toggleAgentPanel = useAppStore((s) => s.toggleAgentPanel)
@@ -95,9 +97,15 @@ export function TitleBar() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [activeSection, setActiveSection] = useState<string | null>(null)
   const [isMaximized, setIsMaximized] = useState(false)
+  const [showDirPicker, setShowDirPicker] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
   const activeAgent = activeAgentId ? agents.find((a) => a.id === activeAgentId) ?? null : null
+  const rootDir = activeAgent?.rootDirectory ?? ''
+  const segments = rootDir ? rootDir.replace(/\\/g, '/').split('/').filter(Boolean) : []
+  const crumb = segments.length >= 2
+    ? `…/${segments.at(-2)}/${segments.at(-1)}`
+    : segments[0] ?? ''
 
   useEffect(() => {
     window.api.isWindowMaximized().then(setIsMaximized)
@@ -229,6 +237,40 @@ export function TitleBar() {
         >
           {activeAgent.icon} {activeAgent.name}
         </span>
+      )}
+
+      {activeAgent && (
+        <button
+          type="button"
+          onClick={() => openEditAgent(activeAgentId!)}
+          className="ml-2 inline-flex h-7 w-7 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
+          style={NO_DRAG}
+          aria-label="Edit agent"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </button>
+      )}
+
+      {crumb && (
+        <>
+          <button
+            type="button"
+            onClick={() => setShowDirPicker(true)}
+            className="ml-1 inline-flex items-center gap-1 rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-600 transition-colors hover:bg-gray-100 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+            style={NO_DRAG}
+            aria-label="Change directory"
+            data-directory-breadcrumb="true"
+          >
+            <FolderOpen className="h-3.5 w-3.5" />
+            <span>{crumb}</span>
+          </button>
+          {showDirPicker && (
+            <DirectoryPicker
+              agentId={activeAgentId ?? null}
+              onClose={() => setShowDirPicker(false)}
+            />
+          )}
+        </>
       )}
 
       {/* Drag region fills remaining space */}
