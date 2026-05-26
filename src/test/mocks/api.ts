@@ -75,6 +75,8 @@ export function createMockApi() {
 
     // Directories
     openDirectoryDialog: vi.fn().mockResolvedValue(null),
+    getRecentDirs: vi.fn().mockResolvedValue([]),
+    addRecentDir: vi.fn().mockResolvedValue([]),
 
     // Tools
     listTools: vi.fn().mockResolvedValue([]),
@@ -98,6 +100,9 @@ export function createMockApi() {
     removeMcpServer: vi.fn().mockResolvedValue(true),
     getMcpServerStatus: vi.fn().mockResolvedValue({ connected: false }),
     listMcpTools: vi.fn().mockResolvedValue([]),
+    listMcpToolsForAgent: vi.fn().mockResolvedValue([]),
+    getMcpToolOverrides: vi.fn().mockResolvedValue([]),
+    setMcpToolOverride: vi.fn().mockResolvedValue(true),
     callMcpTool: vi.fn().mockResolvedValue(null),
     restartMcpServer: vi.fn().mockResolvedValue(true),
 

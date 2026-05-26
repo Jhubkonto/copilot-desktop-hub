@@ -401,7 +401,26 @@ function registerChatHandlers(): void {
               ? `\n\n## Knowledge Files\n${knowledgeBlocks.join('\n\n---\n\n')}`
               : ''
 
-          augmentedContent = `[System Instructions]\n${systemPromptText}${memoryBlock}${knowledgeBlock}\n[/System Instructions]\n\n${augmentedContent}`
+          const toolLines: string[] = []
+          const tc = agentCfg?.tools as { fileEdit?: { enabled?: boolean; instructions?: string }; terminal?: { enabled?: boolean; instructions?: string }; webFetch?: { enabled?: boolean; instructions?: string } } | null
+          if (tc?.fileEdit?.enabled && tc.fileEdit.instructions) {
+            toolLines.push(`- **File Edit**: ${tc.fileEdit.instructions}`)
+          }
+          if (tc?.terminal?.enabled && tc.terminal.instructions) {
+            toolLines.push(`- **Terminal**: ${tc.terminal.instructions}`)
+          }
+          if (tc?.webFetch?.enabled && tc.webFetch.instructions) {
+            toolLines.push(`- **Web Fetch**: ${tc.webFetch.instructions}`)
+          }
+          const mcpOverrides = db.prepare(
+            "SELECT tool_name, server_id, instructions FROM agent_mcp_tool_overrides WHERE agent_id=? AND enabled=1 AND instructions != ''"
+          ).all(convRow.agent_id) as { tool_name: string; server_id: string; instructions: string }[]
+          for (const o of mcpOverrides) {
+            toolLines.push(`- **${o.tool_name}** (via ${o.server_id}): ${o.instructions}`)
+          }
+          const guidelinesBlock = toolLines.length > 0 ? `\n\n## Tool Usage Guidelines\n${toolLines.join('\n')}` : ''
+
+          augmentedContent = `[System Instructions]\n${systemPromptText}${memoryBlock}${knowledgeBlock}${guidelinesBlock}\n[/System Instructions]\n\n${augmentedContent}`
         }
       }
 
@@ -687,6 +706,20 @@ function registerFileHandlers(): void {
     }
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('working_directory', ?)").run(cwd)
     return true
+  })
+
+  safeHandle('file:get-recent-dirs', () => {
+    const row = db.prepare("SELECT value FROM settings WHERE key = 'recent_directories'").get() as { value: string } | undefined
+    try { return row ? JSON.parse(row.value) : [] } catch { return [] }
+  })
+
+  safeHandle('file:add-recent-dir', (_event, path: string) => {
+    const row = db.prepare("SELECT value FROM settings WHERE key = 'recent_directories'").get() as { value: string } | undefined
+    let dirs: string[] = []
+    try { dirs = row ? JSON.parse(row.value) : [] } catch { dirs = [] }
+    dirs = [path, ...dirs.filter((d: string) => d !== path)].slice(0, 5)
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('recent_directories', ?)").run(JSON.stringify(dirs))
+    return dirs
   })
 }
 

@@ -111,11 +111,16 @@ const api = {
 
   // Directories
   openDirectoryDialog: () => ipcRenderer.invoke('file:open-directory-dialog'),
+  getRecentDirs: () => ipcRenderer.invoke('file:get-recent-dirs'),
+  addRecentDir: (path: string) => ipcRenderer.invoke('file:add-recent-dir', path),
 
   // Tools
   listTools: () => ipcRenderer.invoke('tool:list'),
-  executeTool: (name: string, args: Record<string, unknown>) =>
-    ipcRenderer.invoke('tool:execute', name, args),
+  executeTool: (
+    name: string,
+    args: Record<string, unknown>,
+    agentToolConfig?: { enabled: boolean; approval: string; instructions: string }
+  ) => ipcRenderer.invoke('tool:execute', name, args, agentToolConfig),
   respondToToolApproval: (requestId: string, approved: boolean, remember: boolean) =>
     ipcRenderer.invoke('tool:approval-response', requestId, approved, remember),
   setToolPreference: (toolName: string, value: string) =>
@@ -173,8 +178,16 @@ const api = {
   removeMcpServer: (id: string) => ipcRenderer.invoke('mcp:remove-server', id),
   getMcpServerStatus: (id: string) => ipcRenderer.invoke('mcp:get-server-status', id),
   listMcpTools: (serverIds?: string[]) => ipcRenderer.invoke('mcp:list-tools', serverIds),
-  callMcpTool: (serverId: string, toolName: string, args: Record<string, unknown>) =>
-    ipcRenderer.invoke('mcp:call-tool', serverId, toolName, args),
+  listMcpToolsForAgent: (agentId: string) => ipcRenderer.invoke('mcp:list-tools-for-agent', agentId),
+  getMcpToolOverrides: (agentId: string) => ipcRenderer.invoke('agent:get-mcp-tool-overrides', agentId),
+  setMcpToolOverride: (
+    agentId: string,
+    serverId: string,
+    toolName: string,
+    config: { enabled: boolean; approval: string; instructions: string }
+  ) => ipcRenderer.invoke('agent:set-mcp-tool-override', agentId, serverId, toolName, config),
+  callMcpTool: (serverId: string, toolName: string, args: Record<string, unknown>, agentId?: string) =>
+    ipcRenderer.invoke('mcp:call-tool', serverId, toolName, args, agentId),
   restartMcpServer: (id: string) => ipcRenderer.invoke('mcp:restart-server', id),
 
   // Providers (BYOK)
