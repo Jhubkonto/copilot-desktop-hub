@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { Plus, MessageSquare, Settings, X, LogIn, Upload, Pin, FolderOpen, Folder, MoreHorizontal, Check, Cpu } from 'lucide-react'
+import { Plus, MessageSquare, Settings, X, LogIn, Upload, Pin, FolderOpen, Folder, MoreHorizontal, Check, Cpu, ChevronDown, ChevronRight } from 'lucide-react'
 import { SearchBar } from './SearchBar'
 import { useAppStore, type Conversation, type Project } from '../store/app-store'
 import { ResizeHandle } from './ResizeHandle'
@@ -57,6 +57,9 @@ const SIDEBAR_MAX = 560
 export function Sidebar() {
   const sidebarRef = useRef<HTMLElement>(null)
   const [width, setWidth] = useState(256)
+  const [projectsOpen, setProjectsOpen] = useState(true)
+  const [agentsOpen, setAgentsOpen] = useState(true)
+  const [chatsOpen, setChatsOpen] = useState(true)
 
   const handleSetSize = useCallback((size: number) => {
     setWidth(Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, size)))
@@ -356,9 +359,14 @@ export function Sidebar() {
         {/* ── Projects ── */}
         <div>
           <div className="flex items-center justify-between px-2 mb-1">
-            <h3 className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+            <button
+              onClick={() => setProjectsOpen((v) => !v)}
+              className="flex items-center gap-1 text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300"
+              aria-expanded={projectsOpen}
+            >
+              {projectsOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
               Projects
-            </h3>
+            </button>
             <button
               onClick={() => { setCreatingProject(true); setNewProjectName('') }}
               className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-0.5 rounded"
@@ -369,7 +377,7 @@ export function Sidebar() {
             </button>
           </div>
 
-          <div className="space-y-0.5">
+          {projectsOpen && <div className="space-y-0.5">
             {/* All Chats entry */}
             <div
               className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-xs font-medium transition-colors ${
@@ -565,15 +573,21 @@ export function Sidebar() {
                 </div>
               </div>
             )}
-          </div>
+          </div>}
         </div>
 
         {/* ── Agents ── */}
         <div>
-          <h3 className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider px-2 mb-2">
+          <button
+            onClick={() => setAgentsOpen((v) => !v)}
+            className="flex items-center gap-1 text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300 px-2 mb-2"
+            aria-expanded={agentsOpen}
+          >
+            {agentsOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
             Agents
-          </h3>
-          {agentsLoading ? (
+          </button>
+          {agentsOpen && (<>
+            {agentsLoading ? (
             <div className="space-y-1 px-2" aria-label="Loading agents">
               {[1, 2, 3].map((i) => (
                 <div key={i} className="h-7 bg-gray-200 dark:bg-gray-800 rounded-lg animate-pulse" />
@@ -643,17 +657,24 @@ export function Sidebar() {
               Import
             </button>
           </div>
+          </>)}
         </div>
 
         {/* ── Conversations ── */}
         <div>
-          <h3 className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider px-2 mb-2">
+          <button
+            onClick={() => setChatsOpen((v) => !v)}
+            className="flex items-center gap-1 text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300 px-2 mb-2"
+            aria-expanded={chatsOpen}
+          >
+            {chatsOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
             {searchQuery
               ? `Results for "${searchQuery}"`
               : activeProjectId
                 ? `${projects.find((p) => p.id === activeProjectId)?.name ?? 'Project'} Chats`
                 : 'All Chats'}
-          </h3>
+          </button>
+          {chatsOpen && (<>
           {conversationsLoading && filteredConversations.length === 0 ? (
             <div className="space-y-1 px-2" aria-label="Loading conversations">
               {[1, 2, 3, 4, 5].map((i) => (
@@ -692,6 +713,7 @@ export function Sidebar() {
               ))}
             </div>
           )}
+          </>)}
         </div>
       </div>
 

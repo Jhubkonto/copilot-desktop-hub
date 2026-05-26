@@ -64,9 +64,6 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
-    if (isDev) {
-      mainWindow?.webContents.openDevTools()
-    }
   })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
