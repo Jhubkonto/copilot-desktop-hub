@@ -4,6 +4,7 @@ import { MessageBubble } from './MessageBubble'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { ContextInspector, type ContextSnapshot } from './ContextInspector'
 import { useAppStore } from '../store/app-store'
+import { executeSlashCommand, transformCodeSlashCommand, SLASH_COMMANDS, type SlashCommandContext } from '../slash-commands'
 import { MODEL_OPTIONS, getModelLabel, getModelMultiplier } from '../../shared/models'
 
 type ToastType = 'info' | 'success' | 'error'
@@ -37,12 +38,6 @@ interface ChatMessage {
   contextSnapshot?: string
 }
 
-interface SlashCommandDef {
-  name: string
-  usage: string
-  description: string
-}
-
 interface ContextRef {
   key: 'workspace' | 'git' | 'file'
   token: string
@@ -52,37 +47,6 @@ interface ContextRef {
 function hasIpcError(result: unknown): result is { error: string } {
   return typeof result === 'object' && result !== null && 'error' in result
 }
-
-const SLASH_COMMANDS: SlashCommandDef[] = [
-  { name: '/clear', usage: '/clear', description: 'Clear current conversation messages' },
-  { name: '/new', usage: '/new [prompt]', description: 'Start a new chat' },
-  { name: '/undo', usage: '/undo', description: 'Remove the last user/assistant exchange' },
-  { name: '/redo', usage: '/redo', description: 'Resend the last undone user message' },
-  { name: '/compact', usage: '/compact', description: 'Compact visible chat to recent context' },
-  { name: '/exit', usage: '/exit', description: 'Exit current conversation view' },
-  { name: '/help', usage: '/help', description: 'Show slash command help' },
-  { name: '/version', usage: '/version', description: 'Show app version' },
-  { name: '/login', usage: '/login', description: 'Start GitHub sign-in flow' },
-  { name: '/logout', usage: '/logout', description: 'Sign out from GitHub' },
-  { name: '/cwd', usage: '/cwd', description: 'Show working directory' },
-  { name: '/cd', usage: '/cd <dir>', description: 'Change working directory' },
-  { name: '/add-dir', usage: '/add-dir <dir>', description: 'Add directory to active agent context' },
-  { name: '/list-dirs', usage: '/list-dirs', description: 'List active agent context directories' },
-  { name: '/share', usage: '/share [file]', description: 'Share conversation as markdown' },
-  { name: '/copy', usage: '/copy', description: 'Copy last assistant response' },
-  { name: '/model', usage: '/model [name]', description: 'Show or set conversation model' },
-  { name: '/models', usage: '/models', description: 'List available models' },
-  { name: '/usage', usage: '/usage', description: 'Show session usage stats' },
-  { name: '/config', usage: '/config', description: 'Show current chat configuration' },
-  { name: '/theme', usage: '/theme [dark|light]', description: 'Show or set theme' },
-  { name: '/explain', usage: '/explain [text]', description: 'Explain code or request' },
-  { name: '/fix', usage: '/fix [text]', description: 'Fix code issues' },
-  { name: '/tests', usage: '/tests [text]', description: 'Generate tests' },
-  { name: '/refactor', usage: '/refactor [text]', description: 'Refactor code' },
-  { name: '/docs', usage: '/docs [text]', description: 'Generate documentation' },
-  { name: '/review', usage: '/review [text]', description: 'Review code for issues' },
-  { name: '/context', usage: '/context', description: 'Show context snapshot of the last sent message' }
-]
 
 const AT_CONTEXT_OPTIONS = [
   { token: '@workspace', key: 'workspace', description: 'Attach workspace summary' },
@@ -496,25 +460,6 @@ export function ChatWindow() {
     setMessages((prev) => [...prev, systemMessage])
   }, [])
 
-  const transformCodeSlashCommand = useCallback((rawInput: string): string | null => {
-    const [command, ...rest] = rawInput.split(/\s+/)
-    const argText = rest.join(' ').trim()
-    const content = argText || 'Use the attached context and provide the best possible result.'
-
-    const map: Record<string, string> = {
-      '/explain': 'Explain this code clearly and concisely.',
-      '/fix': 'Fix bugs and issues in this code.',
-      '/tests': 'Generate robust tests for this code.',
-      '/refactor': 'Refactor this code for readability and maintainability.',
-      '/docs': 'Write documentation and inline doc comments for this code.',
-      '/review': 'Review this code for bugs, edge cases, and security issues.'
-    }
-
-    const instruction = map[command]
-    if (!instruction) return null
-    return `${instruction}\n\n${content}`
-  }, [])
-
   const buildConversationMarkdown = useCallback((): string => {
     const lines: string[] = ['# Conversation Export', '']
     for (const msg of messages) {
@@ -529,309 +474,41 @@ export function ChatWindow() {
     return lines.join('\n')
   }, [messages])
 
-  const executeSlashCommand = useCallback(async (rawInput: string): Promise<boolean> => {
-    if (!rawInput.startsWith('/')) return false
-
-    const [command, ...rest] = rawInput.split(/\s+/)
-    const argText = rest.join(' ').trim()
-
-    switch (command) {
-      case '/help': {
-        const helpText = [
-          'Available slash commands:',
-          ...SLASH_COMMANDS.map((c) => `- ${c.usage}: ${c.description}`)
-        ].join('\n')
-        pushSystemMessage(helpText)
-        return true
-      }
-      case '/version': {
-        try {
-          const version = await window.api.getVersion()
-          pushSystemMessage(`Copilot Desktop Hub v${version}`)
-        } catch {
-          pushSystemMessage('Unable to read app version.')
-        }
-        return true
-      }
-      case '/login': {
-        await login()
-        pushSystemMessage('Started sign-in flow.')
-        return true
-      }
-      case '/logout': {
-        await logout()
-        pushSystemMessage('Signed out.')
-        return true
-      }
-      case '/cwd': {
-        const cwd = await window.api.getWorkingDirectory()
-        pushSystemMessage(`Current working directory:\n${cwd}`)
-        return true
-      }
-      case '/cd': {
-        if (!argText) {
-          pushSystemMessage('Usage: /cd <directory>')
-          return true
-        }
-        try {
-          await window.api.setWorkingDirectory(argText)
-          pushSystemMessage(`Working directory set to:\n${argText}`)
-        } catch {
-          pushSystemMessage(`Failed to set working directory:\n${argText}`)
-        }
-        return true
-      }
-      case '/add-dir': {
-        if (!argText) {
-          pushSystemMessage('Usage: /add-dir <directory>')
-          return true
-        }
-        if (!activeAgent) {
-          pushSystemMessage('No active agent selected. Select an agent first.')
-          return true
-        }
-        const nextDirs = Array.from(new Set([...(activeAgent.contextDirectories ?? []), argText]))
-        await window.api.updateAgent(activeAgent.id, {
-          ...activeAgent,
-          contextDirectories: nextDirs
-        })
-        await loadAgents()
-        pushSystemMessage(`Added directory to ${activeAgent.name} context:\n${argText}`)
-        return true
-      }
-      case '/list-dirs': {
-        if (!activeAgent) {
-          pushSystemMessage('No active agent selected.')
-          return true
-        }
-        const dirs = activeAgent.contextDirectories ?? []
-        if (dirs.length === 0) {
-          pushSystemMessage(`${activeAgent.name} has no context directories.`)
-        } else {
-          pushSystemMessage(
-            `${activeAgent.name} context directories:\n${dirs.map((d) => `- ${d}`).join('\n')}`
-          )
-        }
-        return true
-      }
-      case '/copy': {
-        const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant')
-        if (!lastAssistant) {
-          pushSystemMessage('No assistant message to copy.')
-          return true
-        }
-        await navigator.clipboard.writeText(lastAssistant.content)
-        pushSystemMessage('Copied last assistant response to clipboard.')
-        return true
-      }
-      case '/share': {
-        const markdown = buildConversationMarkdown()
-        if (argText.toLowerCase() === 'file') {
-          const savedPath = await window.api.saveTextFile('conversation.md', markdown)
-          if (savedPath) {
-            pushSystemMessage(`Conversation saved to:\n${savedPath}`)
-          } else {
-            pushSystemMessage('Save canceled.')
-          }
-        } else if (argText.toLowerCase() === 'gist') {
-          try {
-            const gistUrl = await window.api.createGist(
-              'conversation.md',
-              markdown,
-              'Shared from Copilot Desktop Hub'
-            )
-            pushSystemMessage(`Created secret gist:\n${gistUrl}`)
-          } catch {
-            pushSystemMessage('Failed to create gist. Make sure you are signed in to GitHub.')
-          }
-        } else {
-          await navigator.clipboard.writeText(markdown)
-          pushSystemMessage('Conversation markdown copied to clipboard.')
-        }
-        return true
-      }
-      case '/model': {
-        if (!argText) {
-          pushSystemMessage(`Current model: ${effectiveModelLabel}`)
-          return true
-        }
-        if (!(MODEL_OPTIONS as readonly string[]).includes(argText)) {
-          pushSystemMessage(`Unknown model: ${argText}. Use /models to list available models.`)
-          return true
-        }
-        if (!conversationId) {
-          pushSystemMessage('No active conversation. Start a chat before setting a model.')
-          return true
-        }
-        const value = argText === 'default' ? null : argText
-        const result = await window.api.setConversationModel(conversationId, value)
-        if (hasIpcError(result)) {
-          pushSystemMessage(`Failed to set model: ${result.error}`)
-          return true
-        }
-        await loadConversations()
-        pushSystemMessage(`Model set to ${getModelLabel(argText)}.`)
-        return true
-      }
-      case '/models': {
-        const current = conversationModel ?? 'default'
-        const text = ['Available models:']
-        for (const model of MODEL_OPTIONS) {
-          const mark = model === current ? '*' : '-'
-          text.push(`${mark} ${getModelLabel(model)}`)
-        }
-        pushSystemMessage(text.join('\n'))
-        return true
-      }
-      case '/usage': {
-        const userCount = messages.filter((m) => m.role === 'user').length
-        const assistantCount = messages.filter((m) => m.role === 'assistant').length
-        const systemCount = messages.filter((m) => m.role === 'system').length
-        const charCount = messages.reduce((sum, m) => sum + m.content.length, 0)
-        const estimatedTokens = Math.ceil(charCount / 4)
-        pushSystemMessage(
-          `Usage (current chat)\n- Messages: ${messages.length}\n- User: ${userCount}\n- Assistant: ${assistantCount}\n- System: ${systemCount}\n- Estimated tokens: ${estimatedTokens}`
-        )
-        return true
-      }
-      case '/config': {
-        const configLines = [
-          'Current config:',
-          `- Conversation model: ${getModelLabel(conversationModel ?? 'default')}`,
-          `- Effective model: ${effectiveModelLabel}`,
-          `- Theme: ${theme}`,
-          `- Active agent: ${activeAgent ? activeAgent.name : 'none'}`
-        ]
-        if (activeAgent) {
-          configLines.push(`- Agent temperature: ${activeAgent.temperature}`)
-          configLines.push(`- Agent max tokens: ${activeAgent.maxTokens}`)
-        }
-        pushSystemMessage(configLines.join('\n'))
-        return true
-      }
-      case '/theme': {
-        if (!argText) {
-          pushSystemMessage(`Current theme: ${theme}`)
-          return true
-        }
-        if (argText !== 'dark' && argText !== 'light') {
-          pushSystemMessage('Usage: /theme [dark|light]')
-          return true
-        }
-        setTheme(argText)
-        await window.api.setTheme(argText)
-        pushSystemMessage(`Theme set to ${argText}.`)
-        return true
-      }
-      case '/clear': {
-        if (conversationId) {
-          await window.api.deleteMessagesAfter(conversationId, 0)
-        }
-        setMessages([])
-        pushSystemMessage('Conversation cleared.')
-        return true
-      }
-      case '/new': {
-        newChat()
-        activeConversationRef.current = null
-        setMessages([])
-        if (argText) {
-          setInput(argText)
-          pushSystemMessage('Started new chat. Prompt inserted in input.')
-        } else {
-          pushSystemMessage('Started new chat.')
-        }
-        return true
-      }
-      case '/exit': {
-        newChat()
-        activeConversationRef.current = null
-        setMessages([])
-        return true
-      }
-      case '/undo': {
-        const index = messages.length - 1
-        if (index < 1) {
-          pushSystemMessage('Nothing to undo.')
-          return true
-        }
-        const last = messages[index]
-        const prev = messages[index - 1]
-        if (last.role !== 'assistant' || prev.role !== 'user') {
-          pushSystemMessage('Undo only supports the last user/assistant exchange.')
-          return true
-        }
-        lastUndoneUserMessageRef.current = prev.content
-        setMessages((curr) => curr.slice(0, -2))
-        if (conversationId) {
-          await window.api.deleteMessagesAfter(conversationId, prev.timestamp)
-        }
-        pushSystemMessage('Last exchange removed. Use /redo to resend.')
-        return true
-      }
-      case '/redo': {
-        const redoContent = lastUndoneUserMessageRef.current
-        if (!redoContent) {
-          pushSystemMessage('Nothing to redo.')
-          return true
-        }
-        setInput(redoContent)
-        pushSystemMessage('Redo restored the previous user message to input.')
-        return true
-      }
-      case '/compact': {
-        const trimmed = messages.filter((m) => m.role !== 'system').slice(-8)
-        setMessages(trimmed)
-        pushSystemMessage('Compacted to recent context.')
-        return true
-      }
-      case '/context': {
-        const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user')
-        if (!lastUserMsg?.contextSnapshot) {
-          pushSystemMessage('No context snapshot available. Send a message first.')
-          return true
-        }
-        try {
-          const snap: ContextSnapshot = JSON.parse(lastUserMsg.contextSnapshot)
-          const lines = ['**Last Message Context Snapshot**']
-          if (snap.systemPrompt) lines.push(`\n**System Prompt:** ${snap.systemPrompt.length} chars`)
-          if (snap.contextRefs?.length) lines.push(`**@refs:** ${snap.contextRefs.map((r) => r.token).join(', ')}`)
-          if (snap.attachments?.length) lines.push(`**Attachments:** ${snap.attachments.map((a) => a.name).join(', ')}`)
-          lines.push(`**History messages included:** ${snap.historyLength}`)
-          lines.push(`**Estimated tokens:** ${snap.estimatedTokens}`)
-          pushSystemMessage(lines.join('\n'))
-        } catch {
-          pushSystemMessage('Could not parse context snapshot.')
-        }
-        return true
-      }
-      default: {
-        // Check agent custom commands
-        const customCmd = (activeAgent?.customCommands ?? []).find((c) => c.name === command)
-        if (customCmd) {
-          setInput(customCmd.prompt)
-          return true
-        }
-        pushSystemMessage(`Unknown command: ${command}. Use /help.`)
-        return true
-      }
-    }
-  }, [
+  const slashCommandCtx = useMemo<SlashCommandContext>(() => ({
     conversationId,
     messages,
-    newChat,
-    pushSystemMessage,
-    login,
-    logout,
     activeAgent,
-    loadAgents,
-    buildConversationMarkdown,
     effectiveModelLabel,
     conversationModel,
-    loadConversations,
     theme,
+    pushSystemMessage,
+    newChat,
+    login,
+    logout,
+    setInput,
     setTheme,
-    setInput
+    loadAgents,
+    loadConversations,
+    buildConversationMarkdown,
+    deleteMessagesAfter: window.api.deleteMessagesAfter,
+    lastUndoneUserMessageRef,
+    setMessages
+  }), [
+    conversationId,
+    messages,
+    activeAgent,
+    effectiveModelLabel,
+    conversationModel,
+    theme,
+    pushSystemMessage,
+    newChat,
+    login,
+    logout,
+    setInput,
+    setTheme,
+    loadAgents,
+    loadConversations,
+    buildConversationMarkdown
   ])
 
   const removeContextToken = useCallback((token: string) => {
@@ -872,7 +549,7 @@ export function ChatWindow() {
       if (transformed) {
         content = transformed
       } else {
-        const handled = await executeSlashCommand(content)
+        const handled = await executeSlashCommand(content, slashCommandCtx)
         if (handled) {
           setInput('')
           setShowSlashMenu(false)
@@ -1151,7 +828,7 @@ export function ChatWindow() {
         )
         return
       }
-      if (e.key === 'Enter' && !e.shiftKey && visibleCommands.length > 0) {
+      if ((e.key === 'Enter' && !e.shiftKey || e.key === 'Tab') && visibleCommands.length > 0) {
         e.preventDefault()
         const selected = visibleCommands[selectedSlashIndex] ?? visibleCommands[0]
         setInput(`${selected.name} `)
