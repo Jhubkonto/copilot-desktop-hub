@@ -1,29 +1,29 @@
-import Database from 'better-sqlite3'
-import { app } from 'electron'
-import { join } from 'path'
-import { existsSync, mkdirSync } from 'fs'
+import Database from "better-sqlite3";
+import { app } from "electron";
+import { join } from "path";
+import { existsSync, mkdirSync } from "fs";
 
-let db: Database.Database | null = null
+let db: Database.Database | null = null;
 
 export function getDatabase(): Database.Database {
-  if (db) return db
+  if (db) return db;
 
-  const userDataPath = app.getPath('userData')
-  const dbDir = join(userDataPath, 'data')
+  const userDataPath = app.getPath("userData");
+  const dbDir = join(userDataPath, "data");
 
   if (!existsSync(dbDir)) {
-    mkdirSync(dbDir, { recursive: true })
+    mkdirSync(dbDir, { recursive: true });
   }
 
-  const dbPath = join(dbDir, 'copilot-hub.db')
-  db = new Database(dbPath)
+  const dbPath = join(dbDir, "copilot-hub.db");
+  db = new Database(dbPath);
 
-  db.pragma('journal_mode = WAL')
-  db.pragma('foreign_keys = ON')
+  db.pragma("journal_mode = WAL");
+  db.pragma("foreign_keys = ON");
 
-  initializeSchema(db)
+  initializeSchema(db);
 
-  return db
+  return db;
 }
 
 function initializeSchema(db: Database.Database): void {
@@ -50,7 +50,7 @@ function initializeSchema(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS messages (
       id TEXT PRIMARY KEY,
       conversation_id TEXT NOT NULL,
-      role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
+      role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system', 'team-activity')),
       content TEXT NOT NULL,
       model TEXT,
       is_edited INTEGER NOT NULL DEFAULT 0,
@@ -103,77 +103,105 @@ function initializeSchema(db: Database.Database): void {
       instructions TEXT NOT NULL DEFAULT '',
       PRIMARY KEY (agent_id, server_id, tool_name)
     );
-  `)
+
+    CREATE TABLE IF NOT EXISTS project_agents (
+      project_id   TEXT NOT NULL,
+      agent_id     TEXT NOT NULL,
+      is_primary   INTEGER NOT NULL DEFAULT 0,
+      sort_order   INTEGER NOT NULL DEFAULT 0,
+      added_at     INTEGER NOT NULL,
+      PRIMARY KEY (project_id, agent_id),
+      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+      FOREIGN KEY (agent_id)   REFERENCES agents(id)   ON DELETE CASCADE
+    );
+  `);
 
   // Migrations: add columns that may not exist yet
   try {
-    db.exec('ALTER TABLE projects ADD COLUMN default_model TEXT')
+    db.exec("ALTER TABLE projects ADD COLUMN default_model TEXT");
   } catch {
     // Column already exists
   }
 
   try {
-    db.exec('ALTER TABLE messages ADD COLUMN attachments TEXT')
+    db.exec("ALTER TABLE messages ADD COLUMN attachments TEXT");
   } catch {
     // Column already exists
   }
 
   try {
-    db.exec('ALTER TABLE conversations ADD COLUMN model TEXT')
+    db.exec("ALTER TABLE conversations ADD COLUMN model TEXT");
   } catch {
     // Column already exists
   }
 
   try {
-    db.exec('ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0')
+    db.exec(
+      "ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
+    );
   } catch {
     // Column already exists
   }
 
   try {
-    db.exec('ALTER TABLE messages ADD COLUMN model TEXT')
+    db.exec("ALTER TABLE messages ADD COLUMN model TEXT");
   } catch {
     // Column already exists
   }
 
   try {
-    db.exec('ALTER TABLE messages ADD COLUMN is_edited INTEGER NOT NULL DEFAULT 0')
+    db.exec(
+      "ALTER TABLE messages ADD COLUMN is_edited INTEGER NOT NULL DEFAULT 0",
+    );
   } catch {
     // Column already exists
   }
 
   try {
-    db.exec('ALTER TABLE messages ADD COLUMN previous_content TEXT')
+    db.exec("ALTER TABLE messages ADD COLUMN previous_content TEXT");
   } catch {
     // Column already exists
   }
 
   try {
-    db.exec('ALTER TABLE messages ADD COLUMN context_snapshot TEXT')
+    db.exec("ALTER TABLE messages ADD COLUMN context_snapshot TEXT");
   } catch {
     // Column already exists
   }
 
   // Migrations: add project_id to conversationsfor existing users
-  const convColumns = db.prepare('PRAGMA table_info(conversations)').all() as Array<{ name: string }>
-  if (!convColumns.some((col) => col.name === 'project_id')) {
-    db.exec('ALTER TABLE conversations ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE SET NULL')
+  const convColumns = db
+    .prepare("PRAGMA table_info(conversations)")
+    .all() as Array<{ name: string }>;
+  if (!convColumns.some((col) => col.name === "project_id")) {
+    db.exec(
+      "ALTER TABLE conversations ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE SET NULL",
+    );
   }
   // Always ensure the index exists (safe for both new and existing installs)
-  db.exec('CREATE INDEX IF NOT EXISTS idx_conversations_project ON conversations(project_id, updated_at)')
+  db.exec(
+    "CREATE INDEX IF NOT EXISTS idx_conversations_project ON conversations(project_id, updated_at)",
+  );
+
+  // Migrations: add config_json to projects for orchestration settings
+  try {
+    db.exec("ALTER TABLE projects ADD COLUMN config_json TEXT");
+  } catch {
+    // Column already exists
+  }
 
   // Insert default settings if they don't exist
   const insertSetting = db.prepare(
-    'INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)'
-  )
-  insertSetting.run('theme', 'dark')
-  insertSetting.run('globalHotkey', 'Ctrl+Shift+H')
-  insertSetting.run('autoStart', 'false')
+    "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+  );
+  insertSetting.run("theme", "dark");
+  insertSetting.run("globalHotkey", "Ctrl+Shift+H");
+  insertSetting.run("autoStart", "false");
 }
 
 export function closeDatabase(): void {
   if (db) {
-    db.close()
-    db = null
+    db.close();
+    db = null;
   }
 }
