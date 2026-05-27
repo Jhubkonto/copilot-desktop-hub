@@ -136,6 +136,8 @@ export function createMockApi() {
     createProject: vi.fn().mockResolvedValue({ id: 'proj-1' }),
     renameProject: vi.fn().mockResolvedValue(true),
     deleteProject: vi.fn().mockResolvedValue(true),
+    duplicateProject: vi.fn().mockResolvedValue({ id: 'proj-2' }),
+    exportProject: vi.fn().mockResolvedValue(true),
     setConversationProject: vi.fn().mockResolvedValue(true),
     setProjectDefaultModel: vi.fn().mockResolvedValue(true),
 

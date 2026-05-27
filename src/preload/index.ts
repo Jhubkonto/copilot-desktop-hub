@@ -97,6 +97,10 @@ const api = {
   exportAgent: (id: string) => ipcRenderer.invoke('agent:export', id),
   importAgent: () => ipcRenderer.invoke('agent:import'),
 
+  // Projects (additional)
+  duplicateProject: (id: string) => ipcRenderer.invoke('project:duplicate', id),
+  exportProject: (id: string) => ipcRenderer.invoke('project:export', id),
+
   // Knowledge files
   listKnowledgeFiles: (agentId: string) =>
     ipcRenderer.invoke('agent:list-knowledge-files', agentId),
