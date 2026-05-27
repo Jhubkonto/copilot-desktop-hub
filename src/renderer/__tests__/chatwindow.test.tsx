@@ -119,7 +119,7 @@ describe('ChatWindow — Streaming', () => {
     await user.type(textarea, 'Test')
     await user.click(screen.getByRole('button', { name: /send/i }))
 
-    expect(screen.getByText(/Generating\.\.\. \d+s/)).toBeInTheDocument()
+    expect(screen.getByText(/Generating(\.\.\.|( · \d+s))/)).toBeInTheDocument()
 
     act(() => {
       streamCallback?.('Hello ')

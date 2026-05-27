@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { Paperclip, TerminalSquare, Square, Send, X, Eye } from 'lucide-react'
+import { Paperclip, TerminalSquare, Square, Send, X, Eye, Loader2, AlertCircle } from 'lucide-react'
 import { MessageBubble } from './MessageBubble'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { ContextInspector, type ContextSnapshot } from './ContextInspector'
+import { TeamActivityBlock, type TeamActivityStep } from './TeamActivityBlock'
 import { useAppStore } from '../store/app-store'
 import { executeSlashCommand, transformCodeSlashCommand, SLASH_COMMANDS, type SlashCommandContext } from '../slash-commands'
 import { MODEL_OPTIONS, getModelLabel, getModelMultiplier } from '../../shared/models'
@@ -24,7 +25,7 @@ interface PastedImage {
 
 interface ChatMessage {
   id: string
-  role: 'user' | 'assistant' | 'system'
+  role: 'user' | 'assistant' | 'system' | 'team-activity'
   content: string
   timestamp: number
   model?: string | null
@@ -88,6 +89,7 @@ export function ChatWindow() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
+  const [loadingFailed, setLoadingFailed] = useState(false)
   const [isLoadingMessages, setIsLoadingMessages] = useState(false)
   const [generationStartedAt, setGenerationStartedAt] = useState<number | null>(null)
   const [generationElapsedSec, setGenerationElapsedSec] = useState(0)
@@ -96,6 +98,7 @@ export function ChatWindow() {
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([])
   const [pendingImages, setPendingImages] = useState<PastedImage[]>([])
   const [showContextInspector, setShowContextInspector] = useState(false)
+  const [liveTeamActivity, setLiveTeamActivity] = useState<TeamActivityStep[]>([])
   const [isDragging, setIsDragging] = useState(false)
   const dragDepthRef = useRef(0)
   const [isOnline, setIsOnline] = useState(navigator.onLine)
@@ -113,6 +116,9 @@ export function ChatWindow() {
   const lastUndoneUserMessageRef = useRef<string | null>(null)
   const pendingEditedResendRef = useRef(false)
   const streamModelRef = useRef<string | null>(null)
+  // Prevents the conversationId useEffect from resetting isGenerating when we
+  // just created a new conversation via handleSend (not a user-initiated switch)
+  const justCreatedConversationRef = useRef(false)
   // Input history (like a CLI — Alt+Up/Down to cycle)
   const inputHistoryRef = useRef<string[]>([])
   const historyIndexRef = useRef(-1) // -1 = live input (not browsing history)
@@ -156,6 +162,12 @@ export function ChatWindow() {
 
   // Load messages when conversation changes
   useEffect(() => {
+    // If we just created this conversation via handleSend, don't reset the
+    // generating state or messages — the stream is already in flight.
+    if (justCreatedConversationRef.current) {
+      justCreatedConversationRef.current = false
+      return
+    }
     if (conversationId) {
       setIsLoadingMessages(true)
       window.api.getMessages(conversationId).then((msgs: Array<{
@@ -174,7 +186,7 @@ export function ChatWindow() {
           )
           return msgs.map((m) => ({
             id: m.id,
-            role: m.role as 'user' | 'assistant' | 'system',
+            role: m.role as 'user' | 'assistant' | 'system' | 'team-activity',
             content: m.content,
             timestamp: m.timestamp,
             model: m.model ?? null,
@@ -199,6 +211,7 @@ export function ChatWindow() {
     setIsGenerating(false)
     setGenerationStartedAt(null)
     setGenerationElapsedSec(0)
+    setLiveTeamActivity([])
   }, [conversationId, addToast])
 
   // Subscribe to streaming responses
@@ -220,8 +233,10 @@ export function ChatWindow() {
         streamModelRef.current = null
         setStreamingContent('')
         setIsGenerating(false)
+        setLoadingFailed(false)
         setGenerationStartedAt(null)
         setGenerationElapsedSec(0)
+        setLiveTeamActivity([])
         loadConversations()
       } else {
         streamingContentRef.current += chunk
@@ -248,6 +263,7 @@ export function ChatWindow() {
       streamModelRef.current = null
       setStreamingContent('')
       setIsGenerating(false)
+      setLoadingFailed(true)
       setGenerationStartedAt(null)
       setGenerationElapsedSec(0)
       if (error.type === 'rate_limit') {
@@ -265,6 +281,22 @@ export function ChatWindow() {
       unsubscribeError()
     }
   }, [loadConversations])
+
+  // Subscribe to live team-activity delegation events
+  useEffect(() => {
+    const unsub = window.api.onTeamActivity((step) => {
+      setLiveTeamActivity((prev) => {
+        const existing = prev.findIndex((s) => s.stepId === step.stepId)
+        if (existing >= 0) {
+          const next = [...prev]
+          next[existing] = step
+          return next
+        }
+        return [...prev, step]
+      })
+    })
+    return unsub
+  }, [])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -641,6 +673,7 @@ export function ChatWindow() {
     setInput('')
     setPendingAttachments([])
     setPendingImages([])
+    setLoadingFailed(false)
     setIsGenerating(true)
     setGenerationStartedAt(Date.now())
     setGenerationElapsedSec(0)
@@ -652,6 +685,7 @@ export function ChatWindow() {
     let convId = activeConversationRef.current
     if (!convId) {
       convId = crypto.randomUUID()
+      justCreatedConversationRef.current = true
       conversationCreated(convId)
       activeConversationRef.current = convId
     }
@@ -670,6 +704,7 @@ export function ChatWindow() {
     } catch (error) {
       console.error('Failed to send message:', error)
       setIsGenerating(false)
+      setLoadingFailed(true)
       setGenerationStartedAt(null)
       streamModelRef.current = null
       addToast('Failed to send message. Please try again.', 'error')
@@ -870,10 +905,14 @@ export function ChatWindow() {
     }
   }
 
-  // Find the last assistant message index for regenerate button
-  const lastAssistantIndex = messages.length > 0 && messages[messages.length - 1].role === 'assistant'
-    ? messages.length - 1
-    : -1
+  // Find the last assistant message index for regenerate button (skip team-activity messages)
+  const lastAssistantIndex = (() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'assistant') return i
+      if (messages[i].role === 'user') break
+    }
+    return -1
+  })()
 
   const renderModelPicker = () => (
     <div className="px-4 pt-3">
@@ -1204,7 +1243,17 @@ export function ChatWindow() {
               ))}
             </>
           )}
-          {messages.map((msg, index) => (
+          {messages.map((msg, index) => {
+            if (msg.role === 'team-activity') {
+              let steps: TeamActivityStep[] = []
+              try { steps = (JSON.parse(msg.content) as { steps: TeamActivityStep[] }).steps ?? [] } catch { /* ignore */ }
+              return (
+                <div key={msg.id} className="max-w-3xl mx-auto">
+                  <TeamActivityBlock steps={steps} isLive={false} />
+                </div>
+              )
+            }
+            return (
             <MessageBubble
               key={msg.id}
               id={msg.id}
@@ -1235,7 +1284,13 @@ export function ChatWindow() {
               onSignIn={msg.isError && msg.errorType === 'auth' ? handleSignIn : undefined}
               onPickModel={msg.isError && msg.errorType === 'model_not_available' ? () => modelPickerRef.current?.focus() : undefined}
             />
-          ))}
+            )
+          })}
+          {isGenerating && liveTeamActivity.length > 0 && (
+            <div className="max-w-3xl mx-auto">
+              <TeamActivityBlock steps={liveTeamActivity} isLive={true} />
+            </div>
+          )}
           {isGenerating && streamingContent && (
             <div className="flex justify-start">
               <div className="max-w-[80%] bg-gray-100 dark:bg-gray-800 rounded-lg px-4 py-3 text-sm text-gray-900 dark:text-gray-100">
@@ -1246,8 +1301,24 @@ export function ChatWindow() {
           )}
           {isGenerating && !streamingContent && (
             <div className="flex justify-start">
-              <div className="bg-gray-100 dark:bg-gray-800 rounded-lg px-4 py-3 text-sm text-gray-500">
-                <span className="animate-pulse">Generating... {generationElapsedSec}s</span>
+              <div className="bg-gray-100 dark:bg-gray-800 rounded-2xl px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                <div className="flex items-center gap-2 mb-2">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                  <span>Generating{generationElapsedSec > 0 ? ` · ${generationElapsedSec}s` : '...'}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce [animation-delay:-0.3s]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce [animation-delay:-0.15s]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce" />
+                </div>
+              </div>
+            </div>
+          )}
+          {loadingFailed && !isGenerating && !streamingContent && (
+            <div className="flex justify-start">
+              <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-2xl px-4 py-3 text-sm text-red-600 dark:text-red-400 flex items-center gap-2">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <span>Request failed — see error above</span>
               </div>
             </div>
           )}
