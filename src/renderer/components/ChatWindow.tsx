@@ -64,6 +64,7 @@ export function ChatWindow() {
   const conversations = useAppStore((s) => s.conversations)
   const authenticated = useAppStore((s) => s.authState.authenticated)
   const theme = useAppStore((s) => s.theme)
+  const projectAgents = useAppStore((s) => s.projectAgents)
 
   const conversationCreated = useAppStore((s) => s.conversationCreated)
   const loadConversations = useAppStore((s) => s.loadConversations)
@@ -81,9 +82,18 @@ export function ChatWindow() {
   const [defaultModelSetting, setDefaultModelSetting] = useState('default')
   const conversationModel = currentConversation?.model ?? null
   const projectId = currentConversation?.project_id ?? activeProjectId
-  const projectDefaultModel = projectId ? (projects.find((p) => p.id === projectId)?.default_model ?? null) : null
+  const currentProject = projectId ? projects.find((p) => p.id === projectId) ?? null : null
+  const projectDefaultModel = currentProject?.default_model ?? null
   const effectiveModel = conversationModel || activeAgent?.model || projectDefaultModel || defaultModelSetting || 'default'
   const effectiveModelLabel = getModelLabel(effectiveModel)
+
+  // Resolve the agent to display in the context bar:
+  // prefer the explicitly-active agent, else the project's primary agent
+  const primaryProjectAgent = projectId
+    ? (projectAgents[projectId] ?? []).find((pa) => pa.isPrimary) ?? null
+    : null
+  const displayAgent = activeAgent
+    ?? (primaryProjectAgent ? agents.find((a) => a.id === primaryProjectAgent.agentId) ?? null : null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
@@ -921,7 +931,7 @@ export function ChatWindow() {
             <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
               <span>Model</span>
               <select
-                value={conversationModel ?? 'default'}
+                value={effectiveModel}
                 onChange={(e) => handleSetConversationModel(e.target.value)}
                 ref={modelPickerRef}
                 className="rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1 text-xs text-gray-700 dark:text-gray-200"
@@ -1211,6 +1221,29 @@ export function ChatWindow() {
       role="region"
       aria-label="Chat conversation"
     >
+      {/* Context bar — shows project and agent when at least one is set */}
+      {(currentProject || displayAgent) && (
+        <div
+          className="flex items-center gap-2 px-4 py-1.5 border-b border-gray-200 dark:border-gray-700/80 bg-gray-50 dark:bg-gray-800/50"
+          aria-label="Chat context"
+        >
+          {currentProject && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300">
+              <span
+                className={`w-2 h-2 rounded-full bg-${currentProject.color}-400`}
+                aria-hidden="true"
+              />
+              {currentProject.name}
+            </span>
+          )}
+          {displayAgent && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300">
+              <span aria-hidden="true">{displayAgent.icon}</span>
+              {displayAgent.name}
+            </span>
+          )}
+        </div>
+      )}
       <div className="flex-1 overflow-y-auto min-h-0 px-4 py-6" role="log" aria-live="polite" aria-label="Messages">
         <div className="max-w-3xl mx-auto space-y-8">
           {isLoadingMessages && (

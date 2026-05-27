@@ -1,499 +1,764 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, act, waitFor } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
-import { ChatWindow } from '../../renderer/components/ChatWindow'
-import { setupMockApi, type MockApi } from '../../test/mocks/api'
-import { createMockAppStore, setupStoreMock } from '../../test/mocks/store'
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, act, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { ChatWindow } from "../../renderer/components/ChatWindow";
+import { setupMockApi, type MockApi } from "../../test/mocks/api";
+import { createMockAppStore, setupStoreMock } from "../../test/mocks/store";
 
 const { useAppStore } = vi.hoisted(() => ({
-  useAppStore: vi.fn()
-}))
+  useAppStore: vi.fn(),
+}));
 
-vi.mock('../../renderer/store/app-store', () => ({
-  useAppStore
-}))
+vi.mock("../../renderer/store/app-store", () => ({
+  useAppStore,
+}));
 
-let mockApi: MockApi
-let streamCallback: ((chunk: string | null) => void) | null = null
-let streamErrorCallback: ((error: { type: string; message: string; retryable: boolean; retryAfterSeconds?: number }) => void) | null = null
-let mockStore: ReturnType<typeof createMockAppStore>
+let mockApi: MockApi;
+let streamCallback: ((chunk: string | null) => void) | null = null;
+let streamErrorCallback:
+  | ((error: {
+      type: string;
+      message: string;
+      retryable: boolean;
+      retryAfterSeconds?: number;
+    }) => void)
+  | null = null;
+let mockStore: ReturnType<typeof createMockAppStore>;
 
 beforeEach(() => {
-  mockApi = setupMockApi()
-  streamCallback = null
-  mockApi.getMessages.mockResolvedValue([])
+  mockApi = setupMockApi();
+  streamCallback = null;
+  mockApi.getMessages.mockResolvedValue([]);
 
-  mockApi.onStreamResponse.mockImplementation((cb: (chunk: string | null) => void) => {
-    streamCallback = cb
-    return () => {
-      streamCallback = null
-    }
-  })
-  mockApi.onStreamError.mockImplementation((cb: (error: { type: string; message: string; retryable: boolean; retryAfterSeconds?: number }) => void) => {
-    streamErrorCallback = cb
-    return () => {
-      streamErrorCallback = null
-    }
-  })
+  mockApi.onStreamResponse.mockImplementation(
+    (cb: (chunk: string | null) => void) => {
+      streamCallback = cb;
+      return () => {
+        streamCallback = null;
+      };
+    },
+  );
+  mockApi.onStreamError.mockImplementation(
+    (
+      cb: (error: {
+        type: string;
+        message: string;
+        retryable: boolean;
+        retryAfterSeconds?: number;
+      }) => void,
+    ) => {
+      streamErrorCallback = cb;
+      return () => {
+        streamErrorCallback = null;
+      };
+    },
+  );
 
   mockStore = createMockAppStore({
-    authState: { authenticated: true, user: null }
-  })
-  setupStoreMock(useAppStore, mockStore)
-})
+    authState: { authenticated: true, user: null },
+  });
+  setupStoreMock(useAppStore, mockStore);
+});
 
-describe('ChatWindow — Empty State', () => {
-  it('chat-r-1: shows welcome message with default title', () => {
-    render(<ChatWindow />)
-    expect(screen.getByText('Copilot Desktop Hub')).toBeInTheDocument()
-  })
+describe("ChatWindow — Empty State", () => {
+  it("chat-r-1: shows welcome message with default title", () => {
+    render(<ChatWindow />);
+    expect(screen.getByText("Copilot Desktop Hub")).toBeInTheDocument();
+  });
 
-  it('chat-r-1b: shows agent name when activeAgent provided', () => {
+  it("chat-r-1b: shows agent name when activeAgent provided", () => {
     mockStore = createMockAppStore({
       authState: { authenticated: true, user: null },
-      agents: [{ id: 'a1', name: 'Code Helper', icon: '🧑‍💻' }],
-      activeAgentId: 'a1'
-    })
-    setupStoreMock(useAppStore, mockStore)
+      agents: [{ id: "a1", name: "Code Helper", icon: "🧑‍💻" }],
+      activeAgentId: "a1",
+    });
+    setupStoreMock(useAppStore, mockStore);
 
-    render(<ChatWindow />)
-    expect(screen.getByText('🧑‍💻 Code Helper')).toBeInTheDocument()
-  })
+    render(<ChatWindow />);
+    expect(screen.getByText("🧑‍💻 Code Helper")).toBeInTheDocument();
+  });
 
-  it('chat-r-9: empty input does not send', async () => {
-    const user = userEvent.setup()
-    render(<ChatWindow />)
+  it("chat-r-9: empty input does not send", async () => {
+    const user = userEvent.setup();
+    render(<ChatWindow />);
 
-    const sendButton = screen.getByRole('button', { name: /send/i })
-    await user.click(sendButton)
-    expect(mockApi.sendMessage).not.toHaveBeenCalled()
-  })
-})
+    const sendButton = screen.getByRole("button", { name: /send/i });
+    await user.click(sendButton);
+    expect(mockApi.sendMessage).not.toHaveBeenCalled();
+  });
+});
 
-describe('ChatWindow — Sending Messages', () => {
-  it('chat-r-3: user message appears immediately after send (optimistic)', async () => {
-    const user = userEvent.setup()
-    render(<ChatWindow />)
+describe("ChatWindow — Sending Messages", () => {
+  it("chat-r-3: user message appears immediately after send (optimistic)", async () => {
+    const user = userEvent.setup();
+    render(<ChatWindow />);
 
-    const textarea = screen.getByRole('textbox', { name: /message input/i })
-    await user.type(textarea, 'Hello world')
-    await user.click(screen.getByRole('button', { name: /send/i }))
+    const textarea = screen.getByRole("textbox", { name: /message input/i });
+    await user.type(textarea, "Hello world");
+    await user.click(screen.getByRole("button", { name: /send/i }));
 
-    expect(screen.getByText('Hello world')).toBeInTheDocument()
-  })
+    expect(screen.getByText("Hello world")).toBeInTheDocument();
+  });
 
-  it('chat-r-8: Enter sends message, Shift+Enter inserts newline', async () => {
-    const user = userEvent.setup()
-    render(<ChatWindow />)
+  it("chat-r-8: Enter sends message, Shift+Enter inserts newline", async () => {
+    const user = userEvent.setup();
+    render(<ChatWindow />);
 
-    const textarea = screen.getByRole('textbox', { name: /message input/i })
-    await user.type(textarea, 'Line 1{Shift>}{Enter}{/Shift}Line 2')
+    const textarea = screen.getByRole("textbox", { name: /message input/i });
+    await user.type(textarea, "Line 1{Shift>}{Enter}{/Shift}Line 2");
 
-    expect(mockApi.sendMessage).not.toHaveBeenCalled()
-    expect(textarea).toHaveValue('Line 1\nLine 2')
+    expect(mockApi.sendMessage).not.toHaveBeenCalled();
+    expect(textarea).toHaveValue("Line 1\nLine 2");
 
-    await user.type(textarea, '{Enter}')
+    await user.type(textarea, "{Enter}");
 
-    expect(mockStore.conversationCreated).toHaveBeenCalled()
-  })
+    expect(mockStore.conversationCreated).toHaveBeenCalled();
+  });
 
-  it('chat-r-6: send button disabled while isGenerating', async () => {
-    const user = userEvent.setup()
-    render(<ChatWindow />)
+  it("chat-r-6: send button disabled while isGenerating", async () => {
+    const user = userEvent.setup();
+    render(<ChatWindow />);
 
-    const textarea = screen.getByRole('textbox', { name: /message input/i })
-    await user.type(textarea, 'Test message')
-    await user.click(screen.getByRole('button', { name: /send/i }))
+    const textarea = screen.getByRole("textbox", { name: /message input/i });
+    await user.type(textarea, "Test message");
+    await user.click(screen.getByRole("button", { name: /send/i }));
 
-    expect(screen.getByRole('button', { name: /stop/i })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /^send$/i })).not.toBeInTheDocument()
-  })
-})
+    expect(screen.getByRole("button", { name: /stop/i })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^send$/i }),
+    ).not.toBeInTheDocument();
+  });
+});
 
-describe('ChatWindow — Streaming', () => {
-  it('chat-r-4: streaming content renders with typing indicator', async () => {
-    const user = userEvent.setup()
-    render(<ChatWindow />)
+describe("ChatWindow — Streaming", () => {
+  it("chat-r-4: streaming content renders with typing indicator", async () => {
+    const user = userEvent.setup();
+    render(<ChatWindow />);
 
-    const textarea = screen.getByRole('textbox', { name: /message input/i })
-    await user.type(textarea, 'Test')
-    await user.click(screen.getByRole('button', { name: /send/i }))
+    const textarea = screen.getByRole("textbox", { name: /message input/i });
+    await user.type(textarea, "Test");
+    await user.click(screen.getByRole("button", { name: /send/i }));
 
-    expect(screen.getByText(/Generating(\.\.\.|( · \d+s))/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/Generating(\.\.\.|( · \d+s))/),
+    ).toBeInTheDocument();
 
     act(() => {
-      streamCallback?.('Hello ')
-    })
+      streamCallback?.("Hello ");
+    });
     act(() => {
-      streamCallback?.('world')
-    })
+      streamCallback?.("world");
+    });
 
     await waitFor(() => {
-      expect(screen.getByText(/Hello world/)).toBeInTheDocument()
-    })
-    expect(screen.getByText('▊')).toBeInTheDocument()
-  })
+      expect(screen.getByText(/Hello world/)).toBeInTheDocument();
+    });
+    expect(screen.getByText("▊")).toBeInTheDocument();
+  });
 
-  it('chat-r-5: stream end appends final message and clears streaming', async () => {
-    const user = userEvent.setup()
-    render(<ChatWindow />)
+  it("chat-r-5: stream end appends final message and clears streaming", async () => {
+    const user = userEvent.setup();
+    render(<ChatWindow />);
 
-    const textarea = screen.getByRole('textbox', { name: /message input/i })
-    await user.type(textarea, 'Test')
-    await user.click(screen.getByRole('button', { name: /send/i }))
-
-    act(() => {
-      streamCallback?.('Response text')
-    })
+    const textarea = screen.getByRole("textbox", { name: /message input/i });
+    await user.type(textarea, "Test");
+    await user.click(screen.getByRole("button", { name: /send/i }));
 
     act(() => {
-      streamCallback?.(null)
-    })
+      streamCallback?.("Response text");
+    });
+
+    act(() => {
+      streamCallback?.(null);
+    });
 
     await waitFor(() => {
-      expect(screen.getByText('Response text')).toBeInTheDocument()
-    })
+      expect(screen.getByText("Response text")).toBeInTheDocument();
+    });
 
-    expect(screen.getByRole('button', { name: /send/i })).toBeInTheDocument()
-    expect(screen.queryByText('▊')).not.toBeInTheDocument()
-  })
+    expect(screen.getByRole("button", { name: /send/i })).toBeInTheDocument();
+    expect(screen.queryByText("▊")).not.toBeInTheDocument();
+  });
 
-  it('chat-r-7: stop button visible while generating', async () => {
-    const user = userEvent.setup()
-    render(<ChatWindow />)
+  it("chat-r-7: stop button visible while generating", async () => {
+    const user = userEvent.setup();
+    render(<ChatWindow />);
 
-    const textarea = screen.getByRole('textbox', { name: /message input/i })
-    await user.type(textarea, 'Test')
-    await user.click(screen.getByRole('button', { name: /send/i }))
+    const textarea = screen.getByRole("textbox", { name: /message input/i });
+    await user.type(textarea, "Test");
+    await user.click(screen.getByRole("button", { name: /send/i }));
 
-    const stopBtn = screen.getByRole('button', { name: /stop/i })
-    expect(stopBtn).toBeInTheDocument()
+    const stopBtn = screen.getByRole("button", { name: /stop/i });
+    expect(stopBtn).toBeInTheDocument();
 
-    await user.click(stopBtn)
-    expect(mockApi.stopGeneration).toHaveBeenCalled()
-  })
-})
+    await user.click(stopBtn);
+    expect(mockApi.stopGeneration).toHaveBeenCalled();
+  });
+});
 
-describe('ChatWindow — Messages Display', () => {
-  it('chat-r-2: messages render in chronological order', async () => {
+describe("ChatWindow — Messages Display", () => {
+  it("chat-r-2: messages render in chronological order", async () => {
     mockApi.getMessages.mockResolvedValue([
-      { id: 'm1', role: 'user', content: 'First message', timestamp: 1000 },
-      { id: 'm2', role: 'assistant', content: 'First reply', timestamp: 2000 },
-      { id: 'm3', role: 'user', content: 'Second message', timestamp: 3000 }
-    ])
+      { id: "m1", role: "user", content: "First message", timestamp: 1000 },
+      { id: "m2", role: "assistant", content: "First reply", timestamp: 2000 },
+      { id: "m3", role: "user", content: "Second message", timestamp: 3000 },
+    ]);
 
     mockStore = createMockAppStore({
       authState: { authenticated: true, user: null },
-      currentConversationId: 'conv-1'
-    })
-    setupStoreMock(useAppStore, mockStore)
+      currentConversationId: "conv-1",
+    });
+    setupStoreMock(useAppStore, mockStore);
 
-    render(<ChatWindow />)
+    render(<ChatWindow />);
 
     await waitFor(() => {
-      expect(screen.getByText('First message')).toBeInTheDocument()
-    })
+      expect(screen.getByText("First message")).toBeInTheDocument();
+    });
 
-    const messages = screen.getAllByText(/message|reply/i)
-    expect(messages[0]).toHaveTextContent('First message')
-    expect(messages[1]).toHaveTextContent('First reply')
-    expect(messages[2]).toHaveTextContent('Second message')
-  })
-})
+    const messages = screen.getAllByText(/message|reply/i);
+    expect(messages[0]).toHaveTextContent("First message");
+    expect(messages[1]).toHaveTextContent("First reply");
+    expect(messages[2]).toHaveTextContent("Second message");
+  });
+});
 
-describe('ChatWindow — File Attachments', () => {
-  it('chat-r-11: file attachment badge appears after file pick', async () => {
-    const user = userEvent.setup()
+describe("ChatWindow — File Attachments", () => {
+  it("chat-r-11: file attachment badge appears after file pick", async () => {
+    const user = userEvent.setup();
     mockApi.openFileDialog.mockResolvedValue([
-      { id: 'f1', name: 'test.ts', path: '/tmp/test.ts', size: 500 }
-    ])
+      { id: "f1", name: "test.ts", path: "/tmp/test.ts", size: 500 },
+    ]);
 
-    render(<ChatWindow />)
+    render(<ChatWindow />);
 
-    const attachBtn = screen.getByRole('button', { name: /attach/i })
-    await user.click(attachBtn)
+    const attachBtn = screen.getByRole("button", { name: /attach/i });
+    await user.click(attachBtn);
 
     await waitFor(() => {
-      expect(screen.getByText(/test\.ts/)).toBeInTheDocument()
-    })
-  })
+      expect(screen.getByText(/test\.ts/)).toBeInTheDocument();
+    });
+  });
 
-  it('chat-r-12: attachment removed when X clicked', async () => {
-    const user = userEvent.setup()
+  it("chat-r-12: attachment removed when X clicked", async () => {
+    const user = userEvent.setup();
     mockApi.openFileDialog.mockResolvedValue([
-      { id: 'f1', name: 'test.ts', path: '/tmp/test.ts', size: 500 }
-    ])
+      { id: "f1", name: "test.ts", path: "/tmp/test.ts", size: 500 },
+    ]);
 
-    render(<ChatWindow />)
+    render(<ChatWindow />);
 
-    await user.click(screen.getByRole('button', { name: /attach/i }))
+    await user.click(screen.getByRole("button", { name: /attach/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/test\.ts/)).toBeInTheDocument()
-    })
+      expect(screen.getByText(/test\.ts/)).toBeInTheDocument();
+    });
 
-    const removeBtn = screen.getByLabelText(/Remove/)
-    await user.click(removeBtn)
+    const removeBtn = screen.getByLabelText(/Remove/);
+    await user.click(removeBtn);
 
-    expect(screen.queryByText(/test\.ts/)).not.toBeInTheDocument()
-  })
-})
+    expect(screen.queryByText(/test\.ts/)).not.toBeInTheDocument();
+  });
+});
 
-describe('ChatWindow — Offline State', () => {
-  it('chat-r-13: offline placeholder shown when navigator.onLine is false', () => {
-    Object.defineProperty(navigator, 'onLine', { value: false, writable: true })
+describe("ChatWindow — Offline State", () => {
+  it("chat-r-13: offline placeholder shown when navigator.onLine is false", () => {
+    Object.defineProperty(navigator, "onLine", {
+      value: false,
+      writable: true,
+    });
 
-    render(<ChatWindow />)
+    render(<ChatWindow />);
 
-    const textarea = screen.getByRole('textbox', { name: /message input/i })
+    const textarea = screen.getByRole("textbox", { name: /message input/i });
     expect(textarea).toHaveAttribute(
-      'placeholder',
-      expect.stringContaining('Offline')
-    )
+      "placeholder",
+      expect.stringContaining("Offline"),
+    );
 
-    Object.defineProperty(navigator, 'onLine', { value: true, writable: true })
-  })
+    Object.defineProperty(navigator, "onLine", { value: true, writable: true });
+  });
 
-  it('chat-r-14: input disabled when offline', () => {
-    Object.defineProperty(navigator, 'onLine', { value: false, writable: true })
+  it("chat-r-14: input disabled when offline", () => {
+    Object.defineProperty(navigator, "onLine", {
+      value: false,
+      writable: true,
+    });
 
-    render(<ChatWindow />)
+    render(<ChatWindow />);
 
-    const textarea = screen.getByRole('textbox', { name: /message input/i })
-    expect(textarea).toBeDisabled()
+    const textarea = screen.getByRole("textbox", { name: /message input/i });
+    expect(textarea).toBeDisabled();
 
-    Object.defineProperty(navigator, 'onLine', { value: true, writable: true })
-  })
+    Object.defineProperty(navigator, "onLine", { value: true, writable: true });
+  });
 
-  it('disables input while rate limit countdown is active', async () => {
-    render(<ChatWindow />)
+  it("disables input while rate limit countdown is active", async () => {
+    render(<ChatWindow />);
     act(() => {
       streamErrorCallback?.({
-        type: 'rate_limit',
-        message: 'Rate limited by Copilot API. Please wait a moment and try again.',
+        type: "rate_limit",
+        message:
+          "Rate limited by Copilot API. Please wait a moment and try again.",
         retryable: true,
-        retryAfterSeconds: 8
-      })
-    })
+        retryAfterSeconds: 8,
+      });
+    });
 
-    expect(screen.getByText(/Rate limited — you can send again in 8s/i)).toBeInTheDocument()
-    expect(screen.getByRole('textbox', { name: /message input/i })).toBeDisabled()
-  })
-})
+    expect(
+      screen.getByText(/Rate limited — you can send again in 8s/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("textbox", { name: /message input/i }),
+    ).toBeDisabled();
+  });
+});
 
-describe('ChatWindow — Regenerate & Edit', () => {
-  it('chat-r-15: regenerate button shown only on last assistant message', async () => {
+describe("ChatWindow — Regenerate & Edit", () => {
+  it("chat-r-15: regenerate button shown only on last assistant message", async () => {
     mockApi.getMessages.mockResolvedValue([
-      { id: 'm1', role: 'user', content: 'Question', timestamp: 1000 },
-      { id: 'm2', role: 'assistant', content: 'Answer', timestamp: 2000 }
-    ])
+      { id: "m1", role: "user", content: "Question", timestamp: 1000 },
+      { id: "m2", role: "assistant", content: "Answer", timestamp: 2000 },
+    ]);
 
     mockStore = createMockAppStore({
       authState: { authenticated: true, user: null },
-      currentConversationId: 'conv-1'
-    })
-    setupStoreMock(useAppStore, mockStore)
+      currentConversationId: "conv-1",
+    });
+    setupStoreMock(useAppStore, mockStore);
 
-    render(<ChatWindow />)
+    render(<ChatWindow />);
 
     await waitFor(() => {
-      expect(screen.getByText('Answer')).toBeInTheDocument()
-    })
+      expect(screen.getByText("Answer")).toBeInTheDocument();
+    });
 
-    expect(screen.getByText('Answer')).toBeInTheDocument()
-  })
+    expect(screen.getByText("Answer")).toBeInTheDocument();
+  });
 
-  it('chat-r-17: edit button shown on user messages', async () => {
+  it("chat-r-17: edit button shown on user messages", async () => {
     mockApi.getMessages.mockResolvedValue([
-      { id: 'm1', role: 'user', content: 'My question', timestamp: 1000 },
-      { id: 'm2', role: 'assistant', content: 'My answer', timestamp: 2000 }
-    ])
+      { id: "m1", role: "user", content: "My question", timestamp: 1000 },
+      { id: "m2", role: "assistant", content: "My answer", timestamp: 2000 },
+    ]);
 
     mockStore = createMockAppStore({
       authState: { authenticated: true, user: null },
-      currentConversationId: 'conv-1'
-    })
-    setupStoreMock(useAppStore, mockStore)
+      currentConversationId: "conv-1",
+    });
+    setupStoreMock(useAppStore, mockStore);
 
-    render(<ChatWindow />)
+    render(<ChatWindow />);
 
     await waitFor(() => {
-      expect(screen.getByText('My question')).toBeInTheDocument()
-    })
+      expect(screen.getByText("My question")).toBeInTheDocument();
+    });
 
-    expect(screen.getByText('My question')).toBeInTheDocument()
-  })
-})
+    expect(screen.getByText("My question")).toBeInTheDocument();
+  });
+});
 
-describe('ChatWindow — Slash Commands', () => {
-  it('executes /help locally and does not send to API', async () => {
-    const user = userEvent.setup()
-    render(<ChatWindow />)
+describe("ChatWindow — Slash Commands", () => {
+  it("executes /help locally and does not send to API", async () => {
+    const user = userEvent.setup();
+    render(<ChatWindow />);
 
-    const textarea = screen.getByRole('textbox', { name: /message input/i })
-    await user.type(textarea, '/help')
-    await user.click(screen.getByLabelText('Send message'))
+    const textarea = screen.getByRole("textbox", { name: /message input/i });
+    await user.type(textarea, "/help");
+    await user.click(screen.getByLabelText("Send message"));
 
-    expect(mockApi.sendMessage).not.toHaveBeenCalled()
+    expect(mockApi.sendMessage).not.toHaveBeenCalled();
     await waitFor(() => {
-      expect(screen.getByText(/Available slash commands:/i)).toBeInTheDocument()
-    })
-  })
+      expect(
+        screen.getByText(/Available slash commands:/i),
+      ).toBeInTheDocument();
+    });
+  });
 
-  it('shows slash autocomplete and inserts selected command with Enter', async () => {
-    const user = userEvent.setup()
-    render(<ChatWindow />)
+  it("shows slash autocomplete and inserts selected command with Enter", async () => {
+    const user = userEvent.setup();
+    render(<ChatWindow />);
 
-    const textarea = screen.getByRole('textbox', { name: /message input/i })
-    await user.type(textarea, '/h')
+    const textarea = screen.getByRole("textbox", { name: /message input/i });
+    await user.type(textarea, "/h");
 
-    expect(screen.getByRole('button', { name: /\/help/i })).toBeInTheDocument()
-    await user.type(textarea, '{Enter}')
+    expect(screen.getByRole("button", { name: /\/help/i })).toBeInTheDocument();
+    await user.type(textarea, "{Enter}");
 
-    expect(textarea).toHaveValue('/help ')
-  })
+    expect(textarea).toHaveValue("/help ");
+  });
 
-  it('executes /clear by removing messages and calling deleteMessagesAfter', async () => {
-    const user = userEvent.setup()
+  it("executes /clear by removing messages and calling deleteMessagesAfter", async () => {
+    const user = userEvent.setup();
     mockApi.getMessages.mockResolvedValue([
-      { id: 'm1', role: 'user', content: 'Old message', timestamp: 1000 }
-    ])
+      { id: "m1", role: "user", content: "Old message", timestamp: 1000 },
+    ]);
     mockStore = createMockAppStore({
       authState: { authenticated: true, user: null },
-      currentConversationId: 'conv-1'
-    })
-    setupStoreMock(useAppStore, mockStore)
+      currentConversationId: "conv-1",
+    });
+    setupStoreMock(useAppStore, mockStore);
 
-    render(<ChatWindow />)
+    render(<ChatWindow />);
     await waitFor(() => {
-      expect(screen.getByText('Old message')).toBeInTheDocument()
-    })
+      expect(screen.getByText("Old message")).toBeInTheDocument();
+    });
 
-    const textarea = screen.getByRole('textbox', { name: /message input/i })
-    await user.type(textarea, '/clear')
-    await user.click(screen.getByLabelText('Send message'))
+    const textarea = screen.getByRole("textbox", { name: /message input/i });
+    await user.type(textarea, "/clear");
+    await user.click(screen.getByLabelText("Send message"));
 
-    expect(mockApi.deleteMessagesAfter).toHaveBeenCalledWith('conv-1', 0)
-    expect(screen.queryByText('Old message')).not.toBeInTheDocument()
-  })
+    expect(mockApi.deleteMessagesAfter).toHaveBeenCalledWith("conv-1", 0);
+    expect(screen.queryByText("Old message")).not.toBeInTheDocument();
+  });
 
-  it('transforms /explain into an instruction prompt and sends it', async () => {
-    const user = userEvent.setup()
-    render(<ChatWindow />)
+  it("transforms /explain into an instruction prompt and sends it", async () => {
+    const user = userEvent.setup();
+    render(<ChatWindow />);
 
-    const textarea = screen.getByRole('textbox', { name: /message input/i })
-    await user.type(textarea, '/explain this function')
-    await user.click(screen.getByLabelText('Send message'))
+    const textarea = screen.getByRole("textbox", { name: /message input/i });
+    await user.type(textarea, "/explain this function");
+    await user.click(screen.getByLabelText("Send message"));
 
-    expect(mockApi.sendMessage).toHaveBeenCalled()
-    const sentContent = mockApi.sendMessage.mock.calls[0][1]
-    expect(sentContent).toContain('Explain this code clearly and concisely.')
-    expect(sentContent).toContain('this function')
-  })
+    expect(mockApi.sendMessage).toHaveBeenCalled();
+    const sentContent = mockApi.sendMessage.mock.calls[0][1];
+    expect(sentContent).toContain("Explain this code clearly and concisely.");
+    expect(sentContent).toContain("this function");
+  });
 
-  it('executes /cwd and shows the current working directory', async () => {
-    const user = userEvent.setup()
-    mockApi.getWorkingDirectory.mockResolvedValue('C:\\Projects\\app')
-    render(<ChatWindow />)
+  it("executes /cwd and shows the current working directory", async () => {
+    const user = userEvent.setup();
+    mockApi.getWorkingDirectory.mockResolvedValue("C:\\Projects\\app");
+    render(<ChatWindow />);
 
-    const textarea = screen.getByRole('textbox', { name: /message input/i })
-    await user.type(textarea, '/cwd')
-    await user.click(screen.getByLabelText('Send message'))
+    const textarea = screen.getByRole("textbox", { name: /message input/i });
+    await user.type(textarea, "/cwd");
+    await user.click(screen.getByLabelText("Send message"));
 
-    expect(mockApi.getWorkingDirectory).toHaveBeenCalled()
+    expect(mockApi.getWorkingDirectory).toHaveBeenCalled();
     await waitFor(() => {
-      expect(screen.getByText(/C:\\Projects\\app/)).toBeInTheDocument()
-    })
-  })
+      expect(screen.getByText(/C:\\Projects\\app/)).toBeInTheDocument();
+    });
+  });
 
-  it('executes /cd and calls setWorkingDirectory', async () => {
-    const user = userEvent.setup()
-    render(<ChatWindow />)
+  it("executes /cd and calls setWorkingDirectory", async () => {
+    const user = userEvent.setup();
+    render(<ChatWindow />);
 
-    const textarea = screen.getByRole('textbox', { name: /message input/i })
-    await user.type(textarea, '/cd C:\\Work')
-    await user.click(screen.getByLabelText('Send message'))
+    const textarea = screen.getByRole("textbox", { name: /message input/i });
+    await user.type(textarea, "/cd C:\\Work");
+    await user.click(screen.getByLabelText("Send message"));
 
-    expect(mockApi.setWorkingDirectory).toHaveBeenCalledWith('C:\\Work')
-  })
+    expect(mockApi.setWorkingDirectory).toHaveBeenCalledWith("C:\\Work");
+  });
 
-  it('executes /copy and writes the last assistant message to clipboard', async () => {
-    const user = userEvent.setup()
-    const writeTextSpy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue()
+  it("executes /copy and writes the last assistant message to clipboard", async () => {
+    const user = userEvent.setup();
+    const writeTextSpy = vi
+      .spyOn(navigator.clipboard, "writeText")
+      .mockResolvedValue();
     mockApi.getMessages.mockResolvedValue([
-      { id: 'm1', role: 'assistant', content: 'Final answer', timestamp: 1000 }
-    ])
+      { id: "m1", role: "assistant", content: "Final answer", timestamp: 1000 },
+    ]);
     mockStore = createMockAppStore({
       authState: { authenticated: true, user: null },
-      currentConversationId: 'conv-1'
-    })
-    setupStoreMock(useAppStore, mockStore)
-    render(<ChatWindow />)
+      currentConversationId: "conv-1",
+    });
+    setupStoreMock(useAppStore, mockStore);
+    render(<ChatWindow />);
     await waitFor(() => {
-      expect(screen.getByText('Final answer')).toBeInTheDocument()
-    })
+      expect(screen.getByText("Final answer")).toBeInTheDocument();
+    });
 
-    const textarea = screen.getByRole('textbox', { name: /message input/i })
-    await user.type(textarea, '/copy')
-    await user.click(screen.getByLabelText('Send message'))
+    const textarea = screen.getByRole("textbox", { name: /message input/i });
+    await user.type(textarea, "/copy");
+    await user.click(screen.getByLabelText("Send message"));
 
-    expect(writeTextSpy).toHaveBeenCalledWith('Final answer')
-    writeTextSpy.mockRestore()
-  })
+    expect(writeTextSpy).toHaveBeenCalledWith("Final answer");
+    writeTextSpy.mockRestore();
+  });
 
-  it('executes /share file and saves markdown through IPC', async () => {
-    const user = userEvent.setup()
-    render(<ChatWindow />)
+  it("executes /share file and saves markdown through IPC", async () => {
+    const user = userEvent.setup();
+    render(<ChatWindow />);
 
-    const textarea = screen.getByRole('textbox', { name: /message input/i })
-    await user.type(textarea, '/share file')
-    await user.click(screen.getByLabelText('Send message'))
+    const textarea = screen.getByRole("textbox", { name: /message input/i });
+    await user.type(textarea, "/share file");
+    await user.click(screen.getByLabelText("Send message"));
 
-    expect(mockApi.saveTextFile).toHaveBeenCalled()
-  })
+    expect(mockApi.saveTextFile).toHaveBeenCalled();
+  });
 
-  it('executes /share gist and creates a GitHub gist', async () => {
-    const user = userEvent.setup()
-    render(<ChatWindow />)
+  it("executes /share gist and creates a GitHub gist", async () => {
+    const user = userEvent.setup();
+    render(<ChatWindow />);
 
-    const textarea = screen.getByRole('textbox', { name: /message input/i })
-    await user.type(textarea, '/share gist')
-    await user.click(screen.getByLabelText('Send message'))
+    const textarea = screen.getByRole("textbox", { name: /message input/i });
+    await user.type(textarea, "/share gist");
+    await user.click(screen.getByLabelText("Send message"));
 
-    expect(mockApi.createGist).toHaveBeenCalled()
+    expect(mockApi.createGist).toHaveBeenCalled();
     await waitFor(() => {
-      expect(screen.getByText(/Created secret gist:/)).toBeInTheDocument()
-    })
-  })
+      expect(screen.getByText(/Created secret gist:/)).toBeInTheDocument();
+    });
+  });
 
-  it('executes /models and prints the available models list', async () => {
-    const user = userEvent.setup()
-    render(<ChatWindow />)
+  it("executes /models and prints the available models list", async () => {
+    const user = userEvent.setup();
+    render(<ChatWindow />);
 
-    const textarea = screen.getByRole('textbox', { name: /message input/i })
-    await user.type(textarea, '/models')
-    await user.click(screen.getByLabelText('Send message'))
+    const textarea = screen.getByRole("textbox", { name: /message input/i });
+    await user.type(textarea, "/models");
+    await user.click(screen.getByLabelText("Send message"));
 
     await waitFor(() => {
-      expect(screen.getByText(/Available models:/)).toBeInTheDocument()
-      expect(screen.getByText(/\* Default/)).toBeInTheDocument()
-    })
-  })
+      expect(screen.getByText(/Available models:/)).toBeInTheDocument();
+      expect(screen.getByText(/\* Default/)).toBeInTheDocument();
+    });
+  });
 
-  it('executes /model and sets conversation model', async () => {
-    const user = userEvent.setup()
+  it("executes /model and sets conversation model", async () => {
+    const user = userEvent.setup();
     mockStore = createMockAppStore({
       authState: { authenticated: true, user: null },
-      currentConversationId: 'conv-1',
-      conversations: [{ id: 'conv-1', title: 'chat', agent_id: null, model: null, created_at: 1, updated_at: 1 }]
-    })
-    setupStoreMock(useAppStore, mockStore)
-    render(<ChatWindow />)
+      currentConversationId: "conv-1",
+      conversations: [
+        {
+          id: "conv-1",
+          title: "chat",
+          agent_id: null,
+          model: null,
+          created_at: 1,
+          updated_at: 1,
+        },
+      ],
+    });
+    setupStoreMock(useAppStore, mockStore);
+    render(<ChatWindow />);
 
-    const textarea = screen.getByRole('textbox', { name: /message input/i })
-    await user.type(textarea, '/model gpt-4.1')
-    await user.click(screen.getByLabelText('Send message'))
+    const textarea = screen.getByRole("textbox", { name: /message input/i });
+    await user.type(textarea, "/model gpt-4.1");
+    await user.click(screen.getByLabelText("Send message"));
 
-    expect(mockApi.setConversationModel).toHaveBeenCalledWith('conv-1', 'gpt-4.1')
-  })
-})
+    expect(mockApi.setConversationModel).toHaveBeenCalledWith(
+      "conv-1",
+      "gpt-4.1",
+    );
+  });
+});
+
+// ── Chat Context Bar & Accurate Model Indicator ───────────────────
+
+describe("ChatWindow — Context Bar (O.1)", () => {
+  it("o1-1: context bar is hidden when no project and no agent", () => {
+    mockStore = createMockAppStore({
+      authState: { authenticated: true, user: null },
+    });
+    setupStoreMock(useAppStore, mockStore);
+    render(<ChatWindow />);
+    expect(
+      screen.queryByRole("region", { name: /chat context/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("o1-2: context bar shows project name when conversation has a project", async () => {
+    mockStore = createMockAppStore({
+      authState: { authenticated: true, user: null },
+      currentConversationId: "conv-1",
+      conversations: [
+        {
+          id: "conv-1",
+          title: "Test",
+          project_id: "proj-1",
+          model: null,
+          pinned: false,
+          created_at: 0,
+          updated_at: 0,
+        },
+      ],
+      projects: [
+        {
+          id: "proj-1",
+          name: "My Project",
+          color: "blue",
+          created_at: 0,
+          updated_at: 0,
+        },
+      ],
+    });
+    setupStoreMock(useAppStore, mockStore);
+    render(<ChatWindow />);
+    await waitFor(() =>
+      expect(screen.getByText("My Project")).toBeInTheDocument(),
+    );
+  });
+
+  it("o1-3: context bar shows active agent name", async () => {
+    mockStore = createMockAppStore({
+      authState: { authenticated: true, user: null },
+      currentConversationId: "conv-1",
+      conversations: [
+        {
+          id: "conv-1",
+          title: "T",
+          project_id: "proj-1",
+          model: null,
+          pinned: false,
+          created_at: 0,
+          updated_at: 0,
+        },
+      ],
+      agents: [{ id: "a1", name: "Coder", icon: "🧑‍💻", model: "gpt-4.1" }],
+      activeAgentId: "a1",
+      projects: [
+        {
+          id: "proj-1",
+          name: "My Project",
+          color: "green",
+          created_at: 0,
+          updated_at: 0,
+        },
+      ],
+    });
+    setupStoreMock(useAppStore, mockStore);
+    render(<ChatWindow />);
+    await waitFor(() => expect(screen.getByText("Coder")).toBeInTheDocument());
+  });
+
+  it("o1-4: context bar shows primary project agent when no explicit active agent", async () => {
+    mockStore = createMockAppStore({
+      authState: { authenticated: true, user: null },
+      currentConversationId: "conv-1",
+      conversations: [
+        {
+          id: "conv-1",
+          title: "T",
+          project_id: "proj-2",
+          model: null,
+          pinned: false,
+          created_at: 0,
+          updated_at: 0,
+        },
+      ],
+      agents: [{ id: "a2", name: "Reviewer", icon: "🔍", model: "default" }],
+      activeAgentId: null,
+      projects: [
+        {
+          id: "proj-2",
+          name: "Alpha",
+          color: "purple",
+          created_at: 0,
+          updated_at: 0,
+        },
+      ],
+      projectAgents: {
+        "proj-2": [
+          {
+            agentId: "a2",
+            agentName: "Reviewer",
+            agentIcon: "🔍",
+            isPrimary: true,
+            sortOrder: 0,
+          },
+        ],
+      },
+    });
+    setupStoreMock(useAppStore, mockStore);
+    render(<ChatWindow />);
+    await waitFor(() =>
+      expect(screen.getByText("Reviewer")).toBeInTheDocument(),
+    );
+  });
+});
+
+describe("ChatWindow — Model Dropdown (O.2)", () => {
+  it("o2-1: model dropdown reflects conversation-level model override", async () => {
+    mockStore = createMockAppStore({
+      authState: { authenticated: true, user: null },
+      currentConversationId: "conv-1",
+      conversations: [
+        {
+          id: "conv-1",
+          title: "T",
+          project_id: null,
+          model: "claude-sonnet-4.6",
+          pinned: false,
+          created_at: 0,
+          updated_at: 0,
+        },
+      ],
+    });
+    setupStoreMock(useAppStore, mockStore);
+    render(<ChatWindow />);
+    await waitFor(() => {
+      const select = screen.getByRole("combobox", {
+        name: /conversation model/i,
+      });
+      expect((select as HTMLSelectElement).value).toBe("claude-sonnet-4.6");
+    });
+  });
+
+  it("o2-2: model dropdown falls back to agent model when no conversation override", async () => {
+    mockStore = createMockAppStore({
+      authState: { authenticated: true, user: null },
+      currentConversationId: "conv-1",
+      conversations: [
+        {
+          id: "conv-1",
+          title: "T",
+          project_id: null,
+          model: null,
+          pinned: false,
+          created_at: 0,
+          updated_at: 0,
+        },
+      ],
+      agents: [{ id: "a1", name: "Bot", icon: "🤖", model: "gpt-4.1" }],
+      activeAgentId: "a1",
+    });
+    setupStoreMock(useAppStore, mockStore);
+    render(<ChatWindow />);
+    await waitFor(() => {
+      const select = screen.getByRole("combobox", {
+        name: /conversation model/i,
+      });
+      expect((select as HTMLSelectElement).value).toBe("gpt-4.1");
+    });
+  });
+
+  it("o2-3: model dropdown falls back to project default model", async () => {
+    mockStore = createMockAppStore({
+      authState: { authenticated: true, user: null },
+      currentConversationId: "conv-1",
+      conversations: [
+        {
+          id: "conv-1",
+          title: "T",
+          project_id: "proj-1",
+          model: null,
+          pinned: false,
+          created_at: 0,
+          updated_at: 0,
+        },
+      ],
+      projects: [
+        {
+          id: "proj-1",
+          name: "P",
+          color: "blue",
+          default_model: "gpt-4.1",
+          created_at: 0,
+          updated_at: 0,
+        },
+      ],
+    });
+    setupStoreMock(useAppStore, mockStore);
+    render(<ChatWindow />);
+    await waitFor(() => {
+      const select = screen.getByRole("combobox", {
+        name: /conversation model/i,
+      });
+      expect((select as HTMLSelectElement).value).toBe("gpt-4.1");
+    });
+  });
+});
