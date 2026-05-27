@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { Plus, MessageSquare, Settings, X, LogIn, Upload, Pin, FolderOpen, Folder, MoreHorizontal, Check, Cpu, ChevronDown, ChevronRight } from 'lucide-react'
+import { Plus, MessageSquare, Settings, X, LogIn, Upload, Pin, FolderOpen, Folder, Cpu, ChevronDown, ChevronRight } from 'lucide-react'
 import { SearchBar } from './SearchBar'
 import { useAppStore, type Conversation, type Project } from '../store/app-store'
 import { ResizeHandle } from './ResizeHandle'
@@ -90,13 +90,10 @@ export function Sidebar() {
   const importAgent = useAppStore((s) => s.importAgent)
   const addToast = useAppStore((s) => s.addToast)
   const selectProject = useAppStore((s) => s.selectProject)
-  const createProject = useAppStore((s) => s.createProject)
-  const renameProject = useAppStore((s) => s.renameProject)
-  const deleteProject = useAppStore((s) => s.deleteProject)
+  const openEditProject = useAppStore((s) => s.openEditProject)
   const addAgentToProject = useAppStore((s) => s.addAgentToProject)
   const projectAgents = useAppStore((s) => s.projectAgents)
   const setConversationProject = useAppStore((s) => s.setConversationProject)
-  const setProjectDefaultModel = useAppStore((s) => s.setProjectDefaultModel)
   const activeSectionPane = useAppStore((s) => s.activeSectionPane)
   const setSectionPane = useAppStore((s) => s.setSectionPane)
   const setShowNewProjectForm = useAppStore((s) => s.setShowNewProjectForm)
@@ -107,54 +104,21 @@ export function Sidebar() {
   const [editTitle, setEditTitle] = useState('')
   const [pendingDeleteConv, setPendingDeleteConv] = useState<{ id: string; title: string } | null>(null)
 
-  // Project creation state
-  const [creatingProject, setCreatingProject] = useState(false)
-  const [newProjectName, setNewProjectName] = useState('')
-  const [newProjectColor, setNewProjectColor] = useState('blue')
-
-  // Project rename state
-  const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null)
-  const [renameProjectTitle, setRenameProjectTitle] = useState('')
-
-  // Project menu state
-  const [projectMenuId, setProjectMenuId] = useState<string | null>(null)
-  const projectMenuRef = useRef<HTMLDivElement>(null)
-
   // Conversation project picker state
   const [convProjectPickerId, setConvProjectPickerId] = useState<string | null>(null)
   const convProjectPickerRef = useRef<HTMLDivElement>(null)
-
-  // Drag-to-project state (L.3)
   const [sidebarDragOverProjectId, setSidebarDragOverProjectId] = useState<string | null>(null)
 
-  // Project model picker state
-  const [modelPickerProjectId, setModelPickerProjectId] = useState<string | null>(null)
-  const modelPickerRef = useRef<HTMLDivElement>(null)
-
   useEffect(() => {
-    if (!modelPickerProjectId) return
+    if (!convProjectPickerId) return
     const onPointerDown = (e: MouseEvent) => {
-      if (modelPickerRef.current && !modelPickerRef.current.contains(e.target as Node)) {
-        setModelPickerProjectId(null)
-      }
-    }
-    window.addEventListener('mousedown', onPointerDown)
-    return () => window.removeEventListener('mousedown', onPointerDown)
-  }, [modelPickerProjectId])
-
-  useEffect(() => {
-    if (!projectMenuId && !convProjectPickerId) return
-    const onPointerDown = (e: MouseEvent) => {
-      if (projectMenuId && projectMenuRef.current && !projectMenuRef.current.contains(e.target as Node)) {
-        setProjectMenuId(null)
-      }
-      if (convProjectPickerId && convProjectPickerRef.current && !convProjectPickerRef.current.contains(e.target as Node)) {
+      if (convProjectPickerRef.current && !convProjectPickerRef.current.contains(e.target as Node)) {
         setConvProjectPickerId(null)
       }
     }
     window.addEventListener('mousedown', onPointerDown)
     return () => window.removeEventListener('mousedown', onPointerDown)
-  }, [projectMenuId, convProjectPickerId])
+  }, [convProjectPickerId])
 
   const handleSearch = useCallback(async (query: string) => {
     setSearchQuery(query)
@@ -182,23 +146,8 @@ export function Sidebar() {
     setEditingId(null)
   }
 
-  const handleCreateProject = async () => {
-    const name = newProjectName.trim()
-    if (!name) return
-    await createProject(name, newProjectColor)
-    setCreatingProject(false)
-    setNewProjectName('')
-    setNewProjectColor('blue')
-  }
 
-  const handleRenameProject = async () => {
-    if (renamingProjectId && renameProjectTitle.trim()) {
-      await renameProject(renamingProjectId, renameProjectTitle.trim())
-    }
-    setRenamingProjectId(null)
-  }
-
-  // When a project is selected, filter conversations to that project.
+  // When a project is selected
   // Search results are also filtered by active project.
   const baseConversations = searchResults ?? conversations
   const filteredConversations = activeProjectId !== null
@@ -412,9 +361,6 @@ export function Sidebar() {
             {projects.map((project) => {
               const colors = PROJECT_COLOR_MAP[project.color] ?? PROJECT_COLOR_MAP.blue
               const isActive = activeProjectId === project.id
-              const isMenuOpen = projectMenuId === project.id
-              const isRenaming = renamingProjectId === project.id
-              const isModelPickerOpen = modelPickerProjectId === project.id
               return (
                 <div key={project.id} className="relative group">
                   <div
@@ -425,7 +371,7 @@ export function Sidebar() {
                           ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 border border-dashed border-blue-400'
                           : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
                     }`}
-                    onClick={() => !isRenaming && selectProject(project.id)}
+                    onClick={() => selectProject(project.id)}
                     onDragOver={(e) => {
                       if (e.dataTransfer.types.includes('sidebar-agent-id')) {
                         e.preventDefault()
@@ -455,22 +401,7 @@ export function Sidebar() {
                       : <Folder className="w-3.5 h-3.5 shrink-0" />
                     }
                     <span className={`w-2 h-2 rounded-full shrink-0 ${colors.dot}`} />
-                    {isRenaming ? (
-                      <input
-                        value={renameProjectTitle}
-                        onChange={(e) => setRenameProjectTitle(e.target.value)}
-                        onBlur={handleRenameProject}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleRenameProject()
-                          if (e.key === 'Escape') setRenamingProjectId(null)
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        autoFocus
-                        className="flex-1 min-w-0 text-xs bg-white dark:bg-gray-700 border border-blue-400 rounded px-1 py-0.5 focus:outline-none"
-                      />
-                    ) : (
-                      <span className="flex-1 truncate">{project.name}</span>
-                    )}
+                    <span className="flex-1 truncate">{project.name}</span>
                     {project.default_model && (
                       <span
                         className="flex items-center gap-0.5 text-[10px] text-gray-400 dark:text-gray-500 shrink-0"
@@ -482,139 +413,19 @@ export function Sidebar() {
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
-                        setProjectMenuId(isMenuOpen ? null : project.id)
+                        openEditProject(project.id)
                       }}
                       className="invisible group-hover:visible p-0.5 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
-                      title="Project options"
-                      aria-label="Project options"
+                      title="Project settings"
+                      aria-label="Project settings"
                     >
-                      <MoreHorizontal className="w-3 h-3" />
+                      <Settings className="w-3 h-3" />
                     </button>
                   </div>
-
-                  {isMenuOpen && (
-                    <div
-                      ref={projectMenuRef}
-                      className="absolute left-2 top-full z-30 w-44 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xl py-1"
-                    >
-                      <button
-                        className="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setProjectMenuId(null)
-                          setRenamingProjectId(project.id)
-                          setRenameProjectTitle(project.name)
-                        }}
-                      >
-                        Rename
-                      </button>
-                      <button
-                        className="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setProjectMenuId(null)
-                          setModelPickerProjectId(project.id)
-                        }}
-                      >
-                        <Cpu className="w-3 h-3" />
-                        Set default model
-                      </button>
-                      <button
-                        className="w-full text-left px-3 py-1.5 text-xs text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setProjectMenuId(null)
-                          deleteProject(project.id)
-                        }}
-                      >
-                        Delete project
-                      </button>
-                    </div>
-                  )}
-
-                  {isModelPickerOpen && (
-                    <div
-                      ref={modelPickerRef}
-                      className="absolute left-2 top-full z-30 w-52 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xl py-1"
-                    >
-                      <div className="px-3 py-1.5 text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide">
-                        Default model
-                      </div>
-                      <button
-                        className="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center justify-between"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setModelPickerProjectId(null)
-                          setProjectDefaultModel(project.id, null)
-                        }}
-                      >
-                        <span>No default (use global)</span>
-                        {!project.default_model && <Check className="w-3 h-3 text-blue-500" />}
-                      </button>
-                      {MODEL_OPTIONS.filter((m) => m !== 'default').map((model) => (
-                        <button
-                          key={model}
-                          className="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center justify-between"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setModelPickerProjectId(null)
-                            setProjectDefaultModel(project.id, model)
-                          }}
-                        >
-                          <span>{getModelLabel(model)}</span>
-                          {project.default_model === model && <Check className="w-3 h-3 text-blue-500" />}
-                        </button>
-                      ))}
-                    </div>
-                  )}
                 </div>
               )
             })}
 
-            {/* New project inline form */}
-            {creatingProject && (
-              <div className="flex flex-col gap-1.5 px-2 py-2 rounded-lg bg-gray-100 dark:bg-gray-800">
-                <input
-                  value={newProjectName}
-                  onChange={(e) => setNewProjectName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleCreateProject()
-                    if (e.key === 'Escape') setCreatingProject(false)
-                  }}
-                  placeholder="Project name…"
-                  autoFocus
-                  className="w-full text-xs bg-white dark:bg-gray-700 border border-blue-400 rounded px-2 py-1 focus:outline-none"
-                />
-                <div className="flex gap-1 flex-wrap">
-                  {COLOR_OPTIONS.map((c) => {
-                    const dot = PROJECT_COLOR_MAP[c].dot
-                    return (
-                      <button
-                        key={c}
-                        onClick={() => setNewProjectColor(c)}
-                        className={`w-4 h-4 rounded-full ${dot} ${newProjectColor === c ? 'ring-2 ring-offset-1 ring-blue-500' : ''}`}
-                        title={c}
-                        aria-label={`Color: ${c}`}
-                      />
-                    )
-                  })}
-                </div>
-                <div className="flex gap-1.5">
-                  <button
-                    onClick={handleCreateProject}
-                    className="flex-1 text-xs px-2 py-1 rounded bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200"
-                  >
-                    Create
-                  </button>
-                  <button
-                    onClick={() => setCreatingProject(false)}
-                    className="flex-1 text-xs px-2 py-1 rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
           </div>}
         </div>
 

@@ -20,6 +20,9 @@ const SettingsPanel = lazy(() =>
 const OnboardingModal = lazy(() =>
   import('./components/OnboardingModal').then((m) => ({ default: m.OnboardingModal }))
 )
+const ProjectPanel = lazy(() =>
+  import('./components/ProjectPanel').then((m) => ({ default: m.ProjectPanel }))
+)
 
 export default function App() {
   const theme = useAppStore((s) => s.theme)
@@ -33,17 +36,19 @@ export default function App() {
   const deviceCode = useAppStore((s) => s.deviceCode)
   const toasts = useAppStore((s) => s.toasts)
 
+  const showNewProjectForm = useAppStore((s) => s.showNewProjectForm)
+  const editingProjectId = useAppStore((s) => s.editingProjectId)
   const pendingDeleteAgent = useAppStore((s) => s.pendingDeleteAgent)
   const confirmDeleteAgent = useAppStore((s) => s.confirmDeleteAgent)
   const cancelDeleteAgent = useAppStore((s) => s.cancelDeleteAgent)
-
-  const hydrate = useAppStore((s) => s.hydrate)
   const setDeviceCode = useAppStore((s) => s.setDeviceCode)
   const addToolApprovalRequest = useAppStore((s) => s.addToolApprovalRequest)
   const setUpdateAvailable = useAppStore((s) => s.setUpdateAvailable)
   const setUpdateDownloaded = useAppStore((s) => s.setUpdateDownloaded)
   const dismissToast = useAppStore((s) => s.dismissToast)
   const setShowOnboarding = useAppStore((s) => s.setShowOnboarding)
+
+  const hydrate = useAppStore((s) => s.hydrate)
 
   const [agentPanelWidth, setAgentPanelWidth] = useState(440)
 
@@ -121,7 +126,7 @@ export default function App() {
   }, [])
 
   return (
-    <div className={`flex flex-col h-screen w-screen overflow-hidden ${theme === 'dark' ? 'dark' : ''}`} role="application">
+    <div className={`flex flex-col h-full w-full overflow-hidden ${theme === 'dark' ? 'dark' : ''}`} role="application">
       {/* Custom frameless titlebar */}
       <TitleBar />
 
@@ -167,6 +172,8 @@ export default function App() {
         {showAgentPanel && (
           <AgentPanel width={agentPanelWidth} onResize={handleAgentPanelResize} />
         )}
+
+        {(showNewProjectForm || editingProjectId) && <ProjectPanel />}
 
         <McpServerPanel />
 

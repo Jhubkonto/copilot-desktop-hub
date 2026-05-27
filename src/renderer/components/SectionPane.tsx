@@ -5,7 +5,6 @@ import {
 } from 'lucide-react'
 import { useAppStore, type Project, type AgentConfig, type Conversation, type ProjectAgent } from '../store/app-store'
 import { ResizeHandle } from './ResizeHandle'
-import { ProjectSettingsPanel } from './ProjectSettingsPanel'
 import { DeleteProjectDialog } from './DeleteProjectDialog'
 import { DeleteConversationDialog } from './DeleteConversationDialog'
 import { formatRelativeTime } from '../../shared/utils'
@@ -38,16 +37,14 @@ function ProjectsPane() {
   const projectAgents = useAppStore((s) => s.projectAgents)
   const projectConfigs = useAppStore((s) => s.projectConfigs)
   const pendingSettingsProjectId = useAppStore((s) => s.pendingSettingsProjectId)
-  const showNewProjectForm = useAppStore((s) => s.showNewProjectForm)
   const selectProject = useAppStore((s) => s.selectProject)
-  const createProject = useAppStore((s) => s.createProject)
-  const updateProjectConfig = useAppStore((s) => s.updateProjectConfig)
   const renameProject = useAppStore((s) => s.renameProject)
   const deleteProject = useAppStore((s) => s.deleteProject)
   const loadProjectAgents = useAppStore((s) => s.loadProjectAgents)
   const loadProjectConfig = useAppStore((s) => s.loadProjectConfig)
   const clearPendingSettingsProject = useAppStore((s) => s.clearPendingSettingsProject)
   const setShowNewProjectForm = useAppStore((s) => s.setShowNewProjectForm)
+  const openEditProject = useAppStore((s) => s.openEditProject)
   const addAgentToProject = useAppStore((s) => s.addAgentToProject)
   const removeAgentFromProject = useAppStore((s) => s.removeAgentFromProject)
   const setProjectPrimaryAgent = useAppStore((s) => s.setProjectPrimaryAgent)
@@ -61,8 +58,8 @@ function ProjectsPane() {
   const [dragOverProjectId, setDragOverProjectId] = useState<string | null>(null)
   const [draggingAgentId, setDraggingAgentId] = useState<string | null>(null)
   const [draggingInProjectId, setDraggingInProjectId] = useState<string | null>(null)
+  const [dropOnPrimaryId, setDropOnPrimaryId] = useState<string | null>(null)
   const [expandedOrch, setExpandedOrch] = useState<Set<string>>(new Set())
-  const [expandedSettings, setExpandedSettings] = useState<Set<string>>(new Set())
   const [pendingDeleteProject, setPendingDeleteProject] = useState<{ id: string; name: string } | null>(null)
   const [addingAgentToProjectId, setAddingAgentToProjectId] = useState<string | null>(null)
   const [agentPickerQuery, setAgentPickerQuery] = useState('')
@@ -76,16 +73,12 @@ function ProjectsPane() {
     })
   }, [projects, loadProjectAgents, loadProjectConfig])
 
-  // Auto-open settings panel for a newly created project
+  // Auto-open edit panel for a newly created project
   useEffect(() => {
     if (!pendingSettingsProjectId) return
-    setExpandedSettings((prev) => {
-      const next = new Set(prev)
-      next.add(pendingSettingsProjectId)
-      return next
-    })
+    openEditProject(pendingSettingsProjectId)
     clearPendingSettingsProject()
-  }, [pendingSettingsProjectId, clearPendingSettingsProject])
+  }, [pendingSettingsProjectId, openEditProject, clearPendingSettingsProject])
 
   const chatCountFor = (projectId: string) =>
     conversations.filter((c) => c.project_id === projectId).length
@@ -112,17 +105,6 @@ function ProjectsPane() {
     addToast(`🤖 ${agent.name} added to ${projectName}`, 'success')
     setAddingAgentToProjectId(null)
     setAgentPickerQuery('')
-  }
-
-  const handleConfirmNewProject = async (name: string, color: string, config: Partial<import('../store/app-store').ProjectConfig>) => {
-    await createProject(name, color)
-    // The new project ID will be available via pendingSettingsProjectId after createProject resolves.
-    // Also persist any config fields set during draft.
-    const newProject = useAppStore.getState().projects.find((p) => p.name === name)
-    if (newProject && Object.keys(config).some((k) => config[k as keyof typeof config] !== undefined)) {
-      await updateProjectConfig(newProject.id, config)
-    }
-    setShowNewProjectForm(false)
   }
 
   const handleRename = async (id: string) => {
@@ -183,28 +165,6 @@ function ProjectsPane() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-2">
-        {/* New project draft form */}
-        {showNewProjectForm && (
-          <div className="rounded-xl border border-blue-200 dark:border-blue-800 overflow-hidden">
-            <div className="px-4 py-2.5 bg-blue-50 dark:bg-blue-900/20 flex items-center justify-between">
-              <span className="text-xs font-semibold text-blue-700 dark:text-blue-400 uppercase tracking-wider">New Project</span>
-              <button
-                type="button"
-                onClick={() => setShowNewProjectForm(false)}
-                className="p-0.5 rounded text-blue-400 hover:text-blue-600 dark:hover:text-blue-300"
-                aria-label="Cancel new project"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-            <ProjectSettingsPanel
-              draft
-              onClose={() => setShowNewProjectForm(false)}
-              onConfirm={handleConfirmNewProject}
-            />
-          </div>
-        )}
-
         {/* Project cards */}
         {projects.map((project) => {
           const colors = PROJECT_COLOR_MAP[project.color] ?? PROJECT_COLOR_MAP.blue
@@ -295,12 +255,7 @@ function ProjectsPane() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation()
-                      setExpandedSettings((prev) => {
-                        const next = new Set(prev)
-                        if (next.has(project.id)) next.delete(project.id)
-                        else next.add(project.id)
-                        return next
-                      })
+                      openEditProject(project.id)
                     }}
                     className="p-1 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700"
                     title="Project settings"
@@ -325,11 +280,48 @@ function ProjectsPane() {
                   Team agents
                 </p>
 
-                {/* No-primary notice */}
+                {/* No-primary notice — also a drop target (M.7) */}
                 {members.length > 0 && !members.some((m) => m.isPrimary) && (
-                  <p className="text-[10px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-lg px-2 py-1.5 mb-1">
-                    No primary agent — drag one here or ★ to promote
-                  </p>
+                  <div
+                    className={`text-[10px] rounded-lg px-2 py-1.5 mb-1 border-2 border-dashed transition-colors ${
+                      dropOnPrimaryId === project.id
+                        ? 'border-blue-400 dark:border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
+                        : 'border-amber-300 dark:border-amber-700 text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20'
+                    }`}
+                    onDragOver={(e) => {
+                      if (
+                        e.dataTransfer.types.includes('member-agent-id') ||
+                        e.dataTransfer.types.includes('sidebar-agent-id') ||
+                        e.dataTransfer.types.includes('agent-id')
+                      ) {
+                        e.preventDefault()
+                        e.dataTransfer.dropEffect = 'move'
+                        setDropOnPrimaryId(project.id)
+                      }
+                    }}
+                    onDragLeave={(e) => {
+                      if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropOnPrimaryId(null)
+                    }}
+                    onDrop={async (e) => {
+                      e.preventDefault()
+                      setDropOnPrimaryId(null)
+                      const memberId = e.dataTransfer.getData('member-agent-id')
+                      const externalId = e.dataTransfer.getData('agent-id') || e.dataTransfer.getData('sidebar-agent-id')
+                      const agentId = memberId || externalId
+                      if (!agentId) return
+                      if (externalId) {
+                        const alreadyMember = members.some((m) => m.agentId === agentId)
+                        if (!alreadyMember) await addAgentToProject(project.id, agentId)
+                      }
+                      await setProjectPrimaryAgent(project.id, agentId)
+                      const agent = agents.find((a) => a.id === agentId)
+                      if (agent) addToast(`⭐ ${agent.name} set as primary agent`, 'success')
+                    }}
+                  >
+                    {dropOnPrimaryId === project.id
+                      ? '✦ Drop to set as primary'
+                      : 'No primary agent — drag one here or ★ to promote'}
+                  </div>
                 )}
 
                 {members.map((member) => {
@@ -390,7 +382,7 @@ function ProjectsPane() {
                   )
                 })}
 
-                {/* L.1 Inline agent picker */}
+                {/* Unified add-agent / drop zone (M.6) */}
                 <div ref={addingAgentToProjectId === project.id ? agentPickerContainerRef : null}>
                   {addingAgentToProjectId === project.id ? (
                     <div className="space-y-1">
@@ -431,27 +423,28 @@ function ProjectsPane() {
                       </div>
                     </div>
                   ) : (
-                    <button
-                      type="button"
+                    <div
+                      role="button"
+                      tabIndex={0}
                       onClick={() => setAddingAgentToProjectId(project.id)}
-                      className="w-full flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[10px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                      aria-label="Add agent to project"
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setAddingAgentToProjectId(project.id) }}
+                      aria-label="Add agent to project or drop an agent here"
+                      className={`flex items-center gap-1.5 rounded-lg border-2 border-dashed px-3 py-2 text-[10px] cursor-pointer transition-colors ${
+                        isDragTarget
+                          ? 'border-blue-400 dark:border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-500'
+                          : 'border-gray-200 dark:border-gray-700 text-gray-400 dark:text-gray-500 hover:border-gray-300 dark:hover:border-gray-600 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/40'
+                      }`}
                     >
-                      <Plus className="w-3 h-3" />
-                      Add agent…
-                    </button>
+                      {isDragTarget ? (
+                        <span>✦ Drop agent here</span>
+                      ) : (
+                        <>
+                          <Plus className="w-3 h-3 shrink-0" />
+                          <span>Add agent… or drag from sidebar</span>
+                        </>
+                      )}
+                    </div>
                   )}
-                </div>
-
-                {/* Drop zone (for drag from AgentsPane) */}
-                <div
-                  className={`flex items-center gap-2 rounded-lg border-2 border-dashed px-3 py-2 text-[10px] text-gray-400 dark:text-gray-500 transition-colors ${
-                    isDragTarget
-                      ? 'border-blue-400 dark:border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-500'
-                      : 'border-gray-200 dark:border-gray-700'
-                  }`}
-                >
-                  {isDragTarget ? '✦ Drop agent here' : '⇥ Or drag agents from sidebar…'}
                 </div>
 
                 {/* Orchestration settings — only shown if ≥2 agents */}
@@ -517,18 +510,11 @@ function ProjectsPane() {
                 })()}
               </div>
 
-              {/* Project settings panel (inline expand) */}
-              {expandedSettings.has(project.id) && (
-                <ProjectSettingsPanel
-                  projectId={project.id}
-                  onClose={() => setExpandedSettings((prev) => { const next = new Set(prev); next.delete(project.id); return next })}
-                />
-              )}
             </div>
           )
         })}
 
-        {projects.length === 0 && !showNewProjectForm && (
+        {projects.length === 0 && (
           <p className="text-center text-xs text-gray-400 dark:text-gray-500 pt-8 italic">
             No projects yet — create one to organise your chats
           </p>
