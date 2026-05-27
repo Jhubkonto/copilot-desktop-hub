@@ -214,3 +214,41 @@ describe('SettingsPanel — Providers Tab', () => {
     expect(container.innerHTML).toBe('')
   })
 })
+
+
+// ── M.11: Two-panel settings layout ──────────────────────────────────────────
+
+describe('SettingsPanel — Two-panel layout (M.11)', () => {
+  it('m11-1: settings navigation panel is visible', () => {
+    render(<SettingsPanel />)
+    expect(screen.getByRole('navigation', { name: /settings navigation/i })).toBeInTheDocument()
+  })
+
+  it('m11-2: nav contains General and API Providers items', () => {
+    render(<SettingsPanel />)
+    const nav = screen.getByRole('navigation', { name: /settings navigation/i })
+    expect(nav).toHaveTextContent('General')
+    expect(nav).toHaveTextContent('API Providers')
+  })
+
+  it('m11-3: General is selected by default', () => {
+    render(<SettingsPanel />)
+    expect(screen.getByText('Theme')).toBeInTheDocument()
+  })
+
+  it('m11-4: clicking API Providers nav item shows providers content', async () => {
+    const user = userEvent.setup()
+    render(<SettingsPanel />)
+    await user.click(screen.getAllByText('API Providers')[0])
+    await waitFor(() => expect(screen.getByText('GitHub Copilot')).toBeInTheDocument())
+  })
+
+  it('m11-5: clicking the backdrop closes the settings panel', async () => {
+    const user = userEvent.setup()
+    render(<SettingsPanel />)
+    // Click the backdrop (the dialog element itself, not the inner panel)
+    const backdrop = screen.getByRole('dialog', { name: /settings/i })
+    await user.click(backdrop)
+    expect(mockStore.setShowSettings).toHaveBeenCalledWith(false)
+  })
+})

@@ -252,3 +252,20 @@ describe('TitleBar — Directory breadcrumb', () => {
     expect(mockStore.openEditAgent).toHaveBeenCalledWith('a1')
   })
 })
+
+
+// ── M.9: Settings icon next to hamburger ─────────────────────────────────────
+
+describe('TitleBar — Quick settings icon (M.9)', () => {
+  it('m9-1: settings icon button renders in the TitleBar', () => {
+    render(<TitleBar />)
+    expect(screen.getByRole('button', { name: /open settings/i })).toBeInTheDocument()
+  })
+
+  it('m9-2: clicking settings icon calls setShowSettings(true)', async () => {
+    const user = userEvent.setup()
+    render(<TitleBar />)
+    await user.click(screen.getByRole('button', { name: /open settings/i }))
+    expect(mockStore.setShowSettings).toHaveBeenCalledWith(true)
+  })
+})

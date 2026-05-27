@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Minus, Square, X, Menu, Maximize2, ChevronRight, FolderOpen, Pencil } from 'lucide-react'
+import { Minus, Square, X, Menu, Maximize2, ChevronRight, FolderOpen, Pencil, Settings } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import { DirectoryPicker } from './DirectoryPicker'
 import { ProjectSettingsPanel } from './ProjectSettingsPanel'
@@ -265,6 +265,17 @@ export function TitleBar() {
           </div>
         )}
       </div>
+
+      {/* Quick access to settings — no-drag */}
+      <button
+        onClick={() => setShowSettings(true)}
+        className="h-7 w-7 inline-flex items-center justify-center rounded hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400 transition-colors"
+        style={NO_DRAG}
+        aria-label="Open settings"
+        title="Settings"
+      >
+        <Settings className="w-4 h-4" />
+      </button>
 
       {/* Active agent badge — also no-drag */}
       {activeAgent && (
