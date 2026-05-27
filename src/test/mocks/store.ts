@@ -22,6 +22,7 @@ export function createMockAppStore(overrides: Record<string, unknown> = {}) {
     editingAgentId: null,
     showAgentPanel: false,
     agentsLoading: false,
+    pendingDeleteAgent: null,
 
     // UI
     theme: 'dark' as const,
@@ -32,11 +33,15 @@ export function createMockAppStore(overrides: Record<string, unknown> = {}) {
     showOnboarding: false,
     updateAvailable: null,
     updateDownloaded: false,
+    activeSectionPane: null as 'projects' | 'agents' | 'chats' | null,
 
     // Projects
     projects: [],
     activeProjectId: null,
+    pendingSettingsProjectId: null,
     projectsLoading: false,
+    projectAgents: {} as Record<string, { agentId: string; agentName: string; agentIcon: string; isPrimary: boolean; sortOrder: number }[]>,
+    projectConfigs: {} as Record<string, import('../../renderer/store/app-store').ProjectConfig>,
 
     // Toasts
     toasts: [],
@@ -61,6 +66,8 @@ export function createMockAppStore(overrides: Record<string, unknown> = {}) {
     closeAgentPanel: vi.fn(),
     saveAgent: vi.fn(),
     deleteAgent: vi.fn(),
+    confirmDeleteAgent: vi.fn(),
+    cancelDeleteAgent: vi.fn(),
     duplicateAgent: vi.fn(),
     exportAgent: vi.fn(),
     importAgent: vi.fn(),
@@ -74,6 +81,7 @@ export function createMockAppStore(overrides: Record<string, unknown> = {}) {
     setShowOnboarding: vi.fn(),
     setUpdateAvailable: vi.fn(),
     setUpdateDownloaded: vi.fn(),
+    setSectionPane: vi.fn(),
     addToast: vi.fn(),
     dismissToast: vi.fn(),
     addToolApprovalRequest: vi.fn(),
@@ -88,6 +96,16 @@ export function createMockAppStore(overrides: Record<string, unknown> = {}) {
     setProjectDefaultModel: vi.fn(),
     selectProject: vi.fn(),
     setConversationProject: vi.fn(),
+    loadProjectAgents: vi.fn(),
+    addAgentToProject: vi.fn(),
+    removeAgentFromProject: vi.fn(),
+    setProjectPrimaryAgent: vi.fn(),
+    reorderProjectAgents: vi.fn(),
+    loadProjectConfig: vi.fn(),
+    updateProjectOrchestration: vi.fn(),
+    updateProjectConfig: vi.fn(),
+    clearPendingSettingsProject: vi.fn(),
+    setShowNewProjectForm: vi.fn(),
 
     ...overrides
   }

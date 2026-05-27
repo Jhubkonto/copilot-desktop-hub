@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Minus, Square, X, Menu, Maximize2, ChevronRight, FolderOpen, Pencil } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import { DirectoryPicker } from './DirectoryPicker'
+import { ProjectSettingsPanel } from './ProjectSettingsPanel'
 
 // TypeScript doesn't include WebkitAppRegion in CSSProperties
 type DragStyle = React.CSSProperties & { WebkitAppRegion: 'drag' | 'no-drag' }
@@ -83,6 +84,10 @@ export function TitleBar() {
   const showSidebar = useAppStore((s) => s.showSidebar)
   const activeAgentId = useAppStore((s) => s.activeAgentId)
   const agents = useAppStore((s) => s.agents)
+  const conversations = useAppStore((s) => s.conversations)
+  const currentConversationId = useAppStore((s) => s.currentConversationId)
+  const projects = useAppStore((s) => s.projects)
+  const projectConfigs = useAppStore((s) => s.projectConfigs)
 
   const setShowSettings = useAppStore((s) => s.setShowSettings)
   const setShowMcpPanel = useAppStore((s) => s.setShowMcpPanel)
@@ -98,7 +103,10 @@ export function TitleBar() {
   const [activeSection, setActiveSection] = useState<string | null>(null)
   const [isMaximized, setIsMaximized] = useState(false)
   const [showDirPicker, setShowDirPicker] = useState(false)
+  const [showProjectSettings, setShowProjectSettings] = useState(false)
+  const [projectSettingsInitialTab, setProjectSettingsInitialTab] = useState<'general' | 'scope' | 'milestones'>('general')
   const menuRef = useRef<HTMLDivElement>(null)
+  const projSettingsRef = useRef<HTMLDivElement>(null)
 
   const activeAgent = activeAgentId ? agents.find((a) => a.id === activeAgentId) ?? null : null
   const rootDir = activeAgent?.rootDirectory ?? ''
@@ -107,11 +115,43 @@ export function TitleBar() {
     ? `…/${segments.at(-2)}/${segments.at(-1)}`
     : segments[0] ?? ''
 
+  // Determine active project from the current conversation
+  const currentConv = currentConversationId ? conversations.find((c) => c.id === currentConversationId) : null
+  const activeProjectId = currentConv?.project_id ?? null
+  const activeProject = activeProjectId ? projects.find((p) => p.id === activeProjectId) ?? null : null
+  const projCfg = activeProjectId ? projectConfigs[activeProjectId] : null
+  const showProjectBadge = activeProject != null && projCfg?.instructionsEnabled === true && projCfg.instructions?.trim().length > 0
+  const activeMilestone = projCfg?.milestones?.find((m) => m.status === 'active') ?? null
+
+  const PROJECT_BADGE_COLORS: Record<string, { bg: string; text: string; border: string; hover: string }> = {
+    blue:   { bg: 'bg-blue-50 dark:bg-blue-900/30',     text: 'text-blue-600 dark:text-blue-400',     border: 'border-blue-200 dark:border-blue-700',     hover: 'hover:bg-blue-100 dark:hover:bg-blue-900/50' },
+    green:  { bg: 'bg-green-50 dark:bg-green-900/30',   text: 'text-green-600 dark:text-green-400',   border: 'border-green-200 dark:border-green-700',   hover: 'hover:bg-green-100 dark:hover:bg-green-900/50' },
+    red:    { bg: 'bg-red-50 dark:bg-red-900/30',       text: 'text-red-600 dark:text-red-400',       border: 'border-red-200 dark:border-red-700',       hover: 'hover:bg-red-100 dark:hover:bg-red-900/50' },
+    purple: { bg: 'bg-purple-50 dark:bg-purple-900/30', text: 'text-purple-600 dark:text-purple-400', border: 'border-purple-200 dark:border-purple-700', hover: 'hover:bg-purple-100 dark:hover:bg-purple-900/50' },
+    orange: { bg: 'bg-orange-50 dark:bg-orange-900/30', text: 'text-orange-600 dark:text-orange-400', border: 'border-orange-200 dark:border-orange-700', hover: 'hover:bg-orange-100 dark:hover:bg-orange-900/50' },
+    pink:   { bg: 'bg-pink-50 dark:bg-pink-900/30',     text: 'text-pink-600 dark:text-pink-400',     border: 'border-pink-200 dark:border-pink-700',     hover: 'hover:bg-pink-100 dark:hover:bg-pink-900/50' },
+    yellow: { bg: 'bg-yellow-50 dark:bg-yellow-900/30', text: 'text-yellow-700 dark:text-yellow-400', border: 'border-yellow-200 dark:border-yellow-500', hover: 'hover:bg-yellow-100 dark:hover:bg-yellow-900/50' },
+    gray:   { bg: 'bg-gray-100 dark:bg-gray-800',       text: 'text-gray-600 dark:text-gray-400',     border: 'border-gray-200 dark:border-gray-700',     hover: 'hover:bg-gray-200 dark:hover:bg-gray-700' },
+  }
+  const badgeColors = PROJECT_BADGE_COLORS[activeProject?.color ?? 'blue'] ?? PROJECT_BADGE_COLORS.blue
+
   useEffect(() => {
     window.api.isWindowMaximized().then(setIsMaximized)
     const unsub = window.api.onMaximizeChange((maximized) => setIsMaximized(maximized))
     return () => { unsub() }
   }, [])
+
+  // Close project settings popover on outside click
+  useEffect(() => {
+    if (!showProjectSettings) return
+    const handler = (e: MouseEvent) => {
+      if (projSettingsRef.current && !projSettingsRef.current.contains(e.target as Node)) {
+        setShowProjectSettings(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showProjectSettings])
 
   useEffect(() => {
     if (!menuOpen) return
@@ -271,6 +311,47 @@ export function TitleBar() {
             />
           )}
         </>
+      )}
+
+      {/* Project badge + milestone badge cluster */}
+      {(showProjectBadge || activeMilestone) && activeProject && (
+        <div className="relative ml-2 flex items-center gap-1.5" ref={projSettingsRef} style={NO_DRAG}>
+          {showProjectBadge && (
+            <button
+              type="button"
+              onClick={() => { setProjectSettingsInitialTab('general'); setShowProjectSettings((v) => !v) }}
+              className={`inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full border transition-colors ${badgeColors.bg} ${badgeColors.text} ${badgeColors.border} ${badgeColors.hover}`}
+              aria-label="Project settings"
+            >
+              <span>📁</span>
+              <span className="max-w-[120px] truncate">{activeProject.name}</span>
+            </button>
+          )}
+
+          {activeMilestone && (
+            <button
+              type="button"
+              onClick={() => { setProjectSettingsInitialTab('milestones'); setShowProjectSettings(true) }}
+              title={activeMilestone.description ?? activeMilestone.title}
+              className={`inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full border transition-colors ${badgeColors.bg} ${badgeColors.text} ${badgeColors.border} ${badgeColors.hover}`}
+              aria-label={`Active milestone: ${activeMilestone.title}`}
+            >
+              <span>🎯</span>
+              <span className="max-w-[100px] truncate">{activeMilestone.title}</span>
+            </button>
+          )}
+
+          {showProjectSettings && (
+            <div className="absolute left-0 top-8 z-50 w-96 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-2xl overflow-hidden">
+              <ProjectSettingsPanel
+                key={`${activeProject.id}-${projectSettingsInitialTab}`}
+                projectId={activeProject.id}
+                initialTab={projectSettingsInitialTab}
+                onClose={() => setShowProjectSettings(false)}
+              />
+            </div>
+          )}
+        </div>
       )}
 
       {/* Drag region fills remaining space */}

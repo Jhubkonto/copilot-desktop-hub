@@ -73,6 +73,69 @@ export interface ToolApprovalRequest {
   description: string
 }
 
+export interface ProjectAgent {
+  agentId: string
+  agentName: string
+  agentIcon: string
+  isPrimary: boolean
+  sortOrder: number
+}
+
+export interface DeleteAgentImpact {
+  agentId: string
+  agentName: string
+  affectedProjects: { id: string; name: string; is_primary: number }[]
+  affectedConvCount: number
+}
+
+export interface ProjectOrchestrationConfig {
+  orchestrationEnabled: boolean
+  maxDelegationDepth: number
+  showTeamActivity: boolean
+}
+
+// K: Scope guardrails
+export interface ScopeRule {
+  id: string
+  description: string
+  pathGlob?: string
+}
+
+export interface Milestone {
+  id: string
+  title: string
+  description?: string
+  status: 'active' | 'upcoming' | 'completed'
+  completedAt?: number
+}
+
+export interface ProjectConfig extends ProjectOrchestrationConfig {
+  // J: Rich project instructions
+  instructions: string
+  rootDirectory: string
+  variables: Array<{ key: string; value: string }>
+  instructionMode: 'prepend' | 'append' | 'replace' | 'standalone'
+  instructionsEnabled: boolean
+  // K: Scope guardrails & milestones
+  inScope: ScopeRule[]
+  outOfScope: ScopeRule[]
+  milestones: Milestone[]
+}
+
+export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
+  instructions: '',
+  rootDirectory: '',
+  variables: [],
+  instructionMode: 'prepend',
+  instructionsEnabled: true,
+  orchestrationEnabled: false,
+  maxDelegationDepth: 5,
+  showTeamActivity: true,
+  inScope: [],
+  outOfScope: [],
+  milestones: [],
+}
+
 // ── Store State ────────────────────────────────────────
 
 interface AppState {
@@ -89,7 +152,11 @@ interface AppState {
   // Projects
   projects: Project[]
   activeProjectId: string | null
+  pendingSettingsProjectId: string | null
+  showNewProjectForm: boolean
   projectsLoading: boolean
+  projectAgents: Record<string, ProjectAgent[]>
+  projectConfigs: Record<string, ProjectConfig>
 
   // Agents
   agents: AgentConfig[]
@@ -97,6 +164,7 @@ interface AppState {
   editingAgentId: string | null
   showAgentPanel: boolean
   agentsLoading: boolean
+  pendingDeleteAgent: DeleteAgentImpact | null
 
   // UI
   theme: 'light' | 'dark'
@@ -107,6 +175,7 @@ interface AppState {
   showOnboarding: boolean
   updateAvailable: { version: string } | null
   updateDownloaded: boolean
+  activeSectionPane: 'projects' | 'agents' | 'chats' | null
 
   // Toasts
   toasts: Toast[]
@@ -135,6 +204,18 @@ interface AppState {
   deleteProject: (id: string) => Promise<void>
   setConversationProject: (conversationId: string, projectId: string | null) => Promise<void>
   setProjectDefaultModel: (id: string, model: string | null) => Promise<void>
+  clearPendingSettingsProject: () => void
+  setShowNewProjectForm: (show: boolean) => void
+
+  // ── Project Agent Actions ──
+  loadProjectAgents: (projectId: string) => Promise<void>
+  addAgentToProject: (projectId: string, agentId: string) => Promise<void>
+  removeAgentFromProject: (projectId: string, agentId: string) => Promise<void>
+  setProjectPrimaryAgent: (projectId: string, agentId: string) => Promise<void>
+  reorderProjectAgents: (projectId: string, orderedAgentIds: string[]) => Promise<void>
+  updateProjectOrchestration: (projectId: string, config: Partial<ProjectOrchestrationConfig>) => Promise<void>
+  updateProjectConfig: (projectId: string, config: Partial<ProjectConfig>) => Promise<void>
+  loadProjectConfig: (projectId: string) => Promise<void>
 
   // ── Agent Actions ──
   loadAgents: () => Promise<void>
@@ -144,6 +225,8 @@ interface AppState {
   closeAgentPanel: () => void
   saveAgent: (config: AgentConfig) => Promise<void>
   deleteAgent: (id: string) => Promise<void>
+  confirmDeleteAgent: () => Promise<void>
+  cancelDeleteAgent: () => void
   duplicateAgent: (id: string) => Promise<void>
   exportAgent: (id: string) => Promise<void>
   importAgent: () => Promise<void>
@@ -159,6 +242,7 @@ interface AppState {
   setShowOnboarding: (show: boolean) => void
   setUpdateAvailable: (info: { version: string } | null) => void
   setUpdateDownloaded: (downloaded: boolean) => void
+  setSectionPane: (section: 'projects' | 'agents' | 'chats' | null) => void
 
   // ── Toast Actions ──
   addToast: (message: string, type?: Toast['type']) => void
@@ -187,13 +271,18 @@ export const useAppStore = create<AppState>()(
 
     projects: [],
     activeProjectId: null,
+    pendingSettingsProjectId: null,
+    showNewProjectForm: false,
     projectsLoading: false,
+    projectAgents: {},
+    projectConfigs: {},
 
     agents: [],
     activeAgentId: null,
     editingAgentId: null,
     showAgentPanel: false,
     agentsLoading: false,
+    pendingDeleteAgent: null,
 
     theme: 'dark',
     showSidebar: true,
@@ -203,6 +292,7 @@ export const useAppStore = create<AppState>()(
     showOnboarding: false,
     updateAvailable: null,
     updateDownloaded: false,
+    activeSectionPane: null,
 
     toasts: [],
 
@@ -326,6 +416,27 @@ export const useAppStore = create<AppState>()(
         s.activeProjectId = id
         s.currentConversationId = null
       })
+      // Auto-select primary agent when switching to a project
+      if (id) {
+        const existing = get().projectAgents[id]
+        const applyPrimary = (agents: typeof existing) => {
+          const primary = agents?.find((a) => a.isPrimary)
+          if (primary) set((s) => { s.activeAgentId = primary.agentId })
+        }
+        if (existing) {
+          applyPrimary(existing)
+        } else {
+          window.api.listProjectAgents(id).then((result) => {
+            if (!result?.error) {
+              set((s) => { s.projectAgents[id] = result })
+              applyPrimary(result)
+            }
+          }).catch(() => { /* ignore */ })
+        }
+      } else {
+        // Switching away from a project — clear agent selection
+        set((s) => { s.activeAgentId = null })
+      }
     },
 
     createProject: async (name, color) => {
@@ -336,7 +447,10 @@ export const useAppStore = create<AppState>()(
           return
         }
         await get().loadProjects()
-        set((s) => { s.activeProjectId = result.id })
+        set((s) => {
+          s.activeProjectId = result.id
+          s.pendingSettingsProjectId = result.id
+        })
         get().addToast(`Project "${name}" created`, 'success')
       } catch {
         get().addToast('Failed to create project', 'error')
@@ -396,6 +510,134 @@ export const useAppStore = create<AppState>()(
         await get().loadProjects()
       } catch {
         get().addToast('Failed to set project default model', 'error')
+      }
+    },
+
+    // ── Project Agent Actions ──
+
+    clearPendingSettingsProject: () => {
+      set((s) => { s.pendingSettingsProjectId = null })
+    },
+
+    setShowNewProjectForm: (show) => {
+      set((s) => { s.showNewProjectForm = show })
+    },
+
+    loadProjectAgents: async (projectId) => {
+      try {
+        const result = await window.api.listProjectAgents(projectId)
+        if (result?.error) {
+          get().addToast('Failed to load project agents', 'error')
+          return
+        }
+        set((s) => { s.projectAgents[projectId] = result })
+      } catch {
+        get().addToast('Failed to load project agents', 'error')
+      }
+    },
+
+    addAgentToProject: async (projectId, agentId) => {
+      try {
+        const result = await window.api.addAgentToProject(projectId, agentId)
+        if (result?.error) {
+          get().addToast('Failed to add agent to project', 'error')
+          return
+        }
+        const current = get().projectAgents[projectId] ?? []
+        if (current.length === 0) {
+          // First agent — auto-promote to primary
+          await window.api.setProjectPrimaryAgent(projectId, agentId)
+        }
+        await get().loadProjectAgents(projectId)
+      } catch {
+        get().addToast('Failed to add agent to project', 'error')
+      }
+    },
+
+    removeAgentFromProject: async (projectId, agentId) => {
+      try {
+        const result = await window.api.removeAgentFromProject(projectId, agentId)
+        if (result?.error) {
+          get().addToast('Failed to remove agent from project', 'error')
+          return
+        }
+        await get().loadProjectAgents(projectId)
+      } catch {
+        get().addToast('Failed to remove agent from project', 'error')
+      }
+    },
+
+    setProjectPrimaryAgent: async (projectId, agentId) => {
+      try {
+        const result = await window.api.setProjectPrimaryAgent(projectId, agentId)
+        if (result?.error) {
+          get().addToast('Failed to set primary agent', 'error')
+          return
+        }
+        await get().loadProjectAgents(projectId)
+      } catch {
+        get().addToast('Failed to set primary agent', 'error')
+      }
+    },
+
+    reorderProjectAgents: async (projectId, orderedAgentIds) => {
+      // Optimistic update
+      set((s) => {
+        const agents = s.projectAgents[projectId]
+        if (!agents) return
+        const map = new Map(agents.map((a) => [a.agentId, a]))
+        s.projectAgents[projectId] = orderedAgentIds
+          .map((id, index) => {
+            const agent = map.get(id)
+            return agent ? { ...agent, sortOrder: index } : null
+          })
+          .filter(Boolean) as typeof agents
+      })
+      try {
+        await window.api.reorderProjectAgents(projectId, orderedAgentIds)
+      } catch {
+        // Rollback on error
+        await get().loadProjectAgents(projectId)
+        get().addToast('Failed to reorder agents', 'error')
+      }
+    },
+
+    loadProjectConfig: async (projectId) => {
+      try {
+        const result = await window.api.getProjectConfig(projectId)
+        if (!result?.error) {
+          set((s) => {
+            s.projectConfigs[projectId] = {
+              ...DEFAULT_PROJECT_CONFIG,
+              ...result
+            }
+          })
+        }
+      } catch { /* ignore */ }
+    },
+
+    updateProjectConfig: async (projectId, config) => {
+      const prev = get().projectConfigs[projectId] ?? DEFAULT_PROJECT_CONFIG
+      set((s) => {
+        s.projectConfigs[projectId] = { ...prev, ...config }
+      })
+      try {
+        await window.api.updateProjectConfig(projectId, config as Record<string, unknown>)
+      } catch {
+        set((s) => { s.projectConfigs[projectId] = prev })
+        get().addToast('Failed to update project settings', 'error')
+      }
+    },
+
+    updateProjectOrchestration: async (projectId, config) => {
+      set((s) => {
+        const current = s.projectConfigs[projectId] ?? DEFAULT_PROJECT_CONFIG
+        s.projectConfigs[projectId] = { ...current, ...config }
+      })
+      try {
+        await window.api.updateProjectConfig(projectId, config as Record<string, unknown>)
+      } catch {
+        get().addToast('Failed to update orchestration settings', 'error')
       }
     },
 
@@ -463,20 +705,59 @@ export const useAppStore = create<AppState>()(
 
     deleteAgent: async (id) => {
       try {
-        const result = await window.api.deleteAgent(id)
-        if (result?.error || result === false) {
-          get().addToast('Failed to delete agent', 'error')
+        const agent = get().agents.find((a) => a.id === id)
+        const preflight = await window.api.deleteAgentPreflight(id)
+        if (preflight?.error) {
+          get().addToast('Failed to check agent impact', 'error')
           return
         }
+        const { affectedProjects, affectedConvCount } = preflight
+        // Always show confirmation dialog
         set((s) => {
-          if (s.activeAgentId === id) s.activeAgentId = null
-          s.showAgentPanel = false
+          s.pendingDeleteAgent = {
+            agentId: id,
+            agentName: agent?.name ?? id,
+            affectedProjects,
+            affectedConvCount
+          }
         })
-        await get().loadAgents()
-        get().addToast('Agent deleted', 'success')
       } catch {
         get().addToast('Failed to delete agent', 'error')
       }
+    },
+
+    confirmDeleteAgent: async () => {
+      const pending = get().pendingDeleteAgent
+      if (!pending) return
+      set((s) => { s.pendingDeleteAgent = null })
+      try {
+        const result = await window.api.deleteAgent(pending.agentId)
+        if (result?.success === false) {
+          get().addToast(result.reason ?? 'Failed to delete agent', 'error')
+          return
+        }
+        set((s) => {
+          if (s.activeAgentId === pending.agentId) s.activeAgentId = null
+          s.showAgentPanel = false
+        })
+        await get().loadAgents()
+        // Reload all projects whose membership may have changed
+        await get().loadProjects()
+        for (const p of pending.affectedProjects) {
+          await get().loadProjectAgents(p.id)
+        }
+        const count = pending.affectedProjects.length
+        get().addToast(
+          `Agent deleted${count > 0 ? ` · ${count} project${count !== 1 ? 's' : ''} updated` : ''}`,
+          'success'
+        )
+      } catch {
+        get().addToast('Failed to delete agent', 'error')
+      }
+    },
+
+    cancelDeleteAgent: () => {
+      set((s) => { s.pendingDeleteAgent = null })
     },
 
     duplicateAgent: async (id) => {
@@ -566,6 +847,10 @@ export const useAppStore = create<AppState>()(
 
     setUpdateDownloaded: (downloaded) => {
       set((s) => { s.updateDownloaded = downloaded })
+    },
+
+    setSectionPane: (section) => {
+      set((s) => { s.activeSectionPane = s.activeSectionPane === section ? null : section })
     },
 
     // ── Toast Actions ──

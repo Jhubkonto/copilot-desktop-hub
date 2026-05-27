@@ -91,6 +91,7 @@ const api = {
   createAgent: (config: unknown) => ipcRenderer.invoke('agent:create', config),
   updateAgent: (id: string, config: unknown) =>
     ipcRenderer.invoke('agent:update', id, config),
+  deleteAgentPreflight: (id: string) => ipcRenderer.invoke('agent:delete-preflight', id),
   deleteAgent: (id: string) => ipcRenderer.invoke('agent:delete', id),
   duplicateAgent: (id: string) => ipcRenderer.invoke('agent:duplicate', id),
   exportAgent: (id: string) => ipcRenderer.invoke('agent:export', id),
@@ -211,6 +212,36 @@ const api = {
     ipcRenderer.invoke('project:set-conversation', conversationId, projectId),
   setProjectDefaultModel: (id: string, model: string | null) =>
     ipcRenderer.invoke('project:set-default-model', id, model),
+
+  // Project Agents
+  listProjectAgents: (projectId: string) => ipcRenderer.invoke('project:list-agents', projectId),
+  addAgentToProject: (projectId: string, agentId: string) =>
+    ipcRenderer.invoke('project:add-agent', projectId, agentId),
+  removeAgentFromProject: (projectId: string, agentId: string) =>
+    ipcRenderer.invoke('project:remove-agent', projectId, agentId),
+  setProjectPrimaryAgent: (projectId: string, agentId: string) =>
+    ipcRenderer.invoke('project:set-primary-agent', projectId, agentId),
+  reorderProjectAgents: (projectId: string, orderedAgentIds: string[]) =>
+    ipcRenderer.invoke('project:reorder-agents', projectId, orderedAgentIds),
+  updateProjectConfig: (projectId: string, config: Record<string, unknown>) =>
+    ipcRenderer.invoke('project:update-config', projectId, config),
+  getProjectConfig: (projectId: string) =>
+    ipcRenderer.invoke('project:get-config', projectId),
+  onTeamActivity: (callback: (step: {
+    stepId: string
+    agentId: string
+    agentName: string
+    agentIcon: string
+    task: string
+    status: 'delegating' | 'done' | 'error'
+    result?: string
+    durationMs?: number
+  }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, step: Parameters<typeof callback>[0]) =>
+      callback(step)
+    ipcRenderer.on('chat:team-activity', handler)
+    return () => ipcRenderer.removeListener('chat:team-activity', handler)
+  },
 
   // Window controls
   minimizeWindow: () => ipcRenderer.invoke('window:minimize'),

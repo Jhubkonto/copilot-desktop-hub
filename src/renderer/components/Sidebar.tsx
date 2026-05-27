@@ -91,8 +91,13 @@ export function Sidebar() {
   const createProject = useAppStore((s) => s.createProject)
   const renameProject = useAppStore((s) => s.renameProject)
   const deleteProject = useAppStore((s) => s.deleteProject)
+  const addAgentToProject = useAppStore((s) => s.addAgentToProject)
+  const projectAgents = useAppStore((s) => s.projectAgents)
   const setConversationProject = useAppStore((s) => s.setConversationProject)
   const setProjectDefaultModel = useAppStore((s) => s.setProjectDefaultModel)
+  const activeSectionPane = useAppStore((s) => s.activeSectionPane)
+  const setSectionPane = useAppStore((s) => s.setSectionPane)
+  const setShowNewProjectForm = useAppStore((s) => s.setShowNewProjectForm)
 
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<Conversation[] | null>(null)
@@ -116,6 +121,9 @@ export function Sidebar() {
   const [convProjectPickerId, setConvProjectPickerId] = useState<string | null>(null)
   const convProjectPickerRef = useRef<HTMLDivElement>(null)
 
+  // Drag-to-project state (L.3)
+  const [sidebarDragOverProjectId, setSidebarDragOverProjectId] = useState<string | null>(null)
+
   // Project model picker state
   const [modelPickerProjectId, setModelPickerProjectId] = useState<string | null>(null)
   const modelPickerRef = useRef<HTMLDivElement>(null)
@@ -134,11 +142,10 @@ export function Sidebar() {
   useEffect(() => {
     if (!projectMenuId && !convProjectPickerId) return
     const onPointerDown = (e: MouseEvent) => {
-      if (
-        projectMenuRef.current && !projectMenuRef.current.contains(e.target as Node) &&
-        convProjectPickerRef.current && !convProjectPickerRef.current.contains(e.target as Node)
-      ) {
+      if (projectMenuId && projectMenuRef.current && !projectMenuRef.current.contains(e.target as Node)) {
         setProjectMenuId(null)
+      }
+      if (convProjectPickerId && convProjectPickerRef.current && !convProjectPickerRef.current.contains(e.target as Node)) {
         setConvProjectPickerId(null)
       }
     }
@@ -241,7 +248,7 @@ export function Sidebar() {
             </div>
           )}
         </div>
-        <div className="hidden group-hover:flex items-center gap-0.5">
+        <div className="invisible group-hover:visible flex items-center gap-0.5">
           {/* Pin button */}
           <button
             onClick={async (e) => {
@@ -359,16 +366,32 @@ export function Sidebar() {
         {/* ── Projects ── */}
         <div>
           <div className="flex items-center justify-between px-2 mb-1">
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setProjectsOpen((v) => !v)}
+                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 p-0.5 rounded"
+                aria-expanded={projectsOpen}
+                aria-label={projectsOpen ? 'Collapse projects' : 'Expand projects'}
+              >
+                {projectsOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+              </button>
+              <button
+                onClick={() => setSectionPane('projects')}
+                className={`text-xs font-medium uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300 ${
+                  activeSectionPane === 'projects'
+                    ? 'text-blue-500 dark:text-blue-400'
+                    : 'text-gray-400 dark:text-gray-500'
+                }`}
+                aria-label="Open projects panel"
+              >
+                Projects
+              </button>
+            </div>
             <button
-              onClick={() => setProjectsOpen((v) => !v)}
-              className="flex items-center gap-1 text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300"
-              aria-expanded={projectsOpen}
-            >
-              {projectsOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-              Projects
-            </button>
-            <button
-              onClick={() => { setCreatingProject(true); setNewProjectName('') }}
+              onClick={() => {
+                if (activeSectionPane !== 'projects') setSectionPane('projects')
+                setShowNewProjectForm(true)
+              }}
               className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-0.5 rounded"
               title="New project"
               aria-label="Create new project"
@@ -378,19 +401,6 @@ export function Sidebar() {
           </div>
 
           {projectsOpen && <div className="space-y-0.5">
-            {/* All Chats entry */}
-            <div
-              className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-xs font-medium transition-colors ${
-                activeProjectId === null
-                  ? 'bg-gray-200 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
-                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
-              }`}
-              onClick={() => selectProject(null)}
-            >
-              <MessageSquare className="w-3.5 h-3.5 shrink-0" />
-              All Chats
-            </div>
-
             {/* Project rows */}
             {projects.map((project) => {
               const colors = PROJECT_COLOR_MAP[project.color] ?? PROJECT_COLOR_MAP.blue
@@ -404,9 +414,34 @@ export function Sidebar() {
                     className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-xs font-medium transition-colors ${
                       isActive
                         ? `${colors.bg} text-gray-900 dark:text-gray-100`
-                        : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                        : sidebarDragOverProjectId === project.id
+                          ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 border border-dashed border-blue-400'
+                          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
                     }`}
                     onClick={() => !isRenaming && selectProject(project.id)}
+                    onDragOver={(e) => {
+                      if (e.dataTransfer.types.includes('sidebar-agent-id')) {
+                        e.preventDefault()
+                        e.dataTransfer.dropEffect = 'copy'
+                        setSidebarDragOverProjectId(project.id)
+                      }
+                    }}
+                    onDragLeave={() => setSidebarDragOverProjectId(null)}
+                    onDrop={async (e) => {
+                      e.preventDefault()
+                      setSidebarDragOverProjectId(null)
+                      const agentId = e.dataTransfer.getData('sidebar-agent-id')
+                      if (!agentId) return
+                      const agent = agents.find((a) => a.id === agentId)
+                      if (!agent) return
+                      const alreadyMember = (projectAgents[project.id] ?? []).some((m) => m.agentId === agentId)
+                      if (alreadyMember) {
+                        addToast(`${agent.name} is already in ${project.name}`, 'info')
+                        return
+                      }
+                      await addAgentToProject(project.id, agentId)
+                      addToast(`🤖 ${agent.name} added to ${project.name}`, 'success')
+                    }}
                   >
                     {isActive
                       ? <FolderOpen className="w-3.5 h-3.5 shrink-0" />
@@ -442,7 +477,7 @@ export function Sidebar() {
                         e.stopPropagation()
                         setProjectMenuId(isMenuOpen ? null : project.id)
                       }}
-                      className="hidden group-hover:block p-0.5 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                      className="invisible group-hover:visible p-0.5 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
                       title="Project options"
                       aria-label="Project options"
                     >
@@ -578,14 +613,27 @@ export function Sidebar() {
 
         {/* ── Agents ── */}
         <div>
-          <button
-            onClick={() => setAgentsOpen((v) => !v)}
-            className="flex items-center gap-1 text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300 px-2 mb-2"
-            aria-expanded={agentsOpen}
-          >
-            {agentsOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-            Agents
-          </button>
+          <div className="flex items-center gap-1 px-2 mb-2">
+            <button
+              onClick={() => setAgentsOpen((v) => !v)}
+              className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 p-0.5 rounded"
+              aria-expanded={agentsOpen}
+              aria-label={agentsOpen ? 'Collapse agents' : 'Expand agents'}
+            >
+              {agentsOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+            </button>
+            <button
+              onClick={() => setSectionPane('agents')}
+              className={`text-xs font-medium uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300 ${
+                activeSectionPane === 'agents'
+                  ? 'text-blue-500 dark:text-blue-400'
+                  : 'text-gray-400 dark:text-gray-500'
+              }`}
+              aria-label="Open agents panel"
+            >
+              Agents
+            </button>
+          </div>
           {agentsOpen && (<>
             {agentsLoading ? (
             <div className="space-y-1 px-2" aria-label="Loading agents">
@@ -616,12 +664,18 @@ export function Sidebar() {
               {agents.map((agent) => (
                 <div
                   key={agent.id}
-                  className={`group flex items-center justify-between px-2 py-1.5 rounded-lg cursor-pointer text-sm transition-colors ${
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData('sidebar-agent-id', agent.id)
+                    e.dataTransfer.effectAllowed = 'copy'
+                  }}
+                  className={`group flex items-center justify-between px-2 py-1.5 rounded-lg cursor-grab active:cursor-grabbing text-sm transition-colors ${
                     activeAgentId === agent.id
                       ? 'bg-gray-200 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
                       : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
                   }`}
                   onClick={() => selectAgent(agent.id)}
+                  title="Drag onto a project to add this agent to it"
                 >
                   <span className="text-xs font-medium truncate">
                     {agent.icon} {agent.name}
@@ -631,7 +685,7 @@ export function Sidebar() {
                       e.stopPropagation()
                       openEditAgent(agent.id)
                     }}
-                    className="hidden group-hover:block text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 ml-1 p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+                    className="invisible group-hover:visible text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 ml-1 p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
                     title="Edit agent"
                     aria-label="Edit agent"
                   >
@@ -662,18 +716,31 @@ export function Sidebar() {
 
         {/* ── Conversations ── */}
         <div>
-          <button
-            onClick={() => setChatsOpen((v) => !v)}
-            className="flex items-center gap-1 text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300 px-2 mb-2"
-            aria-expanded={chatsOpen}
-          >
-            {chatsOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-            {searchQuery
-              ? `Results for "${searchQuery}"`
-              : activeProjectId
-                ? `${projects.find((p) => p.id === activeProjectId)?.name ?? 'Project'} Chats`
-                : 'All Chats'}
-          </button>
+          <div className="flex items-center gap-1 px-2 mb-2">
+            <button
+              onClick={() => setChatsOpen((v) => !v)}
+              className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 p-0.5 rounded"
+              aria-expanded={chatsOpen}
+              aria-label={chatsOpen ? 'Collapse chats' : 'Expand chats'}
+            >
+              {chatsOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+            </button>
+            <button
+              onClick={() => setSectionPane('chats')}
+              className={`text-xs font-medium uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300 ${
+                activeSectionPane === 'chats'
+                  ? 'text-blue-500 dark:text-blue-400'
+                  : 'text-gray-400 dark:text-gray-500'
+              }`}
+              aria-label="Open chats panel"
+            >
+              {searchQuery
+                ? `Results for "${searchQuery}"`
+                : activeProjectId
+                  ? `${projects.find((p) => p.id === activeProjectId)?.name ?? 'Project'} Chats`
+                  : 'All Chats'}
+            </button>
+          </div>
           {chatsOpen && (<>
           {conversationsLoading && filteredConversations.length === 0 ? (
             <div className="space-y-1 px-2" aria-label="Loading conversations">

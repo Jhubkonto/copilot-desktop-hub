@@ -25,10 +25,12 @@ import {
   type ProviderMessage
 } from './providers'
 import { safeHandle } from './safe-handle'
+import { runOrchestration, type OrchestratorAgent } from './orchestrator'
 
 export function registerIpcHandlers(): void {
   registerSettingsHandlers()
   registerProjectHandlers()
+  registerProjectAgentHandlers()
   registerConversationHandlers()
   registerChatHandlers()
   registerMessageHandlers()
@@ -45,11 +47,38 @@ export function registerIpcHandlers(): void {
 
 const PROJECT_COLORS = new Set(['blue', 'green', 'red', 'purple', 'orange', 'pink', 'yellow', 'gray'])
 
+const DEFAULT_PROJECT_CONFIG = {
+  instructions: '',
+  rootDirectory: '',
+  variables: [],
+  instructionMode: 'prepend',
+  instructionsEnabled: true,
+  orchestrationEnabled: false,
+  maxDelegationDepth: 5,
+  showTeamActivity: true,
+  inScope: [] as Array<{ id: string; description: string; pathGlob?: string }>,
+  outOfScope: [] as Array<{ id: string; description: string; pathGlob?: string }>,
+  milestones: [] as Array<{ id: string; title: string; description?: string; status: string; completedAt?: number }>,
+}
+
+function parseProjectConfig(configJson: string | null): typeof DEFAULT_PROJECT_CONFIG {
+  if (!configJson) return { ...DEFAULT_PROJECT_CONFIG }
+  try {
+    return { ...DEFAULT_PROJECT_CONFIG, ...JSON.parse(configJson) }
+  } catch {
+    return { ...DEFAULT_PROJECT_CONFIG }
+  }
+}
+
 function registerProjectHandlers(): void {
   const db = getDatabase()
 
   safeHandle('project:list', () => {
-    return db.prepare('SELECT * FROM projects ORDER BY name ASC').all()
+    const rows = db.prepare('SELECT * FROM projects ORDER BY name ASC').all() as Array<{
+      id: string; name: string; color: string; default_model: string | null;
+      config_json: string | null; created_at: number; updated_at: number
+    }>
+    return rows.map((r) => ({ ...r, config: parseProjectConfig(r.config_json), config_json: undefined }))
   })
 
   safeHandle('project:create', (_event, name: string, color: string) => {
@@ -58,10 +87,11 @@ function registerProjectHandlers(): void {
     if (!safeName) throw new Error('Project name is required')
     const id = randomUUID()
     const now = Date.now()
+    const defaultConfig = JSON.stringify(DEFAULT_PROJECT_CONFIG)
     db.prepare(
-      'INSERT INTO projects (id, name, color, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
-    ).run(id, safeName, safeColor, now, now)
-    return { id, name: safeName, color: safeColor, created_at: now, updated_at: now }
+      'INSERT INTO projects (id, name, color, config_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(id, safeName, safeColor, defaultConfig, now, now)
+    return { id, name: safeName, color: safeColor, config: { ...DEFAULT_PROJECT_CONFIG }, created_at: now, updated_at: now }
   })
 
   safeHandle('project:rename', (_event, id: string, name: string) => {
@@ -91,6 +121,73 @@ function registerProjectHandlers(): void {
       Date.now(),
       id
     )
+    return true
+  })
+
+  safeHandle('project:update-config', (_event, id: string, config: Record<string, unknown>) => {
+    const existing = db.prepare('SELECT config_json FROM projects WHERE id = ?').get(id) as { config_json: string | null } | undefined
+    const current = existing?.config_json ? (JSON.parse(existing.config_json) as Record<string, unknown>) : {}
+    const merged = { ...current, ...config }
+    db.prepare('UPDATE projects SET config_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(merged), Date.now(), id)
+    return true
+  })
+
+  safeHandle('project:get-config', (_event, id: string) => {
+    const row = db.prepare('SELECT config_json FROM projects WHERE id = ?').get(id) as { config_json: string | null } | undefined
+    return parseProjectConfig(row?.config_json ?? null)
+  })
+}
+
+function registerProjectAgentHandlers(): void {
+  const db = getDatabase()
+
+  safeHandle('project:list-agents', (_event, projectId: string) => {
+    const rows = db.prepare(
+      'SELECT pa.agent_id, pa.is_primary, pa.sort_order, a.config_json FROM project_agents pa JOIN agents a ON a.id = pa.agent_id WHERE pa.project_id = ? ORDER BY pa.sort_order ASC, pa.added_at ASC'
+    ).all(projectId) as { agent_id: string; config_json: string; is_primary: number; sort_order: number }[]
+    return rows.map((r) => {
+      const cfg = JSON.parse(r.config_json) as { name?: string; icon?: string }
+      return {
+        agentId: r.agent_id,
+        agentName: cfg.name ?? '',
+        agentIcon: cfg.icon ?? '',
+        isPrimary: r.is_primary === 1,
+        sortOrder: r.sort_order,
+      }
+    })
+  })
+
+  safeHandle('project:add-agent', (_event, projectId: string, agentId: string) => {
+    db.prepare(
+      'INSERT OR IGNORE INTO project_agents (project_id, agent_id, is_primary, sort_order, added_at) VALUES (?, ?, 0, 0, ?)'
+    ).run(projectId, agentId, Date.now())
+    return true
+  })
+
+  safeHandle('project:remove-agent', (_event, projectId: string, agentId: string) => {
+    db.prepare('DELETE FROM project_agents WHERE project_id = ? AND agent_id = ?').run(projectId, agentId)
+    return true
+  })
+
+  safeHandle('project:set-primary-agent', (_event, projectId: string, agentId: string) => {
+    const setPrimary = db.transaction(() => {
+      db.prepare('UPDATE project_agents SET is_primary = 0 WHERE project_id = ?').run(projectId)
+      db.prepare('UPDATE project_agents SET is_primary = 1 WHERE project_id = ? AND agent_id = ?').run(projectId, agentId)
+    })
+    setPrimary()
+    return true
+  })
+
+  safeHandle('project:reorder-agents', (_event, projectId: string, orderedAgentIds: string[]) => {
+    const update = db.prepare(
+      'UPDATE project_agents SET sort_order = ? WHERE project_id = ? AND agent_id = ?'
+    )
+    const reorder = db.transaction(() => {
+      orderedAgentIds.forEach((agentId, index) => {
+        update.run(index, projectId, agentId)
+      })
+    })
+    reorder()
     return true
   })
 }
@@ -424,6 +521,115 @@ function registerChatHandlers(): void {
         }
       }
 
+      // ── J.3: Project context injection ────────────────────────────────────
+      {
+        const convProjectId = projectId ?? (db.prepare('SELECT project_id FROM conversations WHERE id = ?').get(conversationId) as { project_id: string | null } | undefined)?.project_id ?? null
+        if (convProjectId) {
+          const projRow = db.prepare('SELECT config_json FROM projects WHERE id = ?').get(convProjectId) as { config_json: string | null } | undefined
+          const projCfg = parseProjectConfig(projRow?.config_json ?? null)
+
+          if (projCfg.instructionsEnabled && projCfg.instructions.trim()) {
+            let instructions = projCfg.instructions
+            for (const { key, value } of projCfg.variables) {
+              instructions = instructions.replaceAll(`{{${key}}}`, value)
+            }
+
+            // Apply variable substitution to agent system prompt if already injected
+            if (projCfg.variables.length > 0) {
+              for (const { key, value } of projCfg.variables) {
+                augmentedContent = augmentedContent.replaceAll(`{{${key}}}`, value)
+              }
+            }
+
+            const projectBlock = `[Project Context]\n${instructions}\n[/Project Context]`
+            switch (projCfg.instructionMode) {
+              case 'prepend':
+                augmentedContent = `${projectBlock}\n\n${augmentedContent}`
+                break
+              case 'append': {
+                // Insert project block between system instructions and user content
+                const splitMarker = '\n\n'
+                const splitIdx = augmentedContent.indexOf(splitMarker)
+                if (splitIdx !== -1) {
+                  augmentedContent = augmentedContent.slice(0, splitIdx) + splitMarker + projectBlock + splitMarker + augmentedContent.slice(splitIdx + splitMarker.length)
+                } else {
+                  augmentedContent = `${augmentedContent}\n\n${projectBlock}`
+                }
+                break
+              }
+              case 'replace':
+              case 'standalone':
+                // Strip agent system instructions, keep only project block + user content
+                augmentedContent = `${projectBlock}\n\n${content}`
+                break
+            }
+          }
+
+          // Apply rootDirectory if set (used by context handlers via projectRootDirectory convention)
+          if (projCfg.rootDirectory) {
+            // Pass to context handlers by injecting a synthetic context note (non-intrusive)
+            // The actual cwd override is handled in context:workspace-summary / context:git handlers
+          }
+
+          // K.2: Scope block injection
+          const inScopeRules = projCfg.inScope ?? []
+          const outOfScopeRules = projCfg.outOfScope ?? []
+          const milestonesArr = projCfg.milestones ?? []
+          const activeMilestone = milestonesArr.find((m) => m.status === 'active')
+          if (activeMilestone || inScopeRules.length > 0 || outOfScopeRules.length > 0) {
+            const scopeLines: string[] = []
+            if (activeMilestone) {
+              const desc = activeMilestone.description ? ` — ${activeMilestone.description}` : ''
+              scopeLines.push(`Active Milestone: ${activeMilestone.title}${desc}`)
+            }
+            if (inScopeRules.length > 0) {
+              scopeLines.push('In Scope:')
+              for (const r of inScopeRules) {
+                scopeLines.push(`  - ${r.description}${r.pathGlob ? ` (${r.pathGlob})` : ''}`)
+              }
+            }
+            if (outOfScopeRules.length > 0) {
+              scopeLines.push('Out of Scope (do NOT work on these):')
+              for (const r of outOfScopeRules) {
+                scopeLines.push(`  - ${r.description}${r.pathGlob ? ` (${r.pathGlob})` : ''}`)
+              }
+            }
+            const scopeBlock = `[Project Scope]\n${scopeLines.join('\n')}\n[/Project Scope]`
+            augmentedContent = `${scopeBlock}\n\n${augmentedContent}`
+          }
+
+          // Team awareness block — inject when project has ≥2 agents, regardless of orchestration setting.
+          // The orchestrator injects its own richer manifest later; this block covers non-orchestrated chats.
+          const projCfgRaw = projRow?.config_json ? (() => { try { return JSON.parse(projRow.config_json) as Record<string, unknown> } catch { return {} } })() : {}
+          const orchAlreadyEnabled = projCfgRaw.orchestrationEnabled === true
+          if (!orchAlreadyEnabled) {
+            const teamRows = db.prepare(
+              "SELECT pa.agent_id, pa.is_primary, a.config_json FROM project_agents pa JOIN agents a ON pa.agent_id = a.id WHERE pa.project_id = ? ORDER BY pa.is_primary DESC, pa.sort_order ASC"
+            ).all(convProjectId) as { agent_id: string; is_primary: number; config_json: string }[]
+
+            if (teamRows.length >= 2) {
+              const projName = (db.prepare('SELECT name FROM projects WHERE id = ?').get(convProjectId) as { name: string } | undefined)?.name ?? 'this project'
+              const memberLines = teamRows.map((r) => {
+                const cfg = (() => { try { return JSON.parse(r.config_json) as Record<string, unknown> } catch { return {} } })()
+                const name = typeof cfg.name === 'string' ? cfg.name : 'Agent'
+                const icon = typeof cfg.icon === 'string' ? cfg.icon : '🤖'
+                const role = r.is_primary ? ' (primary — currently speaking)' : ''
+                return `  - ${icon} ${name}${role}`
+              })
+              const teamBlock =
+                `[Project Team — "${projName}"]\n` +
+                `This conversation is part of a project with the following agents:\n` +
+                memberLines.join('\n') + '\n' +
+                `Orchestration is currently disabled, so you cannot autonomously delegate tasks.\n` +
+                `If asked about delegation or other agents, be honest: the user can switch agents manually\n` +
+                `or enable orchestration in the project settings to allow automatic delegation.\n` +
+                `[/Project Team]`
+              augmentedContent = `${teamBlock}\n\n${augmentedContent}`
+            }
+          }
+        }
+      }
+
       let responseContent: string
 
       // Determine which provider to use based on agent config
@@ -478,6 +684,77 @@ function registerChatHandlers(): void {
 
       const userContent: ProviderMessage['content'] =
         attachedImages.length > 0 ? buildVisionUserContent() : augmentedContent
+
+      // ── Multi-agent orchestration (Feature H) ──────────────────────────────
+      // Trigger when the conversation belongs to a project with orchestration
+      // enabled, a primary agent, and ≥2 total agents.
+      const orchProjectId = projectId ?? convRow
+        ? db.prepare('SELECT project_id FROM conversations WHERE id = ?').get(conversationId) as { project_id: string | null } | undefined
+        : undefined
+      const orchProjId = projectId ?? (orchProjectId as { project_id?: string | null } | undefined)?.project_id ?? null
+
+      if (orchProjId) {
+        const projRow = db.prepare('SELECT name, config_json FROM projects WHERE id = ?').get(orchProjId) as { name: string; config_json: string | null } | undefined
+        const projConfig = projRow?.config_json ? (() => { try { return JSON.parse(projRow.config_json) as Record<string, unknown> } catch { return {} } })() : {}
+        const orchEnabled = projConfig.orchestrationEnabled === true
+
+        if (orchEnabled) {
+          const agentRows = db.prepare(
+            "SELECT pa.agent_id, pa.is_primary, pa.sort_order, a.config_json FROM project_agents pa JOIN agents a ON pa.agent_id = a.id WHERE pa.project_id = ? ORDER BY pa.sort_order ASC"
+          ).all(orchProjId) as { agent_id: string; is_primary: number; sort_order: number; config_json: string }[]
+
+          const primaryRow = agentRows.find((r) => r.is_primary === 1)
+
+          if (primaryRow && agentRows.length >= 2) {
+            const teamAgents: OrchestratorAgent[] = agentRows.map((r) => {
+              const cfg = (() => { try { return JSON.parse(r.config_json) as Record<string, unknown> } catch { return {} } })()
+              return {
+                agentId: r.agent_id,
+                agentName: typeof cfg.name === 'string' ? cfg.name : 'Agent',
+                agentIcon: typeof cfg.icon === 'string' ? cfg.icon : '🤖',
+                isPrimary: r.is_primary === 1,
+                sortOrder: r.sort_order
+              }
+            })
+
+            const maxDepth = typeof projConfig.maxDelegationDepth === 'number' ? projConfig.maxDelegationDepth : 5
+            const showActivity = projConfig.showTeamActivity !== false
+
+            const { finalContent, teamActivity } = await runOrchestration(
+              {
+                projectId: orchProjId,
+                projectName: projRow?.name ?? 'Project',
+                leaderAgentId: primaryRow.agent_id,
+                teamAgents,
+                conversationId,
+                window,
+                selectedModel: selectedModel ?? 'default',
+                generationOptions,
+                maxDelegationDepth: maxDepth,
+                showActivity
+              },
+              userContent,
+              historyMessages.filter((m) => m.role !== 'team-activity')
+            )
+
+            // Persist team-activity block if there were delegation steps
+            if (showActivity && teamActivity.length > 0) {
+              const activityMsgId = randomUUID()
+              db.prepare(
+                'INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model) VALUES (?, ?, ?, ?, ?, ?, ?)'
+              ).run(activityMsgId, conversationId, 'team-activity', JSON.stringify({ steps: teamActivity }), null, Date.now() - 1, selectedModel ?? null)
+            }
+
+            responseContent = finalContent
+            const assistantMsgId = randomUUID()
+            db.prepare(
+              'INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model) VALUES (?, ?, ?, ?, ?, ?, ?)'
+            ).run(assistantMsgId, conversationId, 'assistant', responseContent, null, Date.now(), selectedModel ?? null)
+            return { assistantMsgId }
+          }
+        }
+      }
+      // ── End orchestration ─────────────────────────────────────────────────
 
       if (byokKey && providerName === 'openai') {
         try {

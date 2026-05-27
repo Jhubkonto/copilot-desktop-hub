@@ -1,9 +1,11 @@
 import { useEffect, useState, useCallback, lazy, Suspense } from 'react'
 import { Sidebar } from './components/Sidebar'
 import { ChatWindow } from './components/ChatWindow'
+import { SectionPane } from './components/SectionPane'
 import { TitleBar } from './components/TitleBar'
 import { ToolApproval } from './components/ToolApproval'
 import { ToastContainer } from './components/Toast'
+import { DeleteAgentDialog } from './components/DeleteAgentDialog'
 import { useAppStore } from './store/app-store'
 
 const AgentPanel = lazy(() =>
@@ -29,10 +31,15 @@ export default function App() {
   const showSettings = useAppStore((s) => s.showSettings)
   const showOnboarding = useAppStore((s) => s.showOnboarding)
   const showSidebar = useAppStore((s) => s.showSidebar)
+  const activeSectionPane = useAppStore((s) => s.activeSectionPane)
   const updateAvailable = useAppStore((s) => s.updateAvailable)
   const updateDownloaded = useAppStore((s) => s.updateDownloaded)
   const deviceCode = useAppStore((s) => s.deviceCode)
   const toasts = useAppStore((s) => s.toasts)
+
+  const pendingDeleteAgent = useAppStore((s) => s.pendingDeleteAgent)
+  const confirmDeleteAgent = useAppStore((s) => s.confirmDeleteAgent)
+  const cancelDeleteAgent = useAppStore((s) => s.cancelDeleteAgent)
 
   const hydrate = useAppStore((s) => s.hydrate)
   const setDeviceCode = useAppStore((s) => s.setDeviceCode)
@@ -95,6 +102,36 @@ export default function App() {
     return () => { unsub1(); unsub2() }
   }, [setUpdateAvailable, setUpdateDownloaded])
 
+  // Zoom: Ctrl+scroll and Ctrl+Plus/Minus/0
+  useEffect(() => {
+    let lastZoom = 0
+    const ZOOM_DEBOUNCE = 80
+
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return
+      e.preventDefault()
+      const now = Date.now()
+      if (now - lastZoom < ZOOM_DEBOUNCE) return
+      lastZoom = now
+      if (e.deltaY < 0) window.api.zoomIn()
+      else window.api.zoomOut()
+    }
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!e.ctrlKey) return
+      if (e.key === '=' || e.key === '+') { e.preventDefault(); window.api.zoomIn() }
+      else if (e.key === '-') { e.preventDefault(); window.api.zoomOut() }
+      else if (e.key === '0') { e.preventDefault(); window.api.resetZoom() }
+    }
+
+    window.addEventListener('wheel', onWheel, { passive: false })
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('wheel', onWheel)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [])
+
   return (
     <div className={`flex flex-col h-screen w-screen overflow-hidden ${theme === 'dark' ? 'dark' : ''}`} role="application">
       {/* Custom frameless titlebar */}
@@ -103,6 +140,7 @@ export default function App() {
       {/* Content row: sidebar + main */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {showSidebar && <Sidebar />}
+        {activeSectionPane && <SectionPane section={activeSectionPane} />}
         <main className="flex-1 flex flex-col min-h-0 min-w-0 bg-white dark:bg-gray-900" role="main">
 
           {/* Update notification banners */}
@@ -168,6 +206,14 @@ export default function App() {
       </Suspense>
 
       <ToolApproval />
+
+      {pendingDeleteAgent && (
+        <DeleteAgentDialog
+          impact={pendingDeleteAgent}
+          onConfirm={confirmDeleteAgent}
+          onCancel={cancelDeleteAgent}
+        />
+      )}
 
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 

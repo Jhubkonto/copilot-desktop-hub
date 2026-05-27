@@ -57,7 +57,8 @@ export function createMockApi() {
     getAgent: vi.fn().mockResolvedValue(null),
     createAgent: vi.fn().mockResolvedValue({ id: 'agent-1' }),
     updateAgent: vi.fn().mockResolvedValue(true),
-    deleteAgent: vi.fn().mockResolvedValue(true),
+    deleteAgentPreflight: vi.fn().mockResolvedValue({ affectedProjects: [], affectedConvCount: 0 }),
+    deleteAgent: vi.fn().mockResolvedValue({ success: true, affectedProjects: [], affectedConvCount: 0 }),
     duplicateAgent: vi.fn().mockResolvedValue({ id: 'agent-2' }),
     exportAgent: vi.fn().mockResolvedValue(true),
     importAgent: vi.fn().mockResolvedValue(null),
@@ -137,6 +138,16 @@ export function createMockApi() {
     deleteProject: vi.fn().mockResolvedValue(true),
     setConversationProject: vi.fn().mockResolvedValue(true),
     setProjectDefaultModel: vi.fn().mockResolvedValue(true),
+
+    // Project Agents
+    listProjectAgents: vi.fn().mockResolvedValue([]),
+    addAgentToProject: vi.fn().mockResolvedValue(true),
+    removeAgentFromProject: vi.fn().mockResolvedValue(true),
+    setProjectPrimaryAgent: vi.fn().mockResolvedValue(true),
+    reorderProjectAgents: vi.fn().mockResolvedValue(true),
+    updateProjectConfig: vi.fn().mockResolvedValue(true),
+    getProjectConfig: vi.fn().mockResolvedValue({}),
+    onTeamActivity: vi.fn().mockReturnValue(() => {}),
 
     // Window controls
     minimizeWindow: vi.fn().mockResolvedValue(undefined),

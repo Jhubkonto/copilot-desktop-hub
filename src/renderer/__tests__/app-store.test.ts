@@ -298,24 +298,47 @@ describe('Store — Agent Actions', () => {
     expect(useAppStore.getState().showAgentPanel).toBe(true)
   })
 
-  it('deleteAgent removes agent and resets activeAgentId if active', async () => {
+  it('deleteAgent sets pendingDeleteAgent (shows confirmation dialog)', async () => {
     useAppStore.setState({ activeAgentId: 'a1', agents: mockAgents })
-    mockApi.deleteAgent.mockResolvedValue(true)
-    mockApi.listAgents.mockResolvedValue([mockAgents[1]])
+    mockApi.deleteAgentPreflight.mockResolvedValue({ affectedProjects: [], affectedConvCount: 0 })
 
     await useAppStore.getState().deleteAgent('a1')
+
+    const pending = useAppStore.getState().pendingDeleteAgent
+    expect(pending).not.toBeNull()
+    expect(pending?.agentId).toBe('a1')
+    // No deletion yet — IPC delete not called
+    expect(mockApi.deleteAgent).not.toHaveBeenCalled()
+  })
+
+  it('confirmDeleteAgent removes agent and resets activeAgentId if active', async () => {
+    useAppStore.setState({
+      activeAgentId: 'a1',
+      agents: mockAgents,
+      pendingDeleteAgent: { agentId: 'a1', agentName: 'Agent 1', affectedProjects: [], affectedConvCount: 0 }
+    })
+    mockApi.deleteAgent.mockResolvedValue({ success: true, affectedProjects: [], affectedConvCount: 0 })
+    mockApi.listAgents.mockResolvedValue([mockAgents[1]])
+    mockApi.listProjects.mockResolvedValue([])
+
+    await useAppStore.getState().confirmDeleteAgent()
 
     expect(useAppStore.getState().activeAgentId).toBeNull()
     expect(useAppStore.getState().showAgentPanel).toBe(false)
     expect(useAppStore.getState().toasts.some((t) => t.type === 'success')).toBe(true)
   })
 
-  it('deleteAgent does not reset activeAgentId if different agent deleted', async () => {
-    useAppStore.setState({ activeAgentId: 'a1', agents: mockAgents })
-    mockApi.deleteAgent.mockResolvedValue(true)
+  it('confirmDeleteAgent does not reset activeAgentId if different agent was pending', async () => {
+    useAppStore.setState({
+      activeAgentId: 'a1',
+      agents: mockAgents,
+      pendingDeleteAgent: { agentId: 'a2', agentName: 'Agent 2', affectedProjects: [], affectedConvCount: 0 }
+    })
+    mockApi.deleteAgent.mockResolvedValue({ success: true, affectedProjects: [], affectedConvCount: 0 })
     mockApi.listAgents.mockResolvedValue([mockAgents[0]])
+    mockApi.listProjects.mockResolvedValue([])
 
-    await useAppStore.getState().deleteAgent('a2')
+    await useAppStore.getState().confirmDeleteAgent()
 
     expect(useAppStore.getState().activeAgentId).toBe('a1')
   })

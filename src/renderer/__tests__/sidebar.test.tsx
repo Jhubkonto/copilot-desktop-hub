@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Sidebar } from '../../renderer/components/Sidebar'
 import { setupMockApi, type MockApi } from '../../test/mocks/api'
@@ -225,7 +225,7 @@ describe('Sidebar — Agent List', () => {
 
     render(<Sidebar />)
 
-    const agentItem = screen.getByText(/Code Helper/).closest('div[class*="cursor-pointer"]')
+    const agentItem = screen.getByText(/Code Helper/).closest('div[class*="cursor-grab"]')
     expect(agentItem?.className).toContain('bg-')
   })
 
@@ -322,5 +322,65 @@ describe('Sidebar — Auth Section', () => {
 
     await user.click(screen.getByText('Sign out'))
     expect(mockStore.logout).toHaveBeenCalled()
+  })
+})
+
+
+// ── Feature L: Sidebar drag-to-project (L.3) ─────────────────────────────────
+
+describe('Sidebar — Drag-to-project (L3)', () => {
+  const dragAgent = { id: 'drag-a', name: 'Drag Agent', icon: '🚀', isDefault: false }
+  const dragProject = { id: 'drag-p', name: 'Drop Project', color: 'blue', created_at: 0, default_model: null }
+
+  beforeEach(() => {
+    mockStore = createMockAppStore({
+      conversations: [],
+      agents: [dragAgent],
+      projects: [dragProject],
+      projectAgents: {},
+    })
+    setupStoreMock(useAppStore, mockStore)
+  })
+
+  it('l3-1: agent entries in the sidebar have draggable=true', () => {
+    render(<Sidebar />)
+    const agentEl = screen.getByText(/Drag Agent/).closest('div[draggable]')
+    expect(agentEl).not.toBeNull()
+    expect(agentEl).toHaveAttribute('draggable', 'true')
+  })
+
+  it('l3-2: dropping an agent onto a project entry calls addAgentToProject', async () => {
+    render(<Sidebar />)
+    const agentEl = screen.getByText(/Drag Agent/).closest('div[draggable]') as HTMLElement
+    const projectEl = screen.getByText(/Drop Project/).closest('div[class]') as HTMLElement
+
+    // simulate drag start to set the transfer data
+    const dt: Record<string, string> = {}
+    fireEvent.dragStart(agentEl, {
+      dataTransfer: {
+        setData: (k: string, v: string) => { dt[k] = v },
+        types: [],
+        effectAllowed: 'copy',
+      },
+    })
+
+    fireEvent.dragOver(projectEl, {
+      dataTransfer: {
+        types: ['sidebar-agent-id'],
+        getData: (k: string) => dt[k] ?? '',
+        dropEffect: 'copy',
+      },
+    })
+
+    fireEvent.drop(projectEl, {
+      dataTransfer: {
+        types: ['sidebar-agent-id'],
+        getData: (k: string) => dt[k] ?? '',
+      },
+    })
+
+    await waitFor(() => {
+      expect(mockStore.addAgentToProject).toHaveBeenCalledWith('drag-p', 'drag-a')
+    })
   })
 })
