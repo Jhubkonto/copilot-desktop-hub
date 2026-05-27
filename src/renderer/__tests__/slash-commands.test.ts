@@ -3,6 +3,8 @@ import {
   SLASH_COMMANDS,
   executeSlashCommand,
   transformCodeSlashCommand,
+  buildUsageBar,
+  formatContextUsage,
   type SlashCommandContext
 } from '../../renderer/slash-commands'
 
@@ -91,5 +93,62 @@ describe('slash-commands', () => {
   it('sc-8: executeSlashCommand(\'/unknown-command\') returns false', async () => {
     const ctx = createContext()
     await expect(executeSlashCommand('/unknown-command', ctx)).resolves.toBe(false)
+  })
+})
+
+// ── M.10: /usage visual bar ───────────────────────────────────────────────────
+
+describe('buildUsageBar', () => {
+  it('m10-1: returns all filled blocks when used >= limit', () => {
+    const bar = buildUsageBar(100, 100)
+    expect(bar).toContain('100%')
+    expect(bar).not.toContain('░')
+  })
+
+  it('m10-2: returns all empty blocks when used is 0', () => {
+    const bar = buildUsageBar(0, 100)
+    expect(bar).toContain('0%')
+    expect(bar).not.toContain('█')
+  })
+
+  it('m10-3: returns ~50% bar when half used', () => {
+    const bar = buildUsageBar(50, 100, 20)
+    expect(bar).toContain('50%')
+    expect(bar).toContain('██████████')
+    expect(bar).toContain('░░░░░░░░░░')
+  })
+
+  it('m10-4: clamps bar at 100% when used > limit', () => {
+    const bar = buildUsageBar(200, 100)
+    expect(bar).toContain('100%')
+  })
+})
+
+describe('formatContextUsage', () => {
+  it('m10-5: includes model name and token count in output', () => {
+    const out = formatContextUsage(4000, 'gpt-4o')
+    expect(out).toContain('gpt-4o')
+    expect(out).toMatch(/4[,.]?000/)
+  })
+
+  it('m10-6: uses 128k limit for unknown model', () => {
+    const out = formatContextUsage(1000, 'unknown-model')
+    expect(out).toContain('128k')
+  })
+})
+
+describe('/usage slash command (M.10)', () => {
+  it('m10-7: /usage outputs a visual bar and message counts', async () => {
+    const ctx = createContext()
+    ctx.messages = [
+      { id: '1', role: 'user', content: 'Hello world', timestamp: 1 },
+      { id: '2', role: 'assistant', content: 'Hi there', timestamp: 2 },
+    ]
+    await executeSlashCommand('/usage', ctx)
+    const msg = (ctx.pushSystemMessage as ReturnType<typeof vi.fn>).mock.calls[0][0] as string
+    expect(msg).toContain('Session usage')
+    expect(msg).toContain('1 user' )
+    expect(msg).toMatch(/\[.*\]/)  // usage bar brackets
+    expect(msg).toContain('%')
   })
 })

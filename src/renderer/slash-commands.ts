@@ -99,6 +99,35 @@ export function transformCodeSlashCommand(input: string): string | null {
   return `${instruction}\n\n${content}`
 }
 
+export function buildUsageBar(used: number, limit: number, width = 20): string {
+  const pct = Math.min(1, used / limit)
+  const filled = Math.round(pct * width)
+  const empty = width - filled
+  const bar = '█'.repeat(filled) + '░'.repeat(empty)
+  return `[${bar}] ${Math.round(pct * 100)}%`
+}
+
+export function formatContextUsage(estimatedTokens: number, model: string | null): string {
+  // Approximate context window sizes for known Copilot models
+  const CONTEXT_LIMITS: Record<string, number> = {
+    'gpt-4o':          128_000,
+    'gpt-4o-mini':     128_000,
+    'gpt-4-turbo':     128_000,
+    'gpt-4':            32_768,
+    'gpt-3.5-turbo':   16_384,
+    'claude-3-5-sonnet': 200_000,
+    'claude-3-haiku':  200_000,
+    'o1':              200_000,
+    'o1-mini':         128_000,
+  }
+
+  const key = Object.keys(CONTEXT_LIMITS).find((k) => model?.toLowerCase().includes(k))
+  const limit = key ? CONTEXT_LIMITS[key] : 128_000
+  const bar = buildUsageBar(estimatedTokens, limit)
+  return `Context window (${model ?? 'default'}):\n${bar} (~${estimatedTokens.toLocaleString()} / ${(limit / 1000).toFixed(0)}k tokens)`
+}
+
+
 export interface SlashCommandContext {
   conversationId: string | null
   messages: ChatMessage[]
@@ -283,9 +312,17 @@ export async function executeSlashCommand(
       const systemCount = ctx.messages.filter((m) => m.role === 'system').length
       const charCount = ctx.messages.reduce((sum, m) => sum + m.content.length, 0)
       const estimatedTokens = Math.ceil(charCount / 4)
-      ctx.pushSystemMessage(
-        `Usage (current chat)\n- Messages: ${ctx.messages.length}\n- User: ${userCount}\n- Assistant: ${assistantCount}\n- System: ${systemCount}\n- Estimated tokens: ${estimatedTokens}`
-      )
+      const contextLine = formatContextUsage(estimatedTokens, ctx.conversationModel)
+      const lines = [
+        '**Session usage**',
+        `- Messages: ${ctx.messages.length} (👤 ${userCount} user / 🤖 ${assistantCount} assistant / ⚙ ${systemCount} system)`,
+        `- Estimated tokens in context: ~${estimatedTokens.toLocaleString()}`,
+        '',
+        contextLine,
+        '',
+        '_Note: GitHub Copilot does not expose remaining quota or reset time via its API._',
+      ]
+      ctx.pushSystemMessage(lines.join('\n'))
       return true
     }
     case '/config': {
