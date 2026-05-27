@@ -195,14 +195,31 @@ export function registerAgentHandlers(): void {
     return { ...config, id }
   })
 
+  safeHandle('agent:delete-preflight', (_event, id: string) => {
+    const affectedProjects = db.prepare(
+      'SELECT p.id, p.name, pa.is_primary FROM project_agents pa JOIN projects p ON p.id = pa.project_id WHERE pa.agent_id = ?'
+    ).all(id) as { id: string; name: string; is_primary: number }[]
+
+    const affectedConvCount = (db.prepare(
+      'SELECT COUNT(*) as count FROM conversations WHERE agent_id = ?'
+    ).get(id) as { count: number }).count
+
+    return { affectedProjects, affectedConvCount }
+  })
+
   safeHandle('agent:delete', (_event, id: string) => {
-    const row = db.prepare('SELECT is_default FROM agents WHERE id = ?').get(id) as
-      | { is_default: number }
-      | undefined
-    if (row?.is_default === 1) return false
-    db.prepare('DELETE FROM agents WHERE id = ?').run(id)
+    const affectedProjects = db.prepare(
+      'SELECT p.id, p.name, pa.is_primary FROM project_agents pa JOIN projects p ON p.id = pa.project_id WHERE pa.agent_id = ?'
+    ).all(id) as { id: string; name: string; is_primary: number }[]
+
+    const affectedConvCount = (db.prepare(
+      'SELECT COUNT(*) as count FROM conversations WHERE agent_id = ?'
+    ).get(id) as { count: number }).count
+
     db.prepare('UPDATE conversations SET agent_id = NULL WHERE agent_id = ?').run(id)
-    return true
+    db.prepare('DELETE FROM agents WHERE id = ?').run(id)
+
+    return { success: true, affectedProjects, affectedConvCount }
   })
 
   safeHandle('agent:duplicate', (_event, id: string) => {

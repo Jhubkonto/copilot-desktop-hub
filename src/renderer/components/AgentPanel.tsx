@@ -917,7 +917,7 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
         {/* Footer */}
         <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-700">
           <div className="flex gap-2">
-            {isEditing && !isDefault && (
+            {isEditing && (
               <button
                 onClick={() => onDelete(config.id)}
                 className="text-xs px-3 py-1.5 rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"

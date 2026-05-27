@@ -179,27 +179,37 @@ describe('Agents — IPC Handlers', () => {
   })
 
   describe('agent:delete', () => {
-    it('agent-m-4: removes non-default agent', async () => {
-      const getFn = vi.fn(() => ({ is_default: 0 }))
+    it('agent-m-4: removes agent, nulls conversations, returns success', async () => {
+      const affectedProjectsAllFn = vi.fn(() => [])
+      const affectedConvGetFn = vi.fn(() => ({ count: 0 }))
+      const nullConvFn = vi.fn()
       const delFn = vi.fn()
-      const cascadeFn = vi.fn()
       mockDb.prepare
-        .mockReturnValueOnce({ run: vi.fn(), get: getFn, all: vi.fn() })
-        .mockReturnValueOnce({ run: delFn, get: vi.fn(), all: vi.fn() })
-        .mockReturnValueOnce({ run: cascadeFn, get: vi.fn(), all: vi.fn() })
+        .mockReturnValueOnce({ run: vi.fn(), get: vi.fn(), all: affectedProjectsAllFn }) // affected projects
+        .mockReturnValueOnce({ run: vi.fn(), get: affectedConvGetFn, all: vi.fn() })     // affected conv count
+        .mockReturnValueOnce({ run: nullConvFn, get: vi.fn(), all: vi.fn() })            // NULL conversations
+        .mockReturnValueOnce({ run: delFn, get: vi.fn(), all: vi.fn() })                 // DELETE agent
 
       const result = await invokeHandler('agent:delete', 'agent-abc')
-      expect(result).toBe(true)
+      expect(result).toMatchObject({ success: true, affectedProjects: [], affectedConvCount: 0 })
       expect(delFn).toHaveBeenCalledWith('agent-abc')
-      expect(cascadeFn).toHaveBeenCalledWith('agent-abc')
+      expect(nullConvFn).toHaveBeenCalledWith('agent-abc')
     })
 
-    it('agent-m-5: rejects deletion of default agents', async () => {
-      const getFn = vi.fn(() => ({ is_default: 1 }))
-      mockDb.prepare.mockReturnValueOnce({ run: vi.fn(), get: getFn, all: vi.fn() })
+    it('agent-m-5: deletes default agents (no longer blocked)', async () => {
+      const affectedProjectsAllFn = vi.fn(() => [])
+      const affectedConvGetFn = vi.fn(() => ({ count: 0 }))
+      const nullConvFn = vi.fn()
+      const delFn = vi.fn()
+      mockDb.prepare
+        .mockReturnValueOnce({ run: vi.fn(), get: vi.fn(), all: affectedProjectsAllFn })
+        .mockReturnValueOnce({ run: vi.fn(), get: affectedConvGetFn, all: vi.fn() })
+        .mockReturnValueOnce({ run: nullConvFn, get: vi.fn(), all: vi.fn() })
+        .mockReturnValueOnce({ run: delFn, get: vi.fn(), all: vi.fn() })
 
       const result = await invokeHandler('agent:delete', 'default-agent')
-      expect(result).toBe(false)
+      expect(result).toMatchObject({ success: true })
+      expect(delFn).toHaveBeenCalledWith('default-agent')
     })
   })
 
@@ -305,6 +315,83 @@ describe('Agents — IPC Handlers', () => {
 
       const result = await invokeHandler('agent:import')
       expect(result).toBeNull()
+    })
+  })
+
+  // ── agent:delete-preflight ────────────────────────────────────────────────
+
+  describe('agent:delete-preflight', () => {
+    it('i-1: returns affected projects and conversation count without deleting', async () => {
+      const affectedProjectsAllFn = vi.fn(() => [
+        { id: 'proj-1', name: 'Alpha', is_primary: 1 },
+        { id: 'proj-2', name: 'Beta', is_primary: 0 }
+      ])
+      const affectedConvGetFn = vi.fn(() => ({ count: 7 }))
+      mockDb.prepare
+        .mockReturnValueOnce({ run: vi.fn(), get: vi.fn(), all: affectedProjectsAllFn })
+        .mockReturnValueOnce({ run: vi.fn(), get: affectedConvGetFn, all: vi.fn() })
+
+      const result = await invokeHandler('agent:delete-preflight', 'agent-x')
+      expect(result).toMatchObject({
+        affectedProjects: [
+          { id: 'proj-1', name: 'Alpha', is_primary: 1 },
+          { id: 'proj-2', name: 'Beta', is_primary: 0 }
+        ],
+        affectedConvCount: 7
+      })
+      // No DELETE / UPDATE should have been called
+      expect(mockDb.prepare().run).not.toHaveBeenCalledWith(expect.stringContaining('DELETE'))
+    })
+
+    it('i-2: returns empty impact for an agent with no memberships or conversations', async () => {
+      mockDb.prepare
+        .mockReturnValueOnce({ run: vi.fn(), get: vi.fn(), all: vi.fn(() => []) })
+        .mockReturnValueOnce({ run: vi.fn(), get: vi.fn(() => ({ count: 0 })), all: vi.fn() })
+
+      const result = await invokeHandler('agent:delete-preflight', 'lone-agent')
+      expect(result).toMatchObject({ affectedProjects: [], affectedConvCount: 0 })
+    })
+  })
+
+  // ── agent:delete enhanced ─────────────────────────────────────────────────
+
+  describe('agent:delete (enhanced)', () => {
+    it('i-3: includes affected project list in success result', async () => {
+      const affectedProjectsAllFn = vi.fn(() => [
+        { id: 'proj-1', name: 'Alpha', is_primary: 1 }
+      ])
+      const affectedConvGetFn = vi.fn(() => ({ count: 3 }))
+      const nullConvFn = vi.fn()
+      const delFn = vi.fn()
+      mockDb.prepare
+        .mockReturnValueOnce({ run: vi.fn(), get: vi.fn(), all: affectedProjectsAllFn })
+        .mockReturnValueOnce({ run: vi.fn(), get: affectedConvGetFn, all: vi.fn() })
+        .mockReturnValueOnce({ run: nullConvFn, get: vi.fn(), all: vi.fn() })
+        .mockReturnValueOnce({ run: delFn, get: vi.fn(), all: vi.fn() })
+
+      const result = await invokeHandler('agent:delete', 'agent-in-project')
+      expect(result).toMatchObject({
+        success: true,
+        affectedProjects: [{ id: 'proj-1', name: 'Alpha', is_primary: 1 }],
+        affectedConvCount: 3
+      })
+      expect(nullConvFn).toHaveBeenCalledWith('agent-in-project')
+      expect(delFn).toHaveBeenCalledWith('agent-in-project')
+    })
+
+    it('i-4: deleting non-existent agent is idempotent (success with empty impact)', async () => {
+      const affectedProjectsAllFn = vi.fn(() => [])
+      const affectedConvGetFn = vi.fn(() => ({ count: 0 }))
+      const nullConvFn = vi.fn()
+      const delFn = vi.fn()
+      mockDb.prepare
+        .mockReturnValueOnce({ run: vi.fn(), get: vi.fn(), all: affectedProjectsAllFn })
+        .mockReturnValueOnce({ run: vi.fn(), get: affectedConvGetFn, all: vi.fn() })
+        .mockReturnValueOnce({ run: nullConvFn, get: vi.fn(), all: vi.fn() })
+        .mockReturnValueOnce({ run: delFn, get: vi.fn(), all: vi.fn() })
+
+      const result = await invokeHandler('agent:delete', 'ghost-agent')
+      expect(result).toMatchObject({ success: true, affectedProjects: [], affectedConvCount: 0 })
     })
   })
 })

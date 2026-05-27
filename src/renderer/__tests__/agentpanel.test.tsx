@@ -371,11 +371,11 @@ describe('AgentPanel — Actions', () => {
     expect(mockStore.deleteAgent).toHaveBeenCalledWith('agent-1')
   })
 
-  it('agent-r-17: delete button hidden for default agents', () => {
+  it('agent-r-17: delete button visible for default agents', () => {
     setupEditMode(DEFAULT_AGENT)
     render(<AgentPanel width={440} onResize={() => {}} />)
 
-    expect(screen.queryByText('Delete')).not.toBeInTheDocument()
+    expect(screen.getByText('Delete')).toBeInTheDocument()
   })
 
   it('agent-r-18: duplicate button calls duplicateAgent', async () => {
