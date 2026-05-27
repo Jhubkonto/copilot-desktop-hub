@@ -41,10 +41,10 @@ function createWindow(): void {
     frame: false,
     titleBarStyle: 'hidden',
     webPreferences: {
-      preload: join(__dirname, '../preload/index.mjs'),
+      preload: join(__dirname, '../preload/index.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true
     }
   })
 
@@ -63,6 +63,14 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => {
+    const db = getDatabase()
+    const zoomRow = db.prepare("SELECT value FROM settings WHERE key = 'zoomFactor'").get() as { value: string } | undefined
+    if (zoomRow) {
+      const factor = parseFloat(zoomRow.value)
+      if (!isNaN(factor) && factor >= 0.5 && factor <= 3.0) {
+        mainWindow?.webContents.setZoomFactor(factor)
+      }
+    }
     mainWindow?.show()
   })
 
@@ -203,7 +211,17 @@ app.whenReady().then(() => {
   ipcMain.handle('window:zoom', (event, delta: number) => {
     const wc = BrowserWindow.fromWebContents(event.sender)?.webContents
     if (!wc) return
-    wc.setZoomLevel(delta === 0 ? 0 : wc.getZoomLevel() + delta)
+    const db = getDatabase()
+    if (delta === 0) {
+      wc.setZoomFactor(1.0)
+      db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('zoomFactor', '1')").run()
+    } else {
+      const STEP = 0.1
+      const current = wc.getZoomFactor()
+      const next = Math.round(Math.min(3.0, Math.max(0.5, current + (delta > 0 ? STEP : -STEP))) * 10) / 10
+      wc.setZoomFactor(next)
+      db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('zoomFactor', ?)").run(String(next))
+    }
   })
 
   // Forward maximize/restore state changes to the renderer
