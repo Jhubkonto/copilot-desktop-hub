@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { Paperclip, TerminalSquare, Square, Send, X, Eye, Loader2, AlertCircle } from 'lucide-react'
+import { Paperclip, Square, Send, X, Eye, Loader2, AlertCircle } from 'lucide-react'
 import { MessageBubble } from './MessageBubble'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { ContextInspector, type ContextSnapshot } from './ContextInspector'
@@ -64,7 +64,6 @@ export function ChatWindow() {
   const conversations = useAppStore((s) => s.conversations)
   const authenticated = useAppStore((s) => s.authState.authenticated)
   const theme = useAppStore((s) => s.theme)
-  const showTerminal = useAppStore((s) => s.showTerminal)
 
   const conversationCreated = useAppStore((s) => s.conversationCreated)
   const loadConversations = useAppStore((s) => s.loadConversations)
@@ -73,7 +72,6 @@ export function ChatWindow() {
   const setTheme = useAppStore((s) => s.setTheme)
   const login = useAppStore((s) => s.login)
   const logout = useAppStore((s) => s.logout)
-  const toggleTerminal = useAppStore((s) => s.toggleTerminal)
   const addToast = useAppStore((s) => s.addToast) as (message: string, type?: ToastType) => void
 
   const activeAgent = activeAgentId ? agents.find((a) => a.id === activeAgentId) ?? null : null
@@ -914,32 +912,30 @@ export function ChatWindow() {
     return -1
   })()
 
-  const renderModelPicker = () => (
-    <div className="px-4 pt-3">
-      <div className="max-w-3xl mx-auto flex items-center justify-end">
-        <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-          <span>Model</span>
-          <select
-            value={conversationModel ?? 'default'}
-            onChange={(e) => handleSetConversationModel(e.target.value)}
-            ref={modelPickerRef}
-            className="rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1 text-xs text-gray-700 dark:text-gray-200"
-            aria-label="Conversation model"
-          >
-            {MODEL_OPTIONS.map((m) => (
-              <option key={m} value={m}>
-                {getModelLabel(m)}{getModelMultiplier(m) ? ` · ${getModelMultiplier(m)}` : ''}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-    </div>
-  )
-
   const renderInput = () => (
     <div className="p-4 border-t border-gray-200 dark:border-gray-700/80">
       <div className="max-w-3xl mx-auto">
+        {/* Model picker — shown when a conversation is active */}
+        {conversationId && (
+          <div className="flex items-center justify-end mb-2">
+            <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+              <span>Model</span>
+              <select
+                value={conversationModel ?? 'default'}
+                onChange={(e) => handleSetConversationModel(e.target.value)}
+                ref={modelPickerRef}
+                className="rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1 text-xs text-gray-700 dark:text-gray-200"
+                aria-label="Conversation model"
+              >
+                {MODEL_OPTIONS.map((m) => (
+                  <option key={m} value={m}>
+                    {getModelLabel(m)}{getModelMultiplier(m) ? ` · ${getModelMultiplier(m)}` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
         {/* Pending attachments */}
         {(pendingAttachments.length > 0 || pendingImages.length > 0) && (
           <div className="flex flex-wrap gap-2 mb-2">
@@ -1089,19 +1085,6 @@ export function ChatWindow() {
             <Paperclip className="w-4 h-4" />
           </button>
           <button
-            onClick={toggleTerminal}
-            className={`px-3 py-2.5 rounded-lg border transition-colors ${
-              showTerminal
-                ? 'border-gray-400 dark:border-gray-500 text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-800'
-                : 'border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
-            }`}
-            title="Toggle terminal"
-            aria-label="Toggle terminal"
-            aria-pressed={showTerminal}
-          >
-            <TerminalSquare className="w-4 h-4" />
-          </button>
-          <button
             onClick={() => setShowContextInspector((v) => !v)}
             className={`px-3 py-2.5 rounded-lg border transition-colors ${
               showContextInspector
@@ -1228,7 +1211,6 @@ export function ChatWindow() {
       role="region"
       aria-label="Chat conversation"
     >
-      {conversationId && renderModelPicker()}
       <div className="flex-1 overflow-y-auto min-h-0 px-4 py-6" role="log" aria-live="polite" aria-label="Messages">
         <div className="max-w-3xl mx-auto space-y-8">
           {isLoadingMessages && (

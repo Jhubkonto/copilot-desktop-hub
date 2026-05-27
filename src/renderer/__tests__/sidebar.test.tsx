@@ -54,8 +54,11 @@ beforeEach(() => {
 describe('Sidebar — Conversation List', () => {
   it('side-r-1: conversations grouped by date (Today, Yesterday, Older)', () => {
     render(<Sidebar />)
-    expect(screen.getByText('Today')).toBeInTheDocument()
-    expect(screen.getByText('Yesterday')).toBeInTheDocument()
+    // Section headers are uppercase text in the date group labels
+    const headers = screen.getAllByText('Today')
+    expect(headers.length).toBeGreaterThanOrEqual(1)
+    const yesterdayEls = screen.getAllByText('Yesterday')
+    expect(yesterdayEls.length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('Older')).toBeInTheDocument()
   })
 
@@ -89,13 +92,33 @@ describe('Sidebar — Conversation List', () => {
     expect(mockStore.newChat).toHaveBeenCalled()
   })
 
-  it('side-r-5: delete button calls deleteConversation', async () => {
+  it('side-r-5: delete button opens confirmation dialog and confirms deletion', async () => {
     const user = userEvent.setup()
     render(<Sidebar />)
 
     const deleteButtons = screen.getAllByTitle('Delete conversation')
     await user.click(deleteButtons[0])
+
+    // Dialog should appear
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+
+    // Confirm deletion
+    await user.click(screen.getByRole('button', { name: /delete chat/i }))
     expect(mockStore.deleteConversation).toHaveBeenCalledWith('c1')
+  })
+
+  it('side-r-5b: delete button opens confirmation dialog and cancel dismisses without deleting', async () => {
+    const user = userEvent.setup()
+    render(<Sidebar />)
+
+    const deleteButtons = screen.getAllByTitle('Delete conversation')
+    await user.click(deleteButtons[0])
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /cancel/i }))
+    expect(mockStore.deleteConversation).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
   it('pins a conversation from the list', async () => {

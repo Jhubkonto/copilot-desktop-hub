@@ -7,6 +7,8 @@ import { useAppStore, type Project, type AgentConfig, type Conversation, type Pr
 import { ResizeHandle } from './ResizeHandle'
 import { ProjectSettingsPanel } from './ProjectSettingsPanel'
 import { DeleteProjectDialog } from './DeleteProjectDialog'
+import { DeleteConversationDialog } from './DeleteConversationDialog'
+import { formatRelativeTime } from '../../shared/utils'
 
 type SectionType = 'projects' | 'agents' | 'chats'
 
@@ -777,6 +779,7 @@ function ChatsPane() {
   const deleteConversation = useAppStore((s) => s.deleteConversation)
   const newChat = useAppStore((s) => s.newChat)
   const [query, setQuery] = useState('')
+  const [pendingDeleteConv, setPendingDeleteConv] = useState<{ id: string; title: string } | null>(null)
 
   const filtered = query
     ? conversations.filter((c) => c.title.toLowerCase().includes(query.toLowerCase()))
@@ -815,10 +818,13 @@ function ChatsPane() {
                 {project.name}
               </span>
             )}
+              <span className="text-[10px] text-gray-400 dark:text-gray-500">
+                {formatRelativeTime(conv.updated_at)}
+              </span>
           </div>
         </div>
         <button
-          onClick={async (e) => { e.stopPropagation(); await deleteConversation(conv.id) }}
+          onClick={(e) => { e.stopPropagation(); setPendingDeleteConv({ id: conv.id, title: conv.title }) }}
           className="invisible group-hover:visible p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 shrink-0"
           title="Delete"
           aria-label="Delete conversation"
@@ -882,6 +888,17 @@ function ChatsPane() {
           </div>
         ))}
       </div>
+
+      {pendingDeleteConv && (
+        <DeleteConversationDialog
+          conversationTitle={pendingDeleteConv.title}
+          onConfirm={() => {
+            deleteConversation(pendingDeleteConv.id)
+            setPendingDeleteConv(null)
+          }}
+          onCancel={() => setPendingDeleteConv(null)}
+        />
+      )}
     </div>
   )
 }

@@ -79,7 +79,6 @@ function SectionItem({
 
 export function TitleBar() {
   const theme = useAppStore((s) => s.theme)
-  const showTerminal = useAppStore((s) => s.showTerminal)
   const showAgentPanel = useAppStore((s) => s.showAgentPanel)
   const showSidebar = useAppStore((s) => s.showSidebar)
   const activeAgentId = useAppStore((s) => s.activeAgentId)
@@ -94,7 +93,6 @@ export function TitleBar() {
   const openCreateAgent = useAppStore((s) => s.openCreateAgent)
   const openEditAgent = useAppStore((s) => s.openEditAgent)
   const toggleSidebar = useAppStore((s) => s.toggleSidebar)
-  const toggleTerminal = useAppStore((s) => s.toggleTerminal)
   const toggleAgentPanel = useAppStore((s) => s.toggleAgentPanel)
   const newChat = useAppStore((s) => s.newChat)
   const addToast = useAppStore((s) => s.addToast)
@@ -206,7 +204,6 @@ export function TitleBar() {
       label: 'View',
       items: [
         { type: 'item', label: showSidebar ? 'Hide Sidebar' : 'Show Sidebar', action: () => { close(); toggleSidebar() } },
-        { type: 'item', label: showTerminal ? 'Hide Terminal' : 'Show Terminal', action: () => { close(); toggleTerminal() } },
         { type: 'item', label: showAgentPanel ? 'Hide Agent Panel' : 'Show Agent Panel', action: () => { close(); toggleAgentPanel() } },
         { type: 'separator' },
         { type: 'item', label: 'Zoom In', shortcut: 'Ctrl+=', action: () => { close(); window.api.zoomIn() } },

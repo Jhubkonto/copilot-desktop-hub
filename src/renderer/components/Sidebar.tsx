@@ -4,6 +4,8 @@ import { SearchBar } from './SearchBar'
 import { useAppStore, type Conversation, type Project } from '../store/app-store'
 import { ResizeHandle } from './ResizeHandle'
 import { MODEL_OPTIONS, getModelLabel } from '../../shared/models'
+import { DeleteConversationDialog } from './DeleteConversationDialog'
+import { formatRelativeTime } from '../../shared/utils'
 
 interface DateGroup {
   label: string
@@ -103,6 +105,7 @@ export function Sidebar() {
   const [searchResults, setSearchResults] = useState<Conversation[] | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editTitle, setEditTitle] = useState('')
+  const [pendingDeleteConv, setPendingDeleteConv] = useState<{ id: string; title: string } | null>(null)
 
   // Project creation state
   const [creatingProject, setCreatingProject] = useState(false)
@@ -247,6 +250,9 @@ export function Sidebar() {
               {conv.title}
             </div>
           )}
+          <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5 truncate">
+            {formatRelativeTime(conv.updated_at)}
+          </p>
         </div>
         <div className="invisible group-hover:visible flex items-center gap-0.5">
           {/* Pin button */}
@@ -323,7 +329,7 @@ export function Sidebar() {
           <button
             onClick={(e) => {
               e.stopPropagation()
-              deleteConversation(conv.id)
+              setPendingDeleteConv({ id: conv.id, title: conv.title })
             }}
             className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
             title="Delete conversation"
@@ -337,9 +343,10 @@ export function Sidebar() {
   }
 
   return (
+    <>
     <aside
       ref={sidebarRef}
-      className="h-screen flex flex-col shrink-0 bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700/80 relative"
+      className="h-full flex flex-col shrink-0 bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700/80 relative"
       style={{ width }}
       role="complementary"
       aria-label="Sidebar navigation"
@@ -362,7 +369,7 @@ export function Sidebar() {
         <SearchBar onSearch={handleSearch} />
       </div>
 
-      <div className="flex-1 overflow-y-auto px-3 space-y-4">
+      <div className="flex-1 min-h-0 overflow-y-auto px-3 space-y-4">
         {/* ── Projects ── */}
         <div>
           <div className="flex items-center justify-between px-2 mb-1">
@@ -817,5 +824,17 @@ export function Sidebar() {
         )}
       </div>
     </aside>
+
+    {pendingDeleteConv && (
+      <DeleteConversationDialog
+        conversationTitle={pendingDeleteConv.title}
+        onConfirm={() => {
+          deleteConversation(pendingDeleteConv.id)
+          setPendingDeleteConv(null)
+        }}
+        onCancel={() => setPendingDeleteConv(null)}
+      />
+    )}
+  </>
   )
 }

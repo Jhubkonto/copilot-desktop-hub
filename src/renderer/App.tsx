@@ -11,9 +11,6 @@ import { useAppStore } from './store/app-store'
 const AgentPanel = lazy(() =>
   import('./components/AgentPanel').then((m) => ({ default: m.AgentPanel }))
 )
-const TerminalPanel = lazy(() =>
-  import('./components/TerminalPanel').then((m) => ({ default: m.TerminalPanel }))
-)
 const McpServerPanel = lazy(() =>
   import('./components/McpServerPanel').then((m) => ({ default: m.McpServerPanel }))
 )
@@ -26,7 +23,6 @@ const OnboardingModal = lazy(() =>
 
 export default function App() {
   const theme = useAppStore((s) => s.theme)
-  const showTerminal = useAppStore((s) => s.showTerminal)
   const showAgentPanel = useAppStore((s) => s.showAgentPanel)
   const showSettings = useAppStore((s) => s.showSettings)
   const showOnboarding = useAppStore((s) => s.showOnboarding)
@@ -49,15 +45,7 @@ export default function App() {
   const dismissToast = useAppStore((s) => s.dismissToast)
   const setShowOnboarding = useAppStore((s) => s.setShowOnboarding)
 
-  const [terminalHeight, setTerminalHeight] = useState(250)
   const [agentPanelWidth, setAgentPanelWidth] = useState(440)
-
-  const handleTerminalResize = useCallback(
-    (size: number) => {
-      setTerminalHeight(Math.max(80, Math.min(600, size)))
-    },
-    []
-  )
 
   const handleAgentPanelResize = useCallback(
     (size: number) => {
@@ -172,17 +160,6 @@ export default function App() {
           )}
 
           <ChatWindow />
-
-          {showTerminal && (
-            <Suspense fallback={null}>
-              <TerminalPanel
-                visible={showTerminal}
-                onClose={() => useAppStore.getState().toggleTerminal()}
-                height={terminalHeight}
-                onResize={handleTerminalResize}
-              />
-            </Suspense>
-          )}
         </main>
       </div>
 
