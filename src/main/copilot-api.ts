@@ -343,3 +343,97 @@ export function abortCopilotStream(): void {
 export function clearCopilotTokenCache(): void {
   cachedToken = null
 }
+
+// ── Non-streaming / tool-call support (used by orchestrator) ─────────────────
+
+export interface ToolDefinition {
+  type: 'function'
+  function: {
+    name: string
+    description: string
+    parameters: Record<string, unknown>
+  }
+}
+
+export interface ToolCallResult {
+  id: string
+  name: string
+  arguments: Record<string, unknown>
+}
+
+export interface CopilotNonStreamResult {
+  content: string | null
+  toolCalls: ToolCallResult[]
+}
+
+/**
+ * Single non-streaming round-trip to the Copilot API.
+ * Returns the full text content and/or any tool calls from the response.
+ */
+export async function sendCopilotNonStreaming(
+  messages: ProviderMessage[],
+  tools: ToolDefinition[] | undefined,
+  model: string,
+  options: { maxTokens: number; temperature: number }
+): Promise<CopilotNonStreamResult> {
+  const token = await getCopilotToken()
+
+  const bodyPayload: Record<string, unknown> = {
+    model,
+    messages,
+    stream: false,
+    temperature: options.temperature
+  }
+  if (model === 'gpt-5.4') {
+    bodyPayload.max_completion_tokens = options.maxTokens
+  } else {
+    bodyPayload.max_tokens = options.maxTokens
+  }
+  if (tools && tools.length > 0) {
+    bodyPayload.tools = tools
+    bodyPayload.tool_choice = 'auto'
+  }
+
+  const body = JSON.stringify(bodyPayload)
+
+  const { status, data } = await httpPostJson(
+    'https://api.githubcopilot.com/chat/completions',
+    {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      'editor-version': 'vscode/1.95.0',
+      'editor-plugin-version': 'copilot/1.200.0',
+      'User-Agent': 'GithubCopilot/1.200.0',
+      Accept: 'application/json'
+    },
+    body
+  )
+
+  if (status >= 400) {
+    let message = `Copilot API error (HTTP ${status})`
+    try {
+      const parsed = JSON.parse(data)
+      if (parsed.error?.message) message = parsed.error.message
+      else if (parsed.message) message = parsed.message
+    } catch { /* use default */ }
+    throw createApiError(message, status >= 500 ? 'server' : 'network', status, status >= 500)
+  }
+
+  const parsed = JSON.parse(data)
+  const message = parsed.choices?.[0]?.message
+
+  const toolCalls: ToolCallResult[] = (message?.tool_calls ?? []).map(
+    (tc: { id: string; function: { name: string; arguments: string } }) => ({
+      id: tc.id,
+      name: tc.function.name,
+      arguments: (() => {
+        try { return JSON.parse(tc.function.arguments) } catch { return {} }
+      })()
+    })
+  )
+
+  return {
+    content: typeof message?.content === 'string' ? message.content : null,
+    toolCalls
+  }
+}
