@@ -152,6 +152,9 @@ interface AppState {
   // Projects
   projects: Project[];
   activeProjectId: string | null;
+  /** Controls which project's chat history is shown in the SectionPane projects view.
+   *  `null` → projects grid; `'__none__'` → unaffiliated chats; any other id → that project's chats. */
+  historyProjectId: string | null;
   pendingSettingsProjectId: string | null;
   showNewProjectForm: boolean;
   editingProjectId: string | null;
@@ -202,6 +205,7 @@ interface AppState {
   // ── Project Actions ──
   loadProjects: () => Promise<void>;
   selectProject: (id: string | null) => void;
+  setHistoryProjectId: (id: string | null) => void;
   createProject: (name: string, color: string) => Promise<void>;
   renameProject: (id: string, name: string) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
@@ -294,6 +298,7 @@ export const useAppStore = create<AppState>()(
 
     projects: [],
     activeProjectId: null,
+    historyProjectId: null,
     pendingSettingsProjectId: null,
     showNewProjectForm: false,
     editingProjectId: null,
@@ -475,9 +480,12 @@ export const useAppStore = create<AppState>()(
       set((s) => {
         s.activeProjectId = id;
         s.currentConversationId = null;
+        s.historyProjectId = id;
+        // Always open the projects section when navigating to a project or __none__
+        if (id !== null) s.activeSectionPane = 'projects';
       });
-      // Auto-select primary agent when switching to a project
-      if (id) {
+      // Auto-select primary agent only for real projects (not __none__ sentinel)
+      if (id && id !== '__none__') {
         const existing = get().projectAgents[id];
         const applyPrimary = (agents: typeof existing) => {
           const primary = agents?.find((a) => a.isPrimary);
@@ -509,6 +517,13 @@ export const useAppStore = create<AppState>()(
           s.activeAgentId = null;
         });
       }
+      // __none__ selected: no agent changes needed
+    },
+
+    setHistoryProjectId: (id) => {
+      set((s) => {
+        s.historyProjectId = id;
+      });
     },
 
     createProject: async (name, color) => {
@@ -551,6 +566,7 @@ export const useAppStore = create<AppState>()(
         }
         set((s) => {
           if (s.activeProjectId === id) s.activeProjectId = null;
+          if (s.historyProjectId === id) s.historyProjectId = null;
         });
         await Promise.all([get().loadProjects(), get().loadConversations()]);
         get().addToast("Project deleted", "success");

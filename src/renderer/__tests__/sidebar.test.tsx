@@ -488,3 +488,37 @@ describe("Sidebar — Project gear icon (M.8)", () => {
     expect(screen.queryByText("Delete project")).not.toBeInTheDocument();
   });
 });
+
+// ── Q.1 — "No project" sentinel in Sidebar ────────────────────────────────────
+
+describe("Sidebar — No project sentinel (Q1)", () => {
+  const noProjectSentinelProject = {
+    id: "sent-p",
+    name: "Sentinel Project",
+    color: "blue",
+    created_at: 0,
+    default_model: null,
+  };
+
+  beforeEach(() => {
+    mockStore = createMockAppStore({
+      conversations: [],
+      agents: [],
+      projects: [noProjectSentinelProject],
+      projectAgents: {},
+    });
+    setupStoreMock(useAppStore, mockStore);
+  });
+
+  it("q1-sb-1: '(No project)' sentinel entry renders in the sidebar projects section", () => {
+    render(<Sidebar />);
+    expect(screen.getByText(/no project/i)).toBeInTheDocument();
+  });
+
+  it("q1-sb-2: clicking the '(No project)' entry calls selectProject with '__none__'", async () => {
+    const user = userEvent.setup();
+    render(<Sidebar />);
+    await user.click(screen.getByText(/no project/i));
+    expect(mockStore.selectProject).toHaveBeenCalledWith("__none__");
+  });
+});

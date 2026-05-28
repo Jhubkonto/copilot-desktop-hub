@@ -150,9 +150,11 @@ export function Sidebar() {
   // When a project is selected
   // Search results are also filtered by active project.
   const baseConversations = searchResults ?? conversations
-  const filteredConversations = activeProjectId !== null
-    ? baseConversations.filter((c) => c.project_id === activeProjectId)
-    : baseConversations
+  const filteredConversations = activeProjectId === '__none__'
+    ? baseConversations.filter((c) => !c.project_id)
+    : activeProjectId !== null
+      ? baseConversations.filter((c) => c.project_id === activeProjectId)
+      : baseConversations
 
   const pinnedConversations = filteredConversations.filter(isPinned)
   const unpinnedConversations = filteredConversations.filter((c) => !isPinned(c))
@@ -425,6 +427,22 @@ export function Sidebar() {
                 </div>
               )
             })}
+
+            {/* __none__ sentinel — "No project" bucket for unaffiliated chats */}
+              <div className="relative group">
+                <div
+                  className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-xs font-medium transition-colors ${
+                    activeProjectId === '__none__'
+                      ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+                      : 'text-gray-500 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'
+                  }`}
+                  onClick={() => selectProject('__none__')}
+                  aria-label="No project — unaffiliated chats"
+                >
+                  <Folder className="w-3.5 h-3.5 shrink-0 text-gray-400" />
+                  <span className="flex-1 truncate italic">No project</span>
+                </div>
+              </div>
 
           </div>}
         </div>

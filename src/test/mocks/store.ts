@@ -38,6 +38,7 @@ export function createMockAppStore(overrides: Record<string, unknown> = {}) {
     // Projects
     projects: [],
     activeProjectId: null,
+    historyProjectId: null,
     pendingSettingsProjectId: null,
     projectsLoading: false,
     projectAgents: {} as Record<string, { agentId: string; agentName: string; agentIcon: string; isPrimary: boolean; sortOrder: number }[]>,
@@ -95,6 +96,7 @@ export function createMockAppStore(overrides: Record<string, unknown> = {}) {
     moveConversationToProject: vi.fn(),
     setProjectDefaultModel: vi.fn(),
     selectProject: vi.fn(),
+    setHistoryProjectId: vi.fn(),
     setConversationProject: vi.fn(),
     loadProjectAgents: vi.fn(),
     addAgentToProject: vi.fn(),

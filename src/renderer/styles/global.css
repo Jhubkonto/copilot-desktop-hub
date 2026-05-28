@@ -40,7 +40,13 @@ body {
   @apply bg-gray-400 dark:bg-gray-500;
 }
 
-/* Markdown prose adjustments */
+/* Chat input textarea — scrollbar uses default arrow cursor, not the I-beam */
+.chat-input::-webkit-scrollbar-thumb,
+.chat-input::-webkit-scrollbar-track,
+.chat-input::-webkit-scrollbar {
+  cursor: default;
+}
+
 .markdown-body > :first-child {
   margin-top: 0 !important;
 }

@@ -802,3 +802,119 @@ describe("SectionPane — Agent-to-project assignment (L)", () => {
     });
   });
 });
+
+// ── Q.1/Q.2 — "No Project" bucket + Project History pane ──────────────────────
+
+describe("SectionPane — No Project bucket & Project History (Q1/Q2)", () => {
+  const now = Date.now();
+  const projectConv = {
+    id: "pc1",
+    agent_id: null,
+    title: "Project chat",
+    project_id: "p1",
+    created_at: now,
+    updated_at: now,
+  };
+  const orphanConv = {
+    id: "oc1",
+    agent_id: null,
+    title: "Orphan chat",
+    project_id: null as string | null | undefined,
+    created_at: now,
+    updated_at: now,
+  };
+
+  let mockStore: ReturnType<typeof createMockAppStore>;
+
+  beforeEach(() => {
+    setupMockApi();
+    vi.clearAllMocks();
+    mockStore = createMockAppStore({
+      activeSectionPane: "projects" as const,
+      projects: [
+        { id: "p1", name: "My Project", color: "blue", created_at: 0, default_model: null },
+      ],
+      projectAgents: {},
+      agents: [],
+      agentsLoading: false,
+      activeProjectId: null,
+      activeAgentId: null,
+      conversations: [projectConv, orphanConv],
+      currentConversationId: null,
+      historyProjectId: null,
+    });
+    setupStoreMock(useAppStore, mockStore);
+  });
+
+  it("q1-1: '(No project)' sentinel card renders in ProjectsPane", () => {
+    render(<SectionPane section="projects" />);
+    expect(screen.getByText(/no project/i)).toBeInTheDocument();
+  });
+
+  it("q1-2: clicking '(No project)' sentinel calls selectProject with '__none__'", async () => {
+    render(<SectionPane section="projects" />);
+    await userEvent.click(screen.getByText(/no project/i));
+    expect(mockStore.selectProject).toHaveBeenCalledWith("__none__");
+  });
+
+  it("q2-1: when historyProjectId is set, ProjectHistoryPane renders instead of ProjectsPane", () => {
+    mockStore = createMockAppStore({
+      ...mockStore,
+      historyProjectId: "p1",
+      activeProjectId: "p1",
+    });
+    setupStoreMock(useAppStore, mockStore);
+    render(<SectionPane section="projects" />);
+    // ProjectsPane header shows project name, not "Projects"
+    expect(screen.getByRole("heading", { name: /my project/i })).toBeInTheDocument();
+    // ProjectsPane project card should NOT be visible
+    expect(screen.queryByRole("button", { name: /add agent to project/i })).not.toBeInTheDocument();
+  });
+
+  it("q2-2: back button calls setHistoryProjectId(null)", async () => {
+    mockStore = createMockAppStore({
+      ...mockStore,
+      historyProjectId: "p1",
+      activeProjectId: "p1",
+    });
+    setupStoreMock(useAppStore, mockStore);
+    render(<SectionPane section="projects" />);
+    const backBtn = screen.getByRole("button", { name: /back to projects/i });
+    await userEvent.click(backBtn);
+    expect(mockStore.setHistoryProjectId).toHaveBeenCalledWith(null);
+  });
+
+  it("q2-3: ProjectHistoryPane shows only conversations matching the historyProjectId", () => {
+    mockStore = createMockAppStore({
+      ...mockStore,
+      historyProjectId: "p1",
+      activeProjectId: "p1",
+    });
+    setupStoreMock(useAppStore, mockStore);
+    render(<SectionPane section="projects" />);
+    expect(screen.getByText("Project chat")).toBeInTheDocument();
+    expect(screen.queryByText("Orphan chat")).not.toBeInTheDocument();
+  });
+
+  it("q2-4: ProjectHistoryPane with '__none__' shows only orphan conversations", () => {
+    mockStore = createMockAppStore({
+      ...mockStore,
+      historyProjectId: "__none__",
+      activeProjectId: "__none__",
+    });
+    setupStoreMock(useAppStore, mockStore);
+    render(<SectionPane section="projects" />);
+    expect(screen.getByText("Orphan chat")).toBeInTheDocument();
+    expect(screen.queryByText("Project chat")).not.toBeInTheDocument();
+  });
+
+  it("q2-5: header shows 'No project' breadcrumb when historyProjectId is '__none__'", () => {
+    mockStore = createMockAppStore({
+      ...mockStore,
+      historyProjectId: "__none__",
+    });
+    setupStoreMock(useAppStore, mockStore);
+    render(<SectionPane section="projects" />);
+    expect(screen.getByRole("heading", { name: /no project/i })).toBeInTheDocument();
+  });
+});

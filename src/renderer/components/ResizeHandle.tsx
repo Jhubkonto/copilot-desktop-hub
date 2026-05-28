@@ -1,4 +1,7 @@
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
+
+/** Matches the scrollbar width defined in global.css `::-webkit-scrollbar { width: 6px }` */
+const SCROLLBAR_WIDTH = 6
 
 interface ResizeHandleProps {
   direction: 'horizontal' | 'vertical'
@@ -12,6 +15,34 @@ interface ResizeHandleProps {
 
 export function ResizeHandle({ direction, containerRef, onSetSize, align = 'end' }: ResizeHandleProps) {
   const isHorizontal = direction === 'horizontal'
+  const [isOverScrollbar, setIsOverScrollbar] = useState(false)
+
+  /**
+   * Detect whether the pointer is hovering over the vertical scrollbar of any
+   * scrollable descendant inside the panel. If so, show a default cursor so
+   * the user isn't confused by a col-resize arrow sitting on top of a scrollbar.
+   */
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!isHorizontal) return
+      const panel = containerRef.current
+      if (!panel) return
+
+      let inZone = false
+      for (const el of panel.querySelectorAll<HTMLElement>('*')) {
+        if (el.scrollHeight <= el.clientHeight) continue // no vertical overflow
+        const rect = el.getBoundingClientRect()
+        if (e.clientX >= rect.right - SCROLLBAR_WIDTH && e.clientX <= rect.right) {
+          inZone = true
+          break
+        }
+      }
+      setIsOverScrollbar(inZone)
+    },
+    [isHorizontal, containerRef],
+  )
+
+  const handlePointerLeave = useCallback(() => setIsOverScrollbar(false), [])
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -54,14 +85,19 @@ export function ResizeHandle({ direction, containerRef, onSetSize, align = 'end'
     [isHorizontal, align, containerRef, onSetSize]
   )
 
+  const hCursor = isOverScrollbar ? 'cursor-default' : 'cursor-col-resize'
+
   return (
     <div
+      data-testid="resize-handle"
       className={`absolute z-10 transition-colors ${
         isHorizontal
-          ? `${align === 'start' ? 'left-0' : 'right-0'} top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-400/50 active:bg-blue-500/60`
+          ? `${align === 'start' ? 'left-0' : 'right-0'} top-0 bottom-0 w-1 ${hCursor} hover:bg-blue-400/50 active:bg-blue-500/60`
           : `${align === 'start' ? 'top-0' : 'bottom-0'} left-0 right-0 h-1 cursor-row-resize hover:bg-blue-400/50 active:bg-blue-500/60`
       }`}
       onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerLeave={handlePointerLeave}
       aria-hidden="true"
     />
   )

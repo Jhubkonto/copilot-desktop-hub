@@ -1,7 +1,7 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
 import {
   X, Plus, Settings, Upload, MessageSquare, Search,
-  Folder, FolderOpen, Pin, Trash2, Star, GripVertical, Cpu, FolderPlus, Check
+  Folder, FolderOpen, Pin, Trash2, Star, GripVertical, Cpu, FolderPlus, Check, ArrowLeft
 } from 'lucide-react'
 import { useAppStore, type Project, type AgentConfig, type Conversation, type ProjectAgent } from '../store/app-store'
 import { ResizeHandle } from './ResizeHandle'
@@ -519,6 +519,20 @@ function ProjectsPane() {
             No projects yet — create one to organise your chats
           </p>
         )}
+
+        {/* __none__ sentinel — shows chats not assigned to any project */}
+        <div
+          className={`flex items-center gap-2 px-3 py-2 rounded-xl cursor-pointer text-xs font-medium transition-colors border ${
+            activeProjectId === '__none__'
+              ? 'bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200'
+              : 'border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800/60'
+          }`}
+          onClick={() => selectProject('__none__')}
+          aria-label="No project — view unaffiliated chats"
+        >
+          <MessageSquare className="w-3.5 h-3.5 shrink-0 text-gray-400" />
+          <span className="flex-1 italic">No project</span>
+        </div>
       </div>
 
       {pendingDeleteProject && (
@@ -890,6 +904,139 @@ function ChatsPane() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Project history sub-pane (Q.2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ProjectHistoryPane() {
+  const conversations = useAppStore((s) => s.conversations)
+  const currentConversationId = useAppStore((s) => s.currentConversationId)
+  const historyProjectId = useAppStore((s) => s.historyProjectId)
+  const agents = useAppStore((s) => s.agents)
+  const selectConversation = useAppStore((s) => s.selectConversation)
+  const deleteConversation = useAppStore((s) => s.deleteConversation)
+  const newChat = useAppStore((s) => s.newChat)
+  const [query, setQuery] = useState('')
+  const [pendingDeleteConv, setPendingDeleteConv] = useState<{ id: string; title: string } | null>(null)
+
+  const filtered = conversations
+    .filter((c) =>
+      historyProjectId === '__none__' ? !c.project_id : c.project_id === historyProjectId
+    )
+    .filter((c) =>
+      query ? c.title.toLowerCase().includes(query.toLowerCase()) : true
+    )
+
+  const pinned = filtered.filter(isPinned)
+  const unpinned = filtered.filter((c) => !isPinned(c))
+  const groups = groupByDate(unpinned)
+
+  const renderConv = (conv: Conversation) => {
+    const isActive = currentConversationId === conv.id
+    const agent = conv.agent_id ? agents.find((a) => a.id === conv.agent_id) : null
+    return (
+      <div
+        key={conv.id}
+        onClick={() => selectConversation(conv.id)}
+        className={`group flex items-start gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
+          isActive ? 'bg-gray-200 dark:bg-gray-700' : 'hover:bg-gray-100 dark:hover:bg-gray-800'
+        }`}
+      >
+        {isPinned(conv) && <Pin className="w-3 h-3 text-gray-400 shrink-0 mt-0.5" />}
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-medium text-gray-800 dark:text-gray-100 truncate">{conv.title}</p>
+          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+            {agent && (
+              <span className="text-[10px] text-gray-400 dark:text-gray-500">
+                {agent.icon} {agent.name}
+              </span>
+            )}
+            <span className="text-[10px] text-gray-400 dark:text-gray-500">
+              {formatRelativeTime(conv.updated_at)}
+            </span>
+          </div>
+        </div>
+        <button
+          onClick={(e) => { e.stopPropagation(); setPendingDeleteConv({ id: conv.id, title: conv.title }) }}
+          className="invisible group-hover:visible p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 shrink-0"
+          title="Delete"
+          aria-label="Delete conversation"
+        >
+          <Trash2 className="w-3 h-3" />
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Search + New Chat */}
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100 dark:border-gray-800">
+        <div className="flex-1 flex items-center gap-1.5 bg-gray-100 dark:bg-gray-800 rounded-lg px-2 py-1">
+          <Search className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search chats…"
+            className="flex-1 text-xs bg-transparent focus:outline-none text-gray-700 dark:text-gray-200 placeholder-gray-400"
+            aria-label="Search project chats"
+          />
+          {query && (
+            <button onClick={() => setQuery('')} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+              <X className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+        <button
+          onClick={newChat}
+          className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 px-2 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors shrink-0"
+          aria-label="New chat"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          New
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-2 space-y-4">
+        {filtered.length === 0 && (
+          <p className="text-center text-xs text-gray-400 dark:text-gray-500 pt-8 italic">
+            {query ? 'No matching conversations' : 'No conversations yet'}
+          </p>
+        )}
+
+        {pinned.length > 0 && (
+          <div>
+            <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider px-3 mb-1">
+              Pinned
+            </p>
+            {pinned.map(renderConv)}
+          </div>
+        )}
+
+        {groups.map(({ label, items }) => (
+          <div key={label}>
+            <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider px-3 mb-1">
+              {label}
+            </p>
+            {items.map(renderConv)}
+          </div>
+        ))}
+      </div>
+
+      {pendingDeleteConv && (
+        <DeleteConversationDialog
+          conversationTitle={pendingDeleteConv.title}
+          onConfirm={() => {
+            deleteConversation(pendingDeleteConv.id)
+            setPendingDeleteConv(null)
+          }}
+          onCancel={() => setPendingDeleteConv(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SectionPane shell
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -905,12 +1052,23 @@ interface SectionPaneProps {
 
 export function SectionPane({ section }: SectionPaneProps) {
   const setSectionPane = useAppStore((s) => s.setSectionPane)
+  const setHistoryProjectId = useAppStore((s) => s.setHistoryProjectId)
+  const historyProjectId = useAppStore((s) => s.historyProjectId)
+  const projects = useAppStore((s) => s.projects)
   const containerRef = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(320)
 
   const handleSetSize = useCallback((size: number) => {
     setWidth(Math.max(PANE_MIN, Math.min(PANE_MAX, size)))
   }, [])
+
+  // When in the projects section with a history project selected, show breadcrumb
+  const showingHistory = section === 'projects' && historyProjectId !== null
+  const historyProjectName = historyProjectId === '__none__'
+    ? 'No project'
+    : projects.find((p) => p.id === historyProjectId)?.name ?? 'Project'
+
+  const headerTitle = showingHistory ? historyProjectName : SECTION_LABELS[section]
 
   return (
     <div
@@ -921,9 +1079,20 @@ export function SectionPane({ section }: SectionPaneProps) {
     >
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 shrink-0">
-        <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">
-          {SECTION_LABELS[section]}
-        </h2>
+        <div className="flex items-center gap-2 min-w-0">
+          {showingHistory && (
+            <button
+              onClick={() => setHistoryProjectId(null)}
+              className="p-0.5 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 shrink-0"
+              aria-label="Back to projects"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+          )}
+          <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">
+            {headerTitle}
+          </h2>
+        </div>
         <button
           onClick={() => setSectionPane(section)}
           className="p-1 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
@@ -935,7 +1104,8 @@ export function SectionPane({ section }: SectionPaneProps) {
 
       {/* Content */}
       <div className="flex-1 min-h-0 overflow-hidden">
-        {section === 'projects' && <ProjectsPane />}
+        {section === 'projects' && !showingHistory && <ProjectsPane />}
+        {section === 'projects' && showingHistory && <ProjectHistoryPane />}
         {section === 'agents' && <AgentsPane />}
         {section === 'chats' && <ChatsPane />}
       </div>
