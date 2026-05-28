@@ -762,3 +762,84 @@ describe("ChatWindow — Model Dropdown (O.2)", () => {
     });
   });
 });
+
+// ── Resizable Input Panel (P.1) ───────────────────────────────────────────────
+
+describe("ChatWindow — Resizable Input Panel (P.1)", () => {
+  it("p1-1: resize handle is present in the DOM", () => {
+    render(<ChatWindow />);
+    expect(screen.getByLabelText("Resize input panel")).toBeInTheDocument();
+  });
+
+  it("p1-2: dragging the handle upward increases textarea height", () => {
+    render(<ChatWindow />);
+    const handle = screen.getByLabelText("Resize input panel");
+    const textarea = screen.getByRole("textbox", { name: /message input/i });
+
+    act(() => {
+      handle.dispatchEvent(new PointerEvent("pointerdown", { clientY: 500, bubbles: true, cancelable: true }));
+    });
+    act(() => {
+      window.dispatchEvent(new PointerEvent("pointermove", { clientY: 450, bubbles: true }));
+    });
+
+    const heightStr = (textarea as HTMLTextAreaElement).style.height;
+    expect(parseInt(heightStr)).toBeGreaterThan(40);
+  });
+
+  it("p1-3: height is clamped to the minimum (40px)", () => {
+    render(<ChatWindow />);
+    const handle = screen.getByLabelText("Resize input panel");
+    const textarea = screen.getByRole("textbox", { name: /message input/i });
+
+    act(() => {
+      handle.dispatchEvent(new PointerEvent("pointerdown", { clientY: 300, bubbles: true, cancelable: true }));
+    });
+    act(() => {
+      // Dragging far downward would set a negative delta → clamped to 40
+      window.dispatchEvent(new PointerEvent("pointermove", { clientY: 600, bubbles: true }));
+    });
+
+    expect((textarea as HTMLTextAreaElement).style.height).toBe("40px");
+  });
+
+  it("p1-4: height is clamped to the maximum (400px)", () => {
+    render(<ChatWindow />);
+    const handle = screen.getByLabelText("Resize input panel");
+    const textarea = screen.getByRole("textbox", { name: /message input/i });
+
+    act(() => {
+      handle.dispatchEvent(new PointerEvent("pointerdown", { clientY: 500, bubbles: true, cancelable: true }));
+    });
+    act(() => {
+      // Dragging 1000px upward would exceed max → clamped to 400
+      window.dispatchEvent(new PointerEvent("pointermove", { clientY: -500, bubbles: true }));
+    });
+
+    expect((textarea as HTMLTextAreaElement).style.height).toBe("400px");
+  });
+
+  it("p1-5: pointerup stops further resize updates", () => {
+    render(<ChatWindow />);
+    const handle = screen.getByLabelText("Resize input panel");
+    const textarea = screen.getByRole("textbox", { name: /message input/i });
+
+    act(() => {
+      handle.dispatchEvent(new PointerEvent("pointerdown", { clientY: 500, bubbles: true, cancelable: true }));
+    });
+    act(() => {
+      window.dispatchEvent(new PointerEvent("pointermove", { clientY: 450, bubbles: true }));
+    });
+    const heightAfterMove = (textarea as HTMLTextAreaElement).style.height;
+
+    act(() => {
+      window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+    });
+    act(() => {
+      // Further moves after pointerup should not change height
+      window.dispatchEvent(new PointerEvent("pointermove", { clientY: 300, bubbles: true }));
+    });
+
+    expect((textarea as HTMLTextAreaElement).style.height).toBe(heightAfterMove);
+  });
+});

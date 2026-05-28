@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { Plus, MessageSquare, Settings, X, LogIn, Upload, Pin, FolderOpen, Folder, Cpu, ChevronDown, ChevronRight } from 'lucide-react'
+import { Plus, MessageSquare, Settings, X, LogIn, Upload, Pin, FolderOpen, Folder, Cpu, ChevronDown, ChevronRight, Check } from 'lucide-react'
 import { SearchBar } from './SearchBar'
 import { useAppStore, type Conversation, type Project } from '../store/app-store'
 import { ResizeHandle } from './ResizeHandle'

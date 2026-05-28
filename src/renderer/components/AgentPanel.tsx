@@ -120,7 +120,7 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
       instructions: existing?.instructions ?? '',
       [field]: typeof value === 'boolean' ? (value ? 1 : 0) : value
     }
-    await window.api.setMcpToolOverride(config.id, serverId, toolName, { ...newOverride, enabled: newOverride.enabled === 1 || newOverride.enabled === true })
+    await window.api.setMcpToolOverride(config.id, serverId, toolName, { ...newOverride, enabled: newOverride.enabled === 1 })
     setMcpToolOverrides((prev) => {
       const filtered = prev.filter((o) => !(o.server_id === serverId && o.tool_name === toolName))
       return [...filtered, { agent_id: config.id, server_id: serverId, tool_name: toolName, ...newOverride } as McpToolOverride]
