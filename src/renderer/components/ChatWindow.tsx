@@ -176,6 +176,7 @@ export function ChatWindow() {
   const [showAtMenu, setShowAtMenu] = useState(false);
   const [atFilter, setAtFilter] = useState("");
   const [selectedAtIndex, setSelectedAtIndex] = useState(0);
+  const [projectRootDir, setProjectRootDir] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const modelPickerRef = useRef<HTMLSelectElement>(null);
   const activeConversationRef = useRef<string | null>(conversationId);
@@ -245,6 +246,24 @@ export function ChatWindow() {
       window.removeEventListener("offline", goOffline);
     };
   }, []);
+
+  // Load project config to show directory context indicator in the context bar
+  useEffect(() => {
+    if (!projectId || projectId === '__none__') {
+      setProjectRootDir(null);
+      return;
+    }
+    window.api
+      .getProjectConfig(projectId)
+      .then((cfg: unknown) => {
+        const rootDir =
+          cfg && typeof cfg === 'object' && 'rootDirectory' in cfg && typeof (cfg as Record<string, unknown>).rootDirectory === 'string'
+            ? (cfg as Record<string, unknown>).rootDirectory as string
+            : null
+        setProjectRootDir(rootDir || null)
+      })
+      .catch(() => setProjectRootDir(null))
+  }, [projectId]);
 
   // Load messages when conversation changes
   useEffect(() => {
@@ -1351,7 +1370,7 @@ export function ChatWindow() {
                 !isOnline || !authenticated || rateLimitRemainingSec > 0
               }
               aria-label="Message input"
-              className="w-full resize-none bg-transparent px-4 pt-3 pb-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed overflow-y-auto"
+              className="chat-input w-full resize-none bg-transparent px-4 pt-3 pb-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed overflow-y-auto"
             />
             <div className="flex items-center justify-between px-2 pb-2">
               <div className="flex items-center gap-0.5">
@@ -1510,6 +1529,15 @@ export function ChatWindow() {
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300">
               <span aria-hidden="true">{displayAgent.icon}</span>
               {displayAgent.name}
+            </span>
+          )}
+          {projectRootDir && (
+            <span
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400"
+              title={`File structure context active: ${projectRootDir}`}
+              aria-label={`File structure context active: ${projectRootDir}`}
+            >
+              📁
             </span>
           )}
         </div>

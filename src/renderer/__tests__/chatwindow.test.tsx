@@ -843,3 +843,104 @@ describe("ChatWindow — Resizable Input Panel (P.1)", () => {
     expect((textarea as HTMLTextAreaElement).style.height).toBe(heightAfterMove);
   });
 });
+
+// ── Scrollbar Cursor Fix (P.2) ─────────────────────────────────────────────
+
+describe("ChatWindow — Scrollbar Cursor Fix (P.2)", () => {
+  it("p2-1: message input has chat-input class for scrollbar cursor fix", () => {
+    render(<ChatWindow />);
+    const textarea = screen.getByRole("textbox", { name: /message input/i });
+    expect(textarea).toHaveClass("chat-input");
+  });
+
+  it("p2-2: message input has overflow-y-auto so the scrollbar is enabled", () => {
+    render(<ChatWindow />);
+    const textarea = screen.getByRole("textbox", { name: /message input/i });
+    expect(textarea).toHaveClass("overflow-y-auto");
+  });
+});
+
+// ── Directory Context Indicator (R.2) ────────────────────────────────────────
+
+describe("ChatWindow — Directory Context Indicator (R.2)", () => {
+  it("r2-r-1: shows 📁 badge in context bar when project has rootDirectory set", async () => {
+    mockApi.getProjectConfig.mockResolvedValue({ rootDirectory: "/home/user/myproject" });
+
+    mockStore = createMockAppStore({
+      authState: { authenticated: true, user: null },
+      currentConversationId: "conv-1",
+      conversations: [
+        {
+          id: "conv-1",
+          title: "Test",
+          project_id: "proj-1",
+          model: null,
+          pinned: false,
+          created_at: 0,
+          updated_at: 0,
+        },
+      ],
+      projects: [
+        {
+          id: "proj-1",
+          name: "My Project",
+          color: "blue",
+          created_at: 0,
+          updated_at: 0,
+        },
+      ],
+    });
+    setupStoreMock(useAppStore, mockStore);
+    render(<ChatWindow />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/File structure context active/i)).toBeInTheDocument();
+    });
+  });
+
+  it("r2-r-2: does NOT show 📁 badge when project has no rootDirectory", async () => {
+    mockApi.getProjectConfig.mockResolvedValue({ rootDirectory: "" });
+
+    mockStore = createMockAppStore({
+      authState: { authenticated: true, user: null },
+      currentConversationId: "conv-1",
+      conversations: [
+        {
+          id: "conv-1",
+          title: "Test",
+          project_id: "proj-1",
+          model: null,
+          pinned: false,
+          created_at: 0,
+          updated_at: 0,
+        },
+      ],
+      projects: [
+        {
+          id: "proj-1",
+          name: "My Project",
+          color: "blue",
+          created_at: 0,
+          updated_at: 0,
+        },
+      ],
+    });
+    setupStoreMock(useAppStore, mockStore);
+    render(<ChatWindow />);
+
+    // Give the useEffect time to resolve
+    await waitFor(() => {
+      expect(screen.getByText("My Project")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByLabelText(/File structure context active/i)).not.toBeInTheDocument();
+  });
+
+  it("r2-r-3: does NOT show 📁 badge when there is no project", () => {
+    mockApi.getProjectConfig.mockResolvedValue({});
+
+    render(<ChatWindow />);
+
+    expect(screen.queryByLabelText(/File structure context active/i)).not.toBeInTheDocument();
+  });
+});

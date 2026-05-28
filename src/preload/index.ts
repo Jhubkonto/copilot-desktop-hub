@@ -118,6 +118,8 @@ const api = {
   openDirectoryDialog: () => ipcRenderer.invoke('file:open-directory-dialog'),
   getRecentDirs: () => ipcRenderer.invoke('file:get-recent-dirs'),
   addRecentDir: (path: string) => ipcRenderer.invoke('file:add-recent-dir', path),
+  listDirectory: (path: string, depth?: number) =>
+    ipcRenderer.invoke('fs:list-directory', path, depth),
 
   // Tools
   listTools: () => ipcRenderer.invoke('tool:list'),
