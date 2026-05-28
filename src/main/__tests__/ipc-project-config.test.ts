@@ -60,7 +60,15 @@ vi.mock('../safe-handle', () => ({
 }))
 
 vi.mock('crypto', () => ({ randomUUID: vi.fn(() => 'test-uuid') }))
-vi.mock('fs', () => ({ readFileSync: vi.fn(), writeFileSync: vi.fn() }))
+vi.mock('fs', () => ({
+  readFileSync: vi.fn(),
+  writeFileSync: vi.fn(),
+  // existsSync is used by the R.2 directory injection; return false so listing is skipped in these tests
+  existsSync: vi.fn(() => false),
+  readdirSync: vi.fn(() => []),
+  statSync: vi.fn(() => ({ size: 0, isDirectory: () => false })),
+  mkdirSync: vi.fn(),
+}))
 
 const { mockSendCopilotChatMessage } = vi.hoisted(() => {
   const mockSendCopilotChatMessage = vi.fn(async (_w: unknown, _msgs: unknown, onChunk: (c: string) => void) => {
