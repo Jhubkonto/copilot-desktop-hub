@@ -80,7 +80,7 @@ export async function sendCopilotMessage(
       }
     })
 
-    session.send({ prompt: content }).catch((err) => {
+    session.send({ prompt: content }).catch((err: unknown) => {
       window.webContents.send('chat:stream-response', null)
       unsubscribe()
       reject(err)
