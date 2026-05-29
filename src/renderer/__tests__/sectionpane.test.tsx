@@ -161,26 +161,28 @@ describe("SectionPane — Agent membership (G4)", () => {
     setupStoreMock(useAppStore, mockStore);
   });
 
-  it("g4-1: renders agent member inside the project card", () => {
+  it("g4-1: agent avatar stack renders in the compact project row", () => {
     render(<SectionPane section="projects" />);
-    expect(screen.getByText("Tester Bot")).toBeInTheDocument();
+    // The avatar stack shows the agent's icon in a small circle
+    expect(screen.getByTitle("Tester Bot")).toBeInTheDocument();
   });
 
-  it("g4-2: primary member shows the primary badge", () => {
+  it("g4-2: compact project row shows Settings and Delete buttons on hover", () => {
     render(<SectionPane section="projects" />);
-    expect(screen.getByText(/primary/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /edit project settings/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /delete project/i }),
+    ).toBeInTheDocument();
   });
 
-  it("g4-3: remove button calls removeAgentFromProject", async () => {
+  it("g4-3: clicking Settings button on compact row calls openEditProject", async () => {
     render(<SectionPane section="projects" />);
-    const removeBtn = screen.getByRole("button", {
-      name: /remove tester bot from project/i,
-    });
-    await userEvent.click(removeBtn);
-    expect(mockStore.removeAgentFromProject).toHaveBeenCalledWith(
-      "p1",
-      "agent-1",
+    await userEvent.click(
+      screen.getByRole("button", { name: /edit project settings/i }),
     );
+    expect(mockStore.openEditProject).toHaveBeenCalledWith("p1");
   });
 
   it("g4-4: agent cards in AgentsPane have data-agent-id attribute", () => {
@@ -489,110 +491,8 @@ describe("SectionPane — Agent-to-project assignment (L)", () => {
     setupStoreMock(useAppStore, mockStore);
   });
 
-  // L.1 — Inline agent picker in ProjectsPane
-  it('l1-1: "Add agent…" button renders in the project card', () => {
-    render(<SectionPane section="projects" />);
-    expect(
-      screen.getByRole("button", { name: /add agent to project/i }),
-    ).toBeInTheDocument();
-  });
-
-  it('l1-2: clicking "Add agent…" shows the agent search combobox', async () => {
-    render(<SectionPane section="projects" />);
-    const btn = screen.getByRole("button", { name: /add agent to project/i });
-    await userEvent.click(btn);
-    expect(
-      screen.getByRole("textbox", { name: /search agents to add/i }),
-    ).toBeInTheDocument();
-  });
-
-  it("l1-3: combobox shows all agents not yet in the project", async () => {
-    render(<SectionPane section="projects" />);
-    await userEvent.click(
-      screen.getByRole("button", { name: /add agent to project/i }),
-    );
-    expect(
-      screen.getByRole("button", { name: /add alpha bot to project/i }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /add beta bot to project/i }),
-    ).toBeInTheDocument();
-  });
-
-  it("l1-4: already-added agents do not appear in the combobox", async () => {
-    mockStore = createMockAppStore({
-      ...mockStore,
-      projectAgents: {
-        p1: [
-          {
-            agentId: "a1",
-            agentName: "Alpha Bot",
-            agentIcon: "🔵",
-            isPrimary: true,
-            sortOrder: 0,
-          },
-        ],
-      },
-      projects: [
-        {
-          id: "p1",
-          name: "Project One",
-          color: "blue",
-          created_at: 0,
-          default_model: null,
-        },
-      ],
-      agents: [AGENT_A, AGENT_B],
-    });
-    setupStoreMock(useAppStore, mockStore);
-    render(<SectionPane section="projects" />);
-    await userEvent.click(
-      screen.getByRole("button", { name: /add agent to project/i }),
-    );
-    expect(
-      screen.queryByRole("button", { name: /add alpha bot to project/i }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /add beta bot to project/i }),
-    ).toBeInTheDocument();
-  });
-
-  it("l1-5: selecting an agent calls addAgentToProject", async () => {
-    render(<SectionPane section="projects" />);
-    await userEvent.click(
-      screen.getByRole("button", { name: /add agent to project/i }),
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: /add alpha bot to project/i }),
-    );
-    expect(mockStore.addAgentToProject).toHaveBeenCalledWith("p1", "a1");
-  });
-
-  it("l1-6: when project has no members, adding first agent calls setProjectPrimaryAgent", async () => {
-    render(<SectionPane section="projects" />);
-    await userEvent.click(
-      screen.getByRole("button", { name: /add agent to project/i }),
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: /add alpha bot to project/i }),
-    );
-    expect(mockStore.setProjectPrimaryAgent).toHaveBeenCalledWith("p1", "a1");
-  });
-
-  it("l1-7: Escape key closes the combobox", async () => {
-    render(<SectionPane section="projects" />);
-    await userEvent.click(
-      screen.getByRole("button", { name: /add agent to project/i }),
-    );
-    const input = screen.getByRole("textbox", {
-      name: /search agents to add/i,
-    });
-    await userEvent.keyboard("{Escape}");
-    expect(input).not.toBeInTheDocument();
-  });
-
-  // L.2 — "Add to project" popover on agent cards in AgentsPane
-  it('l2-1: "Add to project" button appears on agent cards in AgentsPane', () => {
+  // L.2 — "Add to project" popover on agent rows in AgentsPane
+  it('l2-1: "Add to project" button appears on agent rows in AgentsPane', () => {
     mockStore = createMockAppStore({
       ...mockStore,
       activeSectionPane: "agents" as const,
@@ -633,172 +533,26 @@ describe("SectionPane — Agent-to-project assignment (L)", () => {
     expect(mockStore.addAgentToProject).toHaveBeenCalledWith("p1", "a1");
   });
 
-  // M.6 — Unified add-agent / drop zone
-  it("m6-1: unified drop zone renders with combined label", () => {
+  // Compact project row: drop zone for external agent drags still works
+  it("m6-3: inline agent picker no longer rendered in the project card", () => {
     render(<SectionPane section="projects" />);
     expect(
-      screen.getByRole("button", {
-        name: /add agent to project or drop an agent here/i,
-      }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/add agent.*drag from sidebar/i),
-    ).toBeInTheDocument();
-  });
-
-  it("m6-2: clicking unified zone opens the agent picker", async () => {
-    render(<SectionPane section="projects" />);
-    await userEvent.click(
-      screen.getByRole("button", {
-        name: /add agent to project or drop an agent here/i,
-      }),
-    );
-    expect(
-      screen.getByRole("textbox", { name: /search agents to add/i }),
-    ).toBeInTheDocument();
-  });
-
-  it("m6-3: separate standalone drag-only drop zone is no longer rendered", () => {
-    render(<SectionPane section="projects" />);
-    expect(
-      screen.queryByText(/or drag agents from sidebar/i),
+      screen.queryByText(/add agent.*drag from sidebar/i),
     ).not.toBeInTheDocument();
   });
 
-  // M.7 — Primary-agent drop zone is functional
-  it("m7-1: no-primary notice renders as a drop target when members exist but none is primary", () => {
-    mockStore = createMockAppStore({
-      ...mockStore,
-      projectAgents: {
-        p1: [
-          {
-            agentId: "a1",
-            agentName: "Alpha Bot",
-            agentIcon: "🔵",
-            isPrimary: false,
-            sortOrder: 0,
-          },
-        ],
-      },
-      projects: [
-        {
-          id: "p1",
-          name: "My Project",
-          color: "blue",
-          created_at: 0,
-          default_model: null,
-        },
-      ],
-      agents: [
-        {
-          id: "a1",
-          name: "Alpha Bot",
-          icon: "🔵",
-          systemPrompt: "",
-          model: null,
-          skills: [],
-          toolConfig: {},
-          createdAt: 0,
-          updatedAt: 0,
-        },
-      ],
-    });
-    setupStoreMock(useAppStore, mockStore);
+  it("drop-1: dropping an agent onto a compact project row calls addAgentToProject", async () => {
     render(<SectionPane section="projects" />);
-    expect(screen.getByText(/no primary agent/i)).toBeInTheDocument();
-  });
-
-  it("m7-2: dragging a member over no-primary zone shows drop hint", () => {
-    mockStore = createMockAppStore({
-      ...mockStore,
-      projectAgents: {
-        p1: [
-          {
-            agentId: "a1",
-            agentName: "Alpha Bot",
-            agentIcon: "🔵",
-            isPrimary: false,
-            sortOrder: 0,
-          },
-        ],
-      },
-      projects: [
-        {
-          id: "p1",
-          name: "My Project",
-          color: "blue",
-          created_at: 0,
-          default_model: null,
-        },
-      ],
-      agents: [
-        {
-          id: "a1",
-          name: "Alpha Bot",
-          icon: "🔵",
-          systemPrompt: "",
-          model: null,
-          skills: [],
-          toolConfig: {},
-          createdAt: 0,
-          updatedAt: 0,
-        },
-      ],
-    });
-    setupStoreMock(useAppStore, mockStore);
-    render(<SectionPane section="projects" />);
-    const zone = screen.getByText(/no primary agent/i).closest("div")!;
-    fireEvent.dragOver(zone, { dataTransfer: { types: ["member-agent-id"] } });
-    expect(screen.getByText(/drop to set as primary/i)).toBeInTheDocument();
-  });
-
-  it("m7-3: dropping a member agent on no-primary zone calls setProjectPrimaryAgent", async () => {
-    mockStore = createMockAppStore({
-      ...mockStore,
-      projectAgents: {
-        p1: [
-          {
-            agentId: "a1",
-            agentName: "Alpha Bot",
-            agentIcon: "🔵",
-            isPrimary: false,
-            sortOrder: 0,
-          },
-        ],
-      },
-      projects: [
-        {
-          id: "p1",
-          name: "My Project",
-          color: "blue",
-          created_at: 0,
-          default_model: null,
-        },
-      ],
-      agents: [
-        {
-          id: "a1",
-          name: "Alpha Bot",
-          icon: "🔵",
-          systemPrompt: "",
-          model: null,
-          skills: [],
-          toolConfig: {},
-          createdAt: 0,
-          updatedAt: 0,
-        },
-      ],
-    });
-    setupStoreMock(useAppStore, mockStore);
-    render(<SectionPane section="projects" />);
-    const zone = screen.getByText(/no primary agent/i).closest("div")!;
-    fireEvent.drop(zone, {
+    const row = document.querySelector('[data-project-id="p1"]') as HTMLElement;
+    expect(row).not.toBeNull();
+    fireEvent.drop(row, {
       dataTransfer: {
-        getData: (t: string) => (t === "member-agent-id" ? "a1" : ""),
+        getData: (t: string) => (t === "agent-id" ? "a1" : ""),
+        types: ["agent-id"],
       },
     });
     await vi.waitFor(() => {
-      expect(mockStore.setProjectPrimaryAgent).toHaveBeenCalledWith("p1", "a1");
+      expect(mockStore.addAgentToProject).toHaveBeenCalledWith("p1", "a1");
     });
   });
 });

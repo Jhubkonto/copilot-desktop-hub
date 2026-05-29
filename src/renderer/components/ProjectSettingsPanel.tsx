@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { FolderOpen, Plus, X, ChevronDown } from 'lucide-react'
+import { FolderOpen, Plus, X, ChevronDown, GripVertical, Star } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
+import type { AgentConfig } from '../../shared/types'
 import type { Milestone, ProjectConfig, ScopeRule } from '../store/types'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-type TabId = 'general' | 'scope' | 'milestones'
+type TabId = 'general' | 'scope' | 'milestones' | 'team'
 
 interface EditProps {
   projectId: string
@@ -157,6 +158,15 @@ export function ProjectSettingsPanel(props: Props) {
   const projectConfigs = useAppStore((s) => s.projectConfigs)
   const renameProject = useAppStore((s) => s.renameProject)
   const updateProjectConfig = useAppStore((s) => s.updateProjectConfig)
+  const projectAgents = useAppStore((s) => s.projectAgents)
+  const loadProjectAgents = useAppStore((s) => s.loadProjectAgents)
+  const agents = useAppStore((s) => s.agents)
+  const addAgentToProject = useAppStore((s) => s.addAgentToProject)
+  const removeAgentFromProject = useAppStore((s) => s.removeAgentFromProject)
+  const setProjectPrimaryAgent = useAppStore((s) => s.setProjectPrimaryAgent)
+  const reorderProjectAgents = useAppStore((s) => s.reorderProjectAgents)
+  const updateProjectOrchestration = useAppStore((s) => s.updateProjectOrchestration)
+  const addToast = useAppStore((s) => s.addToast)
 
   const projectId = isDraft ? null : (props as EditProps).projectId
   const project = projectId ? projects.find((p) => p.id === projectId) : null
@@ -176,6 +186,9 @@ export function ProjectSettingsPanel(props: Props) {
   const [inScope, setInScope] = useState<ScopeRule[]>(cfg?.inScope ?? [])
   const [outOfScope, setOutOfScope] = useState<ScopeRule[]>(cfg?.outOfScope ?? [])
   const [milestones, setMilestones] = useState<Milestone[]>(cfg?.milestones ?? [])
+  const [agentPickerQuery, setAgentPickerQuery] = useState('')
+  const [showAgentPicker, setShowAgentPicker] = useState(false)
+  const [teamDraggingId, setTeamDraggingId] = useState<string | null>(null)
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const modeDropdownRef = useRef<HTMLDivElement>(null)
@@ -194,6 +207,10 @@ export function ProjectSettingsPanel(props: Props) {
     setOutOfScope(cfg.outOfScope ?? [])
     setMilestones(cfg.milestones ?? [])
   }, [projectId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!isDraft && projectId) loadProjectAgents(projectId)
+  }, [projectId, isDraft, loadProjectAgents])
 
   useEffect(() => {
     if (!showModeDropdown) return
@@ -390,8 +407,8 @@ export function ProjectSettingsPanel(props: Props) {
     <div className="bg-gray-50 dark:bg-gray-800/50 rounded-b-xl border-t border-gray-200 dark:border-gray-700">
 
       {/* Tab bar */}
-      <div className="flex gap-0.5 px-3 pt-2 pb-0" role="tablist">
-        {(['general', 'scope', 'milestones'] as const).map((tab) => (
+      <div className="flex gap-0.5 px-3 pt-2 pb-0 flex-wrap" role="tablist">
+        {(['general', 'scope', 'milestones', ...(!isDraft ? ['team'] : [])] as TabId[]).map((tab) => (
           <button
             key={tab}
             type="button"
@@ -404,7 +421,7 @@ export function ProjectSettingsPanel(props: Props) {
                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
             }`}
           >
-            {tab === 'general' ? 'General' : tab === 'scope' ? 'Scope' : `Milestones${activeMilestone ? ' 🎯' : ''}`}
+            {tab === 'general' ? 'General' : tab === 'scope' ? 'Scope' : tab === 'team' ? 'Team' : `Milestones${activeMilestone ? ' 🎯' : ''}`}
           </button>
         ))}
       </div>
@@ -761,6 +778,202 @@ export function ProjectSettingsPanel(props: Props) {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* ── Team tab ─────────────────────────────────────────────────────── */}
+        {activeTab === 'team' && !isDraft && projectId && (
+          <div className="space-y-4">
+            {/* Agent list header */}
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Team agents</label>
+              <button
+                type="button"
+                onClick={() => setShowAgentPicker((v) => !v)}
+                className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
+                aria-label="Add agent to project"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Add agent
+              </button>
+            </div>
+
+            {/* Agent picker */}
+            {showAgentPicker && (
+              <div className="space-y-1">
+                <input
+                  autoFocus
+                  value={agentPickerQuery}
+                  onChange={(e) => setAgentPickerQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') { setShowAgentPicker(false); setAgentPickerQuery('') }
+                  }}
+                  placeholder="Search agents…"
+                  aria-label="Search agents to add"
+                  className="w-full text-xs bg-white dark:bg-gray-700 border border-blue-400 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                />
+                <div className="max-h-36 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
+                  {(() => {
+                    const memberIds = new Set((projectAgents[projectId] ?? []).map((m) => m.agentId))
+                    const filtered = agents.filter(
+                      (a: AgentConfig) => !memberIds.has(a.id) && a.name.toLowerCase().includes(agentPickerQuery.toLowerCase())
+                    )
+                    return filtered.length === 0 ? (
+                      <p className="text-[10px] text-gray-400 dark:text-gray-500 px-3 py-2 italic">
+                        {agents.length === 0 ? 'No agents configured' : 'All agents already added'}
+                      </p>
+                    ) : filtered.map((agent: AgentConfig) => (
+                      <button
+                        key={agent.id}
+                        type="button"
+                        onClick={async () => {
+                          const currentMembers = projectAgents[projectId] ?? []
+                          await addAgentToProject(projectId, agent.id)
+                          if (currentMembers.length === 0) await setProjectPrimaryAgent(projectId, agent.id)
+                          addToast(`🤖 ${agent.name} added to project`, 'success')
+                          setShowAgentPicker(false)
+                          setAgentPickerQuery('')
+                        }}
+                        className="w-full text-left flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                        aria-label={`Add ${agent.name} to project`}
+                      >
+                        <span>{agent.icon}</span>
+                        <span className="truncate">{agent.name}</span>
+                      </button>
+                    ))
+                  })()}
+                </div>
+              </div>
+            )}
+
+            {/* Member list */}
+            {(projectAgents[projectId] ?? []).length === 0 ? (
+              <p className="text-xs text-gray-400 dark:text-gray-500 italic text-center py-4">
+                No agents in this project yet.
+              </p>
+            ) : (
+              <div className="space-y-0.5">
+                {(projectAgents[projectId] ?? []).map((member) => {
+                  const isDragging = teamDraggingId === member.agentId
+                  return (
+                    <div
+                      key={member.agentId}
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData('member-agent-id', member.agentId)
+                        e.dataTransfer.effectAllowed = 'move'
+                        setTeamDraggingId(member.agentId)
+                      }}
+                      onDragEnd={() => setTeamDraggingId(null)}
+                      onDragOver={(e) => {
+                        if (e.dataTransfer.types.includes('member-agent-id')) {
+                          e.preventDefault()
+                          e.dataTransfer.dropEffect = 'move'
+                        }
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault()
+                        const srcId = e.dataTransfer.getData('member-agent-id')
+                        if (!srcId || srcId === member.agentId) return
+                        const members = projectAgents[projectId] ?? []
+                        const srcIdx = members.findIndex((a) => a.agentId === srcId)
+                        const tgtIdx = members.findIndex((a) => a.agentId === member.agentId)
+                        if (srcIdx === -1 || tgtIdx === -1) return
+                        const reordered = [...members]
+                        reordered.splice(srcIdx, 1)
+                        reordered.splice(tgtIdx, 0, members[srcIdx])
+                        reorderProjectAgents(projectId, reordered.map((a) => a.agentId))
+                        setTeamDraggingId(null)
+                      }}
+                      className={`group/member flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs cursor-grab active:cursor-grabbing transition-colors ${
+                        isDragging ? 'opacity-40' : ''
+                      } ${
+                        member.isPrimary
+                          ? 'bg-yellow-50 dark:bg-yellow-900/20'
+                          : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                      }`}
+                    >
+                      <GripVertical className="w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0" />
+                      <span className="text-base leading-none">{member.agentIcon}</span>
+                      <span className={`flex-1 truncate ${member.isPrimary ? 'font-medium text-yellow-700 dark:text-yellow-400' : 'text-gray-700 dark:text-gray-300'}`}>
+                        {member.agentName}
+                      </span>
+                      {member.isPrimary && (
+                        <span className="text-[9px] bg-yellow-200 dark:bg-yellow-800 text-yellow-700 dark:text-yellow-300 px-1.5 py-0.5 rounded-full font-semibold shrink-0">
+                          primary
+                        </span>
+                      )}
+                      <div className="invisible group-hover/member:visible flex items-center gap-0.5">
+                        {!member.isPrimary && (
+                          <button
+                            type="button"
+                            onClick={() => setProjectPrimaryAgent(projectId, member.agentId)}
+                            className="p-0.5 rounded text-gray-400 hover:text-yellow-500 hover:bg-yellow-50 dark:hover:bg-yellow-900/20"
+                            title="Set as primary"
+                            aria-label={`Set ${member.agentName} as primary agent`}
+                          >
+                            <Star className="w-3 h-3" />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => removeAgentFromProject(projectId, member.agentId)}
+                          className="p-0.5 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+                          title="Remove from project"
+                          aria-label={`Remove ${member.agentName} from project`}
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Orchestration — only shown when ≥2 agents */}
+            {(projectAgents[projectId] ?? []).length >= 2 && (() => {
+              const orchCfg = projectConfigs[projectId]
+              if (!orchCfg) return null
+              return (
+                <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-2">
+                  <label className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Orchestration</label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={orchCfg.orchestrationEnabled}
+                      onChange={(e) => updateProjectOrchestration(projectId, { orchestrationEnabled: e.target.checked })}
+                      className="w-3 h-3 rounded"
+                    />
+                    <span className="text-xs text-gray-600 dark:text-gray-400">Enable multi-agent orchestration</span>
+                  </label>
+                  {orchCfg.orchestrationEnabled && (
+                    <>
+                      <label className="flex items-center gap-2">
+                        <span className="text-xs text-gray-500 dark:text-gray-500 w-20 shrink-0">Max depth</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={10}
+                          value={orchCfg.maxDelegationDepth}
+                          onChange={(e) => updateProjectOrchestration(projectId, { maxDelegationDepth: Number(e.target.value) })}
+                          className="w-12 text-xs px-1.5 py-0.5 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800"
+                        />
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={orchCfg.showTeamActivity}
+                          onChange={(e) => updateProjectOrchestration(projectId, { showTeamActivity: e.target.checked })}
+                          className="w-3 h-3 rounded"
+                        />
+                        <span className="text-xs text-gray-600 dark:text-gray-400">Show team activity</span>
+                      </label>
+                    </>
+                  )}
+                </div>
+              )
+            })()}
           </div>
         )}
       </div>
