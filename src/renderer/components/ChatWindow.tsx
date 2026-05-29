@@ -325,22 +325,23 @@ export function ChatWindow() {
       aria-label="Chat conversation"
     >
       {(currentProject || displayAgent) && (
-        <div className="flex items-center gap-2 px-4 py-1.5 border-b border-gray-200 dark:border-gray-700/80 bg-gray-50 dark:bg-gray-800/50" aria-label="Chat context">
+        <div className="flex items-center gap-2 px-4 h-9 border-b border-gray-200 dark:border-gray-700/80 bg-gray-50 dark:bg-gray-800/50" aria-label="Chat context">
           {currentProject && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300">
+            <span className="inline-flex items-center gap-1 px-2 rounded-full text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300" style={{lineHeight: '20px'}}>
               <span className={`w-2 h-2 rounded-full bg-${currentProject.color}-400`} aria-hidden="true" />
               {currentProject.name}
             </span>
           )}
           {displayAgent && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300">
+            <span className="inline-flex items-center gap-1 px-2 rounded-full text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300" style={{lineHeight: '20px'}}>
               <span aria-hidden="true">{displayAgent.icon}</span>
               {displayAgent.name}
             </span>
           )}
           {projectRootDir && (
             <span
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400"
+              className="inline-flex items-center gap-1 px-2 rounded-full text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400"
+              style={{lineHeight: '20px'}}
               title={`File structure context active: ${projectRootDir}`}
               aria-label={`File structure context active: ${projectRootDir}`}
             >
