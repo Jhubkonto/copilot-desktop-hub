@@ -401,6 +401,7 @@ export type IpcReturnMap = {
   'conversation:search': ConversationRow[]
   'conversation:set-model': boolean
   'conversation:set-pinned': boolean
+  'conversation:update-context': boolean
   // Deeplink (push-only)
   'deeplink:open-agent': void
   'deeplink:open-chat': void
@@ -533,6 +534,7 @@ export type IpcChannels =
   | 'conversation:search'
   | 'conversation:set-model'
   | 'conversation:set-pinned'
+  | 'conversation:update-context'
   | 'deeplink:open-agent'
   | 'deeplink:open-chat'
   | 'file:add-recent-dir'

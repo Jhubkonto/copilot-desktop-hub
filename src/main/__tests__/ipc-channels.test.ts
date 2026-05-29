@@ -52,6 +52,7 @@ const ALL_CHANNELS = [
   'conversation:search',
   'conversation:set-model',
   'conversation:set-pinned',
+  'conversation:update-context',
   'deeplink:open-agent',
   'deeplink:open-chat',
   'file:add-recent-dir',

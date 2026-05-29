@@ -40,6 +40,7 @@ describe('preload IPC return types', () => {
     expectTypeOf<ReturnType<ElectronAPI['listConversations']>>().toEqualTypeOf<Promise<ConversationRow[]>>()
     expectTypeOf<ReturnType<ElectronAPI['getMessages']>>().toEqualTypeOf<Promise<MessageRow[]>>()
     expectTypeOf<ReturnType<ElectronAPI['searchConversations']>>().toEqualTypeOf<Promise<ConversationRow[]>>()
+    expectTypeOf<ReturnType<ElectronAPI['updateConversationContext']>>().toEqualTypeOf<Promise<boolean>>()
   })
 
   it('agent methods return typed results', () => {

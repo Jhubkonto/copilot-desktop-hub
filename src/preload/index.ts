@@ -94,6 +94,10 @@ const api = {
     typedInvoke('conversation:set-model', id, model),
   setConversationPinned: (id: string, pinned: boolean) =>
     typedInvoke('conversation:set-pinned', id, pinned),
+  updateConversationContext: (
+    conversationId: string,
+    updates: { projectId?: string | null; agentId?: string | null }
+  ) => typedInvoke('conversation:update-context', { conversationId, ...updates }),
 
   // Messages
   deleteMessage: (id: string) => typedInvoke('message:delete', id),

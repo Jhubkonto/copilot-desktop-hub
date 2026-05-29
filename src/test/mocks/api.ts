@@ -39,6 +39,7 @@ export function createMockApi() {
     renameConversation: vi.fn().mockResolvedValue(undefined),
     setConversationModel: vi.fn().mockResolvedValue(true),
     setConversationPinned: vi.fn().mockResolvedValue(true),
+    updateConversationContext: vi.fn().mockResolvedValue(true),
 
     // Messages
     deleteMessage: vi.fn().mockResolvedValue(true),

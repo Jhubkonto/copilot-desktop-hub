@@ -95,6 +95,37 @@ export function registerConversationHandlers(): void {
       return true;
     },
   );
+
+  safeHandle(
+    "conversation:update-context",
+    (
+      _event,
+      updates: { conversationId: string; projectId?: string | null; agentId?: string | null },
+    ) => {
+      const assignments: string[] = [];
+      const values: Array<string | number | null> = [];
+
+      if (Object.prototype.hasOwnProperty.call(updates, "projectId")) {
+        assignments.push("project_id = ?");
+        values.push(updates.projectId ?? null);
+      }
+      if (Object.prototype.hasOwnProperty.call(updates, "agentId")) {
+        assignments.push("agent_id = ?");
+        values.push(updates.agentId ?? null);
+      }
+      if (assignments.length === 0) {
+        return true;
+      }
+
+      assignments.push("updated_at = ?");
+      values.push(Date.now());
+      values.push(updates.conversationId);
+      db.prepare(
+        `UPDATE conversations SET ${assignments.join(", ")} WHERE id = ?`,
+      ).run(...values);
+      return true;
+    },
+  );
 }
 
 export function registerMessageHandlers(): void {
