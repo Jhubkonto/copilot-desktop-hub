@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from 'react'
+import { ChevronDown } from 'lucide-react'
 import { getModelLabel } from '../../shared/models'
 import { isApiError, type AgentConfig } from '../../shared/types'
 import type { ToastType } from '../hooks/chat-types'
@@ -34,6 +35,8 @@ export function ChatWindow() {
     message: string,
     type?: ToastType,
   ) => void
+  const markConversationUnread = useAppStore((state) => state.markConversationUnread)
+  const markConversationRead = useAppStore((state) => state.markConversationRead)
 
   const [defaultModelSetting, setDefaultModelSetting] = useState('default')
   const [pendingModel, setPendingModel] = useState<string | null>(null)
@@ -43,8 +46,13 @@ export function ChatWindow() {
   const [projectRootDir, setProjectRootDir] = useState<string | null>(null)
   const [inputPanelHeight, setInputPanelHeight] = useState<number | null>(null)
   const [openContextPicker, setOpenContextPicker] = useState<'project' | 'agent' | null>(null)
+  const [hasUnreadBelow, setHasUnreadBelow] = useState(false)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const isUserScrolledUpRef = useRef(false)
+  const prevGeneratingRef = useRef(false)
+  const prevMessagesLengthRef = useRef(0)
   const modelPickerRef = useRef<HTMLButtonElement>(null)
   const contextPickerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -216,12 +224,84 @@ export function ChatWindow() {
     }
   }, [chat.isGenerating])
 
+  const scrollToBottom = useCallback(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    el.scrollTop = el.scrollHeight
+    isUserScrolledUpRef.current = false
+    setHasUnreadBelow(false)
+    if (conversationId) markConversationRead(conversationId)
+  }, [conversationId, markConversationRead])
+
+  const handleScrollContainerScroll = useCallback(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    const SCROLL_UP_THRESHOLD = 80
+    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - SCROLL_UP_THRESHOLD
+    isUserScrolledUpRef.current = !atBottom
+    if (atBottom) {
+      setHasUnreadBelow(false)
+      if (conversationId) markConversationRead(conversationId)
+    }
+  }, [conversationId, markConversationRead])
+
+  // Auto-scroll only when user is at the bottom
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [chat.messages, chat.streamingContent])
+    if (!isUserScrolledUpRef.current) {
+      scrollToBottom()
+    }
+  }, [chat.messages, chat.streamingContent, scrollToBottom])
+
+  // Track new content arriving while user is scrolled up → mark unread
+  useEffect(() => {
+    const newMessages = chat.messages.length > prevMessagesLengthRef.current
+    const hasStreaming = chat.streamingContent !== ''
+    if (isUserScrolledUpRef.current && (newMessages || hasStreaming)) {
+      setHasUnreadBelow(true)
+      if (conversationId) markConversationUnread(conversationId)
+    }
+    prevMessagesLengthRef.current = chat.messages.length
+  }, [chat.messages, chat.streamingContent, conversationId, markConversationUnread])
+
+  // Force scroll to bottom whenever a new generation begins (user just sent a message)
+  useEffect(() => {
+    if (chat.isGenerating) {
+      scrollToBottom()
+    }
+  }, [chat.isGenerating, scrollToBottom])
+
+  // Reset scroll state on conversation switch
+  useEffect(() => {
+    prevMessagesLengthRef.current = 0
+    isUserScrolledUpRef.current = false
+    setHasUnreadBelow(false)
+    if (conversationId) markConversationRead(conversationId)
+    // Defer so the new messages have rendered before scrolling
+    requestAnimationFrame(() => scrollToBottom())
+  }, [conversationId, scrollToBottom, markConversationRead])
+
+  // Completion notification — only for successful responses (not stopped/errored)
+  useEffect(() => {
+    if (prevGeneratingRef.current && !chat.isGenerating && isUserScrolledUpRef.current) {
+      const lastMsg = chat.messages[chat.messages.length - 1]
+      if (lastMsg && !lastMsg.isError && !lastMsg.isStopped) {
+        addToast('Response complete ✓', 'success')
+      }
+    }
+    prevGeneratingRef.current = chat.isGenerating
+  }, [chat.isGenerating, chat.messages, addToast])
 
   const handleCopy = useCallback((content: string) => {
     navigator.clipboard.writeText(content)
+  }, [])
+
+  const handleEditMessage = useCallback(
+    (index: number) => actions.handleEdit(index, chat.handleEdit),
+    [actions.handleEdit, chat.handleEdit],
+  )
+
+  const handlePickModel = useCallback(() => {
+    modelPickerRef.current?.focus()
   }, [])
 
   const handleKeyDown = useCallback(
@@ -512,23 +592,39 @@ export function ChatWindow() {
     >
       {contextBar}
 
-      <ChatMessages
-        messages={chat.messages}
-        effectiveModel={effectiveModel}
-        isLoadingMessages={chat.isLoadingMessages}
-        isGenerating={chat.isGenerating}
-        liveTeamActivity={chat.liveTeamActivity}
-        streamingContent={chat.streamingContent}
-        generationElapsedSec={timers.generationElapsedSec}
-        loadingFailed={chat.loadingFailed}
-        messagesEndRef={messagesEndRef}
-        onCopy={handleCopy}
-        onRegenerate={chat.handleRegenerate}
-        onEdit={(index) => actions.handleEdit(index, chat.handleEdit)}
-        onRetry={actions.handleRetry}
-        onSignIn={actions.handleSignIn}
-        onPickModel={() => modelPickerRef.current?.focus()}
-      />
+      <div className="relative flex flex-col flex-1 min-h-0">
+        <ChatMessages
+          messages={chat.messages}
+          effectiveModel={effectiveModel}
+          isLoadingMessages={chat.isLoadingMessages}
+          isGenerating={chat.isGenerating}
+          liveTeamActivity={chat.liveTeamActivity}
+          streamingContent={chat.streamingContent}
+          generationElapsedSec={timers.generationElapsedSec}
+          loadingFailed={chat.loadingFailed}
+          messagesEndRef={messagesEndRef}
+          scrollContainerRef={scrollContainerRef}
+          onScroll={handleScrollContainerScroll}
+          onCopy={handleCopy}
+          onRegenerate={chat.handleRegenerate}
+          onRegenerateWithModel={chat.handleRegenerate}
+          onEdit={handleEditMessage}
+          onRetry={actions.handleRetry}
+          onSignIn={actions.handleSignIn}
+          onPickModel={handlePickModel}
+        />
+        {hasUnreadBelow && (
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
+            <button
+              onClick={scrollToBottom}
+              className="pointer-events-auto flex items-center justify-center w-8 h-8 rounded-full bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-800 shadow-lg animate-bounce hover:animate-none hover:bg-gray-700 dark:hover:bg-gray-300 transition-colors"
+              aria-label="Scroll to bottom"
+            >
+              <ChevronDown className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+      </div>
 
       {fileInput.isDragging && (
         <div className="absolute inset-0 flex items-center justify-center bg-blue-500/10 pointer-events-none z-10">

@@ -100,6 +100,7 @@ export function Sidebar() {
   const setHistoryProjectId = useAppStore((s) => s.setHistoryProjectId)
   const historyProjectId = useAppStore((s) => s.historyProjectId)
   const setShowNewProjectForm = useAppStore((s) => s.setShowNewProjectForm)
+  const unreadConversationIds = useAppStore((s) => s.unreadConversationIds)
 
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<Conversation[] | null>(null)
@@ -166,6 +167,7 @@ export function Sidebar() {
   const renderConversation = (conv: Conversation) => {
     const agentForConv = agents.find((a) => a.id === conv.agent_id)
     const isPickingProject = convProjectPickerId === conv.id
+    const isUnread = unreadConversationIds.includes(conv.id)
     return (
       <div
         key={conv.id}
@@ -176,7 +178,10 @@ export function Sidebar() {
         }`}
         onClick={() => selectConversation(conv.id)}
       >
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 flex items-center gap-1.5">
+          {isUnread && (
+            <span className="flex-shrink-0 w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+          )}
           {editingId === conv.id ? (
             <input
               value={editTitle}

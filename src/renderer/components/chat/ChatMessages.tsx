@@ -1,5 +1,5 @@
 import { AlertCircle, Loader2 } from 'lucide-react'
-import type { RefObject } from 'react'
+import { memo, type RefObject } from 'react'
 import { getModelLabel } from '../../../shared/models'
 import { MarkdownRenderer } from '../MarkdownRenderer'
 import { MessageBubble } from '../MessageBubble'
@@ -16,15 +16,18 @@ interface ChatMessagesProps {
   generationElapsedSec: number
   loadingFailed: boolean
   messagesEndRef: RefObject<HTMLDivElement | null>
+  scrollContainerRef?: RefObject<HTMLDivElement | null>
+  onScroll?: () => void
   onCopy: (content: string) => void
   onRegenerate: (modelOverride?: string) => void | Promise<void>
-  onEdit: (messageIndex: number) => void
+  onRegenerateWithModel: (model: string) => void | Promise<void>
+  onEdit: (index: number) => void
   onRetry: () => void | Promise<void>
   onSignIn: () => void
   onPickModel: () => void
 }
 
-export function ChatMessages({
+export function ChatMessagesBase({
   messages,
   effectiveModel,
   isLoadingMessages,
@@ -34,8 +37,11 @@ export function ChatMessages({
   generationElapsedSec,
   loadingFailed,
   messagesEndRef,
+  scrollContainerRef,
+  onScroll,
   onCopy,
   onRegenerate,
+  onRegenerateWithModel,
   onEdit,
   onRetry,
   onSignIn,
@@ -51,10 +57,12 @@ export function ChatMessages({
 
   return (
     <div
+      ref={scrollContainerRef}
       className="flex-1 overflow-y-auto min-h-0 px-4 py-6"
       role="log"
       aria-live="polite"
       aria-label="Messages"
+      onScroll={onScroll}
     >
       <div className="max-w-3xl mx-auto space-y-8">
         {isLoadingMessages && (
@@ -108,14 +116,11 @@ export function ChatMessages({
               errorType={message.errorType}
               retryable={message.retryable}
               isStopped={message.isStopped}
+              messageIndex={index}
               onCopy={onCopy}
-              onRegenerate={
-                index === lastAssistantIndex ? () => onRegenerate() : undefined
-              }
-              onRegenerateWithModel={
-                index === lastAssistantIndex ? (model) => onRegenerate(model) : undefined
-              }
-              onEdit={message.role === 'user' ? () => onEdit(index) : undefined}
+              onRegenerate={index === lastAssistantIndex ? onRegenerate : undefined}
+              onRegenerateWithModel={index === lastAssistantIndex ? onRegenerateWithModel : undefined}
+              onEdit={message.role === 'user' ? onEdit : undefined}
               onRetry={message.isError && message.retryable ? onRetry : undefined}
               onSignIn={
                 message.isError && message.errorType === 'auth' ? onSignIn : undefined
@@ -172,3 +177,5 @@ export function ChatMessages({
     </div>
   )
 }
+
+export const ChatMessages = memo(ChatMessagesBase)

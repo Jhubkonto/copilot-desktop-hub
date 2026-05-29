@@ -18,6 +18,7 @@ export interface UiSlice {
   activeSectionPane: ActiveSectionPane
   toasts: Toast[]
   toolApprovalRequests: ToolApprovalRequest[]
+  unreadConversationIds: string[]
   setTheme: (theme: Theme) => void
   toggleTheme: () => void
   toggleSidebar: () => void
@@ -36,6 +37,8 @@ export interface UiSlice {
     approved: boolean,
     remember: boolean
   ) => Promise<void>
+  markConversationUnread: (id: string) => void
+  markConversationRead: (id: string) => void
 }
 
 export const createUiSlice: StateCreator<
@@ -54,6 +57,7 @@ export const createUiSlice: StateCreator<
   activeSectionPane: null,
   toasts: [],
   toolApprovalRequests: [],
+  unreadConversationIds: [],
 
   setTheme: (theme) => {
     set((s) => {
@@ -146,5 +150,19 @@ export const createUiSlice: StateCreator<
     } catch {
       get().addToast('Failed to respond to tool approval', 'error')
     }
-  }
+  },
+
+  markConversationUnread: (id) => {
+    set((s) => {
+      if (!s.unreadConversationIds.includes(id)) {
+        s.unreadConversationIds.push(id)
+      }
+    })
+  },
+
+  markConversationRead: (id) => {
+    set((s) => {
+      s.unreadConversationIds = s.unreadConversationIds.filter((cid) => cid !== id)
+    })
+  },
 })
