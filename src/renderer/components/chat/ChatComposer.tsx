@@ -1,5 +1,5 @@
-import type { ChangeEvent, ClipboardEvent, KeyboardEvent, PointerEvent, RefObject } from 'react'
-import { Eye, Paperclip, SendHorizontal, Square, X } from 'lucide-react'
+import { useState, useRef, useEffect, type ChangeEvent, type ClipboardEvent, type KeyboardEvent, type PointerEvent, type RefObject } from 'react'
+import { ChevronDown, Eye, Paperclip, SendHorizontal, Square, X } from 'lucide-react'
 import { MODEL_OPTIONS, getModelLabel, getModelMultiplier } from '../../../shared/models'
 import { ContextInspector } from '../ContextInspector'
 import { AttachmentBar } from './AttachmentBar'
@@ -32,7 +32,7 @@ interface ChatComposerProps {
   atFilter: string
   selectedAtIndex: number
   atOptions: AtContextOption[]
-  modelPickerRef: RefObject<HTMLSelectElement | null>
+  modelPickerRef: RefObject<HTMLButtonElement | null>
   onResizePointerDown: (event: PointerEvent<HTMLDivElement>) => void
   onInputChange: (event: ChangeEvent<HTMLTextAreaElement>) => void
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void
@@ -96,6 +96,21 @@ export function ChatComposer({
   onStop,
   onSend,
 }: ChatComposerProps) {
+  const [showModelMenu, setShowModelMenu] = useState(false)
+  const [modelMenuAbove, setModelMenuAbove] = useState(false)
+  const modelMenuRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!showModelMenu) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (modelMenuRef.current && !modelMenuRef.current.contains(e.target as Node)) {
+        setShowModelMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showModelMenu])
+
   return (
     <div className="border-t border-gray-200 dark:border-gray-700/80 relative">
       <div
@@ -212,26 +227,53 @@ export function ChatComposer({
                 </button>
               </div>
               <div className="flex items-center gap-1">
-                <select
-                  value={effectiveModel}
-                  onChange={(event) =>
-                    conversationId
-                      ? onSetConversationModel(event.target.value)
-                      : onSetPendingModel(
-                          event.target.value === 'default' ? null : event.target.value,
-                        )
-                  }
+              <div className="relative flex items-center" ref={modelMenuRef}>
+                <button
                   ref={modelPickerRef}
-                  className="text-xs bg-transparent border-0 text-gray-600 dark:text-gray-300 focus:outline-none cursor-pointer py-1 px-1 max-w-[140px]"
+                  type="button"
                   aria-label="Conversation model"
+                  className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 px-1.5 py-1 rounded-md transition-colors max-w-[160px]"
+                  onClick={() => {
+                    if (!showModelMenu && modelPickerRef.current) {
+                      const rect = modelPickerRef.current.getBoundingClientRect()
+                      const dropdownHeight = 300
+                      setModelMenuAbove(rect.bottom + dropdownHeight > window.innerHeight)
+                    }
+                    setShowModelMenu((prev) => !prev)
+                  }}
                 >
-                  {MODEL_OPTIONS.map((model) => (
-                    <option key={model} value={model}>
-                      {getModelLabel(model)}
-                      {getModelMultiplier(model) ? ` · ${getModelMultiplier(model)}` : ''}
-                    </option>
-                  ))}
-                </select>
+                  <span className="truncate">{getModelLabel(effectiveModel)}</span>
+                  <ChevronDown className="w-3 h-3 shrink-0 opacity-60" />
+                </button>
+                {showModelMenu && (
+                  <div className={`absolute right-0 z-30 w-56 max-h-64 overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg p-1 ${modelMenuAbove ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
+                    {MODEL_OPTIONS.map((model) => (
+                      <button
+                        key={model}
+                        type="button"
+                        className={`w-full text-left px-2 py-1.5 rounded text-xs flex items-center justify-between gap-2 transition-colors ${
+                          model === effectiveModel
+                            ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100'
+                            : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
+                        }`}
+                        onClick={() => {
+                          setShowModelMenu(false)
+                          if (conversationId) {
+                            void onSetConversationModel(model)
+                          } else {
+                            onSetPendingModel(model === 'default' ? null : model)
+                          }
+                        }}
+                      >
+                        <span>{getModelLabel(model)}</span>
+                        {getModelMultiplier(model) && (
+                          <span className="text-gray-400 dark:text-gray-500 shrink-0">{getModelMultiplier(model)}</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
                 {isGenerating ? (
                   <button
                     type="button"

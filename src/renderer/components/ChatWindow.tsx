@@ -45,7 +45,7 @@ export function ChatWindow() {
   const [openContextPicker, setOpenContextPicker] = useState<'project' | 'agent' | null>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const modelPickerRef = useRef<HTMLSelectElement>(null)
+  const modelPickerRef = useRef<HTMLButtonElement>(null)
   const contextPickerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const inputPanelResizeRef = useRef<{ startY: number; startHeight: number } | null>(null)
