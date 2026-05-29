@@ -356,7 +356,8 @@ export async function sendCopilotNonStreaming(
   messages: ProviderMessage[],
   tools: ToolDefinition[] | undefined,
   model: string,
-  options: { maxTokens: number; temperature: number }
+  options: { maxTokens: number; temperature: number },
+  toolChoice: 'auto' | 'required' | 'none' = 'auto'
 ): Promise<CopilotNonStreamResult> {
   const token = await getCopilotToken()
 
@@ -373,7 +374,7 @@ export async function sendCopilotNonStreaming(
   }
   if (tools && tools.length > 0) {
     bodyPayload.tools = tools
-    bodyPayload.tool_choice = 'auto'
+    bodyPayload.tool_choice = toolChoice
   }
 
   const body = JSON.stringify(bodyPayload)

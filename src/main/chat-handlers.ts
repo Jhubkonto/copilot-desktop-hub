@@ -2,7 +2,7 @@ import { BrowserWindow } from "electron";
 import { randomUUID } from "crypto";
 import { existsSync, readFileSync } from "fs";
 import { basename } from "path";
-import { sendCopilotChatMessage, abortCopilotStream, type CopilotApiError } from "./copilot-api";
+import { sendCopilotChatMessage, sendCopilotNonStreaming, abortCopilotStream, type CopilotApiError, type ToolDefinition } from "./copilot-api";
 import { getAgentConfig } from "./agents";
 import { getDatabase } from "./database";
 import {
@@ -20,10 +20,114 @@ import { safeHandle } from "./safe-handle";
 import { runOrchestration, type OrchestratorAgent } from "./orchestrator";
 import { parseProjectConfig } from "./project-handlers";
 import { listDirectoryEntries } from "./file-handlers";
+import { getAvailableMcpTools, callMcpTool } from "./mcp";
 
 // Session-scoped cache for directory listings. Keyed by project ID.
 // Entries are invalidated when the project's rootDirectory changes.
 const dirListingCache = new Map<string, { rootDirectory: string; block: string }>()
+
+const MCP_MAX_ITERATIONS = 20
+// How many leading iterations force tool use (prevents premature text responses)
+const MCP_REQUIRED_ITERATIONS = 3
+
+/**
+ * Run an agentic tool-calling loop using MCP tools.
+ * Namespaces tool names as `serverId__toolName` to avoid cross-server collisions.
+ * Emits the final text content as a single streamed chunk when done.
+ */
+async function runMcpToolLoop(
+  messages: ProviderMessage[],
+  toolDefs: ToolDefinition[],
+  // Map from namespaced model-facing name → { serverId, toolName }
+  toolMap: Map<string, { serverId: string; toolName: string }>,
+  model: string,
+  options: { maxTokens: number; temperature: number },
+  agentId: string,
+  webContents: Electron.WebContents,
+  onChunk: (chunk: string) => void
+): Promise<string> {
+  // Prepend a strong directive so the model acts with tools instead of describing future actions.
+  const toolNames = [...new Set(toolDefs.map((t) => t.function.name.split('__').pop()))].join(', ')
+  const directive =
+    `You have browser automation tools available: ${toolNames}. ` +
+    'IMPORTANT: When performing browser tasks, call the tools immediately and completely — ' +
+    'do NOT say you "will" do something, just do it. ' +
+    'Continue calling tools until the task is fully finished, then give a brief summary.'
+  const baseMessages: ProviderMessage[] = messages.length > 0 && messages[0].role === 'system'
+    ? [
+        { role: 'system' as const, content: `${messages[0].content as string}\n\n${directive}` },
+        ...messages.slice(1)
+      ]
+    : [{ role: 'system' as const, content: directive }, ...messages]
+
+  const loopMessages = [...baseMessages]
+  let fullResponse = ''
+
+  for (let i = 0; i < MCP_MAX_ITERATIONS; i++) {
+    // Use 'required' for the first MCP_REQUIRED_ITERATIONS iterations to prevent the model
+    // from responding in plain text before it has actually completed any work.
+    // After that, switch to 'auto' so the model can give a natural summary once it's done.
+    const toolChoice = i < MCP_REQUIRED_ITERATIONS ? 'required' : 'auto'
+    const result = await sendCopilotNonStreaming(loopMessages, toolDefs, model, options, toolChoice)
+
+    if (!result.toolCalls || result.toolCalls.length === 0) {
+      // Final answer — no more tool calls
+      const text = result.content ?? ''
+      onChunk(text)
+      fullResponse += text
+      return fullResponse
+    }
+
+    // Append assistant message with all tool calls
+    loopMessages.push({
+      role: 'assistant' as const,
+      content: null,
+      tool_calls: result.toolCalls.map((tc) => ({
+        id: tc.id,
+        type: 'function',
+        function: { name: tc.name, arguments: JSON.stringify(tc.arguments) }
+      }))
+    })
+
+    // Execute each tool call, stream progress, and append results
+    for (const call of result.toolCalls) {
+      const toolShortName = call.name.split('__').pop() ?? call.name
+      const progressChunk = `\`${toolShortName}\`\n`
+      onChunk(progressChunk)
+      fullResponse += progressChunk
+
+      const resolved = toolMap.get(call.name)
+      let toolResultContent: string
+      if (!resolved) {
+        toolResultContent = `Error: Unknown tool "${call.name}"`
+      } else {
+        const toolResult = await callMcpTool(
+          resolved.serverId,
+          resolved.toolName,
+          call.arguments as Record<string, unknown>,
+          agentId,
+          webContents
+        )
+        toolResultContent = toolResult.success
+          ? (toolResult.result ?? '(no output)')
+          : `Error: ${toolResult.error ?? 'Tool execution failed'}`
+      }
+      loopMessages.push({
+        role: 'tool' as const,
+        tool_call_id: call.id,
+        content: toolResultContent
+      })
+    }
+  }
+
+  // Cap reached — ask for a final answer without tools
+  const finalResult = await sendCopilotNonStreaming(loopMessages, undefined, model, options)
+  const text = finalResult.content ?? ''
+  onChunk(text)
+  fullResponse += text
+  return fullResponse
+}
+
 
 /** Clears the directory listing cache — used in tests to isolate test state. */
 export function clearDirListingCache(): void {
@@ -806,16 +910,47 @@ export function registerChatHandlers(): void {
               ? selectedModel
               : "gpt-4o";
 
-          responseContent = await sendCopilotChatMessage(
-            window,
-            chatMessages,
-            (chunk) => {
-              window.webContents.send("chat:stream-response", chunk);
-            },
-            copilotModel,
-            generationOptions,
-            conversationId,
-          );
+          // Build MCP tool definitions if the agent has servers assigned
+          const assignedServerIds = Array.isArray(agentCfg2?.mcpServers) ? agentCfg2.mcpServers as string[] : []
+          const mcpTools = assignedServerIds.length > 0 ? getAvailableMcpTools(assignedServerIds) : []
+
+          if (mcpTools.length > 0) {
+            // Namespace tool names to avoid cross-server collisions
+            const toolMap = new Map<string, { serverId: string; toolName: string }>()
+            const toolDefs: ToolDefinition[] = mcpTools.map((t) => {
+              const namespacedName = `${t.serverId}__${t.name}`
+              toolMap.set(namespacedName, { serverId: t.serverId, toolName: t.name })
+              return {
+                type: 'function' as const,
+                function: {
+                  name: namespacedName,
+                  description: t.description ?? t.name,
+                  parameters: (t.inputSchema ?? { type: 'object', properties: {} }) as Record<string, unknown>
+                }
+              }
+            })
+            responseContent = await runMcpToolLoop(
+              chatMessages,
+              toolDefs,
+              toolMap,
+              copilotModel,
+              generationOptions,
+              convRow.agent_id ?? '',
+              event.sender,
+              (chunk) => window.webContents.send("chat:stream-response", chunk)
+            )
+          } else {
+            responseContent = await sendCopilotChatMessage(
+              window,
+              chatMessages,
+              (chunk) => {
+                window.webContents.send("chat:stream-response", chunk);
+              },
+              copilotModel,
+              generationOptions,
+              conversationId,
+            );
+          }
           window.webContents.send("chat:stream-response", null);
         } catch (error) {
           console.error("Copilot API error:", error);

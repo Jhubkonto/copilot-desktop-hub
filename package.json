@@ -1,6 +1,6 @@
 {
   "name": "copilot-desktop-hub",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A cross-platform desktop application that brings GitHub Copilot's AI capabilities into a native chat-and-agent experience.",
   "type": "module",
   "main": "dist/main/index.js",
@@ -27,6 +27,7 @@
     "@testing-library/user-event": "^14.6.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@types/sql.js": "^1.4.11",
     "@vitejs/plugin-react": "^4.0.0",
     "autoprefixer": "^10.4.0",
     "electron": "^33.0.0",
@@ -38,6 +39,7 @@
     "happy-dom": "^20.9.0",
     "jsdom": "^29.0.2",
     "postcss": "^8.4.0",
+    "sql.js": "^1.14.1",
     "tailwindcss": "^3.4.0",
     "typescript": "^5.6.0",
     "typescript-eslint": "^8.32.0",
@@ -48,7 +50,6 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@tailwindcss/typography": "^0.5.0",
     "@types/better-sqlite3": "^7.6.13",
-
     "better-sqlite3": "^12.9.0",
     "electron-updater": "^6.8.3",
     "immer": "^11.1.4",

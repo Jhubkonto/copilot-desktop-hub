@@ -23,6 +23,15 @@ interface McpTool {
   serverName: string
 }
 
+interface McpServerInfo {
+  id: string
+  name: string
+  enabled: boolean
+  status: 'connecting' | 'connected' | 'error' | 'disconnected'
+  error?: string
+  toolCount: number
+}
+
 interface McpToolOverride {
   agent_id: string
   server_id: string
@@ -84,6 +93,9 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
   const [editingFileContent, setEditingFileContent] = useState('')
   const [agentMcpTools, setAgentMcpTools] = useState<McpTool[]>([])
   const [mcpToolOverrides, setMcpToolOverrides] = useState<McpToolOverride[]>([])
+  const [globalMcpServers, setGlobalMcpServers] = useState<McpServerInfo[]>([])
+
+  const setShowMcpPanel = useAppStore((s) => s.setShowMcpPanel)
 
   const isEditing = !!agent?.id
   const isDefault = agent?.isDefault === true
@@ -96,7 +108,6 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
       setJsonError('')
     }
     if (tab === 'skills' && isEditing) {
-      window.api.listMcpToolsForAgent(config.id).then((tools) => setAgentMcpTools(tools as McpTool[]))
       window.api.getMcpToolOverrides(config.id).then((overrides) => setMcpToolOverrides(overrides as McpToolOverride[]))
     }
     if (tab === 'knowledge' && isEditing) {
@@ -106,12 +117,28 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
     }
   }, [tab, config, isEditing])
 
+  // Reload global server list and available tools whenever the Skills tab is open
+  // or the assigned server list changes (so live selection is reflected immediately)
+  useEffect(() => {
+    if (tab !== 'skills') return
+    window.api.listMcpServers().then((servers) => setGlobalMcpServers(servers as McpServerInfo[]))
+    window.api.listMcpTools(config.mcpServers).then((tools) => setAgentMcpTools(tools as McpTool[]))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, config.mcpServers])
+
   const updateField = <K extends keyof AgentConfig>(key: K, value: AgentConfig[K]) => {
     setConfig((prev) => ({ ...prev, [key]: value }))
   }
 
   const getMcpOverride = (serverId: string, toolName: string): McpToolOverride | undefined =>
     mcpToolOverrides.find((o) => o.server_id === serverId && o.tool_name === toolName)
+
+  const toggleServerAssignment = (serverId: string) => {
+    const next = config.mcpServers.includes(serverId)
+      ? config.mcpServers.filter((id) => id !== serverId)
+      : [...config.mcpServers, serverId]
+    updateField('mcpServers', next)
+  }
 
   const handleSetMcpOverride = async (serverId: string, toolName: string, field: 'enabled' | 'approval' | 'instructions', value: string | boolean) => {
     const existing = getMcpOverride(serverId, toolName)
@@ -732,6 +759,70 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
                     </div>
                   )
                 })}
+              </div>
+
+              {/* MCP Servers assignment */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">MCP Servers</h3>
+                  <button
+                    type="button"
+                    onClick={() => setShowMcpPanel(true)}
+                    className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                  >
+                    Manage
+                  </button>
+                </div>
+                {globalMcpServers.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-gray-300 dark:border-gray-600 py-4 text-center">
+                    <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">No MCP servers configured</p>
+                    <button
+                      type="button"
+                      onClick={() => setShowMcpPanel(true)}
+                      className="text-xs px-2 py-1 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
+                    >
+                      Add MCP Server
+                    </button>
+                  </div>
+                ) : (
+                  globalMcpServers.map((server) => {
+                    const isAssigned = config.mcpServers.includes(server.id)
+                    const statusColor = server.status === 'connected'
+                      ? 'text-green-500'
+                      : server.status === 'error'
+                        ? 'text-red-400'
+                        : 'text-gray-400'
+                    return (
+                      <div
+                        key={server.id}
+                        className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-800/60"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className={`text-xs ${statusColor}`}>
+                              {server.status === 'connected' ? '●' : '○'}
+                            </span>
+                            <span className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">{server.name}</span>
+                            {server.toolCount > 0 && (
+                              <span className="text-xs text-gray-400">{server.toolCount} tools</span>
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => toggleServerAssignment(server.id)}
+                          className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs text-gray-600 hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-700 shrink-0"
+                          aria-label={`${isAssigned ? 'Remove' : 'Add'} ${server.name}`}
+                        >
+                          {isAssigned
+                            ? <ToggleRight className="h-4 w-4 text-green-500" />
+                            : <ToggleLeft className="h-4 w-4 text-gray-400" />}
+                          <span>{isAssigned ? 'On' : 'Off'}</span>
+                        </button>
+                      </div>
+                    )
+                  })
+                )}
               </div>
 
               {agentMcpTools.length > 0 && (

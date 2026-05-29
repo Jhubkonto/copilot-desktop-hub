@@ -99,6 +99,19 @@ function EnvEditor({
   )
 }
 
+const PLAYWRIGHT_PRESETS = [
+  {
+    label: 'Playwright (Chromium)',
+    description: 'AI-controlled managed browser',
+    config: { name: 'Playwright (Chromium)', command: 'npx', args: ['-y', '@playwright/mcp'], env: {}, cwd: undefined, enabled: true }
+  },
+  {
+    label: 'Playwright (CDP attach)',
+    description: 'Attach to existing Chrome/Edge — launch with --remote-debugging-port=9222',
+    config: { name: 'Playwright (CDP)', command: 'npx', args: ['-y', '@playwright/mcp', '--cdp-endpoint', 'http://localhost:9222'], env: {}, cwd: undefined, enabled: true }
+  },
+]
+
 export function McpServerPanel() {
   const visible = useAppStore((s) => s.showMcpPanel)
   const setShowMcpPanel = useAppStore((s) => s.setShowMcpPanel)
@@ -195,6 +208,7 @@ export function McpServerPanel() {
   }
 
   const handleJsonImport = () => {
+    if (!jsonText.trim()) return
     try {
       const parsed = JSON.parse(jsonText)
       if (!parsed.mcpServers || typeof parsed.mcpServers !== 'object') {
@@ -243,6 +257,7 @@ export function McpServerPanel() {
             <button
               onClick={() => {
                 setJsonMode(!jsonMode)
+                setJsonError(null)
                 setEditingServer(null)
               }}
               className="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
@@ -454,6 +469,20 @@ export function McpServerPanel() {
                 <Plus className="w-3.5 h-3.5" />
                 Add MCP Server
               </button>
+
+              <div className="space-y-1">
+                <p className="text-xs text-gray-400 dark:text-gray-500 font-medium uppercase tracking-wide">Quick-add presets</p>
+                {PLAYWRIGHT_PRESETS.map((preset) => (
+                  <button
+                    key={preset.label}
+                    onClick={() => setEditingServer({ id: '', ...preset.config })}
+                    className="w-full text-left flex flex-col gap-0.5 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 hover:bg-gray-100 dark:hover:bg-gray-700/60 transition-colors"
+                  >
+                    <span className="text-xs font-medium text-gray-700 dark:text-gray-200">{preset.label}</span>
+                    <span className="text-xs text-gray-400 dark:text-gray-500">{preset.description}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </div>

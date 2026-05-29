@@ -8,11 +8,13 @@ export default defineConfig({
         test: {
           name: 'main',
           include: ['src/main/__tests__/**/*.test.ts'],
-          environment: 'node'
+          environment: 'node',
+          setupFiles: ['src/test/setup-main.ts']
         },
         resolve: {
           alias: {
-            '@shared': resolve(__dirname, 'src/shared')
+            '@shared': resolve(__dirname, 'src/shared'),
+            'better-sqlite3': resolve(__dirname, 'src/test/mocks/better-sqlite3-shim.ts')
           }
         }
       },

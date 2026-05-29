@@ -229,18 +229,87 @@ describe('AgentPanel — Skills tab', () => {
     )
   })
 
-  it('ap-skills-5: MCP tool cards rendered for tools returned by listMcpToolsForAgent', async () => {
-    mockApi.listMcpToolsForAgent = vi.fn().mockResolvedValue([
+  it('ap-skills-5: MCP tool cards rendered for tools returned by listMcpTools', async () => {
+    const agentWithServer = { ...SAMPLE_AGENT, mcpServers: ['github'] }
+    mockApi.listMcpTools = vi.fn().mockResolvedValue([
       { name: 'search_code', serverId: 'github', serverName: 'GitHub', description: 'Search code' }
     ])
+    mockApi.listMcpServers = vi.fn().mockResolvedValue([
+      { id: 'github', name: 'GitHub', enabled: true, status: 'connected', toolCount: 1 }
+    ])
     mockApi.getMcpToolOverrides = vi.fn().mockResolvedValue([])
-    setupEditMode()
+    setupEditMode(agentWithServer)
     render(<AgentPanel width={440} onResize={() => {}} />)
 
     await user.click(screen.getByText('Skills'))
 
     expect(await screen.findByText('🔌 search_code')).toBeInTheDocument()
     expect(screen.getByText('via GitHub')).toBeInTheDocument()
+  })
+
+  it('ap-skills-6: MCP Servers section shows global servers on Skills tab', async () => {
+    mockApi.listMcpServers = vi.fn().mockResolvedValue([
+      { id: 'server-1', name: 'My Server', enabled: true, status: 'connected', toolCount: 3 }
+    ])
+    mockApi.listMcpTools = vi.fn().mockResolvedValue([])
+    setupEditMode()
+    render(<AgentPanel width={440} onResize={() => {}} />)
+
+    await user.click(screen.getByText('Skills'))
+
+    expect(await screen.findByText('My Server')).toBeInTheDocument()
+    expect(screen.getByText('MCP Servers')).toBeInTheDocument()
+  })
+
+  it('ap-skills-7: toggling MCP server on adds it to mcpServers', async () => {
+    mockApi.listMcpServers = vi.fn().mockResolvedValue([
+      { id: 'server-1', name: 'My Server', enabled: true, status: 'connected', toolCount: 3 }
+    ])
+    mockApi.listMcpTools = vi.fn().mockResolvedValue([])
+    setupEditMode()
+    render(<AgentPanel width={440} onResize={() => {}} />)
+
+    await user.click(screen.getByText('Skills'))
+    await screen.findByText('My Server')
+
+    await user.click(screen.getByLabelText('Add My Server'))
+    await user.click(screen.getByText('Save'))
+
+    expect(mockStore.saveAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ mcpServers: ['server-1'] })
+    )
+  })
+
+  it('ap-skills-8: toggling MCP server off removes it from mcpServers', async () => {
+    const agentWithServer = { ...SAMPLE_AGENT, mcpServers: ['server-1'] }
+    mockApi.listMcpServers = vi.fn().mockResolvedValue([
+      { id: 'server-1', name: 'My Server', enabled: true, status: 'connected', toolCount: 3 }
+    ])
+    mockApi.listMcpTools = vi.fn().mockResolvedValue([])
+    mockApi.getMcpToolOverrides = vi.fn().mockResolvedValue([])
+    setupEditMode(agentWithServer)
+    render(<AgentPanel width={440} onResize={() => {}} />)
+
+    await user.click(screen.getByText('Skills'))
+    await screen.findByText('My Server')
+
+    await user.click(screen.getByLabelText('Remove My Server'))
+    await user.click(screen.getByText('Save'))
+
+    expect(mockStore.saveAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ mcpServers: [] })
+    )
+  })
+
+  it('ap-skills-9: empty state shown when no MCP servers exist', async () => {
+    mockApi.listMcpServers = vi.fn().mockResolvedValue([])
+    mockApi.listMcpTools = vi.fn().mockResolvedValue([])
+    setupEditMode()
+    render(<AgentPanel width={440} onResize={() => {}} />)
+
+    await user.click(screen.getByText('Skills'))
+
+    expect(await screen.findByText('No MCP servers configured')).toBeInTheDocument()
   })
 })
 
