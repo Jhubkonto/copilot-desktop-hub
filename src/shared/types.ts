@@ -146,6 +146,342 @@ export interface ToolApprovalRequest {
   description: string
 }
 
+// ---------------------------------------------------------------------------
+// Auth
+// ---------------------------------------------------------------------------
+
+export interface AuthUser {
+  login: string
+  avatar_url: string
+  name: string | null
+}
+
+export interface AuthStatus {
+  authenticated: boolean
+  user: AuthUser | null
+}
+
+export interface AuthLoginResult {
+  success: boolean
+  user?: AuthUser
+  error?: string
+}
+
+// ---------------------------------------------------------------------------
+// Database row shapes (snake_case — returned directly from SQLite handlers)
+// ---------------------------------------------------------------------------
+
+export interface ConversationRow {
+  id: string
+  agent_id: string | null
+  project_id: string | null
+  title: string
+  model: string | null
+  pinned: number
+  created_at: number
+  updated_at: number
+}
+
+export interface MessageRow {
+  id: string
+  conversation_id: string
+  role: string
+  content: string
+  model: string | null
+  is_edited: number
+  previous_content: string | null
+  timestamp: number
+  tool_calls: string | null
+  attachments: string | null
+  context_snapshot: string | null
+}
+
+export interface KnowledgeFile {
+  id: string
+  agent_id: string
+  file_path: string
+  inject_mode: string
+  sort_order: number
+  created_at: number
+  updated_at: number
+}
+
+// ---------------------------------------------------------------------------
+// Projects
+// ---------------------------------------------------------------------------
+
+export interface ProjectRow {
+  id: string
+  name: string
+  color: string
+  default_model: string | null
+  config: ProjectConfig
+  created_at: number
+  updated_at: number
+}
+
+export interface ProjectAgent {
+  agentId: string
+  agentName: string
+  agentIcon: string
+  isPrimary: boolean
+  sortOrder: number
+}
+
+// ---------------------------------------------------------------------------
+// Agent operations
+// ---------------------------------------------------------------------------
+
+export interface AffectedProject {
+  id: string
+  name: string
+  is_primary: number
+}
+
+export interface DeleteAgentPreflight {
+  affectedProjects: AffectedProject[]
+  affectedConvCount: number
+}
+
+export interface DeleteAgentResult {
+  success: boolean
+  reason?: string
+  affectedProjects?: AffectedProject[]
+  affectedConvCount?: number
+}
+
+// ---------------------------------------------------------------------------
+// MCP
+// ---------------------------------------------------------------------------
+
+export interface McpTool {
+  name: string
+  description?: string
+  inputSchema?: Record<string, unknown>
+  serverId: string
+  serverName: string
+}
+
+export interface McpServerWithStatus extends McpServerConfig {
+  status: 'connecting' | 'connected' | 'error' | 'disconnected'
+  error?: string
+  toolCount: number
+}
+
+export interface McpServerStatus {
+  status: 'connecting' | 'connected' | 'error' | 'disconnected'
+  error?: string
+  tools: McpTool[]
+}
+
+export interface McpToolOverrideRow {
+  agent_id: string
+  server_id: string
+  tool_name: string
+  enabled: number
+  approval: string
+  instructions: string
+}
+
+export interface McpCallResult {
+  success: boolean
+  result?: string
+  error?: string
+}
+
+// ---------------------------------------------------------------------------
+// Tools
+// ---------------------------------------------------------------------------
+
+/** Shape returned by `tool:list` (built-in tool catalogue). */
+export interface BuiltinToolDefinition {
+  name: string
+  description: string
+  args: { name: string; type: string; required: boolean }[]
+}
+
+export interface ToolExecuteResult {
+  success: boolean
+  result?: string
+  error?: string
+}
+
+// ---------------------------------------------------------------------------
+// Files / directories
+// ---------------------------------------------------------------------------
+
+export interface DirectoryEntry {
+  name: string
+  relativePath: string
+  type: 'file' | 'dir'
+}
+
+export interface ContextFileResult {
+  path: string
+  content: string
+  truncated: boolean
+}
+
+// ---------------------------------------------------------------------------
+// Providers
+// ---------------------------------------------------------------------------
+
+export interface ProviderInfo {
+  name: string
+  label: string
+  apiKeySettingKey: string
+  models: string[]
+  configured: boolean
+}
+
+export interface ProviderTestResult {
+  valid: boolean
+  error?: string
+}
+
+// ---------------------------------------------------------------------------
+// IPC return-type map  (RF.12 — every invoke channel → concrete return type)
+// ---------------------------------------------------------------------------
+
+export type IpcReturnMap = {
+  // Agent
+  'agent:add-knowledge-file': KnowledgeFile | null
+  'agent:create': AgentConfig
+  'agent:delete': DeleteAgentResult
+  'agent:delete-preflight': DeleteAgentPreflight
+  'agent:duplicate': AgentConfig | null
+  'agent:export': boolean
+  'agent:get': AgentConfig | null
+  'agent:get-mcp-tool-overrides': McpToolOverrideRow[]
+  'agent:import': AgentConfig | null
+  'agent:list': AgentConfig[]
+  'agent:list-knowledge-files': KnowledgeFile[]
+  'agent:remove-knowledge-file': boolean
+  'agent:set-mcp-tool-override': boolean
+  'agent:update': AgentConfig
+  'agent:update-knowledge-inject-mode': boolean
+  // App
+  'app:check-updates': void
+  'app:create-gist': string
+  'app:download-update': void
+  'app:get-setting': string | null
+  'app:get-settings': Record<string, string>
+  'app:get-theme': string
+  'app:get-version': string
+  'app:install-update': void
+  'app:save-text-file': string
+  'app:set-auto-start': boolean
+  'app:set-setting': boolean
+  'app:set-theme': boolean
+  // Auth
+  'auth:device-code': void
+  'auth:login': AuthLoginResult
+  'auth:logout': void
+  'auth:status': AuthStatus
+  // Chat
+  'chat:new': void
+  'chat:send-message': void
+  'chat:stop-generation': void
+  'chat:stream-error': void
+  'chat:stream-response': void
+  'chat:team-activity': void
+  // CLI
+  'cli:check': void
+  'cli:status': void
+  // Context
+  'context:git': string
+  'context:read-file': ContextFileResult
+  'context:workspace-summary': string
+  // Conversation
+  'conversation:create': ConversationRow
+  'conversation:delete': boolean
+  'conversation:get-messages': MessageRow[]
+  'conversation:list': ConversationRow[]
+  'conversation:rename': boolean
+  'conversation:search': ConversationRow[]
+  'conversation:set-model': boolean
+  'conversation:set-pinned': boolean
+  // Deeplink (push-only)
+  'deeplink:open-agent': void
+  'deeplink:open-chat': void
+  // File
+  'file:add-recent-dir': string[]
+  'file:get-cwd': string
+  'file:get-recent-dirs': string[]
+  'file:open-dialog': Attachment[]
+  'file:open-directory-dialog': string[]
+  'file:set-cwd': boolean
+  // FS
+  'fs:list-directory': DirectoryEntry[]
+  'fs:read-file': string
+  'fs:write-file': boolean
+  // MCP
+  'mcp:add-server': McpServerConfig
+  'mcp:call-tool': McpCallResult
+  'mcp:get-server-status': McpServerStatus
+  'mcp:list-servers': McpServerWithStatus[]
+  'mcp:list-tools': McpTool[]
+  'mcp:list-tools-for-agent': McpTool[]
+  'mcp:remove-server': boolean
+  'mcp:restart-server': boolean
+  'mcp:update-server': McpServerConfig | null
+  // Message
+  'message:delete': void
+  'message:delete-after': void
+  // Project
+  'project:add-agent': boolean
+  'project:create': ProjectRow
+  'project:delete': boolean
+  'project:duplicate': ProjectRow | null
+  'project:export': boolean
+  'project:get-config': ProjectConfig
+  'project:list': ProjectRow[]
+  'project:list-agents': ProjectAgent[]
+  'project:remove-agent': boolean
+  'project:rename': boolean
+  'project:reorder-agents': boolean
+  'project:set-conversation': boolean
+  'project:set-default-model': boolean
+  'project:set-primary-agent': boolean
+  'project:update-config': boolean
+  // Provider
+  'provider:get-azure-endpoint': string
+  'provider:has-key': boolean
+  'provider:list': ProviderInfo[]
+  'provider:remove-key': boolean
+  'provider:set-azure-endpoint': boolean
+  'provider:set-key': boolean
+  'provider:test-key': ProviderTestResult
+  // Tool
+  'tool:approval-response': boolean
+  'tool:execute': ToolExecuteResult
+  'tool:get-preferences': Record<string, string>
+  'tool:list': BuiltinToolDefinition[]
+  'tool:request-approval': void
+  'tool:set-preference': boolean
+  // Updater (push-only)
+  'updater:download-progress': void
+  'updater:error': void
+  'updater:no-update': void
+  'updater:update-available': void
+  'updater:update-downloaded': void
+  // Window
+  'window:close': void
+  'window:edit-action': void
+  'window:is-maximized': boolean
+  'window:maximize': void
+  'window:maximize-change': void
+  'window:minimize': void
+  'window:zoom': void
+}
+
+/** Resolves the concrete return type for a given IPC channel. */
+export type ApiError = { error: string }
+export function isApiError(result: unknown): result is ApiError {
+  return typeof result === 'object' && result !== null && 'error' in result && typeof (result as Record<string, unknown>).error === 'string'
+}
+export type IpcReturn<C extends IpcChannels> = C extends keyof IpcReturnMap ? IpcReturnMap[C] : never
+
 export type IpcChannels =
   | 'agent:add-knowledge-file'
   | 'agent:create'

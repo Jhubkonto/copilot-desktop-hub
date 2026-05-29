@@ -87,13 +87,6 @@ export function createMockApi() {
     getToolPreferences: vi.fn().mockResolvedValue({}),
     onToolApprovalRequest: vi.fn().mockReturnValue(() => {}),
 
-    // Terminal
-    createTerminal: vi.fn().mockResolvedValue(undefined),
-    writeTerminal: vi.fn().mockResolvedValue(undefined),
-    disposeTerminal: vi.fn().mockResolvedValue(undefined),
-    onTerminalData: vi.fn().mockReturnValue(() => {}),
-    onTerminalExit: vi.fn().mockReturnValue(() => {}),
-
     // MCP
     listMcpServers: vi.fn().mockResolvedValue([]),
     addMcpServer: vi.fn().mockResolvedValue({ id: 'mcp-1' }),

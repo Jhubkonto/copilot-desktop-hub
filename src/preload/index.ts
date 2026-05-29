@@ -1,21 +1,44 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { IpcChannels, IpcReturn } from '../shared/types'
+
+// ---------------------------------------------------------------------------
+// Typed IPC helpers (RF.16 — channel constrained to IpcChannels)
+// ---------------------------------------------------------------------------
+
+type IpcEventHandler = (_event: Electron.IpcRendererEvent, ...args: any[]) => void // eslint-disable-line @typescript-eslint/no-explicit-any
+
+function typedInvoke<C extends IpcChannels>(channel: C, ...args: unknown[]): Promise<IpcReturn<C>> {
+  return ipcRenderer.invoke(channel, ...args) as Promise<IpcReturn<C>>
+}
+
+function typedOn(channel: IpcChannels, handler: IpcEventHandler): void {
+  ipcRenderer.on(channel, handler)
+}
+
+function typedOff(channel: IpcChannels, handler: IpcEventHandler): void {
+  ipcRenderer.removeListener(channel, handler)
+}
+
+// ---------------------------------------------------------------------------
+// Exposed API
+// ---------------------------------------------------------------------------
 
 const api = {
   // Platform
   platform: process.platform,
 
   // Settings
-  getSettings: () => ipcRenderer.invoke('app:get-settings'),
-  getSetting: (key: string) => ipcRenderer.invoke('app:get-setting', key),
-  setSetting: (key: string, value: unknown) => ipcRenderer.invoke('app:set-setting', key, value),
-  getTheme: () => ipcRenderer.invoke('app:get-theme'),
-  setTheme: (theme: 'light' | 'dark') => ipcRenderer.invoke('app:set-theme', theme),
-  getVersion: () => ipcRenderer.invoke('app:get-version'),
+  getSettings: () => typedInvoke('app:get-settings'),
+  getSetting: (key: string) => typedInvoke('app:get-setting', key),
+  setSetting: (key: string, value: unknown) => typedInvoke('app:set-setting', key, value),
+  getTheme: () => typedInvoke('app:get-theme'),
+  setTheme: (theme: 'light' | 'dark') => typedInvoke('app:set-theme', theme),
+  getVersion: () => typedInvoke('app:get-version'),
 
   // Auth
-  authStatus: () => ipcRenderer.invoke('auth:status'),
-  authLogin: () => ipcRenderer.invoke('auth:login'),
-  authLogout: () => ipcRenderer.invoke('auth:logout'),
+  authStatus: () => typedInvoke('auth:status'),
+  authLogin: () => typedInvoke('auth:login'),
+  authLogout: () => typedInvoke('auth:logout'),
   onDeviceCode: (
     callback: (data: { userCode: string; verificationUri: string }) => void
   ) => {
@@ -23,8 +46,8 @@ const api = {
       _event: Electron.IpcRendererEvent,
       data: { userCode: string; verificationUri: string }
     ) => callback(data)
-    ipcRenderer.on('auth:device-code', handler)
-    return () => ipcRenderer.removeListener('auth:device-code', handler)
+    typedOn('auth:device-code', handler)
+    return () => typedOff('auth:device-code', handler)
   },
 
   // Chat
@@ -41,98 +64,98 @@ const api = {
       projectId?: string
       contextSnapshot?: string
     }
-  ) => ipcRenderer.invoke('chat:send-message', conversationId, content, options),
+  ) => typedInvoke('chat:send-message', conversationId, content, options),
   onStreamResponse: (callback: (chunk: string | null) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, chunk: string | null) =>
       callback(chunk)
-    ipcRenderer.on('chat:stream-response', handler)
-    return () => ipcRenderer.removeListener('chat:stream-response', handler)
+    typedOn('chat:stream-response', handler)
+    return () => typedOff('chat:stream-response', handler)
   },
   onStreamError: (callback: (error: { type: string; message: string; retryable: boolean; retryAfterSeconds?: number }) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, error: { type: string; message: string; retryable: boolean; retryAfterSeconds?: number }) =>
       callback(error)
-    ipcRenderer.on('chat:stream-error', handler)
-    return () => ipcRenderer.removeListener('chat:stream-error', handler)
+    typedOn('chat:stream-error', handler)
+    return () => typedOff('chat:stream-error', handler)
   },
-  stopGeneration: (conversationId?: string) => ipcRenderer.invoke('chat:stop-generation', conversationId),
+  stopGeneration: (conversationId?: string) => typedInvoke('chat:stop-generation', conversationId),
 
   // Conversations
-  listConversations: () => ipcRenderer.invoke('conversation:list'),
+  listConversations: () => typedInvoke('conversation:list'),
   createConversation: (agentId?: string, projectId?: string) =>
-    ipcRenderer.invoke('conversation:create', agentId, projectId),
-  deleteConversation: (id: string) => ipcRenderer.invoke('conversation:delete', id),
+    typedInvoke('conversation:create', agentId, projectId),
+  deleteConversation: (id: string) => typedInvoke('conversation:delete', id),
   getMessages: (conversationId: string) =>
-    ipcRenderer.invoke('conversation:get-messages', conversationId),
+    typedInvoke('conversation:get-messages', conversationId),
   searchConversations: (query: string) =>
-    ipcRenderer.invoke('conversation:search', query),
+    typedInvoke('conversation:search', query),
   renameConversation: (id: string, title: string) =>
-    ipcRenderer.invoke('conversation:rename', id, title),
+    typedInvoke('conversation:rename', id, title),
   setConversationModel: (id: string, model: string | null) =>
-    ipcRenderer.invoke('conversation:set-model', id, model),
+    typedInvoke('conversation:set-model', id, model),
   setConversationPinned: (id: string, pinned: boolean) =>
-    ipcRenderer.invoke('conversation:set-pinned', id, pinned),
+    typedInvoke('conversation:set-pinned', id, pinned),
 
   // Messages
-  deleteMessage: (id: string) => ipcRenderer.invoke('message:delete', id),
+  deleteMessage: (id: string) => typedInvoke('message:delete', id),
   deleteMessagesAfter: (conversationId: string, timestamp: number) =>
-    ipcRenderer.invoke('message:delete-after', conversationId, timestamp),
+    typedInvoke('message:delete-after', conversationId, timestamp),
 
   // Files
-  openFileDialog: () => ipcRenderer.invoke('file:open-dialog'),
-  getWorkingDirectory: () => ipcRenderer.invoke('file:get-cwd'),
-  setWorkingDirectory: (cwd: string) => ipcRenderer.invoke('file:set-cwd', cwd),
-  readContextFile: (filePath: string) => ipcRenderer.invoke('context:read-file', filePath),
-  getWorkspaceSummary: () => ipcRenderer.invoke('context:workspace-summary'),
-  getGitContext: () => ipcRenderer.invoke('context:git'),
+  openFileDialog: () => typedInvoke('file:open-dialog'),
+  getWorkingDirectory: () => typedInvoke('file:get-cwd'),
+  setWorkingDirectory: (cwd: string) => typedInvoke('file:set-cwd', cwd),
+  readContextFile: (filePath: string) => typedInvoke('context:read-file', filePath),
+  getWorkspaceSummary: () => typedInvoke('context:workspace-summary'),
+  getGitContext: () => typedInvoke('context:git'),
 
   // Agents
-  listAgents: () => ipcRenderer.invoke('agent:list'),
-  getAgent: (id: string) => ipcRenderer.invoke('agent:get', id),
-  createAgent: (config: unknown) => ipcRenderer.invoke('agent:create', config),
+  listAgents: () => typedInvoke('agent:list'),
+  getAgent: (id: string) => typedInvoke('agent:get', id),
+  createAgent: (config: unknown) => typedInvoke('agent:create', config),
   updateAgent: (id: string, config: unknown) =>
-    ipcRenderer.invoke('agent:update', id, config),
-  deleteAgentPreflight: (id: string) => ipcRenderer.invoke('agent:delete-preflight', id),
-  deleteAgent: (id: string) => ipcRenderer.invoke('agent:delete', id),
-  duplicateAgent: (id: string) => ipcRenderer.invoke('agent:duplicate', id),
-  exportAgent: (id: string) => ipcRenderer.invoke('agent:export', id),
-  importAgent: () => ipcRenderer.invoke('agent:import'),
+    typedInvoke('agent:update', id, config),
+  deleteAgentPreflight: (id: string) => typedInvoke('agent:delete-preflight', id),
+  deleteAgent: (id: string) => typedInvoke('agent:delete', id),
+  duplicateAgent: (id: string) => typedInvoke('agent:duplicate', id),
+  exportAgent: (id: string) => typedInvoke('agent:export', id),
+  importAgent: () => typedInvoke('agent:import'),
 
   // Projects (additional)
-  duplicateProject: (id: string) => ipcRenderer.invoke('project:duplicate', id),
-  exportProject: (id: string) => ipcRenderer.invoke('project:export', id),
+  duplicateProject: (id: string) => typedInvoke('project:duplicate', id),
+  exportProject: (id: string) => typedInvoke('project:export', id),
 
   // Knowledge files
   listKnowledgeFiles: (agentId: string) =>
-    ipcRenderer.invoke('agent:list-knowledge-files', agentId),
+    typedInvoke('agent:list-knowledge-files', agentId),
   addKnowledgeFile: (agentId: string, filePath: string, injectMode: string) =>
-    ipcRenderer.invoke('agent:add-knowledge-file', agentId, filePath, injectMode),
-  removeKnowledgeFile: (id: string) => ipcRenderer.invoke('agent:remove-knowledge-file', id),
+    typedInvoke('agent:add-knowledge-file', agentId, filePath, injectMode),
+  removeKnowledgeFile: (id: string) => typedInvoke('agent:remove-knowledge-file', id),
   updateKnowledgeInjectMode: (id: string, mode: string) =>
-    ipcRenderer.invoke('agent:update-knowledge-inject-mode', id, mode),
+    typedInvoke('agent:update-knowledge-inject-mode', id, mode),
   readKnowledgeFile: (agentId: string, filePath: string) =>
-    ipcRenderer.invoke('fs:read-file', agentId, filePath),
+    typedInvoke('fs:read-file', agentId, filePath),
   writeKnowledgeFile: (agentId: string, filePath: string, content: string) =>
-    ipcRenderer.invoke('fs:write-file', agentId, filePath, content),
+    typedInvoke('fs:write-file', agentId, filePath, content),
 
   // Directories
-  openDirectoryDialog: () => ipcRenderer.invoke('file:open-directory-dialog'),
-  getRecentDirs: () => ipcRenderer.invoke('file:get-recent-dirs'),
-  addRecentDir: (path: string) => ipcRenderer.invoke('file:add-recent-dir', path),
+  openDirectoryDialog: () => typedInvoke('file:open-directory-dialog'),
+  getRecentDirs: () => typedInvoke('file:get-recent-dirs'),
+  addRecentDir: (path: string) => typedInvoke('file:add-recent-dir', path),
   listDirectory: (path: string, depth?: number) =>
-    ipcRenderer.invoke('fs:list-directory', path, depth),
+    typedInvoke('fs:list-directory', path, depth),
 
   // Tools
-  listTools: () => ipcRenderer.invoke('tool:list'),
+  listTools: () => typedInvoke('tool:list'),
   executeTool: (
     name: string,
     args: Record<string, unknown>,
     agentToolConfig?: { enabled: boolean; approval: string; instructions: string }
-  ) => ipcRenderer.invoke('tool:execute', name, args, agentToolConfig),
+  ) => typedInvoke('tool:execute', name, args, agentToolConfig),
   respondToToolApproval: (requestId: string, approved: boolean, remember: boolean) =>
-    ipcRenderer.invoke('tool:approval-response', requestId, approved, remember),
+    typedInvoke('tool:approval-response', requestId, approved, remember),
   setToolPreference: (toolName: string, value: string) =>
-    ipcRenderer.invoke('tool:set-preference', toolName, value),
-  getToolPreferences: () => ipcRenderer.invoke('tool:get-preferences'),
+    typedInvoke('tool:set-preference', toolName, value),
+  getToolPreferences: () => typedInvoke('tool:get-preferences'),
   onToolApprovalRequest: (
     callback: (data: {
       requestId: string
@@ -150,89 +173,67 @@ const api = {
         description: string
       }
     ) => callback(data)
-    ipcRenderer.on('tool:request-approval', handler)
-    return () => ipcRenderer.removeListener('tool:request-approval', handler)
-  },
-
-  // Terminal
-  createTerminal: (id: string, cwd?: string) =>
-    ipcRenderer.invoke('terminal:create', id, cwd),
-  writeTerminal: (id: string, data: string) =>
-    ipcRenderer.invoke('terminal:write', id, data),
-  disposeTerminal: (id: string) => ipcRenderer.invoke('terminal:dispose', id),
-  onTerminalData: (callback: (id: string, data: string) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, id: string, data: string) =>
-      callback(id, data)
-    ipcRenderer.on('terminal:data', handler)
-    return () => ipcRenderer.removeListener('terminal:data', handler)
-  },
-  onTerminalExit: (callback: (id: string, code: number | null) => void) => {
-    const handler = (
-      _event: Electron.IpcRendererEvent,
-      id: string,
-      code: number | null
-    ) => callback(id, code)
-    ipcRenderer.on('terminal:exit', handler)
-    return () => ipcRenderer.removeListener('terminal:exit', handler)
+    typedOn('tool:request-approval', handler)
+    return () => typedOff('tool:request-approval', handler)
   },
 
   // MCP Servers
-  listMcpServers: () => ipcRenderer.invoke('mcp:list-servers'),
+  listMcpServers: () => typedInvoke('mcp:list-servers'),
   addMcpServer: (config: Record<string, unknown>) =>
-    ipcRenderer.invoke('mcp:add-server', config),
+    typedInvoke('mcp:add-server', config),
   updateMcpServer: (id: string, updates: Record<string, unknown>) =>
-    ipcRenderer.invoke('mcp:update-server', id, updates),
-  removeMcpServer: (id: string) => ipcRenderer.invoke('mcp:remove-server', id),
-  getMcpServerStatus: (id: string) => ipcRenderer.invoke('mcp:get-server-status', id),
-  listMcpTools: (serverIds?: string[]) => ipcRenderer.invoke('mcp:list-tools', serverIds),
-  listMcpToolsForAgent: (agentId: string) => ipcRenderer.invoke('mcp:list-tools-for-agent', agentId),
-  getMcpToolOverrides: (agentId: string) => ipcRenderer.invoke('agent:get-mcp-tool-overrides', agentId),
+    typedInvoke('mcp:update-server', id, updates),
+  removeMcpServer: (id: string) => typedInvoke('mcp:remove-server', id),
+  getMcpServerStatus: (id: string) => typedInvoke('mcp:get-server-status', id),
+  listMcpTools: (serverIds?: string[]) => typedInvoke('mcp:list-tools', serverIds),
+  listMcpToolsForAgent: (agentId: string) => typedInvoke('mcp:list-tools-for-agent', agentId),
+  getMcpToolOverrides: (agentId: string) => typedInvoke('agent:get-mcp-tool-overrides', agentId),
   setMcpToolOverride: (
     agentId: string,
     serverId: string,
     toolName: string,
     config: { enabled: boolean; approval: string; instructions: string }
-  ) => ipcRenderer.invoke('agent:set-mcp-tool-override', agentId, serverId, toolName, config),
+  ) => typedInvoke('agent:set-mcp-tool-override', agentId, serverId, toolName, config),
   callMcpTool: (serverId: string, toolName: string, args: Record<string, unknown>, agentId?: string) =>
-    ipcRenderer.invoke('mcp:call-tool', serverId, toolName, args, agentId),
-  restartMcpServer: (id: string) => ipcRenderer.invoke('mcp:restart-server', id),
+    typedInvoke('mcp:call-tool', serverId, toolName, args, agentId),
+  restartMcpServer: (id: string) => typedInvoke('mcp:restart-server', id),
 
   // Providers (BYOK)
-  listProviders: () => ipcRenderer.invoke('provider:list'),
+  listProviders: () => typedInvoke('provider:list'),
   setProviderKey: (provider: string, key: string) =>
-    ipcRenderer.invoke('provider:set-key', provider, key),
-  removeProviderKey: (provider: string) => ipcRenderer.invoke('provider:remove-key', provider),
-  hasProviderKey: (provider: string) => ipcRenderer.invoke('provider:has-key', provider),
+    typedInvoke('provider:set-key', provider, key),
+  removeProviderKey: (provider: string) => typedInvoke('provider:remove-key', provider),
+  hasProviderKey: (provider: string) => typedInvoke('provider:has-key', provider),
   testProviderKey: (provider: string, key: string, endpoint?: string) =>
-    ipcRenderer.invoke('provider:test-key', provider, key, endpoint),
-  getAzureEndpoint: () => ipcRenderer.invoke('provider:get-azure-endpoint'),
+    typedInvoke('provider:test-key', provider, key, endpoint),
+  getAzureEndpoint: () => typedInvoke('provider:get-azure-endpoint'),
   setAzureEndpoint: (endpoint: string) =>
-    ipcRenderer.invoke('provider:set-azure-endpoint', endpoint),
+    typedInvoke('provider:set-azure-endpoint', endpoint),
 
   // Projects
-  listProjects: () => ipcRenderer.invoke('project:list'),
-  createProject: (name: string, color: string) => ipcRenderer.invoke('project:create', name, color),
-  renameProject: (id: string, name: string) => ipcRenderer.invoke('project:rename', id, name),
-  deleteProject: (id: string) => ipcRenderer.invoke('project:delete', id),
+  listProjects: () => typedInvoke('project:list'),
+  createProject: (name: string, color: string) => typedInvoke('project:create', name, color),
+  renameProject: (id: string, name: string) => typedInvoke('project:rename', id, name),
+  deleteProject: (id: string) => typedInvoke('project:delete', id),
   setConversationProject: (conversationId: string, projectId: string | null) =>
-    ipcRenderer.invoke('project:set-conversation', conversationId, projectId),
+    typedInvoke('project:set-conversation', conversationId, projectId),
   setProjectDefaultModel: (id: string, model: string | null) =>
-    ipcRenderer.invoke('project:set-default-model', id, model),
+    typedInvoke('project:set-default-model', id, model),
 
   // Project Agents
-  listProjectAgents: (projectId: string) => ipcRenderer.invoke('project:list-agents', projectId),
+  listProjectAgents: (projectId: string) => typedInvoke('project:list-agents', projectId),
   addAgentToProject: (projectId: string, agentId: string) =>
-    ipcRenderer.invoke('project:add-agent', projectId, agentId),
+    typedInvoke('project:add-agent', projectId, agentId),
   removeAgentFromProject: (projectId: string, agentId: string) =>
-    ipcRenderer.invoke('project:remove-agent', projectId, agentId),
+    typedInvoke('project:remove-agent', projectId, agentId),
   setProjectPrimaryAgent: (projectId: string, agentId: string) =>
-    ipcRenderer.invoke('project:set-primary-agent', projectId, agentId),
+    typedInvoke('project:set-primary-agent', projectId, agentId),
   reorderProjectAgents: (projectId: string, orderedAgentIds: string[]) =>
-    ipcRenderer.invoke('project:reorder-agents', projectId, orderedAgentIds),
+    typedInvoke('project:reorder-agents', projectId, orderedAgentIds),
   updateProjectConfig: (projectId: string, config: Record<string, unknown>) =>
-    ipcRenderer.invoke('project:update-config', projectId, config),
+    typedInvoke('project:update-config', projectId, config),
   getProjectConfig: (projectId: string) =>
-    ipcRenderer.invoke('project:get-config', projectId),
+    typedInvoke('project:get-config', projectId),
   onTeamActivity: (callback: (step: {
     stepId: string
     agentId: string
@@ -245,51 +246,51 @@ const api = {
   }) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, step: Parameters<typeof callback>[0]) =>
       callback(step)
-    ipcRenderer.on('chat:team-activity', handler)
-    return () => ipcRenderer.removeListener('chat:team-activity', handler)
+    typedOn('chat:team-activity', handler)
+    return () => typedOff('chat:team-activity', handler)
   },
 
   // Window controls
-  minimizeWindow: () => ipcRenderer.invoke('window:minimize'),
-  maximizeWindow: () => ipcRenderer.invoke('window:maximize'),
-  closeWindow: () => ipcRenderer.invoke('window:close'),
-  isWindowMaximized: (): Promise<boolean> => ipcRenderer.invoke('window:is-maximized'),
-  editAction: (action: string) => ipcRenderer.invoke('window:edit-action', action),
-  zoomIn: () => ipcRenderer.invoke('window:zoom', 0.5),
-  zoomOut: () => ipcRenderer.invoke('window:zoom', -0.5),
-  resetZoom: () => ipcRenderer.invoke('window:zoom', 0),
+  minimizeWindow: () => typedInvoke('window:minimize'),
+  maximizeWindow: () => typedInvoke('window:maximize'),
+  closeWindow: () => typedInvoke('window:close'),
+  isWindowMaximized: () => typedInvoke('window:is-maximized'),
+  editAction: (action: string) => typedInvoke('window:edit-action', action),
+  zoomIn: () => typedInvoke('window:zoom', 0.5),
+  zoomOut: () => typedInvoke('window:zoom', -0.5),
+  resetZoom: () => typedInvoke('window:zoom', 0),
   onMaximizeChange: (callback: (maximized: boolean) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, maximized: boolean) => callback(maximized)
-    ipcRenderer.on('window:maximize-change', handler)
-    return () => ipcRenderer.removeListener('window:maximize-change', handler)
+    typedOn('window:maximize-change', handler)
+    return () => typedOff('window:maximize-change', handler)
   },
 
   // Auto-start
-  setAutoStart: (enabled: boolean) => ipcRenderer.invoke('app:set-auto-start', enabled),
+  setAutoStart: (enabled: boolean) => typedInvoke('app:set-auto-start', enabled),
   saveTextFile: (defaultFileName: string, content: string) =>
-    ipcRenderer.invoke('app:save-text-file', defaultFileName, content),
+    typedInvoke('app:save-text-file', defaultFileName, content),
   createGist: (filename: string, content: string, description?: string) =>
-    ipcRenderer.invoke('app:create-gist', filename, content, description),
+    typedInvoke('app:create-gist', filename, content, description),
 
   // Updates
-  checkForUpdates: () => ipcRenderer.invoke('app:check-updates'),
-  downloadUpdate: () => ipcRenderer.invoke('app:download-update'),
-  installUpdate: () => ipcRenderer.invoke('app:install-update'),
+  checkForUpdates: () => typedInvoke('app:check-updates'),
+  downloadUpdate: () => typedInvoke('app:download-update'),
+  installUpdate: () => typedInvoke('app:install-update'),
   onUpdateAvailable: (callback: (info: { version: string }) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, info: { version: string }) =>
       callback(info)
-    ipcRenderer.on('updater:update-available', handler)
-    return () => ipcRenderer.removeListener('updater:update-available', handler)
+    typedOn('updater:update-available', handler)
+    return () => typedOff('updater:update-available', handler)
   },
   onUpdateDownloaded: (callback: () => void) => {
-    ipcRenderer.on('updater:update-downloaded', callback)
-    return () => ipcRenderer.removeListener('updater:update-downloaded', callback)
+    typedOn('updater:update-downloaded', callback)
+    return () => typedOff('updater:update-downloaded', callback)
   },
 
   // System events
   onNewChat: (callback: () => void) => {
-    ipcRenderer.on('chat:new', callback)
-    return () => ipcRenderer.removeListener('chat:new', callback)
+    typedOn('chat:new', callback)
+    return () => typedOff('chat:new', callback)
   }
 }
 
