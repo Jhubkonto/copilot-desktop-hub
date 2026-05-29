@@ -72,6 +72,8 @@ export function MessageBubble({
 }: MessageBubbleProps) {
   const [showActions, setShowActions] = useState(false)
   const [showRegenMenu, setShowRegenMenu] = useState(false)
+  const [regenMenuAbove, setRegenMenuAbove] = useState(false)
+  const regenBtnRef = useRef<HTMLButtonElement | null>(null)
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const handleMouseEnter = () => {
@@ -213,20 +215,28 @@ export function MessageBubble({
           >
             <ActionButton icon={Copy} label="Copy" onClick={() => onCopy(content)} />
             {role === 'assistant' && isLastAssistant && onRegenerate && (
-              <div className="relative flex items-center">
+              <div className="relative flex items-center gap-1">
                 <ActionButton icon={RotateCcw} label="Regenerate" onClick={onRegenerate} />
                 {onRegenerateWithModel && (
                   <>
                     <button
+                      ref={regenBtnRef}
                       type="button"
                       aria-label="Regenerate with model"
-                      className="h-8 w-8 inline-flex items-center justify-center rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-200 transition-colors shadow-sm"
-                      onClick={() => setShowRegenMenu((prev) => !prev)}
+                      className="self-stretch flex items-center px-1.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-200 transition-colors shadow-sm"
+                      onClick={() => {
+                        if (!showRegenMenu && regenBtnRef.current) {
+                          const rect = regenBtnRef.current.getBoundingClientRect()
+                          const dropdownHeight = 280 // max-h-64 (256px) + padding
+                          setRegenMenuAbove(rect.bottom + dropdownHeight > window.innerHeight)
+                        }
+                        setShowRegenMenu((prev) => !prev)
+                      }}
                     >
                       <ChevronDown className="w-3 h-3" />
                     </button>
                     {showRegenMenu && (
-                      <div className="absolute right-0 top-9 z-20 w-56 max-h-64 overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg p-1">
+                      <div className={`absolute right-0 z-20 w-56 max-h-64 overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg p-1 ${regenMenuAbove ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
                         {MODEL_OPTIONS.filter((model) => model !== 'default').map((model) => (
                           <button
                             key={model}
