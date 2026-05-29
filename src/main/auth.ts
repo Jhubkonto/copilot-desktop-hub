@@ -1,6 +1,6 @@
 import { safeStorage, BrowserWindow } from 'electron'
 import { getDatabase } from './database'
-import https from 'https'
+import { httpsGet, httpsPost } from './http-client'
 import { safeHandle } from './safe-handle'
 
 const GITHUB_CLIENT_ID = 'Iv1.b507a08c87ecfe98'
@@ -41,61 +41,22 @@ export { httpPost as _httpPost, httpGet as _httpGet }
 export { fetchGitHubUser as _fetchGitHubUser }
 
 function httpPost(url: string, body: Record<string, string>): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const data = new URLSearchParams(body).toString()
-    const urlObj = new URL(url)
-    const options = {
-      hostname: urlObj.hostname,
-      path: urlObj.pathname,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        Accept: 'application/json',
-        'Content-Length': Buffer.byteLength(data)
-      }
-    }
-    const req = https.request(options, (res) => {
-      let result = ''
-      res.on('data', (chunk) => (result += chunk))
-      res.on('end', () => {
-        if (res.statusCode && res.statusCode >= 400) {
-          console.error(`[auth] HTTP ${res.statusCode} from ${url}:`, result)
-        }
-        resolve(result)
-      })
-    })
-    req.setTimeout(30000, () => {
-      req.destroy(new Error('Request timed out'))
-    })
-    req.on('error', reject)
-    req.write(data)
-    req.end()
-  })
+  const data = new URLSearchParams(body).toString()
+  return httpsPost(
+    url,
+    {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Accept: 'application/json'
+    },
+    data
+  )
 }
 
 function httpGet(url: string, token: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const urlObj = new URL(url)
-    const options = {
-      hostname: urlObj.hostname,
-      path: urlObj.pathname,
-      method: 'GET',
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${token}`,
-        'User-Agent': 'CopilotDesktopHub'
-      }
-    }
-    const req = https.request(options, (res) => {
-      let result = ''
-      res.on('data', (chunk) => (result += chunk))
-      res.on('end', () => resolve(result))
-    })
-    req.setTimeout(30000, () => {
-      req.destroy(new Error('Request timed out'))
-    })
-    req.on('error', reject)
-    req.end()
+  return httpsGet(url, {
+    Accept: 'application/json',
+    Authorization: `Bearer ${token}`,
+    'User-Agent': 'CopilotDesktopHub'
   })
 }
 

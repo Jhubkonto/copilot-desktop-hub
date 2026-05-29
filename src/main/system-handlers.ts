@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog } from "electron";
 import { writeFileSync } from "fs";
-import https from "https";
 import { retrieveToken } from "./auth";
+import { httpsRequestWithResponse } from "./http-client";
 import { safeHandle } from "./safe-handle";
 
 export function registerSystemHandlers(): void {
@@ -44,33 +44,20 @@ export function registerSystemHandlers(): void {
         },
       });
 
-      const response = await new Promise<{ status: number; data: string }>(
-        (resolve, reject) => {
-          const req = https.request(
-            {
-              hostname: "api.github.com",
-              path: "/gists",
-              method: "POST",
-              headers: {
-                Accept: "application/vnd.github+json",
-                Authorization: `Bearer ${githubToken}`,
-                "User-Agent": "CopilotDesktopHub",
-                "Content-Type": "application/json",
-                "Content-Length": Buffer.byteLength(body),
-              },
-            },
-            (res) => {
-              let data = "";
-              res.on("data", (chunk) => (data += chunk));
-              res.on("end", () =>
-                resolve({ status: res.statusCode || 0, data }),
-              );
-            },
-          );
-          req.on("error", reject);
-          req.write(body);
-          req.end();
+      const response = await httpsRequestWithResponse(
+        {
+          hostname: "api.github.com",
+          path: "/gists",
+          method: "POST",
+          headers: {
+            Accept: "application/vnd.github+json",
+            Authorization: `Bearer ${githubToken}`,
+            "User-Agent": "CopilotDesktopHub",
+            "Content-Type": "application/json",
+            "Content-Length": Buffer.byteLength(body),
+          },
         },
+        body,
       );
 
       if (response.status < 200 || response.status >= 300) {
