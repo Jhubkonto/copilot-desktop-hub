@@ -3,7 +3,9 @@ import {
   X, Plus, Settings, Upload, MessageSquare, Search,
   Folder, FolderOpen, Pin, Trash2, Star, GripVertical, Cpu, FolderPlus, Check, ArrowLeft
 } from 'lucide-react'
-import { useAppStore, type Project, type AgentConfig, type Conversation, type ProjectAgent } from '../store/app-store'
+import { useAppStore } from '../store/app-store'
+import type { Conversation, Project, ProjectAgent } from '../store/types'
+import type { AgentConfig } from '../../shared/types'
 import { ResizeHandle } from './ResizeHandle'
 import { DeleteProjectDialog } from './DeleteProjectDialog'
 import { DeleteConversationDialog } from './DeleteConversationDialog'

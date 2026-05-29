@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { X, Settings, Folder, FileText, Plus, Pencil, Wrench, ToggleLeft, ToggleRight } from 'lucide-react'
-import { useAppStore, type AgentConfig } from '../store/app-store'
+import { useAppStore } from '../store/app-store'
+import type { AgentConfig } from '../../shared/types'
 import { MODEL_OPTIONS } from '../../shared/models'
 import { ResizeHandle } from './ResizeHandle'
 import { MarkdownRenderer } from './MarkdownRenderer'

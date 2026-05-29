@@ -40,9 +40,11 @@ export function createMockAppStore(overrides: Record<string, unknown> = {}) {
     activeProjectId: null,
     historyProjectId: null,
     pendingSettingsProjectId: null,
+    showNewProjectForm: false,
+    editingProjectId: null,
     projectsLoading: false,
     projectAgents: {} as Record<string, { agentId: string; agentName: string; agentIcon: string; isPrimary: boolean; sortOrder: number }[]>,
-    projectConfigs: {} as Record<string, import('../../renderer/store/app-store').ProjectConfig>,
+    projectConfigs: {} as Record<string, import('../../renderer/store/types').ProjectConfig>,
 
     // Toasts
     toasts: [],

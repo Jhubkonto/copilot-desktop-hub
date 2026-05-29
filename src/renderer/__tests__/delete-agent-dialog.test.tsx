@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { DeleteAgentDialog } from '../components/DeleteAgentDialog'
-import type { DeleteAgentImpact } from '../store/app-store'
+import type { DeleteAgentImpact } from '../store/types'
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { Trash2, AlertTriangle } from 'lucide-react'
-import type { DeleteAgentImpact } from '../store/app-store'
+import type { DeleteAgentImpact } from '../store/types'
 
 interface DeleteAgentDialogProps {
   impact: DeleteAgentImpact

@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { SectionPane } from "../components/SectionPane";
 import { createMockAppStore, setupStoreMock } from "../../test/mocks/store";
 import { setupMockApi } from "../../test/mocks/api";
-import type { ProjectAgent } from "../store/app-store";
+import type { ProjectAgent } from "../store/types";
 
 const { useAppStore } = vi.hoisted(() => ({ useAppStore: vi.fn() }));
 

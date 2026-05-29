@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { FolderOpen, Plus, X, ChevronDown } from 'lucide-react'
-import { useAppStore, type ProjectConfig, type ScopeRule, type Milestone } from '../store/app-store'
+import { useAppStore } from '../store/app-store'
+import type { Milestone, ProjectConfig, ScopeRule } from '../store/types'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 

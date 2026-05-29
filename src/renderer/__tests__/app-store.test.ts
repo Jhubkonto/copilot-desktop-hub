@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import type { AgentConfig } from '../../shared/types'
 import { setupMockApi, type MockApi } from '../../test/mocks/api'
 import { useAppStore } from '../../renderer/store/app-store'
 
@@ -217,10 +218,10 @@ describe('Store — Conversation Actions', () => {
 // ── Agent Actions ──
 
 describe('Store — Agent Actions', () => {
-  const mockAgents: import('../store/app-store').AgentConfig[] = [
-    { id: 'a1', name: 'Agent 1', icon: '🤖', systemPrompt: '', model: 'gpt-4', temperature: 0.7, maxTokens: 4096, contextDirectories: [], contextFiles: [], mcpServers: [], agenticMode: false, tools: { fileEdit: { enabled: false, approval: 'always-ask', instructions: '' }, terminal: { enabled: false, approval: 'always-ask', instructions: '' }, webFetch: { enabled: false, approval: 'always-ask', instructions: '' } }, responseFormat: 'markdown' },
-    { id: 'a2', name: 'Agent 2', icon: '📝', systemPrompt: '', model: 'gpt-4', temperature: 0.7, maxTokens: 4096, contextDirectories: [], contextFiles: [], mcpServers: [], agenticMode: false, tools: { fileEdit: { enabled: false, approval: 'always-ask', instructions: '' }, terminal: { enabled: false, approval: 'always-ask', instructions: '' }, webFetch: { enabled: false, approval: 'always-ask', instructions: '' } }, responseFormat: 'markdown' }
-  ]
+  const mockAgents = [
+    { id: 'a1', name: 'Agent 1', icon: '🤖', systemPrompt: '', model: 'gpt-4', temperature: 0.7, maxTokens: 4096, contextDirectories: [], contextFiles: [], mcpServers: [], agenticMode: false, tools: { fileEdit: { enabled: false, approval: 'always-ask', instructions: '' }, terminal: { enabled: false, approval: 'always-ask', instructions: '' }, webFetch: { enabled: false, approval: 'always-ask', instructions: '' } }, responseFormat: 'default' },
+    { id: 'a2', name: 'Agent 2', icon: '📝', systemPrompt: '', model: 'gpt-4', temperature: 0.7, maxTokens: 4096, contextDirectories: [], contextFiles: [], mcpServers: [], agenticMode: false, tools: { fileEdit: { enabled: false, approval: 'always-ask', instructions: '' }, terminal: { enabled: false, approval: 'always-ask', instructions: '' }, webFetch: { enabled: false, approval: 'always-ask', instructions: '' } }, responseFormat: 'default' }
+  ] satisfies AgentConfig[]
 
   it('loadAgents populates agents from IPC', async () => {
     mockApi.listAgents.mockResolvedValue(mockAgents)

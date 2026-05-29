@@ -1,6 +1,7 @@
 import { useRef, useState, useCallback } from 'react'
 import { X } from 'lucide-react'
-import { useAppStore, type ProjectConfig } from '../store/app-store'
+import { useAppStore } from '../store/app-store'
+import type { ProjectConfig } from '../store/types'
 import { ResizeHandle } from './ResizeHandle'
 import { ProjectSettingsPanel } from './ProjectSettingsPanel'
 import { DeleteProjectDialog } from './DeleteProjectDialog'

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { FileText, FilePen, Terminal, Globe, Wrench } from 'lucide-react'
-import { useAppStore, type ToolApprovalRequest } from '../store/app-store'
+import { useAppStore } from '../store/app-store'
+import type { ToolApprovalRequest } from '../store/types'
 
 const TOOL_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   fileRead: FileText,
