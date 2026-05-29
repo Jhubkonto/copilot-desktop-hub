@@ -56,7 +56,7 @@ const EMPTY_AGENT: Omit<AgentConfig, 'id'> = {
 }
 
 const EMOJI_OPTIONS = ['🤖', '🔍', '🐛', '💡', '📝', '🎨', '🔧', '🚀', '🧠', '⚡', '🛡️', '📊']
-const FORMAT_OPTIONS = ['default', 'concise', 'detailed', 'code-only']
+const FORMAT_OPTIONS = ['default', 'concise', 'detailed', 'code-only'] as const
 
 export function AgentPanel({ width, onResize }: { width: number; onResize: (size: number) => void }) {
   const panelRef = useRef<HTMLDivElement>(null)
@@ -390,7 +390,7 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
                   </label>
                   <select
                     value={config.responseFormat}
-                    onChange={(e) => updateField('responseFormat', e.target.value)}
+                    onChange={(e) => updateField('responseFormat', e.target.value as AgentConfig['responseFormat'])}
                     className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     {FORMAT_OPTIONS.map((f) => (

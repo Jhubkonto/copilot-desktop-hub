@@ -69,8 +69,8 @@ describe('orchestrator — runOrchestration', () => {
       expect(result.teamActivity).toHaveLength(0)
 
       // Each char streamed individually, then null sentinel
-      const streamCalls = mockWindowSend.mock.calls.filter(([ch]: [string]) => ch === 'chat:stream-response')
-      const chars = streamCalls.map(([, v]: [string, unknown]) => v).filter((v) => v !== null)
+      const streamCalls = mockWindowSend.mock.calls.filter((call) => call[0] === 'chat:stream-response')
+      const chars = streamCalls.map((call) => call[1]).filter((v): v is string => v !== null)
       expect(chars.join('')).toBe('Hello from leader')
       // verify null sentinel was sent
       expect(mockWindowSend).toHaveBeenCalledWith('chat:stream-response', null)
@@ -134,7 +134,7 @@ describe('orchestrator — runOrchestration', () => {
       })
 
       // team-activity events: first 'delegating', then 'done'
-      const activityCalls = mockWindowSend.mock.calls.filter(([ch]: [string]) => ch === 'chat:team-activity')
+      const activityCalls = mockWindowSend.mock.calls.filter((call) => call[0] === 'chat:team-activity')
       expect(activityCalls).toHaveLength(2)
       expect(activityCalls[0][1].status).toBe('delegating')
       expect(activityCalls[1][1].status).toBe('done')

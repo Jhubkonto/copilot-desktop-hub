@@ -223,7 +223,7 @@ export async function sendAnthropicMessage(
 ): Promise<string> {
   const anthropicMessages = messages
     .filter((m) => m.role !== 'system')
-    .map((m) => ({ role: m.role, content: toAnthropicContent(m.content) }))
+    .map((m) => ({ role: m.role, content: toAnthropicContent(m.content ?? '') }))
   const body = JSON.stringify({
     model,
     max_tokens: options.maxTokens ?? 4096,

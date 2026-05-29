@@ -5,10 +5,15 @@ import { ResizeHandle } from "../components/ResizeHandle";
 
 // Wrapper that provides a containerRef pointing at a real DOM div
 function Wrapper({
-  direction = "horizontal" as const,
-  align = "end" as const,
+  direction = "horizontal",
+  align = "end",
   scrollableChild = false,
   scrollableChildRight = 0,
+}: {
+  direction?: "horizontal" | "vertical";
+  align?: "start" | "end";
+  scrollableChild?: boolean;
+  scrollableChildRight?: number;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   return (

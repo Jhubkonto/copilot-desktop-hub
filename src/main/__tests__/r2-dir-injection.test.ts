@@ -85,7 +85,10 @@ vi.mock('crypto', () => ({ randomUUID: vi.fn(() => 'r2-uuid') }))
 
 // fs mock: readdirSync returns a controlled list; statSync supports isDirectory()
 const mockReaddirSync = vi.fn((_path: unknown) => [] as string[])
-const mockStatSync = vi.fn((_path: unknown) => ({ size: 100, isDirectory: () => false }))
+const mockStatSync = vi.fn((_path: unknown): { size: number; isDirectory: () => boolean } => ({
+  size: 100,
+  isDirectory: () => false
+}))
 const mockExistsSync = vi.fn((_path: unknown) => true)
 
 vi.mock('fs', () => ({
@@ -196,7 +199,7 @@ describe('R.2 — directory context injection', () => {
     })
     mockStatSync.mockImplementation((p: unknown) => ({
       size: 100,
-      isDirectory: () => (p as string).endsWith('src')
+      isDirectory: () => typeof p === 'string' && p.endsWith('src')
     }))
 
     await invoke('chat:send-message', 'conv-r2-1', 'Hello', { projectId: 'proj-1' })

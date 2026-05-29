@@ -515,7 +515,7 @@ describe('project-config — IPC Handlers', () => {
       await invoke('chat:send-message', 'conv-team', 'Hello', { projectId: 'proj-team' })
 
       expect(mockSendCopilotChatMessage).toHaveBeenCalled()
-      const [, messages] = mockSendCopilotChatMessage.mock.calls[0] as [unknown, Array<{ role: string; content: string }>]
+      const [, messages] = mockSendCopilotChatMessage.mock.calls[0] as unknown as [unknown, Array<{ role: string; content: string }>]
       const userMsg = messages.find((m) => m.role === 'user')
       expect(userMsg?.content).toContain('[Project Team')
       expect(userMsg?.content).toContain('General Assistant')
@@ -555,7 +555,7 @@ describe('project-config — IPC Handlers', () => {
       await invoke('chat:send-message', 'conv-team', 'Hello', { projectId: 'proj-team' })
 
       expect(mockSendCopilotChatMessage).toHaveBeenCalled()
-      const [, messages] = mockSendCopilotChatMessage.mock.calls[0] as [unknown, Array<{ role: string; content: string }>]
+      const [, messages] = mockSendCopilotChatMessage.mock.calls[0] as unknown as [unknown, Array<{ role: string; content: string }>]
       const userMsg = messages.find((m) => m.role === 'user')
       expect(userMsg?.content ?? '').not.toContain('[Project Team')
     })

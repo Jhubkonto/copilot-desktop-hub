@@ -2,7 +2,7 @@ import { BrowserWindow } from 'electron'
 import { randomUUID } from 'crypto'
 import { sendCopilotChatMessage, sendCopilotNonStreaming, type ToolDefinition } from './copilot-api'
 import { getAgentConfig } from './agents'
-import type { ProviderMessage } from './providers'
+import type { MessageContent, ProviderMessage } from './providers'
 
 export const MAX_DELEGATION_DEPTH = 5
 
@@ -98,7 +98,7 @@ function buildTeamManifest(teamAgents: OrchestratorAgent[], projectName: string)
  */
 export async function runOrchestration(
   opts: OrchestratorOptions,
-  userContent: ProviderMessage['content'],
+  userContent: MessageContent,
   historyMessages: ProviderMessage[]
 ): Promise<{ finalContent: string; teamActivity: TeamActivityStep[] }> {
   const {

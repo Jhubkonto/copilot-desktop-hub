@@ -532,6 +532,9 @@ export function registerChatHandlers(): void {
         role: m.role,
         content: m.content,
       }));
+      const providerHistoryMessages = historyMessages.filter(
+        (m) => m.role !== "team-activity",
+      ) as ProviderMessage[];
 
       // Build the current user message content — include pasted images for vision-capable providers
       const buildVisionUserContent = (): MessageContentPart[] => {
@@ -634,7 +637,7 @@ export function registerChatHandlers(): void {
                 showActivity,
               },
               userContent,
-              historyMessages.filter((m) => m.role !== "team-activity"),
+              providerHistoryMessages,
             );
 
             // Persist team-activity block if there were delegation steps
@@ -676,7 +679,7 @@ export function registerChatHandlers(): void {
         try {
           const messages: ProviderMessage[] = [
             { role: "system" as const, content: modelIdentityInstruction },
-            ...historyMessages,
+            ...providerHistoryMessages,
             { role: "user" as const, content: userContent },
           ];
           responseContent = await sendOpenAIMessage(
@@ -710,7 +713,7 @@ export function registerChatHandlers(): void {
             ? `${agentSystemPrompt}\n\n${modelIdentityInstruction}`
             : modelIdentityInstruction;
           const messages: ProviderMessage[] = [
-            ...historyMessages,
+            ...providerHistoryMessages,
             { role: "user" as const, content: userContent },
           ];
           responseContent = await sendAnthropicMessage(
@@ -741,7 +744,7 @@ export function registerChatHandlers(): void {
           if (!azureEndpoint) throw new Error("Azure endpoint not configured");
           const messages: ProviderMessage[] = [
             { role: "system" as const, content: modelIdentityInstruction },
-            ...historyMessages,
+            ...providerHistoryMessages,
             { role: "user" as const, content: userContent },
           ];
           responseContent = await sendAzureMessage(
@@ -780,7 +783,7 @@ export function registerChatHandlers(): void {
               ? `${agentSystemPrompt}\n\n${modelIdentityInstruction}`
               : `You are GitHub Copilot, an AI programming assistant.\n\n${modelIdentityInstruction}`,
           });
-          chatMessages.push(...historyMessages);
+          chatMessages.push(...providerHistoryMessages);
           chatMessages.push({ role: "user" as const, content: userContent });
 
           // Use agent model or default

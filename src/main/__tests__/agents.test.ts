@@ -329,9 +329,11 @@ describe('Agents — IPC Handlers', () => {
         { id: 'proj-2', name: 'Beta', is_primary: 0 }
       ])
       const affectedConvGetFn = vi.fn(() => ({ count: 7 }))
+      const affectedProjectsRunFn = vi.fn()
+      const affectedConvRunFn = vi.fn()
       mockDb.prepare
-        .mockReturnValueOnce({ run: vi.fn(), get: vi.fn(), all: affectedProjectsAllFn })
-        .mockReturnValueOnce({ run: vi.fn(), get: affectedConvGetFn, all: vi.fn() })
+        .mockReturnValueOnce({ run: affectedProjectsRunFn, get: vi.fn(), all: affectedProjectsAllFn })
+        .mockReturnValueOnce({ run: affectedConvRunFn, get: affectedConvGetFn, all: vi.fn() })
 
       const result = await invokeHandler('agent:delete-preflight', 'agent-x')
       expect(result).toMatchObject({
@@ -342,7 +344,8 @@ describe('Agents — IPC Handlers', () => {
         affectedConvCount: 7
       })
       // No DELETE / UPDATE should have been called
-      expect(mockDb.prepare().run).not.toHaveBeenCalledWith(expect.stringContaining('DELETE'))
+      expect(affectedProjectsRunFn).not.toHaveBeenCalled()
+      expect(affectedConvRunFn).not.toHaveBeenCalled()
     })
 
     it('i-2: returns empty impact for an agent with no memberships or conversations', async () => {
