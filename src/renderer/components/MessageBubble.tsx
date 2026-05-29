@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { memo, useState, useRef } from 'react'
 import { Copy, RotateCcw, Pencil, AlertTriangle, RefreshCw, LogIn, StopCircle, ChevronDown } from 'lucide-react'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import type { ContextSnapshot } from '../hooks/chat-types'
@@ -39,16 +39,17 @@ interface MessageBubbleProps {
   errorType?: string
   retryable?: boolean
   isStopped?: boolean
+  messageIndex: number
   onCopy: (content: string) => void
-  onRegenerate?: () => void
-  onRegenerateWithModel?: (model: string) => void
-  onEdit?: () => void
+  onRegenerate: (() => void) | undefined
+  onRegenerateWithModel: ((model: string) => void) | undefined
+  onEdit: ((index: number) => void) | undefined
   onRetry?: () => void
   onSignIn?: () => void
   onPickModel?: () => void
 }
 
-export function MessageBubble({
+export function MessageBubbleBase({
   role,
   content,
   isEdited,
@@ -62,6 +63,7 @@ export function MessageBubble({
   errorType,
   retryable,
   isStopped,
+  messageIndex,
   onCopy,
   onRegenerate,
   onRegenerateWithModel,
@@ -96,7 +98,7 @@ export function MessageBubble({
       }`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      onDoubleClick={role === 'user' && onEdit ? onEdit : undefined}
+      onDoubleClick={role === 'user' && onEdit ? () => onEdit(messageIndex) : undefined}
     >
       <div className="relative max-w-[80%]">
         <div
@@ -143,7 +145,7 @@ export function MessageBubble({
             <div className="flex items-start gap-2">
               <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-red-500 dark:text-red-400" />
               <div className="flex-1">
-                <div className="whitespace-pre-wrap">{content}</div>
+                <div className="whitespace-pre-wrap break-words">{content}</div>
                 <div className="flex gap-2 mt-3">
                   {retryable && onRetry && (
                     <button
@@ -193,7 +195,7 @@ export function MessageBubble({
             </>
           ) : !isError ? (
             <>
-              <div className="whitespace-pre-wrap">{role === 'user' ? stripInjectedBlocks(content) : content}</div>
+              <div className="whitespace-pre-wrap break-words">{role === 'user' ? stripInjectedBlocks(content) : content}</div>
               {role === 'user' && isEdited && (
                 <div className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">edited</div>
               )}
@@ -236,7 +238,7 @@ export function MessageBubble({
                       <ChevronDown className="w-3 h-3" />
                     </button>
                     {showRegenMenu && (
-                      <div className={`absolute right-0 z-20 w-56 max-h-64 overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg p-1 ${regenMenuAbove ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
+                      <div className={`absolute left-0 z-20 w-56 max-h-64 overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg p-1 ${regenMenuAbove ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
                         {MODEL_OPTIONS.filter((model) => model !== 'default').map((model) => (
                           <button
                             key={model}
@@ -260,7 +262,7 @@ export function MessageBubble({
               </div>
             )}
             {role === 'user' && onEdit && (
-              <ActionButton icon={Pencil} label="Edit" onClick={onEdit} />
+              <ActionButton icon={Pencil} label="Edit" onClick={() => onEdit(messageIndex)} />
             )}
           </div>
         )}
@@ -268,6 +270,8 @@ export function MessageBubble({
     </div>
   )
 }
+
+export const MessageBubble = memo(MessageBubbleBase)
 
 function ActionButton({
   icon: Icon,
