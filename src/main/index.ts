@@ -83,6 +83,13 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
+
+  // Allow opening DevTools with Ctrl+Shift+I in any mode
+  mainWindow.webContents.on('before-input-event', (_, input) => {
+    if (input.control && input.shift && input.key === 'I') {
+      mainWindow?.webContents.toggleDevTools()
+    }
+  })
 }
 
 function createTray(): void {

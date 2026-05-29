@@ -296,6 +296,7 @@ export function registerChatHandlers(): void {
       }
 
       // ── J.3: Project context injection ────────────────────────────────────
+      let injectedRootDirectory: string | null = null
       {
         const convProjectId =
           projectId ??
@@ -358,6 +359,8 @@ export function registerChatHandlers(): void {
 
           // R.2: Inject directory listing when rootDirectory is configured
           if (projCfg.rootDirectory && existsSync(projCfg.rootDirectory)) {
+            injectedRootDirectory = projCfg.rootDirectory
+            console.log('[R.2] Injecting directory listing for:', projCfg.rootDirectory)
             const cached = dirListingCache.get(convProjectId)
             let structureBlock: string
             if (cached && cached.rootDirectory === projCfg.rootDirectory) {
@@ -368,13 +371,21 @@ export function registerChatHandlers(): void {
                 e.type === 'dir' ? `${e.relativePath}/` : e.relativePath
               )
               structureBlock =
-                `[Project File Structure]\n\`\`\`\n${lines.join('\n')}\n\`\`\`\n[/Project File Structure]`
+                `[Project File Structure]\n` +
+                `The following file tree has already been retrieved from the project root directory (${projCfg.rootDirectory}). ` +
+                `Use it to answer questions about the project structure — do NOT say you cannot access the file system.\n` +
+                `\`\`\`\n${lines.join('\n')}\n\`\`\`\n` +
+                `[/Project File Structure]`
               dirListingCache.set(convProjectId, {
                 rootDirectory: projCfg.rootDirectory,
                 block: structureBlock,
               })
             }
             augmentedContent = `${structureBlock}\n\n${augmentedContent}`
+          } else if (projCfg.rootDirectory) {
+            console.log('[R.2] rootDirectory set but path not found on disk:', JSON.stringify(projCfg.rootDirectory))
+          } else {
+            console.log('[R.2] No rootDirectory configured for project:', convProjectId)
           }
 
           // K.2: Scope block injection
@@ -776,12 +787,15 @@ export function registerChatHandlers(): void {
             typeof agentCfg2?.systemPrompt === "string"
               ? agentCfg2.systemPrompt
               : undefined;
+          const rootDirNote = injectedRootDirectory
+            ? `\n\nThe user's project root directory (${injectedRootDirectory}) has been scanned and its file tree is provided in the user message within [Project File Structure] tags. Treat it as real file system data — do NOT say you cannot access the file system.`
+            : '';
           const chatMessages: ProviderMessage[] = [];
           chatMessages.push({
             role: "system" as const,
             content: agentSystemPrompt
-              ? `${agentSystemPrompt}\n\n${modelIdentityInstruction}`
-              : `You are GitHub Copilot, an AI programming assistant.\n\n${modelIdentityInstruction}`,
+              ? `${agentSystemPrompt}${rootDirNote}\n\n${modelIdentityInstruction}`
+              : `You are GitHub Copilot, an AI programming assistant.${rootDirNote}\n\n${modelIdentityInstruction}`,
           });
           chatMessages.push(...providerHistoryMessages);
           chatMessages.push({ role: "user" as const, content: userContent });

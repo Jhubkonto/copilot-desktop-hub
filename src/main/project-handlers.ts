@@ -26,7 +26,12 @@ export function parseProjectConfig(
 ): ProjectConfig {
   if (!configJson) return { ...DEFAULT_PROJECT_CONFIG };
   try {
-    return { ...DEFAULT_PROJECT_CONFIG, ...JSON.parse(configJson) };
+    const raw = JSON.parse(configJson) as Record<string, unknown>;
+    // Defensive: rootDirectory may have been stored as an array (dialog returns filePaths array)
+    if (Array.isArray(raw.rootDirectory)) {
+      raw.rootDirectory = typeof raw.rootDirectory[0] === 'string' ? raw.rootDirectory[0] : '';
+    }
+    return { ...DEFAULT_PROJECT_CONFIG, ...raw };
   } catch {
     return { ...DEFAULT_PROJECT_CONFIG };
   }
@@ -180,6 +185,10 @@ export function registerProjectHandlers(): void {
       const current = existing?.config_json
         ? (JSON.parse(existing.config_json) as Record<string, unknown>)
         : {};
+      // Coerce rootDirectory array to string (can happen when dialog filePaths array is stored directly)
+      if (Array.isArray(config.rootDirectory)) {
+        config.rootDirectory = typeof config.rootDirectory[0] === 'string' ? config.rootDirectory[0] : '';
+      }
       const merged = { ...current, ...config };
       db.prepare(
         "UPDATE projects SET config_json = ?, updated_at = ? WHERE id = ?",
