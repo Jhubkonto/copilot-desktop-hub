@@ -1,5 +1,6 @@
 import type { StateCreator } from 'zustand'
 import type { AgentConfig } from '../../../shared/types'
+import { isApiError } from '../../../shared/types'
 import type { AppState } from '../app-store'
 import type { DeleteAgentImpact } from '../types'
 
@@ -43,7 +44,7 @@ export const createAgentSlice: StateCreator<
     })
     try {
       const result = await window.api.listAgents()
-      if (result?.error) {
+      if (isApiError(result)) {
         get().addToast('Failed to load agents', 'error')
       } else {
         set((s) => {
@@ -90,14 +91,14 @@ export const createAgentSlice: StateCreator<
       const { editingAgentId, activeAgentId } = get()
       if (config.id && editingAgentId) {
         const result = await window.api.updateAgent(config.id, config)
-        if (result?.error) {
+        if (isApiError(result)) {
           get().addToast('Failed to update agent', 'error')
           return
         }
         get().addToast(`Agent "${config.name}" updated`, 'success')
       } else {
         const result = await window.api.createAgent(config)
-        if (result?.error) {
+        if (isApiError(result)) {
           get().addToast('Failed to create agent', 'error')
           return
         }
@@ -121,7 +122,7 @@ export const createAgentSlice: StateCreator<
     try {
       const agent = get().agents.find((a) => a.id === id)
       const preflight = await window.api.deleteAgentPreflight(id)
-      if (preflight?.error) {
+      if (isApiError(preflight)) {
         get().addToast('Failed to check agent impact', 'error')
         return
       }
@@ -147,8 +148,8 @@ export const createAgentSlice: StateCreator<
     })
     try {
       const result = await window.api.deleteAgent(pending.agentId)
-      if (result?.success === false) {
-        get().addToast(result.reason ?? 'Failed to delete agent', 'error')
+      if (isApiError(result) || result?.success === false) {
+        get().addToast((!isApiError(result) && result?.reason) || 'Failed to delete agent', 'error')
         return
       }
       set((s) => {
@@ -179,7 +180,7 @@ export const createAgentSlice: StateCreator<
   duplicateAgent: async (id) => {
     try {
       const result = await window.api.duplicateAgent(id)
-      if (result?.error) {
+      if (isApiError(result)) {
         get().addToast('Failed to duplicate agent', 'error')
         return
       }
@@ -196,7 +197,7 @@ export const createAgentSlice: StateCreator<
   exportAgent: async (id) => {
     try {
       const result = await window.api.exportAgent(id)
-      if (result?.error) {
+      if (isApiError(result)) {
         get().addToast('Failed to export agent', 'error')
         return
       }
@@ -209,7 +210,7 @@ export const createAgentSlice: StateCreator<
   importAgent: async () => {
     try {
       const result = await window.api.importAgent()
-      if (result?.error) {
+      if (isApiError(result)) {
         get().addToast('Failed to import agent', 'error')
         return
       }

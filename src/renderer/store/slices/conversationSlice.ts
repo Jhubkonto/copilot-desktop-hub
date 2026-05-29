@@ -1,4 +1,5 @@
 import type { StateCreator } from 'zustand'
+import { isApiError } from '../../../shared/types'
 import type { AppState } from '../app-store'
 import type { Conversation } from '../types'
 
@@ -29,7 +30,7 @@ export const createConversationSlice: StateCreator<
     })
     try {
       const result = await window.api.listConversations()
-      if (result?.error) {
+      if (isApiError(result)) {
         get().addToast('Failed to load conversations', 'error')
       } else {
         set((s) => {
@@ -54,7 +55,7 @@ export const createConversationSlice: StateCreator<
   deleteConversation: async (id) => {
     try {
       const result = await window.api.deleteConversation(id)
-      if (result?.error) {
+      if (isApiError(result)) {
         get().addToast('Failed to delete conversation', 'error')
         return
       }

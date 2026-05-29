@@ -1,4 +1,5 @@
 import type { StateCreator } from 'zustand'
+import { isApiError } from '../../../shared/types'
 import type { AppState } from '../app-store'
 import type { AuthState, DeviceCode } from '../types'
 
@@ -39,7 +40,7 @@ export const createAuthSlice: StateCreator<
         s.deviceCode = null
         s.authLoading = false
       })
-      if (result?.error) {
+      if (isApiError(result)) {
         const msg =
           result.error === 'Device code expired'
             ? 'Login timed out. Please try again.'
@@ -68,7 +69,7 @@ export const createAuthSlice: StateCreator<
   logout: async () => {
     try {
       const result = await window.api.authLogout()
-      if (result?.error) {
+      if (isApiError(result)) {
         get().addToast('Logout failed: ' + result.error, 'error')
         return
       }

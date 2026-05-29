@@ -1,5 +1,6 @@
 import type { StateCreator } from 'zustand'
 import type { AppState } from '../app-store'
+import { isApiError } from '../../../shared/types'
 import {
   DEFAULT_PROJECT_CONFIG,
   type Project,
@@ -73,7 +74,7 @@ export const createProjectSlice: StateCreator<
     })
     try {
       const result = await window.api.listProjects()
-      if (result?.error) {
+      if (isApiError(result)) {
         get().addToast('Failed to load projects', 'error')
       } else {
         set((s) => {
@@ -111,7 +112,7 @@ export const createProjectSlice: StateCreator<
         window.api
           .listProjectAgents(id)
           .then((result) => {
-            if (!result?.error) {
+            if (!isApiError(result)) {
               set((s) => {
                 s.projectAgents[id] = result
               })
@@ -138,7 +139,7 @@ export const createProjectSlice: StateCreator<
   createProject: async (name, color) => {
     try {
       const result = await window.api.createProject(name, color)
-      if (result?.error) {
+      if (isApiError(result)) {
         get().addToast('Failed to create project', 'error')
         return
       }
@@ -156,7 +157,7 @@ export const createProjectSlice: StateCreator<
   renameProject: async (id, name) => {
     try {
       const result = await window.api.renameProject(id, name)
-      if (result?.error) {
+      if (isApiError(result)) {
         get().addToast('Failed to rename project', 'error')
         return
       }
@@ -169,7 +170,7 @@ export const createProjectSlice: StateCreator<
   deleteProject: async (id) => {
     try {
       const result = await window.api.deleteProject(id)
-      if (result?.error) {
+      if (isApiError(result)) {
         get().addToast('Failed to delete project', 'error')
         return
       }
@@ -190,7 +191,7 @@ export const createProjectSlice: StateCreator<
         conversationId,
         projectId
       )
-      if (result?.error) {
+      if (isApiError(result)) {
         get().addToast('Failed to move conversation', 'error')
         return
       }
@@ -203,7 +204,7 @@ export const createProjectSlice: StateCreator<
   setProjectDefaultModel: async (id, model) => {
     try {
       const result = await window.api.setProjectDefaultModel(id, model)
-      if (result?.error) {
+      if (isApiError(result)) {
         get().addToast('Failed to set project default model', 'error')
         return
       }
@@ -240,7 +241,7 @@ export const createProjectSlice: StateCreator<
   duplicateProject: async (id) => {
     try {
       const result = await window.api.duplicateProject(id)
-      if (!result || result?.error) {
+      if (!result || isApiError(result)) {
         get().addToast('Failed to duplicate project', 'error')
         return
       }
@@ -254,7 +255,7 @@ export const createProjectSlice: StateCreator<
   exportProject: async (id) => {
     try {
       const result = await window.api.exportProject(id)
-      if (result?.error) {
+      if (isApiError(result)) {
         get().addToast('Failed to export project', 'error')
         return
       }
@@ -267,7 +268,7 @@ export const createProjectSlice: StateCreator<
   loadProjectAgents: async (projectId) => {
     try {
       const result = await window.api.listProjectAgents(projectId)
-      if (result?.error) {
+      if (isApiError(result)) {
         get().addToast('Failed to load project agents', 'error')
         return
       }
@@ -282,7 +283,7 @@ export const createProjectSlice: StateCreator<
   addAgentToProject: async (projectId, agentId) => {
     try {
       const result = await window.api.addAgentToProject(projectId, agentId)
-      if (result?.error) {
+      if (isApiError(result)) {
         get().addToast('Failed to add agent to project', 'error')
         return
       }
@@ -299,7 +300,7 @@ export const createProjectSlice: StateCreator<
   removeAgentFromProject: async (projectId, agentId) => {
     try {
       const result = await window.api.removeAgentFromProject(projectId, agentId)
-      if (result?.error) {
+      if (isApiError(result)) {
         get().addToast('Failed to remove agent from project', 'error')
         return
       }
@@ -312,7 +313,7 @@ export const createProjectSlice: StateCreator<
   setProjectPrimaryAgent: async (projectId, agentId) => {
     try {
       const result = await window.api.setProjectPrimaryAgent(projectId, agentId)
-      if (result?.error) {
+      if (isApiError(result)) {
         get().addToast('Failed to set primary agent', 'error')
         return
       }
@@ -345,7 +346,7 @@ export const createProjectSlice: StateCreator<
   loadProjectConfig: async (projectId) => {
     try {
       const result = await window.api.getProjectConfig(projectId)
-      if (!result?.error) {
+      if (!isApiError(result)) {
         set((s) => {
           s.projectConfigs[projectId] = {
             ...DEFAULT_PROJECT_CONFIG,
