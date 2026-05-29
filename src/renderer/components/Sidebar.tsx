@@ -169,7 +169,7 @@ export function Sidebar() {
     return (
       <div
         key={conv.id}
-        className={`group relative flex items-center justify-between px-2 py-1.5 rounded-lg cursor-pointer text-sm transition-colors ${
+        className={`group relative flex items-center justify-between px-2 py-1.5 rounded-lg cursor-pointer text-xs transition-colors ${
           currentConversationId === conv.id
             ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
             : 'text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
@@ -204,9 +204,6 @@ export function Sidebar() {
               {conv.title}
             </div>
           )}
-          <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5 truncate">
-            {formatRelativeTime(conv.updated_at)}
-          </p>
         </div>
         <div className="invisible group-hover:visible flex items-center gap-0.5">
           {/* Pin button */}
