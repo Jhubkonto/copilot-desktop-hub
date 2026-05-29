@@ -34,6 +34,13 @@ export function useChat({
   const justCreatedConversationRef = useRef(false)
   const lastUndoneUserMessageRef = useRef<string | null>(null)
   const pendingEditedResendRef = useRef(false)
+  // Holds the previous assistant message during regeneration so it can be
+  // restored to the UI if the API call fails, and deleted from the DB on success.
+  const pendingDeleteMessageRef = useRef<ChatMessage | null>(null)
+  const preRegenMessagesRef = useRef<ChatMessage[] | null>(null)
+  // Stable ref so stream-event closures always call the current addToast.
+  const addToastRef = useRef(addToast)
+  useEffect(() => { addToastRef.current = addToast }, [addToast])
 
   const pushSystemMessage = useCallback((content: string) => {
     const systemMessage: ChatMessage = {
@@ -133,6 +140,12 @@ export function useChat({
         setLoadingFailed(false)
         setGenerationStartedAt(null)
         setLiveTeamActivity([])
+        // Now that the new response arrived, delete the old assistant message from DB.
+        if (pendingDeleteMessageRef.current) {
+          void window.api.deleteMessage(pendingDeleteMessageRef.current.id)
+          pendingDeleteMessageRef.current = null
+        }
+        preRegenMessagesRef.current = null
         void loadConversations()
         return
       }
@@ -142,23 +155,33 @@ export function useChat({
     })
 
     const unsubscribeError = window.api.onStreamError((error: StreamError) => {
-      const errorMessage: ChatMessage = {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        content: error.message,
-        timestamp: Date.now(),
-        isError: true,
-        errorType: error.type,
-        retryable: error.retryable,
-      }
-
       streamingContentRef.current = ''
       streamModelRef.current = null
       setStreamingContent('')
       setIsGenerating(false)
-      setLoadingFailed(true)
+      setLoadingFailed(false)
       setGenerationStartedAt(null)
-      setMessages((prev) => [...prev, errorMessage])
+
+      if (preRegenMessagesRef.current) {
+        // Restore the conversation to its state before the failed regeneration
+        // so the user doesn't lose their previous response.
+        setMessages(preRegenMessagesRef.current)
+        preRegenMessagesRef.current = null
+        pendingDeleteMessageRef.current = null
+        addToastRef.current(error.message, 'error')
+      } else {
+        const errorMessage: ChatMessage = {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: error.message,
+          timestamp: Date.now(),
+          isError: true,
+          errorType: error.type,
+          retryable: error.retryable,
+        }
+        setLoadingFailed(true)
+        setMessages((prev) => [...prev, errorMessage])
+      }
 
       if (error.type === 'rate_limit') {
         const waitSeconds =
@@ -205,8 +228,12 @@ export function useChat({
       const lastUser = [...messages].reverse().find((message) => message.role === 'user')
       if (!lastUser) return
 
+      // Save the current conversation state so it can be restored if the API
+      // call fails, and defer the DB deletion until the new response arrives.
+      preRegenMessagesRef.current = [...messages]
+      pendingDeleteMessageRef.current = lastMessage
+
       setMessages((prev) => prev.slice(0, -1))
-      await window.api.deleteMessage(lastMessage.id)
 
       setIsGenerating(true)
       setGenerationStartedAt(Date.now())
@@ -244,6 +271,12 @@ export function useChat({
         await window.api.sendMessage(String(conversationId), String(lastUser.content), options)
       } catch (error) {
         console.error('Regenerate failed:', error)
+        // Restore the original conversation state on a synchronous IPC failure.
+        if (preRegenMessagesRef.current) {
+          setMessages(preRegenMessagesRef.current)
+          preRegenMessagesRef.current = null
+          pendingDeleteMessageRef.current = null
+        }
         setIsGenerating(false)
         setGenerationStartedAt(null)
         streamModelRef.current = null
