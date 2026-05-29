@@ -278,7 +278,7 @@ describe("Sidebar — Agent List", () => {
 
     render(<Sidebar />);
 
-    await user.click(screen.getByText("No Agent"));
+    await user.click(screen.getByText("No agent"));
     expect(mockStore.selectAgent).toHaveBeenCalledWith(null);
   });
 
@@ -510,7 +510,7 @@ describe("Sidebar — No project sentinel (Q1)", () => {
     setupStoreMock(useAppStore, mockStore);
   });
 
-  it("q1-sb-1: '(No project)' sentinel entry renders in the sidebar projects section", () => {
+  it("q1-sb-1: '(No project)' sentinel renders above the Projects section header", () => {
     render(<Sidebar />);
     expect(screen.getByText(/no project/i)).toBeInTheDocument();
   });

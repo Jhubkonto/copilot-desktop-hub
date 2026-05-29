@@ -314,7 +314,7 @@ export function Sidebar() {
 
       <div className="p-3 space-y-2">
         <button
-          onClick={newChat}
+          onClick={() => newChat()}
           className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 transition-colors"
         >
           <Plus className="w-4 h-4" />
@@ -324,6 +324,20 @@ export function Sidebar() {
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto px-3 space-y-4">
+        {/* ── No project sentinel — always visible ── */}
+        <div
+          className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-xs font-medium transition-colors ${
+            activeProjectId === '__none__'
+              ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+              : 'text-gray-500 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'
+          }`}
+          onClick={() => selectProject('__none__')}
+          aria-label="No project — unaffiliated chats"
+        >
+          <Folder className="w-3.5 h-3.5 shrink-0 text-gray-400" />
+          <span className="flex-1 truncate italic">No project</span>
+        </div>
+
         {/* ── Projects ── */}
         <div>
           <div className="flex items-center justify-between px-2 mb-1">
@@ -338,11 +352,8 @@ export function Sidebar() {
               </button>
               <button
                 onClick={() => {
-                  if (activeSectionPane === 'projects' && historyProjectId !== null) {
-                    setHistoryProjectId(null)
-                  } else {
-                    setSectionPane('projects')
-                  }
+                  setSectionPane('projects')
+                  setHistoryProjectId(null)
                 }}
                 className={`text-xs font-medium uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300 ${
                   activeSectionPane === 'projects'
@@ -355,10 +366,7 @@ export function Sidebar() {
               </button>
             </div>
             <button
-              onClick={() => {
-                if (activeSectionPane !== 'projects') setSectionPane('projects')
-                setShowNewProjectForm(true)
-              }}
+              onClick={() => setShowNewProjectForm(true)}
               className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-0.5 rounded"
               title="New project"
               aria-label="Create new project"
@@ -437,46 +445,54 @@ export function Sidebar() {
               )
             })}
 
-            {/* __none__ sentinel — "No project" bucket for unaffiliated chats */}
-              <div className="relative group">
-                <div
-                  className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-xs font-medium transition-colors ${
-                    activeProjectId === '__none__'
-                      ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
-                      : 'text-gray-500 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'
-                  }`}
-                  onClick={() => selectProject('__none__')}
-                  aria-label="No project — unaffiliated chats"
-                >
-                  <Folder className="w-3.5 h-3.5 shrink-0 text-gray-400" />
-                  <span className="flex-1 truncate italic">No project</span>
-                </div>
-              </div>
-
           </div>}
+        </div>
+
+        {/* ── No agent sentinel — always visible ── */}
+        <div
+          className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-xs font-medium transition-colors ${
+            activeAgentId === null
+              ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+              : 'text-gray-500 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'
+          }`}
+          onClick={() => selectAgent(null)}
+          aria-label="No agent — no agent context"
+        >
+          <MessageSquare className="w-3.5 h-3.5 shrink-0 text-gray-400" />
+          <span className="flex-1 truncate italic">No agent</span>
         </div>
 
         {/* ── Agents ── */}
         <div>
-          <div className="flex items-center gap-1 px-2 mb-2">
+          <div className="flex items-center justify-between px-2 mb-2">
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setAgentsOpen((v) => !v)}
+                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 p-0.5 rounded"
+                aria-expanded={agentsOpen}
+                aria-label={agentsOpen ? 'Collapse agents' : 'Expand agents'}
+              >
+                {agentsOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+              </button>
+              <button
+                onClick={() => setSectionPane('agents')}
+                className={`text-xs font-medium uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300 ${
+                  activeSectionPane === 'agents'
+                    ? 'text-blue-500 dark:text-blue-400'
+                    : 'text-gray-400 dark:text-gray-500'
+                }`}
+                aria-label="Open agents panel"
+              >
+                Agents
+              </button>
+            </div>
             <button
-              onClick={() => setAgentsOpen((v) => !v)}
-              className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 p-0.5 rounded"
-              aria-expanded={agentsOpen}
-              aria-label={agentsOpen ? 'Collapse agents' : 'Expand agents'}
+              onClick={() => openCreateAgent()}
+              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-0.5 rounded"
+              title="New agent"
+              aria-label="Create new agent"
             >
-              {agentsOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-            </button>
-            <button
-              onClick={() => setSectionPane('agents')}
-              className={`text-xs font-medium uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300 ${
-                activeSectionPane === 'agents'
-                  ? 'text-blue-500 dark:text-blue-400'
-                  : 'text-gray-400 dark:text-gray-500'
-              }`}
-              aria-label="Open agents panel"
-            >
-              Agents
+              <Plus className="w-3 h-3" />
             </button>
           </div>
           {agentsOpen && (<>
@@ -492,20 +508,6 @@ export function Sidebar() {
             </div>
           ) : (
             <div className="space-y-0.5">
-              {/* None option */}
-              <div
-                className={`group flex items-center justify-between px-2 py-1.5 rounded-lg cursor-pointer text-sm transition-colors ${
-                  activeAgentId === null
-                    ? 'bg-gray-200 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
-                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-                onClick={() => selectAgent(null)}
-              >
-                <span className="flex items-center gap-2 text-xs font-medium">
-                  <MessageSquare className="w-3.5 h-3.5" />
-                  No Agent
-                </span>
-              </div>
               {agents.map((agent) => (
                 <div
                   key={agent.id}
