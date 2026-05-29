@@ -7,7 +7,6 @@ import { registerSystemHandlers } from './system-handlers'
 import { registerAgentHandlers } from './agents'
 import { registerKnowledgeHandlers } from './knowledge'
 import { registerToolHandlers } from './tools'
-import { registerTerminalHandlers } from './terminal'
 import { registerMcpHandlers } from './mcp'
 import { registerProviderHandlers } from './providers'
 
@@ -23,7 +22,6 @@ export function registerIpcHandlers(): void {
   registerAgentHandlers()
   registerKnowledgeHandlers()
   registerToolHandlers()
-  registerTerminalHandlers()
   registerMcpHandlers()
   registerProviderHandlers()
   registerSystemHandlers()

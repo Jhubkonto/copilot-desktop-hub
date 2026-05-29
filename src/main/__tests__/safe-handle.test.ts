@@ -27,7 +27,7 @@ const TEST_CHANNELS = {
   unknown: 'conversation:list',
   async: 'agent:list',
   asyncErr: 'provider:list',
-  args: 'terminal:create',
+  args: 'mcp:list-tools',
   untrusted: 'window:minimize'
 } as const satisfies Record<string, IpcChannels>
 

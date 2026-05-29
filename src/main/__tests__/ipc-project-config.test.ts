@@ -94,7 +94,6 @@ vi.mock('../providers', () => ({
   abortActiveStream: vi.fn(),
 }))
 vi.mock('../tools', () => ({ registerToolHandlers: vi.fn() }))
-vi.mock('../terminal', () => ({ registerTerminalHandlers: vi.fn() }))
 vi.mock('../mcp', () => ({ registerMcpHandlers: vi.fn() }))
 vi.mock('../knowledge', () => ({ registerKnowledgeHandlers: vi.fn() }))
 vi.mock('../orchestrator', () => ({

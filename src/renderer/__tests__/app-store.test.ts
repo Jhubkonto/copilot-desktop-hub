@@ -400,14 +400,6 @@ describe('Store — UI Actions', () => {
     expect(mockApi.setTheme).toHaveBeenCalledWith('dark')
   })
 
-  it('toggleTerminal flips showTerminal', () => {
-    expect(useAppStore.getState().showTerminal).toBe(false)
-    useAppStore.getState().toggleTerminal()
-    expect(useAppStore.getState().showTerminal).toBe(true)
-    useAppStore.getState().toggleTerminal()
-    expect(useAppStore.getState().showTerminal).toBe(false)
-  })
-
   it('setShowMcpPanel sets showMcpPanel', () => {
     useAppStore.getState().setShowMcpPanel(true)
     expect(useAppStore.getState().showMcpPanel).toBe(true)

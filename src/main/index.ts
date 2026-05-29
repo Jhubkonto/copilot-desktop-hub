@@ -3,7 +3,6 @@ import { join } from 'path'
 import { getDatabase, closeDatabase } from './database'
 import { registerIpcHandlers } from './ipc-handlers'
 import { registerAuthHandlers } from './auth'
-import { disposeAllTerminals } from './terminal'
 import { initMcpServers, shutdownMcpServers } from './mcp'
 import { initAutoUpdater, registerUpdaterHandlers, checkForUpdatesOnStartup } from './updater'
 
@@ -267,7 +266,6 @@ app.on('window-all-closed', () => {
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
-  disposeAllTerminals()
   shutdownMcpServers().catch(() => {})
   closeDatabase()
 })

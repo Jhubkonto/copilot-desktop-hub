@@ -10,7 +10,6 @@ import type {
 export interface UiSlice {
   theme: Theme
   showSidebar: boolean
-  showTerminal: boolean
   showMcpPanel: boolean
   showSettings: boolean
   showOnboarding: boolean
@@ -22,7 +21,6 @@ export interface UiSlice {
   setTheme: (theme: Theme) => void
   toggleTheme: () => void
   toggleSidebar: () => void
-  toggleTerminal: () => void
   toggleAgentPanel: () => void
   setShowMcpPanel: (show: boolean) => void
   setShowSettings: (show: boolean) => void
@@ -48,7 +46,6 @@ export const createUiSlice: StateCreator<
 > = (set, get) => ({
   theme: 'dark',
   showSidebar: true,
-  showTerminal: false,
   showMcpPanel: false,
   showSettings: false,
   showOnboarding: false,
@@ -74,12 +71,6 @@ export const createUiSlice: StateCreator<
   toggleSidebar: () => {
     set((s) => {
       s.showSidebar = !s.showSidebar
-    })
-  },
-
-  toggleTerminal: () => {
-    set((s) => {
-      s.showTerminal = !s.showTerminal
     })
   },
 

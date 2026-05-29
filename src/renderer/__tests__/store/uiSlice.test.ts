@@ -72,16 +72,14 @@ describe('uiSlice', () => {
     expect(mockApi.setTheme).toHaveBeenCalledWith('light')
   })
 
-  it('toggles sidebar, terminal, and agent panel visibility', () => {
+  it('toggles sidebar and agent panel visibility', () => {
     const store = createUiStore()
 
     store.getState().toggleSidebar()
-    store.getState().toggleTerminal()
     store.getState().toggleAgentPanel()
     store.getState().setShowMcpPanel(true)
 
     expect(store.getState().showSidebar).toBe(false)
-    expect(store.getState().showTerminal).toBe(true)
     expect(store.getState().showAgentPanel).toBe(true)
     expect(store.getState().showMcpPanel).toBe(true)
   })
