@@ -698,10 +698,8 @@ describe("ChatWindow — Model Dropdown (O.2)", () => {
     setupStoreMock(useAppStore, mockStore);
     render(<ChatWindow />);
     await waitFor(() => {
-      const select = screen.getByRole("combobox", {
-        name: /conversation model/i,
-      });
-      expect((select as HTMLSelectElement).value).toBe("claude-sonnet-4.6");
+      const btn = screen.getByRole("button", { name: /conversation model/i });
+      expect(btn).toHaveTextContent("Claude Sonnet 4.6");
     });
   });
 
@@ -726,10 +724,8 @@ describe("ChatWindow — Model Dropdown (O.2)", () => {
     setupStoreMock(useAppStore, mockStore);
     render(<ChatWindow />);
     await waitFor(() => {
-      const select = screen.getByRole("combobox", {
-        name: /conversation model/i,
-      });
-      expect((select as HTMLSelectElement).value).toBe("default");
+      const btn = screen.getByRole("button", { name: /conversation model/i });
+      expect(btn).toHaveTextContent("Default");
     });
   });
 
@@ -762,10 +758,8 @@ describe("ChatWindow — Model Dropdown (O.2)", () => {
     setupStoreMock(useAppStore, mockStore);
     render(<ChatWindow />);
     await waitFor(() => {
-      const select = screen.getByRole("combobox", {
-        name: /conversation model/i,
-      });
-      expect((select as HTMLSelectElement).value).toBe("gpt-4.1");
+      const btn = screen.getByRole("button", { name: /conversation model/i });
+      expect(btn).toHaveTextContent("GPT-4.1");
     });
   });
 });

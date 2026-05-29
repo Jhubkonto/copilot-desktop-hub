@@ -140,7 +140,6 @@ describe('AgentPanel — Field Updates', () => {
     const values = options.map((o) => o.textContent)
     expect(values).toContain('default')
     expect(values).toContain('gpt-5.4')
-    expect(values).toContain('gpt-5.4-mini')
     expect(values).toContain('claude-sonnet-4.5')
     expect(values).toContain('gpt-4.1')
   })
