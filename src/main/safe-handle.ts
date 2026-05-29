@@ -1,4 +1,5 @@
 import { ipcMain } from 'electron'
+import type { IpcChannels } from '../shared/types'
 
 /**
  * Validates that an IPC invocation originates from a trusted frame.
@@ -20,7 +21,7 @@ export function validateSender(event: Electron.IpcMainInvokeEvent): boolean {
  * Rejects invocations from untrusted senders (defence-in-depth).
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function safeHandle(channel: string, handler: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => any): void {
+export function safeHandle(channel: IpcChannels, handler: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => any): void {
   ipcMain.handle(channel, async (event, ...args) => {
     if (!validateSender(event)) {
       console.warn(`IPC rejected [${channel}]: unauthorized sender`)

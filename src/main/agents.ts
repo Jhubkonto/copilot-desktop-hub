@@ -3,6 +3,7 @@ import { dialog, BrowserWindow } from 'electron'
 import { randomUUID } from 'crypto'
 import { readFileSync, writeFileSync, existsSync } from 'fs'
 import { join } from 'path'
+import type { ToolConfig } from '../shared/types'
 import { safeHandle } from './safe-handle'
 
 interface AgentRow {
@@ -72,12 +73,6 @@ const DEFAULT_AGENTS = [
     responseFormat: 'detailed' as const
   }
 ]
-
-export interface ToolConfig {
-  enabled: boolean
-  approval: 'auto' | 'always-ask' | 'disabled'
-  instructions: string
-}
 
 export function normaliseToolConfig(raw: unknown): ToolConfig {
   if (typeof raw === 'boolean') {

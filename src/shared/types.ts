@@ -25,6 +25,12 @@ export interface Conversation {
   updatedAt: number
 }
 
+export interface ToolConfig {
+  enabled: boolean
+  approval: 'auto' | 'always-ask' | 'disabled'
+  instructions: string
+}
+
 export interface AgentConfig {
   id: string
   name: string
@@ -37,13 +43,67 @@ export interface AgentConfig {
   contextFiles: string[]
   mcpServers: string[]
   agenticMode: boolean
-  tools: {
-    fileEdit: boolean
-    terminal: boolean
-    webFetch: boolean
-  }
+  tools: { fileEdit: ToolConfig; terminal: ToolConfig; webFetch: ToolConfig }
   responseFormat: 'concise' | 'detailed' | 'code-only' | 'default'
   isDefault?: boolean
+  rootDirectory?: string
+  contextRules?: {
+    ignoredGlobs: string[]
+    autoInjectWorkspace: boolean
+    autoInjectGit: boolean
+  }
+  memory?: string
+  customCommands?: { name: string; description: string; prompt: string }[]
+}
+
+export interface ProjectOrchestrationConfig {
+  orchestrationEnabled: boolean
+  maxDelegationDepth: number
+  showTeamActivity: boolean
+}
+
+export interface ScopeRule {
+  id: string
+  description: string
+  pathGlob?: string
+}
+
+export interface Milestone {
+  id: string
+  title: string
+  description?: string
+  status: 'active' | 'upcoming' | 'completed'
+  completedAt?: number
+}
+
+export interface ProjectVariable {
+  key: string
+  value: string
+}
+
+export interface ProjectConfig extends ProjectOrchestrationConfig {
+  instructions: string
+  rootDirectory: string
+  variables: ProjectVariable[]
+  instructionMode: 'prepend' | 'append' | 'replace' | 'standalone'
+  instructionsEnabled: boolean
+  inScope: ScopeRule[]
+  outOfScope: ScopeRule[]
+  milestones: Milestone[]
+}
+
+export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
+  instructions: '',
+  rootDirectory: '',
+  variables: [],
+  instructionMode: 'prepend',
+  instructionsEnabled: true,
+  orchestrationEnabled: false,
+  maxDelegationDepth: 5,
+  showTeamActivity: true,
+  inScope: [],
+  outOfScope: [],
+  milestones: [],
 }
 
 export interface McpServerConfig {
@@ -87,63 +147,120 @@ export interface ToolApprovalRequest {
 }
 
 export type IpcChannels =
+  | 'agent:add-knowledge-file'
+  | 'agent:create'
+  | 'agent:delete'
+  | 'agent:delete-preflight'
+  | 'agent:duplicate'
+  | 'agent:export'
+  | 'agent:get'
+  | 'agent:get-mcp-tool-overrides'
+  | 'agent:import'
+  | 'agent:list'
+  | 'agent:list-knowledge-files'
+  | 'agent:remove-knowledge-file'
+  | 'agent:set-mcp-tool-override'
+  | 'agent:update'
+  | 'agent:update-knowledge-inject-mode'
+  | 'app:check-updates'
+  | 'app:create-gist'
+  | 'app:download-update'
+  | 'app:get-setting'
   | 'app:get-settings'
-  | 'app:set-setting'
   | 'app:get-theme'
+  | 'app:get-version'
+  | 'app:install-update'
+  | 'app:save-text-file'
+  | 'app:set-auto-start'
+  | 'app:set-setting'
   | 'app:set-theme'
+  | 'auth:device-code'
+  | 'auth:login'
+  | 'auth:logout'
+  | 'auth:status'
+  | 'chat:new'
   | 'chat:send-message'
-  | 'chat:stream-response'
   | 'chat:stop-generation'
-  | 'conversation:list'
+  | 'chat:stream-error'
+  | 'chat:stream-response'
+  | 'chat:team-activity'
+  | 'cli:check'
+  | 'cli:status'
+  | 'context:git'
+  | 'context:read-file'
+  | 'context:workspace-summary'
   | 'conversation:create'
   | 'conversation:delete'
   | 'conversation:get-messages'
-  | 'conversation:search'
+  | 'conversation:list'
   | 'conversation:rename'
+  | 'conversation:search'
+  | 'conversation:set-model'
   | 'conversation:set-pinned'
-  | 'message:delete'
-  | 'message:delete-after'
-  | 'file:open-dialog'
-  | 'context:read-file'
-  | 'context:workspace-summary'
-  | 'context:git'
-  | 'agent:list'
-  | 'agent:get'
-  | 'agent:create'
-  | 'agent:update'
-  | 'agent:delete'
-  | 'agent:duplicate'
-  | 'agent:export'
-  | 'agent:import'
-  | 'file:open-directory-dialog'
-  | 'file:get-recent-dirs'
+  | 'deeplink:open-agent'
+  | 'deeplink:open-chat'
   | 'file:add-recent-dir'
-  | 'tool:list'
-  | 'tool:execute'
-  | 'tool:request-approval'
-  | 'tool:approval-response'
-  | 'tool:set-preference'
-  | 'tool:get-preferences'
-  | 'terminal:create'
-  | 'terminal:write'
-  | 'terminal:data'
-  | 'terminal:exit'
-  | 'terminal:dispose'
-  | 'mcp:list-servers'
+  | 'file:get-cwd'
+  | 'file:get-recent-dirs'
+  | 'file:open-dialog'
+  | 'file:open-directory-dialog'
+  | 'file:set-cwd'
+  | 'fs:list-directory'
+  | 'fs:read-file'
+  | 'fs:write-file'
   | 'mcp:add-server'
-  | 'mcp:update-server'
-  | 'mcp:remove-server'
+  | 'mcp:call-tool'
   | 'mcp:get-server-status'
+  | 'mcp:list-servers'
   | 'mcp:list-tools'
   | 'mcp:list-tools-for-agent'
-  | 'agent:get-mcp-tool-overrides'
-  | 'agent:set-mcp-tool-override'
-  | 'mcp:call-tool'
+  | 'mcp:remove-server'
   | 'mcp:restart-server'
-  | 'provider:list'
-  | 'provider:set-key'
-  | 'provider:remove-key'
+  | 'mcp:update-server'
+  | 'message:delete'
+  | 'message:delete-after'
+  | 'project:add-agent'
+  | 'project:create'
+  | 'project:delete'
+  | 'project:duplicate'
+  | 'project:export'
+  | 'project:get-config'
+  | 'project:list'
+  | 'project:list-agents'
+  | 'project:remove-agent'
+  | 'project:rename'
+  | 'project:reorder-agents'
+  | 'project:set-conversation'
+  | 'project:set-default-model'
+  | 'project:set-primary-agent'
+  | 'project:update-config'
+  | 'provider:get-azure-endpoint'
   | 'provider:has-key'
+  | 'provider:list'
+  | 'provider:remove-key'
+  | 'provider:set-azure-endpoint'
+  | 'provider:set-key'
   | 'provider:test-key'
-  | 'app:set-auto-start'
-  | 'app:check-updates'
+  | 'terminal:create'
+  | 'terminal:data'
+  | 'terminal:dispose'
+  | 'terminal:exit'
+  | 'terminal:write'
+  | 'tool:approval-response'
+  | 'tool:execute'
+  | 'tool:get-preferences'
+  | 'tool:list'
+  | 'tool:request-approval'
+  | 'tool:set-preference'
+  | 'updater:download-progress'
+  | 'updater:error'
+  | 'updater:no-update'
+  | 'updater:update-available'
+  | 'updater:update-downloaded'
+  | 'window:close'
+  | 'window:edit-action'
+  | 'window:is-maximized'
+  | 'window:maximize'
+  | 'window:maximize-change'
+  | 'window:minimize'
+  | 'window:zoom'

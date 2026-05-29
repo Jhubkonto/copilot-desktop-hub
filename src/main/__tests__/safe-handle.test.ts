@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import type { IpcChannels } from '../../shared/types'
 
 /* ── Hoisted mocks ─────────────────────────────────────────── */
 const { mockIpcMain } = vi.hoisted(() => {
@@ -19,11 +20,22 @@ vi.mock('electron', () => ({
 
 import { safeHandle, validateSender } from '../safe-handle'
 
+const TEST_CHANNELS = {
+  register: 'tool:list',
+  success: 'app:get-settings',
+  error: 'chat:send-message',
+  unknown: 'conversation:list',
+  async: 'agent:list',
+  asyncErr: 'provider:list',
+  args: 'terminal:create',
+  untrusted: 'window:minimize'
+} as const satisfies Record<string, IpcChannels>
+
 beforeEach(() => {
   vi.clearAllMocks()
 })
 
-async function invokeHandler(channel: string, ...args: unknown[]): Promise<any> {
+async function invokeHandler(channel: IpcChannels, ...args: unknown[]): Promise<any> {
   const handler = mockIpcMain._handlers.get(channel)
   if (!handler) throw new Error(`No handler for ${channel}`)
   const fakeEvent = { sender: { id: 1 }, senderFrame: { url: 'file:///app/index.html' } }
@@ -32,52 +44,52 @@ async function invokeHandler(channel: string, ...args: unknown[]): Promise<any> 
 
 describe('safeHandle', () => {
   it('registers a handler on ipcMain.handle', () => {
-    safeHandle('test:channel', () => 'ok')
-    expect(mockIpcMain.handle).toHaveBeenCalledWith('test:channel', expect.any(Function))
+    safeHandle(TEST_CHANNELS.register, () => 'ok')
+    expect(mockIpcMain.handle).toHaveBeenCalledWith(TEST_CHANNELS.register, expect.any(Function))
   })
 
   it('returns handler result on success', async () => {
-    safeHandle('test:success', () => ({ data: 42 }))
-    const result = await invokeHandler('test:success')
+    safeHandle(TEST_CHANNELS.success, () => ({ data: 42 }))
+    const result = await invokeHandler(TEST_CHANNELS.success)
     expect(result).toEqual({ data: 42 })
   })
 
   it('returns { error } on thrown Error', async () => {
-    safeHandle('test:error', () => {
+    safeHandle(TEST_CHANNELS.error, () => {
       throw new Error('something broke')
     })
-    const result = await invokeHandler('test:error')
+    const result = await invokeHandler(TEST_CHANNELS.error)
     expect(result).toEqual({ error: 'something broke' })
   })
 
   it('returns { error: "Unknown error" } for non-Error throws', async () => {
-    safeHandle('test:unknown', () => {
+    safeHandle(TEST_CHANNELS.unknown, () => {
       throw 'string error'
     })
-    const result = await invokeHandler('test:unknown')
+    const result = await invokeHandler(TEST_CHANNELS.unknown)
     expect(result).toEqual({ error: 'Unknown error' })
   })
 
   it('handles async handlers that resolve', async () => {
-    safeHandle('test:async', async () => {
+    safeHandle(TEST_CHANNELS.async, async () => {
       return { async: true }
     })
-    const result = await invokeHandler('test:async')
+    const result = await invokeHandler(TEST_CHANNELS.async)
     expect(result).toEqual({ async: true })
   })
 
   it('catches async handler rejections', async () => {
-    safeHandle('test:async-err', async () => {
+    safeHandle(TEST_CHANNELS.asyncErr, async () => {
       throw new Error('async fail')
     })
-    const result = await invokeHandler('test:async-err')
+    const result = await invokeHandler(TEST_CHANNELS.asyncErr)
     expect(result).toEqual({ error: 'async fail' })
   })
 
   it('passes event and args to the underlying handler', async () => {
     const spy = vi.fn((_event, a: string, b: number) => `${a}-${b}`)
-    safeHandle('test:args', spy)
-    const result = await invokeHandler('test:args', 'hello', 42)
+    safeHandle(TEST_CHANNELS.args, spy)
+    const result = await invokeHandler(TEST_CHANNELS.args, 'hello', 42)
     expect(result).toBe('hello-42')
     expect(spy).toHaveBeenCalledWith(expect.anything(), 'hello', 42)
   })
@@ -117,8 +129,8 @@ describe('validateSender', () => {
 
 describe('safeHandle — sender validation', () => {
   it('n3-7: rejects invocations from untrusted senders', async () => {
-    safeHandle('test:untrusted', () => 'secret')
-    const handler = mockIpcMain._handlers.get('test:untrusted')!
+    safeHandle(TEST_CHANNELS.untrusted, () => 'secret')
+    const handler = mockIpcMain._handlers.get(TEST_CHANNELS.untrusted)!
     const badEvent = { sender: { id: 2 }, senderFrame: { url: 'https://attacker.io/' } }
     const result = await handler(badEvent)
     expect(result).toEqual({ error: 'Unauthorized sender' })

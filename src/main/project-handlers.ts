@@ -3,6 +3,12 @@ import { randomUUID } from "crypto";
 import { writeFileSync } from "fs";
 import { getDatabase } from "./database";
 import { safeHandle } from "./safe-handle";
+import {
+  DEFAULT_PROJECT_CONFIG,
+  type ProjectConfig,
+} from "../shared/types";
+
+export { DEFAULT_PROJECT_CONFIG };
 
 export const PROJECT_COLORS = new Set([
   "blue",
@@ -15,33 +21,9 @@ export const PROJECT_COLORS = new Set([
   "gray",
 ]);
 
-export const DEFAULT_PROJECT_CONFIG = {
-  instructions: "",
-  rootDirectory: "",
-  variables: [],
-  instructionMode: "prepend",
-  instructionsEnabled: true,
-  orchestrationEnabled: false,
-  maxDelegationDepth: 5,
-  showTeamActivity: true,
-  inScope: [] as Array<{ id: string; description: string; pathGlob?: string }>,
-  outOfScope: [] as Array<{
-    id: string;
-    description: string;
-    pathGlob?: string;
-  }>,
-  milestones: [] as Array<{
-    id: string;
-    title: string;
-    description?: string;
-    status: string;
-    completedAt?: number;
-  }>,
-};
-
 export function parseProjectConfig(
   configJson: string | null,
-): typeof DEFAULT_PROJECT_CONFIG {
+): ProjectConfig {
   if (!configJson) return { ...DEFAULT_PROJECT_CONFIG };
   try {
     return { ...DEFAULT_PROJECT_CONFIG, ...JSON.parse(configJson) };

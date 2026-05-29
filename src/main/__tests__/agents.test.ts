@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import type { AgentConfig } from '../../shared/types'
 
 // ── Hoisted mocks ──────────────────────────────────────────────────────────────
 
@@ -70,6 +71,7 @@ vi.mock('fs', () => ({
 // ── Test helpers ───────────────────────────────────────────────────────────────
 
 const SAMPLE_CONFIG = {
+  id: 'agent-abc',
   name: 'Test Agent',
   icon: '🧪',
   systemPrompt: 'You are a test agent.',
@@ -86,7 +88,7 @@ const SAMPLE_CONFIG = {
     webFetch: { enabled: false, approval: 'always-ask', instructions: '' }
   },
   responseFormat: 'default'
-}
+} satisfies AgentConfig
 
 const SAMPLE_ROW = {
   id: 'agent-abc',
