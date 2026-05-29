@@ -944,6 +944,15 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
                 Export
               </button>
             )}
+          <div className="flex gap-2">
+            {!isEditing && (
+              <button
+                onClick={onClose}
+                className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              >
+                Cancel
+              </button>
+            )}
             <button
               onClick={handleSave}
               disabled={!config.name.trim()}
@@ -951,6 +960,7 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
             >
               {isEditing ? 'Save' : 'Create'}
             </button>
+          </div>
           </div>
         </div>
       </div>

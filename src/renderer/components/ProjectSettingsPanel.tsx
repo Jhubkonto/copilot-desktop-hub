@@ -404,7 +404,7 @@ export function ProjectSettingsPanel(props: Props) {
   const completedMilestones = milestones.filter((m) => m.status === 'completed')
 
   return (
-    <div className="bg-gray-50 dark:bg-gray-800/50 rounded-b-xl border-t border-gray-200 dark:border-gray-700">
+    <div className="h-full flex flex-col bg-gray-50 dark:bg-gray-800/50 rounded-b-xl border-t border-gray-200 dark:border-gray-700">
 
       {/* Tab bar */}
       <div className="flex gap-0.5 px-3 pt-2 pb-0 flex-wrap" role="tablist">
@@ -426,7 +426,7 @@ export function ProjectSettingsPanel(props: Props) {
         ))}
       </div>
 
-      <div className="px-4 pb-4 pt-2 space-y-4">
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 pt-2 space-y-4">
 
         {/* ── General tab ──────────────────────────────────────────────────── */}
         {activeTab === 'general' && (
@@ -980,22 +980,22 @@ export function ProjectSettingsPanel(props: Props) {
 
       {/* Draft mode: Create / Cancel buttons */}
       {isDraft && (
-        <div className="flex gap-2 px-4 pb-4 pt-1 border-t border-gray-200 dark:border-gray-700">
+        <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-gray-200 dark:border-gray-700">
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+          >
+            Cancel
+          </button>
           <button
             type="button"
             onClick={handleConfirm}
             disabled={!name.trim() || hasVarErrors || isSubmitting}
-            className="flex-1 text-xs px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="text-xs px-4 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             aria-label="Create project"
           >
             {isSubmitting ? 'Creating…' : 'Create project'}
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex-1 text-xs px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-          >
-            Cancel
           </button>
         </div>
       )}
