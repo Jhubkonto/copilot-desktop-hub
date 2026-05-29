@@ -246,9 +246,9 @@ export function ProjectSettingsPanel(props: Props) {
 
   const handleBrowseDir = async () => {
     const result = await window.api.openDirectoryDialog()
-    if (result) {
-      setRootDirectory(result)
-      if (!isDraft && projectId) updateProjectConfig(projectId, { rootDirectory: result })
+    if (result && result.length > 0) {
+      setRootDirectory(result[0])
+      if (!isDraft && projectId) updateProjectConfig(projectId, { rootDirectory: result[0] })
     }
   }
 

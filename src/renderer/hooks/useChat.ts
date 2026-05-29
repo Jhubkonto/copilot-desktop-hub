@@ -73,7 +73,7 @@ export function useChat({
       setIsLoadingMessages(true)
       window.api
         .getMessages(conversationId)
-        .then((dbMessages: ConversationDbMessage[]) => {
+        .then((dbMessages) => {
           setMessages((prev) => {
             const imageMap = new Map(
               prev.filter((message) => message.images).map((message) => [message.id, message.images!]),

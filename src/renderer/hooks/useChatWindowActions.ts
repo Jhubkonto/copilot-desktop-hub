@@ -157,7 +157,7 @@ export function useChatWindowActions({
       loadAgents,
       loadConversations,
       buildConversationMarkdown,
-      deleteMessagesAfter: window.api.deleteMessagesAfter,
+      deleteMessagesAfter: (convId: string, ts: number) => window.api.deleteMessagesAfter(convId, ts).then(() => undefined),
       lastUndoneUserMessageRef,
       setMessages: setMessages as SlashCommandContext['setMessages'],
     }),

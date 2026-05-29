@@ -62,7 +62,7 @@ export function DirectoryPicker({ agentId, onClose }: DirectoryPickerProps) {
       const currentConfig = await window.api.getAgent(agentId)
       if (currentConfig && typeof currentConfig === 'object') {
         await window.api.updateAgent(agentId, {
-          ...(currentConfig as Record<string, unknown>),
+          ...(currentConfig as unknown as Record<string, unknown>),
           rootDirectory: nextPath
         })
       }
