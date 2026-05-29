@@ -155,8 +155,33 @@ function setToolPreference(toolName: string, value: string): void {
 
 const pendingApprovals = new Map<
   string,
-  { toolName: string; resolve: (approved: boolean) => void }
+  { toolName: string; resolve: (approved: boolean) => void; noRemember?: boolean }
 >()
+
+/**
+ * Sends a tool approval request to the renderer and waits for the user's response.
+ * Pass `noRemember: true` when the approval should not be persisted as a global tool
+ * preference (e.g. MCP tools, which have their own per-agent override table).
+ */
+export async function requestApproval(
+  webContents: Electron.WebContents,
+  toolName: string,
+  args: Record<string, unknown>,
+  description: string,
+  options?: { noRemember?: boolean }
+): Promise<boolean> {
+  const requestId = randomUUID()
+  webContents.send('tool:request-approval', { requestId, tool: toolName, args, description })
+  return new Promise<boolean>((resolve) => {
+    pendingApprovals.set(requestId, { toolName, resolve, noRemember: options?.noRemember })
+    setTimeout(() => {
+      if (pendingApprovals.has(requestId)) {
+        pendingApprovals.delete(requestId)
+        resolve(false)
+      }
+    }, 60000)
+  })
+}
 
 export function registerToolHandlers(): void {
   safeHandle('tool:list', () => TOOL_DEFINITIONS)
@@ -187,25 +212,13 @@ export function registerToolHandlers(): void {
           : pref === 'always_allow'
 
       if (!approved) {
-        const requestId = randomUUID()
         const toolDef = TOOL_DEFINITIONS.find((t) => t.name === name)
-
-        window.webContents.send('tool:request-approval', {
-          requestId,
-          tool: name,
+        approved = await requestApproval(
+          window.webContents,
+          name,
           args,
-          description: toolDef?.description || name
-        })
-
-        approved = await new Promise<boolean>((resolve) => {
-          pendingApprovals.set(requestId, { toolName: name, resolve })
-          setTimeout(() => {
-            if (pendingApprovals.has(requestId)) {
-              pendingApprovals.delete(requestId)
-              resolve(false)
-            }
-          }, 60000)
-        })
+          toolDef?.description || name
+        )
       }
 
       if (!approved) {
@@ -221,7 +234,7 @@ export function registerToolHandlers(): void {
     (_event, requestId: string, approved: boolean, remember: boolean) => {
       const pending = pendingApprovals.get(requestId)
       if (pending) {
-        if (remember) {
+        if (remember && !pending.noRemember) {
           setToolPreference(pending.toolName, approved ? 'always_allow' : 'always_deny')
         }
         pending.resolve(approved)

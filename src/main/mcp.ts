@@ -1,8 +1,10 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
+import type { WebContents } from 'electron'
 import { getDatabase } from './database'
 import { randomUUID } from 'crypto'
 import { safeHandle } from './safe-handle'
+import { requestApproval } from './tools'
 
 interface McpServerConfig {
   id: string
@@ -31,7 +33,7 @@ interface McpTool {
   serverName: string
 }
 
-const servers = new Map<string, McpServerInstance>()
+export const servers = new Map<string, McpServerInstance>()
 
 function loadServerConfigs(): McpServerConfig[] {
   const db = getDatabase()
@@ -137,19 +139,36 @@ export async function callMcpTool(
   serverId: string,
   toolName: string,
   args: Record<string, unknown>,
-  agentId?: string
+  agentId?: string,
+  webContents?: WebContents
 ): Promise<{ success: boolean; result?: string; error?: string }> {
+  // Resolve approval policy; default to 'always-ask' when no override exists
+  let approval: string = 'always-ask'
+
   if (agentId) {
     const db = getDatabase()
     const override = db.prepare(
       'SELECT enabled, approval FROM agent_mcp_tool_overrides WHERE agent_id=? AND server_id=? AND tool_name=?'
     ).get(agentId, serverId, toolName) as { enabled: number; approval: string } | undefined
     if (override?.enabled === 0) return { success: false, error: 'Tool disabled for this agent' }
+    approval = override?.approval ?? 'always-ask'
   }
+
+  if (approval === 'disabled') return { success: false, error: 'Tool disabled for this agent' }
 
   const instance = servers.get(serverId)
   if (!instance || instance.status !== 'connected') {
     return { success: false, error: `Server ${serverId} not connected` }
+  }
+
+  if (approval === 'always-ask') {
+    if (!webContents || webContents.isDestroyed()) {
+      return { success: false, error: 'Tool requires interactive approval but no UI is available' }
+    }
+    const tool = instance.tools.find((t) => t.name === toolName)
+    const description = `[${instance.config.name}] ${tool?.description ?? toolName}`
+    const approved = await requestApproval(webContents, toolName, args, description, { noRemember: true })
+    if (!approved) return { success: false, error: 'Tool execution denied by user' }
   }
 
   try {
@@ -269,8 +288,8 @@ export function registerMcpHandlers(): void {
 
   safeHandle(
     'mcp:call-tool',
-    async (_event, serverId: string, toolName: string, args: Record<string, unknown>, agentId?: string) => {
-      return await callMcpTool(serverId, toolName, args, agentId)
+    async (event, serverId: string, toolName: string, args: Record<string, unknown>, agentId?: string) => {
+      return await callMcpTool(serverId, toolName, args, agentId, event.sender)
     }
   )
 

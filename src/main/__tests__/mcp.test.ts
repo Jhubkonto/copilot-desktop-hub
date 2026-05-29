@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 /* ── Hoisted mocks ─────────────────────────────────────────── */
-const { mockIpcMain, mockDb } = vi.hoisted(() => {
+const { mockIpcMain, mockDb, mockOverrideRows } = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>()
   const serverRows: { id: string; config_json: string; enabled: number }[] = []
+  const overrideRows = new Map<string, { enabled: number; approval: string }>()
 
   const mockIpcMain = {
     handle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
@@ -28,13 +29,28 @@ const { mockIpcMain, mockDb } = vi.hoisted(() => {
         return { changes: 1 }
       }),
       all: vi.fn(() => [...serverRows]),
-      get: vi.fn()
+      get: vi.fn((...args: unknown[]): unknown => {
+        if (sql.includes('agent_mcp_tool_overrides')) {
+          const key = `${args[0]}:${args[1]}:${args[2]}`
+          return overrideRows.get(key)
+        }
+        return undefined
+      })
     })),
     _serverRows: serverRows
   }
 
-  return { mockIpcMain, mockDb }
+  return { mockIpcMain, mockDb, mockOverrideRows: overrideRows }
 })
+
+/* ── Mock requestApproval from tools ──────────────────────── */
+const { mockRequestApproval } = vi.hoisted(() => ({
+  mockRequestApproval: vi.fn().mockResolvedValue(true)
+}))
+
+vi.mock('../tools', () => ({
+  requestApproval: mockRequestApproval
+}))
 
 vi.mock('electron', () => ({
   ipcMain: mockIpcMain
@@ -44,46 +60,51 @@ vi.mock('../database', () => ({
   getDatabase: () => mockDb
 }))
 
-// Mock the MCP SDK so we don't need real processes
-const { mockClient, mockTransport } = vi.hoisted(() => {
-  const mockClient = {
+/* ── Import & Register ─────────────────────────────────────── */
+import { registerMcpHandlers, servers } from '../mcp'
+import type { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import type { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
+
+/* ── Helpers ─────────────────────────────────────────────── */
+const fakeSender = {
+  id: 1,
+  send: vi.fn(),
+  isDestroyed: vi.fn().mockReturnValue(false)
+}
+
+async function invokeHandler(channel: string, ...args: unknown[]): Promise<any> {
+  const handler = mockIpcMain._handlers.get(channel)
+  if (!handler) throw new Error(`No handler for ${channel}`)
+  const fakeEvent = { sender: fakeSender }
+  return handler(fakeEvent, ...args)
+}
+
+function makeMockClient() {
+  return {
     connect: vi.fn().mockResolvedValue(undefined),
     listTools: vi.fn().mockResolvedValue({ tools: [] }),
     callTool: vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'ok' }], isError: false })
   }
-  const mockTransport = {
-    close: vi.fn().mockResolvedValue(undefined)
-  }
-  return { mockClient, mockTransport }
-})
-
-vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
-  Client: vi.fn(() => mockClient)
-}))
-
-vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
-  StdioClientTransport: vi.fn(() => mockTransport)
-}))
-
-/* ── Helpers ─────────────────────────────────────────── */
-async function invokeHandler(channel: string, ...args: unknown[]): Promise<any> {
-  const handler = mockIpcMain._handlers.get(channel)
-  if (!handler) throw new Error(`No handler for ${channel}`)
-  const fakeEvent = { sender: { id: 1 } }
-  return handler(fakeEvent, ...args)
 }
 
-/* ── Import & Register ─────────────────────────────────────── */
-import { registerMcpHandlers } from '../mcp'
+/** Directly inject a connected server — bypasses SDK subprocess spawning */
+function injectConnectedServer(id: string, name: string, client: ReturnType<typeof makeMockClient>) {
+  servers.set(id, {
+    config: { id, name, command: 'node', args: [], env: {}, enabled: true },
+    client: client as unknown as Client,
+    transport: { close: vi.fn().mockResolvedValue(undefined) } as unknown as StdioClientTransport,
+    status: 'connected',
+    tools: [{ name: 'testTool', description: 'Does a thing', inputSchema: {}, serverId: id, serverName: name }]
+  })
+}
 
 beforeEach(() => {
   mockDb._serverRows.length = 0
+  mockOverrideRows.clear()
+  servers.clear()
   vi.clearAllMocks()
-  // Re-apply mock implementations after clearAllMocks
-  mockClient.connect.mockResolvedValue(undefined)
-  mockClient.listTools.mockResolvedValue({ tools: [] })
-  mockClient.callTool.mockResolvedValue({ content: [{ type: 'text', text: 'ok' }], isError: false })
-  mockTransport.close.mockResolvedValue(undefined)
+  fakeSender.isDestroyed.mockReturnValue(false)
+  mockRequestApproval.mockResolvedValue(true)
   registerMcpHandlers()
 })
 
@@ -95,40 +116,24 @@ describe('MCP — IPC Handlers', () => {
   })
 
   it('mcp:add-server stores config and returns with id', async () => {
-    const config = {
-      name: 'Test MCP',
-      command: 'node',
-      args: ['server.js'],
-      env: {},
-      enabled: true
-    }
+    const config = { name: 'Test MCP', command: 'node', args: ['server.js'], env: {}, enabled: false }
     const r = await invokeHandler('mcp:add-server', config)
     expect(r.id).toBeDefined()
     expect(r.name).toBe('Test MCP')
     expect(mockDb._serverRows.length).toBe(1)
   })
 
-  it('mcp:add-server with enabled=true attempts connection', async () => {
-    const config = {
-      name: 'Active Server',
-      command: 'npx',
-      args: ['-y', 'some-mcp'],
-      env: {},
-      enabled: true
-    }
+  it('mcp:add-server returns fullConfig', async () => {
+    const config = { name: 'Active Server', command: 'npx', args: ['-y', 'some-mcp'], env: {}, enabled: false }
     const result = await invokeHandler('mcp:add-server', config)
-    // Config is saved regardless of connection outcome
     expect(result.name).toBe('Active Server')
-    expect(result.enabled).toBe(true)
+    expect(result.enabled).toBe(false)
     expect(mockDb._serverRows.length).toBe(1)
   })
 
   it('mcp:remove-server deletes config', async () => {
-    // First add
     const config = { name: 'Tmp', command: 'x', args: [], env: {}, enabled: false }
     const added = await invokeHandler('mcp:add-server', config)
-
-    // Then remove
     const r = await invokeHandler('mcp:remove-server', added.id)
     expect(r).toBe(true)
   })
@@ -142,5 +147,105 @@ describe('MCP — IPC Handlers', () => {
   it('mcp:list-tools returns empty when no servers connected', async () => {
     const r = await invokeHandler('mcp:list-tools')
     expect(r).toEqual([])
+  })
+})
+
+describe('MCP — Tool Approval', () => {
+  function addTestServer() {
+    const id = `test-server-${Math.random().toString(36).slice(2)}`
+    const client = makeMockClient()
+    injectConnectedServer(id, 'ApprovalServer', client)
+    return { id, client }
+  }
+
+  it('calls requestApproval when approval is always-ask', async () => {
+    const { id: serverId } = addTestServer()
+    mockOverrideRows.set(`agent1:${serverId}:testTool`, { enabled: 1, approval: 'always-ask' })
+
+    await invokeHandler('mcp:call-tool', serverId, 'testTool', { x: 1 }, 'agent1')
+
+    expect(mockRequestApproval).toHaveBeenCalledWith(
+      fakeSender,
+      'testTool',
+      { x: 1 },
+      expect.any(String),
+      { noRemember: true }
+    )
+  })
+
+  it('executes tool when approval is granted', async () => {
+    const { id: serverId, client } = addTestServer()
+    mockOverrideRows.set(`agent1:${serverId}:testTool`, { enabled: 1, approval: 'always-ask' })
+    mockRequestApproval.mockResolvedValue(true)
+
+    const r = await invokeHandler('mcp:call-tool', serverId, 'testTool', {}, 'agent1')
+    expect(r.success).toBe(true)
+    expect(client.callTool).toHaveBeenCalled()
+  })
+
+  it('denies tool execution when approval is rejected', async () => {
+    const { id: serverId, client } = addTestServer()
+    mockOverrideRows.set(`agent1:${serverId}:testTool`, { enabled: 1, approval: 'always-ask' })
+    mockRequestApproval.mockResolvedValue(false)
+
+    const r = await invokeHandler('mcp:call-tool', serverId, 'testTool', {}, 'agent1')
+    expect(r.success).toBe(false)
+    expect(r.error).toContain('denied')
+    expect(client.callTool).not.toHaveBeenCalled()
+  })
+
+  it('auto-approves when approval policy is auto', async () => {
+    const { id: serverId, client } = addTestServer()
+    mockOverrideRows.set(`agent1:${serverId}:testTool`, { enabled: 1, approval: 'auto' })
+
+    const r = await invokeHandler('mcp:call-tool', serverId, 'testTool', {}, 'agent1')
+    expect(r.success).toBe(true)
+    expect(mockRequestApproval).not.toHaveBeenCalled()
+    expect(client.callTool).toHaveBeenCalled()
+  })
+
+  it('defaults to always-ask when no override exists for an agent', async () => {
+    const { id: serverId } = addTestServer()
+    // No override row — defaults to always-ask
+    await invokeHandler('mcp:call-tool', serverId, 'testTool', {}, 'agent1')
+    expect(mockRequestApproval).toHaveBeenCalled()
+  })
+
+  it('denies when approval is disabled', async () => {
+    const { id: serverId, client } = addTestServer()
+    mockOverrideRows.set(`agent1:${serverId}:testTool`, { enabled: 1, approval: 'disabled' })
+
+    const r = await invokeHandler('mcp:call-tool', serverId, 'testTool', {}, 'agent1')
+    expect(r.success).toBe(false)
+    expect(r.error).toContain('disabled')
+    expect(mockRequestApproval).not.toHaveBeenCalled()
+    expect(client.callTool).not.toHaveBeenCalled()
+  })
+
+  it('denies when enabled flag is 0', async () => {
+    const { id: serverId, client } = addTestServer()
+    mockOverrideRows.set(`agent1:${serverId}:testTool`, { enabled: 0, approval: 'auto' })
+
+    const r = await invokeHandler('mcp:call-tool', serverId, 'testTool', {}, 'agent1')
+    expect(r.success).toBe(false)
+    expect(r.error).toContain('disabled')
+    expect(client.callTool).not.toHaveBeenCalled()
+  })
+
+  it('defaults to always-ask when called without agentId', async () => {
+    const { id: serverId } = addTestServer()
+    await invokeHandler('mcp:call-tool', serverId, 'testTool', {})
+    expect(mockRequestApproval).toHaveBeenCalled()
+  })
+
+  it('fails closed when always-ask but webContents is destroyed', async () => {
+    const { id: serverId, client } = addTestServer()
+    fakeSender.isDestroyed.mockReturnValue(true)
+
+    const r = await invokeHandler('mcp:call-tool', serverId, 'testTool', {})
+    expect(r.success).toBe(false)
+    expect(r.error).toContain('no UI is available')
+    expect(mockRequestApproval).not.toHaveBeenCalled()
+    expect(client.callTool).not.toHaveBeenCalled()
   })
 })
