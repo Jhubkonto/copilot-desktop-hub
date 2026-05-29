@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { X, ChevronDown, ChevronUp } from 'lucide-react'
+import type { ContextSnapshot } from '../hooks/chat-types'
 
 interface ContextRef {
   key: 'workspace' | 'git' | 'file'
@@ -18,16 +19,6 @@ interface PastedImage {
   id: string
   dataUrl: string
   name: string
-}
-
-export interface ContextSnapshot {
-  systemPrompt: string
-  contextRefs: { token: string; key: string }[]
-  attachments: { name: string; size: number }[]
-  historyLength: number
-  estimatedTokens: number
-  model: string
-  timestamp: number
 }
 
 interface ContextInspectorProps {

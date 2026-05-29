@@ -1,7 +1,8 @@
 import { useState, useRef } from 'react'
 import { Copy, RotateCcw, Pencil, AlertTriangle, RefreshCw, LogIn, StopCircle, ChevronDown } from 'lucide-react'
 import { MarkdownRenderer } from './MarkdownRenderer'
-import { ContextSnapshotBadge, type ContextSnapshot } from './ContextInspector'
+import type { ContextSnapshot } from '../hooks/chat-types'
+import { ContextSnapshotBadge } from './ContextInspector'
 import { MODEL_OPTIONS, getModelLabel, getModelMultiplier } from '../../shared/models'
 
 interface Attachment {

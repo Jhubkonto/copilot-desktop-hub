@@ -1,16 +1,6 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronRight, CheckCircle, XCircle, Loader2 } from 'lucide-react'
-
-export interface TeamActivityStep {
-  stepId: string
-  agentId: string
-  agentName: string
-  agentIcon: string
-  task: string
-  status: 'delegating' | 'done' | 'error'
-  result?: string
-  durationMs?: number
-}
+import type { TeamActivityStep } from '../hooks/chat-types'
 
 interface TeamActivityBlockProps {
   steps: TeamActivityStep[]
