@@ -675,11 +675,12 @@ export function registerChatHandlers(): void {
       if (byokKey && providerName === "openai") {
         try {
           const messages: ProviderMessage[] = [
-            { role: "system", content: modelIdentityInstruction },
+            { role: "system" as const, content: modelIdentityInstruction },
             ...historyMessages,
-            { role: "user", content: userContent },
+            { role: "user" as const, content: userContent },
           ];
           responseContent = await sendOpenAIMessage(
+            conversationId,
             byokKey,
             providerModel,
             messages,
@@ -710,9 +711,10 @@ export function registerChatHandlers(): void {
             : modelIdentityInstruction;
           const messages: ProviderMessage[] = [
             ...historyMessages,
-            { role: "user", content: userContent },
+            { role: "user" as const, content: userContent },
           ];
           responseContent = await sendAnthropicMessage(
+            conversationId,
             byokKey,
             providerModel,
             messages,
@@ -738,11 +740,12 @@ export function registerChatHandlers(): void {
           const azureEndpoint = getAzureEndpoint();
           if (!azureEndpoint) throw new Error("Azure endpoint not configured");
           const messages: ProviderMessage[] = [
-            { role: "system", content: modelIdentityInstruction },
+            { role: "system" as const, content: modelIdentityInstruction },
             ...historyMessages,
-            { role: "user", content: userContent },
+            { role: "user" as const, content: userContent },
           ];
           responseContent = await sendAzureMessage(
+            conversationId,
             byokKey,
             azureEndpoint,
             providerModel,
@@ -772,13 +775,13 @@ export function registerChatHandlers(): void {
               : undefined;
           const chatMessages: ProviderMessage[] = [];
           chatMessages.push({
-            role: "system",
+            role: "system" as const,
             content: agentSystemPrompt
               ? `${agentSystemPrompt}\n\n${modelIdentityInstruction}`
               : `You are GitHub Copilot, an AI programming assistant.\n\n${modelIdentityInstruction}`,
           });
           chatMessages.push(...historyMessages);
-          chatMessages.push({ role: "user", content: userContent });
+          chatMessages.push({ role: "user" as const, content: userContent });
 
           // Use agent model or default
           const copilotModel =
@@ -794,6 +797,7 @@ export function registerChatHandlers(): void {
             },
             copilotModel,
             generationOptions,
+            conversationId,
           );
           window.webContents.send("chat:stream-response", null);
         } catch (error) {
@@ -856,9 +860,9 @@ export function registerChatHandlers(): void {
     },
   );
 
-  safeHandle("chat:stop-generation", async () => {
-    abortActiveStream();
-    abortCopilotStream();
+  safeHandle("chat:stop-generation", async (_event, conversationId?: string) => {
+    abortActiveStream(conversationId);
+    abortCopilotStream(conversationId);
     return true;
   });
 }

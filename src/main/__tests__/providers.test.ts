@@ -1,4 +1,6 @@
+import { EventEmitter } from 'events'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import type { ProviderMessage } from '../providers'
 
 // ── Hoisted mocks ──────────────────────────────────────────────────────────────
 
@@ -103,6 +105,7 @@ describe('Providers — IPC Handlers', () => {
     mockDb._store.clear()
 
     const mod = await import('../providers')
+    mod.activeStreamingRequests.clear()
     mod.registerProviderHandlers()
   })
 
@@ -178,6 +181,97 @@ describe('Providers — IPC Handlers', () => {
       mockDb._store.set('byok_azure_endpoint', 'https://myresource.openai.azure.com')
       const ep = await invokeHandler('provider:get-azure-endpoint')
       expect(ep).toBe('https://myresource.openai.azure.com')
+    })
+  })
+
+  describe('sendOpenAIMessage', () => {
+    it('serializes assistant tool calls and tool results', async () => {
+      let requestBody = ''
+      mockHttpsRequest.mockImplementationOnce((options: unknown, callback: (res: EventEmitter) => void) => {
+        const req = new EventEmitter() as EventEmitter & {
+          write: (chunk: string) => void
+          end: () => void
+        }
+        const res = new EventEmitter() as EventEmitter & {
+          statusCode?: number
+          headers?: Record<string, string>
+        }
+
+        res.statusCode = 200
+        res.headers = {}
+        req.write = (chunk: string) => {
+          requestBody += chunk
+        }
+        req.end = () => {
+          callback(res)
+          res.emit('data', 'data: {"choices":[{"delta":{"content":"tool ok"}}]}\n\n')
+          res.emit('data', 'data: [DONE]\n\n')
+          res.emit('end')
+        }
+
+        return req
+      })
+
+      const messages = [
+        { role: 'system' as const, content: 'You are helpful.' },
+        {
+          role: 'assistant' as const,
+          content: null,
+          tool_calls: [
+            {
+              id: 'call-1',
+              type: 'function',
+              function: { name: 'delegate_to_agent', arguments: '{"agent_id":"agent-1"}' }
+            }
+          ]
+        },
+        { role: 'tool' as const, tool_call_id: 'call-1', content: 'Specialist result' },
+        { role: 'user' as const, content: 'Continue' }
+      ] satisfies ProviderMessage[]
+
+      const { sendOpenAIMessage } = await import('../providers')
+      const streamed: string[] = []
+      const result = await sendOpenAIMessage('conv-openai', 'sk-test', 'gpt-4o', messages, (chunk) => streamed.push(chunk))
+
+      expect(result).toBe('tool ok')
+      expect(streamed).toEqual(['tool ok'])
+      expect(JSON.parse(requestBody)).toMatchObject({
+        model: 'gpt-4o',
+        messages
+      })
+    })
+  })
+
+  describe('abortActiveStream', () => {
+    it('keeps other conversation streams active when aborting by conversation id', async () => {
+      const { abortActiveStream, activeStreamingRequests } = await import('../providers')
+      const req1 = { destroy: vi.fn() } as unknown as { destroy: ReturnType<typeof vi.fn> }
+      const req2 = { destroy: vi.fn() } as unknown as { destroy: ReturnType<typeof vi.fn> }
+
+      activeStreamingRequests.set('conv-1', req1 as never)
+      activeStreamingRequests.set('conv-2', req2 as never)
+
+      abortActiveStream('conv-1')
+
+      expect(req1.destroy).toHaveBeenCalledOnce()
+      expect(req2.destroy).not.toHaveBeenCalled()
+      expect(activeStreamingRequests.size).toBe(1)
+      expect(activeStreamingRequests.has('conv-2')).toBe(true)
+    })
+
+    it('aborts all active streams when no conversation id is provided', async () => {
+      const { abortActiveStream, activeStreamingRequests } = await import('../providers')
+      const req1 = { destroy: vi.fn() } as unknown as { destroy: ReturnType<typeof vi.fn> }
+      const req2 = { destroy: vi.fn() } as unknown as { destroy: ReturnType<typeof vi.fn> }
+
+      activeStreamingRequests.set('conv-1', req1 as never)
+      activeStreamingRequests.set('conv-2', req2 as never)
+
+      abortActiveStream()
+
+      expect(req1.destroy).toHaveBeenCalledOnce()
+      expect(req2.destroy).toHaveBeenCalledOnce()
+      expect(activeStreamingRequests.size).toBe(0)
     })
   })
 })

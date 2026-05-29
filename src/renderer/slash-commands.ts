@@ -1,6 +1,6 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
 import { MODEL_OPTIONS, getModelLabel } from '../shared/models'
-import type { AgentConfig } from './store/app-store'
+import type { AgentConfig } from '../shared/types'
 
 interface Attachment {
   id: string

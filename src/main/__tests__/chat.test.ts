@@ -456,8 +456,14 @@ describe('Chat — IPC Handlers', () => {
   describe('chat:stop-generation', () => {
     it('chat-m-9: aborts active streams', async () => {
       await invokeHandler('chat:stop-generation')
-      expect(mockAbortActiveStream).toHaveBeenCalled()
-      expect(mockAbortCopilotStream).toHaveBeenCalled()
+      expect(mockAbortActiveStream).toHaveBeenCalledWith(undefined)
+      expect(mockAbortCopilotStream).toHaveBeenCalledWith(undefined)
+    })
+
+    it('passes conversation id when stopping a specific generation', async () => {
+      await invokeHandler('chat:stop-generation', 'conv-stop')
+      expect(mockAbortActiveStream).toHaveBeenCalledWith('conv-stop')
+      expect(mockAbortCopilotStream).toHaveBeenCalledWith('conv-stop')
     })
 
     it('chat-m-10: returns true', async () => {
@@ -483,7 +489,14 @@ describe('Chat — IPC Handlers', () => {
       mockSendOpenAIMessage.mockResolvedValue('OpenAI response')
 
       const result = await invokeHandler('chat:send-message', convId, 'Hello OpenAI')
-      expect(mockSendOpenAIMessage).toHaveBeenCalled()
+      expect(mockSendOpenAIMessage).toHaveBeenCalledWith(
+        convId,
+        'sk-test-key',
+        'gpt-4o',
+        expect.any(Array),
+        expect.any(Function),
+        expect.any(Object)
+      )
       expect(result).toHaveProperty('assistantMsgId')
     })
 
@@ -503,7 +516,15 @@ describe('Chat — IPC Handlers', () => {
       mockSendAnthropicMessage.mockResolvedValue('Anthropic response')
 
       const result = await invokeHandler('chat:send-message', convId, 'Hello Claude')
-      expect(mockSendAnthropicMessage).toHaveBeenCalled()
+      expect(mockSendAnthropicMessage).toHaveBeenCalledWith(
+        convId,
+        'sk-ant-test',
+        'claude-sonnet-4-20250514',
+        expect.any(Array),
+        expect.stringContaining('Be helpful\n\nRuntime model for this conversation: claude-sonnet-4-20250514.'),
+        expect.any(Function),
+        expect.any(Object)
+      )
       expect(result).toHaveProperty('assistantMsgId')
     })
 

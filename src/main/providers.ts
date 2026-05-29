@@ -3,6 +3,7 @@ import { getDatabase } from './database'
 import https from 'https'
 import { safeHandle } from './safe-handle'
 import http from 'http'
+import { parseSseStream, httpsRequestWithResponse } from './http-client'
 
 export type ProviderName = 'copilot' | 'openai' | 'anthropic' | 'azure'
 
@@ -12,19 +13,33 @@ export type MessageContentPart =
 
 export type MessageContent = string | MessageContentPart[]
 
-export interface ProviderMessage {
-  role: string
-  content: MessageContent
+export interface ToolCallMessage {
+  id: string
+  type: 'function'
+  function: { name: string; arguments: string }
 }
 
-// Track active streaming request so it can be aborted
-let activeStreamingRequest: http.ClientRequest | null = null
+export type ProviderMessage =
+  | { role: 'system' | 'user'; content: MessageContent }
+  | { role: 'assistant'; content: MessageContent | null; tool_calls?: ToolCallMessage[] }
+  | { role: 'tool'; tool_call_id: string; content: string }
 
-export function abortActiveStream(): void {
-  if (activeStreamingRequest) {
-    activeStreamingRequest.destroy()
-    activeStreamingRequest = null
+// Track active streaming requests so they can be aborted per conversation
+export const activeStreamingRequests = new Map<string, http.ClientRequest>()
+let fallbackStreamingRequestCounter = 0
+
+export function abortActiveStream(conversationId?: string): void {
+  if (conversationId) {
+    const req = activeStreamingRequests.get(conversationId)
+    if (req) {
+      req.destroy()
+      activeStreamingRequests.delete(conversationId)
+    }
+    return
   }
+
+  for (const req of activeStreamingRequests.values()) req.destroy()
+  activeStreamingRequests.clear()
 }
 
 interface ProviderConfig {
@@ -93,35 +108,24 @@ function removeApiKey(provider: string): void {
   db.prepare("DELETE FROM settings WHERE key IN (?, ?)").run(settingKey, `${settingKey}_encrypted`)
 }
 
-function httpsRequest(
+async function httpsRequest(
   url: string,
   options: https.RequestOptions,
   body: string
 ): Promise<{ status: number; data: string }> {
-  return new Promise((resolve, reject) => {
-    const urlObj = new URL(url)
-    const req = https.request(
-      {
-        hostname: urlObj.hostname,
-        path: urlObj.pathname + urlObj.search,
-        ...options
-      },
-      (res) => {
-        let data = ''
-        res.on('data', (chunk) => (data += chunk))
-        res.on('end', () => resolve({ status: res.statusCode || 0, data }))
-      }
-    )
-    req.setTimeout(30000, () => {
-      req.destroy(new Error('Request timed out'))
-    })
-    req.on('error', reject)
-    req.write(body)
-    req.end()
-  })
+  const urlObj = new URL(url)
+  return httpsRequestWithResponse(
+    {
+      hostname: urlObj.hostname,
+      path: urlObj.pathname + urlObj.search,
+      ...options
+    },
+    body
+  )
 }
 
 export async function sendOpenAIMessage(
+  conversationId: string,
   apiKey: string,
   model: string,
   messages: ProviderMessage[],
@@ -137,6 +141,12 @@ export async function sendOpenAIMessage(
   })
 
   return new Promise((resolve, reject) => {
+    const requestId = conversationId || `__provider_request__:${fallbackStreamingRequestCounter++}`
+    const cleanupActiveRequest = (req: http.ClientRequest) => {
+      if (activeStreamingRequests.get(requestId) === req) {
+        activeStreamingRequests.delete(requestId)
+      }
+    }
     const urlObj = new URL('https://api.openai.com/v1/chat/completions')
     const req = https.request(
       {
@@ -151,48 +161,34 @@ export async function sendOpenAIMessage(
       },
       (res) => {
         let fullContent = ''
-        let buffer = ''
 
-        res.on('data', (chunk: Buffer) => {
-          buffer += chunk.toString()
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || ''
-
-          for (const line of lines) {
-            const trimmed = line.trim()
-            if (!trimmed.startsWith('data: ')) continue
-            const data = trimmed.slice(6)
-            if (data === '[DONE]') continue
-
-            try {
-              const parsed = JSON.parse(data)
-              const delta = parsed.choices?.[0]?.delta?.content
-              if (delta) {
-                fullContent += delta
-                onChunk(delta)
-              }
-            } catch {
-              // Skip malformed chunks
+        parseSseStream(res, (data) => {
+          try {
+            const parsed = JSON.parse(data)
+            const delta = parsed.choices?.[0]?.delta?.content
+            if (delta) {
+              fullContent += delta
+              onChunk(delta)
             }
+          } catch {
+            // Skip malformed chunks
           }
         })
-
-        res.on('end', () => {
-          activeStreamingRequest = null
-          resolve(fullContent)
-        })
-
-        res.on('error', (err) => {
-          activeStreamingRequest = null
-          reject(err)
-        })
+          .then(() => {
+            cleanupActiveRequest(req)
+            resolve(fullContent)
+          })
+          .catch((err: Error) => {
+            cleanupActiveRequest(req)
+            reject(err)
+          })
       }
     )
     req.on('error', (err) => {
-      activeStreamingRequest = null
+      cleanupActiveRequest(req)
       reject(err)
     })
-    activeStreamingRequest = req
+    activeStreamingRequests.set(requestId, req)
     req.write(body)
     req.end()
   })
@@ -217,6 +213,7 @@ function toAnthropicContent(
 }
 
 export async function sendAnthropicMessage(
+  conversationId: string,
   apiKey: string,
   model: string,
   messages: ProviderMessage[],
@@ -237,6 +234,12 @@ export async function sendAnthropicMessage(
   })
 
   return new Promise((resolve, reject) => {
+    const requestId = conversationId || `__provider_request__:${fallbackStreamingRequestCounter++}`
+    const cleanupActiveRequest = (req: http.ClientRequest) => {
+      if (activeStreamingRequests.get(requestId) === req) {
+        activeStreamingRequests.delete(requestId)
+      }
+    }
     const urlObj = new URL('https://api.anthropic.com/v1/messages')
     const req = https.request(
       {
@@ -277,27 +280,28 @@ export async function sendAnthropicMessage(
         })
 
         res.on('end', () => {
-          activeStreamingRequest = null
+          cleanupActiveRequest(req)
           resolve(fullContent)
         })
 
         res.on('error', (err) => {
-          activeStreamingRequest = null
+          cleanupActiveRequest(req)
           reject(err)
         })
       }
     )
     req.on('error', (err) => {
-      activeStreamingRequest = null
+      cleanupActiveRequest(req)
       reject(err)
     })
-    activeStreamingRequest = req
+    activeStreamingRequests.set(requestId, req)
     req.write(body)
     req.end()
   })
 }
 
 export async function sendAzureMessage(
+  conversationId: string,
   apiKey: string,
   endpoint: string,
   deployment: string,
@@ -315,6 +319,12 @@ export async function sendAzureMessage(
   })
 
   return new Promise((resolve, reject) => {
+    const requestId = conversationId || `__provider_request__:${fallbackStreamingRequestCounter++}`
+    const cleanupActiveRequest = (req: http.ClientRequest) => {
+      if (activeStreamingRequests.get(requestId) === req) {
+        activeStreamingRequests.delete(requestId)
+      }
+    }
     const urlObj = new URL(url)
     const req = https.request(
       {
@@ -329,47 +339,34 @@ export async function sendAzureMessage(
       },
       (res) => {
         let fullContent = ''
-        let buffer = ''
 
-        res.on('data', (chunk: Buffer) => {
-          buffer += chunk.toString()
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || ''
-
-          for (const line of lines) {
-            const trimmed = line.trim()
-            if (!trimmed.startsWith('data: ')) continue
-            const data = trimmed.slice(6)
-            if (data === '[DONE]') continue
-
-            try {
-              const parsed = JSON.parse(data)
-              const delta = parsed.choices?.[0]?.delta?.content
-              if (delta) {
-                fullContent += delta
-                onChunk(delta)
-              }
-            } catch {
-              // Skip malformed chunks
+        parseSseStream(res, (data) => {
+          try {
+            const parsed = JSON.parse(data)
+            const delta = parsed.choices?.[0]?.delta?.content
+            if (delta) {
+              fullContent += delta
+              onChunk(delta)
             }
+          } catch {
+            // Skip malformed chunks
           }
         })
-
-        res.on('end', () => {
-          activeStreamingRequest = null
-          resolve(fullContent)
-        })
-        res.on('error', (err) => {
-          activeStreamingRequest = null
-          reject(err)
-        })
+          .then(() => {
+            cleanupActiveRequest(req)
+            resolve(fullContent)
+          })
+          .catch((err: Error) => {
+            cleanupActiveRequest(req)
+            reject(err)
+          })
       }
     )
     req.on('error', (err) => {
-      activeStreamingRequest = null
+      cleanupActiveRequest(req)
       reject(err)
     })
-    activeStreamingRequest = req
+    activeStreamingRequests.set(requestId, req)
     req.write(body)
     req.end()
   })

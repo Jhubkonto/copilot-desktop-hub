@@ -182,6 +182,11 @@ describe("ChatWindow — Streaming", () => {
 
   it("chat-r-7: stop button visible while generating", async () => {
     const user = userEvent.setup();
+    mockStore = createMockAppStore({
+      authState: { authenticated: true, user: null },
+      currentConversationId: 'conv-1',
+    });
+    setupStoreMock(useAppStore, mockStore);
     render(<ChatWindow />);
 
     const textarea = screen.getByRole("textbox", { name: /message input/i });
@@ -192,7 +197,7 @@ describe("ChatWindow — Streaming", () => {
     expect(stopBtn).toBeInTheDocument();
 
     await user.click(stopBtn);
-    expect(mockApi.stopGeneration).toHaveBeenCalled();
+    expect(mockApi.stopGeneration).toHaveBeenCalledWith('conv-1');
   });
 });
 

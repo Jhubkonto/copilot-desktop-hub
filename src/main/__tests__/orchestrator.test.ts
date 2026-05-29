@@ -112,6 +112,27 @@ describe('orchestrator — runOrchestration', () => {
         result: 'Specialist result here'
       })
 
+      const secondRoundMessages = mockSendNonStreaming.mock.calls[1][0] as Array<Record<string, unknown>>
+      expect(secondRoundMessages).toContainEqual({
+        role: 'assistant',
+        content: null,
+        tool_calls: [
+          {
+            id: 'tc-1',
+            type: 'function',
+            function: {
+              name: 'delegate_to_agent',
+              arguments: JSON.stringify({ agent_id: 'specialist-id', task: 'Do the analysis' })
+            }
+          }
+        ]
+      })
+      expect(secondRoundMessages).toContainEqual({
+        role: 'tool',
+        tool_call_id: 'tc-1',
+        content: 'Specialist result here'
+      })
+
       // team-activity events: first 'delegating', then 'done'
       const activityCalls = mockWindowSend.mock.calls.filter(([ch]: [string]) => ch === 'chat:team-activity')
       expect(activityCalls).toHaveLength(2)
@@ -144,6 +165,26 @@ describe('orchestrator — runOrchestration', () => {
       expect(result.finalContent).toBe('I handled it myself')
       // No team activity steps — the unknown agent never got called
       expect(result.teamActivity).toHaveLength(0)
+      const secondRoundMessages = mockSendNonStreaming.mock.calls[1][0] as Array<Record<string, unknown>>
+      expect(secondRoundMessages).toContainEqual({
+        role: 'assistant',
+        content: null,
+        tool_calls: [
+          {
+            id: 'tc-x',
+            type: 'function',
+            function: {
+              name: 'delegate_to_agent',
+              arguments: JSON.stringify({ agent_id: 'nonexistent-agent', task: 'Do something' })
+            }
+          }
+        ]
+      })
+      expect(secondRoundMessages).toContainEqual({
+        role: 'tool',
+        tool_call_id: 'tc-x',
+        content: 'Error: Unknown agent_id "nonexistent-agent". Please choose from the listed team members.'
+      })
       // sendCopilotChatMessage should NOT have been called (no specialist called)
       expect(mockSendChatMessage).not.toHaveBeenCalled()
     })

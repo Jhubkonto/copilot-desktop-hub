@@ -2,6 +2,7 @@ import https from 'https'
 import http from 'http'
 import { retrieveToken } from './auth'
 import { BrowserWindow } from 'electron'
+import { parseSseStream, httpsRequestWithResponse } from './http-client'
 import type { ProviderMessage } from './providers'
 
 interface CopilotToken {
@@ -10,60 +11,39 @@ interface CopilotToken {
 }
 
 let cachedToken: CopilotToken | null = null
-let activeRequest: http.ClientRequest | null = null
+const activeRequests = new Map<string, http.ClientRequest>()
+let fallbackRequestCounter = 0
 
-function httpPostJson(
+async function httpPostJson(
   url: string,
   headers: Record<string, string>,
   body?: string
 ): Promise<{ status: number; data: string }> {
-  return new Promise((resolve, reject) => {
-    const urlObj = new URL(url)
-    const req = https.request(
-      {
-        hostname: urlObj.hostname,
-        path: urlObj.pathname,
-        method: 'POST',
-        headers: {
-          ...headers,
-          ...(body ? { 'Content-Length': String(Buffer.byteLength(body)) } : {})
-        }
-      },
-      (res) => {
-        let data = ''
-        res.on('data', (chunk) => (data += chunk))
-        res.on('end', () => resolve({ status: res.statusCode || 0, data }))
+  const urlObj = new URL(url)
+  return httpsRequestWithResponse(
+    {
+      hostname: urlObj.hostname,
+      path: urlObj.pathname + urlObj.search,
+      method: 'POST',
+      headers: {
+        ...headers,
+        ...(body ? { 'Content-Length': String(Buffer.byteLength(body)) } : {})
       }
-    )
-    req.setTimeout(30000, () => req.destroy(new Error('Request timed out')))
-    req.on('error', reject)
-    if (body) req.write(body)
-    req.end()
-  })
+    },
+    body
+  )
 }
 
-function httpGetJson(
+async function httpGetJson(
   url: string,
   headers: Record<string, string>
 ): Promise<{ status: number; data: string }> {
-  return new Promise((resolve, reject) => {
-    const urlObj = new URL(url)
-    const req = https.request(
-      {
-        hostname: urlObj.hostname,
-        path: urlObj.pathname,
-        method: 'GET',
-        headers
-      },
-      (res) => {
-        let data = ''
-        res.on('data', (chunk) => (data += chunk))
-        res.on('end', () => resolve({ status: res.statusCode || 0, data }))
-      }
-    )
-    req.setTimeout(30000, () => req.destroy(new Error('Request timed out')))
-    req.on('error', reject)
-    req.end()
+  const urlObj = new URL(url)
+  return httpsRequestWithResponse({
+    hostname: urlObj.hostname,
+    path: urlObj.pathname + urlObj.search,
+    method: 'GET',
+    headers
   })
 }
 
@@ -146,6 +126,7 @@ async function sendCopilotRequestWithRetry(
   onChunk: (chunk: string) => void,
   model: string,
   options: { maxTokens: number; temperature: number },
+  conversationId?: string,
   maxRetries = 3
 ): Promise<string> {
   let lastError: CopilotApiError | null = null
@@ -159,7 +140,7 @@ async function sendCopilotRequestWithRetry(
 
     try {
       const token = await getCopilotToken()
-      const result = await sendCopilotRequest(token, messages, onChunk, model, options)
+      const result = await sendCopilotRequest(token, messages, onChunk, model, options, conversationId)
       return result
     } catch (err) {
       const apiErr = err as CopilotApiError
@@ -180,7 +161,8 @@ function sendCopilotRequest(
   messages: ProviderMessage[],
   onChunk: (chunk: string) => void,
   model: string,
-  options: { maxTokens: number; temperature: number }
+  options: { maxTokens: number; temperature: number },
+  conversationId?: string
 ): Promise<string> {
   const bodyPayload: Record<string, unknown> = {
     model,
@@ -196,6 +178,12 @@ function sendCopilotRequest(
   const body = JSON.stringify(bodyPayload)
 
   return new Promise((resolve, reject) => {
+    const requestId = conversationId ?? `__copilot_request__:${fallbackRequestCounter++}`
+    const cleanupActiveRequest = (req: http.ClientRequest) => {
+      if (activeRequests.get(requestId) === req) {
+        activeRequests.delete(requestId)
+      }
+    }
     const urlObj = new URL('https://api.githubcopilot.com/chat/completions')
     const req = https.request(
       {
@@ -217,7 +205,7 @@ function sendCopilotRequest(
           let errData = ''
           res.on('data', (chunk) => (errData += chunk))
           res.on('end', () => {
-            activeRequest = null
+            cleanupActiveRequest(req)
             let message = `Copilot API error (HTTP ${res.statusCode})`
             try {
               const parsed = JSON.parse(errData)
@@ -252,60 +240,46 @@ function sendCopilotRequest(
         }
 
         let fullContent = ''
-        let buffer = ''
 
-        res.on('data', (chunk: Buffer) => {
-          buffer += chunk.toString()
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || ''
-
-          for (const line of lines) {
-            const trimmed = line.trim()
-            if (!trimmed.startsWith('data: ')) continue
-            const data = trimmed.slice(6)
-            if (data === '[DONE]') continue
-
-            try {
-              const parsed = JSON.parse(data)
-              const delta = parsed.choices?.[0]?.delta?.content
-              if (delta) {
-                fullContent += delta
-                onChunk(delta)
-              }
-            } catch {
-              // Skip malformed chunks
+        parseSseStream(res, (data) => {
+          try {
+            const parsed = JSON.parse(data)
+            const delta = parsed.choices?.[0]?.delta?.content
+            if (delta) {
+              fullContent += delta
+              onChunk(delta)
             }
+          } catch {
+            // Skip malformed chunks
           }
         })
-
-        res.on('end', () => {
-          activeRequest = null
-          if (!fullContent) {
+          .then(() => {
+            cleanupActiveRequest(req)
+            if (!fullContent) {
+              reject(createApiError(
+                'Empty response from Copilot API',
+                'empty_response',
+                res.statusCode ?? undefined,
+                true
+              ))
+              return
+            }
+            resolve(fullContent)
+          })
+          .catch((err: Error) => {
+            cleanupActiveRequest(req)
             reject(createApiError(
-              'Empty response from Copilot API',
-              'empty_response',
-              res.statusCode ?? undefined,
+              err.message || 'Network error',
+              'network',
+              undefined,
               true
             ))
-            return
-          }
-          resolve(fullContent)
-        })
-
-        res.on('error', (err) => {
-          activeRequest = null
-          reject(createApiError(
-            err.message || 'Network error',
-            'network',
-            undefined,
-            true
-          ))
-        })
+          })
       }
     )
 
     req.on('error', (err) => {
-      activeRequest = null
+      cleanupActiveRequest(req)
       reject(createApiError(
         err.message || 'Network error',
         'network',
@@ -314,7 +288,7 @@ function sendCopilotRequest(
       ))
     })
 
-    activeRequest = req
+    activeRequests.set(requestId, req)
     req.write(body)
     req.end()
   })
@@ -325,19 +299,27 @@ export async function sendCopilotChatMessage(
   messages: ProviderMessage[],
   onChunk: (chunk: string) => void,
   model = 'gpt-4o',
-  options: { maxTokens?: number; temperature?: number } = {}
+  options: { maxTokens?: number; temperature?: number } = {},
+  conversationId?: string
 ): Promise<string> {
   return sendCopilotRequestWithRetry(messages, onChunk, model, {
     maxTokens: options.maxTokens ?? 4096,
     temperature: options.temperature ?? 0.7
-  })
+  }, conversationId)
 }
 
-export function abortCopilotStream(): void {
-  if (activeRequest) {
-    activeRequest.destroy()
-    activeRequest = null
+export function abortCopilotStream(conversationId?: string): void {
+  if (conversationId) {
+    const req = activeRequests.get(conversationId)
+    if (req) {
+      req.destroy()
+      activeRequests.delete(conversationId)
+    }
+    return
   }
+
+  for (const req of activeRequests.values()) req.destroy()
+  activeRequests.clear()
 }
 
 export function clearCopilotTokenCache(): void {

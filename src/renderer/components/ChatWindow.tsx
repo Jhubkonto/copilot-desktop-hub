@@ -979,7 +979,7 @@ export function ChatWindow() {
 
   const handleStop = async () => {
     try {
-      await window.api.stopGeneration();
+      await window.api.stopGeneration(conversationId ?? undefined);
       // Save partial streamed content if any
       const partialContent = streamingContentRef.current;
       if (partialContent) {

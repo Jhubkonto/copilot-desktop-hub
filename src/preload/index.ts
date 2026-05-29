@@ -54,7 +54,7 @@ const api = {
     ipcRenderer.on('chat:stream-error', handler)
     return () => ipcRenderer.removeListener('chat:stream-error', handler)
   },
-  stopGeneration: () => ipcRenderer.invoke('chat:stop-generation'),
+  stopGeneration: (conversationId?: string) => ipcRenderer.invoke('chat:stop-generation', conversationId),
 
   // Conversations
   listConversations: () => ipcRenderer.invoke('conversation:list'),

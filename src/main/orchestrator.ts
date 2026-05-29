@@ -123,13 +123,13 @@ export async function runOrchestration(
   // Running conversation messages for the orchestration loop
   const loopMessages: ProviderMessage[] = [
     {
-      role: 'system',
+      role: 'system' as const,
       content: leaderSystemPrompt
         ? `${leaderSystemPrompt}${teamManifest}`
         : `You are GitHub Copilot, an AI programming assistant.${teamManifest}`
     },
     ...historyMessages,
-    { role: 'user', content: userContent }
+    { role: 'user' as const, content: userContent }
   ]
 
   const memberIds = new Set(teamAgents.filter((a) => !a.isPrimary).map((a) => a.agentId))
@@ -165,14 +165,12 @@ export async function runOrchestration(
     if (!targetAgent || !memberIds.has(targetAgentId)) {
       // Unknown agent — inject error and let leader recover
       loopMessages.push({
-        role: 'assistant',
-        content: null as unknown as string,
-        // @ts-expect-error — tool_calls field for OpenAI API
+        role: 'assistant' as const,
+        content: null,
         tool_calls: [{ id: call.id, type: 'function', function: { name: 'delegate_to_agent', arguments: JSON.stringify(call.arguments) } }]
       })
       loopMessages.push({
-        role: 'tool',
-        // @ts-expect-error — tool_call_id field for OpenAI API
+        role: 'tool' as const,
         tool_call_id: call.id,
         content: `Error: Unknown agent_id "${targetAgentId}". Please choose from the listed team members.`
       })
@@ -198,12 +196,12 @@ export async function runOrchestration(
     const taskContent = context ? `${task}\n\nContext:\n${context}` : task
     const specialistMessages: ProviderMessage[] = [
       {
-        role: 'system',
+        role: 'system' as const,
         content: specialistSystemPrompt
           ? `${specialistSystemPrompt}\n\nYou are a specialist in the team. Answer concisely and factually.`
           : 'You are a specialist AI assistant. Answer concisely and factually.'
       },
-      { role: 'user', content: taskContent }
+      { role: 'user' as const, content: taskContent }
     ]
 
     const delegateStart = Date.now()
@@ -214,7 +212,8 @@ export async function runOrchestration(
         specialistMessages,
         () => { /* sub-agent responses are not streamed to the user */ },
         copilotModel,
-        generationOptions
+        generationOptions,
+        opts.conversationId
       )
       step.status = 'done'
       step.result = specialistResult
@@ -231,14 +230,12 @@ export async function runOrchestration(
 
     // Append the assistant's tool call + tool result to the loop messages
     loopMessages.push({
-      role: 'assistant',
-      content: null as unknown as string,
-      // @ts-expect-error — tool_calls field for OpenAI API
+      role: 'assistant' as const,
+      content: null,
       tool_calls: [{ id: call.id, type: 'function', function: { name: 'delegate_to_agent', arguments: JSON.stringify(call.arguments) } }]
     })
     loopMessages.push({
-      role: 'tool',
-      // @ts-expect-error — tool_call_id field for OpenAI API
+      role: 'tool' as const,
       tool_call_id: call.id,
       content: specialistResult
     })
@@ -250,14 +247,15 @@ export async function runOrchestration(
     [
       ...loopMessages,
       {
-        role: 'user',
+        role: 'user' as const,
         content:
           'You have reached the maximum delegation depth. Please provide your final answer now based on all gathered information.'
       }
     ],
     (chunk) => window.webContents.send('chat:stream-response', chunk),
     copilotModel,
-    generationOptions
+    generationOptions,
+    opts.conversationId
   )
   window.webContents.send('chat:stream-response', null)
   return { finalContent: finalResult, teamActivity: teamActivitySteps }
