@@ -152,6 +152,17 @@ function capturedUserContent(): string | undefined {
   return typeof userMsg?.content === 'string' ? userMsg.content : undefined
 }
 
+/**
+ * Returns the SYSTEM-message content from the last Copilot API call.
+ */
+function capturedSystemContent(): string | undefined {
+  const call = mockSendCopilotChatMessage.mock.calls.at(-1)
+  if (!call) return undefined
+  const msgs = call[1] as Array<{ role: string; content: unknown }>
+  const sysMsg = msgs.find((m) => m.role === 'system')
+  return typeof sysMsg?.content === 'string' ? sysMsg.content : undefined
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe('R.2 — directory context injection', () => {
@@ -209,6 +220,12 @@ describe('R.2 — directory context injection', () => {
     expect(userContent).toContain('README.md')
     expect(userContent).toContain('src/')
     expect(userContent).toContain('[/Project File Structure]')
+
+    // System prompt must instruct the model to use the listing and not deny filesystem access
+    const sysContent = capturedSystemContent()
+    expect(sysContent).toBeDefined()
+    expect(sysContent).toContain('/home/user/myproject')
+    expect(sysContent).toContain('do NOT say you cannot access the file system')
   })
 
   it('r2-2: does NOT inject file structure when rootDirectory is not set', async () => {
