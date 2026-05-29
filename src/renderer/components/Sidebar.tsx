@@ -97,6 +97,8 @@ export function Sidebar() {
   const setConversationProject = useAppStore((s) => s.setConversationProject)
   const activeSectionPane = useAppStore((s) => s.activeSectionPane)
   const setSectionPane = useAppStore((s) => s.setSectionPane)
+  const setHistoryProjectId = useAppStore((s) => s.setHistoryProjectId)
+  const historyProjectId = useAppStore((s) => s.historyProjectId)
   const setShowNewProjectForm = useAppStore((s) => s.setShowNewProjectForm)
 
   const [searchQuery, setSearchQuery] = useState('')
@@ -304,7 +306,7 @@ export function Sidebar() {
       aria-label="Sidebar navigation"
     >
       <ResizeHandle direction="horizontal" containerRef={sidebarRef} onSetSize={handleSetSize} />
-      <div className="p-4 border-b border-gray-200 dark:border-gray-700/80">
+      <div className="flex items-center px-4 h-9 border-b border-gray-200 dark:border-gray-700/80">
         <h2 className="text-sm font-medium text-gray-800 dark:text-gray-100 tracking-wide">
           Copilot Desktop Hub
         </h2>
@@ -335,7 +337,13 @@ export function Sidebar() {
                 {projectsOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
               </button>
               <button
-                onClick={() => setSectionPane('projects')}
+                onClick={() => {
+                  if (activeSectionPane === 'projects' && historyProjectId !== null) {
+                    setHistoryProjectId(null)
+                  } else {
+                    setSectionPane('projects')
+                  }
+                }}
                 className={`text-xs font-medium uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300 ${
                   activeSectionPane === 'projects'
                     ? 'text-blue-500 dark:text-blue-400'
