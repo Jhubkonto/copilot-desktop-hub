@@ -600,15 +600,9 @@ describe("SectionPane — No Project bucket & Project History (Q1/Q2)", () => {
     setupStoreMock(useAppStore, mockStore);
   });
 
-  it("q1-1: '(No project)' sentinel card renders in ProjectsPane", () => {
+  it("q1-1: '(No project)' sentinel is NOT rendered in ProjectsPane (moved to sidebar)", () => {
     render(<SectionPane section="projects" />);
-    expect(screen.getByText(/no project/i)).toBeInTheDocument();
-  });
-
-  it("q1-2: clicking '(No project)' sentinel calls selectProject with '__none__'", async () => {
-    render(<SectionPane section="projects" />);
-    await userEvent.click(screen.getByText(/no project/i));
-    expect(mockStore.selectProject).toHaveBeenCalledWith("__none__");
+    expect(screen.queryByLabelText(/no project.*unaffiliated/i)).not.toBeInTheDocument();
   });
 
   it("q2-1: when historyProjectId is set, ProjectHistoryPane renders instead of ProjectsPane", () => {

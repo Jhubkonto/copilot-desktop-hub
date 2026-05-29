@@ -244,20 +244,6 @@ function ProjectsPane() {
           </p>
         )}
 
-        {/* __none__ sentinel */}
-        <div
-          className={`flex items-center gap-2 rounded-lg overflow-hidden cursor-pointer transition-colors ${
-            activeProjectId === '__none__'
-              ? 'bg-gray-100 dark:bg-gray-800'
-              : 'hover:bg-gray-50 dark:hover:bg-gray-800/60'
-          }`}
-          onClick={() => selectProject('__none__')}
-          aria-label="No project — view unaffiliated chats"
-        >
-          <div className="w-1 self-stretch shrink-0 bg-gray-300 dark:bg-gray-600" />
-          <MessageSquare className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-          <span className="py-2 flex-1 text-xs text-gray-500 dark:text-gray-400 italic">No project</span>
-        </div>
       </div>
 
       {pendingDeleteProject && (
@@ -577,7 +563,7 @@ function ChatsPane() {
           )}
         </div>
         <button
-          onClick={newChat}
+          onClick={() => newChat()}
           className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 px-2 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors shrink-0"
           aria-label="New chat"
         >
@@ -710,7 +696,7 @@ function ProjectHistoryPane() {
           )}
         </div>
         <button
-          onClick={newChat}
+          onClick={() => newChat({ projectId: historyProjectId === '__none__' ? null : historyProjectId })}
           className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 px-2 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors shrink-0"
           aria-label="New chat"
         >
