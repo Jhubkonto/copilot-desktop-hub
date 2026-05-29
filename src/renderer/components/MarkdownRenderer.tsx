@@ -41,7 +41,7 @@ interface MarkdownRendererProps {
 
 export function MarkdownRenderer({ content }: MarkdownRendererProps) {
   return (
-    <div className="markdown-body prose prose-sm dark:prose-invert max-w-none">
+    <div className="markdown-body prose prose-sm dark:prose-invert max-w-none break-words">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeHighlight]}
