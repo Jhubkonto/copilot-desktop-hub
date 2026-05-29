@@ -23,8 +23,8 @@ function hasIpcError(result: unknown): result is { error: string } {
 
 interface UseChatWindowActionsParams {
   conversationId: string | null
-  activeAgentId: string | null
-  activeProjectId: string | null
+  chatAgentId: string | null
+  chatProjectId: string | null
   activeAgent: AgentConfig | null
   effectiveModel: string
   effectiveModelLabel: string
@@ -73,7 +73,7 @@ interface UseChatWindowActionsParams {
   addToast: (message: string, type?: ToastType) => void
   pushSystemMessage: (content: string) => void
   buildConversationMarkdown: () => string
-  newChat: () => void
+  newChat: (opts?: { projectId?: string | null; agentId?: string | null }) => void
   login: () => Promise<void>
   logout: () => Promise<void>
   setTheme: (theme: Theme) => void
@@ -83,8 +83,8 @@ interface UseChatWindowActionsParams {
 
 export function useChatWindowActions({
   conversationId,
-  activeAgentId,
-  activeProjectId,
+  chatAgentId,
+  chatProjectId,
   activeAgent,
   effectiveModel,
   effectiveModelLabel,
@@ -351,10 +351,10 @@ export function useChatWindowActions({
       await window.api.sendMessage(conversation, content, {
         attachments,
         images,
-        agentId: activeAgentId ?? undefined,
+        agentId: chatAgentId ?? undefined,
         model: requestModel,
         messageId: userMessage.id,
-        projectId: activeProjectId ?? undefined,
+        projectId: chatProjectId ?? undefined,
         contextSnapshot: contextSnapshotJson,
       })
     } catch (error) {
@@ -409,8 +409,8 @@ export function useChatWindowActions({
     activeConversationRef,
     justCreatedConversationRef,
     conversationCreated,
-    activeAgentId,
-    activeProjectId,
+    chatAgentId,
+    chatProjectId,
   ])
 
   const handleRetry = useCallback(async () => {

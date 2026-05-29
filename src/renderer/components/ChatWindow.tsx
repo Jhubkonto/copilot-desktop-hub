@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from 'react'
 import { getModelLabel } from '../../shared/models'
-import type { AgentConfig } from '../../shared/types'
+import { isApiError, type AgentConfig } from '../../shared/types'
 import type { ToastType } from '../hooks/chat-types'
 import { useAtMenu } from '../hooks/useAtMenu'
 import { useChat } from '../hooks/useChat'
@@ -21,11 +21,12 @@ export function ChatWindow() {
   const conversations = useAppStore((state) => state.conversations)
   const authenticated = useAppStore((state) => state.authState.authenticated)
   const theme = useAppStore((state) => state.theme)
-  const projectAgents = useAppStore((state) => state.projectAgents)
   const conversationCreated = useAppStore((state) => state.conversationCreated)
   const loadConversations = useAppStore((state) => state.loadConversations)
   const loadAgents = useAppStore((state) => state.loadAgents)
   const newChat = useAppStore((state) => state.newChat)
+  const setActiveProjectId = useAppStore((state) => state.setActiveProjectId)
+  const setActiveAgentId = useAppStore((state) => state.setActiveAgentId)
   const setTheme = useAppStore((state) => state.setTheme)
   const login = useAppStore((state) => state.login)
   const logout = useAppStore((state) => state.logout)
@@ -41,9 +42,11 @@ export function ChatWindow() {
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [projectRootDir, setProjectRootDir] = useState<string | null>(null)
   const [inputPanelHeight, setInputPanelHeight] = useState<number | null>(null)
+  const [openContextPicker, setOpenContextPicker] = useState<'project' | 'agent' | null>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const modelPickerRef = useRef<HTMLSelectElement>(null)
+  const contextPickerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const inputPanelResizeRef = useRef<{ startY: number; startHeight: number } | null>(null)
   const inputHistoryRef = useRef<string[]>([])
@@ -51,25 +54,25 @@ export function ChatWindow() {
   const historyDraftRef = useRef('')
   const rateLimitSetterRef = useRef<(seconds: number) => void>(() => {})
 
-  const activeAgent = activeAgentId
-    ? (agents.find((agent) => agent.id === activeAgentId) ?? null)
-    : null
   const currentConversation = conversationId
     ? (conversations.find((conversation) => conversation.id === conversationId) ?? null)
     : null
+  const isNewChat = !currentConversation
   const conversationModel = currentConversation?.model ?? null
-  const projectId = currentConversation?.project_id ?? activeProjectId
-  const currentProject = projectId ? (projects.find((project) => project.id === projectId) ?? null) : null
-  const projectDefaultModel = currentProject?.default_model ?? null
-  const effectiveModel = pendingModel || conversationModel || activeAgent?.model || projectDefaultModel || defaultModelSetting || 'default'
+  const chatProjectId = isNewChat ? activeProjectId : (currentConversation?.project_id ?? null)
+  const chatProject = chatProjectId
+    ? (projects.find((project) => project.id === chatProjectId) ?? null)
+    : null
+  const chatAgentId = isNewChat ? activeAgentId : (currentConversation?.agent_id ?? null)
+  const chatAgent = chatAgentId ? (agents.find((agent) => agent.id === chatAgentId) ?? null) : null
+  const projectDefaultModel = chatProject?.default_model ?? null
+  const effectiveModel = pendingModel || conversationModel || chatAgent?.model || projectDefaultModel || defaultModelSetting || 'default'
   const effectiveModelLabel = getModelLabel(effectiveModel)
-  const primaryProjectAgent = projectId ? ((projectAgents[projectId] ?? []).find((agent) => agent.isPrimary) ?? null) : null
-  const displayAgent = activeAgent ?? (primaryProjectAgent ? (agents.find((agent) => agent.id === primaryProjectAgent.agentId) ?? null) : null)
 
   const chat = useChat({
     conversationId,
-    activeAgentId,
-    activeProjectId,
+    activeAgentId: chatAgentId,
+    activeProjectId: chatProjectId,
     effectiveModel,
     addToast,
     loadConversations,
@@ -87,9 +90,9 @@ export function ChatWindow() {
 
   const actions = useChatWindowActions({
     conversationId,
-    activeAgentId,
-    activeProjectId,
-    activeAgent,
+    chatAgentId,
+    chatProjectId,
+    activeAgent: chatAgent,
     effectiveModel,
     effectiveModelLabel,
     conversationModel,
@@ -172,13 +175,13 @@ export function ChatWindow() {
   }, [])
 
   useEffect(() => {
-    if (!projectId || projectId === '__none__') {
+    if (!chatProjectId || chatProjectId === '__none__') {
       setProjectRootDir(null)
       return
     }
 
     window.api
-      .getProjectConfig(projectId)
+      .getProjectConfig(chatProjectId)
       .then((config: unknown) => {
         const rootDir =
           config && typeof config === 'object' && 'rootDirectory' in config && typeof (config as Record<string, unknown>).rootDirectory === 'string'
@@ -187,11 +190,31 @@ export function ChatWindow() {
         setProjectRootDir(rootDir || null)
       })
       .catch(() => setProjectRootDir(null))
-  }, [projectId])
+  }, [chatProjectId])
 
   useEffect(() => {
     setPendingModel(null)
   }, [conversationId])
+
+  useEffect(() => {
+    if (!openContextPicker) return
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (contextPickerRef.current?.contains(event.target as Node)) return
+      setOpenContextPicker(null)
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+    }
+  }, [openContextPicker])
+
+  useEffect(() => {
+    if (chat.isGenerating) {
+      setOpenContextPicker(null)
+    }
+  }, [chat.isGenerating])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -234,12 +257,174 @@ export function ChatWindow() {
     window.addEventListener('pointerup', onUp)
   }, [])
 
+  const updateConversationContext = useCallback(
+    async (updates: { projectId?: string | null; agentId?: string | null }) => {
+      if (!currentConversation) return
+      try {
+        const result = await window.api.updateConversationContext(currentConversation.id, updates)
+        if (isApiError(result)) {
+          addToast('Failed to update chat context', 'error')
+          return
+        }
+        await loadConversations()
+      } catch {
+        addToast('Failed to update chat context', 'error')
+      }
+    },
+    [addToast, currentConversation, loadConversations],
+  )
+
+  const handleProjectContextChange = useCallback(
+    async (projectId: string | null) => {
+      setOpenContextPicker(null)
+      if (isNewChat) {
+        setActiveProjectId(projectId)
+        return
+      }
+      await updateConversationContext({ projectId })
+    },
+    [isNewChat, setActiveProjectId, updateConversationContext],
+  )
+
+  const handleAgentContextChange = useCallback(
+    async (agentId: string | null) => {
+      setOpenContextPicker(null)
+      if (isNewChat) {
+        setActiveAgentId(agentId)
+        return
+      }
+      await updateConversationContext({ agentId })
+    },
+    [isNewChat, setActiveAgentId, updateConversationContext],
+  )
+
+  const contextBar = (
+    <div
+      ref={contextPickerRef}
+      className="flex items-center gap-2 px-4 h-9 border-b border-gray-200 dark:border-gray-700/80 bg-gray-50 dark:bg-gray-800/50"
+      aria-label="Chat context"
+    >
+      <div className="relative">
+        <button
+          type="button"
+          disabled={chat.isGenerating}
+          onClick={() => setOpenContextPicker((current) => (current === 'project' ? null : 'project'))}
+          className="inline-flex items-center gap-1 px-2 rounded-full text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
+          style={{ lineHeight: '20px' }}
+          aria-label="Select project context"
+        >
+          {chatProject ? (
+            <>
+              <span className={`w-2 h-2 rounded-full bg-${chatProject.color}-400`} aria-hidden="true" />
+              {chatProject.name}
+            </>
+          ) : (
+            'No project'
+          )}
+          <span className="text-gray-400" aria-hidden="true">▾</span>
+        </button>
+        {openContextPicker === 'project' && (
+          <div className="absolute left-0 top-full mt-1 z-20 w-56 max-h-72 overflow-y-auto rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg p-1">
+            <button
+              type="button"
+              onClick={() => void handleProjectContextChange(null)}
+              className={`w-full flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                chatProjectId === null ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
+              }`}
+            >
+              <span>No project</span>
+              {chatProjectId === null && <span aria-hidden="true">✓</span>}
+            </button>
+            {projects.map((project) => (
+              <button
+                key={project.id}
+                type="button"
+                onClick={() => void handleProjectContextChange(project.id)}
+                className={`w-full flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                  chatProjectId === project.id ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`}
+              >
+                <span className="flex items-center gap-2 min-w-0">
+                  <span className={`w-2 h-2 rounded-full shrink-0 bg-${project.color}-400`} aria-hidden="true" />
+                  <span className="truncate">{project.name}</span>
+                </span>
+                {chatProjectId === project.id && <span aria-hidden="true">✓</span>}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="relative">
+        <button
+          type="button"
+          disabled={chat.isGenerating}
+          onClick={() => setOpenContextPicker((current) => (current === 'agent' ? null : 'agent'))}
+          className="inline-flex items-center gap-1 px-2 rounded-full text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
+          style={{ lineHeight: '20px' }}
+          aria-label="Select agent context"
+        >
+          {chatAgent ? (
+            <>
+              <span aria-hidden="true">{chatAgent.icon}</span>
+              {chatAgent.name}
+            </>
+          ) : (
+            'No agent'
+          )}
+          <span className="text-gray-400" aria-hidden="true">▾</span>
+        </button>
+        {openContextPicker === 'agent' && (
+          <div className="absolute left-0 top-full mt-1 z-20 w-56 max-h-72 overflow-y-auto rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg p-1">
+            <button
+              type="button"
+              onClick={() => void handleAgentContextChange(null)}
+              className={`w-full flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                chatAgentId === null ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
+              }`}
+            >
+              <span>No agent</span>
+              {chatAgentId === null && <span aria-hidden="true">✓</span>}
+            </button>
+            {agents.map((agent) => (
+              <button
+                key={agent.id}
+                type="button"
+                onClick={() => void handleAgentContextChange(agent.id)}
+                className={`w-full flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                  chatAgentId === agent.id ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`}
+              >
+                <span className="flex items-center gap-2 min-w-0">
+                  <span aria-hidden="true">{agent.icon}</span>
+                  <span className="truncate">{agent.name}</span>
+                </span>
+                {chatAgentId === agent.id && <span aria-hidden="true">✓</span>}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {projectRootDir && (
+        <span
+          className="inline-flex items-center gap-1 px-2 rounded-full text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400"
+          style={{ lineHeight: '20px' }}
+          title={`File structure context active: ${projectRootDir}`}
+          aria-label={`File structure context active: ${projectRootDir}`}
+        >
+          📁
+        </span>
+      )}
+    </div>
+  )
+
   const composer = (
     <ChatComposer
       input={input}
       inputRef={inputRef}
       messages={chat.messages}
-      activeAgent={activeAgent as AgentConfig | null}
+      activeAgent={chatAgent as AgentConfig | null}
       authenticated={authenticated}
       isOnline={isOnline}
       isGenerating={chat.isGenerating}
@@ -289,13 +474,14 @@ export function ChatWindow() {
         onDragLeave={fileInput.handleDragLeave}
         onDrop={fileInput.handleDrop}
       >
+        {contextBar}
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center max-w-md">
             <h2 className="text-2xl font-medium text-gray-700 dark:text-gray-200 mb-2">
-              {activeAgent ? `${activeAgent.icon} ${activeAgent.name}` : 'Copilot Desktop Hub'}
+              {chatAgent ? `${chatAgent.icon} ${chatAgent.name}` : 'Copilot Desktop Hub'}
             </h2>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-              {activeAgent ? `Start a conversation with ${activeAgent.name}` : 'Start a conversation with GitHub Copilot'}
+              {chatAgent ? `Start a conversation with ${chatAgent.name}` : 'Start a conversation with GitHub Copilot'}
             </p>
             {!authenticated && (
               <button
@@ -324,32 +510,7 @@ export function ChatWindow() {
       role="region"
       aria-label="Chat conversation"
     >
-      {(currentProject || displayAgent) && (
-        <div className="flex items-center gap-2 px-4 h-9 border-b border-gray-200 dark:border-gray-700/80 bg-gray-50 dark:bg-gray-800/50" aria-label="Chat context">
-          {currentProject && (
-            <span className="inline-flex items-center gap-1 px-2 rounded-full text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300" style={{lineHeight: '20px'}}>
-              <span className={`w-2 h-2 rounded-full bg-${currentProject.color}-400`} aria-hidden="true" />
-              {currentProject.name}
-            </span>
-          )}
-          {displayAgent && (
-            <span className="inline-flex items-center gap-1 px-2 rounded-full text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300" style={{lineHeight: '20px'}}>
-              <span aria-hidden="true">{displayAgent.icon}</span>
-              {displayAgent.name}
-            </span>
-          )}
-          {projectRootDir && (
-            <span
-              className="inline-flex items-center gap-1 px-2 rounded-full text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400"
-              style={{lineHeight: '20px'}}
-              title={`File structure context active: ${projectRootDir}`}
-              aria-label={`File structure context active: ${projectRootDir}`}
-            >
-              📁
-            </span>
-          )}
-        </div>
-      )}
+      {contextBar}
 
       <ChatMessages
         messages={chat.messages}

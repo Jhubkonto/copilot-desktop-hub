@@ -136,7 +136,7 @@ export interface SlashCommandContext {
   conversationModel: string | null
   theme: 'light' | 'dark'
   pushSystemMessage: (text: string) => void
-  newChat: () => void
+  newChat: (opts?: { projectId?: string | null; agentId?: string | null }) => void
   login: () => Promise<void>
   logout: () => Promise<void>
   setInput: (value: string) => void

@@ -598,7 +598,7 @@ describe("ChatWindow — Context Bar (O.1)", () => {
     );
   });
 
-  it("o1-3: context bar shows active agent name", async () => {
+  it("o1-3: context bar shows conversation agent name", async () => {
     mockStore = createMockAppStore({
       authState: { authenticated: true, user: null },
       currentConversationId: "conv-1",
@@ -607,6 +607,7 @@ describe("ChatWindow — Context Bar (O.1)", () => {
           id: "conv-1",
           title: "T",
           project_id: "proj-1",
+          agent_id: "a1",
           model: null,
           pinned: false,
           created_at: 0,
@@ -614,7 +615,7 @@ describe("ChatWindow — Context Bar (O.1)", () => {
         },
       ],
       agents: [{ id: "a1", name: "Coder", icon: "🧑‍💻", model: "gpt-4.1" }],
-      activeAgentId: "a1",
+      activeAgentId: "stale-agent",
       projects: [
         {
           id: "proj-1",
@@ -630,7 +631,7 @@ describe("ChatWindow — Context Bar (O.1)", () => {
     await waitFor(() => expect(screen.getByText("Coder")).toBeInTheDocument());
   });
 
-  it("o1-4: context bar shows primary project agent when no explicit active agent", async () => {
+  it("o1-4: context bar does not fall back to a project primary agent", async () => {
     mockStore = createMockAppStore({
       authState: { authenticated: true, user: null },
       currentConversationId: "conv-1",
@@ -670,9 +671,10 @@ describe("ChatWindow — Context Bar (O.1)", () => {
     });
     setupStoreMock(useAppStore, mockStore);
     render(<ChatWindow />);
-    await waitFor(() =>
-      expect(screen.getByText("Reviewer")).toBeInTheDocument(),
-    );
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /select agent context/i })).toHaveTextContent("No agent");
+      expect(screen.queryByText("Reviewer")).not.toBeInTheDocument();
+    });
   });
 });
 
@@ -703,7 +705,7 @@ describe("ChatWindow — Model Dropdown (O.2)", () => {
     });
   });
 
-  it("o2-2: model dropdown falls back to agent model when no conversation override", async () => {
+  it("o2-2: model dropdown ignores stale active agent state for existing chats", async () => {
     mockStore = createMockAppStore({
       authState: { authenticated: true, user: null },
       currentConversationId: "conv-1",
@@ -727,7 +729,7 @@ describe("ChatWindow — Model Dropdown (O.2)", () => {
       const select = screen.getByRole("combobox", {
         name: /conversation model/i,
       });
-      expect((select as HTMLSelectElement).value).toBe("gpt-4.1");
+      expect((select as HTMLSelectElement).value).toBe("default");
     });
   });
 
