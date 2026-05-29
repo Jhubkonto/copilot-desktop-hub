@@ -11,7 +11,7 @@ export interface ConversationSlice {
   selectConversation: (id: string | null) => void
   deleteConversation: (id: string) => Promise<void>
   conversationCreated: (id: string) => Promise<void>
-  newChat: () => void
+  newChat: (opts?: { projectId?: string | null; agentId?: string | null }) => void
 }
 
 export const createConversationSlice: StateCreator<
@@ -75,9 +75,11 @@ export const createConversationSlice: StateCreator<
     await get().loadConversations()
   },
 
-  newChat: () => {
+  newChat: (opts) => {
     set((s) => {
       s.currentConversationId = null
+      s.activeProjectId = opts?.projectId ?? null
+      s.activeAgentId = opts?.agentId ?? null
     })
   }
 })

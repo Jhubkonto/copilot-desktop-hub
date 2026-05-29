@@ -21,6 +21,7 @@ export interface ProjectSlice {
   projectConfigs: Record<string, ProjectConfig>
   loadProjects: () => Promise<void>
   selectProject: (id: string | null) => void
+  setActiveProjectId: (id: string | null) => void
   setHistoryProjectId: (id: string | null) => void
   createProject: (name: string, color: string) => Promise<void>
   renameProject: (id: string, name: string) => Promise<void>
@@ -93,41 +94,20 @@ export const createProjectSlice: StateCreator<
   selectProject: (id) => {
     set((s) => {
       s.activeProjectId = id
-      s.currentConversationId = null
       s.historyProjectId = id
       if (id !== null) s.activeSectionPane = 'projects'
     })
-    if (id && id !== '__none__') {
-      const existing = get().projectAgents[id]
-      const applyPrimary = (agents: typeof existing) => {
-        const primary = agents?.find((a) => a.isPrimary)
-        if (primary)
-          set((s) => {
-            s.activeAgentId = primary.agentId
-          })
-      }
-      if (existing) {
-        applyPrimary(existing)
-      } else {
-        window.api
-          .listProjectAgents(id)
-          .then((result) => {
-            if (!isApiError(result)) {
-              set((s) => {
-                s.projectAgents[id] = result
-              })
-              applyPrimary(result)
-            }
-          })
-          .catch(() => {
-            /* ignore */
-          })
-      }
-    } else {
+    if (!id || id === '__none__') {
       set((s) => {
         s.activeAgentId = null
       })
     }
+  },
+
+  setActiveProjectId: (id) => {
+    set((s) => {
+      s.activeProjectId = id
+    })
   },
 
   setHistoryProjectId: (id) => {

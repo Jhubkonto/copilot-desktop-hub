@@ -13,6 +13,7 @@ export interface AgentSlice {
   pendingDeleteAgent: DeleteAgentImpact | null
   loadAgents: () => Promise<void>
   selectAgent: (id: string | null) => void
+  setActiveAgentId: (id: string | null) => void
   openCreateAgent: () => void
   openEditAgent: (id: string) => void
   closeAgentPanel: () => void
@@ -61,6 +62,12 @@ export const createAgentSlice: StateCreator<
   },
 
   selectAgent: (id) => {
+    set((s) => {
+      s.activeAgentId = id
+    })
+  },
+
+  setActiveAgentId: (id) => {
     set((s) => {
       s.activeAgentId = id
     })
