@@ -5,6 +5,13 @@ import type { ContextSnapshot } from '../hooks/chat-types'
 import { ContextSnapshotBadge } from './ContextInspector'
 import { MODEL_OPTIONS, getModelLabel, getModelMultiplier } from '../../shared/models'
 
+// Strip injected context blocks (e.g. [Project File Structure]...[/Project File Structure])
+// from user-facing message content — these are internal and shouldn't be shown in the bubble.
+const INJECTED_BLOCK_RE = /\[[A-Za-z][^\]]*\]\n[\s\S]*?\[\/[A-Za-z][^\]]*\]\n*/g
+function stripInjectedBlocks(text: string): string {
+  return text.replace(INJECTED_BLOCK_RE, '').trimStart()
+}
+
 interface Attachment {
   id: string
   name: string
@@ -184,7 +191,7 @@ export function MessageBubble({
             </>
           ) : !isError ? (
             <>
-              <div className="whitespace-pre-wrap">{content}</div>
+              <div className="whitespace-pre-wrap">{role === 'user' ? stripInjectedBlocks(content) : content}</div>
               {role === 'user' && isEdited && (
                 <div className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">edited</div>
               )}
