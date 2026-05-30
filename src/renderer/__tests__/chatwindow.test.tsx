@@ -148,7 +148,7 @@ describe("ChatWindow — Streaming", () => {
     await user.click(screen.getByRole("button", { name: /send/i }));
 
     expect(
-      screen.getByText(/Generating(\.\.\.|( · \d+s))/),
+      screen.getByText(/Thinking(\.\.\.|( · \d+s))/),
     ).toBeInTheDocument();
 
     act(() => {

@@ -1,11 +1,11 @@
-import { AlertCircle, Loader2 } from 'lucide-react'
+import { AlertCircle, Loader2, Wrench } from 'lucide-react'
 import { memo, type RefObject } from 'react'
 import { getModelLabel } from '../../../shared/models'
 import { MarkdownRenderer } from '../MarkdownRenderer'
 import { MessageBubble } from '../MessageBubble'
 import { TeamActivityBlock } from '../TeamActivityBlock'
 import { ToolCallBlock } from './ToolCallBlock'
-import type { ChatMessage, TeamActivityStep } from '../../hooks/chat-types'
+import type { ActivityEvent, ChatMessage, TeamActivityStep } from '../../hooks/chat-types'
 
 interface ChatMessagesProps {
   messages: ChatMessage[]
@@ -14,6 +14,7 @@ interface ChatMessagesProps {
   isGenerating: boolean
   liveTeamActivity: TeamActivityStep[]
   streamingContent: string
+  currentActivity?: ActivityEvent | null
   generationElapsedSec: number
   loadingFailed: boolean
   messagesEndRef: RefObject<HTMLDivElement | null>
@@ -36,6 +37,7 @@ export function ChatMessagesBase({
   isGenerating,
   liveTeamActivity,
   streamingContent,
+  currentActivity,
   generationElapsedSec,
   loadingFailed,
   messagesEndRef,
@@ -169,10 +171,16 @@ export function ChatMessagesBase({
           <div className="flex justify-start">
             <div className="bg-gray-100 dark:bg-gray-800 rounded-2xl px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
               <div className="flex items-center gap-2 mb-2">
-                <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                {currentActivity?.type === 'tool' ? (
+                  <Wrench className="w-3.5 h-3.5 animate-pulse shrink-0 text-blue-500 dark:text-blue-400" />
+                ) : (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                )}
                 <span>
-                  Generating
-                  {generationElapsedSec > 0 ? ` · ${generationElapsedSec}s` : '...'}
+                  {currentActivity?.type === 'tool'
+                    ? <>Using <span className="font-mono text-blue-600 dark:text-blue-400">{currentActivity.name}</span>{currentActivity.server ? <span className="text-gray-400 dark:text-gray-500"> · {currentActivity.server}</span> : null}</>
+                    : <>Thinking{generationElapsedSec > 0 ? ` · ${generationElapsedSec}s` : '...'}</>
+                  }
                 </span>
               </div>
               <div className="flex items-center gap-1">

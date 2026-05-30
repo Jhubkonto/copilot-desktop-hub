@@ -83,6 +83,12 @@ const api = {
     typedOn('chat:tool-call-event', handler)
     return () => typedOff('chat:tool-call-event', handler)
   },
+  onActivity: (callback: (event: { type: 'thinking' } | { type: 'tool'; name: string; server: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { type: 'thinking' } | { type: 'tool'; name: string; server: string }) =>
+      callback(data)
+    typedOn('chat:activity', handler)
+    return () => typedOff('chat:activity', handler)
+  },
   stopGeneration: (conversationId?: string) => typedInvoke('chat:stop-generation', conversationId),
 
   // Conversations

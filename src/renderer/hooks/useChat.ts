@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
 import { getModelLabel } from '../../shared/models'
-import type { ChatMessage, ConversationDbMessage, StreamError, TeamActivityStep, ToolCallEvent, ToastType } from './chat-types'
+import type { ActivityEvent, ChatMessage, ConversationDbMessage, StreamError, TeamActivityStep, ToolCallEvent, ToastType } from './chat-types'
 
 interface UseChatParams {
   conversationId: string | null
@@ -27,6 +27,7 @@ export function useChat({
   const [isLoadingMessages, setIsLoadingMessages] = useState(false)
   const [liveTeamActivity, setLiveTeamActivity] = useState<TeamActivityStep[]>([])
   const [generationStartedAt, setGenerationStartedAt] = useState<number | null>(null)
+  const [currentActivity, setCurrentActivity] = useState<ActivityEvent | null>(null)
 
   const streamingContentRef = useRef('')
   const liveToolCallsRef = useRef<ChatMessage[]>([])
@@ -117,6 +118,7 @@ export function useChat({
     setIsGenerating(false)
     setGenerationStartedAt(null)
     setLiveTeamActivity([])
+    setCurrentActivity(null)
     liveToolCallsRef.current = []
     setLoadingFailed(false)
   }, [conversationId, addToast])
@@ -142,6 +144,7 @@ export function useChat({
         setLoadingFailed(false)
         setGenerationStartedAt(null)
         setLiveTeamActivity([])
+        setCurrentActivity(null)
         liveToolCallsRef.current = []
         // Now that the new response arrived, delete the old assistant message from DB.
         if (pendingDeleteMessageRef.current) {
@@ -164,6 +167,7 @@ export function useChat({
       setIsGenerating(false)
       setLoadingFailed(false)
       setGenerationStartedAt(null)
+      setCurrentActivity(null)
       liveToolCallsRef.current = []
 
       if (preRegenMessagesRef.current) {
@@ -215,10 +219,15 @@ export function useChat({
       setMessages((prev) => [...prev, toolCallMsg])
     })
 
+    const unsubscribeActivity = window.api.onActivity((event) => {
+      setCurrentActivity(event)
+    })
+
     return () => {
       unsubscribeStream()
       unsubscribeError()
       unsubscribeToolCall()
+      unsubscribeActivity()
     }
   }, [loadConversations, rateLimitSetterRef])
 
@@ -339,6 +348,8 @@ export function useChat({
     isLoadingMessages,
     liveTeamActivity,
     setLiveTeamActivity,
+    currentActivity,
+    setCurrentActivity,
     generationStartedAt,
     setGenerationStartedAt,
     streamingContentRef,

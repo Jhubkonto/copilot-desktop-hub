@@ -38,8 +38,13 @@ export async function runProviderMcpToolLoop(
   const loopMessages = [...baseMessages]
   let fullResponse = ''
 
+  const sendActivity = (event: { type: 'thinking' } | { type: 'tool'; name: string; server: string }) => {
+    if (!webContents.isDestroyed()) webContents.send('chat:activity', event)
+  }
+
   for (let i = 0; i < MCP_MAX_ITERATIONS; i++) {
     const toolChoice = i < MCP_REQUIRED_ITERATIONS ? 'required' : 'auto'
+    sendActivity({ type: 'thinking' })
     const result = await caller(loopMessages, toolDefs, toolChoice)
 
     if (!result.toolCalls || result.toolCalls.length === 0) {
@@ -66,6 +71,7 @@ export async function runProviderMcpToolLoop(
       let toolImages: { dataUrl: string }[] | undefined
       if (!resolved) {
         toolResultContent = `Error: Unknown tool "${call.name}"`
+        sendActivity({ type: 'tool', name: toolShortName, server: call.name.split('__')[0] ?? '' })
         if (!webContents.isDestroyed()) {
           webContents.send('chat:tool-call-event', {
             toolName: toolShortName,
@@ -76,6 +82,9 @@ export async function runProviderMcpToolLoop(
           })
         }
       } else {
+        const serverInstance = servers.get(resolved.serverId)
+        const serverName = serverInstance?.config.name ?? resolved.serverId
+        sendActivity({ type: 'tool', name: toolShortName, server: serverName })
         const toolResult = await callMcpTool(
           resolved.serverId,
           resolved.toolName,
@@ -90,10 +99,9 @@ export async function runProviderMcpToolLoop(
           toolImages = toolResult.images.map(img => ({ dataUrl: img.dataUrl }))
         }
         if (!webContents.isDestroyed()) {
-          const serverInstance = servers.get(resolved.serverId)
           webContents.send('chat:tool-call-event', {
             toolName: toolShortName,
-            serverName: serverInstance?.config.name ?? resolved.serverId,
+            serverName,
             args: call.arguments as Record<string, unknown>,
             result: toolResultContent,
             success: toolResult.success,
@@ -109,6 +117,7 @@ export async function runProviderMcpToolLoop(
     }
   }
 
+  sendActivity({ type: 'thinking' })
   const finalResult = await caller(loopMessages, undefined, 'none')
   const text = finalResult.content ?? ''
   onChunk(text)

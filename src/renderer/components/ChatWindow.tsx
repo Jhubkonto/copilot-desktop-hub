@@ -728,6 +728,7 @@ export function ChatWindow() {
           isGenerating={chat.isGenerating}
           liveTeamActivity={chat.liveTeamActivity}
           streamingContent={chat.streamingContent}
+          currentActivity={chat.currentActivity}
           generationElapsedSec={timers.generationElapsedSec}
           loadingFailed={chat.loadingFailed}
           messagesEndRef={messagesEndRef}

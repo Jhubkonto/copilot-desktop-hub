@@ -1,5 +1,9 @@
 export type ToastType = 'info' | 'success' | 'error'
 
+export type ActivityEvent =
+  | { type: 'thinking' }
+  | { type: 'tool'; name: string; server: string }
+
 export interface ToolCallEvent {
   toolName: string
   serverName: string
