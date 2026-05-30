@@ -6,6 +6,9 @@ directories:
 files:
   - dist/**/*
   - package.json
+asarUnpack:
+  - "node_modules/tesseract.js/**/*"
+  - "node_modules/tesseract.js-core/**/*"
 win:
   target:
     - target: nsis
