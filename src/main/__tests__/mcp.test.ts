@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 /* ── Hoisted mocks ─────────────────────────────────────────── */
 const { mockIpcMain, mockDb, mockOverrideRows } = vi.hoisted(() => {
@@ -48,8 +48,31 @@ const { mockRequestApproval } = vi.hoisted(() => ({
   mockRequestApproval: vi.fn().mockResolvedValue(true)
 }))
 
+const { MockClient, MockTransport } = vi.hoisted(() => {
+  class MockTransport {
+    close = vi.fn().mockResolvedValue(undefined)
+    onclose?: () => void
+  }
+
+  class MockClient {
+    connect = vi.fn().mockResolvedValue(undefined)
+    listTools = vi.fn().mockResolvedValue({ tools: [] })
+    callTool = vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'ok' }], isError: false })
+  }
+
+  return { MockClient, MockTransport }
+})
+
 vi.mock('../tools', () => ({
   requestApproval: mockRequestApproval
+}))
+
+vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
+  Client: MockClient
+}))
+
+vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
+  StdioClientTransport: MockTransport
 }))
 
 vi.mock('electron', () => ({
@@ -61,7 +84,7 @@ vi.mock('../database', () => ({
 }))
 
 /* ── Import & Register ─────────────────────────────────────── */
-import { registerMcpHandlers, servers } from '../mcp'
+import { registerMcpHandlers, disconnectServer, shutdownMcpServers, servers } from '../mcp'
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import type { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
@@ -102,10 +125,16 @@ beforeEach(() => {
   mockDb._serverRows.length = 0
   mockOverrideRows.clear()
   servers.clear()
+  vi.useRealTimers()
   vi.clearAllMocks()
   fakeSender.isDestroyed.mockReturnValue(false)
   mockRequestApproval.mockResolvedValue(true)
   registerMcpHandlers()
+})
+
+afterEach(async () => {
+  await shutdownMcpServers()
+  vi.useRealTimers()
 })
 
 /* ── Tests ─────────────────────────────────────── */
@@ -247,5 +276,128 @@ describe('MCP — Tool Approval', () => {
     expect(r.error).toContain('no UI is available')
     expect(mockRequestApproval).not.toHaveBeenCalled()
     expect(client.callTool).not.toHaveBeenCalled()
+  })
+})
+
+describe('MCP — Image extraction (CCI.1)', () => {
+  function addAutoApproveServer() {
+    const id = `img-server-${Math.random().toString(36).slice(2)}`
+    const client = makeMockClient()
+    injectConnectedServer(id, 'ImgServer', client)
+    mockOverrideRows.set(`agent1:${id}:testTool`, { enabled: 1, approval: 'auto' })
+    return { id, client }
+  }
+
+  it('returns images array when tool result contains image content', async () => {
+    const { id: serverId, client } = addAutoApproveServer()
+    client.callTool.mockResolvedValue({
+      content: [{ type: 'image', data: 'abc123', mimeType: 'image/png' }],
+      isError: false
+    })
+
+    const r = await invokeHandler('mcp:call-tool', serverId, 'testTool', {}, 'agent1')
+    expect(r.success).toBe(true)
+    expect(r.images).toHaveLength(1)
+    expect(r.images[0].dataUrl).toBe('data:image/png;base64,abc123')
+    expect(r.images[0].mimeType).toBe('image/png')
+  })
+
+  it('suppresses JSON fallback and returns summary text when only images present', async () => {
+    const { id: serverId, client } = addAutoApproveServer()
+    client.callTool.mockResolvedValue({
+      content: [{ type: 'image', data: 'base64data', mimeType: 'image/png' }],
+      isError: false
+    })
+
+    const r = await invokeHandler('mcp:call-tool', serverId, 'testTool', {}, 'agent1')
+    expect(r.result).toMatch(/Screenshot captured/)
+    expect(r.result).not.toContain('base64data')
+  })
+
+  it('returns both text result and images when tool result has mixed content', async () => {
+    const { id: serverId, client } = addAutoApproveServer()
+    client.callTool.mockResolvedValue({
+      content: [
+        { type: 'text', text: 'Screenshot of viewport' },
+        { type: 'image', data: 'imgdata', mimeType: 'image/png' }
+      ],
+      isError: false
+    })
+
+    const r = await invokeHandler('mcp:call-tool', serverId, 'testTool', {}, 'agent1')
+    expect(r.result).toBe('Screenshot of viewport')
+    expect(r.images).toHaveLength(1)
+    expect(r.images[0].dataUrl).toBe('data:image/png;base64,imgdata')
+  })
+
+  it('returns no images field when tool result has only text content', async () => {
+    const { id: serverId, client } = addAutoApproveServer()
+    client.callTool.mockResolvedValue({
+      content: [{ type: 'text', text: 'plain result' }],
+      isError: false
+    })
+
+    const r = await invokeHandler('mcp:call-tool', serverId, 'testTool', {}, 'agent1')
+    expect(r.result).toBe('plain result')
+    expect(r.images).toBeUndefined()
+  })
+
+  it('handles multiple images in result', async () => {
+    const { id: serverId, client } = addAutoApproveServer()
+    client.callTool.mockResolvedValue({
+      content: [
+        { type: 'image', data: 'img1', mimeType: 'image/png' },
+        { type: 'image', data: 'img2', mimeType: 'image/jpeg' }
+      ],
+      isError: false
+    })
+
+    const r = await invokeHandler('mcp:call-tool', serverId, 'testTool', {}, 'agent1')
+    expect(r.images).toHaveLength(2)
+    expect(r.result).toMatch(/2 image\(s\)/)
+  })
+})
+
+describe('MCP — Crash recovery', () => {
+  it('auto-reconnects after an unexpected transport close', async () => {
+    vi.useFakeTimers()
+
+    const added = await invokeHandler('mcp:add-server', {
+      name: 'Recoverable Server',
+      command: 'node',
+      args: ['server.js'],
+      env: {},
+      enabled: true
+    })
+
+    const instance = servers.get(added.id)
+    expect(instance?.status).toBe('connected')
+
+    ;(instance?.transport as { onclose?: () => void }).onclose?.()
+    expect(servers.has(added.id)).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(5000)
+
+    expect(servers.get(added.id)?.status).toBe('connected')
+  })
+
+  it('does not auto-reconnect after intentional disconnect', async () => {
+    vi.useFakeTimers()
+
+    const added = await invokeHandler('mcp:add-server', {
+      name: 'Disconnectable Server',
+      command: 'node',
+      args: ['server.js'],
+      env: {},
+      enabled: true
+    })
+
+    const instance = servers.get(added.id)
+    ;(instance?.transport as { onclose?: () => void }).onclose?.()
+
+    await disconnectServer(added.id)
+    await vi.advanceTimersByTimeAsync(5000)
+
+    expect(servers.has(added.id)).toBe(false)
   })
 })

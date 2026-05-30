@@ -275,3 +275,168 @@ describe('Providers — IPC Handlers', () => {
     })
   })
 })
+
+describe('Anthropic tool helpers', () => {
+  it('extracts the first system message into the system field', async () => {
+    const { toAnthropicMessages } = await import('../providers')
+    const result = toAnthropicMessages([
+      { role: 'system', content: 'System prompt' },
+      { role: 'user', content: 'Hello' }
+    ])
+
+    expect(result.system).toBe('System prompt')
+    expect(result.messages).toEqual([{ role: 'user', content: 'Hello' }])
+  })
+
+  it('converts a user image message to an Anthropic image block', async () => {
+    const { toAnthropicMessages } = await import('../providers')
+    const result = toAnthropicMessages([
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Look' },
+          { type: 'image_url', image_url: { url: 'data:image/png;base64,abc123' } }
+        ]
+      }
+    ] satisfies ProviderMessage[])
+
+    expect(result.messages).toEqual([
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Look' },
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'abc123' } }
+        ]
+      }
+    ])
+  })
+
+  it('converts assistant tool calls into tool_use blocks and preserves text', async () => {
+    const { toAnthropicMessages } = await import('../providers')
+    const result = toAnthropicMessages([
+      {
+        role: 'assistant',
+        content: 'Working on it',
+        tool_calls: [
+          {
+            id: 'call-1',
+            type: 'function',
+            function: { name: 'browser__click', arguments: '{"selector":"#go"}' }
+          }
+        ]
+      }
+    ] satisfies ProviderMessage[])
+
+    expect(result.messages).toEqual([
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'Working on it' },
+          { type: 'tool_use', id: 'call-1', name: 'browser__click', input: { selector: '#go' } }
+        ]
+      }
+    ])
+  })
+
+  it('groups consecutive tool messages into a single user message', async () => {
+    const { toAnthropicMessages } = await import('../providers')
+    const result = toAnthropicMessages([
+      { role: 'tool', tool_call_id: 'call-1', content: 'first result' },
+      { role: 'tool', tool_call_id: 'call-2', content: 'second result' }
+    ] satisfies ProviderMessage[])
+
+    expect(result.messages).toEqual([
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'call-1', content: [{ type: 'text', text: 'first result' }] },
+          { type: 'tool_result', tool_use_id: 'call-2', content: [{ type: 'text', text: 'second result' }] }
+        ]
+      }
+    ])
+  })
+
+  it('merges screenshot follow-up messages into the tool result user message', async () => {
+    const { toAnthropicMessages } = await import('../providers')
+    const result = toAnthropicMessages([
+      { role: 'tool', tool_call_id: 'call-1', content: 'step output' },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: '[Browser screenshots from current step]' },
+          { type: 'image_url', image_url: { url: 'data:image/png;base64,stepimg' } }
+        ]
+      }
+    ] satisfies ProviderMessage[])
+
+    expect(result.messages).toEqual([
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'call-1', content: [{ type: 'text', text: 'step output' }] },
+          { type: 'text', text: '[Browser screenshots from current step]' },
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'stepimg' } }
+        ]
+      }
+    ])
+  })
+
+  it('does not merge non-screenshot user messages after tool results', async () => {
+    const { toAnthropicMessages } = await import('../providers')
+    const result = toAnthropicMessages([
+      { role: 'tool', tool_call_id: 'call-1', content: 'step output' },
+      { role: 'user', content: 'A normal follow-up' }
+    ] satisfies ProviderMessage[])
+
+    expect(result.messages).toEqual([
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'call-1', content: [{ type: 'text', text: 'step output' }] }
+        ]
+      },
+      { role: 'user', content: 'A normal follow-up' }
+    ])
+  })
+
+  it('converts tool definitions and returns a name map', async () => {
+    const { toAnthropicTools } = await import('../providers')
+    const parameters = { type: 'object', properties: { q: { type: 'string' } } }
+    const result = toAnthropicTools([
+      {
+        type: 'function',
+        function: { name: 'server.one', description: 'First tool', parameters }
+      },
+      {
+        type: 'function',
+        function: { name: 'server?one', description: 'Second tool', parameters: { type: 'object', properties: {} } }
+      }
+    ])
+
+    expect(result.tools).toEqual([
+      { name: 'server_one', description: 'First tool', input_schema: parameters },
+      { name: 'server_one_2', description: 'Second tool', input_schema: { type: 'object', properties: {} } }
+    ])
+    expect(result.nameMap.get('server_one')).toBe('server.one')
+    expect(result.nameMap.get('server_one_2')).toBe('server?one')
+  })
+
+  it('truncates long normalized tool names to 64 characters', async () => {
+    const { toAnthropicTools } = await import('../providers')
+    const longName = `tool-${'x'.repeat(80)}`
+
+    const result = toAnthropicTools([
+      {
+        type: 'function',
+        function: {
+          name: longName,
+          description: 'Long tool',
+          parameters: { type: 'object', properties: {} }
+        }
+      }
+    ])
+
+    expect(result.tools[0].name).toHaveLength(64)
+    expect(result.nameMap.get(result.tools[0].name)).toBe(longName)
+  })
+})

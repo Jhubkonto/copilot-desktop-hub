@@ -27,7 +27,7 @@ const SAMPLE_AGENT = {
   maxTokens: 8192,
   contextDirectories: ['/home/user/project'],
   contextFiles: ['/home/user/project/main.ts'],
-  mcpServers: [],
+  mcpServers: [] as string[],
   agenticMode: false,
   tools: {
     fileEdit: { enabled: false, approval: 'always-ask', instructions: '' },
@@ -309,7 +309,7 @@ describe('AgentPanel — Skills tab', () => {
 
     await user.click(screen.getByText('Skills'))
 
-    expect(await screen.findByText('No MCP servers configured')).toBeInTheDocument()
+    expect(await screen.findByText('No MCP servers configured. Add Playwright to enable browser automation.')).toBeInTheDocument()
   })
 })
 
