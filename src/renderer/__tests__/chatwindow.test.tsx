@@ -23,11 +23,13 @@ let streamErrorCallback:
       retryAfterSeconds?: number;
     }) => void)
   | null = null;
+let autoClipboardFocusCallback: (() => void | Promise<void>) | null = null;
 let mockStore: ReturnType<typeof createMockAppStore>;
 
 beforeEach(() => {
   mockApi = setupMockApi();
   streamCallback = null;
+  autoClipboardFocusCallback = null;
   mockApi.getMessages.mockResolvedValue([]);
 
   mockApi.onStreamResponse.mockImplementation(
@@ -53,6 +55,12 @@ beforeEach(() => {
       };
     },
   );
+  mockApi.onAutoClipboardFocus.mockImplementation((cb: () => void | Promise<void>) => {
+    autoClipboardFocusCallback = cb;
+    return () => {
+      autoClipboardFocusCallback = null;
+    };
+  });
 
   mockStore = createMockAppStore({
     authState: { authenticated: true, user: null },
@@ -229,6 +237,23 @@ describe("ChatWindow — Messages Display", () => {
 });
 
 describe("ChatWindow — File Attachments", () => {
+  it("shows screen capture labels under image attachments", async () => {
+    const user = userEvent.setup();
+    mockApi.captureScreen.mockResolvedValue({
+      dataUrl: "data:image/png;base64,capture",
+      windowLabel: "VS Code",
+    });
+
+    render(<ChatWindow />);
+
+    await user.click(screen.getByRole("button", { name: /capture screen/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("VS Code")).toBeInTheDocument();
+    });
+    expect(screen.getByAltText("Screen capture")).toBeInTheDocument();
+  });
+
   it("chat-r-11: file attachment badge appears after file pick", async () => {
     const user = userEvent.setup();
     mockApi.openFileDialog.mockResolvedValue([
@@ -263,6 +288,28 @@ describe("ChatWindow — File Attachments", () => {
     await user.click(removeBtn);
 
     expect(screen.queryByText(/test\.ts/)).not.toBeInTheDocument();
+  });
+});
+
+describe("ChatWindow — Auto Clipboard", () => {
+  it("reads clipboard text on focus when enabled", async () => {
+    mockApi.getSetting.mockResolvedValue('true');
+    mockApi.readClipboardContent.mockResolvedValue({
+      type: 'text',
+      text: 'focused clipboard text',
+    });
+
+    render(<ChatWindow />);
+
+    await act(async () => {
+      await autoClipboardFocusCallback?.();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('@clipboard')).toBeInTheDocument();
+    });
+    expect(mockApi.getSetting).toHaveBeenCalledWith('autoClipboard');
+    expect(mockApi.readClipboardContent).toHaveBeenCalled();
   });
 });
 

@@ -69,6 +69,15 @@ describe('SettingsPanel — General Tab', () => {
     expect(mockApi.setAutoStart).toHaveBeenCalledWith(true)
   })
 
+  it('toggles auto-read clipboard on focus', async () => {
+    render(<SettingsPanel />)
+
+    const autoClipboardBtn = screen.getByText('Auto-read clipboard on focus').closest('div')!.parentElement!.querySelector('button')!
+    await user.click(autoClipboardBtn)
+
+    expect(mockApi.setSetting).toHaveBeenCalledWith('autoClipboard', 'true')
+  })
+
   it('set-r-9: "Configure" MCP button opens MCP panel', async () => {
     render(<SettingsPanel />)
 

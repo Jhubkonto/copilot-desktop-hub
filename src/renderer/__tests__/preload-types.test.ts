@@ -27,6 +27,7 @@ import type {
   ProjectAgent,
   DeleteAgentPreflight,
   DeleteAgentResult,
+  IpcReturn,
 } from '../../shared/types'
 
 describe('preload IPC return types', () => {
@@ -77,6 +78,11 @@ describe('preload IPC return types', () => {
   it('project methods return typed results', () => {
     expectTypeOf<ReturnType<ElectronAPI['listProjects']>>().toEqualTypeOf<Promise<ProjectRow[]>>()
     expectTypeOf<ReturnType<ElectronAPI['listProjectAgents']>>().toEqualTypeOf<Promise<ProjectAgent[]>>()
+  })
+
+  it('screen capture and auto-clipboard APIs are typed', () => {
+    expectTypeOf<ReturnType<ElectronAPI['captureScreen']>>().toEqualTypeOf<Promise<IpcReturn<'screen:capture'>>>()
+    expectTypeOf<ReturnType<ElectronAPI['onAutoClipboardFocus']>>().toEqualTypeOf<() => void>()
   })
 
   it('does not expose terminal methods (removed in RF.13)', () => {

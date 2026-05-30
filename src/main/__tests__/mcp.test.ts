@@ -279,7 +279,7 @@ describe('MCP — Tool Approval', () => {
   })
 })
 
-describe('MCP — Image extraction (CCI.1)', () => {
+describe('MCP — Image extraction', () => {
   function addAutoApproveServer() {
     const id = `img-server-${Math.random().toString(36).slice(2)}`
     const client = makeMockClient()

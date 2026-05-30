@@ -30,6 +30,7 @@ export function createMockApi() {
     onStreamError: vi.fn().mockReturnValue(() => {}),
     onToolCallEvent: vi.fn().mockReturnValue(() => {}),
     stopGeneration: vi.fn().mockResolvedValue(undefined),
+    onAutoClipboardFocus: vi.fn().mockReturnValue(() => {}),
 
     // Conversations
     listConversations: vi.fn().mockResolvedValue([]),
@@ -156,6 +157,10 @@ export function createMockApi() {
     zoomOut: vi.fn().mockResolvedValue(undefined),
     resetZoom: vi.fn().mockResolvedValue(undefined),
     onMaximizeChange: vi.fn().mockReturnValue(() => {}),
+    captureScreen: vi.fn().mockResolvedValue({ dataUrl: 'data:image/png;base64,capture' }),
+    checkScreenPermission: vi.fn().mockResolvedValue('granted'),
+    readClipboardContent: vi.fn().mockResolvedValue(null),
+    readClipboardImage: vi.fn().mockResolvedValue(null),
   }
 }
 
