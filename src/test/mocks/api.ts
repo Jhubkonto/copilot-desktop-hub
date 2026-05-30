@@ -28,6 +28,7 @@ export function createMockApi() {
     sendMessage: vi.fn().mockResolvedValue(undefined),
     onStreamResponse: vi.fn().mockReturnValue(() => {}),
     onStreamError: vi.fn().mockReturnValue(() => {}),
+    onToolCallEvent: vi.fn().mockReturnValue(() => {}),
     stopGeneration: vi.fn().mockResolvedValue(undefined),
 
     // Conversations
