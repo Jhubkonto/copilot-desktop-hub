@@ -113,6 +113,7 @@ export interface McpServerConfig {
   args: string[]
   env: Record<string, string>
   cwd?: string
+  imageResponses?: 'allow' | 'omit'
   enabled: boolean
 }
 
@@ -340,7 +341,7 @@ export interface ProviderTestResult {
 }
 
 // ---------------------------------------------------------------------------
-// IPC return-type map  (RF.12 — every invoke channel → concrete return type)
+// IPC return-type map — every invoke channel mapped to its concrete return type
 // ---------------------------------------------------------------------------
 
 export type IpcReturnMap = {
@@ -384,6 +385,7 @@ export type IpcReturnMap = {
   'chat:stop-generation': void
   'chat:stream-error': void
   'chat:stream-response': void
+  'chat:tool-call-event': void
   'chat:team-activity': void
   // CLI
   'cli:check': void
@@ -453,6 +455,12 @@ export type IpcReturnMap = {
   'provider:set-azure-endpoint': boolean
   'provider:set-key': boolean
   'provider:test-key': ProviderTestResult
+  // Screen / Clipboard
+  'clipboard:read-content': { type: 'image'; dataUrl: string } | { type: 'text'; text: string } | null
+  'clipboard:read-image': { dataUrl: string } | null
+  'overlay:get-screenshot': string
+  'screen:capture': { dataUrl: string } | { error: string }
+  'screen:check-permission': 'granted' | 'denied' | 'prompt'
   // Tool
   'tool:approval-response': boolean
   'tool:execute': ToolExecuteResult
@@ -520,7 +528,10 @@ export type IpcChannels =
   | 'chat:stop-generation'
   | 'chat:stream-error'
   | 'chat:stream-response'
+  | 'chat:tool-call-event'
   | 'chat:team-activity'
+  | 'clipboard:read-content'
+  | 'clipboard:read-image'
   | 'cli:check'
   | 'cli:status'
   | 'context:git'
@@ -579,6 +590,9 @@ export type IpcChannels =
   | 'provider:set-azure-endpoint'
   | 'provider:set-key'
   | 'provider:test-key'
+  | 'overlay:get-screenshot'
+  | 'screen:capture'
+  | 'screen:check-permission'
   | 'tool:approval-response'
   | 'tool:execute'
   | 'tool:get-preferences'

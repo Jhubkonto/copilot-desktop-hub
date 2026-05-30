@@ -9,6 +9,7 @@ import { registerKnowledgeHandlers } from './knowledge'
 import { registerToolHandlers } from './tools'
 import { registerMcpHandlers } from './mcp'
 import { registerProviderHandlers } from './providers'
+import { registerScreenCaptureHandlers } from './screen-capture-handlers'
 
 export function registerIpcHandlers(): void {
   registerSettingsHandlers()
@@ -24,6 +25,7 @@ export function registerIpcHandlers(): void {
   registerToolHandlers()
   registerMcpHandlers()
   registerProviderHandlers()
+  registerScreenCaptureHandlers()
   registerSystemHandlers()
 }
 

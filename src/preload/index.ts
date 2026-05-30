@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcChannels, IpcReturn } from '../shared/types'
 
 // ---------------------------------------------------------------------------
-// Typed IPC helpers (RF.16 — channel constrained to IpcChannels)
+// Typed IPC helpers — channels constrained to IpcChannels union
 // ---------------------------------------------------------------------------
 
 type IpcEventHandler = (_event: Electron.IpcRendererEvent, ...args: any[]) => void // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -76,6 +76,12 @@ const api = {
       callback(error)
     typedOn('chat:stream-error', handler)
     return () => typedOff('chat:stream-error', handler)
+  },
+  onToolCallEvent: (callback: (data: { toolName: string; serverName: string; args: Record<string, unknown>; result: string; success: boolean }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { toolName: string; serverName: string; args: Record<string, unknown>; result: string; success: boolean }) =>
+      callback(data)
+    typedOn('chat:tool-call-event', handler)
+    return () => typedOff('chat:tool-call-event', handler)
   },
   stopGeneration: (conversationId?: string) => typedInvoke('chat:stop-generation', conversationId),
 
@@ -268,6 +274,11 @@ const api = {
     typedOn('window:maximize-change', handler)
     return () => typedOff('window:maximize-change', handler)
   },
+  captureScreen: () => typedInvoke('screen:capture'),
+  checkScreenPermission: () => typedInvoke('screen:check-permission'),
+  readClipboardContent: (): Promise<IpcReturn<'clipboard:read-content'>> =>
+    ipcRenderer.invoke('clipboard:read-content'),
+  readClipboardImage: () => typedInvoke('clipboard:read-image'),
 
   // Auto-start
   setAutoStart: (enabled: boolean) => typedInvoke('app:set-auto-start', enabled),
