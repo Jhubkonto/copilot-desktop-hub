@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { getModelLabel } from '../../shared/models'
 import { isApiError, type AgentConfig } from '../../shared/types'
-import type { ToastType } from '../hooks/chat-types'
+import type { ContextRef, ToastType } from '../hooks/chat-types'
 import { useAtMenu } from '../hooks/useAtMenu'
 import { useChat } from '../hooks/useChat'
 import { useChatWindowActions } from '../hooks/useChatWindowActions'
@@ -47,6 +47,7 @@ export function ChatWindow() {
   const [inputPanelHeight, setInputPanelHeight] = useState<number | null>(null)
   const [openContextPicker, setOpenContextPicker] = useState<'project' | 'agent' | null>(null)
   const [hasUnreadBelow, setHasUnreadBelow] = useState(false)
+  const [clipboardRef, setClipboardRef] = useState<ContextRef | null>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -90,6 +91,10 @@ export function ChatWindow() {
   const fileInput = useFileInput()
   const slashMenu = useSlashMenu()
   const atMenu = useAtMenu({ input, setInput })
+  const mergedContextRefs = useMemo(() => {
+    if (!clipboardRef) return atMenu.contextRefs
+    return [...atMenu.contextRefs, clipboardRef]
+  }, [atMenu.contextRefs, clipboardRef])
   const timers = useTimers({
     isGenerating: chat.isGenerating,
     generationStartedAt: chat.generationStartedAt,
@@ -115,7 +120,7 @@ export function ChatWindow() {
     pendingImages: fileInput.pendingImages,
     setPendingAttachments: fileInput.setPendingAttachments,
     setPendingImages: fileInput.setPendingImages,
-    contextRefs: atMenu.contextRefs,
+    contextRefs: mergedContextRefs,
     resolveContextBlock: atMenu.resolveContextBlock,
     showSlashMenu: slashMenu.showSlashMenu,
     closeSlashMenu: slashMenu.closeSlashMenu,
@@ -154,6 +159,7 @@ export function ChatWindow() {
     setTheme,
     loadAgents,
     loadConversations,
+    onAfterSend: () => setClipboardRef(null),
   })
 
   useLayoutEffect(() => {
@@ -294,6 +300,55 @@ export function ChatWindow() {
   const handleCopy = useCallback((content: string) => {
     navigator.clipboard.writeText(content)
   }, [])
+
+  const handleCaptureScreen = useCallback(async () => {
+    const permission = await window.api.checkScreenPermission()
+    if (isApiError(permission)) {
+      addToast('Failed to check screen permission', 'error')
+      return
+    }
+    if (permission === 'denied') {
+      addToast(
+        'Screen recording permission denied. Enable in System Settings → Privacy & Security → Screen Recording.',
+        'error',
+      )
+      return
+    }
+    const result = await window.api.captureScreen()
+    if (isApiError(result)) {
+      if (!result.error.includes('cancelled')) {
+        addToast(result.error, 'error')
+      }
+      return
+    }
+    fileInput.setPendingImages((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), name: 'Screen capture', dataUrl: result.dataUrl },
+    ])
+  }, [addToast, fileInput])
+
+  const handlePasteClipboard = useCallback(async () => {
+    const result = await window.api.readClipboardContent()
+    if (!result) {
+      addToast('No content found in clipboard', 'info')
+      return
+    }
+    if (isApiError(result)) {
+      addToast('Failed to read clipboard', 'error')
+      return
+    }
+    if (result.type === 'image') {
+      fileInput.setPendingImages((prev) => [
+        ...prev,
+        { id: crypto.randomUUID(), name: 'Clipboard image', dataUrl: result.dataUrl },
+      ])
+    } else {
+      if (result.text.length > 4000) {
+        addToast('Clipboard text truncated to 4000 characters', 'info')
+      }
+      setClipboardRef({ key: 'clipboard', token: '@clipboard', value: result.text })
+    }
+  }, [addToast, fileInput])
 
   const handleEditMessage = useCallback(
     (index: number) => actions.handleEdit(index, chat.handleEdit),
@@ -514,7 +569,7 @@ export function ChatWindow() {
       pendingAttachments={fileInput.pendingAttachments}
       pendingImages={fileInput.pendingImages}
       showContextInspector={showContextInspector}
-      contextRefs={atMenu.contextRefs}
+      contextRefs={mergedContextRefs}
       showSlashMenu={slashMenu.showSlashMenu}
       slashFilter={slashMenu.slashFilter}
       selectedSlashIndex={slashMenu.selectedSlashIndex}
@@ -529,11 +584,19 @@ export function ChatWindow() {
       onKeyDown={handleKeyDown}
       onPaste={fileInput.handlePaste}
       onAttachFiles={fileInput.handleFilePick}
+      onCaptureScreen={handleCaptureScreen}
+      onPasteClipboardImage={handlePasteClipboard}
       onToggleContextInspector={() => setShowContextInspector((value) => !value)}
       onCloseContextInspector={() => setShowContextInspector(false)}
       onRemoveAttachment={fileInput.removeAttachment}
       onRemoveImage={fileInput.removeImage}
-      onRemoveContextToken={atMenu.removeContextToken}
+      onRemoveContextToken={(token) => {
+        if (token === '@clipboard') {
+          setClipboardRef(null)
+        } else {
+          atMenu.removeContextToken(token)
+        }
+      }}
       onSelectSlashCommand={actions.handleSelectSlashCommand}
       onSelectAtOption={actions.handleSelectAtOption}
       onCloseSlashMenu={slashMenu.closeSlashMenu}
@@ -612,6 +675,12 @@ export function ChatWindow() {
           onRetry={actions.handleRetry}
           onSignIn={actions.handleSignIn}
           onPickModel={handlePickModel}
+          onUseImageAsContext={(dataUrl) => {
+            fileInput.setPendingImages((prev) => [
+              ...prev,
+              { id: crypto.randomUUID(), dataUrl, name: 'browser-screenshot.png' }
+            ])
+          }}
         />
         {hasUnreadBelow && (
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 pointer-events-none">

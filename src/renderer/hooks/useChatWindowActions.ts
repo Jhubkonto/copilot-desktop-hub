@@ -79,6 +79,7 @@ interface UseChatWindowActionsParams {
   setTheme: (theme: Theme) => void
   loadAgents: () => Promise<void>
   loadConversations: () => Promise<void>
+  onAfterSend?: () => void
 }
 
 export function useChatWindowActions({
@@ -139,6 +140,7 @@ export function useChatWindowActions({
   setTheme,
   loadAgents,
   loadConversations,
+  onAfterSend,
 }: UseChatWindowActionsParams) {
   const slashCommandCtx = useMemo<SlashCommandContext>(
     () => ({
@@ -242,9 +244,13 @@ export function useChatWindowActions({
   )
 
   const handleSend = useCallback(async () => {
-    if (!input.trim() || isGenerating || rateLimitRemainingSec > 0) return
+    const hasContent = input.trim().length > 0 || pendingImages.length > 0 || pendingAttachments.length > 0
+    if (!hasContent || isGenerating || rateLimitRemainingSec > 0) return
 
     let content = input.trim()
+    if (!content && (pendingImages.length > 0 || pendingAttachments.length > 0)) {
+      content = 'Please analyze the attached context.'
+    }
     if (content.startsWith('/')) {
       const transformed = transformCodeSlashCommand(content)
       if (transformed) {
@@ -357,6 +363,7 @@ export function useChatWindowActions({
         projectId: chatProjectId ?? undefined,
         contextSnapshot: contextSnapshotJson,
       })
+      onAfterSend?.()
     } catch (error) {
       console.error('Failed to send message:', error)
       setIsGenerating(false)
@@ -411,6 +418,7 @@ export function useChatWindowActions({
     conversationCreated,
     chatAgentId,
     chatProjectId,
+    onAfterSend,
   ])
 
   const handleRetry = useCallback(async () => {

@@ -1,5 +1,14 @@
 export type ToastType = 'info' | 'success' | 'error'
 
+export interface ToolCallEvent {
+  toolName: string
+  serverName: string
+  args: Record<string, unknown>
+  result: string
+  success: boolean
+  resultImages?: { dataUrl: string }[]
+}
+
 export interface Attachment {
   id: string
   name: string
@@ -15,7 +24,7 @@ export interface PastedImage {
 
 export interface ChatMessage {
   id: string
-  role: 'user' | 'assistant' | 'system' | 'team-activity'
+  role: 'user' | 'assistant' | 'system' | 'team-activity' | 'tool-call'
   content: string
   timestamp: number
   model?: string | null
@@ -27,10 +36,16 @@ export interface ChatMessage {
   retryable?: boolean
   isStopped?: boolean
   contextSnapshot?: string
+  toolName?: string
+  serverName?: string
+  toolArgs?: Record<string, unknown>
+  toolResult?: string
+  toolSuccess?: boolean
+  toolResultImages?: { dataUrl: string }[]
 }
 
 export interface ContextRef {
-  key: 'workspace' | 'git' | 'file'
+  key: 'workspace' | 'git' | 'file' | 'clipboard'
   token: string
   value?: string
 }

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, type ChangeEvent, type ClipboardEvent, type KeyboardEvent, type PointerEvent, type RefObject } from 'react'
-import { ChevronDown, Eye, Paperclip, SendHorizontal, Square, X } from 'lucide-react'
+import { Camera, ChevronDown, ClipboardPaste, Eye, Paperclip, SendHorizontal, Square, X } from 'lucide-react'
 import { MODEL_OPTIONS, getModelLabel, getModelMultiplier } from '../../../shared/models'
 import { ContextInspector } from '../ContextInspector'
 import { AttachmentBar } from './AttachmentBar'
@@ -38,6 +38,8 @@ interface ChatComposerProps {
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void
   onPaste: (event: ClipboardEvent<HTMLTextAreaElement>) => void | Promise<void>
   onAttachFiles: () => void | Promise<void>
+  onCaptureScreen?: () => void | Promise<void>
+  onPasteClipboardImage?: () => void | Promise<void>
   onToggleContextInspector: () => void
   onCloseContextInspector: () => void
   onRemoveAttachment: (id: string) => void
@@ -82,6 +84,8 @@ export function ChatComposer({
   onKeyDown,
   onPaste,
   onAttachFiles,
+  onCaptureScreen,
+  onPasteClipboardImage,
   onToggleContextInspector,
   onCloseContextInspector,
   onRemoveAttachment,
@@ -211,6 +215,30 @@ export function ChatComposer({
                 >
                   <Paperclip className="w-4 h-4" />
                 </button>
+                {onCaptureScreen && (
+                  <button
+                    type="button"
+                    onClick={onCaptureScreen}
+                    disabled={isGenerating}
+                    className="p-1.5 rounded-md text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    title="Capture screen"
+                    aria-label="Capture screen"
+                  >
+                    <Camera className="w-4 h-4" />
+                  </button>
+                )}
+                {onPasteClipboardImage && (
+                  <button
+                    type="button"
+                    onClick={onPasteClipboardImage}
+                    disabled={isGenerating}
+                    className="p-1.5 rounded-md text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    title="Paste image from clipboard"
+                    aria-label="Paste image from clipboard"
+                  >
+                    <ClipboardPaste className="w-4 h-4" />
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={onToggleContextInspector}
@@ -288,10 +316,13 @@ export function ChatComposer({
                     type="button"
                     onClick={onSend}
                     disabled={
-                      !input.trim() || !isOnline || !authenticated || rateLimitRemainingSec > 0
+                      ((!input.trim() && pendingImages.length === 0 && pendingAttachments.length === 0) ||
+                        !isOnline ||
+                        !authenticated ||
+                        rateLimitRemainingSec > 0)
                     }
                     className={`p-1.5 rounded-md flex items-center justify-center transition-colors ${
-                      input.trim() &&
+                      (input.trim() || pendingImages.length > 0 || pendingAttachments.length > 0) &&
                       isOnline &&
                       authenticated &&
                       rateLimitRemainingSec === 0

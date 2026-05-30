@@ -3,7 +3,7 @@ import { X, ChevronDown, ChevronUp } from 'lucide-react'
 import type { ContextSnapshot } from '../hooks/chat-types'
 
 interface ContextRef {
-  key: 'workspace' | 'git' | 'file'
+  key: 'workspace' | 'git' | 'file' | 'clipboard'
   token: string
   value?: string
 }

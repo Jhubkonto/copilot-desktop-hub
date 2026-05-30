@@ -76,6 +76,15 @@ export function useAtMenu({ input, setInput }: UseAtMenuParams) {
         continue
       }
 
+      if (ref.key === 'clipboard') {
+        if (ref.value) {
+          const MAX_CHARS = 4000
+          const text = ref.value.length > MAX_CHARS ? ref.value.slice(0, MAX_CHARS) + '\n... (truncated)' : ref.value
+          lines.push(`[Clipboard]\n${text}`)
+        }
+        continue
+      }
+
       if (ref.key === 'file' && ref.value) {
         const result = await window.api.readContextFile(ref.value)
         const header = result.truncated
