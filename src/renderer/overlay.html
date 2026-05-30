@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Screen Capture</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100vw; height: 100vh; overflow: hidden; cursor: crosshair; user-select: none; }
+    #bg {
+      position: fixed; inset: 0;
+      background-size: cover; background-position: top left; background-repeat: no-repeat;
+      opacity: 0.5;
+    }
+    #selection {
+      position: fixed;
+      border: 2px solid white;
+      box-shadow: 0 0 0 9999px rgba(0,0,0,0.5);
+      display: none;
+      pointer-events: none;
+    }
+    #hint {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+      color: white; font-family: system-ui, sans-serif; font-size: 14px;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="bg"></div>
+  <div id="selection"></div>
+  <div id="hint">Click and drag to select a region. Press Escape to cancel.</div>
+  <script type="module" src="./overlay.js"></script>
+</body>
+</html>

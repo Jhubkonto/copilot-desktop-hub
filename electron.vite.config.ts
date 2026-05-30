@@ -22,8 +22,14 @@ export default defineConfig({
     build: {
       outDir: 'dist/preload',
       rollupOptions: {
-        input: resolve(__dirname, 'src/preload/index.ts'),
-        output: { format: 'cjs' }
+        input: {
+          index: resolve(__dirname, 'src/preload/index.ts'),
+          overlay: resolve(__dirname, 'src/preload/overlay.ts'),
+        },
+        output: {
+          format: 'cjs',
+          entryFileNames: '[name].cjs',
+        }
       }
     }
   },
@@ -33,7 +39,13 @@ export default defineConfig({
     build: {
       outDir: resolve(__dirname, 'dist/renderer'),
       rollupOptions: {
-        input: resolve(__dirname, 'src/renderer/index.html')
+        input: {
+          index: resolve(__dirname, 'src/renderer/index.html'),
+          overlay: resolve(__dirname, 'src/renderer/overlay.html'),
+        },
+        output: {
+          entryFileNames: '[name].js',
+        }
       }
     },
     resolve: {
