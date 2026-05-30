@@ -59,11 +59,11 @@ export async function runProviderMcpToolLoop(
       }))
     })
 
-    const stepImages: { dataUrl: string }[] = []
     for (const call of result.toolCalls) {
       const toolShortName = call.name.split('__').pop() ?? call.name
       const resolved = toolMap.get(call.name)
       let toolResultContent: string
+      let toolImages: { dataUrl: string }[] | undefined
       if (!resolved) {
         toolResultContent = `Error: Unknown tool "${call.name}"`
         if (!webContents.isDestroyed()) {
@@ -87,7 +87,7 @@ export async function runProviderMcpToolLoop(
           ? (toolResult.result ?? '(no output)')
           : `Error: ${toolResult.error ?? 'Tool execution failed'}`
         if (toolResult.images?.length) {
-          stepImages.push(...toolResult.images.map(img => ({ dataUrl: img.dataUrl })))
+          toolImages = toolResult.images.map(img => ({ dataUrl: img.dataUrl }))
         }
         if (!webContents.isDestroyed()) {
           const serverInstance = servers.get(resolved.serverId)
@@ -97,21 +97,15 @@ export async function runProviderMcpToolLoop(
             args: call.arguments as Record<string, unknown>,
             result: toolResultContent,
             success: toolResult.success,
-            ...(toolResult.images?.length && { resultImages: toolResult.images.map(img => ({ dataUrl: img.dataUrl })) })
+            ...(toolImages?.length && { resultImages: toolImages })
           })
         }
       }
-      loopMessages.push({ role: 'tool' as const, tool_call_id: call.id, content: toolResultContent })
-    }
-
-    if (stepImages.length > 0) {
-      loopMessages.push({
-        role: 'user' as const,
-        content: [
-          { type: 'text' as const, text: '[Browser screenshots from current step]' },
-          ...stepImages.map(img => ({ type: 'image_url' as const, image_url: { url: img.dataUrl } }))
-        ]
-      })
+      const toolMsg: ProviderMessage = { role: 'tool' as const, tool_call_id: call.id, content: toolResultContent }
+      if (toolImages?.length) {
+        (toolMsg as { role: 'tool'; tool_call_id: string; content: string; images?: { dataUrl: string }[] }).images = toolImages
+      }
+      loopMessages.push(toolMsg)
     }
   }
 

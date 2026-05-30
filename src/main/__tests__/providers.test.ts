@@ -356,7 +356,39 @@ describe('Anthropic tool helpers', () => {
     ])
   })
 
-  it('embeds screenshot follow-up images inside the last tool result block', async () => {
+  it('embeds images via tool message images field (native format)', async () => {
+    const { toAnthropicMessages } = await import('../providers')
+    const result = toAnthropicMessages([
+      { role: 'tool', tool_call_id: 'call-1', content: 'first step output', images: [{ dataUrl: 'data:image/png;base64,img1' }] },
+      { role: 'tool', tool_call_id: 'call-2', content: 'second step output', images: [{ dataUrl: 'data:image/png;base64,img2' }] }
+    ] satisfies ProviderMessage[])
+
+    expect(result.messages).toEqual([
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call-1',
+            content: [
+              { type: 'text', text: 'first step output' },
+              { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'img1' } }
+            ]
+          },
+          {
+            type: 'tool_result',
+            tool_use_id: 'call-2',
+            content: [
+              { type: 'text', text: 'second step output' },
+              { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'img2' } }
+            ]
+          }
+        ]
+      }
+    ])
+  })
+
+  it('embeds screenshot follow-up images inside the last tool result block (legacy sentinel fallback)', async () => {
     const { toAnthropicMessages } = await import('../providers')
     const result = toAnthropicMessages([
       { role: 'tool', tool_call_id: 'call-1', content: 'first step output' },
@@ -445,5 +477,71 @@ describe('Anthropic tool helpers', () => {
 
     expect(result.tools[0].name).toHaveLength(64)
     expect(result.nameMap.get(result.tools[0].name)).toBe(longName)
+  })
+
+  it('toOpenAICompatibleMessages: passes through messages without tool images unchanged', async () => {
+    const { toOpenAICompatibleMessages } = await import('../providers')
+    const messages: ProviderMessage[] = [
+      { role: 'user', content: 'hello' },
+      { role: 'tool', tool_call_id: 'c1', content: 'no images here' }
+    ]
+    const result = toOpenAICompatibleMessages(messages)
+    expect(result).toEqual(messages)
+  })
+
+  it('toOpenAICompatibleMessages: strips images from tool message and emits labeled synthetic user message', async () => {
+    const { toOpenAICompatibleMessages } = await import('../providers')
+    const messages: ProviderMessage[] = [
+      { role: 'user', content: 'hi' },
+      { role: 'tool', tool_call_id: 'c1', content: 'result1', images: [{ dataUrl: 'data:image/png;base64,aaa' }] }
+    ]
+    const result = toOpenAICompatibleMessages(messages)
+    expect(result).toHaveLength(3)
+    expect(result[1]).toEqual({ role: 'tool', tool_call_id: 'c1', content: 'result1' })
+    expect(result[2]).toEqual({
+      role: 'user',
+      content: [
+        { type: 'text', text: '[Screenshots from tool: c1]' },
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,aaa' } }
+      ]
+    })
+  })
+
+  it('toOpenAICompatibleMessages: groups images per tool in synthetic user message', async () => {
+    const { toOpenAICompatibleMessages } = await import('../providers')
+    const messages: ProviderMessage[] = [
+      { role: 'tool', tool_call_id: 'c1', content: 'r1', images: [{ dataUrl: 'data:image/png;base64,img1' }] },
+      { role: 'tool', tool_call_id: 'c2', content: 'r2', images: [{ dataUrl: 'data:image/png;base64,img2a' }, { dataUrl: 'data:image/png;base64,img2b' }] }
+    ]
+    const result = toOpenAICompatibleMessages(messages)
+    expect(result).toHaveLength(3)
+    expect(result[0]).toEqual({ role: 'tool', tool_call_id: 'c1', content: 'r1' })
+    expect(result[1]).toEqual({ role: 'tool', tool_call_id: 'c2', content: 'r2' })
+    expect(result[2]).toEqual({
+      role: 'user',
+      content: [
+        { type: 'text', text: '[Screenshots from tool: c1]' },
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,img1' } },
+        { type: 'text', text: '[Screenshots from tool: c2]' },
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,img2a' } },
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,img2b' } }
+      ]
+    })
+  })
+
+  it('toOpenAICompatibleMessages: tool with no images emits no synthetic message', async () => {
+    const { toOpenAICompatibleMessages } = await import('../providers')
+    const messages: ProviderMessage[] = [
+      { role: 'tool', tool_call_id: 'c1', content: 'r1' },
+      { role: 'tool', tool_call_id: 'c2', content: 'r2', images: [{ dataUrl: 'data:image/png;base64,img2' }] }
+    ]
+    const result = toOpenAICompatibleMessages(messages)
+    expect(result).toHaveLength(3)
+    expect(result[0]).toEqual({ role: 'tool', tool_call_id: 'c1', content: 'r1' })
+    expect(result[1]).toEqual({ role: 'tool', tool_call_id: 'c2', content: 'r2' })
+    const syntheticMsg = result[2] as { role: string; content: { type: string; text?: string }[] }
+    // Only c2 label should appear, not c1
+    expect(syntheticMsg.content.some(p => p.type === 'text' && p.text === '[Screenshots from tool: c1]')).toBe(false)
+    expect(syntheticMsg.content.some(p => p.type === 'text' && p.text === '[Screenshots from tool: c2]')).toBe(true)
   })
 })

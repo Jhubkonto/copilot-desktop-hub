@@ -130,7 +130,7 @@ describe('runProviderMcpToolLoop', () => {
     )
   })
 
-  it('injects screenshot user message after a step with images', async () => {
+  it('attaches images to the tool message when a step produces images', async () => {
     mockCallMcpTool.mockResolvedValueOnce({
       success: true,
       result: 'captured',
@@ -143,13 +143,19 @@ describe('runProviderMcpToolLoop', () => {
         toolCalls: [{ id: 'call-1', name: 'server-1__click', arguments: {} }]
       })
       .mockImplementationOnce(async (messages) => {
-        expect(messages).toContainEqual({
-          role: 'user',
-          content: [
-            { type: 'text', text: '[Browser screenshots from current step]' },
-            { type: 'image_url', image_url: { url: 'data:image/png;base64,abc' } }
-          ]
-        })
+        const toolMsg = messages.find(
+          (m: ProviderMessage): m is ProviderMessage & { role: 'tool'; images?: { dataUrl: string }[] } =>
+            m.role === 'tool' && (m as { tool_call_id?: string }).tool_call_id === 'call-1'
+        )
+        expect(toolMsg).toBeDefined()
+        expect(toolMsg?.images).toEqual([{ dataUrl: 'data:image/png;base64,abc' }])
+        // No synthetic user message should be present
+        const syntheticMsg = messages.find(
+          (m: ProviderMessage) => m.role === 'user' &&
+            Array.isArray(m.content) &&
+            (m.content as { type: string; text?: string }[])[0]?.text === '[Browser screenshots from current step]'
+        )
+        expect(syntheticMsg).toBeUndefined()
         return { content: 'done', toolCalls: [] }
       })
 

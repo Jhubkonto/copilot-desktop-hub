@@ -14,6 +14,7 @@ import {
   sendAzureMessage,
   getAzureEndpoint,
   abortActiveStream,
+  toOpenAICompatibleMessages,
   type MessageContentPart,
   type ProviderMessage,
 } from "./providers";
@@ -873,7 +874,7 @@ export function registerChatHandlers(): void {
             responseContent = await runProviderMcpToolLoop(
               (msgs, tools, choice) =>
                 sendCopilotNonStreaming(
-                  msgs,
+                  toOpenAICompatibleMessages(msgs),
                   tools,
                   copilotModel,
                   generationOptions,

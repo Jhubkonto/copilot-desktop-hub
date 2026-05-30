@@ -22,7 +22,7 @@ export interface ToolCallMessage {
 export type ProviderMessage =
   | { role: 'system' | 'user'; content: MessageContent }
   | { role: 'assistant'; content: MessageContent | null; tool_calls?: ToolCallMessage[] }
-  | { role: 'tool'; tool_call_id: string; content: string }
+  | { role: 'tool'; tool_call_id: string; content: string; images?: { dataUrl: string }[] }
 
 // Track active streaming requests so they can be aborted per conversation
 export const activeStreamingRequests = new Map<string, http.ClientRequest>()
@@ -272,44 +272,47 @@ export function toAnthropicMessages(
     if (msg.role === 'tool') {
       const toolResultBlocks: AnthropicToolResultBlock[] = []
       while (i < messages.length && messages[i].role === 'tool') {
-        const toolMsg = messages[i] as { role: 'tool'; tool_call_id: string; content: string }
-        toolResultBlocks.push({
-          type: 'tool_result',
-          tool_use_id: toolMsg.tool_call_id,
-          content: [{ type: 'text', text: toolMsg.content }]
-        })
+        const toolMsg = messages[i] as { role: 'tool'; tool_call_id: string; content: string; images?: { dataUrl: string }[] }
+        const content: (AnthropicTextBlock | AnthropicImageBlock)[] = [{ type: 'text', text: toolMsg.content }]
+        if (toolMsg.images?.length) {
+          for (const img of toolMsg.images) {
+            const match = img.dataUrl.match(/^data:([^;]+);base64,(.+)$/)
+            if (match) {
+              content.push({ type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } })
+            }
+          }
+        }
+        toolResultBlocks.push({ type: 'tool_result', tool_use_id: toolMsg.tool_call_id, content })
         i++
       }
 
-      const screenshotBlocks: (AnthropicTextBlock | AnthropicImageBlock)[] = []
+      // Legacy fallback: consume a synthetic screenshot user message produced by old-format
+      // message arrays (sentinel text '[Browser screenshots from current step]').
       if (i < messages.length && messages[i].role === 'user') {
         const nextMsg = messages[i]
-        const isScreenshotMsg = Array.isArray(nextMsg.content) &&
+        const isLegacyScreenshotMsg = Array.isArray(nextMsg.content) &&
           nextMsg.content.length > 0 &&
           nextMsg.content[0].type === 'text' &&
           (nextMsg.content[0] as { type: 'text'; text: string }).text === '[Browser screenshots from current step]'
-        if (isScreenshotMsg) {
+        if (isLegacyScreenshotMsg && toolResultBlocks.length > 0) {
+          const legacyImages: AnthropicImageBlock[] = []
           for (const part of nextMsg.content as MessageContentPart[]) {
-            if (part.type === 'text') {
-              screenshotBlocks.push({ type: 'text', text: part.text })
-            } else if (part.type === 'image_url') {
+            if (part.type === 'image_url') {
               const url = part.image_url.url
               const match = url.match(/^data:([^;]+);base64,(.+)$/)
               if (match) {
-                screenshotBlocks.push({ type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } })
+                legacyImages.push({ type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } })
               }
             }
+          }
+          if (legacyImages.length > 0) {
+            toolResultBlocks[toolResultBlocks.length - 1].content.push(...legacyImages)
           }
           i++
         }
       }
 
-      const imageBlocks = screenshotBlocks.filter((b): b is AnthropicImageBlock => b.type === 'image')
-      if (imageBlocks.length > 0 && toolResultBlocks.length > 0) {
-        toolResultBlocks[toolResultBlocks.length - 1].content.push(...imageBlocks)
-      }
-      const userContent: AnthropicContentBlock[] = [...toolResultBlocks]
-      result.push({ role: 'user', content: userContent })
+      result.push({ role: 'user', content: toolResultBlocks as AnthropicContentBlock[] })
       continue
     }
 
@@ -422,6 +425,52 @@ export async function sendAnthropicWithTools(
   }
 
   return { content, toolCalls }
+}
+
+/**
+ * Converts ProviderMessages for OpenAI-compatible APIs.
+ * Tool messages with `images` are represented as synthetic user messages
+ * appended after each group of tool results. Images are attributed per tool.
+ */
+export function toOpenAICompatibleMessages(messages: ProviderMessage[]): ProviderMessage[] {
+  const result: ProviderMessage[] = []
+  let i = 0
+  while (i < messages.length) {
+    const msg = messages[i]
+    if (msg.role !== 'tool') {
+      // Strip images field if somehow present on non-tool messages
+      result.push(msg)
+      i++
+      continue
+    }
+
+    // Collect a consecutive run of tool messages
+    const toolGroup: { role: 'tool'; tool_call_id: string; content: string; images?: { dataUrl: string }[] }[] = []
+    while (i < messages.length && messages[i].role === 'tool') {
+      toolGroup.push(messages[i] as { role: 'tool'; tool_call_id: string; content: string; images?: { dataUrl: string }[] })
+      i++
+    }
+
+    // Emit tool messages without the images field (API doesn't understand it)
+    for (const t of toolGroup) {
+      result.push({ role: 'tool', tool_call_id: t.tool_call_id, content: t.content })
+    }
+
+    // Build synthetic user message for any tool images, grouped per tool
+    const imageParts: MessageContentPart[] = []
+    for (const t of toolGroup) {
+      if (!t.images?.length) continue
+      const toolLabel = `[Screenshots from tool: ${t.tool_call_id}]`
+      imageParts.push({ type: 'text', text: toolLabel })
+      for (const img of t.images) {
+        imageParts.push({ type: 'image_url', image_url: { url: img.dataUrl } })
+      }
+    }
+    if (imageParts.length > 0) {
+      result.push({ role: 'user', content: imageParts })
+    }
+  }
+  return result
 }
 
 export async function sendAnthropicMessage(

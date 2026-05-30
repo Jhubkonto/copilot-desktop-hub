@@ -276,6 +276,7 @@ const api = {
   },
   captureScreen: () => typedInvoke('screen:capture'),
   checkScreenPermission: () => typedInvoke('screen:check-permission'),
+  ocrImage: (dataUrl: string) => typedInvoke('screen:ocr-image', dataUrl),
   readClipboardContent: (): Promise<IpcReturn<'clipboard:read-content'>> =>
     ipcRenderer.invoke('clipboard:read-content'),
   readClipboardImage: () => typedInvoke('clipboard:read-image'),
