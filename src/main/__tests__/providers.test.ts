@@ -356,10 +356,11 @@ describe('Anthropic tool helpers', () => {
     ])
   })
 
-  it('merges screenshot follow-up messages into the tool result user message', async () => {
+  it('embeds screenshot follow-up images inside the last tool result block', async () => {
     const { toAnthropicMessages } = await import('../providers')
     const result = toAnthropicMessages([
-      { role: 'tool', tool_call_id: 'call-1', content: 'step output' },
+      { role: 'tool', tool_call_id: 'call-1', content: 'first step output' },
+      { role: 'tool', tool_call_id: 'call-2', content: 'second step output' },
       {
         role: 'user',
         content: [
@@ -373,9 +374,15 @@ describe('Anthropic tool helpers', () => {
       {
         role: 'user',
         content: [
-          { type: 'tool_result', tool_use_id: 'call-1', content: [{ type: 'text', text: 'step output' }] },
-          { type: 'text', text: '[Browser screenshots from current step]' },
-          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'stepimg' } }
+          { type: 'tool_result', tool_use_id: 'call-1', content: [{ type: 'text', text: 'first step output' }] },
+          {
+            type: 'tool_result',
+            tool_use_id: 'call-2',
+            content: [
+              { type: 'text', text: 'second step output' },
+              { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'stepimg' } }
+            ]
+          }
         ]
       }
     ])

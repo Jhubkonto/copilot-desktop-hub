@@ -304,9 +304,11 @@ export function toAnthropicMessages(
         }
       }
 
-      const userContent: AnthropicContentBlock[] = []
-      for (const toolBlock of toolResultBlocks) userContent.push(toolBlock)
-      userContent.push(...screenshotBlocks)
+      const imageBlocks = screenshotBlocks.filter((b): b is AnthropicImageBlock => b.type === 'image')
+      if (imageBlocks.length > 0 && toolResultBlocks.length > 0) {
+        toolResultBlocks[toolResultBlocks.length - 1].content.push(...imageBlocks)
+      }
+      const userContent: AnthropicContentBlock[] = [...toolResultBlocks]
       result.push({ role: 'user', content: userContent })
       continue
     }
