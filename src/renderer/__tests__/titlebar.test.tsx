@@ -254,7 +254,7 @@ describe('TitleBar — Directory breadcrumb', () => {
 })
 
 
-// ── M.9: Settings icon next to hamburger ─────────────────────────────────────
+// ── Settings icon next to hamburger ──────────────────────────────────────────
 
 describe('TitleBar — Quick settings icon (M.9)', () => {
   it('m9-1: settings icon button renders in the TitleBar', () => {

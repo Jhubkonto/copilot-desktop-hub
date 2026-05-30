@@ -95,7 +95,7 @@ describe('safeHandle', () => {
   })
 })
 
-// ── N.3: validateSender ───────────────────────────────────────────────────────
+// ── validateSender ────────────────────────────────────────────────────────────
 
 function makeEvent(url?: string): Electron.IpcMainInvokeEvent {
   return { sender: { id: 1 }, senderFrame: url ? { url } : undefined } as any

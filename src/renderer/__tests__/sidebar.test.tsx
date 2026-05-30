@@ -367,7 +367,7 @@ describe("Sidebar — Auth Section", () => {
   });
 });
 
-// ── Sidebar drag-to-project (L.3) ─────────────────────────────────
+// ── Sidebar drag-to-project ───────────────────────────────────────────────────
 
 describe("Sidebar — Drag-to-project (L3)", () => {
   const dragAgent = {
@@ -446,7 +446,7 @@ describe("Sidebar — Drag-to-project (L3)", () => {
   });
 });
 
-// ── M.8: Project hover gear icon ─────────────────────────────────────────────
+// ── Project hover gear icon ───────────────────────────────────────────────────
 
 describe("Sidebar — Project gear icon (M.8)", () => {
   const gearProject = {
@@ -489,7 +489,7 @@ describe("Sidebar — Project gear icon (M.8)", () => {
   });
 });
 
-// ── Q.1 — "No project" sentinel in Sidebar ────────────────────────────────────
+// ── "No project" sentinel in Sidebar ─────────────────────────────────────────
 
 describe("Sidebar — No project sentinel (Q1)", () => {
   const noProjectSentinelProject = {

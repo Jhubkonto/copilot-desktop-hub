@@ -96,7 +96,7 @@ describe('slash-commands', () => {
   })
 })
 
-// ── M.10: /usage visual bar ───────────────────────────────────────────────────
+// ── /usage visual bar ─────────────────────────────────────────────────────────
 
 describe('buildUsageBar', () => {
   it('m10-1: returns all filled blocks when used >= limit', () => {

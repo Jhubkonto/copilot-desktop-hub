@@ -154,7 +154,7 @@ export function registerAgentHandlers(): void {
       'INSERT INTO agents (id, config_json, is_default, created_at, updated_at) VALUES (?, ?, 0, ?, ?)'
     ).run(id, JSON.stringify(config), now, now)
 
-    // C.3: Auto-create scratchpad when rootDirectory is set
+    // Auto-create scratchpad when rootDirectory is set
     if (config.rootDirectory && typeof config.rootDirectory === 'string') {
       const kebabName = (config.name as string)
         .toLowerCase()

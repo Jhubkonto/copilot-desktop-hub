@@ -216,7 +216,7 @@ describe('SettingsPanel — Providers Tab', () => {
 })
 
 
-// ── M.11: Two-panel settings layout ──────────────────────────────────────────
+// ── Two-panel settings layout ─────────────────────────────────────────────────
 
 describe('SettingsPanel — Two-panel layout (M.11)', () => {
   it('m11-1: settings navigation panel is visible', () => {

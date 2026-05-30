@@ -764,7 +764,7 @@ describe("ChatWindow — Model Dropdown (O.2)", () => {
   });
 });
 
-// ── Resizable Input Panel (P.1) ───────────────────────────────────────────────
+// ── Resizable Input Panel ─────────────────────────────────────────────────────
 
 describe("ChatWindow — Resizable Input Panel (P.1)", () => {
   it("p1-1: resize handle is present in the DOM", () => {
@@ -845,7 +845,7 @@ describe("ChatWindow — Resizable Input Panel (P.1)", () => {
   });
 });
 
-// ── Scrollbar Cursor Fix (P.2) ─────────────────────────────────────────────
+// ── Scrollbar Cursor Fix ──────────────────────────────────────────────────────
 
 describe("ChatWindow — Scrollbar Cursor Fix (P.2)", () => {
   it("p2-1: message input has chat-input class for scrollbar cursor fix", () => {
@@ -861,7 +861,7 @@ describe("ChatWindow — Scrollbar Cursor Fix (P.2)", () => {
   });
 });
 
-// ── Directory Context Indicator (R.2) ────────────────────────────────────────
+// ── Directory Context Indicator ───────────────────────────────────────────────
 
 describe("ChatWindow — Directory Context Indicator (R.2)", () => {
   it("r2-r-1: shows 📁 badge in context bar when project has rootDirectory set", async () => {

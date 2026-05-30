@@ -63,7 +63,7 @@ vi.mock('crypto', () => ({ randomUUID: vi.fn(() => 'test-uuid') }))
 vi.mock('fs', () => ({
   readFileSync: vi.fn(),
   writeFileSync: vi.fn(),
-  // existsSync is used by the R.2 directory injection; return false so listing is skipped in these tests
+  // existsSync is used by directory listing injection; return false so listing is skipped in these tests
   existsSync: vi.fn(() => false),
   readdirSync: vi.fn(() => []),
   statSync: vi.fn(() => ({ size: 0, isDirectory: () => false })),
@@ -324,7 +324,7 @@ describe('project-config — IPC Handlers', () => {
     })
   })
 
-  // ── K.2: Scope block injection ────────────────────────────────────────────
+  // ── Scope block injection ────────────────────────────────────────────────
 
   describe('chat:send-message scope block injection (K)', () => {
     const BASE_MESSAGE_ARGS = {

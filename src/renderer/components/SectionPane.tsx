@@ -613,7 +613,7 @@ function ChatsPane() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Project history sub-pane (Q.2)
+// Project history sub-pane
 // ─────────────────────────────────────────────────────────────────────────────
 
 function ProjectHistoryPane() {

@@ -491,7 +491,7 @@ describe("SectionPane — Agent-to-project assignment (L)", () => {
     setupStoreMock(useAppStore, mockStore);
   });
 
-  // L.2 — "Add to project" popover on agent rows in AgentsPane
+  // "Add to project" popover on agent rows in AgentsPane
   it('l2-1: "Add to project" button appears on agent rows in AgentsPane', () => {
     mockStore = createMockAppStore({
       ...mockStore,
@@ -557,7 +557,7 @@ describe("SectionPane — Agent-to-project assignment (L)", () => {
   });
 });
 
-// ── Q.1/Q.2 — "No Project" bucket + Project History pane ──────────────────────
+// ── "No Project" bucket + Project History pane ───────────────────────────────
 
 describe("SectionPane — No Project bucket & Project History (Q1/Q2)", () => {
   const now = Date.now();

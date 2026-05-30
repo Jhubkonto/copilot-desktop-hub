@@ -34,7 +34,7 @@ function Wrapper({
   );
 }
 
-// ── P.3 — Context-Sensitive Cursor on Panel Dividers ─────────────────────────
+// ── Context-Sensitive Cursor on Panel Dividers ───────────────────────────────
 
 describe("ResizeHandle — P.3 context-sensitive cursor", () => {
   it("p3-1: horizontal handle renders with cursor-col-resize by default", () => {
