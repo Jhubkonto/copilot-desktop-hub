@@ -9,6 +9,7 @@ interface McpServerConfig {
   args: string[]
   env: Record<string, string>
   cwd?: string
+  imageResponses?: 'allow' | 'omit'
   enabled: boolean
 }
 
@@ -357,6 +358,32 @@ export function McpServerPanel() {
                   className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 dark:focus:ring-gray-500"
                 />
               </div>
+
+              {(editingServer.command.toLowerCase().includes('playwright') ||
+                editingServer.name.toLowerCase().includes('playwright') ||
+                editingServer.args.some((a) => a.toLowerCase().includes('playwright'))) && (
+                <div>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={editingServer.imageResponses !== 'omit'}
+                      onChange={(e) =>
+                        setEditingServer({
+                          ...editingServer,
+                          imageResponses: e.target.checked ? 'allow' : 'omit',
+                        })
+                      }
+                      className="rounded"
+                    />
+                    <span className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                      Include screenshots in tool results
+                    </span>
+                  </label>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 ml-5">
+                    Disable to reduce token usage on limited API plans
+                  </p>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">

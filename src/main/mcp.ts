@@ -13,6 +13,7 @@ interface McpServerConfig {
   args: string[]
   env: Record<string, string>
   cwd?: string
+  imageResponses?: 'allow' | 'omit'
   enabled: boolean
 }
 
@@ -34,6 +35,9 @@ interface McpTool {
 }
 
 export const servers = new Map<string, McpServerInstance>()
+const reconnectTimers = new Map<string, NodeJS.Timeout>()
+const intentionallyDisconnected = new Set<string>()
+const RECONNECT_DELAY_MS = 5000
 
 function loadServerConfigs(): McpServerConfig[] {
   const db = getDatabase()
@@ -61,13 +65,43 @@ function removeServerConfig(id: string): void {
   db.prepare('DELETE FROM mcp_servers WHERE id = ?').run(id)
 }
 
+function scheduleReconnect(id: string): void {
+  if (intentionallyDisconnected.has(id)) return
+  const existing = reconnectTimers.get(id)
+  if (existing) clearTimeout(existing)
+
+  const timer = setTimeout(async () => {
+    reconnectTimers.delete(id)
+    if (intentionallyDisconnected.has(id)) return
+
+    const configs = loadServerConfigs()
+    const config = configs.find((c) => c.id === id)
+    if (!config || !config.enabled) return
+
+    await connectServer(config).catch((err) => {
+      console.error(`MCP auto-reconnect failed for ${config.name}:`, err)
+      scheduleReconnect(id)
+    })
+  }, RECONNECT_DELAY_MS)
+
+  reconnectTimers.set(id, timer)
+}
+
 async function connectServer(config: McpServerConfig): Promise<void> {
+  intentionallyDisconnected.delete(config.id)
+
   // Disconnect existing if any
   await disconnectServer(config.id)
+  intentionallyDisconnected.delete(config.id)
+
+  const extraArgs: string[] = []
+  if (config.imageResponses === 'omit') {
+    extraArgs.push('--imageResponses', 'omit')
+  }
 
   const transport = new StdioClientTransport({
     command: config.command,
-    args: config.args,
+    args: [...config.args, ...extraArgs],
     env: Object.keys(config.env).length > 0 ? { ...process.env, ...config.env } as Record<string, string> : undefined,
     cwd: config.cwd || undefined,
     stderr: 'pipe'
@@ -92,6 +126,15 @@ async function connectServer(config: McpServerConfig): Promise<void> {
     await client.connect(transport)
     instance.status = 'connected'
 
+    transport.onclose = () => {
+      const inst = servers.get(config.id)
+      if (inst && inst.status === 'connected') {
+        inst.status = 'disconnected'
+        servers.delete(config.id)
+        scheduleReconnect(config.id)
+      }
+    }
+
     // Discover tools
     try {
       const toolsResult = await client.listTools()
@@ -112,7 +155,15 @@ async function connectServer(config: McpServerConfig): Promise<void> {
   }
 }
 
-async function disconnectServer(id: string): Promise<void> {
+export async function disconnectServer(id: string): Promise<void> {
+  intentionallyDisconnected.add(id)
+
+  const existing = reconnectTimers.get(id)
+  if (existing) {
+    clearTimeout(existing)
+    reconnectTimers.delete(id)
+  }
+
   const instance = servers.get(id)
   if (instance) {
     try {
@@ -141,7 +192,7 @@ export async function callMcpTool(
   args: Record<string, unknown>,
   agentId?: string,
   webContents?: WebContents
-): Promise<{ success: boolean; result?: string; error?: string }> {
+): Promise<{ success: boolean; result?: string; images?: { dataUrl: string; mimeType: string }[]; error?: string }> {
   // Resolve approval policy; default to 'always-ask' when no override exists
   let approval: string = 'always-ask'
 
@@ -174,11 +225,32 @@ export async function callMcpTool(
   try {
     const result = await instance.client.callTool({ name: toolName, arguments: args })
     const contentArray = Array.isArray(result.content) ? result.content : []
+
     const textContent = contentArray
-      .filter((c): c is { type: string; text: string } => c != null && typeof c === 'object' && 'type' in c && c.type === 'text' && typeof (c as { text?: unknown }).text === 'string')
+      .filter((c): c is { type: string; text: string } =>
+        c != null && typeof c === 'object' && 'type' in c &&
+        c.type === 'text' && typeof (c as { text?: unknown }).text === 'string')
       .map((c) => c.text)
       .join('\n')
-    return { success: !result.isError, result: textContent || JSON.stringify(result.content) }
+
+    const images = contentArray
+      .filter((c): c is { type: 'image'; data: string; mimeType: string } =>
+        c != null && typeof c === 'object' && 'type' in c &&
+        c.type === 'image' &&
+        typeof (c as { data?: unknown }).data === 'string' &&
+        typeof (c as { mimeType?: unknown }).mimeType === 'string')
+      .map((c) => ({ dataUrl: `data:${c.mimeType};base64,${c.data}`, mimeType: c.mimeType }))
+
+    // When image parts are present, use a short summary rather than dumping the raw JSON blob
+    const resultText = textContent || (images.length > 0
+      ? `[Screenshot captured — ${images.length} image(s)]`
+      : JSON.stringify(result.content))
+
+    return {
+      success: !result.isError,
+      result: resultText,
+      ...(images.length > 0 && { images })
+    }
   } catch (error) {
     return { success: false, error: (error as Error).message }
   }
@@ -196,6 +268,11 @@ export async function initMcpServers(): Promise<void> {
 }
 
 export async function shutdownMcpServers(): Promise<void> {
+  for (const [id, timer] of reconnectTimers) {
+    clearTimeout(timer)
+    reconnectTimers.delete(id)
+  }
+
   const ids = [...servers.keys()]
   for (const id of ids) {
     await disconnectServer(id).catch((err) => {
