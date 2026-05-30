@@ -775,7 +775,9 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
                 </div>
                 {globalMcpServers.length === 0 ? (
                   <div className="rounded-xl border border-dashed border-gray-300 dark:border-gray-600 py-4 text-center">
-                    <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">No MCP servers configured</p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">
+                      No MCP servers configured. Add Playwright to enable browser automation.
+                    </p>
                     <button
                       type="button"
                       onClick={() => setShowMcpPanel(true)}

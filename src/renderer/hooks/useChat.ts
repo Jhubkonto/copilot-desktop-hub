@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
 import { getModelLabel } from '../../shared/models'
-import type { ChatMessage, ConversationDbMessage, StreamError, TeamActivityStep, ToastType } from './chat-types'
+import type { ChatMessage, ConversationDbMessage, StreamError, TeamActivityStep, ToolCallEvent, ToastType } from './chat-types'
 
 interface UseChatParams {
   conversationId: string | null
@@ -29,6 +29,7 @@ export function useChat({
   const [generationStartedAt, setGenerationStartedAt] = useState<number | null>(null)
 
   const streamingContentRef = useRef('')
+  const liveToolCallsRef = useRef<ChatMessage[]>([])
   const streamModelRef = useRef<string | null>(null)
   const activeConversationRef = useRef<string | null>(conversationId)
   const justCreatedConversationRef = useRef(false)
@@ -116,6 +117,7 @@ export function useChat({
     setIsGenerating(false)
     setGenerationStartedAt(null)
     setLiveTeamActivity([])
+    liveToolCallsRef.current = []
     setLoadingFailed(false)
   }, [conversationId, addToast])
 
@@ -140,6 +142,7 @@ export function useChat({
         setLoadingFailed(false)
         setGenerationStartedAt(null)
         setLiveTeamActivity([])
+        liveToolCallsRef.current = []
         // Now that the new response arrived, delete the old assistant message from DB.
         if (pendingDeleteMessageRef.current) {
           void window.api.deleteMessage(pendingDeleteMessageRef.current.id)
@@ -161,6 +164,7 @@ export function useChat({
       setIsGenerating(false)
       setLoadingFailed(false)
       setGenerationStartedAt(null)
+      liveToolCallsRef.current = []
 
       if (preRegenMessagesRef.current) {
         // Restore the conversation to its state before the failed regeneration
@@ -194,9 +198,27 @@ export function useChat({
       void loadConversations()
     })
 
+    const unsubscribeToolCall = window.api.onToolCallEvent((data: ToolCallEvent) => {
+      const toolCallMsg: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: 'tool-call',
+        content: data.result,
+        timestamp: Date.now(),
+        toolName: data.toolName,
+        serverName: data.serverName,
+        toolArgs: data.args,
+        toolResult: data.result,
+        toolSuccess: data.success,
+        ...(data.resultImages?.length && { toolResultImages: data.resultImages }),
+      }
+      liveToolCallsRef.current = [...liveToolCallsRef.current, toolCallMsg]
+      setMessages((prev) => [...prev, toolCallMsg])
+    })
+
     return () => {
       unsubscribeStream()
       unsubscribeError()
+      unsubscribeToolCall()
     }
   }, [loadConversations, rateLimitSetterRef])
 
