@@ -33,6 +33,7 @@ export function SettingsPanel() {
   const onOpenMcp = () => { setShowSettings(false); setShowMcpPanel(true) }
   const [category, setCategory] = useState<SettingsCategory>('general')
   const [autoStart, setAutoStart] = useState(false)
+  const [autoClipboard, setAutoClipboard] = useState(false)
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [editingProvider, setEditingProvider] = useState<string | null>(null)
   const [apiKeyInput, setApiKeyInput] = useState('')
@@ -65,6 +66,7 @@ export function SettingsPanel() {
     if (!visible) return
     window.api.getSettings().then((settings: Record<string, string>) => {
       setAutoStart(settings['autoStart'] === 'true')
+      setAutoClipboard(settings['autoClipboard'] === 'true')
       setDefaultModel(settings['default_model'] || 'default')
       setTemperature(Number.parseFloat(settings['temperature'] || '0.7') || 0.7)
       setMaxTokens(Number.parseInt(settings['max_tokens'] || '4096', 10) || 4096)
@@ -84,6 +86,17 @@ export function SettingsPanel() {
     } catch {
       setAutoStart(!next)
       addToast('Failed to update auto-start setting', 'error')
+    }
+  }
+
+  const handleAutoClipboardToggle = async () => {
+    const next = !autoClipboard
+    setAutoClipboard(next)
+    try {
+      await window.api.setSetting('autoClipboard', String(next))
+    } catch {
+      setAutoClipboard(!next)
+      addToast('Failed to update auto-clipboard setting', 'error')
     }
   }
 
@@ -226,6 +239,30 @@ export function SettingsPanel() {
                     <span
                       className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
                         autoStart ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* Auto clipboard on focus */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-800 dark:text-gray-100">
+                      Auto-read clipboard on focus
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      Automatically paste clipboard text when app gains focus
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleAutoClipboardToggle}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                      autoClipboard ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        autoClipboard ? 'translate-x-6' : 'translate-x-1'
                       }`}
                     />
                   </button>

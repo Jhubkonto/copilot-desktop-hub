@@ -279,6 +279,11 @@ const api = {
   readClipboardContent: (): Promise<IpcReturn<'clipboard:read-content'>> =>
     ipcRenderer.invoke('clipboard:read-content'),
   readClipboardImage: () => typedInvoke('clipboard:read-image'),
+  onAutoClipboardFocus: (callback: () => void) => {
+    const handler = () => callback()
+    typedOn('clipboard:auto-focus', handler)
+    return () => typedOff('clipboard:auto-focus', handler)
+  },
 
   // Auto-start
   setAutoStart: (enabled: boolean) => typedInvoke('app:set-auto-start', enabled),
