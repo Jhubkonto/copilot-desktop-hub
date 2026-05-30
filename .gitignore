@@ -32,4 +32,5 @@ npm-debug.log*
 *.tsbuildinfo
 
 # Plan md files
+src/planning/
 *plan.md
