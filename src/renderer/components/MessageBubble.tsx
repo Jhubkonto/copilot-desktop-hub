@@ -39,11 +39,11 @@ interface MessageBubbleProps {
   errorType?: string
   retryable?: boolean
   isStopped?: boolean
-  messageIndex: number
+  messageIndex?: number
   onCopy: (content: string) => void
-  onRegenerate: (() => void) | undefined
-  onRegenerateWithModel: ((model: string) => void) | undefined
-  onEdit: ((index: number) => void) | undefined
+  onRegenerate?: () => void
+  onRegenerateWithModel?: (model: string) => void
+  onEdit?: (index: number) => void
   onRetry?: () => void
   onSignIn?: () => void
   onPickModel?: () => void
@@ -63,7 +63,7 @@ export function MessageBubbleBase({
   errorType,
   retryable,
   isStopped,
-  messageIndex,
+  messageIndex = 0,
   onCopy,
   onRegenerate,
   onRegenerateWithModel,

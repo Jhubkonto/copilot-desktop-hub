@@ -4,6 +4,7 @@ import { getModelLabel } from '../../../shared/models'
 import { MarkdownRenderer } from '../MarkdownRenderer'
 import { MessageBubble } from '../MessageBubble'
 import { TeamActivityBlock } from '../TeamActivityBlock'
+import { ToolCallBlock } from './ToolCallBlock'
 import type { ChatMessage, TeamActivityStep } from '../../hooks/chat-types'
 
 interface ChatMessagesProps {
@@ -25,6 +26,7 @@ interface ChatMessagesProps {
   onRetry: () => void | Promise<void>
   onSignIn: () => void
   onPickModel: () => void
+  onUseImageAsContext?: (dataUrl: string) => void
 }
 
 export function ChatMessagesBase({
@@ -46,6 +48,7 @@ export function ChatMessagesBase({
   onRetry,
   onSignIn,
   onPickModel,
+  onUseImageAsContext,
 }: ChatMessagesProps) {
   const lastAssistantIndex = (() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -91,6 +94,22 @@ export function ChatMessagesBase({
             return (
               <div key={message.id} className="max-w-3xl mx-auto">
                 <TeamActivityBlock steps={steps} isLive={false} />
+              </div>
+            )
+          }
+
+          if (message.role === 'tool-call') {
+            return (
+              <div key={message.id} className="max-w-3xl mx-auto">
+                <ToolCallBlock
+                  toolName={message.toolName ?? message.content}
+                  serverName={message.serverName}
+                  args={message.toolArgs}
+                  result={message.toolResult}
+                  success={message.toolSuccess ?? true}
+                  resultImages={message.toolResultImages}
+                  onUseImageAsContext={onUseImageAsContext}
+                />
               </div>
             )
           }
