@@ -63,7 +63,7 @@ export function ChatMessagesBase({
   return (
     <div
       ref={scrollContainerRef}
-      className="flex-1 overflow-y-auto min-h-0 px-4 py-6"
+      className="flex-1 overflow-y-auto min-h-0 px-4 py-6 mr-1.5"
       role="log"
       aria-live="polite"
       aria-label="Messages"

@@ -34,3 +34,6 @@ npm-debug.log*
 # Plan md files
 src/planning/
 *plan.md
+
+# Playwright MCP session artifacts
+.playwright-mcp/

@@ -318,7 +318,7 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 mr-1.5">
           {tab === 'settings' ? (
             <>
               {/* Name + Icon */}
