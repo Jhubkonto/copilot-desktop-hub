@@ -67,6 +67,16 @@ describe('MessageBubble', () => {
     expect(onCopy).toHaveBeenCalledWith('Hello there')
   })
 
+  it('shows copied confirmation after copy click', () => {
+    render(<MessageBubble {...baseProps} onCopy={vi.fn()} />)
+
+    const container = screen.getByText('Hello there').closest('.group')!
+    fireEvent.mouseEnter(container)
+    fireEvent.click(screen.getByText('Copy'))
+
+    expect(screen.getByText('Copied')).toBeInTheDocument()
+  })
+
   it('shows regenerate action for last assistant message', () => {
     const onRegenerate = vi.fn()
     render(

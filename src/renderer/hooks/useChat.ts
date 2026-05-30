@@ -25,6 +25,7 @@ export function useChat({
   const [streamingContent, setStreamingContent] = useState('')
   const [loadingFailed, setLoadingFailed] = useState(false)
   const [isLoadingMessages, setIsLoadingMessages] = useState(false)
+  const [isEditingMessage, setIsEditingMessage] = useState(false)
   const [liveTeamActivity, setLiveTeamActivity] = useState<TeamActivityStep[]>([])
   const [generationStartedAt, setGenerationStartedAt] = useState<number | null>(null)
   const [currentActivity, setCurrentActivity] = useState<ActivityEvent | null>(null)
@@ -36,6 +37,8 @@ export function useChat({
   const justCreatedConversationRef = useRef(false)
   const lastUndoneUserMessageRef = useRef<string | null>(null)
   const pendingEditedResendRef = useRef(false)
+  const editCutoffTimestampRef = useRef<number | null>(null)
+  const preEditMessagesRef = useRef<ChatMessage[] | null>(null)
   // Holds the previous assistant message during regeneration so it can be
   // restored to the UI if the API call fails, and deleted from the DB on success.
   const pendingDeleteMessageRef = useRef<ChatMessage | null>(null)
@@ -116,6 +119,10 @@ export function useChat({
     setStreamingContent('')
     streamingContentRef.current = ''
     setIsGenerating(false)
+    setIsEditingMessage(false)
+    preEditMessagesRef.current = null
+    editCutoffTimestampRef.current = null
+    pendingEditedResendRef.current = false
     setGenerationStartedAt(null)
     setLiveTeamActivity([])
     setCurrentActivity(null)
@@ -223,11 +230,16 @@ export function useChat({
       setCurrentActivity(event)
     })
 
+    const unsubscribeStreamModel = window.api.onStreamModel((model) => {
+      streamModelRef.current = model
+    })
+
     return () => {
       unsubscribeStream()
       unsubscribeError()
       unsubscribeToolCall()
       unsubscribeActivity()
+      unsubscribeStreamModel()
     }
   }, [loadConversations, rateLimitSetterRef])
 
@@ -324,17 +336,32 @@ export function useChat({
       const message = messages[messageIndex]
       if (!message) return
 
+      preEditMessagesRef.current = [...messages]
+      editCutoffTimestampRef.current = message.timestamp
       pendingEditedResendRef.current = true
+      setIsEditingMessage(true)
       setMessages((prev) => prev.slice(0, messageIndex))
-
-      if (conversationId && message.timestamp) {
-        window.api.deleteMessagesAfter(conversationId, message.timestamp).catch(() => {
-          addToast('Failed to delete messages', 'error')
-        })
-      }
     },
-    [conversationId, messages, isGenerating, addToast],
+    [messages, isGenerating],
   )
+
+  const cancelEdit = useCallback(() => {
+    if (!isEditingMessage) return
+    if (preEditMessagesRef.current) {
+      setMessages(preEditMessagesRef.current)
+    }
+    preEditMessagesRef.current = null
+    editCutoffTimestampRef.current = null
+    pendingEditedResendRef.current = false
+    setIsEditingMessage(false)
+  }, [isEditingMessage])
+
+  const clearEditState = useCallback(() => {
+    preEditMessagesRef.current = null
+    editCutoffTimestampRef.current = null
+    pendingEditedResendRef.current = false
+    setIsEditingMessage(false)
+  }, [])
 
   return {
     messages,
@@ -352,12 +379,16 @@ export function useChat({
     setCurrentActivity,
     generationStartedAt,
     setGenerationStartedAt,
+    isEditingMessage,
     streamingContentRef,
     streamModelRef,
     activeConversationRef,
     justCreatedConversationRef,
     lastUndoneUserMessageRef,
     pendingEditedResendRef,
+    editCutoffTimestampRef,
+    cancelEdit,
+    clearEditState,
     handleRegenerate,
     handleEdit,
     pushSystemMessage,

@@ -52,6 +52,8 @@ interface ChatComposerProps {
   onCloseAtMenu: () => void
   onSetConversationModel: (model: string) => void | Promise<void>
   onSetPendingModel: (model: string | null) => void
+  isEditingMessage: boolean
+  onCancelEdit: () => void
   onStop: () => void | Promise<void>
   onSend: () => void | Promise<void>
 }
@@ -99,6 +101,8 @@ export function ChatComposer({
   onCloseAtMenu,
   onSetConversationModel,
   onSetPendingModel,
+  isEditingMessage,
+  onCancelEdit,
   onStop,
   onSend,
 }: ChatComposerProps) {
@@ -258,6 +262,15 @@ export function ChatComposer({
                 </button>
               </div>
               <div className="flex items-center gap-1">
+              {isEditingMessage && (
+                <button
+                  type="button"
+                  onClick={onCancelEdit}
+                  className="px-2 py-1 text-xs rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                >
+                  Cancel edit
+                </button>
+              )}
               <div className="relative flex items-center" ref={modelMenuRef}>
                 <button
                   ref={modelPickerRef}

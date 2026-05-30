@@ -61,6 +61,7 @@ interface UseChatWindowActionsParams {
   activeConversationRef: MutableRefObject<string | null>
   justCreatedConversationRef: MutableRefObject<boolean>
   pendingEditedResendRef: MutableRefObject<boolean>
+  editCutoffTimestampRef: MutableRefObject<number | null>
   lastUndoneUserMessageRef: MutableRefObject<string | null>
   streamModelRef: MutableRefObject<string | null>
   streamingContentRef: MutableRefObject<string>
@@ -80,6 +81,7 @@ interface UseChatWindowActionsParams {
   loadAgents: () => Promise<void>
   loadConversations: () => Promise<void>
   onAfterSend?: () => void
+  onEditStateConsumed?: () => void
 }
 
 export function useChatWindowActions({
@@ -122,6 +124,7 @@ export function useChatWindowActions({
   activeConversationRef,
   justCreatedConversationRef,
   pendingEditedResendRef,
+  editCutoffTimestampRef,
   lastUndoneUserMessageRef,
   streamModelRef,
   streamingContentRef,
@@ -141,6 +144,7 @@ export function useChatWindowActions({
   loadAgents,
   loadConversations,
   onAfterSend,
+  onEditStateConsumed,
 }: UseChatWindowActionsParams) {
   const slashCommandCtx = useMemo<SlashCommandContext>(
     () => ({
@@ -313,6 +317,10 @@ export function useChatWindowActions({
     }
 
     const userDisplayContent = input.trim()
+    const editCutoffTimestamp =
+      pendingEditedResendRef.current && editCutoffTimestampRef.current != null
+        ? editCutoffTimestampRef.current
+        : null
     const systemPrompt = activeAgent?.systemPrompt ?? ''
     const tokenEstimate = (value: string) => Math.ceil(value.length / 4)
     const contextSnapshot: ContextSnapshot = {
@@ -341,6 +349,7 @@ export function useChatWindowActions({
       contextSnapshot: contextSnapshotJson,
     }
     pendingEditedResendRef.current = false
+    onEditStateConsumed?.()
 
     setMessages((prev) => [...prev, userMessage])
     const sent = input.trim()
@@ -370,6 +379,11 @@ export function useChatWindowActions({
     }
 
     try {
+      if (editCutoffTimestamp != null) {
+        await window.api.deleteMessagesAfter(conversation, editCutoffTimestamp).catch(() => {
+          addToast('Failed to delete messages from edited point', 'error')
+        })
+      }
       await window.api.sendMessage(conversation, content, {
         attachments,
         images: visionImagesForSend,
@@ -416,6 +430,7 @@ export function useChatWindowActions({
     messages,
     effectiveModel,
     pendingEditedResendRef,
+    editCutoffTimestampRef,
     setMessages,
     inputHistoryRef,
     historyIndexRef,
@@ -435,6 +450,7 @@ export function useChatWindowActions({
     chatAgentId,
     chatProjectId,
     onAfterSend,
+    onEditStateConsumed,
   ])
 
   const handleRetry = useCallback(async () => {

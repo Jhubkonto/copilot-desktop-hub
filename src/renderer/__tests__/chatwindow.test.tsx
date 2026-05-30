@@ -408,6 +408,42 @@ describe("ChatWindow — Regenerate & Edit", () => {
 
     expect(screen.getByText("My question")).toBeInTheDocument();
   });
+
+  it("allows canceling edit mode and restores messages", async () => {
+    const user = userEvent.setup();
+    mockApi.getMessages.mockResolvedValue([
+      { id: "m1", role: "user", content: "My question", timestamp: 1000 },
+      { id: "m2", role: "assistant", content: "My answer", timestamp: 2000 },
+    ]);
+
+    mockStore = createMockAppStore({
+      authState: { authenticated: true, user: null },
+      currentConversationId: "conv-1",
+    });
+    setupStoreMock(useAppStore, mockStore);
+
+    render(<ChatWindow />);
+
+    await waitFor(() => {
+      expect(screen.getByText("My question")).toBeInTheDocument();
+      expect(screen.getByText("My answer")).toBeInTheDocument();
+    });
+
+    await user.dblClick(screen.getByText("My question"));
+
+    await waitFor(() => {
+      expect(screen.getByRole("textbox", { name: /message input/i })).toHaveValue("My question");
+    });
+    expect(screen.getByRole("button", { name: /cancel edit/i })).toBeInTheDocument();
+    expect(screen.queryByText("My answer")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /cancel edit/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("textbox", { name: /message input/i })).toHaveValue("");
+    });
+    expect(screen.getByText("My answer")).toBeInTheDocument();
+  });
 });
 
 describe("ChatWindow — Slash Commands", () => {

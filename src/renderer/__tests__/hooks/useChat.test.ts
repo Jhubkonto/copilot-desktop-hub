@@ -42,7 +42,7 @@ describe('useChat', () => {
     expect(result.current.streamingContent).toBe('')
   })
 
-  it('handleEdit truncates messages after the edited one', async () => {
+  it('handleEdit truncates messages and cancelEdit restores them', async () => {
     const addToast = vi.fn()
     const loadConversations = vi.fn().mockResolvedValue(undefined)
     const conversationCreated = vi.fn()
@@ -77,8 +77,20 @@ describe('useChat', () => {
         { id: 'a1', role: 'assistant', content: 'Reply', timestamp: 2 },
       ])
     })
-    expect(mockApi.deleteMessagesAfter).toHaveBeenCalledWith('conv-1', 3)
+    expect(result.current.isEditingMessage).toBe(true)
+    expect(mockApi.deleteMessagesAfter).not.toHaveBeenCalled()
     expect(addToast).not.toHaveBeenCalled()
+
+    act(() => {
+      result.current.cancelEdit()
+    })
+    expect(result.current.messages).toEqual([
+      { id: 'u1', role: 'user', content: 'First', timestamp: 1 },
+      { id: 'a1', role: 'assistant', content: 'Reply', timestamp: 2 },
+      { id: 'u2', role: 'user', content: 'Edit me', timestamp: 3 },
+      { id: 'a2', role: 'assistant', content: 'Later', timestamp: 4 },
+    ])
+    expect(result.current.isEditingMessage).toBe(false)
   })
 
   it('appends streamed chunks and finalizes the assistant message', async () => {

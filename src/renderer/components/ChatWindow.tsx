@@ -142,6 +142,7 @@ export function ChatWindow() {
     activeConversationRef: chat.activeConversationRef,
     justCreatedConversationRef: chat.justCreatedConversationRef,
     pendingEditedResendRef: chat.pendingEditedResendRef,
+    editCutoffTimestampRef: chat.editCutoffTimestampRef,
     lastUndoneUserMessageRef: chat.lastUndoneUserMessageRef,
     streamModelRef: chat.streamModelRef,
     streamingContentRef: chat.streamingContentRef,
@@ -161,6 +162,7 @@ export function ChatWindow() {
     loadAgents,
     loadConversations,
     onAfterSend: () => setClipboardRef(null),
+    onEditStateConsumed: chat.clearEditState,
   })
 
   useLayoutEffect(() => {
@@ -317,9 +319,14 @@ export function ChatWindow() {
     prevGeneratingRef.current = chat.isGenerating
   }, [chat.isGenerating, chat.messages, addToast])
 
-  const handleCopy = useCallback((content: string) => {
-    navigator.clipboard.writeText(content)
-  }, [])
+  const handleCopy = useCallback(async (content: string) => {
+    try {
+      await navigator.clipboard.writeText(content)
+      addToast('Copied to clipboard', 'success')
+    } catch {
+      addToast('Failed to copy message', 'error')
+    }
+  }, [addToast])
 
   const handleCaptureScreen = useCallback(async () => {
     const permission = await window.api.checkScreenPermission()
@@ -418,6 +425,11 @@ export function ChatWindow() {
     (index: number) => actions.handleEdit(index, chat.handleEdit),
     [actions.handleEdit, chat.handleEdit],
   )
+
+  const handleCancelEdit = useCallback(() => {
+    chat.cancelEdit()
+    setInput('')
+  }, [chat.cancelEdit, setInput])
 
   const handlePickModel = useCallback(() => {
     modelPickerRef.current?.focus()
@@ -668,6 +680,8 @@ export function ChatWindow() {
       onCloseAtMenu={atMenu.closeAtMenu}
       onSetConversationModel={actions.handleSetConversationModel}
       onSetPendingModel={setPendingModel}
+      isEditingMessage={chat.isEditingMessage}
+      onCancelEdit={handleCancelEdit}
       onStop={actions.handleStop}
       onSend={actions.handleSend}
     />

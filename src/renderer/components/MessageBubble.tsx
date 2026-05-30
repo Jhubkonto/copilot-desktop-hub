@@ -1,4 +1,4 @@
-import { memo, useState, useRef } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { Copy, RotateCcw, Pencil, AlertTriangle, RefreshCw, LogIn, StopCircle, ChevronDown } from 'lucide-react'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import type { ContextSnapshot } from '../hooks/chat-types'
@@ -75,8 +75,17 @@ export function MessageBubbleBase({
   const [showActions, setShowActions] = useState(false)
   const [showRegenMenu, setShowRegenMenu] = useState(false)
   const [regenMenuAbove, setRegenMenuAbove] = useState(false)
+  const [copied, setCopied] = useState(false)
   const regenBtnRef = useRef<HTMLButtonElement | null>(null)
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
+    }
+  }, [])
 
   const handleMouseEnter = () => {
     if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
@@ -215,7 +224,16 @@ export function MessageBubbleBase({
           <div
             className={`absolute -bottom-7 ${role === 'user' ? 'right-0' : 'left-0'} flex gap-1 z-20 transition-opacity duration-200 ${showActions ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
           >
-            <ActionButton icon={Copy} label="Copy" onClick={() => onCopy(content)} />
+            <ActionButton
+              icon={Copy}
+              label={copied ? 'Copied' : 'Copy'}
+              onClick={() => {
+                onCopy(content)
+                setCopied(true)
+                if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
+                copiedTimerRef.current = setTimeout(() => setCopied(false), 1200)
+              }}
+            />
             {role === 'assistant' && isLastAssistant && onRegenerate && (
               <div className="relative flex items-center gap-1">
                 <ActionButton icon={RotateCcw} label="Regenerate" onClick={onRegenerate} />
