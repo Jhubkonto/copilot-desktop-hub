@@ -20,6 +20,7 @@ export interface PastedImage {
   id: string
   dataUrl: string
   name: string
+  label?: string
 }
 
 export interface ChatMessage {

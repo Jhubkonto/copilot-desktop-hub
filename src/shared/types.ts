@@ -456,10 +456,11 @@ export type IpcReturnMap = {
   'provider:set-key': boolean
   'provider:test-key': ProviderTestResult
   // Screen / Clipboard
+  'clipboard:auto-focus': void
   'clipboard:read-content': { type: 'image'; dataUrl: string } | { type: 'text'; text: string } | null
   'clipboard:read-image': { dataUrl: string } | null
   'overlay:get-screenshot': string
-  'screen:capture': { dataUrl: string } | { error: string }
+  'screen:capture': { dataUrl: string; windowLabel?: string } | { error: string }
   'screen:check-permission': 'granted' | 'denied' | 'prompt'
   // Tool
   'tool:approval-response': boolean
@@ -530,6 +531,7 @@ export type IpcChannels =
   | 'chat:stream-response'
   | 'chat:tool-call-event'
   | 'chat:team-activity'
+  | 'clipboard:auto-focus'
   | 'clipboard:read-content'
   | 'clipboard:read-image'
   | 'cli:check'

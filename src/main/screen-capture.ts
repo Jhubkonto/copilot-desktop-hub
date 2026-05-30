@@ -4,6 +4,33 @@ import { join } from 'path'
 
 const pendingCaptures = new Map<string, Electron.NativeImage>()
 let captureInProgress = false
+let lastExternalWindowLabel: string | undefined = undefined
+let suppressNextFocusEvent = false
+
+export async function cacheExternalWindowLabel(ownWindowTitle: string): Promise<void> {
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ['window'],
+      thumbnailSize: { width: 0, height: 0 },
+    })
+    const external = sources.find(
+      (source) => source.name.trim().length > 0 && !source.name.includes(ownWindowTitle),
+    )
+    lastExternalWindowLabel = external?.name ?? undefined
+  } catch {
+    lastExternalWindowLabel = undefined
+  }
+}
+
+export function getLastExternalWindowLabel(): string | undefined {
+  return lastExternalWindowLabel
+}
+
+export function consumeSuppressFocusEvent(): boolean {
+  const val = suppressNextFocusEvent
+  suppressNextFocusEvent = false
+  return val
+}
 
 export function checkScreenPermission(): 'granted' | 'denied' | 'prompt' {
   if (process.platform !== 'darwin') return 'granted'
@@ -121,7 +148,7 @@ export async function openRegionOverlay(
 
 export async function captureWithRegionSelection(
   mainWindow: BrowserWindow,
-): Promise<{ dataUrl: string } | { error: string }> {
+): Promise<{ dataUrl: string; windowLabel?: string } | { error: string }> {
   if (captureInProgress) return { error: 'Capture already in progress' }
   captureInProgress = true
 
@@ -165,6 +192,7 @@ export async function captureWithRegionSelection(
     pendingCaptures.set(sessionId, source.thumbnail)
 
     const cssRect = await openRegionOverlay(display, sessionId)
+    suppressNextFocusEvent = true
     mainWindow.show()
     mainWindowHidden = false
 
@@ -193,7 +221,7 @@ export async function captureWithRegionSelection(
       })
     }
 
-    return { dataUrl: cropped.toDataURL() }
+    return { dataUrl: cropped.toDataURL(), windowLabel: getLastExternalWindowLabel() }
   } finally {
     if (mainWindowHidden) {
       mainWindow.show()

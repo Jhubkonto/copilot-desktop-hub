@@ -19,12 +19,17 @@ export function AttachmentBar({
   return (
     <div className="flex flex-wrap gap-2 mb-2">
       {images.map((image) => (
-        <div key={image.id} className="relative group/img inline-flex">
+        <div key={image.id} className="relative group/img inline-flex flex-col items-center gap-0.5">
           <img
             src={image.dataUrl}
             alt={image.name}
             className="h-16 w-16 object-cover rounded-lg border border-gray-200 dark:border-gray-700"
           />
+          {image.label && (
+            <span className="text-[10px] text-gray-400 dark:text-gray-500 max-w-[64px] truncate leading-tight">
+              {image.label}
+            </span>
+          )}
           <button
             type="button"
             onClick={() => onRemoveImage(image.id)}

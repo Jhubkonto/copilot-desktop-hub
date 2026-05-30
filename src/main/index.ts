@@ -182,12 +182,11 @@ app.whenReady().then(() => {
   // Initialize database
   getDatabase()
 
-  // Register all IPC handlers
-  registerIpcHandlers()
   registerAuthHandlers()
   registerUpdaterHandlers()
 
   createWindow()
+  registerIpcHandlers(mainWindow ?? undefined)
   createTray()
   registerGlobalHotkey()
 

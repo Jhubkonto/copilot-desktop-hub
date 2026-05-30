@@ -62,6 +62,7 @@ export function ChatWindow() {
   const historyIndexRef = useRef(-1)
   const historyDraftRef = useRef('')
   const rateLimitSetterRef = useRef<(seconds: number) => void>(() => {})
+  const lastClipboardSigRef = useRef('')
 
   const currentConversation = conversationId
     ? (conversations.find((conversation) => conversation.id === conversationId) ?? null)
@@ -230,6 +231,25 @@ export function ChatWindow() {
     }
   }, [chat.isGenerating])
 
+  useEffect(() => {
+    const unsubscribe = window.api.onAutoClipboardFocus(async () => {
+      const setting = await window.api.getSetting('autoClipboard').catch(() => null)
+      if (setting !== 'true') return
+
+      const result = await window.api.readClipboardContent().catch(() => null)
+      if (!result || isApiError(result)) return
+      if (result.type !== 'text') return
+
+      const sig = result.text.slice(0, 64)
+      if (sig === lastClipboardSigRef.current) return
+      lastClipboardSigRef.current = sig
+
+      if (result.text.length > 4000) return
+      setClipboardRef({ key: 'clipboard', token: '@clipboard', value: result.text })
+    })
+    return unsubscribe
+  }, [])
+
   const scrollToBottom = useCallback(() => {
     const el = scrollContainerRef.current
     if (!el) return
@@ -323,7 +343,12 @@ export function ChatWindow() {
     }
     fileInput.setPendingImages((prev) => [
       ...prev,
-      { id: crypto.randomUUID(), name: 'Screen capture', dataUrl: result.dataUrl },
+      {
+        id: crypto.randomUUID(),
+        name: 'Screen capture',
+        dataUrl: result.dataUrl,
+        ...(result.windowLabel ? { label: result.windowLabel } : {}),
+      },
     ])
   }, [addToast, fileInput])
 

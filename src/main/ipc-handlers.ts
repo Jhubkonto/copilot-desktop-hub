@@ -1,3 +1,4 @@
+import { BrowserWindow } from 'electron'
 import { registerProjectHandlers, registerProjectAgentHandlers } from './project-handlers'
 import { registerSettingsHandlers } from './settings-handlers'
 import { registerConversationHandlers, registerMessageHandlers } from './conversation-handlers'
@@ -10,8 +11,9 @@ import { registerToolHandlers } from './tools'
 import { registerMcpHandlers } from './mcp'
 import { registerProviderHandlers } from './providers'
 import { registerScreenCaptureHandlers } from './screen-capture-handlers'
+import { cacheExternalWindowLabel, consumeSuppressFocusEvent } from './screen-capture'
 
-export function registerIpcHandlers(): void {
+export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerSettingsHandlers()
   registerProjectHandlers()
   registerProjectAgentHandlers()
@@ -27,6 +29,16 @@ export function registerIpcHandlers(): void {
   registerProviderHandlers()
   registerScreenCaptureHandlers()
   registerSystemHandlers()
+
+  if (mainWindow) {
+    mainWindow.on('blur', () => {
+      cacheExternalWindowLabel(mainWindow.getTitle()).catch(() => {})
+    })
+    mainWindow.on('focus', () => {
+      if (consumeSuppressFocusEvent()) return
+      mainWindow.webContents.send('clipboard:auto-focus')
+    })
+  }
 }
 
 // Re-exports for backward compatibility (tests and external code may import these)
