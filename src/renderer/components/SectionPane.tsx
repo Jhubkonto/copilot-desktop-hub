@@ -14,7 +14,7 @@ import { formatRelativeTime } from '../../shared/utils'
 type SectionType = 'projects' | 'agents' | 'chats'
 
 const PANE_MIN = 220
-const PANE_MAX = 680
+const PANE_MAX = 500
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AgentAvatarStack helper
@@ -123,7 +123,7 @@ function ProjectsPane() {
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
+      <div className="flex-1 overflow-y-auto mr-1.5 p-2 space-y-0.5">
         {projects.map((project) => {
           const colors = PROJECT_COLOR_MAP[project.color] ?? PROJECT_COLOR_MAP.blue
           const isActive = activeProjectId === project.id
@@ -336,7 +336,7 @@ function AgentsPane() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
+      <div className="flex-1 overflow-y-auto mr-1.5 p-2 space-y-0.5">
         {/* No Agent option */}
         <div
           onClick={() => selectAgent(null)}
@@ -572,7 +572,7 @@ function ChatsPane() {
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-2 space-y-4">
+      <div className="flex-1 overflow-y-auto mr-1.5 p-2 space-y-4">
         {filtered.length === 0 && (
           <p className="text-center text-xs text-gray-400 dark:text-gray-500 pt-8 italic">
             {query ? 'No matching conversations' : 'No conversations yet'}
@@ -705,7 +705,7 @@ function ProjectHistoryPane() {
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-2 space-y-4">
+      <div className="flex-1 overflow-y-auto mr-1.5 p-2 space-y-4">
         {filtered.length === 0 && (
           <p className="text-center text-xs text-gray-400 dark:text-gray-500 pt-8 italic">
             {query ? 'No matching conversations' : 'No conversations yet'}
@@ -767,9 +767,11 @@ export function SectionPane({ section }: SectionPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(320)
 
+  const getMaxSize = useCallback(() => Math.min(PANE_MAX, Math.floor(window.innerWidth * 0.32)), [])
+
   const handleSetSize = useCallback((size: number) => {
-    setWidth(Math.max(PANE_MIN, Math.min(PANE_MAX, size)))
-  }, [])
+    setWidth(Math.max(PANE_MIN, Math.min(getMaxSize(), size)))
+  }, [getMaxSize])
 
   // When in the projects section with a history project selected, show breadcrumb
   const showingHistory = section === 'projects' && historyProjectId !== null
@@ -825,6 +827,8 @@ export function SectionPane({ section }: SectionPaneProps) {
         containerRef={containerRef as React.RefObject<HTMLElement>}
         onSetSize={handleSetSize}
         align="end"
+        minSize={PANE_MIN}
+        maxSize={getMaxSize}
       />
     </div>
   )

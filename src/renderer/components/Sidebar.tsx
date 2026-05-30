@@ -55,7 +55,7 @@ const PROJECT_COLOR_MAP: Record<string, { bg: string; dot: string }> = {
 const COLOR_OPTIONS = Object.keys(PROJECT_COLOR_MAP)
 
 const SIDEBAR_MIN = 160
-const SIDEBAR_MAX = 560
+const SIDEBAR_MAX = 480
 
 export function Sidebar() {
   const sidebarRef = useRef<HTMLElement>(null)
@@ -64,9 +64,11 @@ export function Sidebar() {
   const [agentsOpen, setAgentsOpen] = useState(true)
   const [chatsOpen, setChatsOpen] = useState(true)
 
+  const getMaxSize = useCallback(() => Math.min(SIDEBAR_MAX, Math.floor(window.innerWidth * 0.32)), [])
+
   const handleSetSize = useCallback((size: number) => {
-    setWidth(Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, size)))
-  }, [])
+    setWidth(Math.max(SIDEBAR_MIN, Math.min(getMaxSize(), size)))
+  }, [getMaxSize])
 
   const currentConversationId = useAppStore((s) => s.currentConversationId)
   const conversations = useAppStore((s) => s.conversations)
@@ -307,7 +309,7 @@ export function Sidebar() {
       role="complementary"
       aria-label="Sidebar navigation"
     >
-      <ResizeHandle direction="horizontal" containerRef={sidebarRef} onSetSize={handleSetSize} />
+      <ResizeHandle direction="horizontal" containerRef={sidebarRef} onSetSize={handleSetSize} minSize={SIDEBAR_MIN} maxSize={getMaxSize} />
       <div className="flex items-center px-4 h-9 border-b border-gray-200 dark:border-gray-700/80">
         <h2 className="text-sm font-medium text-gray-800 dark:text-gray-100 tracking-wide">
           Copilot Desktop Hub
@@ -325,7 +327,7 @@ export function Sidebar() {
         <SearchBar onSearch={handleSearch} />
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto px-3 space-y-4">
+      <div className="flex-1 min-h-0 overflow-y-auto mr-1.5 px-3 space-y-4">
         {/* ── No project sentinel — always visible ── */}
         <div
           className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-xs font-medium transition-colors ${

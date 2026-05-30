@@ -135,7 +135,7 @@ export default function App() {
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {showSidebar && <Sidebar />}
         {activeSectionPane && <SectionPane section={activeSectionPane} />}
-        <main className="flex-1 flex flex-col min-h-0 min-w-0 bg-white dark:bg-gray-900" role="main">
+        <main className="flex-1 flex flex-col min-h-0 min-w-[380px] bg-white dark:bg-gray-900" role="main">
 
           {/* Update notification banners */}
           {updateAvailable && !updateDownloaded && (

@@ -277,7 +277,7 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
     <div className="fixed inset-0 top-9 z-50 flex" role="dialog" aria-modal="true" aria-label="Agent configuration">
       <div className="flex-1 bg-black/30" onClick={onClose} aria-hidden="true" />
       <div ref={panelRef} className="relative bg-white dark:bg-gray-900 shadow-xl flex flex-col border-l border-gray-200 dark:border-gray-700" style={{ width }}>
-        <ResizeHandle direction="horizontal" align="start" containerRef={panelRef} onSetSize={onResize} />
+        <ResizeHandle direction="horizontal" align="start" containerRef={panelRef} onSetSize={onResize} minSize={280} maxSize={() => Math.min(700, Math.floor(window.innerWidth * 0.45))} />
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
           <h2 className="text-sm font-medium text-gray-800 dark:text-gray-100">
