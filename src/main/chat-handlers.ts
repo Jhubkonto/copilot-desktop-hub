@@ -10,6 +10,7 @@ import {
   getApiKey,
   sendOpenAIMessage,
   sendAnthropicMessage,
+  sendAnthropicWithTools,
   sendAzureMessage,
   getAzureEndpoint,
   abortActiveStream,
@@ -20,114 +21,12 @@ import { safeHandle } from "./safe-handle";
 import { runOrchestration, type OrchestratorAgent } from "./orchestrator";
 import { parseProjectConfig } from "./project-handlers";
 import { listDirectoryEntries } from "./file-handlers";
-import { getAvailableMcpTools, callMcpTool } from "./mcp";
+import { getAvailableMcpTools } from "./mcp";
+import { runProviderMcpToolLoop } from './tool-loop'
 
 // Session-scoped cache for directory listings. Keyed by project ID.
 // Entries are invalidated when the project's rootDirectory changes.
 const dirListingCache = new Map<string, { rootDirectory: string; block: string }>()
-
-const MCP_MAX_ITERATIONS = 20
-// How many leading iterations force tool use (prevents premature text responses)
-const MCP_REQUIRED_ITERATIONS = 3
-
-/**
- * Run an agentic tool-calling loop using MCP tools.
- * Namespaces tool names as `serverId__toolName` to avoid cross-server collisions.
- * Emits the final text content as a single streamed chunk when done.
- */
-async function runMcpToolLoop(
-  messages: ProviderMessage[],
-  toolDefs: ToolDefinition[],
-  // Map from namespaced model-facing name → { serverId, toolName }
-  toolMap: Map<string, { serverId: string; toolName: string }>,
-  model: string,
-  options: { maxTokens: number; temperature: number },
-  agentId: string,
-  webContents: Electron.WebContents,
-  onChunk: (chunk: string) => void
-): Promise<string> {
-  // Prepend a strong directive so the model acts with tools instead of describing future actions.
-  const toolNames = [...new Set(toolDefs.map((t) => t.function.name.split('__').pop()))].join(', ')
-  const directive =
-    `You have browser automation tools available: ${toolNames}. ` +
-    'IMPORTANT: When performing browser tasks, call the tools immediately and completely — ' +
-    'do NOT say you "will" do something, just do it. ' +
-    'Continue calling tools until the task is fully finished, then give a brief summary.'
-  const baseMessages: ProviderMessage[] = messages.length > 0 && messages[0].role === 'system'
-    ? [
-        { role: 'system' as const, content: `${messages[0].content as string}\n\n${directive}` },
-        ...messages.slice(1)
-      ]
-    : [{ role: 'system' as const, content: directive }, ...messages]
-
-  const loopMessages = [...baseMessages]
-  let fullResponse = ''
-
-  for (let i = 0; i < MCP_MAX_ITERATIONS; i++) {
-    // Use 'required' for the first MCP_REQUIRED_ITERATIONS iterations to prevent the model
-    // from responding in plain text before it has actually completed any work.
-    // After that, switch to 'auto' so the model can give a natural summary once it's done.
-    const toolChoice = i < MCP_REQUIRED_ITERATIONS ? 'required' : 'auto'
-    const result = await sendCopilotNonStreaming(loopMessages, toolDefs, model, options, toolChoice)
-
-    if (!result.toolCalls || result.toolCalls.length === 0) {
-      // Final answer — no more tool calls
-      const text = result.content ?? ''
-      onChunk(text)
-      fullResponse += text
-      return fullResponse
-    }
-
-    // Append assistant message with all tool calls
-    loopMessages.push({
-      role: 'assistant' as const,
-      content: null,
-      tool_calls: result.toolCalls.map((tc) => ({
-        id: tc.id,
-        type: 'function',
-        function: { name: tc.name, arguments: JSON.stringify(tc.arguments) }
-      }))
-    })
-
-    // Execute each tool call, stream progress, and append results
-    for (const call of result.toolCalls) {
-      const toolShortName = call.name.split('__').pop() ?? call.name
-      const progressChunk = `\`${toolShortName}\`\n`
-      onChunk(progressChunk)
-      fullResponse += progressChunk
-
-      const resolved = toolMap.get(call.name)
-      let toolResultContent: string
-      if (!resolved) {
-        toolResultContent = `Error: Unknown tool "${call.name}"`
-      } else {
-        const toolResult = await callMcpTool(
-          resolved.serverId,
-          resolved.toolName,
-          call.arguments as Record<string, unknown>,
-          agentId,
-          webContents
-        )
-        toolResultContent = toolResult.success
-          ? (toolResult.result ?? '(no output)')
-          : `Error: ${toolResult.error ?? 'Tool execution failed'}`
-      }
-      loopMessages.push({
-        role: 'tool' as const,
-        tool_call_id: call.id,
-        content: toolResultContent
-      })
-    }
-  }
-
-  // Cap reached — ask for a final answer without tools
-  const finalResult = await sendCopilotNonStreaming(loopMessages, undefined, model, options)
-  const text = finalResult.content ?? ''
-  onChunk(text)
-  fullResponse += text
-  return fullResponse
-}
-
 
 /** Clears the directory listing cache — used in tests to isolate test state. */
 export function clearDirListingCache(): void {
@@ -315,7 +214,7 @@ export function registerChatHandlers(): void {
         if (agentCfg?.systemPrompt) {
           let systemPromptText = agentCfg.systemPrompt as string;
 
-          // C.3: Replace {{scratchpad}} with actual scratchpad file content
+          // Replace {{scratchpad}} with actual scratchpad file content
           if (systemPromptText.includes("{{scratchpad}}")) {
             const scratchpadRow = db
               .prepare(
@@ -336,7 +235,7 @@ export function registerChatHandlers(): void {
             ? `\n\n## Agent Memory\n${agentCfg.memory}`
             : "";
 
-          // C.1/C.4: Inject 'always' knowledge files (truncate if > 32 000 chars)
+          // Inject 'always' knowledge files (truncate if > 32 000 chars)
           const knowledgeRows = db
             .prepare(
               "SELECT file_path FROM agent_knowledge_files WHERE agent_id = ? AND inject_mode = 'always' ORDER BY sort_order ASC",
@@ -399,7 +298,7 @@ export function registerChatHandlers(): void {
         }
       }
 
-      // ── J.3: Project context injection ────────────────────────────────────
+      // ── Project context injection ─────────────────────────────────────────
       let injectedRootDirectory: string | null = null
       {
         const convProjectId =
@@ -461,10 +360,10 @@ export function registerChatHandlers(): void {
             }
           }
 
-          // R.2: Inject directory listing when rootDirectory is configured
+          // Inject directory listing when rootDirectory is configured
           if (projCfg.rootDirectory && existsSync(projCfg.rootDirectory)) {
             injectedRootDirectory = projCfg.rootDirectory
-            console.log('[R.2] Injecting directory listing for:', projCfg.rootDirectory)
+            console.log('[chat] Injecting directory listing for:', projCfg.rootDirectory)
             const cached = dirListingCache.get(convProjectId)
             let structureBlock: string
             if (cached && cached.rootDirectory === projCfg.rootDirectory) {
@@ -487,12 +386,12 @@ export function registerChatHandlers(): void {
             }
             augmentedContent = `${structureBlock}\n\n${augmentedContent}`
           } else if (projCfg.rootDirectory) {
-            console.log('[R.2] rootDirectory set but path not found on disk:', JSON.stringify(projCfg.rootDirectory))
+            console.log('[chat] rootDirectory set but path not found on disk:', JSON.stringify(projCfg.rootDirectory))
           } else {
-            console.log('[R.2] No rootDirectory configured for project:', convProjectId)
+            console.log('[chat] No rootDirectory configured for project:', convProjectId)
           }
 
-          // K.2: Scope block injection
+          // Scope block injection
           const inScopeRules = projCfg.inScope ?? [];
           const outOfScopeRules = projCfg.outOfScope ?? [];
           const milestonesArr = projCfg.milestones ?? [];
@@ -828,21 +727,63 @@ export function registerChatHandlers(): void {
             ? `${agentSystemPrompt}\n\n${modelIdentityInstruction}`
             : modelIdentityInstruction;
           const messages: ProviderMessage[] = [
+            { role: "system" as const, content: systemPrompt },
             ...providerHistoryMessages,
             { role: "user" as const, content: userContent },
           ];
-          responseContent = await sendAnthropicMessage(
-            conversationId,
-            byokKey,
-            providerModel,
-            messages,
-            systemPrompt,
-            (chunk) => {
-              window.webContents.send("chat:stream-response", chunk);
-            },
-            generationOptions,
-          );
-          window.webContents.send("chat:stream-response", null);
+          const assignedServerIds = Array.isArray(agentCfg2?.mcpServers)
+            ? agentCfg2.mcpServers as string[]
+            : [];
+          const anthropicMcpTools = assignedServerIds.length > 0
+            ? getAvailableMcpTools(assignedServerIds)
+            : [];
+
+          if (anthropicMcpTools.length > 0) {
+            const toolMap = new Map<string, { serverId: string; toolName: string }>();
+            const toolDefs: ToolDefinition[] = anthropicMcpTools.map((t) => {
+              const namespacedName = `${t.serverId}__${t.name}`;
+              toolMap.set(namespacedName, { serverId: t.serverId, toolName: t.name });
+              return {
+                type: 'function' as const,
+                function: {
+                  name: namespacedName,
+                  description: t.description ?? t.name,
+                  parameters: (t.inputSchema ?? { type: 'object', properties: {} }) as Record<string, unknown>,
+                },
+              };
+            });
+            responseContent = await runProviderMcpToolLoop(
+              (msgs, tools, choice) =>
+                sendAnthropicWithTools(
+                  byokKey,
+                  providerModel,
+                  msgs,
+                  tools ?? [],
+                  choice,
+                  generationOptions,
+                ),
+              messages,
+              toolDefs,
+              toolMap,
+              agentId ?? convRow?.agent_id ?? 'default',
+              window.webContents,
+              (chunk) => window.webContents.send("chat:stream-response", chunk),
+            );
+            window.webContents.send("chat:stream-response", null);
+          } else {
+            responseContent = await sendAnthropicMessage(
+              conversationId,
+              byokKey,
+              providerModel,
+              messages.slice(1),
+              systemPrompt,
+              (chunk) => {
+                window.webContents.send("chat:stream-response", chunk);
+              },
+              generationOptions,
+            );
+            window.webContents.send("chat:stream-response", null);
+          }
         } catch (error) {
           console.error("Anthropic error:", error);
           const msg = `Anthropic API error: ${(error as Error).message}`;
@@ -929,15 +870,21 @@ export function registerChatHandlers(): void {
                 }
               }
             })
-            responseContent = await runMcpToolLoop(
+            responseContent = await runProviderMcpToolLoop(
+              (msgs, tools, choice) =>
+                sendCopilotNonStreaming(
+                  msgs,
+                  tools,
+                  copilotModel,
+                  generationOptions,
+                  choice,
+                ),
               chatMessages,
               toolDefs,
               toolMap,
-              copilotModel,
-              generationOptions,
-              convRow.agent_id ?? '',
-              event.sender,
-              (chunk) => window.webContents.send("chat:stream-response", chunk)
+              agentId ?? convRow?.agent_id ?? 'default',
+              window.webContents,
+              (chunk) => window.webContents.send("chat:stream-response", chunk),
             )
           } else {
             responseContent = await sendCopilotChatMessage(

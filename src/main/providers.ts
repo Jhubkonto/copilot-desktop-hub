@@ -194,9 +194,24 @@ export async function sendOpenAIMessage(
   })
 }
 
-function toAnthropicContent(
-  content: MessageContent
-): string | Array<{ type: string; [key: string]: unknown }> {
+interface AnthropicTextBlock { type: 'text'; text: string }
+interface AnthropicImageBlock { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
+interface AnthropicToolUseBlock { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
+interface AnthropicToolResultBlock { type: 'tool_result'; tool_use_id: string; content: (AnthropicTextBlock | AnthropicImageBlock)[] }
+type AnthropicContentBlock = AnthropicTextBlock | AnthropicImageBlock | AnthropicToolUseBlock | AnthropicToolResultBlock
+
+interface AnthropicMessage {
+  role: 'user' | 'assistant'
+  content: string | AnthropicContentBlock[]
+}
+
+interface AnthropicTool {
+  name: string
+  description: string
+  input_schema: Record<string, unknown>
+}
+
+function toAnthropicContent(content: MessageContent): string | AnthropicContentBlock[] {
   if (typeof content === 'string') return content
   return content.map((part) => {
     if (part.type === 'text') return { type: 'text', text: part.text }
@@ -210,6 +225,201 @@ function toAnthropicContent(
     }
     return { type: 'text', text: '' }
   })
+}
+
+export function toAnthropicMessages(
+  messages: ProviderMessage[]
+): { system: string | undefined; messages: AnthropicMessage[] } {
+  let system: string | undefined
+  const result: AnthropicMessage[] = []
+  let i = 0
+
+  while (i < messages.length) {
+    const msg = messages[i]
+
+    if (msg.role === 'system') {
+      if (!system) system = typeof msg.content === 'string' ? msg.content : ''
+      i++
+      continue
+    }
+
+    if (msg.role === 'user') {
+      result.push({ role: 'user', content: toAnthropicContent(msg.content) })
+      i++
+      continue
+    }
+
+    if (msg.role === 'assistant') {
+      if (msg.tool_calls && msg.tool_calls.length > 0) {
+        const blocks: AnthropicContentBlock[] = []
+        if (msg.content) {
+          const textStr = typeof msg.content === 'string' ? msg.content : null
+          if (textStr && textStr.trim()) blocks.push({ type: 'text', text: textStr })
+        }
+        for (const tc of msg.tool_calls) {
+          let parsedArgs: Record<string, unknown>
+          try { parsedArgs = JSON.parse(tc.function.arguments) } catch { parsedArgs = {} }
+          blocks.push({ type: 'tool_use', id: tc.id, name: tc.function.name, input: parsedArgs })
+        }
+        result.push({ role: 'assistant', content: blocks })
+      } else {
+        result.push({ role: 'assistant', content: toAnthropicContent(msg.content ?? '') })
+      }
+      i++
+      continue
+    }
+
+    if (msg.role === 'tool') {
+      const toolResultBlocks: AnthropicToolResultBlock[] = []
+      while (i < messages.length && messages[i].role === 'tool') {
+        const toolMsg = messages[i] as { role: 'tool'; tool_call_id: string; content: string }
+        toolResultBlocks.push({
+          type: 'tool_result',
+          tool_use_id: toolMsg.tool_call_id,
+          content: [{ type: 'text', text: toolMsg.content }]
+        })
+        i++
+      }
+
+      const screenshotBlocks: (AnthropicTextBlock | AnthropicImageBlock)[] = []
+      if (i < messages.length && messages[i].role === 'user') {
+        const nextMsg = messages[i]
+        const isScreenshotMsg = Array.isArray(nextMsg.content) &&
+          nextMsg.content.length > 0 &&
+          nextMsg.content[0].type === 'text' &&
+          (nextMsg.content[0] as { type: 'text'; text: string }).text === '[Browser screenshots from current step]'
+        if (isScreenshotMsg) {
+          for (const part of nextMsg.content as MessageContentPart[]) {
+            if (part.type === 'text') {
+              screenshotBlocks.push({ type: 'text', text: part.text })
+            } else if (part.type === 'image_url') {
+              const url = part.image_url.url
+              const match = url.match(/^data:([^;]+);base64,(.+)$/)
+              if (match) {
+                screenshotBlocks.push({ type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } })
+              }
+            }
+          }
+          i++
+        }
+      }
+
+      const userContent: AnthropicContentBlock[] = []
+      for (const toolBlock of toolResultBlocks) userContent.push(toolBlock)
+      userContent.push(...screenshotBlocks)
+      result.push({ role: 'user', content: userContent })
+      continue
+    }
+
+    i++
+  }
+
+  return { system, messages: result }
+}
+
+export function toAnthropicTools(
+  tools: import('./copilot-api').ToolDefinition[]
+): { tools: AnthropicTool[]; nameMap: Map<string, string> } {
+  const nameMap = new Map<string, string>()
+  const usedNames = new Set<string>()
+
+  const anthropicTools: AnthropicTool[] = tools.map((tool) => {
+    const originalName = tool.function.name
+    let normalized = originalName.replace(/[^a-zA-Z0-9_-]/g, '_')
+    if (normalized.length > 64) normalized = normalized.slice(0, 64)
+    if (usedNames.has(normalized)) {
+      let suffix = 2
+      while (usedNames.has(`${normalized.slice(0, 62)}_${suffix}`)) suffix++
+      normalized = `${normalized.slice(0, 62)}_${suffix}`
+    }
+    usedNames.add(normalized)
+    nameMap.set(normalized, originalName)
+
+    return {
+      name: normalized,
+      description: tool.function.description,
+      input_schema: tool.function.parameters
+    }
+  })
+
+  return { tools: anthropicTools, nameMap }
+}
+
+export async function sendAnthropicWithTools(
+  apiKey: string,
+  model: string,
+  messages: ProviderMessage[],
+  tools: import('./copilot-api').ToolDefinition[],
+  toolChoice: 'auto' | 'required' | 'none',
+  options: { maxTokens?: number; temperature?: number } = {}
+): Promise<import('./copilot-api').CopilotNonStreamResult> {
+  const { system, messages: anthropicMsgs } = toAnthropicMessages(messages)
+  const { tools: anthropicTools, nameMap } = toAnthropicTools(tools)
+
+  const toolChoiceParam =
+    toolChoice === 'required' ? { type: 'any' } :
+    toolChoice === 'none' ? { type: 'auto' } :
+    { type: 'auto' }
+
+  const bodyObj: Record<string, unknown> = {
+    model,
+    max_tokens: options.maxTokens ?? 4096,
+    temperature: options.temperature ?? 0.7,
+    stream: false,
+    messages: anthropicMsgs
+  }
+  if (system) bodyObj.system = system
+  if (toolChoice !== 'none' && anthropicTools.length > 0) {
+    bodyObj.tools = anthropicTools
+    bodyObj.tool_choice = toolChoiceParam
+  }
+
+  const body = JSON.stringify(bodyObj)
+  const { status, data } = await httpsRequest(
+    'https://api.anthropic.com/v1/messages',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'Content-Length': String(Buffer.byteLength(body))
+      }
+    },
+    body
+  )
+
+  if (status >= 400) {
+    let message = `Anthropic API error (HTTP ${status})`
+    try {
+      const parsed = JSON.parse(data)
+      if (parsed.error?.message) message = parsed.error.message
+    } catch {
+      // use default message
+    }
+    throw new Error(message)
+  }
+
+  const parsed = JSON.parse(data)
+  const contentBlocks: Array<{ type: string; text?: string; id?: string; name?: string; input?: unknown }> =
+    parsed.content ?? []
+
+  let content: string | null = null
+  const toolCalls: import('./copilot-api').ToolCallResult[] = []
+
+  for (const block of contentBlocks) {
+    if (block.type === 'text' && block.text) {
+      content = (content ?? '') + block.text
+    } else if (block.type === 'tool_use' && block.id && block.name) {
+      const originalName = nameMap.get(block.name) ?? block.name
+      const args = block.input && typeof block.input === 'object'
+        ? block.input as Record<string, unknown>
+        : {}
+      toolCalls.push({ id: block.id, name: originalName, arguments: args })
+    }
+  }
+
+  return { content, toolCalls }
 }
 
 export async function sendAnthropicMessage(
