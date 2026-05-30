@@ -21,6 +21,9 @@ export interface PastedImage {
   dataUrl: string
   name: string
   label?: string
+  mode?: 'vision' | 'text'
+  ocrText?: string
+  ocrPending?: boolean
 }
 
 export interface ChatMessage {

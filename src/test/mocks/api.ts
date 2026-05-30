@@ -161,6 +161,7 @@ export function createMockApi() {
     checkScreenPermission: vi.fn().mockResolvedValue('granted'),
     readClipboardContent: vi.fn().mockResolvedValue(null),
     readClipboardImage: vi.fn().mockResolvedValue(null),
+    ocrImage: vi.fn().mockResolvedValue({ text: '' }),
   }
 }
 

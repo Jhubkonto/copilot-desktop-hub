@@ -462,6 +462,7 @@ export type IpcReturnMap = {
   'overlay:get-screenshot': string
   'screen:capture': { dataUrl: string; windowLabel?: string } | { error: string }
   'screen:check-permission': 'granted' | 'denied' | 'prompt'
+  'screen:ocr-image': { text: string } | { error: string }
   // Tool
   'tool:approval-response': boolean
   'tool:execute': ToolExecuteResult
@@ -595,6 +596,7 @@ export type IpcChannels =
   | 'overlay:get-screenshot'
   | 'screen:capture'
   | 'screen:check-permission'
+  | 'screen:ocr-image'
   | 'tool:approval-response'
   | 'tool:execute'
   | 'tool:get-preferences'

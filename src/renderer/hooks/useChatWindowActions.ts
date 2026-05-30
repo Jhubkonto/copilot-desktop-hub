@@ -37,9 +37,9 @@ interface UseChatWindowActionsParams {
   isGenerating: boolean
   rateLimitRemainingSec: number
   pendingAttachments: Array<{ id: string; name: string; path: string; size: number }>
-  pendingImages: Array<{ id: string; name: string; dataUrl: string }>
+  pendingImages: Array<{ id: string; name: string; dataUrl: string; label?: string; mode?: 'vision' | 'text'; ocrText?: string; ocrPending?: boolean }>
   setPendingAttachments: Dispatch<SetStateAction<Array<{ id: string; name: string; path: string; size: number }>>>
-  setPendingImages: Dispatch<SetStateAction<Array<{ id: string; name: string; dataUrl: string }>>>
+  setPendingImages: Dispatch<SetStateAction<Array<{ id: string; name: string; dataUrl: string; label?: string; mode?: 'vision' | 'text'; ocrText?: string; ocrPending?: boolean }>>>
   contextRefs: ContextRef[]
   resolveContextBlock: (refs: ContextRef[]) => Promise<string>
   showSlashMenu: boolean
@@ -247,6 +247,9 @@ export function useChatWindowActions({
     const hasContent = input.trim().length > 0 || pendingImages.length > 0 || pendingAttachments.length > 0
     if (!hasContent || isGenerating || rateLimitRemainingSec > 0) return
 
+    // Block send while any OCR job is in progress
+    if (pendingImages.some((img) => img.ocrPending)) return
+
     let content = input.trim()
     if (!content && (pendingImages.length > 0 || pendingAttachments.length > 0)) {
       content = 'Please analyze the attached context.'
@@ -268,7 +271,12 @@ export function useChatWindowActions({
     if (input.trim().startsWith('/')) closeSlashMenu()
 
     const attachments = pendingAttachments.length > 0 ? [...pendingAttachments] : undefined
-    const images = pendingImages.length > 0 ? [...pendingImages] : undefined
+    // Separate OCR-text images from vision images
+    const allPendingImages = [...pendingImages]
+    const visionImages = allPendingImages.filter((img) => img.mode !== 'text')
+    const ocrImages = allPendingImages.filter((img) => img.mode === 'text' && img.ocrText)
+    const images = allPendingImages.length > 0 ? allPendingImages : undefined
+    const visionImagesForSend = visionImages.length > 0 ? visionImages : undefined
     const autoRefs: ContextRef[] = []
 
     if (activeAgent?.contextRules?.autoInjectWorkspace && !contextRefs.some((ref) => ref.key === 'workspace')) {
@@ -276,6 +284,14 @@ export function useChatWindowActions({
     }
     if (activeAgent?.contextRules?.autoInjectGit && !contextRefs.some((ref) => ref.key === 'git')) {
       autoRefs.push({ key: 'git', token: '@git' })
+    }
+
+    // Inject OCR text blocks before context resolution so they are sent to LLM
+    if (ocrImages.length > 0) {
+      const ocrBlocks = ocrImages
+        .map((img) => `[OCR from: ${img.name}${img.label ? ` (${img.label})` : ''}]\n${img.ocrText}`)
+        .join('\n\n')
+      content = `${ocrBlocks}\n\n${content}`
     }
 
     const effectiveRefs = [...contextRefs, ...autoRefs]
@@ -356,7 +372,7 @@ export function useChatWindowActions({
     try {
       await window.api.sendMessage(conversation, content, {
         attachments,
-        images,
+        images: visionImagesForSend,
         agentId: chatAgentId ?? undefined,
         model: requestModel,
         messageId: userMessage.id,

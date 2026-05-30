@@ -375,6 +375,45 @@ export function ChatWindow() {
     }
   }, [addToast, fileInput])
 
+  const handleToggleImageMode = useCallback(async (id: string) => {
+    const image = fileInput.pendingImages.find((img) => img.id === id)
+    if (!image) return
+
+    if (image.mode === 'text') {
+      fileInput.setPendingImages((prev) =>
+        prev.map((img) => img.id === id ? { ...img, mode: undefined, ocrText: undefined, ocrPending: false } : img)
+      )
+      return
+    }
+
+    fileInput.setPendingImages((prev) =>
+      prev.map((img) => img.id === id ? { ...img, ocrPending: true } : img)
+    )
+
+    const result = await window.api.ocrImage(image.dataUrl)
+    if ('error' in result) {
+      addToast(`OCR failed: ${result.error}`, 'error')
+      fileInput.setPendingImages((prev) =>
+        prev.map((img) => img.id === id ? { ...img, ocrPending: false } : img)
+      )
+      return
+    }
+
+    if (!result.text.trim()) {
+      addToast('No text detected in image', 'info')
+      fileInput.setPendingImages((prev) =>
+        prev.map((img) => img.id === id ? { ...img, ocrPending: false } : img)
+      )
+      return
+    }
+
+    fileInput.setPendingImages((prev) =>
+      prev.map((img) =>
+        img.id === id ? { ...img, mode: 'text', ocrText: result.text, ocrPending: false } : img
+      )
+    )
+  }, [addToast, fileInput])
+
   const handleEditMessage = useCallback(
     (index: number) => actions.handleEdit(index, chat.handleEdit),
     [actions.handleEdit, chat.handleEdit],
@@ -615,6 +654,7 @@ export function ChatWindow() {
       onCloseContextInspector={() => setShowContextInspector(false)}
       onRemoveAttachment={fileInput.removeAttachment}
       onRemoveImage={fileInput.removeImage}
+      onToggleImageMode={handleToggleImageMode}
       onRemoveContextToken={(token) => {
         if (token === '@clipboard') {
           setClipboardRef(null)

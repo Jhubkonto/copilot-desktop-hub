@@ -44,6 +44,7 @@ interface ChatComposerProps {
   onCloseContextInspector: () => void
   onRemoveAttachment: (id: string) => void
   onRemoveImage: (id: string) => void
+  onToggleImageMode?: (id: string) => void
   onRemoveContextToken: (token: string) => void
   onSelectSlashCommand: (command: SlashCommandDef) => void
   onSelectAtOption: (option: AtContextOption) => void
@@ -90,6 +91,7 @@ export function ChatComposer({
   onCloseContextInspector,
   onRemoveAttachment,
   onRemoveImage,
+  onToggleImageMode,
   onRemoveContextToken,
   onSelectSlashCommand,
   onSelectAtOption,
@@ -129,6 +131,7 @@ export function ChatComposer({
             images={pendingImages}
             onRemoveAttachment={onRemoveAttachment}
             onRemoveImage={onRemoveImage}
+            onToggleImageMode={onToggleImageMode}
           />
 
           {showContextInspector && (
