@@ -89,6 +89,11 @@ const api = {
     typedOn('chat:activity', handler)
     return () => typedOff('chat:activity', handler)
   },
+  onStreamModel: (callback: (model: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, model: string) => callback(model)
+    typedOn('chat:stream-model', handler)
+    return () => typedOff('chat:stream-model', handler)
+  },
   stopGeneration: (conversationId?: string) => typedInvoke('chat:stop-generation', conversationId),
 
   // Conversations

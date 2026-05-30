@@ -133,6 +133,15 @@ export function registerChatHandlers(): void {
         conversationId,
       );
 
+      // Persist the selected model on the conversation if not already set
+      const requestedModel = options?.model
+      if (requestedModel && requestedModel !== "default") {
+        db.prepare("UPDATE conversations SET model = ? WHERE id = ? AND (model IS NULL OR model = 'default')").run(
+          requestedModel,
+          conversationId,
+        );
+      }
+
       // Build augmented content with file attachments
       const IMAGE_EXTENSIONS = new Set([
         "jpg",
@@ -524,7 +533,7 @@ export function registerChatHandlers(): void {
         providerModel = resolved.model;
       }
       const effectiveModelName =
-        selectedModel && selectedModel !== "default" ? selectedModel : "gpt-4o";
+        selectedModel && selectedModel !== "default" ? selectedModel : "GitHub Copilot";
       const modelIdentityInstruction =
         `Runtime model for this conversation: ${effectiveModelName}. ` +
         "If the user asks which model or language model is running this chat, answer with this exact value.";
@@ -689,6 +698,14 @@ export function registerChatHandlers(): void {
         }
       }
       // ── End orchestration ─────────────────────────────────────────────────
+
+      let capturedStreamModel: string | null = null
+      const handleStreamModel = (m: string) => {
+        capturedStreamModel = m
+        if (!window.webContents.isDestroyed()) {
+          window.webContents.send('chat:stream-model', m)
+        }
+      }
 
       if (byokKey && providerName === "openai") {
         try {
@@ -886,6 +903,7 @@ export function registerChatHandlers(): void {
               agentId ?? convRow?.agent_id ?? 'default',
               window.webContents,
               (chunk) => window.webContents.send("chat:stream-response", chunk),
+              handleStreamModel,
             )
           } else {
             responseContent = await sendCopilotChatMessage(
@@ -897,6 +915,7 @@ export function registerChatHandlers(): void {
               copilotModel,
               generationOptions,
               conversationId,
+              handleStreamModel,
             );
           }
           window.webContents.send("chat:stream-response", null);
@@ -953,7 +972,7 @@ export function registerChatHandlers(): void {
         responseContent,
         null,
         Date.now(),
-        selectedModel ?? null,
+        capturedStreamModel ?? selectedModel ?? null,
       );
 
       return { assistantMsgId };

@@ -3,7 +3,7 @@ import type { ToolDefinition, CopilotNonStreamResult } from './copilot-api'
 import type { ProviderMessage } from './providers'
 
 export const MCP_MAX_ITERATIONS = 20
-export const MCP_REQUIRED_ITERATIONS = 3
+export const MCP_REQUIRED_ITERATIONS = 0
 
 export interface ModelToolCaller {
   (
@@ -20,7 +20,8 @@ export async function runProviderMcpToolLoop(
   toolMap: Map<string, { serverId: string; toolName: string }>,
   agentId: string,
   webContents: Electron.WebContents,
-  onChunk: (chunk: string) => void
+  onChunk: (chunk: string) => void,
+  onModel?: (model: string) => void
 ): Promise<string> {
   const toolNames = [...new Set(toolDefs.map((t) => t.function.name.split('__').pop()))].join(', ')
   const directive =
@@ -37,6 +38,7 @@ export async function runProviderMcpToolLoop(
 
   const loopMessages = [...baseMessages]
   let fullResponse = ''
+  let modelEmitted = false
 
   const sendActivity = (event: { type: 'thinking' } | { type: 'tool'; name: string; server: string }) => {
     if (!webContents.isDestroyed()) webContents.send('chat:activity', event)
@@ -46,6 +48,11 @@ export async function runProviderMcpToolLoop(
     const toolChoice = i < MCP_REQUIRED_ITERATIONS ? 'required' : 'auto'
     sendActivity({ type: 'thinking' })
     const result = await caller(loopMessages, toolDefs, toolChoice)
+
+    if (!modelEmitted && onModel && result.model) {
+      modelEmitted = true
+      onModel(result.model)
+    }
 
     if (!result.toolCalls || result.toolCalls.length === 0) {
       const text = result.content ?? ''
@@ -119,6 +126,9 @@ export async function runProviderMcpToolLoop(
 
   sendActivity({ type: 'thinking' })
   const finalResult = await caller(loopMessages, undefined, 'none')
+  if (!modelEmitted && onModel && finalResult.model) {
+    onModel(finalResult.model)
+  }
   const text = finalResult.content ?? ''
   onChunk(text)
   fullResponse += text

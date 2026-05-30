@@ -388,6 +388,7 @@ export type IpcReturnMap = {
   'chat:tool-call-event': void
   'chat:team-activity': void
   'chat:activity': void
+  'chat:stream-model': void
   // CLI
   'cli:check': void
   'cli:status': void
@@ -534,6 +535,7 @@ export type IpcChannels =
   | 'chat:tool-call-event'
   | 'chat:team-activity'
   | 'chat:activity'
+  | 'chat:stream-model'
   | 'clipboard:auto-focus'
   | 'clipboard:read-content'
   | 'clipboard:read-image'

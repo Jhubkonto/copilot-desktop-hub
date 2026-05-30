@@ -127,7 +127,8 @@ async function sendCopilotRequestWithRetry(
   model: string,
   options: { maxTokens: number; temperature: number },
   conversationId?: string,
-  maxRetries = 3
+  maxRetries = 3,
+  onModel?: (model: string) => void
 ): Promise<string> {
   let lastError: CopilotApiError | null = null
 
@@ -140,7 +141,7 @@ async function sendCopilotRequestWithRetry(
 
     try {
       const token = await getCopilotToken()
-      const result = await sendCopilotRequest(token, messages, onChunk, model, options, conversationId)
+      const result = await sendCopilotRequest(token, messages, onChunk, model, options, conversationId, onModel)
       return result
     } catch (err) {
       const apiErr = err as CopilotApiError
@@ -162,7 +163,8 @@ function sendCopilotRequest(
   onChunk: (chunk: string) => void,
   model: string,
   options: { maxTokens: number; temperature: number },
-  conversationId?: string
+  conversationId?: string,
+  onModel?: (model: string) => void
 ): Promise<string> {
   const bodyPayload: Record<string, unknown> = {
     model,
@@ -240,10 +242,15 @@ function sendCopilotRequest(
         }
 
         let fullContent = ''
+        let modelEmitted = false
 
         parseSseStream(res, (data) => {
           try {
             const parsed = JSON.parse(data)
+            if (!modelEmitted && onModel && parsed.model) {
+              modelEmitted = true
+              onModel(parsed.model)
+            }
             const delta = parsed.choices?.[0]?.delta?.content
             if (delta) {
               fullContent += delta
@@ -300,12 +307,13 @@ export async function sendCopilotChatMessage(
   onChunk: (chunk: string) => void,
   model = 'gpt-4o',
   options: { maxTokens?: number; temperature?: number } = {},
-  conversationId?: string
+  conversationId?: string,
+  onModel?: (model: string) => void
 ): Promise<string> {
   return sendCopilotRequestWithRetry(messages, onChunk, model, {
     maxTokens: options.maxTokens ?? 4096,
     temperature: options.temperature ?? 0.7
-  }, conversationId)
+  }, conversationId, 3, onModel)
 }
 
 export function abortCopilotStream(conversationId?: string): void {
@@ -346,6 +354,7 @@ export interface ToolCallResult {
 export interface CopilotNonStreamResult {
   content: string | null
   toolCalls: ToolCallResult[]
+  model?: string
 }
 
 /**
@@ -417,6 +426,7 @@ export async function sendCopilotNonStreaming(
 
   return {
     content: typeof message?.content === 'string' ? message.content : null,
-    toolCalls
+    toolCalls,
+    model: typeof parsed.model === 'string' ? parsed.model : undefined
   }
 }

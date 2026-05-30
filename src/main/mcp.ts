@@ -246,11 +246,10 @@ export async function callMcpTool(
       ? `[Screenshot captured — ${images.length} image(s)]`
       : JSON.stringify(result.content))
 
-    return {
-      success: !result.isError,
-      result: resultText,
-      ...(images.length > 0 && { images })
+    if (result.isError) {
+      return { success: false, error: resultText, ...(images.length > 0 && { images }) }
     }
+    return { success: true, result: resultText, ...(images.length > 0 && { images }) }
   } catch (error) {
     return { success: false, error: (error as Error).message }
   }

@@ -30,6 +30,7 @@ export function createMockApi() {
     onStreamError: vi.fn().mockReturnValue(() => {}),
     onToolCallEvent: vi.fn().mockReturnValue(() => {}),
     onActivity: vi.fn().mockReturnValue(() => {}),
+    onStreamModel: vi.fn().mockReturnValue(() => {}),
     stopGeneration: vi.fn().mockResolvedValue(undefined),
     onAutoClipboardFocus: vi.fn().mockReturnValue(() => {}),
 
