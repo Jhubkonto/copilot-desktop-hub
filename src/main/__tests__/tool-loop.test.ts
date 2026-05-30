@@ -64,7 +64,7 @@ describe('runProviderMcpToolLoop', () => {
     expect(caller).toHaveBeenCalledWith(
       expect.any(Array),
       toolDefs,
-      'auto'
+      'required'
     )
   })
 

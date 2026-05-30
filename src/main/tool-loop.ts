@@ -3,7 +3,7 @@ import type { ToolDefinition, CopilotNonStreamResult } from './copilot-api'
 import type { ProviderMessage } from './providers'
 
 export const MCP_MAX_ITERATIONS = 20
-export const MCP_REQUIRED_ITERATIONS = 0
+export const MCP_REQUIRED_ITERATIONS = 1
 
 export interface ModelToolCaller {
   (
