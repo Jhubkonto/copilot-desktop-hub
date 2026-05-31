@@ -561,6 +561,16 @@ export function registerChatHandlers(): void {
         (m) => m.role !== "team-activity",
       ) as ProviderMessage[];
 
+      // On regeneration, historyRows.slice(0,-1) ends with the current user message
+      // (it excluded the old assistant response). Appending userContent again would send
+      // two consecutive user messages and cause a 400 from the provider.
+      // Strip the trailing user message from context so we can re-append it with
+      // any vision-enhanced content below.
+      const contextMessages: ProviderMessage[] =
+        regenerate && providerHistoryMessages.length > 0
+          ? providerHistoryMessages.slice(0, -1)
+          : providerHistoryMessages;
+
       // Build the current user message content — include pasted images for vision-capable providers
       const buildVisionUserContent = (): MessageContentPart[] => {
         const parts: MessageContentPart[] = [
@@ -662,7 +672,7 @@ export function registerChatHandlers(): void {
                 showActivity,
               },
               userContent,
-              providerHistoryMessages,
+              contextMessages,
             );
 
             // Persist team-activity block if there were delegation steps
@@ -712,7 +722,7 @@ export function registerChatHandlers(): void {
         try {
           const messages: ProviderMessage[] = [
             { role: "system" as const, content: modelIdentityInstruction },
-            ...providerHistoryMessages,
+            ...contextMessages,
             { role: "user" as const, content: userContent },
           ];
           responseContent = await sendOpenAIMessage(
@@ -747,7 +757,7 @@ export function registerChatHandlers(): void {
             : modelIdentityInstruction;
           const messages: ProviderMessage[] = [
             { role: "system" as const, content: systemPrompt },
-            ...providerHistoryMessages,
+            ...contextMessages,
             { role: "user" as const, content: userContent },
           ];
           const assignedServerIds = Array.isArray(agentCfg2?.mcpServers)
@@ -821,7 +831,7 @@ export function registerChatHandlers(): void {
           if (!azureEndpoint) throw new Error("Azure endpoint not configured");
           const messages: ProviderMessage[] = [
             { role: "system" as const, content: modelIdentityInstruction },
-            ...providerHistoryMessages,
+            ...contextMessages,
             { role: "user" as const, content: userContent },
           ];
           responseContent = await sendAzureMessage(
@@ -863,7 +873,7 @@ export function registerChatHandlers(): void {
               ? `${agentSystemPrompt}${rootDirNote}\n\n${modelIdentityInstruction}`
               : `You are GitHub Copilot, an AI programming assistant.${rootDirNote}\n\n${modelIdentityInstruction}`,
           });
-          chatMessages.push(...providerHistoryMessages);
+          chatMessages.push(...contextMessages);
           chatMessages.push({ role: "user" as const, content: userContent });
 
           // Use agent model or default
