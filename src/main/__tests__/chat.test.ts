@@ -472,17 +472,18 @@ describe('Chat — IPC Handlers', () => {
   })
 
   describe('BYOK Provider Routing', () => {
-    it('routes to OpenAI when agent uses OpenAI model', async () => {
+    it('routes to OpenAI when conversation model is an OpenAI model', async () => {
       const convId = 'openai-conv'
       mockDb._conversations.set(convId, {
         id: convId,
         agent_id: 'openai-agent',
+        model: 'gpt-4o',
         title: 'OpenAI Chat',
         created_at: Date.now(),
         updated_at: Date.now()
       })
 
-      mockGetAgentConfig.mockReturnValue({ model: 'gpt-4o', systemPrompt: null })
+      mockGetAgentConfig.mockReturnValue({ systemPrompt: null })
       mockGetProviderForAgent.mockReturnValue({ provider: 'openai', model: 'gpt-4o' })
       mockGetApiKey.mockReturnValue('sk-test-key')
       mockSendOpenAIMessage.mockResolvedValue('OpenAI response')
@@ -499,17 +500,18 @@ describe('Chat — IPC Handlers', () => {
       expect(result).toHaveProperty('assistantMsgId')
     })
 
-    it('routes to Anthropic when agent uses Anthropic model', async () => {
+    it('routes to Anthropic when conversation model is an Anthropic model', async () => {
       const convId = 'anthropic-conv'
       mockDb._conversations.set(convId, {
         id: convId,
         agent_id: 'anthropic-agent',
+        model: 'claude-sonnet-4-20250514',
         title: 'Anthropic Chat',
         created_at: Date.now(),
         updated_at: Date.now()
       })
 
-      mockGetAgentConfig.mockReturnValue({ model: 'claude-sonnet-4-20250514', systemPrompt: 'Be helpful' })
+      mockGetAgentConfig.mockReturnValue({ systemPrompt: 'Be helpful' })
       mockGetProviderForAgent.mockReturnValue({ provider: 'anthropic', model: 'claude-sonnet-4-20250514' })
       mockGetApiKey.mockReturnValue('sk-ant-test')
       mockSendAnthropicMessage.mockResolvedValue('Anthropic response')
@@ -532,12 +534,13 @@ describe('Chat — IPC Handlers', () => {
       mockDb._conversations.set(convId, {
         id: convId,
         agent_id: 'openai-agent',
+        model: 'gpt-4o',
         title: 'Test',
         created_at: Date.now(),
         updated_at: Date.now()
       })
 
-      mockGetAgentConfig.mockReturnValue({ model: 'gpt-4o', systemPrompt: null })
+      mockGetAgentConfig.mockReturnValue({ systemPrompt: null })
       mockGetProviderForAgent.mockReturnValue({ provider: 'openai', model: 'gpt-4o' })
       mockGetApiKey.mockReturnValue('sk-test-key')
       mockSendOpenAIMessage.mockRejectedValue(new Error('Rate limited'))

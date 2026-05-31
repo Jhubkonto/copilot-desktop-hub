@@ -54,7 +54,6 @@ export function createMockAgent(overrides: Record<string, unknown> = {}) {
     name: 'Test Agent',
     icon: '🤖',
     systemPrompt: 'You are a test agent.',
-    model: 'gpt-4',
     temperature: 0.7,
     maxTokens: 4096,
     contextDirectories: [],

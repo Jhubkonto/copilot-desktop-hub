@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { X, Sun, Moon, Plug, Settings, Cpu, Shield } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
-import { MODEL_OPTIONS, getModelLabel } from '../../shared/models'
+import { getAvailableModelIds, getModelLabel } from '../../shared/models'
 
 interface ProviderInfo {
   name: string
@@ -28,6 +28,8 @@ export function SettingsPanel() {
   const setShowSettings = useAppStore((s) => s.setShowSettings)
   const setShowMcpPanel = useAppStore((s) => s.setShowMcpPanel)
   const addToast = useAppStore((s) => s.addToast)
+  const setGlobalDefaultModel = useAppStore((s) => s.setGlobalDefaultModel)
+  const catalogModels = useAppStore((s) => s.catalogModels)
 
   const onClose = () => setShowSettings(false)
   const onOpenMcp = () => { setShowSettings(false); setShowMcpPanel(true) }
@@ -52,7 +54,7 @@ export function SettingsPanel() {
   const projects = useAppStore((s) => s.projects)
   const projectId = currentConversation?.project_id ?? activeProjectId
   const projectDefaultModel = projectId ? (projects.find((p) => p.id === projectId)?.default_model ?? null) : null
-  const effectiveModel = currentConversation?.model || activeAgent?.model || projectDefaultModel || 'default'
+  const effectiveModel = currentConversation?.model || projectDefaultModel || 'default'
   const effectiveProvider =
     effectiveModel === 'default'
       ? 'GitHub Copilot'
@@ -61,6 +63,7 @@ export function SettingsPanel() {
         : effectiveModel.startsWith('gemini')
           ? 'Google'
           : 'OpenAI / Copilot'
+  const modelIds = getAvailableModelIds(catalogModels, defaultModel)
 
   useEffect(() => {
     if (!visible) return
@@ -143,6 +146,7 @@ export function SettingsPanel() {
       await window.api.setSetting('default_model', defaultModel)
       await window.api.setSetting('temperature', String(safeTemp))
       await window.api.setSetting('max_tokens', String(safeMaxTokens))
+      setGlobalDefaultModel(defaultModel)
       addToast('Advanced settings saved', 'success')
     } catch {
       addToast('Failed to save advanced settings', 'error')
@@ -214,7 +218,7 @@ export function SettingsPanel() {
                   </div>
                   <div className="text-right">
                     <p className="text-xs font-medium text-gray-700 dark:text-gray-200">
-                      {getModelLabel(effectiveModel)}
+                      {getModelLabel(effectiveModel, catalogModels)}
                     </p>
                     <p className="text-[11px] text-gray-500">{effectiveProvider}</p>
                   </div>
@@ -319,9 +323,9 @@ export function SettingsPanel() {
                       onChange={(e) => setDefaultModel(e.target.value)}
                       className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                      {MODEL_OPTIONS.map((model) => (
-                        <option key={model} value={model}>
-                          {getModelLabel(model)}
+                      {modelIds.map((modelId) => (
+                        <option key={modelId} value={modelId}>
+                          {getModelLabel(modelId, catalogModels)}
                         </option>
                       ))}
                     </select>

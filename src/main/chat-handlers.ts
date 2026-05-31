@@ -80,12 +80,15 @@ export function registerChatHandlers(): void {
           const now = Date.now();
           const title =
             content.slice(0, 80) + (content.length > 80 ? "..." : "");
+          const validProjectId = projectId
+            ? ((db.prepare("SELECT id FROM projects WHERE id = ?").get(projectId) as { id: string } | undefined) ? projectId : null)
+            : null;
           db.prepare(
             "INSERT INTO conversations (id, agent_id, project_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
           ).run(
             conversationId,
             agentId ?? null,
-            projectId ?? null,
+            validProjectId,
             title,
             now,
             now,
@@ -513,8 +516,8 @@ export function registerChatHandlers(): void {
       const agentCfg2 = convRow?.agent_id
         ? getAgentConfig(convRow.agent_id)
         : null;
-      const agentModel =
-        typeof agentCfg2?.model === "string" ? agentCfg2.model : undefined;
+      void agentCfg2; // agent config used for other purposes; model is not sourced from agent
+      const agenticMode = agentCfg2?.agenticMode === true
       const conversationModel =
         typeof convRow?.model === "string" ? convRow.model : undefined;
       const selectedModel =
@@ -522,11 +525,9 @@ export function registerChatHandlers(): void {
           ? modelOverride
           : conversationModel && conversationModel !== "default"
             ? conversationModel
-            : agentModel && agentModel !== "default"
-              ? agentModel
-              : defaultModel !== "default"
-                ? defaultModel
-                : undefined;
+            : defaultModel !== "default"
+              ? defaultModel
+              : undefined;
       if (selectedModel && selectedModel !== "default") {
         const resolved = getProviderForAgent(selectedModel);
         providerName = resolved.provider;
@@ -786,6 +787,8 @@ export function registerChatHandlers(): void {
               agentId ?? convRow?.agent_id ?? 'default',
               window.webContents,
               (chunk) => window.webContents.send("chat:stream-response", chunk),
+              undefined,
+              agenticMode,
             );
             window.webContents.send("chat:stream-response", null);
           } else {
@@ -904,6 +907,7 @@ export function registerChatHandlers(): void {
               window.webContents,
               (chunk) => window.webContents.send("chat:stream-response", chunk),
               handleStreamModel,
+              agenticMode,
             )
           } else {
             responseContent = await sendCopilotChatMessage(

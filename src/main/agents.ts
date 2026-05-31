@@ -20,7 +20,6 @@ const DEFAULT_AGENTS = [
     icon: '🤖',
     systemPrompt:
       'You are a helpful AI assistant. Be concise and clear in your responses. When providing code examples, use proper formatting and explain your reasoning.',
-    model: 'default',
     temperature: 0.7,
     maxTokens: 4096,
     contextDirectories: [] as string[],
@@ -39,7 +38,6 @@ const DEFAULT_AGENTS = [
     icon: '🔍',
     systemPrompt:
       'You are an expert code reviewer. When reviewing code, focus on:\n- Bugs and potential issues\n- Performance improvements\n- Security vulnerabilities\n- Code style and best practices\n- Readability and maintainability\nProvide specific, actionable feedback with code examples.',
-    model: 'default',
     temperature: 0.3,
     maxTokens: 4096,
     contextDirectories: [] as string[],
@@ -58,7 +56,6 @@ const DEFAULT_AGENTS = [
     icon: '🐛',
     systemPrompt:
       'You are a debugging expert. When helping debug issues:\n- Ask clarifying questions about the error and context\n- Analyze stack traces and error messages carefully\n- Suggest systematic debugging approaches\n- Provide step-by-step solutions\n- Explain the root cause once identified',
-    model: 'default',
     temperature: 0.4,
     maxTokens: 4096,
     contextDirectories: [] as string[],
@@ -259,7 +256,6 @@ export function registerAgentHandlers(): void {
         name: config.name,
         icon: config.icon || '🤖',
         systemPrompt: config.systemPrompt || '',
-        model: config.model || 'default',
         temperature: config.temperature ?? 0.7,
         maxTokens: config.maxTokens ?? 4096,
         contextDirectories: config.contextDirectories || [],

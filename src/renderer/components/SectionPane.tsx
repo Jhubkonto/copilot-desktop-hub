@@ -381,7 +381,7 @@ function AgentsPane() {
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-medium text-gray-800 dark:text-gray-100 truncate">{agent.name}</p>
                   <p className="text-[10px] text-gray-400 dark:text-gray-500 truncate">
-                    {agent.model === 'default' ? 'Default model' : agent.model}
+                    uses your model setting
                   </p>
                 </div>
                 {/* Hover actions */}

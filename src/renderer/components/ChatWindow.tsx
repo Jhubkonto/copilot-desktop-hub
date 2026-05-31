@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { ChevronDown } from 'lucide-react'
-import { getModelLabel } from '../../shared/models'
+import { getModelLabel, modelIdSupportsTools } from '../../shared/models'
 import { isApiError, type AgentConfig } from '../../shared/types'
 import type { ContextRef, ToastType } from '../hooks/chat-types'
 import { useAtMenu } from '../hooks/useAtMenu'
@@ -36,9 +36,10 @@ export function ChatWindow() {
     type?: ToastType,
   ) => void
   const markConversationUnread = useAppStore((state) => state.markConversationUnread)
+  const catalogModels = useAppStore((state) => state.catalogModels)
   const markConversationRead = useAppStore((state) => state.markConversationRead)
+  const defaultModelSetting = useAppStore((state) => state.globalDefaultModel)
 
-  const [defaultModelSetting, setDefaultModelSetting] = useState('default')
   const [pendingModel, setPendingModel] = useState<string | null>(null)
   const [input, setInput] = useState('')
   const [showContextInspector, setShowContextInspector] = useState(false)
@@ -76,14 +77,51 @@ export function ChatWindow() {
   const chatAgentId = isNewChat ? activeAgentId : (currentConversation?.agent_id ?? null)
   const chatAgent = chatAgentId ? (agents.find((agent) => agent.id === chatAgentId) ?? null) : null
   const projectDefaultModel = chatProject?.default_model ?? null
-  const effectiveModel = pendingModel || conversationModel || chatAgent?.model || projectDefaultModel || defaultModelSetting || 'default'
-  const effectiveModelLabel = getModelLabel(effectiveModel)
+
+  // An agent requires tool-capable models when it has MCP servers assigned.
+  const agentNeedsTools = !!(chatAgent && (chatAgent.mcpServers?.length ?? 0) > 0)
+
+  const nonDefault = (v: string | null | undefined): string | null =>
+    v && v !== 'default' ? v : null
+
+  let effectiveModel: string
+  let modelSourceLabel: string | undefined
+  if (nonDefault(pendingModel)) {
+    effectiveModel = pendingModel!
+  } else if (nonDefault(conversationModel)) {
+    effectiveModel = conversationModel!
+    // Recover provenance: check which source originally provided this model
+    if (nonDefault(projectDefaultModel) && projectDefaultModel === conversationModel) {
+      modelSourceLabel = chatProject?.name ?? 'project'
+    } else if (nonDefault(defaultModelSetting) && defaultModelSetting === conversationModel) {
+      modelSourceLabel = 'global'
+    }
+  } else if (nonDefault(projectDefaultModel)) {
+    effectiveModel = projectDefaultModel!
+    modelSourceLabel = chatProject?.name ?? 'project'
+  } else if (nonDefault(defaultModelSetting)) {
+    effectiveModel = defaultModelSetting!
+    modelSourceLabel = 'global'
+  } else {
+    effectiveModel = 'default'
+  }
+
+  // If the agent requires tool calling, auto-fallback to 'default' (GPT-4o)
+  // when the resolved model is not known to support tools. This prevents
+  // silently sending a chat-only model into the MCP tool loop.
+  if (agentNeedsTools && !modelIdSupportsTools(effectiveModel, catalogModels)) {
+    effectiveModel = 'default'
+    modelSourceLabel = undefined
+  }
+
+  const effectiveModelLabel = getModelLabel(effectiveModel, catalogModels)
 
   const chat = useChat({
     conversationId,
     activeAgentId: chatAgentId,
     activeProjectId: chatProjectId,
     effectiveModel,
+    catalogModels,
     addToast,
     loadConversations,
     conversationCreated,
@@ -110,6 +148,7 @@ export function ChatWindow() {
     effectiveModel,
     effectiveModelLabel,
     conversationModel,
+    catalogModels,
     theme,
     input,
     setInput,
@@ -172,13 +211,6 @@ export function ChatWindow() {
     const floor = inputPanelHeight ?? 0
     element.style.height = `${Math.min(Math.max(floor, element.scrollHeight), 400)}px`
   }, [input, inputPanelHeight])
-
-  useEffect(() => {
-    window.api
-      .getSetting('default_model')
-      .then((value) => setDefaultModelSetting(typeof value === 'string' ? value : 'default'))
-      .catch(() => setDefaultModelSetting('default'))
-  }, [conversationId])
 
   useEffect(() => {
     const goOnline = () => setIsOnline(true)
@@ -642,6 +674,8 @@ export function ChatWindow() {
       rateLimitRemainingSec={timers.rateLimitRemainingSec}
       conversationId={conversationId}
       effectiveModel={effectiveModel}
+      modelSourceLabel={modelSourceLabel}
+      agentNeedsTools={agentNeedsTools}
       pendingAttachments={fileInput.pendingAttachments}
       pendingImages={fileInput.pendingImages}
       showContextInspector={showContextInspector}

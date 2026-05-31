@@ -96,7 +96,7 @@ describe('SettingsPanel — General Tab', () => {
   it('shows active model details in general tab', () => {
     render(<SettingsPanel />)
     expect(screen.getByText('Active model')).toBeInTheDocument()
-    expect(screen.getAllByText('Default').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('GPT-4o (default)').length).toBeGreaterThan(0)
     expect(screen.getByText('GitHub Copilot')).toBeInTheDocument()
   })
 

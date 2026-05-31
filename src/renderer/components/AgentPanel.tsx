@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react'
 import { X, Settings, Folder, FileText, Plus, Pencil, Wrench, ToggleLeft, ToggleRight } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import type { AgentConfig } from '../../shared/types'
-import { MODEL_OPTIONS } from '../../shared/models'
 import { ResizeHandle } from './ResizeHandle'
 import { MarkdownRenderer } from './MarkdownRenderer'
 
@@ -47,7 +46,6 @@ const EMPTY_AGENT: Omit<AgentConfig, 'id'> = {
   name: '',
   icon: '🤖',
   systemPrompt: '',
-  model: 'default',
   temperature: 0.7,
   maxTokens: 4096,
   contextDirectories: [],
@@ -78,17 +76,17 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
   const onDelete = useAppStore((s) => s.deleteAgent)
   const onDuplicate = useAppStore((s) => s.duplicateAgent)
   const onExport = useAppStore((s) => s.exportAgent)
+  const catalogModels = useAppStore((s) => s.catalogModels)
 
   const agent = editingAgentId ? agents.find((a) => a.id === editingAgentId) ?? null : null
   const [tab, setTab] = useState<'settings' | 'skills' | 'knowledge' | 'json'>('settings')
-  const [config, setConfig] = useState<AgentConfig>({
+  const [config, setConfig] = useState<AgentConfig>(() => ({
     id: '',
     ...EMPTY_AGENT,
     ...agent
-  })
+  }))
   const [jsonText, setJsonText] = useState('')
   const [jsonError, setJsonError] = useState('')
-
   // Knowledge tab state
   const [knowledgeFiles, setKnowledgeFiles] = useState<KnowledgeFile[]>([])
   const [editingKnowledgeFile, setEditingKnowledgeFile] = useState<{ id: string; filePath: string } | null>(null)
@@ -200,9 +198,12 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
   const handleJsonSave = () => {
     try {
       const parsed = JSON.parse(jsonText)
+      // Strip model — agents no longer own a model
+      const { model: _model, ...rest } = parsed
+      void _model
       setConfig((prev) => ({
         ...prev,
-        ...parsed,
+        ...rest,
         id: prev.id
       }))
       setJsonError('')
@@ -434,41 +435,22 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
                 />
               </div>
 
-              {/* Model + Temperature + Max Tokens */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
-                    Model
-                  </label>
-                  <select
-                    value={config.model}
-                    onChange={(e) => updateField('model', e.target.value)}
-                    className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    {MODEL_OPTIONS.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
-                    Response Format
-                  </label>
-                  <select
-                    value={config.responseFormat}
-                    onChange={(e) => updateField('responseFormat', e.target.value as AgentConfig['responseFormat'])}
-                    className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    {FORMAT_OPTIONS.map((f) => (
-                      <option key={f} value={f}>
-                        {f}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+              {/* Response Format */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                  Response Format
+                </label>
+                <select
+                  value={config.responseFormat}
+                  onChange={(e) => updateField('responseFormat', e.target.value as AgentConfig['responseFormat'])}
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {FORMAT_OPTIONS.map((f) => (
+                    <option key={f} value={f}>
+                      {f}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="space-y-1.5">

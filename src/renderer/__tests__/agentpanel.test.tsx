@@ -131,18 +131,6 @@ describe('AgentPanel — Field Updates', () => {
     )
   })
 
-  it('agent-r-6: model dropdown shows available models', () => {
-    setupEditMode()
-    render(<AgentPanel width={440} onResize={() => {}} />)
-
-    const modelSelect = screen.getAllByRole('combobox')[0]
-    const options = within(modelSelect).getAllByRole('option')
-    const values = options.map((o) => o.textContent)
-    expect(values).toContain('default')
-    expect(values).toContain('gpt-5.4')
-    expect(values).toContain('claude-sonnet-4.5')
-    expect(values).toContain('gpt-4.1')
-  })
 
   it('agent-r-7: toggle agentic mode updates config', async () => {
     setupEditMode()
