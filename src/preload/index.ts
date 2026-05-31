@@ -145,6 +145,21 @@ const api = {
   duplicateProject: (id: string) => typedInvoke('project:duplicate', id),
   exportProject: (id: string) => typedInvoke('project:export', id),
 
+  // Project Wiki
+  listWikiEntries: (projectId: string) => typedInvoke('wiki:list-entries', projectId),
+  createWikiEntry: (
+    projectId: string,
+    title: string,
+    body: string,
+    tags: string[],
+    sourceInfo?: { conversationId?: string; messageId?: string },
+  ) => typedInvoke('wiki:create-entry', projectId, title, body, tags, sourceInfo),
+  updateWikiEntry: (id: string, fields: { title?: string; body?: string; tags?: string[]; superseded_by?: string | null }) =>
+    typedInvoke('wiki:update-entry', id, fields),
+  deleteWikiEntry: (id: string) => typedInvoke('wiki:delete-entry', id),
+  extractWikiLearnings: (conversationId: string, projectId: string, model?: string) =>
+    typedInvoke('wiki:extract-learnings', conversationId, projectId, model),
+
   // Knowledge files
   listKnowledgeFiles: (agentId: string) =>
     typedInvoke('agent:list-knowledge-files', agentId),

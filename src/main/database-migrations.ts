@@ -54,6 +54,24 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
       CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, timestamp);
     `,
   },
+  {
+    version: 13,
+    sql: `
+      CREATE TABLE IF NOT EXISTS project_wiki_entries (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL DEFAULT '',
+        tags TEXT NOT NULL DEFAULT '[]',
+        source_conversation_id TEXT,
+        source_message_id TEXT,
+        superseded_by TEXT REFERENCES project_wiki_entries(id) ON DELETE SET NULL,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+      );
+      CREATE INDEX IF NOT EXISTS idx_wiki_project ON project_wiki_entries(project_id, updated_at);
+    `,
+  },
 ];
 
 export function initializeBaseSchema(db: Database.Database): void {

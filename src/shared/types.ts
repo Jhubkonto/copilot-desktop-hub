@@ -208,6 +208,31 @@ export interface KnowledgeFile {
   updated_at: number
 }
 
+export interface WikiEntry {
+  id: string
+  project_id: string
+  title: string
+  body: string
+  tags: string[]
+  source_conversation_id: string | null
+  source_message_id: string | null
+  superseded_by: string | null
+  created_at: number
+  updated_at: number
+}
+
+export interface WikiCandidate {
+  title: string
+  body: string
+  tags: string[]
+  matchingEntryId: string | null
+  matchingEntryTitle: string | null
+}
+
+export interface WikiExtractionResult {
+  candidates: WikiCandidate[]
+}
+
 // ---------------------------------------------------------------------------
 // Projects
 // ---------------------------------------------------------------------------
@@ -464,6 +489,11 @@ export type IpcReturnMap = {
   'project:set-default-model': boolean
   'project:set-primary-agent': boolean
   'project:update-config': boolean
+  'wiki:create-entry': WikiEntry
+  'wiki:delete-entry': boolean
+  'wiki:extract-learnings': WikiExtractionResult
+  'wiki:list-entries': WikiEntry[]
+  'wiki:update-entry': WikiEntry
   // Provider
   'provider:get-azure-endpoint': string
   'provider:has-key': boolean
@@ -637,3 +667,8 @@ export type IpcChannels =
   | 'window:maximize-change'
   | 'window:minimize'
   | 'window:zoom'
+  | 'wiki:create-entry'
+  | 'wiki:delete-entry'
+  | 'wiki:extract-learnings'
+  | 'wiki:list-entries'
+  | 'wiki:update-entry'

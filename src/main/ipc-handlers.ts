@@ -12,12 +12,14 @@ import { registerMcpHandlers } from './mcp'
 import { registerProviderHandlers } from './providers'
 import { registerScreenCaptureHandlers } from './screen-capture-handlers'
 import { registerModelCatalogHandlers } from './model-catalog-handlers'
+import { registerWikiHandlers } from './wiki-handlers'
 import { cacheExternalWindowLabel, consumeSuppressFocusEvent } from './screen-capture'
 
 export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerSettingsHandlers()
   registerProjectHandlers()
   registerProjectAgentHandlers()
+  registerWikiHandlers()
   registerConversationHandlers()
   registerChatHandlers()
   registerMessageHandlers()
