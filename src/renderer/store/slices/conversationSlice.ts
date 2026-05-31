@@ -76,10 +76,18 @@ export const createConversationSlice: StateCreator<
   },
 
   newChat: (opts) => {
+    const projectId = opts?.projectId ?? null
+    const agentId = opts?.agentId ?? null
+    let resolvedAgentId = agentId
+    if (projectId && !agentId) {
+      const agents = get().projectAgents[projectId] ?? []
+      const primary = agents.find((a) => a.isPrimary) ?? agents[0] ?? null
+      resolvedAgentId = primary?.agentId ?? null
+    }
     set((s) => {
       s.currentConversationId = null
-      s.activeProjectId = opts?.projectId ?? null
-      s.activeAgentId = opts?.agentId ?? null
+      s.activeProjectId = projectId
+      s.activeAgentId = resolvedAgentId
     })
   }
 })

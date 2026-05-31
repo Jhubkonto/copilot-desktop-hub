@@ -42,20 +42,21 @@ function isPinned(conversation: Conversation): boolean {
   return conversation.pinned === 1
 }
 
-const PROJECT_COLOR_MAP: Record<string, { bg: string; dot: string }> = {
-  blue:   { bg: 'bg-blue-100 dark:bg-blue-900/40',   dot: 'bg-blue-500' },
-  green:  { bg: 'bg-green-100 dark:bg-green-900/40', dot: 'bg-green-500' },
-  red:    { bg: 'bg-red-100 dark:bg-red-900/40',     dot: 'bg-red-500' },
-  purple: { bg: 'bg-purple-100 dark:bg-purple-900/40', dot: 'bg-purple-500' },
-  orange: { bg: 'bg-orange-100 dark:bg-orange-900/40', dot: 'bg-orange-500' },
-  pink:   { bg: 'bg-pink-100 dark:bg-pink-900/40',   dot: 'bg-pink-500' },
-  yellow: { bg: 'bg-yellow-100 dark:bg-yellow-900/40', dot: 'bg-yellow-500' },
-  gray:   { bg: 'bg-gray-100 dark:bg-gray-800',      dot: 'bg-gray-400' },
+const PROJECT_COLOR_MAP: Record<string, { bg: string; dot: string; border: string }> = {
+  blue:   { bg: 'bg-blue-100 dark:bg-blue-900/40',     dot: 'bg-blue-500',   border: 'border-l-blue-500' },
+  green:  { bg: 'bg-green-100 dark:bg-green-900/40',   dot: 'bg-green-500',  border: 'border-l-green-500' },
+  red:    { bg: 'bg-red-100 dark:bg-red-900/40',       dot: 'bg-red-500',    border: 'border-l-red-500' },
+  purple: { bg: 'bg-purple-100 dark:bg-purple-900/40', dot: 'bg-purple-500', border: 'border-l-purple-500' },
+  orange: { bg: 'bg-orange-100 dark:bg-orange-900/40', dot: 'bg-orange-500', border: 'border-l-orange-500' },
+  pink:   { bg: 'bg-pink-100 dark:bg-pink-900/40',     dot: 'bg-pink-500',   border: 'border-l-pink-500' },
+  yellow: { bg: 'bg-yellow-100 dark:bg-yellow-900/40', dot: 'bg-yellow-500', border: 'border-l-yellow-500' },
+  gray:   { bg: 'bg-gray-100 dark:bg-gray-800',        dot: 'bg-gray-400',   border: 'border-l-gray-400' },
 }
 const COLOR_OPTIONS = Object.keys(PROJECT_COLOR_MAP)
 
 const SIDEBAR_MIN = 160
 const SIDEBAR_MAX = 480
+const SIDEBAR_SECTION_LIMIT = 5
 
 export function Sidebar() {
   const sidebarRef = useRef<HTMLElement>(null)
@@ -96,6 +97,7 @@ export function Sidebar() {
   const openEditProject = useAppStore((s) => s.openEditProject)
   const addAgentToProject = useAppStore((s) => s.addAgentToProject)
   const projectAgents = useAppStore((s) => s.projectAgents)
+  const setHistoryAgentId = useAppStore((s) => s.setHistoryAgentId)
   const setConversationProject = useAppStore((s) => s.setConversationProject)
   const activeSectionPane = useAppStore((s) => s.activeSectionPane)
   const setSectionPane = useAppStore((s) => s.setSectionPane)
@@ -163,9 +165,12 @@ export function Sidebar() {
       ? baseConversations.filter((c) => c.project_id === activeProjectId)
       : baseConversations
 
-  const pinnedConversations = filteredConversations.filter(isPinned)
-  const unpinnedConversations = filteredConversations.filter((c) => !isPinned(c))
-  const dateGroups = groupByDate(unpinnedConversations)
+
+  // Limit sidebar conversation list to SIDEBAR_SECTION_LIMIT, pinned first
+  const visibleConversations = filteredConversations.slice(0, SIDEBAR_SECTION_LIMIT)
+  const visiblePinned = visibleConversations.filter(isPinned)
+  const visibleDateGroups = groupByDate(visibleConversations.filter((c) => !isPinned(c)))
+  const hiddenConvCount = Math.max(0, filteredConversations.length - SIDEBAR_SECTION_LIMIT)
 
   const renderConversation = (conv: Conversation) => {
     const agentForConv = agents.find((a) => a.id === conv.agent_id)
@@ -381,14 +386,14 @@ export function Sidebar() {
           </div>
 
           {projectsOpen && <div className="space-y-0.5">
-            {/* Project rows */}
-            {projects.map((project) => {
+            {/* Project rows — capped at SIDEBAR_SECTION_LIMIT */}
+            {projects.slice(0, SIDEBAR_SECTION_LIMIT).map((project) => {
               const colors = PROJECT_COLOR_MAP[project.color] ?? PROJECT_COLOR_MAP.blue
               const isActive = activeProjectId === project.id
               return (
                 <div key={project.id} className="relative group">
                   <div
-                    className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-xs font-medium transition-colors ${
+                    className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-xs font-medium transition-colors border-l-[3px] ${colors.border} ${
                       isActive
                         ? `${colors.bg} text-gray-900 dark:text-gray-100`
                         : sidebarDragOverProjectId === project.id
@@ -424,7 +429,6 @@ export function Sidebar() {
                       ? <FolderOpen className="w-3.5 h-3.5 shrink-0" />
                       : <Folder className="w-3.5 h-3.5 shrink-0" />
                     }
-                    <span className={`w-2 h-2 rounded-full shrink-0 ${colors.dot}`} />
                     <span className="flex-1 truncate">{project.name}</span>
                     {project.default_model && (
                       <span
@@ -449,7 +453,14 @@ export function Sidebar() {
                 </div>
               )
             })}
-
+            {projects.length > SIDEBAR_SECTION_LIMIT && (
+              <button
+                onClick={() => { setSectionPane('projects'); setHistoryProjectId(null) }}
+                className="w-full text-left text-xs text-gray-400 dark:text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 px-2 py-1 transition-colors"
+              >
+                …and {projects.length - SIDEBAR_SECTION_LIMIT} more →
+              </button>
+            )}
           </div>}
         </div>
 
@@ -480,7 +491,10 @@ export function Sidebar() {
                 {agentsOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
               </button>
               <button
-                onClick={() => setSectionPane('agents')}
+                onClick={() => {
+                  setSectionPane('agents')
+                  setHistoryAgentId(null)
+                }}
                 className={`text-xs font-medium uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300 ${
                   activeSectionPane === 'agents'
                     ? 'text-blue-500 dark:text-blue-400'
@@ -512,8 +526,8 @@ export function Sidebar() {
               No agents configured
             </div>
           ) : (
-            <div className="space-y-0.5">
-              {agents.map((agent) => (
+          <div className="space-y-0.5">
+              {agents.slice(0, SIDEBAR_SECTION_LIMIT).map((agent) => (
                 <div
                   key={agent.id}
                   draggable
@@ -526,7 +540,7 @@ export function Sidebar() {
                       ? 'bg-gray-200 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
                       : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
                   }`}
-                  onClick={() => selectAgent(agent.id)}
+                  onClick={() => setHistoryAgentId(agent.id)}
                   title="Drag onto a project to add this agent to it"
                 >
                   <span className="text-xs font-medium truncate">
@@ -545,6 +559,14 @@ export function Sidebar() {
                   </button>
                 </div>
               ))}
+              {agents.length > SIDEBAR_SECTION_LIMIT && (
+                <button
+                  onClick={() => { setSectionPane('agents'); setHistoryAgentId(null) }}
+                  className="w-full text-left text-xs text-gray-400 dark:text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 px-2 py-1 transition-colors"
+                >
+                  …and {agents.length - SIDEBAR_SECTION_LIMIT} more →
+                </button>
+              )}
             </div>
           )}
           <div className="flex gap-2 mt-2 px-2">
@@ -609,18 +631,18 @@ export function Sidebar() {
                   : 'No conversations yet'}
             </div>
           ) : (
-            <div className="space-y-3">
-              {pinnedConversations.length > 0 && (
+          <div className="space-y-3">
+              {visiblePinned.length > 0 && (
                 <div>
                   <div className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider px-2 mb-1">
                     Pinned
                   </div>
                   <div className="space-y-0.5">
-                    {pinnedConversations.map(renderConversation)}
+                    {visiblePinned.map(renderConversation)}
                   </div>
                 </div>
               )}
-              {dateGroups.map((group) => (
+              {visibleDateGroups.map((group) => (
                 <div key={group.label}>
                   <div className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider px-2 mb-1">
                     {group.label}
@@ -630,6 +652,14 @@ export function Sidebar() {
                   </div>
                 </div>
               ))}
+              {hiddenConvCount > 0 && (
+                <button
+                  onClick={() => setSectionPane('chats')}
+                  className="w-full text-left text-xs text-gray-400 dark:text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 px-2 py-1 transition-colors"
+                >
+                  …and {hiddenConvCount} more →
+                </button>
+              )}
             </div>
           )}
           </>)}

@@ -19,6 +19,7 @@ export function createMockAppStore(overrides: Record<string, unknown> = {}) {
     // Agents
     agents: [],
     activeAgentId: null,
+    historyAgentId: null,
     editingAgentId: null,
     showAgentPanel: false,
     agentsLoading: false,
@@ -65,6 +66,7 @@ export function createMockAppStore(overrides: Record<string, unknown> = {}) {
     newChat: vi.fn(),
     loadAgents: vi.fn(),
     selectAgent: vi.fn(),
+    setHistoryAgentId: vi.fn(),
     openCreateAgent: vi.fn(),
     openEditAgent: vi.fn(),
     closeAgentPanel: vi.fn(),

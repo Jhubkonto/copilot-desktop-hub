@@ -7,12 +7,14 @@ import type { DeleteAgentImpact } from '../types'
 export interface AgentSlice {
   agents: AgentConfig[]
   activeAgentId: string | null
+  historyAgentId: string | null
   editingAgentId: string | null
   showAgentPanel: boolean
   agentsLoading: boolean
   pendingDeleteAgent: DeleteAgentImpact | null
   loadAgents: () => Promise<void>
   selectAgent: (id: string | null) => void
+  setHistoryAgentId: (id: string | null) => void
   setActiveAgentId: (id: string | null) => void
   openCreateAgent: () => void
   openEditAgent: (id: string) => void
@@ -34,6 +36,7 @@ export const createAgentSlice: StateCreator<
 > = (set, get) => ({
   agents: [],
   activeAgentId: null,
+  historyAgentId: null,
   editingAgentId: null,
   showAgentPanel: false,
   agentsLoading: false,
@@ -64,6 +67,20 @@ export const createAgentSlice: StateCreator<
   selectAgent: (id) => {
     set((s) => {
       s.activeAgentId = id
+      s.activeProjectId = null
+      s.currentConversationId = null
+    })
+  },
+
+  setHistoryAgentId: (id) => {
+    set((s) => {
+      s.historyAgentId = id
+      if (id !== null) {
+        s.activeSectionPane = 'agents'
+        s.activeAgentId = id
+        s.activeProjectId = null
+        s.currentConversationId = null
+      }
     })
   },
 
@@ -161,10 +178,12 @@ export const createAgentSlice: StateCreator<
       }
       set((s) => {
         if (s.activeAgentId === pending.agentId) s.activeAgentId = null
+        if (s.historyAgentId === pending.agentId) s.historyAgentId = null
         s.showAgentPanel = false
       })
       await get().loadAgents()
       await get().loadProjects()
+      await get().loadConversations()
       for (const p of pending.affectedProjects) {
         await get().loadProjectAgents(p.id)
       }

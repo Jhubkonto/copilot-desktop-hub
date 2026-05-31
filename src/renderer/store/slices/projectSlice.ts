@@ -101,6 +101,25 @@ export const createProjectSlice: StateCreator<
       set((s) => {
         s.activeAgentId = null
       })
+      return
+    }
+    const applyPrimary = (agents: ProjectAgent[]) => {
+      const primary = agents.find((a) => a.isPrimary) ?? agents[0] ?? null
+      set((s) => {
+        s.activeAgentId = primary?.agentId ?? null
+      })
+    }
+    const cached = get().projectAgents[id]
+    if (cached) {
+      applyPrimary(cached)
+    } else {
+      void get()
+        .loadProjectAgents(id)
+        .then(() => {
+          const state = get()
+          if (state.activeProjectId !== id || state.currentConversationId !== null) return
+          applyPrimary(state.projectAgents[id] ?? [])
+        })
     }
   },
 

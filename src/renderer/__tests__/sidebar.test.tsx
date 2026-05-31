@@ -243,12 +243,12 @@ describe("Sidebar — Agent List", () => {
     expect(screen.getByText(/Writer/)).toBeInTheDocument();
   });
 
-  it("side-r-12: selecting agent calls selectAgent", async () => {
+  it("side-r-12: selecting agent calls setHistoryAgentId", async () => {
     const user = userEvent.setup();
     render(<Sidebar />);
 
     await user.click(screen.getByText(/Code Helper/));
-    expect(mockStore.selectAgent).toHaveBeenCalledWith("a1");
+    expect(mockStore.setHistoryAgentId).toHaveBeenCalledWith("a1");
   });
 
   it("side-r-13: active agent highlighted", () => {
