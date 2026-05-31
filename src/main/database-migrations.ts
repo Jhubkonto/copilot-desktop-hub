@@ -29,6 +29,31 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
     sql: "CREATE INDEX IF NOT EXISTS idx_conversations_project ON conversations(project_id, updated_at)",
   },
   { version: 11, sql: "ALTER TABLE projects ADD COLUMN config_json TEXT" },
+  {
+    // Recreate messages table to add 'team-activity' to the role CHECK constraint.
+    // SQLite does not support ALTER COLUMN, so we do a table-swap migration.
+    version: 12,
+    sql: `
+      CREATE TABLE IF NOT EXISTS messages_v12 (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system', 'team-activity')),
+        content TEXT NOT NULL,
+        model TEXT,
+        is_edited INTEGER NOT NULL DEFAULT 0,
+        previous_content TEXT,
+        context_snapshot TEXT,
+        attachments TEXT,
+        timestamp INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+        FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+      );
+      INSERT OR IGNORE INTO messages_v12 (id, conversation_id, role, content, model, is_edited, previous_content, context_snapshot, attachments, timestamp)
+        SELECT id, conversation_id, role, content, model, is_edited, previous_content, context_snapshot, attachments, timestamp FROM messages;
+      DROP TABLE messages;
+      ALTER TABLE messages_v12 RENAME TO messages;
+      CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, timestamp);
+    `,
+  },
 ];
 
 export function initializeBaseSchema(db: Database.Database): void {

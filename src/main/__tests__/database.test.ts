@@ -36,7 +36,7 @@ describe('database migrations', () => {
     initializeBaseSchema(db)
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(11)
+    expect(db.pragma('user_version', { simple: true })).toBe(12)
     expect(getColumnNames(db, 'projects')).toEqual(
       expect.arrayContaining(['default_model', 'config_json'])
     )
@@ -55,7 +55,7 @@ describe('database migrations', () => {
       runMigrations(db)
       runMigrations(db)
     }).not.toThrow()
-    expect(db.pragma('user_version', { simple: true })).toBe(11)
+    expect(db.pragma('user_version', { simple: true })).toBe(12)
   })
 
   it('only runs pending migrations for a partial upgrade', () => {
@@ -96,7 +96,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(11)
+    expect(db.pragma('user_version', { simple: true })).toBe(12)
     expect(getColumnNames(db, 'messages')).toEqual(
       expect.arrayContaining(['is_edited', 'previous_content', 'context_snapshot'])
     )
@@ -113,7 +113,7 @@ describe('database migrations', () => {
     const db = createDatabase()
     const failingMigrations: ReadonlyArray<Migration> = [
       ...MIGRATIONS,
-      { version: 12, sql: 'ALTER TABLE missing_table ADD COLUMN broken TEXT' },
+      { version: 13, sql: 'ALTER TABLE missing_table ADD COLUMN broken TEXT' },
     ]
 
     initializeBaseSchema(db)
