@@ -116,7 +116,11 @@ const ALL_CHANNELS = [
   'window:maximize',
   'window:maximize-change',
   'window:minimize',
-  'window:zoom'
+  'window:zoom',
+  'wiki:create-entry',
+  'wiki:delete-entry',
+  'wiki:list-entries',
+  'wiki:update-entry'
 ] as const satisfies readonly IpcChannels[]
 
 describe('IpcChannels', () => {

@@ -36,7 +36,7 @@ describe('database migrations', () => {
     initializeBaseSchema(db)
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(12)
+    expect(db.pragma('user_version', { simple: true })).toBe(13)
     expect(getColumnNames(db, 'projects')).toEqual(
       expect.arrayContaining(['default_model', 'config_json'])
     )
@@ -44,6 +44,9 @@ describe('database migrations', () => {
       expect.arrayContaining(['attachments', 'context_snapshot'])
     )
     expect(getColumnNames(db, 'conversations')).toEqual(expect.arrayContaining(['project_id']))
+    expect(getColumnNames(db, 'project_wiki_entries')).toEqual(
+      expect.arrayContaining(['tags', 'superseded_by'])
+    )
   })
 
   it('is idempotent when run twice', () => {
@@ -55,7 +58,7 @@ describe('database migrations', () => {
       runMigrations(db)
       runMigrations(db)
     }).not.toThrow()
-    expect(db.pragma('user_version', { simple: true })).toBe(12)
+    expect(db.pragma('user_version', { simple: true })).toBe(13)
   })
 
   it('only runs pending migrations for a partial upgrade', () => {
@@ -96,11 +99,14 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(12)
+    expect(db.pragma('user_version', { simple: true })).toBe(13)
     expect(getColumnNames(db, 'messages')).toEqual(
       expect.arrayContaining(['is_edited', 'previous_content', 'context_snapshot'])
     )
     expect(getColumnNames(db, 'conversations')).toEqual(expect.arrayContaining(['project_id']))
+    expect(getColumnNames(db, 'project_wiki_entries')).toEqual(
+      expect.arrayContaining(['tags', 'superseded_by'])
+    )
     expect(getColumnNames(db, 'projects')).toEqual(expect.arrayContaining(['config_json']))
     expect(
       db
@@ -113,7 +119,7 @@ describe('database migrations', () => {
     const db = createDatabase()
     const failingMigrations: ReadonlyArray<Migration> = [
       ...MIGRATIONS,
-      { version: 13, sql: 'ALTER TABLE missing_table ADD COLUMN broken TEXT' },
+      { version: 14, sql: 'ALTER TABLE missing_table ADD COLUMN broken TEXT' },
     ]
 
     initializeBaseSchema(db)

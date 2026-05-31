@@ -84,6 +84,39 @@ describe('MessageBubble', () => {
     expect(screen.getByRole('button', { name: 'Copy' })).toHaveClass('bg-green-100')
   })
 
+  it('shows save to wiki action for assistant messages and calls handler', () => {
+    const onSaveToWiki = vi.fn()
+    render(
+      <MessageBubble
+        {...baseProps}
+        role="assistant"
+        onSaveToWiki={onSaveToWiki}
+      />
+    )
+
+    const container = screen.getByText('Hello there').closest('.group')!
+    fireEvent.mouseEnter(container)
+    fireEvent.click(screen.getByRole('button', { name: 'Save to wiki' }))
+
+    expect(onSaveToWiki).toHaveBeenCalledWith('msg-1', 'Hello there')
+  })
+
+  it('shows saved state for assistant messages linked to wiki entries', () => {
+    render(
+      <MessageBubble
+        {...baseProps}
+        role="assistant"
+        onSaveToWiki={vi.fn()}
+        hasWikiEntry={true}
+      />
+    )
+
+    const container = screen.getByText('Hello there').closest('.group')!
+    fireEvent.mouseEnter(container)
+
+    expect(screen.getByRole('button', { name: 'Saved' })).toHaveClass('bg-green-100')
+  })
+
   it('shows regenerate action for last assistant message', () => {
     const onRegenerate = vi.fn()
     render(

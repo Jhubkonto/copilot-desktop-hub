@@ -28,6 +28,8 @@ import type {
   DeleteAgentPreflight,
   DeleteAgentResult,
   IpcReturn,
+  WikiEntry,
+  WikiExtractionResult,
 } from '../../shared/types'
 
 describe('preload IPC return types', () => {
@@ -78,6 +80,11 @@ describe('preload IPC return types', () => {
   it('project methods return typed results', () => {
     expectTypeOf<ReturnType<ElectronAPI['listProjects']>>().toEqualTypeOf<Promise<ProjectRow[]>>()
     expectTypeOf<ReturnType<ElectronAPI['listProjectAgents']>>().toEqualTypeOf<Promise<ProjectAgent[]>>()
+  })
+
+  it('wiki methods return typed results', () => {
+    expectTypeOf<ReturnType<ElectronAPI['listWikiEntries']>>().toEqualTypeOf<Promise<WikiEntry[]>>()
+    expectTypeOf<ReturnType<ElectronAPI['extractWikiLearnings']>>().toEqualTypeOf<Promise<WikiExtractionResult>>()
   })
 
   it('screen capture and auto-clipboard APIs are typed', () => {
