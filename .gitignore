@@ -37,3 +37,6 @@ src/planning/
 
 # Playwright MCP session artifacts
 .playwright-mcp/
+
+# Copilot instructions (local only)
+.github/copilot-instructions.md
