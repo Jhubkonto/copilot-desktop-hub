@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, Loader2, Sparkles } from 'lucide-react'
 import { getModelLabel, modelIdSupportsTools } from '../../shared/models'
-import { isApiError, type AgentConfig } from '../../shared/types'
+import { isApiError, type AgentConfig, type WikiCandidate } from '../../shared/types'
 import type { ContextRef, ToastType } from '../hooks/chat-types'
 import { useAtMenu } from '../hooks/useAtMenu'
 import { useChat } from '../hooks/useChat'
@@ -12,6 +12,8 @@ import { useTimers } from '../hooks/useTimers'
 import { useAppStore } from '../store/app-store'
 import { ChatComposer } from './chat/ChatComposer'
 import { ChatMessages } from './chat/ChatMessages'
+import { SaveToWikiModal } from './SaveToWikiModal'
+import { WikiExtractionModal } from './WikiExtractionModal'
 
 export function ChatWindow() {
   const conversationId = useAppStore((state) => state.currentConversationId)
@@ -50,6 +52,10 @@ export function ChatWindow() {
   const [openContextPicker, setOpenContextPicker] = useState<'project' | 'agent' | null>(null)
   const [hasUnreadBelow, setHasUnreadBelow] = useState(false)
   const [clipboardRef, setClipboardRef] = useState<ContextRef | null>(null)
+  const [wikiMessageIds, setWikiMessageIds] = useState<Set<string>>(new Set())
+  const [wikiModalMessage, setWikiModalMessage] = useState<{ id: string; content: string } | null>(null)
+  const [isExtracting, setIsExtracting] = useState(false)
+  const [extractionCandidates, setExtractionCandidates] = useState<WikiCandidate[] | null>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -243,6 +249,22 @@ export function ChatWindow() {
   }, [chatProjectId])
 
   useEffect(() => {
+    if (!chatProjectId || chatProjectId === '__none__') {
+      setWikiMessageIds(new Set())
+      return
+    }
+
+    window.api
+      .listWikiEntries(chatProjectId)
+      .then((entries) => {
+        setWikiMessageIds(new Set(entries
+          .filter((entry) => entry.source_message_id != null)
+          .map((entry) => entry.source_message_id as string)))
+      })
+      .catch(() => {})
+  }, [chatProjectId])
+
+  useEffect(() => {
     setPendingModel(null)
   }, [conversationId])
 
@@ -360,6 +382,27 @@ export function ChatWindow() {
       addToast('Failed to copy message', 'error')
     }
   }, [addToast])
+
+  const handleSaveToWiki = useCallback((messageId: string, content: string) => {
+    setWikiModalMessage({ id: messageId, content })
+  }, [])
+
+  const handleExtractLearnings = useCallback(async () => {
+    if (!conversationId || !chatProjectId || chatProjectId === '__none__') return
+    setIsExtracting(true)
+    try {
+      const result = await window.api.extractWikiLearnings(conversationId, chatProjectId)
+      if (result.candidates.length === 0) {
+        addToast('No notable learnings found in this conversation', 'info')
+      } else {
+        setExtractionCandidates(result.candidates)
+      }
+    } catch {
+      addToast('Failed to extract learnings', 'error')
+    } finally {
+      setIsExtracting(false)
+    }
+  }, [addToast, chatProjectId, conversationId])
 
   const handleCaptureScreen = useCallback(async () => {
     const permission = await window.api.checkScreenPermission()
@@ -777,6 +820,21 @@ export function ChatWindow() {
       {contextBar}
 
       <div className="relative flex flex-col flex-1 min-h-0">
+        {chatProjectId && chatProjectId !== '__none__' && chat.messages.length > 0 && !chat.isGenerating && (
+          <div className="absolute right-4 top-4 z-10">
+            <button
+              type="button"
+              onClick={() => void handleExtractLearnings()}
+              disabled={isExtracting}
+              className="inline-flex items-center gap-2 rounded-full border border-gray-200 dark:border-gray-700 bg-white/95 dark:bg-gray-800/95 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-200 shadow-sm transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
+              aria-label="Extract learnings"
+              title="Extract learnings"
+            >
+              {isExtracting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+              <span>Extract learnings</span>
+            </button>
+          </div>
+        )}
         <ChatMessages
           messages={chat.messages}
           effectiveModel={effectiveModel}
@@ -791,6 +849,8 @@ export function ChatWindow() {
           scrollContainerRef={scrollContainerRef}
           onScroll={handleScrollContainerScroll}
           onCopy={handleCopy}
+          onSaveToWiki={chatProjectId && chatProjectId !== '__none__' ? handleSaveToWiki : undefined}
+          wikiMessageIds={wikiMessageIds}
           onRegenerate={chat.handleRegenerate}
           onRegenerateWithModel={chat.handleRegenerate}
           onEdit={handleEditMessage}
@@ -814,6 +874,31 @@ export function ChatWindow() {
               <ChevronDown className="w-4 h-4" />
             </button>
           </div>
+        )}
+        {wikiModalMessage && conversationId && chatProjectId && chatProjectId !== '__none__' && (
+          <SaveToWikiModal
+            projectId={chatProjectId}
+            conversationId={conversationId}
+            messageId={wikiModalMessage.id}
+            initialContent={wikiModalMessage.content}
+            onSaved={(entry) => {
+              setWikiMessageIds((prev) => new Set([...prev, entry.source_message_id].filter(Boolean) as string[]))
+              addToast('Saved to project wiki', 'success')
+            }}
+            onClose={() => setWikiModalMessage(null)}
+          />
+        )}
+        {extractionCandidates && conversationId && chatProjectId && chatProjectId !== '__none__' && (
+          <WikiExtractionModal
+            projectId={chatProjectId}
+            conversationId={conversationId}
+            candidates={extractionCandidates}
+            onClose={() => setExtractionCandidates(null)}
+            onAllDone={(savedCount) => {
+              addToast(`${savedCount} wiki ${savedCount === 1 ? 'entry' : 'entries'} saved`, 'success')
+              setExtractionCandidates(null)
+            }}
+          />
         )}
       </div>
 
