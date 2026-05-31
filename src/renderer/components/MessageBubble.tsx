@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { Copy, RotateCcw, Pencil, AlertTriangle, RefreshCw, LogIn, StopCircle, ChevronDown, CheckCircle } from 'lucide-react'
+import { Copy, RotateCcw, Pencil, AlertTriangle, RefreshCw, LogIn, StopCircle, ChevronDown, CheckCircle, BookOpen } from 'lucide-react'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import type { ContextSnapshot } from '../hooks/chat-types'
 import { ContextSnapshotBadge } from './ContextInspector'
@@ -45,6 +45,8 @@ interface MessageBubbleProps {
   onRegenerate?: () => void
   onRegenerateWithModel?: (model: string) => void
   onEdit?: (index: number) => void
+  onSaveToWiki?: (messageId: string, content: string) => void
+  hasWikiEntry?: boolean
   timestamp?: number
   onRetry?: () => void
   onSignIn?: () => void
@@ -52,6 +54,7 @@ interface MessageBubbleProps {
 }
 
 export function MessageBubbleBase({
+  id,
   role,
   content,
   isEdited,
@@ -71,6 +74,8 @@ export function MessageBubbleBase({
   onRegenerate,
   onRegenerateWithModel,
   onEdit,
+  onSaveToWiki,
+  hasWikiEntry,
   onRetry,
   onSignIn,
   onPickModel
@@ -256,6 +261,14 @@ export function MessageBubbleBase({
               }}
               highlight={copied}
             />
+            {role === 'assistant' && onSaveToWiki && (
+              <ActionButton
+                icon={BookOpen}
+                label={hasWikiEntry ? 'Saved' : 'Save to wiki'}
+                onClick={() => onSaveToWiki(id, content)}
+                highlight={hasWikiEntry}
+              />
+            )}
             {role === 'assistant' && isLastAssistant && onRegenerate && (
               <div className="relative flex items-center gap-1">
                 <ActionButton icon={RotateCcw} label="Regenerate" onClick={() => onRegenerate()} />

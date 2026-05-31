@@ -22,6 +22,8 @@ interface ChatMessagesProps {
   scrollContainerRef?: RefObject<HTMLDivElement | null>
   onScroll?: () => void
   onCopy: (content: string) => void
+  onSaveToWiki?: (messageId: string, content: string) => void
+  wikiMessageIds: Set<string>
   onRegenerate: (modelOverride?: string) => void | Promise<void>
   onRegenerateWithModel: (model: string) => void | Promise<void>
   onEdit: (index: number) => void
@@ -45,6 +47,8 @@ export function ChatMessagesBase({
   scrollContainerRef,
   onScroll,
   onCopy,
+  onSaveToWiki,
+  wikiMessageIds,
   onRegenerate,
   onRegenerateWithModel,
   onEdit,
@@ -142,6 +146,8 @@ export function ChatMessagesBase({
               messageIndex={index}
               timestamp={message.timestamp}
               onCopy={onCopy}
+              onSaveToWiki={message.role === 'assistant' ? onSaveToWiki : undefined}
+              hasWikiEntry={wikiMessageIds.has(message.id)}
               onRegenerate={index === lastAssistantIndex ? onRegenerate : undefined}
               onRegenerateWithModel={index === lastAssistantIndex ? onRegenerateWithModel : undefined}
               onEdit={message.role === 'user' ? onEdit : undefined}
