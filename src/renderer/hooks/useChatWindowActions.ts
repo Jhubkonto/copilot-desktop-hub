@@ -1,6 +1,6 @@
 import { useCallback, useMemo, type Dispatch, type MutableRefObject, type RefObject, type SetStateAction } from 'react'
 import { getModelLabel } from '../../shared/models'
-import type { AgentConfig } from '../../shared/types'
+import type { AgentConfig, CatalogModel } from '../../shared/types'
 import type { Theme } from '../store/types'
 import {
   executeSlashCommand,
@@ -29,6 +29,7 @@ interface UseChatWindowActionsParams {
   effectiveModel: string
   effectiveModelLabel: string
   conversationModel: string | null
+  catalogModels: CatalogModel[]
   theme: Theme
   input: string
   setInput: Dispatch<SetStateAction<string>>
@@ -92,6 +93,7 @@ export function useChatWindowActions({
   effectiveModel,
   effectiveModelLabel,
   conversationModel,
+  catalogModels,
   theme,
   input,
   setInput,
@@ -153,6 +155,7 @@ export function useChatWindowActions({
       activeAgent,
       effectiveModelLabel,
       conversationModel,
+      catalogModels,
       theme,
       pushSystemMessage,
       newChat,
@@ -173,6 +176,7 @@ export function useChatWindowActions({
       activeAgent,
       effectiveModelLabel,
       conversationModel,
+      catalogModels,
       theme,
       pushSystemMessage,
       newChat,
@@ -384,7 +388,7 @@ export function useChatWindowActions({
           addToast('Failed to delete messages from edited point', 'error')
         })
       }
-      await window.api.sendMessage(conversation, content, {
+      const sendResult = await window.api.sendMessage(conversation, content, {
         attachments,
         images: visionImagesForSend,
         agentId: chatAgentId ?? undefined,
@@ -392,7 +396,8 @@ export function useChatWindowActions({
         messageId: userMessage.id,
         projectId: chatProjectId ?? undefined,
         contextSnapshot: contextSnapshotJson,
-      })
+      }) as unknown
+      if (hasIpcError(sendResult)) throw new Error(sendResult.error)
       onAfterSend?.()
     } catch (error) {
       console.error('Failed to send message:', error)
@@ -523,12 +528,12 @@ export function useChatWindowActions({
         const result = await window.api.setConversationModel(conversationId, value)
         if (hasIpcError(result)) throw new Error(result.error)
         await loadConversations()
-        addToast(`Model set to ${getModelLabel(model)}`, 'success')
+        addToast(`Model set to ${getModelLabel(model, catalogModels)}`, 'success')
       } catch {
         addToast('Failed to set conversation model', 'error')
       }
     },
-    [conversationId, loadConversations, addToast],
+    [conversationId, loadConversations, catalogModels, addToast],
   )
 
   const handleStop = useCallback(async () => {

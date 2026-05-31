@@ -4,7 +4,7 @@ import { SearchBar } from './SearchBar'
 import { useAppStore } from '../store/app-store'
 import type { Conversation, Project } from '../store/types'
 import { ResizeHandle } from './ResizeHandle'
-import { MODEL_OPTIONS, getModelLabel } from '../../shared/models'
+import { getModelLabel } from '../../shared/models'
 import { DeleteConversationDialog } from './DeleteConversationDialog'
 import { formatRelativeTime } from '../../shared/utils'
 
@@ -103,6 +103,7 @@ export function Sidebar() {
   const historyProjectId = useAppStore((s) => s.historyProjectId)
   const setShowNewProjectForm = useAppStore((s) => s.setShowNewProjectForm)
   const unreadConversationIds = useAppStore((s) => s.unreadConversationIds)
+  const catalogModels = useAppStore((s) => s.catalogModels)
 
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<Conversation[] | null>(null)
@@ -428,7 +429,7 @@ export function Sidebar() {
                     {project.default_model && (
                       <span
                         className="flex items-center gap-0.5 text-[10px] text-gray-400 dark:text-gray-500 shrink-0"
-                        title={`Default model: ${getModelLabel(project.default_model)}`}
+                        title={`Default model: ${getModelLabel(project.default_model, catalogModels)}`}
                       >
                         <Cpu className="w-2.5 h-2.5" />
                       </span>

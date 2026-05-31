@@ -1,12 +1,18 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
 import { getModelLabel } from '../../shared/models'
+import type { CatalogModel } from '../../shared/types'
 import type { ActivityEvent, ChatMessage, ConversationDbMessage, StreamError, TeamActivityStep, ToolCallEvent, ToastType } from './chat-types'
+
+function hasIpcError(result: unknown): result is { error: string } {
+  return typeof result === 'object' && result !== null && 'error' in result
+}
 
 interface UseChatParams {
   conversationId: string | null
   activeAgentId: string | null
   activeProjectId: string | null
   effectiveModel: string
+  catalogModels: CatalogModel[]
   addToast: (message: string, type?: ToastType) => void
   loadConversations: () => Promise<void>
   conversationCreated: (id: string) => void
@@ -16,6 +22,7 @@ interface UseChatParams {
 export function useChat({
   conversationId,
   effectiveModel,
+  catalogModels,
   addToast,
   loadConversations,
   rateLimitSetterRef,
@@ -294,7 +301,7 @@ export function useChat({
             {
               id: crypto.randomUUID(),
               role: 'system',
-              content: `Regenerating with ${getModelLabel(modelOverride)}.`,
+              content: `Regenerating with ${getModelLabel(modelOverride, catalogModels)}.`,
               timestamp: Date.now(),
             },
           ])
@@ -311,7 +318,8 @@ export function useChat({
         if (lastUser.images?.length) options.images = lastUser.images
         if (lastUser.attachments?.length) options.attachments = lastUser.attachments
 
-        await window.api.sendMessage(String(conversationId), String(lastUser.content), options)
+        const regenResult = await window.api.sendMessage(String(conversationId), String(lastUser.content), options) as unknown
+        if (hasIpcError(regenResult)) throw new Error(regenResult.error)
       } catch (error) {
         console.error('Regenerate failed:', error)
         // Restore the original conversation state on a synchronous IPC failure.
@@ -326,7 +334,7 @@ export function useChat({
         addToast('Failed to regenerate response', 'error')
       }
     },
-    [conversationId, messages, isGenerating, effectiveModel, addToast],
+    [conversationId, messages, isGenerating, effectiveModel, catalogModels, addToast],
   )
 
   const handleEdit = useCallback(

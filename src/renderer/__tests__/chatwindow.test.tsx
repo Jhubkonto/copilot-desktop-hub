@@ -601,7 +601,7 @@ describe("ChatWindow — Slash Commands", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Available models:/)).toBeInTheDocument();
-      expect(screen.getByText(/\* Default/)).toBeInTheDocument();
+      expect(screen.getByText(/\* GPT-4o \(default\)/)).toBeInTheDocument();
     });
   });
 
@@ -620,6 +620,7 @@ describe("ChatWindow — Slash Commands", () => {
           updated_at: 1,
         },
       ],
+      catalogModels: [{ id: 'gpt-4.1', name: 'GPT-4.1', vendor: 'OpenAI', capabilities: [] }],
     });
     setupStoreMock(useAppStore, mockStore);
     render(<ChatWindow />);
@@ -808,7 +809,7 @@ describe("ChatWindow — Model Dropdown (O.2)", () => {
     render(<ChatWindow />);
     await waitFor(() => {
       const btn = screen.getByRole("button", { name: /conversation model/i });
-      expect(btn).toHaveTextContent("Default");
+      expect(btn).toHaveTextContent("GPT-4o (default)");
     });
   });
 

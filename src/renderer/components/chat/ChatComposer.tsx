@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, type ChangeEvent, type ClipboardEvent, type KeyboardEvent, type PointerEvent, type RefObject } from 'react'
 import { Camera, ChevronDown, ClipboardPaste, Eye, Paperclip, SendHorizontal, Square, X } from 'lucide-react'
-import { MODEL_OPTIONS, getModelLabel, getModelMultiplier } from '../../../shared/models'
+import { getAvailableModelIds, getModelLabel, getModelMultiplier } from '../../../shared/models'
 import { ContextInspector } from '../ContextInspector'
 import { AttachmentBar } from './AttachmentBar'
 import { AtContextMenu } from './AtContextMenu'
@@ -8,6 +8,7 @@ import { SlashCommandMenu } from './SlashCommandMenu'
 import type { AgentConfig } from '../../../shared/types'
 import type { AtContextOption, Attachment, ChatMessage, ContextRef, PastedImage } from '../../hooks/chat-types'
 import type { SlashCommandDef } from '../../slash-commands'
+import { useAppStore } from '../../store/app-store'
 
 interface ChatComposerProps {
   input: string
@@ -20,6 +21,8 @@ interface ChatComposerProps {
   rateLimitRemainingSec: number
   conversationId: string | null
   effectiveModel: string
+  modelSourceLabel?: string
+  agentNeedsTools?: boolean
   pendingAttachments: Attachment[]
   pendingImages: PastedImage[]
   showContextInspector: boolean
@@ -69,6 +72,8 @@ export function ChatComposer({
   rateLimitRemainingSec,
   conversationId,
   effectiveModel,
+  modelSourceLabel,
+  agentNeedsTools,
   pendingAttachments,
   pendingImages,
   showContextInspector,
@@ -109,6 +114,9 @@ export function ChatComposer({
   const [showModelMenu, setShowModelMenu] = useState(false)
   const [modelMenuAbove, setModelMenuAbove] = useState(false)
   const modelMenuRef = useRef<HTMLDivElement | null>(null)
+  const catalogModels = useAppStore((state) => state.catalogModels)
+  const globalDefaultModel = useAppStore((state) => state.globalDefaultModel)
+  const modelIds = getAvailableModelIds(catalogModels, effectiveModel, agentNeedsTools)
 
   useEffect(() => {
     if (!showModelMenu) return
@@ -276,7 +284,8 @@ export function ChatComposer({
                   ref={modelPickerRef}
                   type="button"
                   aria-label="Conversation model"
-                  className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 px-1.5 py-1 rounded-md transition-colors max-w-[160px]"
+                  title={modelSourceLabel ? `${getModelLabel(effectiveModel, catalogModels)} · via ${modelSourceLabel}` : undefined}
+                  className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 px-1.5 py-1 rounded-md transition-colors max-w-[220px]"
                   onClick={() => {
                     if (!showModelMenu && modelPickerRef.current) {
                       const rect = modelPickerRef.current.getBoundingClientRect()
@@ -286,12 +295,21 @@ export function ChatComposer({
                     setShowModelMenu((prev) => !prev)
                   }}
                 >
-                  <span className="truncate">{getModelLabel(effectiveModel)}</span>
+                  <span className="truncate">{getModelLabel(effectiveModel, catalogModels)}</span>
+                  {modelSourceLabel && (
+                    <span className="shrink-0 text-gray-400 dark:text-gray-500 opacity-80">· {modelSourceLabel}</span>
+                  )}
                   <ChevronDown className="w-3 h-3 shrink-0 opacity-60" />
                 </button>
                 {showModelMenu && (
                   <div className={`absolute right-0 z-30 w-56 max-h-64 overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg p-1 ${modelMenuAbove ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
-                    {MODEL_OPTIONS.map((model) => (
+                    {agentNeedsTools && (
+                      <div className="px-2 py-1.5 mb-0.5 text-[10px] text-amber-600 dark:text-amber-400 border-b border-gray-100 dark:border-gray-700 flex items-center gap-1">
+                        <span>⚙</span>
+                        <span>Showing models that support tool calling</span>
+                      </div>
+                    )}
+                    {modelIds.map((model) => (
                       <button
                         key={model}
                         type="button"
@@ -309,9 +327,15 @@ export function ChatComposer({
                           }
                         }}
                       >
-                        <span>{getModelLabel(model)}</span>
-                        {getModelMultiplier(model) && (
-                          <span className="text-gray-400 dark:text-gray-500 shrink-0">{getModelMultiplier(model)}</span>
+                        <span>
+                          {model === 'default'
+                            ? globalDefaultModel && globalDefaultModel !== 'default'
+                              ? `Global default (${getModelLabel(globalDefaultModel, catalogModels)})`
+                              : 'Global default'
+                            : getModelLabel(model, catalogModels)}
+                        </span>
+                        {getModelMultiplier(model, catalogModels) && (
+                          <span className="text-gray-400 dark:text-gray-500 shrink-0">{getModelMultiplier(model, catalogModels)}</span>
                         )}
                       </button>
                     ))}

@@ -1,6 +1,6 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
-import { MODEL_OPTIONS, getModelLabel } from '../shared/models'
-import type { AgentConfig } from '../shared/types'
+import { getAvailableModelIds, getModelLabel } from '../shared/models'
+import type { AgentConfig, CatalogModel } from '../shared/types'
 
 interface Attachment {
   id: string
@@ -134,6 +134,7 @@ export interface SlashCommandContext {
   activeAgent: AgentConfig | null
   effectiveModelLabel: string
   conversationModel: string | null
+  catalogModels?: CatalogModel[]
   theme: 'light' | 'dark'
   pushSystemMessage: (text: string) => void
   newChat: (opts?: { projectId?: string | null; agentId?: string | null }) => void
@@ -278,7 +279,8 @@ export async function executeSlashCommand(
         ctx.pushSystemMessage(`Current model: ${ctx.effectiveModelLabel}`)
         return true
       }
-      if (!(MODEL_OPTIONS as readonly string[]).includes(argText)) {
+      const modelIds = getAvailableModelIds(ctx.catalogModels, ctx.conversationModel)
+      if (!modelIds.includes(argText)) {
         ctx.pushSystemMessage(`Unknown model: ${argText}. Use /models to list available models.`)
         return true
       }
@@ -293,15 +295,16 @@ export async function executeSlashCommand(
         return true
       }
       await ctx.loadConversations()
-      ctx.pushSystemMessage(`Model set to ${getModelLabel(argText)}.`)
+      ctx.pushSystemMessage(`Model set to ${getModelLabel(argText, ctx.catalogModels)}.`)
       return true
     }
     case '/models': {
       const current = ctx.conversationModel ?? 'default'
+      const modelIds = getAvailableModelIds(ctx.catalogModels, ctx.conversationModel)
       const text = ['Available models:']
-      for (const model of MODEL_OPTIONS) {
+      for (const model of modelIds) {
         const mark = model === current ? '*' : '-'
-        text.push(`${mark} ${getModelLabel(model)}`)
+        text.push(`${mark} ${getModelLabel(model, ctx.catalogModels)}`)
       }
       ctx.pushSystemMessage(text.join('\n'))
       return true
@@ -328,7 +331,7 @@ export async function executeSlashCommand(
     case '/config': {
       const configLines = [
         'Current config:',
-        `- Conversation model: ${getModelLabel(ctx.conversationModel ?? 'default')}`,
+        `- Conversation model: ${getModelLabel(ctx.conversationModel ?? 'default', ctx.catalogModels)}`,
         `- Effective model: ${ctx.effectiveModelLabel}`,
         `- Theme: ${ctx.theme}`,
         `- Active agent: ${ctx.activeAgent ? ctx.activeAgent.name : 'none'}`

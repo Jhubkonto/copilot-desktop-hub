@@ -3,7 +3,8 @@ import { Copy, RotateCcw, Pencil, AlertTriangle, RefreshCw, LogIn, StopCircle, C
 import { MarkdownRenderer } from './MarkdownRenderer'
 import type { ContextSnapshot } from '../hooks/chat-types'
 import { ContextSnapshotBadge } from './ContextInspector'
-import { MODEL_OPTIONS, getModelLabel, getModelMultiplier } from '../../shared/models'
+import { useAppStore } from '../store/app-store'
+import { getAvailableModelIds, getModelLabel, getModelMultiplier } from '../../shared/models'
 
 // Strip injected context blocks (e.g. [Project File Structure]...[/Project File Structure])
 // from user-facing message content — these are internal and shouldn't be shown in the bubble.
@@ -79,6 +80,8 @@ export function MessageBubbleBase({
   const regenBtnRef = useRef<HTMLButtonElement | null>(null)
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const catalogModels = useAppStore((state) => state.catalogModels)
+  const modelIds = getAvailableModelIds(catalogModels)
 
   useEffect(() => {
     return () => {
@@ -257,7 +260,7 @@ export function MessageBubbleBase({
                     </button>
                     {showRegenMenu && (
                       <div className={`absolute left-0 z-20 w-56 max-h-64 overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg p-1 ${regenMenuAbove ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
-                        {MODEL_OPTIONS.filter((model) => model !== 'default').map((model) => (
+                        {modelIds.filter((model) => model !== 'default').map((model) => (
                           <button
                             key={model}
                             type="button"
@@ -267,9 +270,9 @@ export function MessageBubbleBase({
                               onRegenerateWithModel(model)
                             }}
                           >
-                            <span>{getModelLabel(model)}</span>
-                            {getModelMultiplier(model) && (
-                              <span className="text-gray-400 dark:text-gray-500 shrink-0">{getModelMultiplier(model)}</span>
+                            <span>{getModelLabel(model, catalogModels)}</span>
+                            {getModelMultiplier(model, catalogModels) && (
+                              <span className="text-gray-400 dark:text-gray-500 shrink-0">{getModelMultiplier(model, catalogModels)}</span>
                             )}
                           </button>
                         ))}

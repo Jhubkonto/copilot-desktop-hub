@@ -1,6 +1,7 @@
 import { AlertCircle, Loader2, Wrench } from 'lucide-react'
 import { memo, type RefObject } from 'react'
 import { getModelLabel } from '../../../shared/models'
+import { useAppStore } from '../../store/app-store'
 import { MarkdownRenderer } from '../MarkdownRenderer'
 import { MessageBubble } from '../MessageBubble'
 import { TeamActivityBlock } from '../TeamActivityBlock'
@@ -52,6 +53,7 @@ export function ChatMessagesBase({
   onPickModel,
   onUseImageAsContext,
 }: ChatMessagesProps) {
+  const catalogModels = useAppStore((state) => state.catalogModels)
   const lastAssistantIndex = (() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       if (messages[index].role === 'assistant') return index
@@ -125,7 +127,7 @@ export function ChatMessagesBase({
               isEdited={message.isEdited}
               modelLabel={
                 message.role === 'assistant'
-                  ? getModelLabel(message.model ?? effectiveModel)
+                  ? getModelLabel(message.model ?? effectiveModel, catalogModels)
                   : undefined
               }
               attachments={message.attachments}
