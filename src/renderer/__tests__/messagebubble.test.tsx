@@ -72,14 +72,16 @@ describe('MessageBubble', () => {
     expect(onCopy).toHaveBeenCalledWith('Hello there')
   })
 
-  it('shows copied confirmation after copy click', () => {
+  it('shows green highlight on copy button after click', () => {
     render(<MessageBubble {...baseProps} onCopy={vi.fn()} />)
 
     const container = screen.getByText('Hello there').closest('.group')!
     fireEvent.mouseEnter(container)
     fireEvent.click(screen.getByText('Copy'))
 
-    expect(screen.getByText('Copied')).toBeInTheDocument()
+    // Label stays "Copy"; button gets green highlight classes
+    expect(screen.getByText('Copy')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Copy' })).toHaveClass('bg-green-100')
   })
 
   it('shows regenerate action for last assistant message', () => {

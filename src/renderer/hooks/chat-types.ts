@@ -89,6 +89,7 @@ export interface TeamActivityStep {
   task: string
   status: 'delegating' | 'done' | 'error'
   result?: string
+  liveContent?: string
   durationMs?: number
 }
 

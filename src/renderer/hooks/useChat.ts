@@ -256,15 +256,27 @@ export function useChat({
         const existing = prev.findIndex((entry) => entry.stepId === step.stepId)
         if (existing >= 0) {
           const next = [...prev]
-          next[existing] = step
+          // Preserve accumulated liveContent when the step transitions to done/error
+          next[existing] = { ...step, liveContent: prev[existing].liveContent }
           return next
         }
         return [...prev, step]
       })
     })
 
+    const unsubscribeStream = window.api.onTeamStepStream(({ stepId, chunk }) => {
+      setLiveTeamActivity((prev) => {
+        const idx = prev.findIndex((entry) => entry.stepId === stepId)
+        if (idx < 0) return prev
+        const next = [...prev]
+        next[idx] = { ...next[idx], liveContent: (next[idx].liveContent ?? '') + chunk }
+        return next
+      })
+    })
+
     return () => {
       unsubscribe()
+      unsubscribeStream()
     }
   }, [])
 

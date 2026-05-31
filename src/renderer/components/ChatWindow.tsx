@@ -36,6 +36,7 @@ export function ChatWindow() {
     type?: ToastType,
   ) => void
   const markConversationUnread = useAppStore((state) => state.markConversationUnread)
+  const projectAgents = useAppStore((state) => state.projectAgents)
   const catalogModels = useAppStore((state) => state.catalogModels)
   const markConversationRead = useAppStore((state) => state.markConversationRead)
   const defaultModelSetting = useAppStore((state) => state.globalDefaultModel)
@@ -522,11 +523,18 @@ export function ChatWindow() {
       setOpenContextPicker(null)
       if (isNewChat) {
         setActiveProjectId(projectId)
+        if (projectId) {
+          const agents = projectAgents[projectId] ?? []
+          const primary = agents.find((a) => a.isPrimary) ?? agents[0] ?? null
+          setActiveAgentId(primary?.agentId ?? null)
+        } else {
+          setActiveAgentId(null)
+        }
         return
       }
       await updateConversationContext({ projectId })
     },
-    [isNewChat, setActiveProjectId, updateConversationContext],
+    [isNewChat, setActiveProjectId, setActiveAgentId, projectAgents, updateConversationContext],
   )
 
   const handleAgentContextChange = useCallback(

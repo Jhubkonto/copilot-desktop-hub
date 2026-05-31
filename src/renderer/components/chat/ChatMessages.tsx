@@ -140,6 +140,7 @@ export function ChatMessagesBase({
               retryable={message.retryable}
               isStopped={message.isStopped}
               messageIndex={index}
+              timestamp={message.timestamp}
               onCopy={onCopy}
               onRegenerate={index === lastAssistantIndex ? onRegenerate : undefined}
               onRegenerateWithModel={index === lastAssistantIndex ? onRegenerateWithModel : undefined}

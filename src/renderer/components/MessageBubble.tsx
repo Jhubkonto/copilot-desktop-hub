@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { Copy, RotateCcw, Pencil, AlertTriangle, RefreshCw, LogIn, StopCircle, ChevronDown } from 'lucide-react'
+import { Copy, RotateCcw, Pencil, AlertTriangle, RefreshCw, LogIn, StopCircle, ChevronDown, CheckCircle } from 'lucide-react'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import type { ContextSnapshot } from '../hooks/chat-types'
 import { ContextSnapshotBadge } from './ContextInspector'
@@ -45,6 +45,7 @@ interface MessageBubbleProps {
   onRegenerate?: () => void
   onRegenerateWithModel?: (model: string) => void
   onEdit?: (index: number) => void
+  timestamp?: number
   onRetry?: () => void
   onSignIn?: () => void
   onPickModel?: () => void
@@ -65,6 +66,7 @@ export function MessageBubbleBase({
   retryable,
   isStopped,
   messageIndex = 0,
+  timestamp,
   onCopy,
   onRegenerate,
   onRegenerateWithModel,
@@ -199,11 +201,18 @@ export function MessageBubbleBase({
                   Generation stopped
                 </div>
               )}
-              {modelLabel && (
-                <div className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">
-                  Model: {modelLabel}
-                </div>
-              )}
+              <div className="flex items-center justify-between gap-2 mt-2">
+                {modelLabel ? (
+                  <span className="text-[11px] text-gray-400 dark:text-gray-500">Model: {modelLabel}</span>
+                ) : (
+                  <span />
+                )}
+                {timestamp != null && (
+                  <span className="text-[10px] text-gray-400 dark:text-gray-500 shrink-0">
+                    {new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                )}
+              </div>
             </>
           ) : !isError ? (
             <>
@@ -211,14 +220,23 @@ export function MessageBubbleBase({
               {role === 'user' && isEdited && (
                 <div className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">edited</div>
               )}
-              {role === 'user' && contextSnapshot && (() => {
-                try {
-                  const snap: ContextSnapshot = JSON.parse(contextSnapshot)
-                  return <ContextSnapshotBadge snapshot={snap} />
-                } catch {
-                  return null
-                }
-              })()}
+              <div className="flex items-end justify-between gap-2 mt-2">
+                <span className="min-w-0">
+                  {role === 'user' && contextSnapshot && (() => {
+                    try {
+                      const snap: ContextSnapshot = JSON.parse(contextSnapshot)
+                      return <ContextSnapshotBadge snapshot={snap} />
+                    } catch {
+                      return null
+                    }
+                  })()}
+                </span>
+                {timestamp != null && (
+                  <span className="text-[10px] text-gray-400 dark:text-gray-500 shrink-0">
+                    {new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                )}
+              </div>
             </>
           ) : null}
         </div>
@@ -228,18 +246,19 @@ export function MessageBubbleBase({
             className={`absolute -bottom-7 ${role === 'user' ? 'right-0' : 'left-0'} flex gap-1 z-20 transition-opacity duration-200 ${showActions ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
           >
             <ActionButton
-              icon={Copy}
-              label={copied ? 'Copied' : 'Copy'}
+              icon={copied ? CheckCircle : Copy}
+              label="Copy"
               onClick={() => {
                 onCopy(content)
                 setCopied(true)
                 if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
                 copiedTimerRef.current = setTimeout(() => setCopied(false), 1200)
               }}
+              highlight={copied}
             />
             {role === 'assistant' && isLastAssistant && onRegenerate && (
               <div className="relative flex items-center gap-1">
-                <ActionButton icon={RotateCcw} label="Regenerate" onClick={onRegenerate} />
+                <ActionButton icon={RotateCcw} label="Regenerate" onClick={() => onRegenerate()} />
                 {onRegenerateWithModel && (
                   <>
                     <button
@@ -297,16 +316,22 @@ export const MessageBubble = memo(MessageBubbleBase)
 function ActionButton({
   icon: Icon,
   label,
-  onClick
+  onClick,
+  highlight = false,
 }: {
   icon: React.ComponentType<{ className?: string }>
   label: string
   onClick: () => void
+  highlight?: boolean
 }) {
   return (
     <button
       onClick={onClick}
-      className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-200 transition-colors whitespace-nowrap shadow-sm"
+      className={`flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors whitespace-nowrap shadow-sm ${
+        highlight
+          ? 'bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400'
+          : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-200'
+      }`}
       title={label}
       aria-label={label}
     >
