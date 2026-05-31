@@ -283,6 +283,12 @@ const api = {
     typedOn('chat:team-activity', handler)
     return () => typedOff('chat:team-activity', handler)
   },
+  onTeamStepStream: (callback: (event: { stepId: string; chunk: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: Parameters<typeof callback>[0]) =>
+      callback(payload)
+    typedOn('chat:team-step-stream', handler)
+    return () => typedOff('chat:team-step-stream', handler)
+  },
 
   // Window controls
   minimizeWindow: () => typedInvoke('window:minimize'),

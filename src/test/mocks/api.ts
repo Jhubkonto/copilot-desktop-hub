@@ -152,6 +152,7 @@ export function createMockApi() {
     updateProjectConfig: vi.fn().mockResolvedValue(true),
     getProjectConfig: vi.fn().mockResolvedValue({}),
     onTeamActivity: vi.fn().mockReturnValue(() => {}),
+    onTeamStepStream: vi.fn().mockReturnValue(() => {}),
 
     // Window controls
     minimizeWindow: vi.fn().mockResolvedValue(undefined),

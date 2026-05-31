@@ -264,7 +264,8 @@ describe('orchestrator — runOrchestration', () => {
         expect.any(Array),
         expect.any(Array),
         'gpt-4o',
-        expect.any(Object)
+        expect.any(Object),
+        expect.any(String)
       )
     })
 
@@ -277,7 +278,8 @@ describe('orchestrator — runOrchestration', () => {
         expect.any(Array),
         expect.any(Array),
         'claude-3-5-sonnet',
-        expect.any(Object)
+        expect.any(Object),
+        expect.any(String)
       )
     })
   })

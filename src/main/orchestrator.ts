@@ -82,11 +82,11 @@ function buildTeamManifest(teamAgents: OrchestratorAgent[], projectName: string)
     `You are the lead agent for this project. You have access to the following specialists via the delegate_to_agent tool:\n` +
     lines.join('\n') +
     `\n\nGuidelines:\n` +
-    `- Delegate sub-tasks to the most appropriate specialist.\n` +
-    `- Only delegate when a specialist would clearly do better — answer directly when you can.\n` +
-    `- After receiving a specialist result, integrate it into your final answer.\n` +
-    `- Produce one final answer to the user once all needed results are gathered.\n` +
-    `- Do NOT delegate the same task twice.`
+    `- Use delegate_to_agent to assign sub-tasks to the most appropriate specialist.\n` +
+    `- You MUST call delegate_to_agent rather than describing what you would do — never narrate a delegation without calling the tool.\n` +
+    `- After receiving all specialist results, synthesize them into one final answer for the user.\n` +
+    `- Do NOT delegate the same task twice.\n` +
+    `- If the task is trivial and no specialist adds value, you may answer directly without delegating.`
   )
 }
 
@@ -135,11 +135,15 @@ export async function runOrchestration(
   const memberIds = new Set(teamAgents.filter((a) => !a.isPrimary).map((a) => a.agentId))
 
   for (let depth = 0; depth < maxDelegationDepth; depth++) {
+    // On the first pass, require the model to call the tool if specialists exist.
+    // Subsequent passes use 'auto' so the model can finalise without forcing another delegation.
+    const toolChoice = (depth === 0 && memberIds.size > 0) ? 'required' : 'auto'
     const result = await sendCopilotNonStreaming(
       loopMessages,
       memberIds.size > 0 ? [DELEGATE_TOOL] : undefined,
       copilotModel,
-      generationOptions
+      generationOptions,
+      toolChoice
     )
 
     // No tool calls — leader produced final answer
@@ -210,7 +214,9 @@ export async function runOrchestration(
       specialistResult = await sendCopilotChatMessage(
         window,
         specialistMessages,
-        () => { /* sub-agent responses are not streamed to the user */ },
+        (chunk: string) => {
+          window.webContents.send('chat:team-step-stream', { stepId, chunk })
+        },
         copilotModel,
         generationOptions,
         opts.conversationId
