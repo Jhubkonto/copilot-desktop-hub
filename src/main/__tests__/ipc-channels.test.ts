@@ -39,6 +39,7 @@ const ALL_CHANNELS = [
   'chat:stream-error',
   'chat:stream-response',
   'chat:team-activity',
+  'chat:team-step-stream',
   'clipboard:auto-focus',
   'cli:check',
   'cli:status',
