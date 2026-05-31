@@ -36,7 +36,8 @@ export interface AgentConfig {
   name: string
   icon: string
   systemPrompt: string
-  model: string
+  /** @deprecated Agents no longer own a model. The model is a user/global concern. */
+  model?: string
   temperature: number
   maxTokens: number
   contextDirectories: string[]
@@ -340,6 +341,16 @@ export interface ProviderTestResult {
   error?: string
 }
 
+export interface CatalogModel {
+  id: string
+  name: string
+  vendor: string
+  capabilities: string[]
+  contextWindow?: number
+  /** Premium request multiplier returned by the /models API (e.g. 0, 0.33, 1, 3). */
+  multiplier?: number
+}
+
 // ---------------------------------------------------------------------------
 // IPC return-type map — every invoke channel mapped to its concrete return type
 // ---------------------------------------------------------------------------
@@ -430,6 +441,9 @@ export type IpcReturnMap = {
   'mcp:remove-server': boolean
   'mcp:restart-server': boolean
   'mcp:update-server': McpServerConfig | null
+  // Model
+  'model:list-catalog': CatalogModel[]
+  'model:catalog-updated': { models: CatalogModel[]; changeSummary?: string }
   // Message
   'message:delete': void
   'message:delete-after': void
@@ -573,6 +587,8 @@ export type IpcChannels =
   | 'mcp:remove-server'
   | 'mcp:restart-server'
   | 'mcp:update-server'
+  | 'model:list-catalog'
+  | 'model:catalog-updated'
   | 'message:delete'
   | 'message:delete-after'
   | 'project:add-agent'

@@ -5,6 +5,7 @@ import { registerIpcHandlers } from './ipc-handlers'
 import { registerAuthHandlers } from './auth'
 import { initMcpServers, shutdownMcpServers } from './mcp'
 import { initAutoUpdater, registerUpdaterHandlers, checkForUpdatesOnStartup } from './updater'
+import { loadModelCatalog } from './model-catalog'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -71,6 +72,9 @@ function createWindow(): void {
       }
     }
     mainWindow?.show()
+    if (mainWindow) {
+      void loadModelCatalog(mainWindow).catch(() => {})
+    }
   })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {

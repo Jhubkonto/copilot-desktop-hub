@@ -48,6 +48,8 @@ export default function App() {
   const setUpdateDownloaded = useAppStore((s) => s.setUpdateDownloaded)
   const dismissToast = useAppStore((s) => s.dismissToast)
   const setShowOnboarding = useAppStore((s) => s.setShowOnboarding)
+  const addToast = useAppStore((s) => s.addToast)
+  const setCatalogModels = useAppStore((s) => s.setCatalogModels)
 
   const hydrate = useAppStore((s) => s.hydrate)
 
@@ -95,6 +97,16 @@ export default function App() {
     })
     return () => { unsub1(); unsub2() }
   }, [setUpdateAvailable, setUpdateDownloaded])
+
+  useEffect(() => {
+    const unsubscribe = window.api.onCatalogUpdated((data) => {
+      setCatalogModels(data.models)
+      if (data.changeSummary) {
+        addToast(data.changeSummary, 'info')
+      }
+    })
+    return () => { unsubscribe() }
+  }, [setCatalogModels, addToast])
 
   // Zoom: Ctrl+scroll and Ctrl+Plus/Minus/0
   useEffect(() => {

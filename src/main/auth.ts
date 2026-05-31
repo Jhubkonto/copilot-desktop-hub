@@ -2,6 +2,7 @@ import { safeStorage, BrowserWindow } from 'electron'
 import { getDatabase } from './database'
 import { httpsGet, httpsPost } from './http-client'
 import { safeHandle } from './safe-handle'
+import { loadModelCatalog } from './model-catalog'
 
 const GITHUB_CLIENT_ID = 'Iv1.b507a08c87ecfe98'
 const GITHUB_DEVICE_CODE_URL = 'https://github.com/login/device/code'
@@ -192,6 +193,9 @@ export function registerAuthHandlers(): void {
                 const user = await fetchGitHubUser(tokenData.access_token)
                 console.log('[auth] Login complete, user:', user?.login)
                 resolve({ success: true, user: user ?? undefined })
+                if (window) {
+                  void loadModelCatalog(window).catch(() => {})
+                }
                 return
               }
 

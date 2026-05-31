@@ -27,6 +27,8 @@ export function createMockAppStore(overrides: Record<string, unknown> = {}) {
     // UI
     theme: 'dark' as const,
     showSidebar: true,
+    catalogModels: [],
+    globalDefaultModel: 'default',
     showTerminal: false,
     showMcpPanel: false,
     showSettings: false,
@@ -86,6 +88,8 @@ export function createMockAppStore(overrides: Record<string, unknown> = {}) {
     setSectionPane: vi.fn(),
     addToast: vi.fn(),
     dismissToast: vi.fn(),
+    setCatalogModels: vi.fn(),
+    setGlobalDefaultModel: vi.fn(),
     addToolApprovalRequest: vi.fn(),
     respondToToolApproval: vi.fn(),
     markConversationUnread: vi.fn(),

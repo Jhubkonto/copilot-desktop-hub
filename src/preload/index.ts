@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { IpcChannels, IpcReturn } from '../shared/types'
+import type { CatalogModel, IpcChannels, IpcReturn } from '../shared/types'
 
 // ---------------------------------------------------------------------------
 // Typed IPC helpers — channels constrained to IpcChannels union
@@ -164,6 +164,19 @@ const api = {
   addRecentDir: (path: string) => typedInvoke('file:add-recent-dir', path),
   listDirectory: (path: string, depth?: number) =>
     typedInvoke('fs:list-directory', path, depth),
+
+  // Models
+  listModelCatalog: () => typedInvoke('model:list-catalog'),
+  onCatalogUpdated: (
+    callback: (data: { models: CatalogModel[]; changeSummary?: string }) => void
+  ) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      data: { models: CatalogModel[]; changeSummary?: string }
+    ) => callback(data)
+    typedOn('model:catalog-updated', handler)
+    return () => typedOff('model:catalog-updated', handler)
+  },
 
   // Tools
   listTools: () => typedInvoke('tool:list'),

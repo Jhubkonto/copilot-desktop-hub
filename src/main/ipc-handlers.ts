@@ -11,6 +11,7 @@ import { registerToolHandlers } from './tools'
 import { registerMcpHandlers } from './mcp'
 import { registerProviderHandlers } from './providers'
 import { registerScreenCaptureHandlers } from './screen-capture-handlers'
+import { registerModelCatalogHandlers } from './model-catalog-handlers'
 import { cacheExternalWindowLabel, consumeSuppressFocusEvent } from './screen-capture'
 
 export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
@@ -28,6 +29,7 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerMcpHandlers()
   registerProviderHandlers()
   registerScreenCaptureHandlers()
+  registerModelCatalogHandlers()
   registerSystemHandlers()
 
   if (mainWindow) {

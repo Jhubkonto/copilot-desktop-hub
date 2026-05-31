@@ -7,6 +7,10 @@ const { mockCacheExternalWindowLabel, mockConsumeSuppressFocusEvent } = vi.hoist
 
 vi.mock('electron', () => ({
   BrowserWindow: vi.fn(),
+  ipcMain: {
+    handle: vi.fn(),
+    removeHandler: vi.fn(),
+  },
 }))
 
 vi.mock('../project-handlers', () => ({

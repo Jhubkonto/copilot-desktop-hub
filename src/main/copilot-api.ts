@@ -4,6 +4,7 @@ import { retrieveToken } from './auth'
 import { BrowserWindow } from 'electron'
 import { parseSseStream, httpsRequestWithResponse } from './http-client'
 import type { ProviderMessage } from './providers'
+import type { CatalogModel } from '../shared/types'
 
 interface CopilotToken {
   token: string
@@ -428,5 +429,75 @@ export async function sendCopilotNonStreaming(
     content: typeof message?.content === 'string' ? message.content : null,
     toolCalls,
     model: typeof parsed.model === 'string' ? parsed.model : undefined
+  }
+}
+
+export async function fetchModelCatalog(): Promise<CatalogModel[] | null> {
+  try {
+    const token = await getCopilotToken()
+    const { status, data } = await httpGetJson(
+      'https://api.githubcopilot.com/models',
+      {
+        Authorization: `Bearer ${token}`,
+        'editor-version': 'vscode/1.95.0',
+        'editor-plugin-version': 'copilot/1.200.0',
+        'User-Agent': 'GithubCopilot/1.200.0',
+        Accept: 'application/json'
+      }
+    )
+    if (status !== 200) return null
+    const parsed = JSON.parse(data) as { data?: unknown[] }
+    if (!Array.isArray(parsed.data)) return null
+
+    const mapped = parsed.data
+      .filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null)
+      .filter((entry) => {
+        // Skip deprecated models (GPT 3.5 Turbo, legacy GPT 4, etc.)
+        if (entry.deprecated === true) return false
+        const policy = (entry.policy as Record<string, unknown>) ?? {}
+        if (policy.state === 'deprecated') return false
+
+        // Skip non-chat model types (embeddings, trajectory utilities, etc.)
+        const caps = (entry.capabilities as Record<string, unknown>) ?? {}
+        const modelType = String(caps.type ?? '').toLowerCase()
+        if (modelType && modelType !== 'chat') return false
+
+        return true
+      })
+      .map((entry) => {
+        const caps = (entry.capabilities as Record<string, unknown>) ?? {}
+        const supports = (caps.supports as Record<string, boolean>) ?? {}
+        const limits = (caps.limits as Record<string, number>) ?? {}
+        const billing = (entry.billing as Record<string, unknown>) ?? {}
+        return {
+          id: String(entry.id ?? ''),
+          name: String(entry.name ?? entry.id ?? ''),
+          vendor: String(entry.vendor ?? ''),
+          capabilities: Object.entries(supports)
+            .filter(([, value]) => value === true)
+            .map(([key]) => key),
+          contextWindow: typeof limits.max_context_window_tokens === 'number'
+            ? limits.max_context_window_tokens
+            : undefined,
+          multiplier: typeof billing.multiplier === 'number' && Number.isFinite(billing.multiplier)
+            ? billing.multiplier
+            : undefined
+        } satisfies CatalogModel
+      })
+      .filter((model) => model.id.length > 0)
+
+    // The API returns versioned variants of the same model (e.g. gpt-4o,
+    // gpt-4o-2024-05-13, gpt-4o-2024-08-06). Collapse by display name,
+    // keeping the entry with the shortest ID (the canonical base model).
+    const byName = new Map<string, CatalogModel>()
+    for (const model of mapped) {
+      const existing = byName.get(model.name)
+      if (!existing || model.id.length < existing.id.length) {
+        byName.set(model.name, model)
+      }
+    }
+    return [...byName.values()]
+  } catch {
+    return null
   }
 }

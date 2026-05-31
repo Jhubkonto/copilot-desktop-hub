@@ -84,6 +84,10 @@ export function createMockApi() {
     getRecentDirs: vi.fn().mockResolvedValue([]),
     addRecentDir: vi.fn().mockResolvedValue([]),
 
+    // Models
+    listModelCatalog: vi.fn().mockResolvedValue([]),
+    onCatalogUpdated: vi.fn().mockReturnValue(() => {}),
+
     // Tools
     listTools: vi.fn().mockResolvedValue([]),
     executeTool: vi.fn().mockResolvedValue(null),

@@ -6,6 +6,7 @@ import type {
   Toast,
   ToolApprovalRequest
 } from '../types'
+import type { CatalogModel } from '../../../shared/types'
 
 export interface UiSlice {
   theme: Theme
@@ -19,6 +20,8 @@ export interface UiSlice {
   toasts: Toast[]
   toolApprovalRequests: ToolApprovalRequest[]
   unreadConversationIds: string[]
+  catalogModels: CatalogModel[]
+  globalDefaultModel: string
   setTheme: (theme: Theme) => void
   toggleTheme: () => void
   toggleSidebar: () => void
@@ -31,6 +34,8 @@ export interface UiSlice {
   setSectionPane: (section: ActiveSectionPane) => void
   addToast: (message: string, type?: Toast['type']) => void
   dismissToast: (id: string) => void
+  setCatalogModels: (models: CatalogModel[]) => void
+  setGlobalDefaultModel: (model: string) => void
   addToolApprovalRequest: (request: ToolApprovalRequest) => void
   respondToToolApproval: (
     requestId: string,
@@ -58,6 +63,8 @@ export const createUiSlice: StateCreator<
   toasts: [],
   toolApprovalRequests: [],
   unreadConversationIds: [],
+  catalogModels: [],
+  globalDefaultModel: 'default',
 
   setTheme: (theme) => {
     set((s) => {
@@ -130,6 +137,18 @@ export const createUiSlice: StateCreator<
   dismissToast: (id) => {
     set((s) => {
       s.toasts = s.toasts.filter((t) => t.id !== id)
+    })
+  },
+
+  setCatalogModels: (models) => {
+    set((s) => {
+      s.catalogModels = models
+    })
+  },
+
+  setGlobalDefaultModel: (model) => {
+    set((s) => {
+      s.globalDefaultModel = model
     })
   },
 

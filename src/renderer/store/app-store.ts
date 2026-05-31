@@ -83,7 +83,25 @@ export const useAppStore = create<AppState>()(
       await Promise.all([
         get().loadConversations(),
         get().loadAgents(),
-        get().loadProjects()
+        get().loadProjects(),
+        window.api
+          .listModelCatalog()
+          .then((models) => {
+            if (models.length > 0) {
+              set((s) => {
+                s.catalogModels = models
+              })
+            }
+          })
+          .catch(() => {}),
+        window.api
+          .getSetting('default_model')
+          .then((val) => {
+            if (typeof val === 'string' && val) {
+              get().setGlobalDefaultModel(val)
+            }
+          })
+          .catch(() => {})
       ])
     }
   }))
