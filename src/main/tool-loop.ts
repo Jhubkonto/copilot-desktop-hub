@@ -3,7 +3,7 @@ import type { ToolDefinition, CopilotNonStreamResult } from './copilot-api'
 import type { ProviderMessage } from './providers'
 
 export const MCP_MAX_ITERATIONS = 20
-export const MCP_REQUIRED_ITERATIONS = 1
+export const MCP_REQUIRED_ITERATIONS = 0
 
 /**
  * Tool result content is truncated to this length before being added to the
@@ -42,12 +42,15 @@ export async function runProviderMcpToolLoop(
   agentId: string,
   webContents: Electron.WebContents,
   onChunk: (chunk: string) => void,
-  onModel?: (model: string) => void
+  onModel?: (model: string) => void,
+  agenticMode?: boolean
 ): Promise<string> {
   const toolNames = [...new Set(toolDefs.map((t) => t.function.name.split('__').pop()))].join(', ')
   const directive =
     `You have browser automation tools available: ${toolNames}. ` +
-    'IMPORTANT: When performing browser tasks, call the tools immediately and completely — ' +
+    'CRITICAL: Only use these tools when the user\'s request explicitly requires interacting with a web browser or web page. ' +
+    'For conversational questions, general knowledge, or anything that does not require a browser, respond directly WITHOUT calling any tools. ' +
+    'When a browser task IS required, call the tools immediately and completely — ' +
     'do NOT say you "will" do something, just do it. ' +
     'After any inspection step (e.g. browser_snapshot), take the next required action immediately — ' +
     'do NOT narrate your findings before acting. ' +
@@ -153,7 +156,8 @@ export async function runProviderMcpToolLoop(
           resolved.toolName,
           call.arguments as Record<string, unknown>,
           agentId,
-          webContents
+          webContents,
+          agenticMode
         )
         toolResultContent = toolResult.success
           ? (toolResult.result ?? '(no output)')

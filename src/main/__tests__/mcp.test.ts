@@ -84,7 +84,7 @@ vi.mock('../database', () => ({
 }))
 
 /* ── Import & Register ─────────────────────────────────────── */
-import { registerMcpHandlers, disconnectServer, shutdownMcpServers, servers } from '../mcp'
+import { registerMcpHandlers, disconnectServer, shutdownMcpServers, servers, callMcpTool } from '../mcp'
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import type { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
@@ -276,6 +276,46 @@ describe('MCP — Tool Approval', () => {
     expect(r.error).toContain('no UI is available')
     expect(mockRequestApproval).not.toHaveBeenCalled()
     expect(client.callTool).not.toHaveBeenCalled()
+  })
+
+  describe('Agentic Mode', () => {
+    it('auto-approves a tool with no explicit override when agenticMode=true', async () => {
+      const { id: serverId, client } = addTestServer()
+      // No override row exists — default always-ask — should be bypassed
+      client.callTool.mockResolvedValue({ content: [{ type: 'text', text: 'done' }], isError: false })
+
+      const r = await callMcpTool(serverId, 'testTool', {}, 'agent1', fakeSender as unknown as Electron.WebContents, true)
+      expect(mockRequestApproval).not.toHaveBeenCalled()
+      expect(r.success).toBe(true)
+    })
+
+    it('still prompts for an explicit always-ask override even when agenticMode=true', async () => {
+      const { id: serverId } = addTestServer()
+      mockOverrideRows.set(`agent1:${serverId}:testTool`, { enabled: 1, approval: 'always-ask' })
+      mockRequestApproval.mockResolvedValue(true)
+
+      await callMcpTool(serverId, 'testTool', {}, 'agent1', fakeSender as unknown as Electron.WebContents, true)
+      expect(mockRequestApproval).toHaveBeenCalled()
+    })
+
+    it('still blocks a disabled tool when agenticMode=true', async () => {
+      const { id: serverId } = addTestServer()
+      mockOverrideRows.set(`agent1:${serverId}:testTool`, { enabled: 1, approval: 'disabled' })
+
+      const r = await callMcpTool(serverId, 'testTool', {}, 'agent1', fakeSender as unknown as Electron.WebContents, true)
+      expect(r.success).toBe(false)
+      expect(r.error).toContain('disabled')
+      expect(mockRequestApproval).not.toHaveBeenCalled()
+    })
+
+    it('still blocks an enabled=0 tool when agenticMode=true', async () => {
+      const { id: serverId } = addTestServer()
+      mockOverrideRows.set(`agent1:${serverId}:testTool`, { enabled: 0, approval: 'auto' })
+
+      const r = await callMcpTool(serverId, 'testTool', {}, 'agent1', fakeSender as unknown as Electron.WebContents, true)
+      expect(r.success).toBe(false)
+      expect(mockRequestApproval).not.toHaveBeenCalled()
+    })
   })
 })
 
