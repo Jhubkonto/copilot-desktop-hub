@@ -3,6 +3,7 @@ import { FolderOpen, Plus, X, ChevronDown, GripVertical, Star } from 'lucide-rea
 import { useAppStore } from '../store/app-store'
 import type { AgentConfig } from '../../shared/types'
 import type { Milestone, ProjectConfig, ScopeRule } from '../store/types'
+import { DEFAULT_PROJECT_CONFIG } from '../store/types'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -166,6 +167,7 @@ export function ProjectSettingsPanel(props: Props) {
   const setProjectPrimaryAgent = useAppStore((s) => s.setProjectPrimaryAgent)
   const reorderProjectAgents = useAppStore((s) => s.reorderProjectAgents)
   const updateProjectOrchestration = useAppStore((s) => s.updateProjectOrchestration)
+  const loadProjectConfig = useAppStore((s) => s.loadProjectConfig)
   const addToast = useAppStore((s) => s.addToast)
 
   const projectId = isDraft ? null : (props as EditProps).projectId
@@ -211,6 +213,10 @@ export function ProjectSettingsPanel(props: Props) {
   useEffect(() => {
     if (!isDraft && projectId) loadProjectAgents(projectId)
   }, [projectId, isDraft, loadProjectAgents])
+
+  useEffect(() => {
+    if (!isDraft && projectId) void loadProjectConfig(projectId)
+  }, [projectId, isDraft, loadProjectConfig])
 
   useEffect(() => {
     if (!showModeDropdown) return
@@ -798,6 +804,48 @@ export function ProjectSettingsPanel(props: Props) {
               </button>
             </div>
 
+            {/* Orchestration toggle — shown inline when ≥2 agents */}
+            {(projectAgents[projectId] ?? []).length >= 2 && (() => {
+              const orchCfg = projectConfigs[projectId] ?? DEFAULT_PROJECT_CONFIG
+              return (
+                <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 px-3 py-2 space-y-2">
+                  <label className="flex items-center justify-between cursor-pointer">
+                    <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Multi-agent orchestration</span>
+                    <input
+                      type="checkbox"
+                      checked={orchCfg.orchestrationEnabled}
+                      onChange={(e) => updateProjectOrchestration(projectId, { orchestrationEnabled: e.target.checked })}
+                      className="w-3.5 h-3.5 rounded accent-blue-500"
+                    />
+                  </label>
+                  {orchCfg.orchestrationEnabled && (
+                    <div className="flex items-center gap-4 pl-0.5">
+                      <label className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-gray-500 dark:text-gray-400">Max depth</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={10}
+                          value={orchCfg.maxDelegationDepth}
+                          onChange={(e) => updateProjectOrchestration(projectId, { maxDelegationDepth: Number(e.target.value) })}
+                          className="w-10 text-[10px] px-1 py-0.5 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800"
+                        />
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={orchCfg.showTeamActivity}
+                          onChange={(e) => updateProjectOrchestration(projectId, { showTeamActivity: e.target.checked })}
+                          className="w-3 h-3 rounded accent-blue-500"
+                        />
+                        <span className="text-[10px] text-gray-500 dark:text-gray-400">Show activity</span>
+                      </label>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
+
             {/* Agent picker */}
             {showAgentPicker && (
               <div className="space-y-1">
@@ -898,11 +946,25 @@ export function ProjectSettingsPanel(props: Props) {
                       <span className={`flex-1 truncate ${member.isPrimary ? 'font-medium text-yellow-700 dark:text-yellow-400' : 'text-gray-700 dark:text-gray-300'}`}>
                         {member.agentName}
                       </span>
-                      {member.isPrimary && (
-                        <span className="text-[9px] bg-yellow-200 dark:bg-yellow-800 text-yellow-700 dark:text-yellow-300 px-1.5 py-0.5 rounded-full font-semibold shrink-0">
-                          primary
-                        </span>
-                      )}
+                      {(() => {
+                        const orchEnabled = (projectConfigs[projectId] ?? DEFAULT_PROJECT_CONFIG).orchestrationEnabled
+                        const teamSize = (projectAgents[projectId] ?? []).length
+                        if (member.isPrimary) {
+                          return (
+                            <span className="text-[9px] bg-yellow-200 dark:bg-yellow-800 text-yellow-700 dark:text-yellow-300 px-1.5 py-0.5 rounded-full font-semibold shrink-0">
+                              {orchEnabled && teamSize >= 2 ? 'leads' : 'primary'}
+                            </span>
+                          )
+                        }
+                        if (orchEnabled && teamSize >= 2) {
+                          return (
+                            <span className="text-[9px] bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300 px-1.5 py-0.5 rounded-full font-semibold shrink-0">
+                              specialist
+                            </span>
+                          )
+                        }
+                        return null
+                      })()}
                       <div className="invisible group-hover/member:visible flex items-center gap-0.5">
                         {!member.isPrimary && (
                           <button
@@ -930,50 +992,6 @@ export function ProjectSettingsPanel(props: Props) {
                 })}
               </div>
             )}
-
-            {/* Orchestration — only shown when ≥2 agents */}
-            {(projectAgents[projectId] ?? []).length >= 2 && (() => {
-              const orchCfg = projectConfigs[projectId]
-              if (!orchCfg) return null
-              return (
-                <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-2">
-                  <label className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Orchestration</label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={orchCfg.orchestrationEnabled}
-                      onChange={(e) => updateProjectOrchestration(projectId, { orchestrationEnabled: e.target.checked })}
-                      className="w-3 h-3 rounded"
-                    />
-                    <span className="text-xs text-gray-600 dark:text-gray-400">Enable multi-agent orchestration</span>
-                  </label>
-                  {orchCfg.orchestrationEnabled && (
-                    <>
-                      <label className="flex items-center gap-2">
-                        <span className="text-xs text-gray-500 dark:text-gray-500 w-20 shrink-0">Max depth</span>
-                        <input
-                          type="number"
-                          min={1}
-                          max={10}
-                          value={orchCfg.maxDelegationDepth}
-                          onChange={(e) => updateProjectOrchestration(projectId, { maxDelegationDepth: Number(e.target.value) })}
-                          className="w-12 text-xs px-1.5 py-0.5 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800"
-                        />
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={orchCfg.showTeamActivity}
-                          onChange={(e) => updateProjectOrchestration(projectId, { showTeamActivity: e.target.checked })}
-                          className="w-3 h-3 rounded"
-                        />
-                        <span className="text-xs text-gray-600 dark:text-gray-400">Show team activity</span>
-                      </label>
-                    </>
-                  )}
-                </div>
-              )
-            })()}
           </div>
         )}
       </div>
