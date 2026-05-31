@@ -229,7 +229,7 @@ describe('AgentPanel — Skills tab', () => {
     )
   })
 
-  it('ap-skills-5: MCP tool cards rendered for tools returned by listMcpTools', async () => {
+  it('ap-skills-5: trust tier dropdown shown for assigned server with tools', async () => {
     const agentWithServer = { ...SAMPLE_AGENT, mcpServers: ['github'] }
     mockApi.listMcpTools = vi.fn().mockResolvedValue([
       { name: 'search_code', serverId: 'github', serverName: 'GitHub', description: 'Search code' }
@@ -243,8 +243,62 @@ describe('AgentPanel — Skills tab', () => {
 
     await user.click(screen.getByText('Skills'))
 
+    const tierSelect = await screen.findByRole('combobox', { name: /Trust tier for GitHub/i })
+    expect(tierSelect).toBeInTheDocument()
+    // Default with no overrides → 'always-ask'
+    expect(tierSelect).toHaveValue('always-ask')
+    // Per-tool cards not shown by default
+    expect(screen.queryByText('🔌 search_code')).not.toBeInTheDocument()
+  })
+
+  it('ap-skills-10: selecting "Custom per-tool" reveals per-tool list', async () => {
+    const agentWithServer = { ...SAMPLE_AGENT, mcpServers: ['github'] }
+    mockApi.listMcpTools = vi.fn().mockResolvedValue([
+      { name: 'search_code', serverId: 'github', serverName: 'GitHub', description: 'Search code' }
+    ])
+    mockApi.listMcpServers = vi.fn().mockResolvedValue([
+      { id: 'github', name: 'GitHub', enabled: true, status: 'connected', toolCount: 1 }
+    ])
+    mockApi.getMcpToolOverrides = vi.fn().mockResolvedValue([])
+    setupEditMode(agentWithServer)
+    render(<AgentPanel width={440} onResize={() => {}} />)
+
+    await user.click(screen.getByText('Skills'))
+    const tierSelect = await screen.findByRole('combobox', { name: /Trust tier for GitHub/i })
+    await user.selectOptions(tierSelect, 'custom')
+
     expect(await screen.findByText('🔌 search_code')).toBeInTheDocument()
-    expect(screen.getByText('via GitHub')).toBeInTheDocument()
+    // setMcpToolOverride is NOT called when switching to custom
+    expect(mockApi.setMcpToolOverride).not.toHaveBeenCalled()
+  })
+
+  it('ap-skills-11: selecting "Run automatically" bulk-applies auto overrides', async () => {
+    const agentWithServer = { ...SAMPLE_AGENT, mcpServers: ['pw'] }
+    mockApi.listMcpTools = vi.fn().mockResolvedValue([
+      { name: 'click', serverId: 'pw', serverName: 'Playwright', description: '' },
+      { name: 'navigate', serverId: 'pw', serverName: 'Playwright', description: '' }
+    ])
+    mockApi.listMcpServers = vi.fn().mockResolvedValue([
+      { id: 'pw', name: 'Playwright', enabled: true, status: 'connected', toolCount: 2 }
+    ])
+    mockApi.getMcpToolOverrides = vi.fn().mockResolvedValue([])
+    mockApi.setMcpToolOverride = vi.fn().mockResolvedValue({})
+    setupEditMode(agentWithServer)
+    render(<AgentPanel width={440} onResize={() => {}} />)
+
+    await user.click(screen.getByText('Skills'))
+    const tierSelect = await screen.findByRole('combobox', { name: /Trust tier for Playwright/i })
+    await user.selectOptions(tierSelect, 'auto')
+
+    await waitFor(() => {
+      expect(mockApi.setMcpToolOverride).toHaveBeenCalledTimes(2)
+      expect(mockApi.setMcpToolOverride).toHaveBeenCalledWith(
+        agentWithServer.id, 'pw', 'click', { enabled: true, approval: 'auto', instructions: '' }
+      )
+      expect(mockApi.setMcpToolOverride).toHaveBeenCalledWith(
+        agentWithServer.id, 'pw', 'navigate', { enabled: true, approval: 'auto', instructions: '' }
+      )
+    })
   })
 
   it('ap-skills-6: MCP Servers section shows global servers on Skills tab', async () => {

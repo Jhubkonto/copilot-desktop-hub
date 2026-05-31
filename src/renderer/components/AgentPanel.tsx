@@ -41,6 +41,8 @@ interface McpToolOverride {
   instructions: string
 }
 
+type McpTrustTier = 'auto' | 'always-ask' | 'block' | 'custom'
+
 const EMPTY_AGENT: Omit<AgentConfig, 'id'> = {
   name: '',
   icon: '🤖',
@@ -94,6 +96,8 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
   const [agentMcpTools, setAgentMcpTools] = useState<McpTool[]>([])
   const [mcpToolOverrides, setMcpToolOverrides] = useState<McpToolOverride[]>([])
   const [globalMcpServers, setGlobalMcpServers] = useState<McpServerInfo[]>([])
+  // Servers explicitly expanded to show per-tool custom config
+  const [expandedCustomServers, setExpandedCustomServers] = useState<Set<string>>(new Set())
 
   const setShowMcpPanel = useAppStore((s) => s.setShowMcpPanel)
 
@@ -132,6 +136,44 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
 
   const getMcpOverride = (serverId: string, toolName: string): McpToolOverride | undefined =>
     mcpToolOverrides.find((o) => o.server_id === serverId && o.tool_name === toolName)
+
+  /** Derives the effective trust tier for a server from the current overrides. */
+  const deriveServerTier = (serverId: string): McpTrustTier => {
+    const serverTools = agentMcpTools.filter((t) => t.serverId === serverId)
+    if (serverTools.length === 0) return 'always-ask'
+    const effective = serverTools.map((t) => {
+      const o = getMcpOverride(serverId, t.name)
+      return { enabled: o?.enabled ?? 1, approval: o?.approval ?? 'always-ask' }
+    })
+    if (effective.every((e) => e.enabled === 1 && e.approval === 'auto')) return 'auto'
+    if (effective.every((e) => e.enabled === 1 && e.approval === 'always-ask')) return 'always-ask'
+    if (effective.every((e) => e.enabled === 0)) return 'block'
+    return 'custom'
+  }
+
+  /** Returns the current tier value for the dropdown (explicit custom expansion takes priority). */
+  const getServerTierValue = (serverId: string): McpTrustTier =>
+    expandedCustomServers.has(serverId) ? 'custom' : deriveServerTier(serverId)
+
+  /** Applies a uniform trust tier to all tools of a server, or expands custom mode. */
+  const handleSetServerTier = async (serverId: string, tier: McpTrustTier) => {
+    if (tier === 'custom') {
+      setExpandedCustomServers((prev) => new Set([...prev, serverId]))
+      return
+    }
+    setExpandedCustomServers((prev) => { const next = new Set(prev); next.delete(serverId); return next })
+    const serverTools = agentMcpTools.filter((t) => t.serverId === serverId)
+    const settings =
+      tier === 'auto' ? { enabled: true, approval: 'auto', instructions: '' }
+      : tier === 'always-ask' ? { enabled: true, approval: 'always-ask', instructions: '' }
+      : { enabled: false, approval: 'always-ask', instructions: '' }
+    await Promise.all(
+      serverTools.map((tool) => window.api.setMcpToolOverride(config.id, serverId, tool.name, settings))
+    )
+    // Re-fetch from DB to get ground truth
+    const fresh = await window.api.getMcpToolOverrides(config.id)
+    setMcpToolOverrides(fresh as McpToolOverride[])
+  }
 
   const toggleServerAssignment = (serverId: string) => {
     const next = config.mcpServers.includes(serverId)
@@ -794,91 +836,113 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
                       : server.status === 'error'
                         ? 'text-red-400'
                         : 'text-gray-400'
+                    const serverTools = agentMcpTools.filter((t) => t.serverId === server.id)
+                    const tier = getServerTierValue(server.id)
                     return (
                       <div
                         key={server.id}
-                        className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-800/60"
+                        className="rounded-xl border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/60"
                       >
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5">
-                            <span className={`text-xs ${statusColor}`}>
-                              {server.status === 'connected' ? '●' : '○'}
-                            </span>
-                            <span className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">{server.name}</span>
-                            {server.toolCount > 0 && (
-                              <span className="text-xs text-gray-400">{server.toolCount} tools</span>
-                            )}
+                        {/* Server header row */}
+                        <div className="flex items-center justify-between gap-3 px-3 py-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className={`text-xs ${statusColor}`}>
+                                {server.status === 'connected' ? '●' : '○'}
+                              </span>
+                              <span className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">{server.name}</span>
+                              {server.toolCount > 0 && (
+                                <span className="text-xs text-gray-400">{server.toolCount} tools</span>
+                              )}
+                            </div>
                           </div>
+                          <button
+                            type="button"
+                            onClick={() => toggleServerAssignment(server.id)}
+                            className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs text-gray-600 hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-700 shrink-0"
+                            aria-label={`${isAssigned ? 'Remove' : 'Add'} ${server.name}`}
+                          >
+                            {isAssigned
+                              ? <ToggleRight className="h-4 w-4 text-green-500" />
+                              : <ToggleLeft className="h-4 w-4 text-gray-400" />}
+                            <span>{isAssigned ? 'On' : 'Off'}</span>
+                          </button>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => toggleServerAssignment(server.id)}
-                          className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs text-gray-600 hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-700 shrink-0"
-                          aria-label={`${isAssigned ? 'Remove' : 'Add'} ${server.name}`}
-                        >
-                          {isAssigned
-                            ? <ToggleRight className="h-4 w-4 text-green-500" />
-                            : <ToggleLeft className="h-4 w-4 text-gray-400" />}
-                          <span>{isAssigned ? 'On' : 'Off'}</span>
-                        </button>
+
+                        {/* Trust tier — only when server is assigned and agent is saved */}
+                        {isAssigned && isEditing && (
+                          <div className="px-3 pb-2 flex items-center gap-2 border-t border-gray-200 dark:border-gray-700 pt-2">
+                            <label className="text-xs text-gray-500 dark:text-gray-400 shrink-0">Trust</label>
+                            <select
+                              value={tier}
+                              onChange={(e) => void handleSetServerTier(server.id, e.target.value as McpTrustTier)}
+                              aria-label={`Trust tier for ${server.name}`}
+                              className="flex-1 rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                            >
+                              <option value="always-ask">Ask before running</option>
+                              <option value="auto">Run automatically</option>
+                              <option value="block">Block all tools</option>
+                              <option value="custom">Custom per-tool…</option>
+                            </select>
+                          </div>
+                        )}
+
+                        {/* Per-tool config — only in Custom mode */}
+                        {isAssigned && isEditing && tier === 'custom' && serverTools.length > 0 && (
+                          <div className="px-3 pb-3 pt-1 space-y-2 border-t border-gray-200 dark:border-gray-700">
+                            {serverTools.map((tool) => {
+                              const override = getMcpOverride(tool.serverId, tool.name)
+                              const enabled = (override?.enabled ?? 1) === 1
+                              const approval = override?.approval ?? 'always-ask'
+                              const instructions = override?.instructions ?? ''
+                              return (
+                                <div key={`${tool.serverId}:${tool.name}`} className="space-y-2 rounded-lg border border-gray-200 bg-white p-2.5 dark:border-gray-700 dark:bg-gray-900/50">
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div>
+                                      <div className="text-xs font-medium text-gray-800 dark:text-gray-100">🔌 {tool.name}</div>
+                                      {tool.description && (
+                                        <div className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">{tool.description}</div>
+                                      )}
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleSetMcpOverride(tool.serverId, tool.name, 'enabled', !enabled)}
+                                      className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 shrink-0"
+                                      aria-label={`Toggle ${tool.name}`}
+                                    >
+                                      {enabled ? <ToggleRight className="h-3.5 w-3.5 text-green-500" /> : <ToggleLeft className="h-3.5 w-3.5 text-gray-400" />}
+                                      <span>{enabled ? 'On' : 'Off'}</span>
+                                    </button>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <label className="text-[11px] text-gray-500 dark:text-gray-400 shrink-0">Approval</label>
+                                    <select
+                                      value={approval}
+                                      onChange={(e) => void handleSetMcpOverride(tool.serverId, tool.name, 'approval', e.target.value)}
+                                      className="flex-1 rounded border border-gray-300 bg-white px-1.5 py-0.5 text-xs text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                                    >
+                                      <option value="auto">Auto</option>
+                                      <option value="always-ask">Always ask</option>
+                                      <option value="disabled">Disabled</option>
+                                    </select>
+                                  </div>
+                                  <textarea
+                                    value={instructions}
+                                    onChange={(e) => void handleSetMcpOverride(tool.serverId, tool.name, 'instructions', e.target.value)}
+                                    placeholder="Optional instructions for this tool…"
+                                    rows={2}
+                                    className="w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                                  />
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
                       </div>
                     )
                   })
                 )}
               </div>
-
-              {agentMcpTools.length > 0 && (
-                <div className="space-y-2">
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">MCP Tools</h3>
-                  {agentMcpTools.map((tool) => {
-                    const override = getMcpOverride(tool.serverId, tool.name)
-                    const enabled = (override?.enabled ?? 1) === 1
-                    const approval = override?.approval ?? 'always-ask'
-                    const instructions = override?.instructions ?? ''
-                    return (
-                      <div key={`${tool.serverId}:${tool.name}`} className="space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800/60">
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <div className="text-sm font-medium text-gray-800 dark:text-gray-100">🔌 {tool.name}</div>
-                            <div className="text-xs text-gray-500 dark:text-gray-400">via {tool.serverName}</div>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => void handleSetMcpOverride(tool.serverId, tool.name, 'enabled', !enabled)}
-                            className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs text-gray-600 hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-700"
-                            aria-label={`Toggle ${tool.name}`}
-                          >
-                            {enabled ? <ToggleRight className="h-4 w-4 text-green-500" /> : <ToggleLeft className="h-4 w-4 text-gray-400" />}
-                            <span>{enabled ? 'Enabled' : 'Disabled'}</span>
-                          </button>
-                        </div>
-                        <div className="space-y-1.5">
-                          <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Approval</label>
-                          <select
-                            value={approval}
-                            onChange={(e) => void handleSetMcpOverride(tool.serverId, tool.name, 'approval', e.target.value)}
-                            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-                          >
-                            <option value="auto">Auto</option>
-                            <option value="always-ask">Always ask</option>
-                            <option value="disabled">Disabled</option>
-                          </select>
-                        </div>
-                        <div className="space-y-1.5">
-                          <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Instructions</label>
-                          <textarea
-                            value={instructions}
-                            onChange={(e) => void handleSetMcpOverride(tool.serverId, tool.name, 'instructions', e.target.value)}
-                            rows={3}
-                            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-                          />
-                        </div>
-                        {tool.description && <p className="text-xs text-gray-500 dark:text-gray-400">{tool.description}</p>}
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
             </div>
           ) : tab === 'knowledge' ? (
             /* Knowledge Tab */
