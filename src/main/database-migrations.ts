@@ -74,6 +74,7 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
   },
 ];
 
+
 export function initializeBaseSchema(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS projects (

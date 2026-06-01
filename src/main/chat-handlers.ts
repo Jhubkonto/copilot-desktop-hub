@@ -32,6 +32,7 @@ import { requestApproval } from './tools'
 // Entries are invalidated when the project's rootDirectory changes.
 const dirListingCache = new Map<string, { rootDirectory: string; block: string }>()
 
+
 /** Clears the directory listing cache — used in tests to isolate test state. */
 export function clearDirListingCache(): void {
   dirListingCache.clear()
@@ -335,18 +336,13 @@ export function registerChatHandlers(): void {
 
           if (projCfg.instructionsEnabled && projCfg.instructions.trim()) {
             let instructions = projCfg.instructions;
+            // Static user-defined variables
             for (const { key, value } of projCfg.variables) {
               instructions = instructions.replaceAll(`{{${key}}}`, value);
             }
-
-            // Apply variable substitution to agent system prompt if already injected
-            if (projCfg.variables.length > 0) {
-              for (const { key, value } of projCfg.variables) {
-                augmentedContent = augmentedContent.replaceAll(
-                  `{{${key}}}`,
-                  value,
-                );
-              }
+            // Apply same substitutions to agent system prompt if already injected
+            for (const { key, value } of projCfg.variables) {
+              augmentedContent = augmentedContent.replaceAll(`{{${key}}}`, value);
             }
 
             const projectBlock = `[Project Context]\n${instructions}\n[/Project Context]`;
