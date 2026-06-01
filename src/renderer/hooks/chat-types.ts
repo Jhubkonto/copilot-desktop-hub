@@ -53,13 +53,13 @@ export interface ChatMessage {
 }
 
 export interface ContextRef {
-  key: 'workspace' | 'git' | 'file' | 'clipboard' | 'wiki'
+  key: 'workspace' | 'git' | 'git-diff' | 'file' | 'clipboard' | 'wiki'
   token: string
   value?: string
 }
 
 export interface AtContextOption {
-  token: '@workspace' | '@git' | '@file:' | '@wiki'
+  token: '@workspace' | '@git' | '@git:diff' | '@file:' | '@wiki'
   key: ContextRef['key']
   description: string
 }
@@ -114,6 +114,11 @@ export const AT_CONTEXT_OPTIONS: AtContextOption[] = [
     token: '@git',
     key: 'git',
     description: 'Attach git branch, status, recent commits',
+  },
+  {
+    token: '@git:diff',
+    key: 'git-diff',
+    description: 'Attach diff summary of changes since last commit',
   },
   {
     token: '@file:',

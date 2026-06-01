@@ -30,6 +30,7 @@ interface ContextInspectorProps {
 const REF_TOKEN_ESTIMATE: Record<string, number> = {
   workspace: 500,
   git: 200,
+  'git-diff': 800,
   file: 300,
   wiki: 1000,
 }

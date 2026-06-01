@@ -14,13 +14,18 @@ export function useAtMenu({ input, setInput, projectId }: UseAtMenuParams) {
 
   const contextRefs = useMemo(() => {
     const refs: ContextRef[] = []
-    const regex = /(?:^|\s)@(workspace|git|wiki)\b|(?:^|\s)@file:([^\s]+)/gi
+    const regex = /(?:^|\s)@(workspace|git:diff|git|wiki)\b|(?:^|\s)@file:([^\s]+)/gi
     let match: RegExpExecArray | null
 
     while ((match = regex.exec(input)) !== null) {
       if (match[1]) {
-        const key = match[1].toLowerCase() as 'workspace' | 'git' | 'wiki'
-        refs.push({ key, token: `@${key}` })
+        const raw = match[1].toLowerCase()
+        if (raw === 'git:diff') {
+          refs.push({ key: 'git-diff', token: '@git:diff' })
+        } else {
+          const key = raw as 'workspace' | 'git' | 'wiki'
+          refs.push({ key, token: `@${key}` })
+        }
       } else if (match[2]) {
         refs.push({ key: 'file', token: `@file:${match[2]}`, value: match[2] })
       }
@@ -77,6 +82,12 @@ export function useAtMenu({ input, setInput, projectId }: UseAtMenuParams) {
         continue
       }
 
+      if (ref.key === 'git-diff') {
+        const diff = await window.api.getGitDiff()
+        lines.push(`[Git Diff]\n${diff}`)
+        continue
+      }
+
       if (ref.key === 'clipboard') {
         if (ref.value) {
           const MAX_CHARS = 4000
@@ -108,6 +119,7 @@ export function useAtMenu({ input, setInput, projectId }: UseAtMenuParams) {
         })
         lines.push(`[Project Wiki]\n${formatted.join('\n\n')}`)
       }
+
     }
 
     return lines.join('\n\n')

@@ -276,4 +276,37 @@ export function registerContextHandlers(): void {
       return "Git context unavailable for the current working directory.";
     }
   });
+
+  safeHandle("context:git-diff", () => {
+    const cwd = getWorkingDirectory();
+    try {
+      // Check for a valid HEAD first (new repo with no commits has no HEAD)
+      try {
+        execSync("git rev-parse HEAD", { cwd, encoding: "utf8" });
+      } catch {
+        return "No commits yet — diff unavailable.";
+      }
+
+      const stat = execSync("git diff --stat HEAD", {
+        cwd,
+        encoding: "utf8",
+      }).trim();
+
+      if (!stat) {
+        return "No changes since last commit.";
+      }
+
+      // Cap the stat output to avoid context overflows
+      const lines = stat.split("\n");
+      const MAX_LINES = 150;
+      const truncated = lines.length > MAX_LINES;
+      const output = truncated
+        ? lines.slice(0, MAX_LINES).join("\n") + `\n... (${lines.length - MAX_LINES} more lines truncated)`
+        : stat;
+
+      return `Diff summary (staged + unstaged vs HEAD):\n\n${output}`;
+    } catch {
+      return "Git diff unavailable for the current working directory.";
+    }
+  });
 }
