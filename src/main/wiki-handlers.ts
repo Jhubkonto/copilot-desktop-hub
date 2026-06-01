@@ -30,6 +30,22 @@ function parseRow(row: {
   }
 }
 
+export function computeBodyOverlap(body1: string, body2: string): number {
+  const words = (text: string) =>
+    new Set(
+      text
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, '')
+        .split(/\s+/)
+        .filter((w) => w.length > 3)
+    )
+  const w1 = words(body1)
+  const w2 = words(body2)
+  if (w1.size === 0 && w2.size === 0) return 1
+  const intersection = [...w1].filter((w) => w2.has(w))
+  return intersection.length / Math.max(w1.size, w2.size, 1)
+}
+
 export function findFuzzyMatch(
   candidateTitle: string,
   existing: { id: string; title: string }[]
@@ -193,8 +209,8 @@ Guidelines:
     }
 
     const existingEntries = db.prepare(
-      'SELECT id, title FROM project_wiki_entries WHERE project_id = ?'
-    ).all(projectId) as { id: string; title: string }[]
+      'SELECT id, title, body FROM project_wiki_entries WHERE project_id = ?'
+    ).all(projectId) as { id: string; title: string; body: string }[]
 
     const candidates: WikiCandidate[] = rawCandidates
       .slice(0, 10)
@@ -202,14 +218,40 @@ Guidelines:
         const title = String(candidate.title ?? '').slice(0, 200).trim()
         const body = String(candidate.body ?? '').trim()
         const tags = Array.isArray(candidate.tags) ? candidate.tags.map(String) : []
-        const matchingEntry = findFuzzyMatch(title, existingEntries)
+        const matchedEntry = findFuzzyMatch(title, existingEntries)
+
+        let matchingEntryId: string | null = null
+        let matchingEntryTitle: string | null = null
+        let supersededEntryId: string | null = null
+        let supersededEntryTitle: string | null = null
+
+        if (matchedEntry) {
+          const existing = existingEntries.find((e) => e.id === matchedEntry.id)!
+          const existingBodyWords = existing.body
+            .toLowerCase()
+            .replace(/[^a-z0-9\s]/g, '')
+            .split(/\s+/)
+            .filter((w) => w.length > 3)
+          const existingIsSubstantive = existingBodyWords.length >= 5
+          const overlap = computeBodyOverlap(existing.body, body)
+
+          if (existingIsSubstantive && overlap < 0.35) {
+            supersededEntryId = matchedEntry.id
+            supersededEntryTitle = matchedEntry.title
+          } else {
+            matchingEntryId = matchedEntry.id
+            matchingEntryTitle = matchedEntry.title
+          }
+        }
 
         return {
           title,
           body,
           tags,
-          matchingEntryId: matchingEntry?.id ?? null,
-          matchingEntryTitle: matchingEntry?.title ?? null,
+          matchingEntryId,
+          matchingEntryTitle,
+          supersededEntryId,
+          supersededEntryTitle,
         }
       })
       .filter((candidate) => candidate.title.length > 0)

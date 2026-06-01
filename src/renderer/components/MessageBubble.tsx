@@ -212,11 +212,18 @@ export function MessageBubbleBase({
                 ) : (
                   <span />
                 )}
-                {timestamp != null && (
-                  <span className="text-[10px] text-gray-400 dark:text-gray-500 shrink-0">
-                    {new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                )}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {hasWikiEntry && (
+                    <span title="Saved to wiki" aria-label="Saved to wiki">
+                      <BookOpen className="w-3 h-3 text-blue-400 dark:text-blue-500" />
+                    </span>
+                  )}
+                  {timestamp != null && (
+                    <span className="text-[10px] text-gray-400 dark:text-gray-500">
+                      {new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  )}
+                </div>
               </div>
             </>
           ) : !isError ? (

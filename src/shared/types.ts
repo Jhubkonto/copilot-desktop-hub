@@ -227,6 +227,8 @@ export interface WikiCandidate {
   tags: string[]
   matchingEntryId: string | null
   matchingEntryTitle: string | null
+  supersededEntryId: string | null
+  supersededEntryTitle: string | null
 }
 
 export interface WikiExtractionResult {

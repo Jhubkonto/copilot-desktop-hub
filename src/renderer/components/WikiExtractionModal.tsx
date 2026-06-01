@@ -98,7 +98,10 @@ export function WikiExtractionModal({
     }))
 
     try {
-      if (candidate.matchingEntryId) {
+      if (candidate.supersededEntryId) {
+        const newEntry = await window.api.createWikiEntry(projectId, title, item.body, tags, { conversationId })
+        await window.api.updateWikiEntry(candidate.supersededEntryId, { superseded_by: newEntry.id })
+      } else if (candidate.matchingEntryId) {
         await window.api.updateWikiEntry(candidate.matchingEntryId, {
           title,
           body: item.body,
@@ -194,6 +197,11 @@ export function WikiExtractionModal({
                     {candidate.matchingEntryId && (
                       <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
                         ⚠️ Similar entry exists: <span className="font-medium">{candidate.matchingEntryTitle}</span> — updating that entry instead of creating new
+                      </div>
+                    )}
+                    {candidate.supersededEntryId && (
+                      <div className="rounded-lg border border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-900/20 px-3 py-2 text-sm text-orange-700 dark:text-orange-300">
+                        ⚡ Likely supersedes: <span className="font-medium">{candidate.supersededEntryTitle}</span> — accepting will create a new entry and mark the existing one as superseded
                       </div>
                     )}
 
