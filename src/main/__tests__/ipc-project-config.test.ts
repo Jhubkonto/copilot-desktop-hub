@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // ── Hoisted mocks ──────────────────────────────────────────────────────────────
 
 const { mockWebContents } = vi.hoisted(() => ({
-  mockWebContents: { send: vi.fn() }
+  mockWebContents: { send: vi.fn(), isDestroyed: vi.fn(() => false) }
 }))
 
 const { mockDb, ipcHandlers, mockIpcMain } = vi.hoisted(() => {
@@ -70,14 +70,16 @@ vi.mock('fs', () => ({
   mkdirSync: vi.fn(),
 }))
 
-const { mockSendCopilotChatMessage } = vi.hoisted(() => {
+const { mockSendCopilotChatMessage, mockSendCopilotNonStreaming } = vi.hoisted(() => {
   const mockSendCopilotChatMessage = vi.fn(async (_w: unknown, _msgs: unknown, onChunk: (c: string) => void) => {
     onChunk('ok')
   })
-  return { mockSendCopilotChatMessage }
+  const mockSendCopilotNonStreaming = vi.fn(async () => ({ content: 'ok', toolCalls: [] }))
+  return { mockSendCopilotChatMessage, mockSendCopilotNonStreaming }
 })
 vi.mock('../copilot-api', () => ({
   sendCopilotChatMessage: mockSendCopilotChatMessage,
+  sendCopilotNonStreaming: mockSendCopilotNonStreaming,
   abortCopilotStream: vi.fn(),
 }))
 vi.mock('../auth', () => ({ retrieveToken: vi.fn().mockResolvedValue('tok') }))
@@ -92,6 +94,7 @@ vi.mock('../providers', () => ({
   sendAzureMessage: vi.fn(),
   getAzureEndpoint: vi.fn(() => null),
   abortActiveStream: vi.fn(),
+  toOpenAICompatibleMessages: vi.fn((msgs: unknown) => msgs),
 }))
 vi.mock('../tools', () => ({ registerToolHandlers: vi.fn() }))
 vi.mock('../mcp', () => ({ registerMcpHandlers: vi.fn() }))
@@ -508,13 +511,15 @@ describe('project-config — IPC Handlers', () => {
       mockSendCopilotChatMessage.mockImplementation(
         async (_w: unknown, _msgs: unknown, onChunk: (c: string) => void) => { onChunk('response') }
       )
+      mockSendCopilotNonStreaming.mockClear()
+      mockSendCopilotNonStreaming.mockResolvedValue({ content: 'response', toolCalls: [] })
     })
 
     it('lc-1: [Project Team] block injected when project has ≥2 agents and orchestration is disabled', async () => {
       await invoke('chat:send-message', 'conv-team', 'Hello', { projectId: 'proj-team' })
 
-      expect(mockSendCopilotChatMessage).toHaveBeenCalled()
-      const [, messages] = mockSendCopilotChatMessage.mock.calls[0] as unknown as [unknown, Array<{ role: string; content: string }>]
+      expect(mockSendCopilotNonStreaming).toHaveBeenCalled()
+      const [messages] = mockSendCopilotNonStreaming.mock.calls[0] as unknown as [Array<{ role: string; content: string }>]
       const userMsg = messages.find((m) => m.role === 'user')
       expect(userMsg?.content).toContain('[Project Team')
       expect(userMsg?.content).toContain('General Assistant')
@@ -553,8 +558,8 @@ describe('project-config — IPC Handlers', () => {
 
       await invoke('chat:send-message', 'conv-team', 'Hello', { projectId: 'proj-team' })
 
-      expect(mockSendCopilotChatMessage).toHaveBeenCalled()
-      const [, messages] = mockSendCopilotChatMessage.mock.calls[0] as unknown as [unknown, Array<{ role: string; content: string }>]
+      expect(mockSendCopilotNonStreaming).toHaveBeenCalled()
+      const [messages] = mockSendCopilotNonStreaming.mock.calls[0] as unknown as [Array<{ role: string; content: string }>]
       const userMsg = messages.find((m) => m.role === 'user')
       expect(userMsg?.content ?? '').not.toContain('[Project Team')
     })

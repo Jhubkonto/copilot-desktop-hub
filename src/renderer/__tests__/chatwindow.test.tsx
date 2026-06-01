@@ -601,7 +601,7 @@ describe("ChatWindow — Slash Commands", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Available models:/)).toBeInTheDocument();
-      expect(screen.getByText(/\* GPT-4o \(default\)/)).toBeInTheDocument();
+      expect(screen.getByText(/\* Global default/)).toBeInTheDocument();
     });
   });
 
@@ -809,7 +809,7 @@ describe("ChatWindow — Model Dropdown (O.2)", () => {
     render(<ChatWindow />);
     await waitFor(() => {
       const btn = screen.getByRole("button", { name: /conversation model/i });
-      expect(btn).toHaveTextContent("GPT-4o (default)");
+      expect(btn).toHaveTextContent("Global default");
     });
   });
 

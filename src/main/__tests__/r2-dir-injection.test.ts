@@ -10,7 +10,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // ── Hoisted mocks ───────────────────────────────────────────────────────────
 
 const { mockWebContents } = vi.hoisted(() => ({
-  mockWebContents: { send: vi.fn() }
+  mockWebContents: { send: vi.fn(), isDestroyed: vi.fn(() => false) }
 }))
 
 const { mockDb, ipcHandlers, mockIpcMain } = vi.hoisted(() => {
@@ -100,15 +100,17 @@ vi.mock('fs', () => ({
   readdirSync: mockReaddirSync
 }))
 
-const { mockSendCopilotChatMessage } = vi.hoisted(() => {
+const { mockSendCopilotChatMessage, mockSendCopilotNonStreaming } = vi.hoisted(() => {
   const mockSendCopilotChatMessage = vi.fn(async (_w: unknown, _msgs: unknown, onChunk: (c: string) => void) => {
     onChunk('ok')
   })
-  return { mockSendCopilotChatMessage }
+  const mockSendCopilotNonStreaming = vi.fn(async () => ({ content: 'ok', toolCalls: [] }))
+  return { mockSendCopilotChatMessage, mockSendCopilotNonStreaming }
 })
 
 vi.mock('../copilot-api', () => ({
   sendCopilotChatMessage: mockSendCopilotChatMessage,
+  sendCopilotNonStreaming: mockSendCopilotNonStreaming,
   abortCopilotStream: vi.fn()
 }))
 vi.mock('../auth', () => ({ retrieveToken: vi.fn().mockResolvedValue('tok') }))
@@ -121,7 +123,8 @@ vi.mock('../providers', () => ({
   sendAnthropicMessage: vi.fn(),
   sendAzureMessage: vi.fn(),
   getAzureEndpoint: vi.fn(() => null),
-  abortActiveStream: vi.fn()
+  abortActiveStream: vi.fn(),
+  toOpenAICompatibleMessages: vi.fn((msgs: unknown) => msgs),
 }))
 vi.mock('../tools', () => ({ registerToolHandlers: vi.fn() }))
 vi.mock('../mcp', () => ({ registerMcpHandlers: vi.fn() }))
@@ -143,8 +146,18 @@ async function invoke(channel: string, ...args: unknown[]): Promise<any> {
  * Returns the USER-message content from the last Copilot API call.
  * The augmented context blocks (including [Project File Structure]) are
  * prepended to the user content, not the system message.
+ * Project conversations now use sendCopilotNonStreaming (tool loop path);
+ * non-project conversations use sendCopilotChatMessage (streaming path).
  */
 function capturedUserContent(): string | undefined {
+  // Try non-streaming first (project conversations with wiki tools)
+  const nsCall = mockSendCopilotNonStreaming.mock.calls.at(-1) as unknown[] | undefined
+  if (nsCall) {
+    const msgs = nsCall[0] as Array<{ role: string; content: unknown }>
+    const userMsg = [...msgs].reverse().find((m) => m.role === 'user')
+    return typeof userMsg?.content === 'string' ? userMsg.content : undefined
+  }
+  // Fallback: streaming path (non-project conversations)
   const call = mockSendCopilotChatMessage.mock.calls.at(-1)
   if (!call) return undefined
   const msgs = call[1] as Array<{ role: string; content: unknown }>
@@ -156,6 +169,14 @@ function capturedUserContent(): string | undefined {
  * Returns the SYSTEM-message content from the last Copilot API call.
  */
 function capturedSystemContent(): string | undefined {
+  // Try non-streaming first (project conversations with wiki tools)
+  const nsCall = mockSendCopilotNonStreaming.mock.calls.at(-1) as unknown[] | undefined
+  if (nsCall) {
+    const msgs = nsCall[0] as Array<{ role: string; content: unknown }>
+    const sysMsg = msgs.find((m) => m.role === 'system')
+    return typeof sysMsg?.content === 'string' ? sysMsg.content : undefined
+  }
+  // Fallback: streaming path
   const call = mockSendCopilotChatMessage.mock.calls.at(-1)
   if (!call) return undefined
   const msgs = call[1] as Array<{ role: string; content: unknown }>
@@ -171,10 +192,11 @@ describe('R.2 — directory context injection', () => {
     ipcHandlers.clear()
     mockDb._clearResults()
 
-    // Re-implement the Copilot mock after clearAllMocks
+    // Re-implement the Copilot mocks after clearAllMocks
     mockSendCopilotChatMessage.mockImplementation(
       async (_w: unknown, _msgs: unknown, onChunk: (c: string) => void) => { onChunk('ok') }
     )
+    mockSendCopilotNonStreaming.mockResolvedValue({ content: 'ok', toolCalls: [] })
 
     // Prevent mandatory property accesses from throwing on undefined
     mockDb._setResult('SELECT COUNT(*) as count FROM agents WHERE is_default = 1', { count: 1 })
