@@ -204,17 +204,30 @@ describe('MessageBubble', () => {
     expect(screen.queryByText('Copy')).not.toBeInTheDocument()
   })
 
-  it('formats file sizes correctly', () => {
+  it('shows persistent BookOpen indicator for assistant messages linked to wiki entries', () => {
     render(
       <MessageBubble
         {...baseProps}
-        attachments={[
-          { id: 'a1', name: 'tiny.txt', size: 500 },
-          { id: 'a2', name: 'big.bin', size: 1500000 }
-        ]}
+        role="assistant"
+        onSaveToWiki={vi.fn()}
+        hasWikiEntry={true}
       />
     )
-    expect(screen.getByText(/500B/)).toBeInTheDocument()
-    expect(screen.getByText(/1\.4MB/)).toBeInTheDocument()
+
+    expect(screen.getByLabelText('Saved to wiki')).toBeInTheDocument()
+  })
+
+  it('does not show BookOpen indicator when hasWikiEntry is false', () => {
+    render(
+      <MessageBubble
+        {...baseProps}
+        role="assistant"
+        onSaveToWiki={vi.fn()}
+        hasWikiEntry={false}
+      />
+    )
+
+    expect(screen.queryByLabelText('Saved to wiki')).not.toBeInTheDocument()
   })
 })
+

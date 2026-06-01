@@ -58,6 +58,7 @@ async function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
 
 describe('wiki handlers', () => {
   let findFuzzyMatch: typeof import('../wiki-handlers').findFuzzyMatch
+  let computeBodyOverlap: typeof import('../wiki-handlers').computeBodyOverlap
 
   beforeEach(async () => {
     vi.clearAllMocks()
@@ -82,6 +83,7 @@ describe('wiki handlers', () => {
 
     const wikiHandlers = await import('../wiki-handlers')
     findFuzzyMatch = wikiHandlers.findFuzzyMatch
+    computeBodyOverlap = wikiHandlers.computeBodyOverlap
     wikiHandlers.registerWikiHandlers()
   })
 
@@ -227,7 +229,7 @@ describe('wiki handlers', () => {
       toolCalls: [],
     })
 
-    const result = await invoke<{ candidates: Array<{ title: string; body: string; tags: string[]; matchingEntryId: string | null; matchingEntryTitle: string | null }> }>(
+    const result = await invoke<{ candidates: Array<{ title: string; body: string; tags: string[]; matchingEntryId: string | null; matchingEntryTitle: string | null; supersededEntryId: string | null; supersededEntryTitle: string | null }> }>(
       'wiki:extract-learnings',
       'conv-1',
       'project-1'
@@ -257,6 +259,8 @@ describe('wiki handlers', () => {
           tags: ['storage', 'wiki'],
           matchingEntryId: 'wiki-1',
           matchingEntryTitle: 'SQLite wiki cache',
+          supersededEntryId: null,
+          supersededEntryTitle: null,
         },
       ],
     })
@@ -281,5 +285,45 @@ describe('wiki handlers', () => {
     })
     expect(findFuzzyMatch('Frontend theming guide', [{ id: 'wiki-3', title: 'SQLite wiki cache' }])).toBeNull()
     expect(findFuzzyMatch('API UI DB', [{ id: 'wiki-4', title: 'API UI DB' }])).toBeNull()
+  })
+
+  it('computeBodyOverlap returns high overlap for similar bodies', () => {
+    const a = 'Use SQLite for persistent storage in the wiki system backend'
+    const b = 'SQLite persistent storage wiki system backend approach'
+    expect(computeBodyOverlap(a, b)).toBeGreaterThan(0.5)
+  })
+
+  it('computeBodyOverlap returns low overlap for unrelated bodies', () => {
+    const a = 'Use SQLite for persistent storage in the wiki backend'
+    const b = 'Frontend theme colors should follow the design system tokens'
+    expect(computeBodyOverlap(a, b)).toBeLessThan(0.35)
+  })
+
+  it('computeBodyOverlap returns 1 for identical bodies', () => {
+    expect(computeBodyOverlap('same words here exactly', 'same words here exactly')).toBe(1)
+  })
+
+  it('computeBodyOverlap returns 1 when both bodies are empty', () => {
+    expect(computeBodyOverlap('', '')).toBe(1)
+  })
+
+  it('wiki:extract-learnings classifies as supersedes when existing body is substantive and divergent', async () => {
+    insertConversation('conv-supersede')
+    insertMessage('msg-s1', 'conv-supersede', 'user', 'Switched from SQLite to PostgreSQL for storage.', 1000)
+    insertMessage('msg-s2', 'conv-supersede', 'assistant', 'PostgreSQL is now the recommended backend database.', 2000)
+    await invoke('wiki:create-entry', 'project-1', 'Database choice', 'Originally used SQLite for persistent local storage in the project backend database.', ['storage'])
+
+    mockSendNonStreaming.mockResolvedValue({
+      content: '[{"title":"Database choice","body":"PostgreSQL is now the standard database replacing the previous SQLite approach entirely for all environments.","tags":["storage","database"]}]',
+      toolCalls: [],
+    })
+
+    const result = await invoke<{ candidates: Array<{ matchingEntryId: string | null; supersededEntryId: string | null; supersededEntryTitle: string | null }> }>(
+      'wiki:extract-learnings', 'conv-supersede', 'project-1'
+    )
+
+    expect(result.candidates[0].matchingEntryId).toBeNull()
+    expect(result.candidates[0].supersededEntryId).not.toBeNull()
+    expect(result.candidates[0].supersededEntryTitle).toBe('Database choice')
   })
 })

@@ -14,6 +14,8 @@ const baseCandidates: WikiCandidate[] = [
     tags: ['storage', 'wiki'],
     matchingEntryId: null,
     matchingEntryTitle: null,
+    supersededEntryId: null,
+    supersededEntryTitle: null,
   },
   {
     title: 'Context injection order',
@@ -21,6 +23,8 @@ const baseCandidates: WikiCandidate[] = [
     tags: ['context'],
     matchingEntryId: null,
     matchingEntryTitle: null,
+    supersededEntryId: null,
+    supersededEntryTitle: null,
   },
 ]
 
