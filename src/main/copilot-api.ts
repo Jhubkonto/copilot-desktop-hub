@@ -89,7 +89,7 @@ export async function getCopilotToken(): Promise<string> {
 
   const githubToken = retrieveToken()
   if (!githubToken) {
-    throw new Error('Not authenticated — sign in with GitHub first')
+    throw createApiError('Not authenticated — sign in with GitHub first', 'auth', undefined, false)
   }
 
   cachedToken = await exchangeToken(githubToken)

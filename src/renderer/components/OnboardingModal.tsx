@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Sparkles, Shield, CheckCircle, MessageSquare, Bot, Plug, Wrench } from 'lucide-react'
+import { Sparkles, Shield, CheckCircle, MessageSquare, Bot, Plug, Wrench, Key } from 'lucide-react'
 
 interface OnboardingProps {
   onComplete: () => void
@@ -14,6 +14,7 @@ export function OnboardingModal({ onComplete }: OnboardingProps) {
     user: { login: string; avatar_url: string } | null
   }>({ authenticated: false, user: null })
   const [loggingIn, setLoggingIn] = useState(false)
+  const [usedByok, setUsedByok] = useState(false)
 
   useEffect(() => {
     window.api.authStatus().then(setAuthState)
@@ -26,6 +27,12 @@ export function OnboardingModal({ onComplete }: OnboardingProps) {
       setAuthState({ authenticated: true, user: result.user ?? null })
     }
     setLoggingIn(false)
+  }
+
+  const handleByok = async () => {
+    await window.api.authLoginByok()
+    setUsedByok(true)
+    setStep('done')
   }
 
   const handleFinish = async () => {
@@ -76,11 +83,10 @@ export function OnboardingModal({ onComplete }: OnboardingProps) {
                 <Shield className="w-12 h-12 text-gray-400" />
               </div>
               <h2 className="text-lg font-medium text-gray-800 dark:text-gray-100">
-                Sign in with GitHub
+                Connect your AI provider
               </h2>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                Connect your GitHub account to use Copilot. You can also use BYOK API keys
-                later in Settings.
+                Sign in with GitHub to use Copilot, or use your own API keys for OpenAI, Anthropic, or Azure.
               </p>
 
               {authState.authenticated ? (
@@ -91,13 +97,22 @@ export function OnboardingModal({ onComplete }: OnboardingProps) {
                   </span>
                 </div>
               ) : (
-                <button
-                  onClick={handleLogin}
-                  disabled={loggingIn}
-                  className="w-full px-4 py-2.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-sm font-medium hover:bg-gray-800 dark:hover:bg-gray-200 disabled:opacity-50 transition-colors"
-                >
-                  {loggingIn ? 'Waiting for browser...' : 'Sign in with GitHub'}
-                </button>
+                <div className="space-y-2">
+                  <button
+                    onClick={handleLogin}
+                    disabled={loggingIn}
+                    className="w-full px-4 py-2.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-sm font-medium hover:bg-gray-800 dark:hover:bg-gray-200 disabled:opacity-50 transition-colors"
+                  >
+                    {loggingIn ? 'Waiting for browser...' : 'Sign in with GitHub'}
+                  </button>
+                  <button
+                    onClick={handleByok}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                  >
+                    <Key className="w-4 h-4" />
+                    Use API key instead
+                  </button>
+                </div>
               )}
 
               <div className="flex gap-2 pt-2">
@@ -125,6 +140,14 @@ export function OnboardingModal({ onComplete }: OnboardingProps) {
               <h2 className="text-lg font-medium text-gray-800 dark:text-gray-100">
                 You're all set!
               </h2>
+              {usedByok && (
+                <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-left">
+                  <Key className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+                  <p className="text-xs text-blue-700 dark:text-blue-300">
+                    Add your API key in <strong>Settings → Providers</strong> to start chatting.
+                  </p>
+                </div>
+              )}
               <div className="text-left space-y-2 text-sm text-gray-600 dark:text-gray-300">
                 <p>Here are some things you can do:</p>
                 <ul className="space-y-1.5 ml-1">
@@ -150,3 +173,4 @@ export function OnboardingModal({ onComplete }: OnboardingProps) {
     </div>
   )
 }
+

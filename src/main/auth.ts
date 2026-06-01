@@ -3,6 +3,7 @@ import { getDatabase } from './database'
 import { httpsGet, httpsPost } from './http-client'
 import { safeHandle } from './safe-handle'
 import { loadModelCatalog } from './model-catalog'
+import type { AuthMode } from '../shared/types'
 
 const GITHUB_CLIENT_ID = 'Iv1.b507a08c87ecfe98'
 const GITHUB_DEVICE_CODE_URL = 'https://github.com/login/device/code'
@@ -89,6 +90,21 @@ function retrieveToken(): string | null {
   return row.value
 }
 
+function storeAuthMode(mode: AuthMode): void {
+  const db = getDatabase()
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('auth_mode', ?)").run(mode)
+}
+
+function retrieveAuthMode(): AuthMode {
+  const db = getDatabase()
+  const row = db.prepare("SELECT value FROM settings WHERE key = 'auth_mode'").get() as
+    | { value: string }
+    | undefined
+  const val = row?.value
+  if (val === 'copilot' || val === 'byok') return val
+  return 'none'
+}
+
 function clearToken(): void {
   const db = getDatabase()
   db.prepare("DELETE FROM settings WHERE key IN ('auth_token', 'auth_encrypted', 'auth_user')").run()
@@ -114,8 +130,13 @@ async function fetchGitHubUser(token: string): Promise<GitHubUser | null> {
 export function registerAuthHandlers(): void {
   safeHandle('auth:status', async () => {
     const token = retrieveToken()
+
     if (!token) {
-      return { authenticated: false, user: null }
+      const mode = retrieveAuthMode()
+      if (mode === 'byok') {
+        return { authenticated: true, mode: 'byok' as AuthMode, user: null }
+      }
+      return { authenticated: false, mode: 'none' as AuthMode, user: null }
     }
 
     const db = getDatabase()
@@ -123,17 +144,26 @@ export function registerAuthHandlers(): void {
       | { value: string }
       | undefined
     if (cachedUser) {
-      return { authenticated: true, user: JSON.parse(cachedUser.value) }
+      return { authenticated: true, mode: 'copilot' as AuthMode, user: JSON.parse(cachedUser.value) }
     }
 
     const user = await fetchGitHubUser(token)
     if (user) {
-      return { authenticated: true, user }
+      return { authenticated: true, mode: 'copilot' as AuthMode, user }
     }
 
     // Token is invalid
     clearToken()
-    return { authenticated: false, user: null }
+    const mode = retrieveAuthMode()
+    if (mode === 'byok') {
+      return { authenticated: true, mode: 'byok' as AuthMode, user: null }
+    }
+    return { authenticated: false, mode: 'none' as AuthMode, user: null }
+  })
+
+  safeHandle('auth:login-byok', () => {
+    storeAuthMode('byok')
+    return { success: true }
   })
 
   safeHandle('auth:login', async (event) => {
@@ -190,6 +220,7 @@ export function registerAuthHandlers(): void {
                 pollTimer = null
 
                 storeToken(tokenData.access_token)
+                storeAuthMode('copilot')
                 const user = await fetchGitHubUser(tokenData.access_token)
                 console.log('[auth] Login complete, user:', user?.login)
                 resolve({ success: true, user: user ?? undefined })
@@ -229,6 +260,9 @@ export function registerAuthHandlers(): void {
       pollTimer = null
     }
     clearToken()
+    if (retrieveAuthMode() === 'copilot') {
+      storeAuthMode('none')
+    }
     // Lazy import to avoid circular dependency (copilot-api imports auth)
     import('./copilot-api').then(m => m.clearCopilotTokenCache())
     return true

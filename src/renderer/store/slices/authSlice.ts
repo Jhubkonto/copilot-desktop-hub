@@ -9,6 +9,7 @@ export interface AuthSlice {
   authLoading: boolean
   checkAuth: () => Promise<void>
   login: () => Promise<void>
+  loginByok: () => Promise<void>
   logout: () => Promise<void>
   setDeviceCode: (code: DeviceCode | null) => void
 }
@@ -19,7 +20,7 @@ export const createAuthSlice: StateCreator<
   [],
   AuthSlice
 > = (set, get) => ({
-  authState: { authenticated: false, user: null },
+  authState: { authenticated: false, mode: 'none', user: null },
   deviceCode: null,
   authLoading: false,
 
@@ -50,7 +51,7 @@ export const createAuthSlice: StateCreator<
       }
       if (result.success) {
         set((s) => {
-          s.authState = { authenticated: true, user: result.user ?? null }
+          s.authState = { authenticated: true, mode: 'copilot', user: result.user ?? null }
         })
         get().addToast(
           `Signed in as ${result.user?.login ?? 'user'}`,
@@ -66,6 +67,15 @@ export const createAuthSlice: StateCreator<
     }
   },
 
+  loginByok: async () => {
+    const result = await window.api.authLoginByok()
+    if (!isApiError(result) && result.success) {
+      set((s) => {
+        s.authState = { authenticated: true, mode: 'byok', user: null }
+      })
+    }
+  },
+
   logout: async () => {
     try {
       const result = await window.api.authLogout()
@@ -74,7 +84,7 @@ export const createAuthSlice: StateCreator<
         return
       }
       set((s) => {
-        s.authState = { authenticated: false, user: null }
+        s.authState = { authenticated: false, mode: 'none', user: null }
       })
     } catch {
       get().addToast('Logout failed. Please try again.', 'error')

@@ -24,7 +24,7 @@ describe('OnboardingModal — Welcome Step', () => {
     render(<OnboardingModal onComplete={vi.fn()} />)
 
     await user.click(screen.getByText('Get Started'))
-    expect(screen.getByRole('heading', { name: 'Sign in with GitHub' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Connect your AI provider' })).toBeInTheDocument()
   })
 })
 
@@ -88,7 +88,7 @@ describe('OnboardingModal — Auth Step', () => {
     render(<OnboardingModal onComplete={vi.fn()} />)
 
     await user.click(screen.getByText('Get Started'))
-    expect(screen.getByRole('heading', { name: 'Sign in with GitHub' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Connect your AI provider' })).toBeInTheDocument()
 
     await user.click(screen.getByText('Back'))
     expect(screen.getByText('Welcome to Copilot Desktop Hub')).toBeInTheDocument()

@@ -95,7 +95,7 @@ describe('Store — Auth Actions', () => {
 
   it('logout success clears auth state', async () => {
     useAppStore.setState({
-      authState: { authenticated: true, user: { login: 'u', avatar_url: '', name: '' } }
+      authState: { authenticated: true, mode: 'copilot' as const, user: { login: 'u', avatar_url: '', name: '' } }
     })
     mockApi.authLogout.mockResolvedValue(undefined)
 
@@ -107,7 +107,7 @@ describe('Store — Auth Actions', () => {
 
   it('logout error shows toast and keeps auth state', async () => {
     useAppStore.setState({
-      authState: { authenticated: true, user: { login: 'u', avatar_url: '', name: '' } }
+      authState: { authenticated: true, mode: 'copilot' as const, user: { login: 'u', avatar_url: '', name: '' } }
     })
     mockApi.authLogout.mockResolvedValue({ error: 'fail' })
 

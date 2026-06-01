@@ -158,8 +158,11 @@ export interface AuthUser {
   name: string | null
 }
 
+export type AuthMode = 'copilot' | 'byok' | 'none'
+
 export interface AuthStatus {
   authenticated: boolean
+  mode: AuthMode
   user: AuthUser | null
 }
 
@@ -415,6 +418,7 @@ export type IpcReturnMap = {
   // Auth
   'auth:device-code': void
   'auth:login': AuthLoginResult
+  'auth:login-byok': { success: boolean }
   'auth:logout': void
   'auth:status': AuthStatus
   // Chat
@@ -434,6 +438,7 @@ export type IpcReturnMap = {
   'cli:status': void
   // Context
   'context:git': string
+  'context:git-diff': string
   'context:read-file': ContextFileResult
   'context:workspace-summary': string
   // Conversation
@@ -573,6 +578,7 @@ export type IpcChannels =
   | 'app:set-theme'
   | 'auth:device-code'
   | 'auth:login'
+  | 'auth:login-byok'
   | 'auth:logout'
   | 'auth:status'
   | 'chat:new'
@@ -592,6 +598,7 @@ export type IpcChannels =
   | 'cli:check'
   | 'cli:status'
   | 'context:git'
+  | 'context:git-diff'
   | 'context:read-file'
   | 'context:workspace-summary'
   | 'conversation:create'

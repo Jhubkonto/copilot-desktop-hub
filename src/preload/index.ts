@@ -38,6 +38,7 @@ const api = {
   // Auth
   authStatus: () => typedInvoke('auth:status'),
   authLogin: () => typedInvoke('auth:login'),
+  authLoginByok: () => typedInvoke('auth:login-byok'),
   authLogout: () => typedInvoke('auth:logout'),
   onDeviceCode: (
     callback: (data: { userCode: string; verificationUri: string }) => void
@@ -128,6 +129,7 @@ const api = {
   readContextFile: (filePath: string) => typedInvoke('context:read-file', filePath),
   getWorkspaceSummary: () => typedInvoke('context:workspace-summary'),
   getGitContext: () => typedInvoke('context:git'),
+  getGitDiff: () => typedInvoke('context:git-diff'),
 
   // Agents
   listAgents: () => typedInvoke('agent:list'),

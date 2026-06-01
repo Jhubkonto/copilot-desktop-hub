@@ -31,9 +31,12 @@ export function SettingsPanel() {
   const setGlobalDefaultModel = useAppStore((s) => s.setGlobalDefaultModel)
   const catalogModels = useAppStore((s) => s.catalogModels)
 
+  const authMode = useAppStore((s) => s.authState.mode)
   const onClose = () => setShowSettings(false)
   const onOpenMcp = () => { setShowSettings(false); setShowMcpPanel(true) }
-  const [category, setCategory] = useState<SettingsCategory>('general')
+  const [category, setCategory] = useState<SettingsCategory>(() =>
+    authMode === 'byok' ? 'providers' : 'general'
+  )
   const [autoStart, setAutoStart] = useState(false)
   const [autoClipboard, setAutoClipboard] = useState(false)
   const [providers, setProviders] = useState<ProviderInfo[]>([])
@@ -371,6 +374,14 @@ export function SettingsPanel() {
               </>
             ) : (
               <>
+                {authMode === 'byok' && providers.every((p) => !p.configured) && (
+                  <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 mb-1">
+                    <span className="text-blue-500 shrink-0 mt-0.5">🔑</span>
+                    <p className="text-xs text-blue-700 dark:text-blue-300">
+                      You're in API key mode — configure at least one provider below to start chatting.
+                    </p>
+                  </div>
+                )}
                 {providers.map((provider) => (
                   <div
                     key={provider.name}

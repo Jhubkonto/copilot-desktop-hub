@@ -231,6 +231,7 @@ describe('Auth — IPC Handler Registration', () => {
     const result = await handler({} as Electron.IpcMainInvokeEvent)
     expect(result).toEqual({
       authenticated: true,
+      mode: 'copilot',
       user: { login: 'testuser', avatar_url: '', name: null }
     })
   })
@@ -240,7 +241,7 @@ describe('Auth — IPC Handler Registration', () => {
       event: Electron.IpcMainInvokeEvent
     ) => Promise<{ authenticated: boolean; user: unknown }>
     const result = await handler({} as Electron.IpcMainInvokeEvent)
-    expect(result).toEqual({ authenticated: false, user: null })
+    expect(result).toEqual({ authenticated: false, mode: 'none', user: null })
   })
 
   it('auth-m-8: auth:logout clears token', async () => {

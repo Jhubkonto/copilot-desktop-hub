@@ -63,6 +63,7 @@ describe('authSlice', () => {
 
     expect(store.getState().authState).toEqual({
       authenticated: true,
+      mode: 'copilot',
       user: { login: 'octocat', avatar_url: 'url', name: 'Octo Cat' }
     })
     expect(store.getState().authLoading).toBe(false)
@@ -75,6 +76,7 @@ describe('authSlice', () => {
     store.setState({
       authState: {
         authenticated: true,
+        mode: 'copilot' as const,
         user: { login: 'octocat', avatar_url: 'url', name: 'Octo Cat' }
       }
     })
@@ -83,6 +85,7 @@ describe('authSlice', () => {
 
     expect(store.getState().authState).toEqual({
       authenticated: false,
+      mode: 'none',
       user: null
     })
   })

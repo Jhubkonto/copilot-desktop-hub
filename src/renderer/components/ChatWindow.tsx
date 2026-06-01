@@ -23,6 +23,7 @@ export function ChatWindow() {
   const agents = useAppStore((state) => state.agents)
   const conversations = useAppStore((state) => state.conversations)
   const authenticated = useAppStore((state) => state.authState.authenticated)
+  const authMode = useAppStore((state) => state.authState.mode)
   const theme = useAppStore((state) => state.theme)
   const conversationCreated = useAppStore((state) => state.conversationCreated)
   const loadConversations = useAppStore((state) => state.loadConversations)
@@ -138,8 +139,9 @@ export function ChatWindow() {
   const slashMenu = useSlashMenu()
   const atMenu = useAtMenu({ input, setInput, projectId: chatProjectId })
   const mergedContextRefs = useMemo(() => {
-    if (!clipboardRef) return atMenu.contextRefs
-    return [...atMenu.contextRefs, clipboardRef]
+    const refs = [...atMenu.contextRefs]
+    if (clipboardRef) refs.push(clipboardRef)
+    return refs
   }, [atMenu.contextRefs, clipboardRef])
   const timers = useTimers({
     isGenerating: chat.isGenerating,
@@ -208,7 +210,9 @@ export function ChatWindow() {
     setTheme,
     loadAgents,
     loadConversations,
-    onAfterSend: () => setClipboardRef(null),
+    onAfterSend: () => {
+      setClipboardRef(null)
+    },
     onEditStateConsumed: chat.clearEditState,
   })
 
@@ -230,6 +234,7 @@ export function ChatWindow() {
       window.removeEventListener('offline', goOffline)
     }
   }, [])
+
 
   useEffect(() => {
     if (!chatProjectId || chatProjectId === '__none__') {
@@ -807,7 +812,7 @@ export function ChatWindow() {
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
               {chatAgent ? `Start a conversation with ${chatAgent.name}` : 'Start a conversation with GitHub Copilot'}
             </p>
-            {!authenticated && (
+            {authMode === 'none' && (
               <button
                 type="button"
                 onClick={() => void login()}
