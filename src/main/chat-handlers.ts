@@ -24,6 +24,9 @@ import { parseProjectConfig } from "./project-handlers";
 import { listDirectoryEntries } from "./file-handlers";
 import { getAvailableMcpTools } from "./mcp";
 import { runProviderMcpToolLoop } from './tool-loop'
+import { getRelevantWikiEntries, formatWikiSection } from './wiki-context'
+import { insertWikiEntry } from './wiki-handlers'
+import { requestApproval } from './tools'
 
 // Session-scoped cache for directory listings. Keyed by project ID.
 // Entries are invalidated when the project's rootDirectory changes.
@@ -313,6 +316,7 @@ export function registerChatHandlers(): void {
 
       // ── Project context injection ─────────────────────────────────────────
       let injectedRootDirectory: string | null = null
+      let wikiProjectId: string | null = null
       {
         const convProjectId =
           projectId ??
@@ -323,6 +327,7 @@ export function registerChatHandlers(): void {
           )?.project_id ??
           null;
         if (convProjectId) {
+          wikiProjectId = convProjectId
           const projRow = db
             .prepare("SELECT config_json FROM projects WHERE id = ?")
             .get(convProjectId) as { config_json: string | null } | undefined;
@@ -506,6 +511,21 @@ export function registerChatHandlers(): void {
             }
           }
         }
+
+        // Auto-inject relevant wiki entries on the first message
+        const wikiMsgCount = db
+          .prepare("SELECT COUNT(*) as count FROM messages WHERE conversation_id = ?")
+          .get(conversationId) as { count: number }
+        if (wikiMsgCount.count === 1 && convProjectId) {
+          const wikiEntries = getRelevantWikiEntries(db, convProjectId, content)
+          if (wikiEntries.length > 0) {
+            const wikiBlock = formatWikiSection(wikiEntries)
+            augmentedContent = `${wikiBlock}\n\n${augmentedContent}`
+            if (!window.webContents.isDestroyed()) {
+              window.webContents.send('chat:wiki-injected', { count: wikiEntries.length })
+            }
+          }
+        }
       }
 
       let responseContent: string;
@@ -538,6 +558,73 @@ export function registerChatHandlers(): void {
       const modelIdentityInstruction =
         `Runtime model for this conversation: ${effectiveModelName}. ` +
         "If the user asks which model or language model is running this chat, answer with this exact value.";
+
+      // ── Wiki tools: available for all project conversations ──
+      type InlineHandler = (args: Record<string, unknown>) => Promise<{ success: boolean; result?: string; error?: string }>
+      const wikiInlineHandlers = new Map<string, InlineHandler>()
+      const wikiToolDefs: ToolDefinition[] = []
+      if (wikiProjectId) {
+        wikiToolDefs.push(
+          {
+            type: 'function' as const,
+            function: {
+              name: 'search_project_wiki',
+              description: 'Search the project wiki for relevant knowledge, decisions, procedures, or facts. Use this when the user asks about project-specific information that may have been documented.',
+              parameters: {
+                type: 'object',
+                properties: {
+                  query: { type: 'string', description: 'Keywords or question to search for in the project wiki' }
+                },
+                required: ['query']
+              }
+            }
+          },
+          {
+            type: 'function' as const,
+            function: {
+              name: 'create_wiki_entry',
+              description: 'Save a new entry to the project wiki. Use this to preserve important facts, decisions, or procedures. Always requires explicit user approval before saving.',
+              parameters: {
+                type: 'object',
+                properties: {
+                  title: { type: 'string', description: 'Short descriptive title for the wiki entry' },
+                  body: { type: 'string', description: 'Full content of the wiki entry in markdown' },
+                  tags: { type: 'array', items: { type: 'string' }, description: 'Optional tags to categorize the entry' }
+                },
+                required: ['title', 'body']
+              }
+            }
+          }
+        )
+
+        const capturedProjectId = wikiProjectId
+        const capturedDb = db
+        const capturedWebContents = window.webContents
+
+        wikiInlineHandlers.set('search_project_wiki', async (args) => {
+          const query = typeof args.query === 'string' ? args.query : String(args.query ?? '')
+          const entries = getRelevantWikiEntries(capturedDb, capturedProjectId, query)
+          if (entries.length === 0) return { success: true, result: 'No relevant wiki entries found for this query.' }
+          return { success: true, result: formatWikiSection(entries) }
+        })
+
+        wikiInlineHandlers.set('create_wiki_entry', async (args) => {
+          if (capturedWebContents.isDestroyed()) return { success: false, error: 'Window closed — cannot request approval' }
+          const approved = await requestApproval(
+            capturedWebContents,
+            'create_wiki_entry',
+            args,
+            `Save wiki entry: "${args.title}"`,
+            { noRemember: true }
+          )
+          if (!approved) return { success: false, error: 'User declined wiki entry creation' }
+          const title = typeof args.title === 'string' ? args.title : String(args.title ?? '')
+          const body = typeof args.body === 'string' ? args.body : String(args.body ?? '')
+          const tags = Array.isArray(args.tags) ? (args.tags as string[]).map(String) : []
+          insertWikiEntry(capturedDb, capturedProjectId, title, body, tags, { conversationId })
+          return { success: true, result: `Wiki entry "${title}" saved to the project wiki.` }
+        })
+      }
 
       // Try BYOK provider if configured
       const byokKey =
@@ -767,7 +854,7 @@ export function registerChatHandlers(): void {
             ? getAvailableMcpTools(assignedServerIds)
             : [];
 
-          if (anthropicMcpTools.length > 0) {
+          if (anthropicMcpTools.length > 0 || wikiToolDefs.length > 0) {
             const toolMap = new Map<string, { serverId: string; toolName: string }>();
             const toolDefs: ToolDefinition[] = anthropicMcpTools.map((t) => {
               const namespacedName = `${t.serverId}__${t.name}`;
@@ -781,6 +868,26 @@ export function registerChatHandlers(): void {
                 },
               };
             });
+            toolDefs.push(...wikiToolDefs)
+            const hasMcpTools = anthropicMcpTools.length > 0
+            const hasWikiTools = wikiToolDefs.length > 0
+            const browserDirective = hasMcpTools
+              ? `You have browser automation tools available: ${anthropicMcpTools.map(t => t.name).join(', ')}. ` +
+                'CRITICAL: Only use these tools when the user\'s request explicitly requires interacting with a web browser or web page. ' +
+                'For conversational questions, general knowledge, or anything that does not require a browser, respond directly WITHOUT calling any tools. ' +
+                'When a browser task IS required, call the tools immediately and completely — ' +
+                'do NOT say you "will" do something, just do it. ' +
+                'After any inspection step (e.g. browser_snapshot), take the next required action immediately — ' +
+                'do NOT narrate your findings before acting. ' +
+                'Continue calling tools until the task is fully finished, then give a brief summary.'
+              : ''
+            const wikiDirective = hasWikiTools
+              ? 'You have access to the project wiki tools: search_project_wiki and create_wiki_entry. ' +
+                'Use search_project_wiki when the user asks about project-specific knowledge, decisions, or procedures. ' +
+                'Use create_wiki_entry only when the user explicitly asks to save something to the wiki — it always requires user approval. ' +
+                'For all other questions, respond directly without calling any tools.'
+              : ''
+            const toolDirective = [browserDirective, wikiDirective].filter(Boolean).join('\n\n')
             responseContent = await runProviderMcpToolLoop(
               (msgs, tools, choice) =>
                 sendAnthropicWithTools(
@@ -799,6 +906,8 @@ export function registerChatHandlers(): void {
               (chunk) => window.webContents.send("chat:stream-response", chunk),
               undefined,
               agenticMode,
+              wikiInlineHandlers.size > 0 ? wikiInlineHandlers : undefined,
+              toolDirective,
             );
             window.webContents.send("chat:stream-response", null);
           } else {
@@ -886,8 +995,8 @@ export function registerChatHandlers(): void {
           const assignedServerIds = Array.isArray(agentCfg2?.mcpServers) ? agentCfg2.mcpServers as string[] : []
           const mcpTools = assignedServerIds.length > 0 ? getAvailableMcpTools(assignedServerIds) : []
 
-          if (mcpTools.length > 0) {
-            // Namespace tool names to avoid cross-server collisions
+          if (mcpTools.length > 0 || wikiToolDefs.length > 0) {
+            // Namespace MCP tool names to avoid cross-server collisions; wiki tools are unnamespaced
             const toolMap = new Map<string, { serverId: string; toolName: string }>()
             const toolDefs: ToolDefinition[] = mcpTools.map((t) => {
               const namespacedName = `${t.serverId}__${t.name}`
@@ -901,6 +1010,26 @@ export function registerChatHandlers(): void {
                 }
               }
             })
+            toolDefs.push(...wikiToolDefs)
+            const hasMcpTools = mcpTools.length > 0
+            const hasWikiTools = wikiToolDefs.length > 0
+            const browserDirective = hasMcpTools
+              ? `You have browser automation tools available: ${mcpTools.map(t => t.name).join(', ')}. ` +
+                'CRITICAL: Only use these tools when the user\'s request explicitly requires interacting with a web browser or web page. ' +
+                'For conversational questions, general knowledge, or anything that does not require a browser, respond directly WITHOUT calling any tools. ' +
+                'When a browser task IS required, call the tools immediately and completely — ' +
+                'do NOT say you "will" do something, just do it. ' +
+                'After any inspection step (e.g. browser_snapshot), take the next required action immediately — ' +
+                'do NOT narrate your findings before acting. ' +
+                'Continue calling tools until the task is fully finished, then give a brief summary.'
+              : ''
+            const wikiDirective = hasWikiTools
+              ? 'You have access to the project wiki tools: search_project_wiki and create_wiki_entry. ' +
+                'Use search_project_wiki when the user asks about project-specific knowledge, decisions, or procedures. ' +
+                'Use create_wiki_entry only when the user explicitly asks to save something to the wiki — it always requires user approval. ' +
+                'For all other questions, respond directly without calling any tools.'
+              : ''
+            const toolDirective = [browserDirective, wikiDirective].filter(Boolean).join('\n\n')
             responseContent = await runProviderMcpToolLoop(
               (msgs, tools, choice) =>
                 sendCopilotNonStreaming(
@@ -918,6 +1047,8 @@ export function registerChatHandlers(): void {
               (chunk) => window.webContents.send("chat:stream-response", chunk),
               handleStreamModel,
               agenticMode,
+              wikiInlineHandlers.size > 0 ? wikiInlineHandlers : undefined,
+              toolDirective,
             )
           } else {
             responseContent = await sendCopilotChatMessage(

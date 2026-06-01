@@ -633,6 +633,78 @@ export async function sendAzureMessage(
   })
 }
 
+/**
+ * Non-streaming OpenAI-compatible completion. Used for background tasks like wiki extraction.
+ */
+export async function sendOpenAINonStreaming(
+  apiKey: string,
+  model: string,
+  messages: ProviderMessage[],
+  options: { maxTokens?: number; temperature?: number } = {}
+): Promise<import('./copilot-api').CopilotNonStreamResult> {
+  const body = JSON.stringify({
+    model,
+    messages: toOpenAICompatibleMessages(messages),
+    stream: false,
+    max_tokens: options.maxTokens ?? 4096,
+    temperature: options.temperature ?? 0.3
+  })
+
+  const { status, data } = await httpsRequest(
+    'https://api.openai.com/v1/chat/completions',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Length': String(Buffer.byteLength(body))
+      }
+    },
+    body
+  )
+
+  if (status >= 400) {
+    let message = `OpenAI API error (HTTP ${status})`
+    try {
+      const parsed = JSON.parse(data)
+      if (parsed.error?.message) message = parsed.error.message
+    } catch { /* use default */ }
+    throw new Error(message)
+  }
+
+  const parsed = JSON.parse(data)
+  const msg = parsed.choices?.[0]?.message
+  return {
+    content: typeof msg?.content === 'string' ? msg.content : null,
+    toolCalls: []
+  }
+}
+
+/**
+ * Provider-agnostic non-streaming completion. Routes to the correct backend based on provider.
+ * Falls back to GitHub Copilot if the provider is 'copilot' or no API key is available.
+ */
+export async function sendProviderNonStreaming(
+  provider: ProviderName,
+  apiKey: string | null,
+  model: string,
+  messages: ProviderMessage[],
+  options: { maxTokens?: number; temperature?: number } = {}
+): Promise<import('./copilot-api').CopilotNonStreamResult> {
+  if (provider === 'anthropic' && apiKey) {
+    return sendAnthropicWithTools(apiKey, model, messages, [], 'none', options)
+  }
+  if (provider === 'openai' && apiKey) {
+    return sendOpenAINonStreaming(apiKey, model, messages, options)
+  }
+  // Copilot and Azure fall back to the Copilot API (Azure extraction support can be added later)
+  const { sendCopilotNonStreaming } = await import('./copilot-api')
+  return sendCopilotNonStreaming(messages, undefined, model, {
+    maxTokens: options.maxTokens ?? 2000,
+    temperature: options.temperature ?? 0.3
+  })
+}
+
 export function getAzureEndpoint(): string | null {
   const db = getDatabase()
   const row = db.prepare("SELECT value FROM settings WHERE key = 'byok_azure_endpoint'").get() as { value: string } | undefined

@@ -304,6 +304,11 @@ const api = {
     typedOn('chat:team-step-stream', handler)
     return () => typedOff('chat:team-step-stream', handler)
   },
+  onWikiInjected: (callback: (data: { count: number }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { count: number }) => callback(data)
+    typedOn('chat:wiki-injected', handler)
+    return () => typedOff('chat:wiki-injected', handler)
+  },
 
   // Window controls
   minimizeWindow: () => typedInvoke('window:minimize'),

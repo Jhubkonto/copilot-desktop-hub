@@ -53,13 +53,13 @@ export interface ChatMessage {
 }
 
 export interface ContextRef {
-  key: 'workspace' | 'git' | 'file' | 'clipboard'
+  key: 'workspace' | 'git' | 'file' | 'clipboard' | 'wiki'
   token: string
   value?: string
 }
 
 export interface AtContextOption {
-  token: '@workspace' | '@git' | '@file:'
+  token: '@workspace' | '@git' | '@file:' | '@wiki'
   key: ContextRef['key']
   description: string
 }
@@ -119,6 +119,11 @@ export const AT_CONTEXT_OPTIONS: AtContextOption[] = [
     token: '@file:',
     key: 'file',
     description: 'Attach file by path (example: @file:src/main.ts)',
+  },
+  {
+    token: '@wiki',
+    key: 'wiki',
+    description: 'Attach project wiki entries',
   },
 ]
 

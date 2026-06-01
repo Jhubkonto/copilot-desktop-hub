@@ -1,12 +1,6 @@
 import { useState } from 'react'
 import { X, ChevronDown, ChevronUp } from 'lucide-react'
-import type { ContextSnapshot } from '../hooks/chat-types'
-
-interface ContextRef {
-  key: 'workspace' | 'git' | 'file' | 'clipboard'
-  token: string
-  value?: string
-}
+import type { ContextRef, ContextSnapshot } from '../hooks/chat-types'
 
 interface Attachment {
   id: string
@@ -37,6 +31,7 @@ const REF_TOKEN_ESTIMATE: Record<string, number> = {
   workspace: 500,
   git: 200,
   file: 300,
+  wiki: 1000,
 }
 
 function estimateTokens(chars: number): number {

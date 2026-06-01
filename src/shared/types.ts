@@ -426,6 +426,7 @@ export type IpcReturnMap = {
   'chat:team-step-stream': void
   'chat:activity': void
   'chat:stream-model': void
+  'chat:wiki-injected': { count: number }
   // CLI
   'cli:check': void
   'cli:status': void
@@ -582,6 +583,7 @@ export type IpcChannels =
   | 'chat:team-step-stream'
   | 'chat:activity'
   | 'chat:stream-model'
+  | 'chat:wiki-injected'
   | 'clipboard:auto-focus'
   | 'clipboard:read-content'
   | 'clipboard:read-image'

@@ -136,7 +136,7 @@ export function ChatWindow() {
   })
   const fileInput = useFileInput()
   const slashMenu = useSlashMenu()
-  const atMenu = useAtMenu({ input, setInput })
+  const atMenu = useAtMenu({ input, setInput, projectId: chatProjectId })
   const mergedContextRefs = useMemo(() => {
     if (!clipboardRef) return atMenu.contextRefs
     return [...atMenu.contextRefs, clipboardRef]
@@ -156,6 +156,7 @@ export function ChatWindow() {
     effectiveModelLabel,
     conversationModel,
     catalogModels,
+    globalDefaultModel: defaultModelSetting ?? null,
     theme,
     input,
     setInput,
@@ -306,6 +307,22 @@ export function ChatWindow() {
     })
     return unsubscribe
   }, [])
+
+  useEffect(() => {
+    const unsubscribe = window.api.onWikiInjected(({ count }) => {
+      const label = count === 1 ? 'wiki entry' : 'wiki entries'
+      chat.setMessages((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          role: 'system' as const,
+          content: `📖 ${count} project ${label} auto-injected into this conversation.`,
+          timestamp: Date.now(),
+        },
+      ])
+    })
+    return unsubscribe
+  }, [chat.setMessages])
 
   const scrollToBottom = useCallback(() => {
     const el = scrollContainerRef.current

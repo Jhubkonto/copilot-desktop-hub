@@ -1,7 +1,8 @@
 import { randomUUID } from 'crypto'
-import { sendCopilotNonStreaming } from './copilot-api'
 import { getDatabase } from './database'
+import type Database from 'better-sqlite3'
 import type { ProviderMessage } from './providers'
+import { getProviderForAgent, getApiKey, sendProviderNonStreaming } from './providers'
 import { safeHandle } from './safe-handle'
 import type { WikiCandidate, WikiEntry, WikiExtractionResult } from '../shared/types'
 
@@ -53,6 +54,32 @@ export function findFuzzyMatch(
   return null
 }
 
+export function insertWikiEntry(
+  db: Database.Database,
+  projectId: string,
+  title: string,
+  body: string,
+  tags: string[],
+  sourceInfo?: { conversationId?: string; messageId?: string }
+): WikiEntry {
+  const id = randomUUID()
+  const now = Date.now()
+  db.prepare(
+    'INSERT INTO project_wiki_entries (id, project_id, title, body, tags, source_conversation_id, source_message_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(
+    id,
+    projectId,
+    String(title).slice(0, 200),
+    String(body),
+    JSON.stringify(tags ?? []),
+    sourceInfo?.conversationId ?? null,
+    sourceInfo?.messageId ?? null,
+    now,
+    now,
+  )
+  return parseRow(db.prepare('SELECT * FROM project_wiki_entries WHERE id = ?').get(id) as Parameters<typeof parseRow>[0])
+}
+
 export function registerWikiHandlers(): void {
   const db = getDatabase()
 
@@ -66,24 +93,7 @@ export function registerWikiHandlers(): void {
   safeHandle(
     'wiki:create-entry',
     (_event, projectId: string, title: string, body: string, tags: string[], sourceInfo?: { conversationId?: string; messageId?: string }) => {
-      const id = randomUUID()
-      const now = Date.now()
-      const sourceConversationId = sourceInfo?.conversationId ?? null
-      const sourceMessageId = sourceInfo?.messageId ?? null
-      db.prepare(
-        'INSERT INTO project_wiki_entries (id, project_id, title, body, tags, source_conversation_id, source_message_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-      ).run(
-        id,
-        projectId,
-        String(title).slice(0, 200),
-        String(body),
-        JSON.stringify(tags ?? []),
-        sourceConversationId,
-        sourceMessageId,
-        now,
-        now,
-      )
-      return parseRow(db.prepare('SELECT * FROM project_wiki_entries WHERE id = ?').get(id) as Parameters<typeof parseRow>[0])
+      return insertWikiEntry(db, projectId, title, body, tags, sourceInfo)
     }
   )
 
@@ -117,7 +127,30 @@ export function registerWikiHandlers(): void {
       .map((row) => `${row.role === 'user' ? 'User' : 'Assistant'}: ${row.content}`)
       .join('\n\n')
 
-    const extractionModel = model ?? 'gpt-4o-mini'
+    // Resolve which provider+model to use for extraction.
+    // Prefer the project's primary agent's configured provider; fall back to Copilot gpt-4o-mini.
+    let extractionProvider: ReturnType<typeof getProviderForAgent>
+    if (model) {
+      extractionProvider = getProviderForAgent(model)
+    } else {
+      const agentRow = db.prepare(
+        'SELECT a.config_json FROM project_agents pa JOIN agents a ON pa.agent_id = a.id WHERE pa.project_id = ? AND pa.is_primary = 1 LIMIT 1'
+      ).get(projectId) as { config_json: string } | undefined
+
+      const agentModel = (() => {
+        try {
+          const cfg = JSON.parse(agentRow?.config_json ?? '{}') as Record<string, unknown>
+          return typeof cfg.model === 'string' && cfg.model ? cfg.model : 'gpt-4o-mini'
+        } catch {
+          return 'gpt-4o-mini'
+        }
+      })()
+      extractionProvider = getProviderForAgent(agentModel)
+    }
+
+    const { provider, model: resolvedModel } = extractionProvider
+    const apiKey = getApiKey(provider)
+
     const systemPrompt = `You are a knowledge extraction assistant. Analyze this conversation and extract factual learnings, decisions, and procedures as structured wiki entries.
 
 Return a JSON array (and NOTHING else — no markdown, no preamble) with this schema:
@@ -141,10 +174,11 @@ Guidelines:
       { role: 'user', content: `Here is the conversation to analyze:\n\n${transcript.slice(0, 12000)}` },
     ]
 
-    const result = await sendCopilotNonStreaming(
+    const result = await sendProviderNonStreaming(
+      provider,
+      apiKey,
+      resolvedModel,
       messages,
-      undefined,
-      extractionModel,
       { maxTokens: 2000, temperature: 0.3 },
     )
 

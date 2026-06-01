@@ -43,10 +43,12 @@ export async function runProviderMcpToolLoop(
   webContents: Electron.WebContents,
   onChunk: (chunk: string) => void,
   onModel?: (model: string) => void,
-  agenticMode?: boolean
+  agenticMode?: boolean,
+  inlineHandlers?: Map<string, (args: Record<string, unknown>) => Promise<{ success: boolean; result?: string; error?: string }>>,
+  toolDirective?: string
 ): Promise<string> {
   const toolNames = [...new Set(toolDefs.map((t) => t.function.name.split('__').pop()))].join(', ')
-  const directive =
+  const directive = toolDirective ??
     `You have browser automation tools available: ${toolNames}. ` +
     'CRITICAL: Only use these tools when the user\'s request explicitly requires interacting with a web browser or web page. ' +
     'For conversational questions, general knowledge, or anything that does not require a browser, respond directly WITHOUT calling any tools. ' +
@@ -133,9 +135,10 @@ export async function runProviderMcpToolLoop(
     for (const call of result.toolCalls) {
       const toolShortName = call.name.split('__').pop() ?? call.name
       const resolved = toolMap.get(call.name)
+      const inlineHandler = inlineHandlers?.get(call.name)
       let toolResultContent: string
       let toolImages: { dataUrl: string }[] | undefined
-      if (!resolved) {
+      if (!resolved && !inlineHandler) {
         toolResultContent = `Error: Unknown tool "${call.name}"`
         sendActivity({ type: 'tool', name: toolShortName, server: call.name.split('__')[0] ?? '' })
         if (!webContents.isDestroyed()) {
@@ -147,13 +150,30 @@ export async function runProviderMcpToolLoop(
             success: false
           })
         }
+      } else if (inlineHandler) {
+        sendActivity({ type: 'tool', name: call.name, server: 'Project Wiki' })
+        const toolResult = await inlineHandler(call.arguments as Record<string, unknown>)
+        toolResultContent = toolResult.success
+          ? (toolResult.result ?? '(no output)')
+          : `Error: ${toolResult.error ?? 'Tool execution failed'}`
+        if (!webContents.isDestroyed()) {
+          webContents.send('chat:tool-call-event', {
+            toolName: call.name,
+            serverName: 'Project Wiki',
+            args: call.arguments as Record<string, unknown>,
+            result: toolResultContent,
+            success: toolResult.success
+          })
+        }
       } else {
-        const serverInstance = servers.get(resolved.serverId)
-        const serverName = serverInstance?.config.name ?? resolved.serverId
+        // resolved is guaranteed non-null: the first branch handles !resolved && !inlineHandler
+        const mcpResolved = resolved!
+        const serverInstance = servers.get(mcpResolved.serverId)
+        const serverName = serverInstance?.config.name ?? mcpResolved.serverId
         sendActivity({ type: 'tool', name: toolShortName, server: serverName })
         const toolResult = await callMcpTool(
-          resolved.serverId,
-          resolved.toolName,
+          mcpResolved.serverId,
+          mcpResolved.toolName,
           call.arguments as Record<string, unknown>,
           agentId,
           webContents,

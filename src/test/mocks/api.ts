@@ -180,6 +180,7 @@ export function createMockApi() {
     extractWikiLearnings: vi.fn().mockResolvedValue({ candidates: [] }),
     onTeamActivity: vi.fn().mockReturnValue(() => {}),
     onTeamStepStream: vi.fn().mockReturnValue(() => {}),
+    onWikiInjected: vi.fn().mockReturnValue(() => {}),
 
     // Window controls
     minimizeWindow: vi.fn().mockResolvedValue(undefined),
