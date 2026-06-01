@@ -30,6 +30,7 @@ interface UseChatWindowActionsParams {
   effectiveModelLabel: string
   conversationModel: string | null
   catalogModels: CatalogModel[]
+  globalDefaultModel: string | null
   theme: Theme
   input: string
   setInput: Dispatch<SetStateAction<string>>
@@ -94,6 +95,7 @@ export function useChatWindowActions({
   effectiveModelLabel,
   conversationModel,
   catalogModels,
+  globalDefaultModel,
   theme,
   input,
   setInput,
@@ -304,7 +306,7 @@ export function useChatWindowActions({
 
     const effectiveRefs = [...contextRefs, ...autoRefs]
     const cleanedContent = content
-      .replace(/(?:^|\s)@(workspace|git)\b/gi, ' ')
+      .replace(/(?:^|\s)@(workspace|git|wiki)\b/gi, ' ')
       .replace(/(?:^|\s)@file:[^\s]+/gi, ' ')
       .replace(/\s{2,}/g, ' ')
       .trim()
@@ -334,7 +336,7 @@ export function useChatWindowActions({
       historyLength: messages.filter((message) => message.role !== 'system').length,
       estimatedTokens:
         tokenEstimate(systemPrompt) +
-        effectiveRefs.reduce((sum, ref) => sum + (ref.key === 'workspace' ? 500 : ref.key === 'git' ? 200 : 300), 0) +
+        effectiveRefs.reduce((sum, ref) => sum + (ref.key === 'workspace' ? 500 : ref.key === 'git' ? 200 : ref.key === 'wiki' ? 1000 : 300), 0) +
         messages.filter((message) => message.role !== 'system').length * 200 +
         tokenEstimate(userDisplayContent),
       model: effectiveModel,
@@ -528,12 +530,12 @@ export function useChatWindowActions({
         const result = await window.api.setConversationModel(conversationId, value)
         if (hasIpcError(result)) throw new Error(result.error)
         await loadConversations()
-        addToast(`Model set to ${getModelLabel(model, catalogModels)}`, 'success')
+        addToast(`Model set to ${getModelLabel(model, catalogModels, globalDefaultModel ?? undefined)}`, 'success')
       } catch {
         addToast('Failed to set conversation model', 'error')
       }
     },
-    [conversationId, loadConversations, catalogModels, addToast],
+    [conversationId, loadConversations, catalogModels, globalDefaultModel, addToast],
   )
 
   const handleStop = useCallback(async () => {

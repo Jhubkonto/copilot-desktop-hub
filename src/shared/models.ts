@@ -60,8 +60,13 @@ const MODEL_MULTIPLIERS_BY_NAME: Record<string, number> = {
   'Raptor mini (Preview)':     0.33,
 }
 
-export function getModelLabel(model: string | null | undefined, catalog?: CatalogModel[]): string {
-  if (!model || model === 'default') return 'GPT-4o (default)'
+export function getModelLabel(model: string | null | undefined, catalog?: CatalogModel[], globalDefaultModel?: string): string {
+  if (!model || model === 'default') {
+    if (globalDefaultModel && globalDefaultModel !== 'default') {
+      return `Global default (${getModelLabel(globalDefaultModel, catalog)})`
+    }
+    return 'Global default'
+  }
   if (catalog?.length) {
     const entry = catalog.find((item) => item.id === model)
     if (entry) return entry.name
