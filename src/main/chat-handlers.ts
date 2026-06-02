@@ -2,19 +2,22 @@ import { BrowserWindow } from "electron";
 import { randomUUID } from "crypto";
 import { existsSync, readFileSync } from "fs";
 import { basename } from "path";
-import { sendCopilotChatMessage, sendCopilotNonStreaming, abortCopilotStream, type CopilotApiError, type ToolDefinition } from "./copilot-api";
 import { getAgentConfig } from "./agents";
 import { getDatabase } from "./database";
+import type { ToolDefinition } from "./provider-types";
 import {
+  DEFAULT_PROVIDER_MODEL,
+  NO_PROVIDER_CONFIGURED_MESSAGE,
   getProviderForAgent,
   getApiKey,
   sendOpenAIMessage,
+  sendOpenAIWithTools,
   sendAnthropicMessage,
   sendAnthropicWithTools,
   sendAzureMessage,
+  sendAzureWithTools,
   getAzureEndpoint,
   abortActiveStream,
-  toOpenAICompatibleMessages,
   type MessageContentPart,
   type ProviderMessage,
 } from "./providers";
@@ -24,6 +27,9 @@ import { parseProjectConfig } from "./project-handlers";
 import { listDirectoryEntries } from "./file-handlers";
 import { getAvailableMcpTools } from "./mcp";
 import { runProviderMcpToolLoop } from './tool-loop'
+import { getAdapter } from './cli-adapters/registry'
+import { ClaudeAdapter } from './cli-adapters/claude'
+import { retrieveAuthMode } from './auth'
 import { getRelevantWikiEntries, formatWikiSection } from './wiki-context'
 import { insertWikiEntry } from './wiki-handlers'
 import { requestApproval } from './tools'
@@ -526,13 +532,10 @@ export function registerChatHandlers(): void {
 
       let responseContent: string;
 
-      // Determine which provider to use based on agent config
-      let providerName = "copilot";
-      let providerModel = "default";
+      // Determine which provider to use based on the selected or default model
       const agentCfg2 = convRow?.agent_id
         ? getAgentConfig(convRow.agent_id)
         : null;
-      void agentCfg2; // agent config used for other purposes; model is not sourced from agent
       const agenticMode = agentCfg2?.agenticMode === true
       const conversationModel =
         typeof convRow?.model === "string" ? convRow.model : undefined;
@@ -543,14 +546,9 @@ export function registerChatHandlers(): void {
             ? conversationModel
             : defaultModel !== "default"
               ? defaultModel
-              : undefined;
-      if (selectedModel && selectedModel !== "default") {
-        const resolved = getProviderForAgent(selectedModel);
-        providerName = resolved.provider;
-        providerModel = resolved.model;
-      }
-      const effectiveModelName =
-        selectedModel && selectedModel !== "default" ? selectedModel : "GitHub Copilot";
+              : DEFAULT_PROVIDER_MODEL;
+      const { provider: providerName, model: providerModel } = getProviderForAgent(selectedModel);
+      const effectiveModelName = selectedModel;
       const modelIdentityInstruction =
         `Runtime model for this conversation: ${effectiveModelName}. ` +
         "If the user asks which model or language model is running this chat, answer with this exact value.";
@@ -622,11 +620,7 @@ export function registerChatHandlers(): void {
         })
       }
 
-      // Try BYOK provider if configured
-      const byokKey =
-        providerName !== "copilot"
-          ? getApiKey(providerName as "openai" | "anthropic")
-          : null;
+      const byokKey = getApiKey(providerName);
 
       // Build conversation history from DB
       const historyRows = db
@@ -774,6 +768,26 @@ export function registerChatHandlers(): void {
               );
             }
 
+            // Audit log: write each delegation step to agent_delegations
+            if (teamActivity.length > 0) {
+              const insertDelegation = db.prepare(
+                "INSERT INTO agent_delegations (id, conversation_id, leader_agent_id, specialist_agent_id, task, result, status, duration_ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+              );
+              for (const step of teamActivity) {
+                insertDelegation.run(
+                  step.stepId,
+                  conversationId,
+                  primaryRow.agent_id,
+                  step.agentId,
+                  step.task,
+                  step.result ?? null,
+                  step.status === 'error' ? 'error' : 'done',
+                  step.durationMs ?? null,
+                  Date.now()
+                );
+              }
+            }
+
             responseContent = finalContent;
             const assistantMsgId = randomUUID();
             db.prepare(
@@ -793,6 +807,71 @@ export function registerChatHandlers(): void {
       }
       // ── End orchestration ─────────────────────────────────────────────────
 
+      const agentBackend = typeof agentCfg2?.backend === 'string' ? agentCfg2.backend : undefined
+      // Fall back to Claude CLI when no agent backend is set, no BYOK key is configured, and CLI is available
+      const effectiveBackend = agentBackend ?? (retrieveAuthMode() === 'none' && ClaudeAdapter.isAvailable() ? 'claude-cli' : undefined)
+      if (effectiveBackend) {
+        const adapter = getAdapter(effectiveBackend)
+        if (adapter?.isAvailable()) {
+          const cliSystemPrompt =
+            typeof agentCfg2?.systemPrompt === 'string' && agentCfg2.systemPrompt.trim().length > 0
+              ? `${agentCfg2.systemPrompt}\n\n${modelIdentityInstruction}`
+              : modelIdentityInstruction
+
+          try {
+            if (!window.webContents.isDestroyed()) {
+              window.webContents.send('chat:stream-model', effectiveBackend)
+            }
+
+            responseContent = await adapter.send(window, {
+              systemPrompt: cliSystemPrompt,
+              messages: [...contextMessages, { role: 'user' as const, content: userContent }],
+              cwd: process.cwd(),
+              model: (typeof agentCfg2?.cliModel === 'string' ? agentCfg2.cliModel : '') as string,
+              conversationId,
+            }, (chunk: string) => {
+              if (!window.webContents.isDestroyed()) {
+                window.webContents.send('chat:stream-response', chunk)
+              }
+            }, (event) => {
+              if (window.webContents.isDestroyed()) return
+              if (event.type === 'tool_start') {
+                window.webContents.send('chat:cli-tool-start', { id: event.id, name: event.name, input: event.input })
+              } else if (event.type === 'tool_end') {
+                window.webContents.send('chat:cli-tool-end', { id: event.id, content: event.content, isError: event.isError })
+              } else if (event.type === 'cost') {
+                window.webContents.send('chat:cli-cost', {
+                  totalCostUsd: event.totalCostUsd,
+                  inputTokens: event.inputTokens,
+                  outputTokens: event.outputTokens,
+                })
+              }
+            })
+
+            const assistantMsgId = randomUUID()
+            db.prepare(
+              "INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model) VALUES (?, ?, ?, ?, ?, ?, ?)"
+            ).run(
+              assistantMsgId,
+              conversationId,
+              'assistant',
+              responseContent,
+              null,
+              Date.now(),
+              agentBackend,
+            )
+
+            if (!window.webContents.isDestroyed()) {
+              window.webContents.send('chat:stream-response', null)
+            }
+
+            return { assistantMsgId }
+          } catch (err) {
+            console.error(`[cli-adapter] ${agentBackend} failed:`, err)
+          }
+        }
+      }
+
       let capturedStreamModel: string | null = null
       const handleStreamModel = (m: string) => {
         capturedStreamModel = m
@@ -801,103 +880,75 @@ export function registerChatHandlers(): void {
         }
       }
 
-      if (byokKey && providerName === "openai") {
-        try {
-          const messages: ProviderMessage[] = [
-            { role: "system" as const, content: modelIdentityInstruction },
-            ...contextMessages,
-            { role: "user" as const, content: userContent },
-          ];
-          responseContent = await sendOpenAIMessage(
-            conversationId,
-            byokKey,
-            providerModel,
-            messages,
-            (chunk) => {
-              window.webContents.send("chat:stream-response", chunk);
+      try {
+        const agentSystemPrompt =
+          typeof agentCfg2?.systemPrompt === "string"
+            ? agentCfg2.systemPrompt
+            : undefined;
+        const rootDirNote = injectedRootDirectory
+          ? `\n\nThe user's project root directory (${injectedRootDirectory}) has been scanned and its file tree is provided in the user message within [Project File Structure] tags. Treat it as real file system data — do NOT say you cannot access the file system.`
+          : "";
+        const systemPrompt = agentSystemPrompt
+          ? `${agentSystemPrompt}${rootDirNote}\n\n${modelIdentityInstruction}`
+          : `You are an AI programming assistant.${rootDirNote}\n\n${modelIdentityInstruction}`;
+        const chatMessages: ProviderMessage[] = [
+          { role: "system" as const, content: systemPrompt },
+          ...contextMessages,
+          { role: "user" as const, content: userContent },
+        ];
+        const assignedServerIds = Array.isArray(agentCfg2?.mcpServers)
+          ? agentCfg2.mcpServers as string[]
+          : [];
+        const mcpTools = assignedServerIds.length > 0
+          ? getAvailableMcpTools(assignedServerIds)
+          : [];
+        const toolMap = new Map<string, { serverId: string; toolName: string }>();
+        const toolDefs: ToolDefinition[] = mcpTools.map((t) => {
+          const namespacedName = `${t.serverId}__${t.name}`;
+          toolMap.set(namespacedName, { serverId: t.serverId, toolName: t.name });
+          return {
+            type: "function" as const,
+            function: {
+              name: namespacedName,
+              description: t.description ?? t.name,
+              parameters: (t.inputSchema ?? { type: "object", properties: {} }) as Record<string, unknown>,
             },
-            generationOptions,
-          );
-          window.webContents.send("chat:stream-response", null);
-        } catch (error) {
-          console.error("OpenAI error:", error);
-          const msg = `OpenAI API error: ${(error as Error).message}`;
-          window.webContents.send("chat:stream-error", {
-            type: "api",
-            message: msg,
-            retryable: true,
-          });
-          responseContent = msg;
-        }
-      } else if (byokKey && providerName === "anthropic") {
-        try {
-          const agentSystemPrompt =
-            typeof agentCfg2?.systemPrompt === "string"
-              ? agentCfg2.systemPrompt
-              : undefined;
-          const systemPrompt = agentSystemPrompt
-            ? `${agentSystemPrompt}\n\n${modelIdentityInstruction}`
-            : modelIdentityInstruction;
-          const messages: ProviderMessage[] = [
-            { role: "system" as const, content: systemPrompt },
-            ...contextMessages,
-            { role: "user" as const, content: userContent },
-          ];
-          const assignedServerIds = Array.isArray(agentCfg2?.mcpServers)
-            ? agentCfg2.mcpServers as string[]
-            : [];
-          const anthropicMcpTools = assignedServerIds.length > 0
-            ? getAvailableMcpTools(assignedServerIds)
-            : [];
+          };
+        });
+        toolDefs.push(...wikiToolDefs);
 
-          if (anthropicMcpTools.length > 0 || wikiToolDefs.length > 0) {
-            const toolMap = new Map<string, { serverId: string; toolName: string }>();
-            const toolDefs: ToolDefinition[] = anthropicMcpTools.map((t) => {
-              const namespacedName = `${t.serverId}__${t.name}`;
-              toolMap.set(namespacedName, { serverId: t.serverId, toolName: t.name });
-              return {
-                type: 'function' as const,
-                function: {
-                  name: namespacedName,
-                  description: t.description ?? t.name,
-                  parameters: (t.inputSchema ?? { type: 'object', properties: {} }) as Record<string, unknown>,
-                },
-              };
-            });
-            toolDefs.push(...wikiToolDefs)
-            const hasMcpTools = anthropicMcpTools.length > 0
-            const hasWikiTools = wikiToolDefs.length > 0
-            const browserDirective = hasMcpTools
-              ? `You have browser automation tools available: ${anthropicMcpTools.map(t => t.name).join(', ')}. ` +
-                'CRITICAL: Only use these tools when the user\'s request explicitly requires interacting with a web browser or web page. ' +
-                'For conversational questions, general knowledge, or anything that does not require a browser, respond directly WITHOUT calling any tools. ' +
-                'When a browser task IS required, call the tools immediately and completely — ' +
-                'do NOT say you "will" do something, just do it. ' +
-                'After any inspection step (e.g. browser_snapshot), take the next required action immediately — ' +
-                'do NOT narrate your findings before acting. ' +
-                'Continue calling tools until the task is fully finished, then give a brief summary.'
-              : ''
-            const wikiDirective = hasWikiTools
-              ? 'You have access to the project wiki tools: search_project_wiki and create_wiki_entry. ' +
-                'Use search_project_wiki when the user asks about project-specific knowledge, decisions, or procedures. ' +
-                'Use create_wiki_entry only when the user explicitly asks to save something to the wiki — it always requires user approval. ' +
-                'For all other questions, respond directly without calling any tools.'
-              : ''
-            const toolDirective = [browserDirective, wikiDirective].filter(Boolean).join('\n\n')
+        const hasToolLoop = toolDefs.length > 0;
+        const hasMcpTools = mcpTools.length > 0;
+        const hasWikiTools = wikiToolDefs.length > 0;
+        const browserDirective = hasMcpTools
+          ? `You have browser automation tools available: ${mcpTools.map((t) => t.name).join(", ")}. ` +
+            "CRITICAL: Only use these tools when the user's request explicitly requires interacting with a web browser or web page. " +
+            'For conversational questions, general knowledge, or anything that does not require a browser, respond directly WITHOUT calling any tools. ' +
+            'When a browser task IS required, call the tools immediately and completely — do NOT say you "will" do something, just do it. ' +
+            'After any inspection step (e.g. browser_snapshot), take the next required action immediately — do NOT narrate your findings before acting. ' +
+            'Continue calling tools until the task is fully finished, then give a brief summary.'
+          : "";
+        const wikiDirective = hasWikiTools
+          ? 'You have access to the project wiki tools: search_project_wiki and create_wiki_entry. ' +
+            'Use search_project_wiki when the user asks about project-specific knowledge, decisions, or procedures. ' +
+            'Use create_wiki_entry only when the user explicitly asks to save something to the wiki — it always requires user approval. ' +
+            'For all other questions, respond directly without calling any tools.'
+          : "";
+        const toolDirective = [browserDirective, wikiDirective].filter(Boolean).join("\n\n");
+
+        if (!byokKey) {
+          throw new Error(NO_PROVIDER_CONFIGURED_MESSAGE);
+        }
+
+        if (providerName === "anthropic") {
+          if (hasToolLoop) {
             responseContent = await runProviderMcpToolLoop(
               (msgs, tools, choice) =>
-                sendAnthropicWithTools(
-                  byokKey,
-                  providerModel,
-                  msgs,
-                  tools ?? [],
-                  choice,
-                  generationOptions,
-                ),
-              messages,
+                sendAnthropicWithTools(byokKey, providerModel, msgs, tools ?? [], choice, generationOptions),
+              chatMessages,
               toolDefs,
               toolMap,
-              agentId ?? convRow?.agent_id ?? 'default',
+              agentId ?? convRow?.agent_id ?? "default",
               window.webContents,
               (chunk) => window.webContents.send("chat:stream-response", chunk),
               undefined,
@@ -905,201 +956,92 @@ export function registerChatHandlers(): void {
               wikiInlineHandlers.size > 0 ? wikiInlineHandlers : undefined,
               toolDirective,
             );
-            window.webContents.send("chat:stream-response", null);
           } else {
             responseContent = await sendAnthropicMessage(
               conversationId,
               byokKey,
               providerModel,
-              messages.slice(1),
+              chatMessages.slice(1),
               systemPrompt,
               (chunk) => {
                 window.webContents.send("chat:stream-response", chunk);
               },
               generationOptions,
             );
-            window.webContents.send("chat:stream-response", null);
           }
-        } catch (error) {
-          console.error("Anthropic error:", error);
-          const msg = `Anthropic API error: ${(error as Error).message}`;
-          window.webContents.send("chat:stream-error", {
-            type: "api",
-            message: msg,
-            retryable: true,
-          });
-          responseContent = msg;
-        }
-      } else if (byokKey && providerName === "azure") {
-        try {
-          const azureEndpoint = getAzureEndpoint();
-          if (!azureEndpoint) throw new Error("Azure endpoint not configured");
-          const messages: ProviderMessage[] = [
-            { role: "system" as const, content: modelIdentityInstruction },
-            ...contextMessages,
-            { role: "user" as const, content: userContent },
-          ];
-          responseContent = await sendAzureMessage(
-            conversationId,
-            byokKey,
-            azureEndpoint,
-            providerModel,
-            messages,
-            (chunk) => {
-              window.webContents.send("chat:stream-response", chunk);
-            },
-            generationOptions,
-          );
-          window.webContents.send("chat:stream-response", null);
-        } catch (error) {
-          console.error("Azure error:", error);
-          const msg = `Azure API error: ${(error as Error).message}`;
-          window.webContents.send("chat:stream-error", {
-            type: "api",
-            message: msg,
-            retryable: true,
-          });
-          responseContent = msg;
-        }
-      } else {
-        // Use Copilot API with GitHub OAuth token (OpenAI-compatible, supports vision)
-        try {
-          const agentSystemPrompt =
-            typeof agentCfg2?.systemPrompt === "string"
-              ? agentCfg2.systemPrompt
-              : undefined;
-          const rootDirNote = injectedRootDirectory
-            ? `\n\nThe user's project root directory (${injectedRootDirectory}) has been scanned and its file tree is provided in the user message within [Project File Structure] tags. Treat it as real file system data — do NOT say you cannot access the file system.`
-            : '';
-          const chatMessages: ProviderMessage[] = [];
-          chatMessages.push({
-            role: "system" as const,
-            content: agentSystemPrompt
-              ? `${agentSystemPrompt}${rootDirNote}\n\n${modelIdentityInstruction}`
-              : `You are GitHub Copilot, an AI programming assistant.${rootDirNote}\n\n${modelIdentityInstruction}`,
-          });
-          chatMessages.push(...contextMessages);
-          chatMessages.push({ role: "user" as const, content: userContent });
-
-          // Use agent model or default
-          const copilotModel =
-            selectedModel && selectedModel !== "default"
-              ? selectedModel
-              : "gpt-4o";
-
-          // Build MCP tool definitions if the agent has servers assigned
-          const assignedServerIds = Array.isArray(agentCfg2?.mcpServers) ? agentCfg2.mcpServers as string[] : []
-          const mcpTools = assignedServerIds.length > 0 ? getAvailableMcpTools(assignedServerIds) : []
-
-          if (mcpTools.length > 0 || wikiToolDefs.length > 0) {
-            // Namespace MCP tool names to avoid cross-server collisions; wiki tools are unnamespaced
-            const toolMap = new Map<string, { serverId: string; toolName: string }>()
-            const toolDefs: ToolDefinition[] = mcpTools.map((t) => {
-              const namespacedName = `${t.serverId}__${t.name}`
-              toolMap.set(namespacedName, { serverId: t.serverId, toolName: t.name })
-              return {
-                type: 'function' as const,
-                function: {
-                  name: namespacedName,
-                  description: t.description ?? t.name,
-                  parameters: (t.inputSchema ?? { type: 'object', properties: {} }) as Record<string, unknown>
-                }
-              }
-            })
-            toolDefs.push(...wikiToolDefs)
-            const hasMcpTools = mcpTools.length > 0
-            const hasWikiTools = wikiToolDefs.length > 0
-            const browserDirective = hasMcpTools
-              ? `You have browser automation tools available: ${mcpTools.map(t => t.name).join(', ')}. ` +
-                'CRITICAL: Only use these tools when the user\'s request explicitly requires interacting with a web browser or web page. ' +
-                'For conversational questions, general knowledge, or anything that does not require a browser, respond directly WITHOUT calling any tools. ' +
-                'When a browser task IS required, call the tools immediately and completely — ' +
-                'do NOT say you "will" do something, just do it. ' +
-                'After any inspection step (e.g. browser_snapshot), take the next required action immediately — ' +
-                'do NOT narrate your findings before acting. ' +
-                'Continue calling tools until the task is fully finished, then give a brief summary.'
-              : ''
-            const wikiDirective = hasWikiTools
-              ? 'You have access to the project wiki tools: search_project_wiki and create_wiki_entry. ' +
-                'Use search_project_wiki when the user asks about project-specific knowledge, decisions, or procedures. ' +
-                'Use create_wiki_entry only when the user explicitly asks to save something to the wiki — it always requires user approval. ' +
-                'For all other questions, respond directly without calling any tools.'
-              : ''
-            const toolDirective = [browserDirective, wikiDirective].filter(Boolean).join('\n\n')
+        } else if (providerName === "openai") {
+          if (hasToolLoop) {
             responseContent = await runProviderMcpToolLoop(
               (msgs, tools, choice) =>
-                sendCopilotNonStreaming(
-                  toOpenAICompatibleMessages(msgs),
-                  tools,
-                  copilotModel,
-                  generationOptions,
-                  choice,
-                ),
+                sendOpenAIWithTools(byokKey, providerModel, msgs, tools ?? [], choice, generationOptions),
               chatMessages,
               toolDefs,
               toolMap,
-              agentId ?? convRow?.agent_id ?? 'default',
+              agentId ?? convRow?.agent_id ?? "default",
               window.webContents,
               (chunk) => window.webContents.send("chat:stream-response", chunk),
               handleStreamModel,
               agenticMode,
               wikiInlineHandlers.size > 0 ? wikiInlineHandlers : undefined,
               toolDirective,
-            )
+            );
           } else {
-            responseContent = await sendCopilotChatMessage(
-              window,
+            responseContent = await sendOpenAIMessage(
+              conversationId,
+              byokKey,
+              providerModel,
               chatMessages,
               (chunk) => {
                 window.webContents.send("chat:stream-response", chunk);
               },
-              copilotModel,
               generationOptions,
-              conversationId,
-              handleStreamModel,
             );
           }
-          window.webContents.send("chat:stream-response", null);
-        } catch (error) {
-          console.error("Copilot API error:", error);
-          const apiErr = error as CopilotApiError;
-          const errorType = apiErr.errorType || "network";
-          const retryable = apiErr.retryable ?? true;
-          const retryAfterSeconds = apiErr.retryAfterSeconds;
-          let friendlyMessage: string;
-          switch (errorType) {
-            case "auth":
-              friendlyMessage = "Authentication failed. Please sign in again.";
-              break;
-            case "model_not_available":
-              friendlyMessage =
-                "Model not available. Choose a different model and try again.";
-              break;
-            case "rate_limit":
-              friendlyMessage =
-                "Rate limited by Copilot API. Please wait a moment and try again.";
-              break;
-            case "server":
-              friendlyMessage =
-                "Copilot service is temporarily unavailable. Please try again.";
-              break;
-            case "empty_response":
-              friendlyMessage =
-                "Copilot returned an empty response. Please try again.";
-              break;
-            default:
-              friendlyMessage = `Copilot API error: ${(error as Error).message}`;
+        } else {
+          const azureEndpoint = getAzureEndpoint();
+          if (!azureEndpoint) {
+            throw new Error("Azure endpoint not configured");
           }
-          const streamErrorPayload: Record<string, unknown> = {
-            type: errorType,
-            message: friendlyMessage,
-            retryable,
-          };
-          if (retryAfterSeconds !== undefined)
-            streamErrorPayload.retryAfterSeconds = retryAfterSeconds;
-          window.webContents.send("chat:stream-error", streamErrorPayload);
-          responseContent = friendlyMessage;
+          if (hasToolLoop) {
+            responseContent = await runProviderMcpToolLoop(
+              (msgs, tools, choice) =>
+                sendAzureWithTools(byokKey, azureEndpoint, providerModel, msgs, tools ?? [], choice, generationOptions),
+              chatMessages,
+              toolDefs,
+              toolMap,
+              agentId ?? convRow?.agent_id ?? "default",
+              window.webContents,
+              (chunk) => window.webContents.send("chat:stream-response", chunk),
+              handleStreamModel,
+              agenticMode,
+              wikiInlineHandlers.size > 0 ? wikiInlineHandlers : undefined,
+              toolDirective,
+            );
+          } else {
+            responseContent = await sendAzureMessage(
+              conversationId,
+              byokKey,
+              azureEndpoint,
+              providerModel,
+              chatMessages,
+              (chunk) => {
+                window.webContents.send("chat:stream-response", chunk);
+              },
+              generationOptions,
+            );
+          }
         }
+
+        window.webContents.send("chat:stream-response", null);
+      } catch (error) {
+        console.error(`${providerName} error:`, error);
+        const message = error instanceof Error ? error.message : "Unexpected provider error";
+        window.webContents.send("chat:stream-error", {
+          type: "api",
+          message,
+          retryable: message !== NO_PROVIDER_CONFIGURED_MESSAGE && message !== "Azure endpoint not configured",
+        });
+        responseContent = message;
       }
 
       // Save assistant message
@@ -1122,7 +1064,6 @@ export function registerChatHandlers(): void {
 
   safeHandle("chat:stop-generation", async (_event, conversationId?: string) => {
     abortActiveStream(conversationId);
-    abortCopilotStream(conversationId);
     return true;
   });
 }

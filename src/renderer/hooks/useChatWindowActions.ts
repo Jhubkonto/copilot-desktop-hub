@@ -77,7 +77,6 @@ interface UseChatWindowActionsParams {
   pushSystemMessage: (content: string) => void
   buildConversationMarkdown: () => string
   newChat: (opts?: { projectId?: string | null; agentId?: string | null }) => void
-  login: () => Promise<void>
   logout: () => Promise<void>
   setTheme: (theme: Theme) => void
   loadAgents: () => Promise<void>
@@ -142,7 +141,6 @@ export function useChatWindowActions({
   pushSystemMessage,
   buildConversationMarkdown,
   newChat,
-  login,
   logout,
   setTheme,
   loadAgents,
@@ -161,7 +159,6 @@ export function useChatWindowActions({
       theme,
       pushSystemMessage,
       newChat,
-      login,
       logout,
       setInput,
       setTheme,
@@ -182,7 +179,6 @@ export function useChatWindowActions({
       theme,
       pushSystemMessage,
       newChat,
-      login,
       logout,
       setInput,
       setTheme,
@@ -518,10 +514,6 @@ export function useChatWindowActions({
     [messages, inputRef, setInput],
   )
 
-  const handleSignIn = useCallback(() => {
-    void login()
-  }, [login])
-
   const handleSetConversationModel = useCallback(
     async (model: string) => {
       if (!conversationId) return
@@ -536,6 +528,20 @@ export function useChatWindowActions({
       }
     },
     [conversationId, loadConversations, catalogModels, globalDefaultModel, addToast],
+  )
+
+  const handleSetCliModel = useCallback(
+    async (model: string) => {
+      if (!activeAgent?.id) return
+      try {
+        const result = await window.api.updateAgent(activeAgent.id, { ...activeAgent, cliModel: model })
+        if (hasIpcError(result)) throw new Error(result.error)
+        await loadAgents()
+      } catch {
+        addToast('Failed to update CLI model', 'error')
+      }
+    },
+    [activeAgent, loadAgents, addToast],
   )
 
   const handleStop = useCallback(async () => {
@@ -681,8 +687,8 @@ export function useChatWindowActions({
     handleSend,
     handleRetry,
     handleEdit,
-    handleSignIn,
     handleSetConversationModel,
+    handleSetCliModel,
     handleStop,
     handleKeyDown,
   }

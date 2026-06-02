@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight, Globe, Pin } from 'lucide-react'
+import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight, Globe, Loader2, Pin } from 'lucide-react'
 
 interface ToolCallBlockProps {
   toolName: string
@@ -7,12 +7,13 @@ interface ToolCallBlockProps {
   args?: Record<string, unknown>
   result?: string
   success?: boolean
+  inProgress?: boolean
   resultImages?: { dataUrl: string }[]
   onUseImageAsContext?: (dataUrl: string) => void
 }
 
 export function ToolCallBlock({
-  toolName, serverName, args, result, success = true, resultImages, onUseImageAsContext
+  toolName, serverName, args, result, success = true, inProgress = false, resultImages, onUseImageAsContext
 }: ToolCallBlockProps) {
   const [expanded, setExpanded] = useState(false)
 
@@ -30,11 +31,16 @@ export function ToolCallBlock({
         <Globe className="h-3.5 w-3.5 shrink-0 text-blue-500 dark:text-blue-400" />
         <span className="flex-1 truncate font-mono font-medium text-gray-800 dark:text-gray-100">
           {toolName}
+          {inProgress && (
+            <span className="font-normal text-gray-400 dark:text-gray-500"> (running...)</span>
+          )}
           {serverName && (
             <span className="font-normal text-gray-400 dark:text-gray-500"> — {serverName}</span>
           )}
         </span>
-        {success ? (
+        {inProgress ? (
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-blue-400" />
+        ) : success ? (
           <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-500" />
         ) : (
           <AlertCircle className="h-3.5 w-3.5 shrink-0 text-red-400" />

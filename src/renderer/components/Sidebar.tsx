@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { Plus, MessageSquare, Settings, X, LogIn, Upload, Pin, FolderOpen, Folder, Cpu, ChevronDown, ChevronRight, Check } from 'lucide-react'
+import { Plus, MessageSquare, Settings, X, Upload, Pin, FolderOpen, Folder, Cpu, ChevronDown, ChevronRight, Check } from 'lucide-react'
 import { SearchBar } from './SearchBar'
 import { useAppStore } from '../store/app-store'
 import type { Conversation, Project } from '../store/types'
@@ -76,7 +76,6 @@ export function Sidebar() {
   const authState = useAppStore((s) => s.authState)
   const agents = useAppStore((s) => s.agents)
   const activeAgentId = useAppStore((s) => s.activeAgentId)
-  const authLoading = useAppStore((s) => s.authLoading)
   const conversationsLoading = useAppStore((s) => s.conversationsLoading)
   const agentsLoading = useAppStore((s) => s.agentsLoading)
   const projects = useAppStore((s) => s.projects)
@@ -86,8 +85,8 @@ export function Sidebar() {
   const newChat = useAppStore((s) => s.newChat)
   const deleteConversation = useAppStore((s) => s.deleteConversation)
   const loadConversations = useAppStore((s) => s.loadConversations)
-  const login = useAppStore((s) => s.login)
   const logout = useAppStore((s) => s.logout)
+  const setShowSettings = useAppStore((s) => s.setShowSettings)
   const selectAgent = useAppStore((s) => s.selectAgent)
   const openEditAgent = useAppStore((s) => s.openEditAgent)
   const openCreateAgent = useAppStore((s) => s.openCreateAgent)
@@ -667,36 +666,41 @@ export function Sidebar() {
       </div>
 
       <div className="p-3 border-t border-gray-200 dark:border-gray-700/80">
-        {authState.authenticated && authState.user ? (
-          <div className="flex items-center gap-2 px-2 py-1">
-            <img
-              src={authState.user.avatar_url}
-              alt={authState.user.login}
-              className="w-6 h-6 rounded-full"
-            />
-            <div className="flex-1 min-w-0">
-              <div className="text-xs font-medium text-gray-700 dark:text-gray-200 truncate">
-                {authState.user.name || authState.user.login}
-              </div>
+        <div className="flex items-center justify-between gap-2 px-2 py-1">
+          <div className="min-w-0">
+            <div className="text-xs font-medium text-gray-700 dark:text-gray-200 truncate">
+              {authState.authenticated
+                ? 'API keys configured'
+                : authState.cliInstalled
+                  ? 'Claude CLI'
+                  : 'No provider configured'}
             </div>
+            <div className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
+              {authState.authenticated
+                ? 'BYOK mode is active'
+                : authState.cliInstalled
+                  ? 'Ready to chat'
+                  : 'Add an API key in Settings'}
+            </div>
+          </div>
+          {authState.authenticated ? (
             <button
               onClick={logout}
               className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
-              title="Sign out"
+              title="Clear provider mode"
             >
-              Sign out
+              Clear
             </button>
-          </div>
-        ) : (
-          <button
-            onClick={login}
-            disabled={authLoading}
-            className="w-full flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
-          >
-            <LogIn className="w-3.5 h-3.5" />
-            {authLoading ? 'Signing in...' : 'Sign in with GitHub'}
-          </button>
-        )}
+          ) : (
+            <button
+              onClick={() => setShowSettings(true)}
+              className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+              title="Open settings"
+            >
+              Settings
+            </button>
+          )}
+        </div>
       </div>
     </aside>
 

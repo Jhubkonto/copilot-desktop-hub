@@ -1,8 +1,21 @@
 import { BrowserWindow } from 'electron'
 import { randomUUID } from 'crypto'
-import { sendCopilotChatMessage, sendCopilotNonStreaming, type ToolDefinition } from './copilot-api'
 import { getAgentConfig } from './agents'
-import type { MessageContent, ProviderMessage } from './providers'
+import type { ToolDefinition } from './provider-types'
+import {
+  DEFAULT_PROVIDER_MODEL,
+  NO_PROVIDER_CONFIGURED_MESSAGE,
+  getProviderForAgent,
+  getApiKey,
+  getAzureEndpoint,
+  sendOpenAIMessage,
+  sendAnthropicMessage,
+  sendAzureMessage,
+  sendProviderWithTools,
+  type MessageContent,
+  type ProviderMessage,
+  type ProviderName
+} from './providers'
 
 export const MAX_DELEGATION_DEPTH = 5
 
@@ -90,8 +103,109 @@ function buildTeamManifest(teamAgents: OrchestratorAgent[], projectName: string)
   )
 }
 
+function extractSystemPrompt(messages: ProviderMessage[]): string | undefined {
+  const sys = messages.find((m) => m.role === 'system')
+  return sys && typeof sys.content === 'string' ? sys.content : undefined
+}
+
 /**
- * Run the multi-agent orchestration loop for a project with ≥2 agents.
+ * Stream the leader's final answer using the appropriate provider.
+ * Routes to the correct streaming function based on provider.
+ */
+async function callLeaderStreaming(
+  provider: ProviderName,
+  apiKey: string | null,
+  model: string,
+  window: BrowserWindow,
+  messages: ProviderMessage[],
+  conversationId: string,
+  generationOptions: { temperature: number; maxTokens: number }
+): Promise<string> {
+  if (!apiKey) {
+    throw new Error(NO_PROVIDER_CONFIGURED_MESSAGE)
+  }
+
+  const onChunk = (chunk: string) => window.webContents.send('chat:stream-response', chunk)
+  if (provider === 'openai') {
+    return sendOpenAIMessage(conversationId, apiKey, model, messages, onChunk, generationOptions)
+  }
+  if (provider === 'anthropic') {
+    const systemPrompt = extractSystemPrompt(messages)
+    return sendAnthropicMessage(conversationId, apiKey, model, messages.filter((m) => m.role !== 'system'), systemPrompt, onChunk, generationOptions)
+  }
+
+  const endpoint = getAzureEndpoint()
+  if (!endpoint) {
+    throw new Error('Azure endpoint not configured')
+  }
+  return sendAzureMessage(conversationId, apiKey, endpoint, model, messages, onChunk, generationOptions)
+}
+
+/**
+ * Call a specialist agent using its configured provider, with one retry if no output was emitted.
+ * Uses a per-step request ID to allow parallel specialist calls without request tracking collisions.
+ */
+async function callSpecialist(
+  agentId: string,
+  fallbackModel: string,
+  taskContent: string,
+  stepId: string,
+  window: BrowserWindow,
+  conversationId: string,
+  generationOptions: { temperature: number; maxTokens: number }
+): Promise<string> {
+  const cfg = getAgentConfig(agentId)
+  const agentModel = typeof cfg?.model === 'string' && cfg.model !== 'default' ? cfg.model : fallbackModel
+  const { provider, model } = getProviderForAgent(agentModel)
+  const apiKey = getApiKey(provider)
+  if (!apiKey) {
+    throw new Error(NO_PROVIDER_CONFIGURED_MESSAGE)
+  }
+
+  const systemContent = typeof cfg?.systemPrompt === 'string'
+    ? `${cfg.systemPrompt}\n\nYou are a specialist in the team. Answer concisely and factually.`
+    : 'You are a specialist AI assistant. Answer concisely and factually.'
+
+  const messages: ProviderMessage[] = [
+    { role: 'system', content: systemContent },
+    { role: 'user', content: taskContent }
+  ]
+
+  // Per-step request ID to avoid collision when multiple specialists run in parallel
+  const stepConversationId = `${conversationId}:${stepId}`
+
+  let chunksEmitted = 0
+  const onChunk = (chunk: string) => {
+    chunksEmitted++
+    window.webContents.send('chat:team-step-stream', { stepId, chunk })
+  }
+
+  const attempt = (): Promise<string> => {
+    if (provider === 'openai') {
+      return sendOpenAIMessage(stepConversationId, apiKey, model, messages, onChunk, generationOptions)
+    }
+    if (provider === 'anthropic') {
+      return sendAnthropicMessage(stepConversationId, apiKey, model, messages.filter((m) => m.role !== 'system'), systemContent, onChunk, generationOptions)
+    }
+    const endpoint = getAzureEndpoint()
+    if (!endpoint) {
+      throw new Error('Azure endpoint not configured')
+    }
+    return sendAzureMessage(stepConversationId, apiKey, endpoint, model, messages, onChunk, generationOptions)
+  }
+
+  try {
+    return await attempt()
+  } catch (firstError) {
+    // Only retry if no chunks were emitted — avoids duplicating partial streamed output
+    if (chunksEmitted === 0) {
+      return attempt()
+    }
+    throw firstError
+  }
+}
+
+/**
  *
  * Returns the final response text and the list of delegation steps that occurred.
  * The final response is also streamed to the window via chat:stream-response events.
@@ -111,22 +225,25 @@ export async function runOrchestration(
     maxDelegationDepth = MAX_DELEGATION_DEPTH
   } = opts
 
+  // Resolve the leader's provider and model
+  const leaderModel = selectedModel !== 'default' ? selectedModel : DEFAULT_PROVIDER_MODEL
+  const { provider: leaderProvider, model: resolvedLeaderModel } = getProviderForAgent(leaderModel)
+  const leaderApiKey = getApiKey(leaderProvider)
+
   const leaderCfg = getAgentConfig(leaderAgentId)
   const leaderSystemPrompt =
     typeof leaderCfg?.systemPrompt === 'string' ? leaderCfg.systemPrompt : undefined
 
   const teamManifest = buildTeamManifest(teamAgents, projectName)
-  const copilotModel = selectedModel !== 'default' ? selectedModel : 'gpt-4o'
 
   const teamActivitySteps: TeamActivityStep[] = []
 
-  // Running conversation messages for the orchestration loop
   const loopMessages: ProviderMessage[] = [
     {
       role: 'system' as const,
       content: leaderSystemPrompt
         ? `${leaderSystemPrompt}${teamManifest}`
-        : `You are GitHub Copilot, an AI programming assistant.${teamManifest}`
+        : `You are an AI programming assistant.${teamManifest}`
     },
     ...historyMessages,
     { role: 'user' as const, content: userContent }
@@ -138,18 +255,19 @@ export async function runOrchestration(
     // On the first pass, require the model to call the tool if specialists exist.
     // Subsequent passes use 'auto' so the model can finalise without forcing another delegation.
     const toolChoice = (depth === 0 && memberIds.size > 0) ? 'required' : 'auto'
-    const result = await sendCopilotNonStreaming(
+    const result = await sendProviderWithTools(
+      leaderProvider,
+      leaderApiKey,
+      resolvedLeaderModel,
       loopMessages,
-      memberIds.size > 0 ? [DELEGATE_TOOL] : undefined,
-      copilotModel,
-      generationOptions,
-      toolChoice
+      memberIds.size > 0 ? [DELEGATE_TOOL] : [],
+      toolChoice,
+      generationOptions
     )
 
-    // No tool calls — leader produced final answer
+    // No tool calls — leader produced final answer; stream it character by character
     if (result.toolCalls.length === 0) {
       const finalContent = result.content ?? ''
-      // Stream the final answer to the renderer
       for (const char of finalContent) {
         window.webContents.send('chat:stream-response', char)
       }
@@ -157,111 +275,106 @@ export async function runOrchestration(
       return { finalContent, teamActivity: teamActivitySteps }
     }
 
-    // Process the first tool call (one at a time)
-    const call = result.toolCalls[0]
-    const { agent_id: targetAgentId, task, context } = call.arguments as {
-      agent_id: string
-      task: string
-      context?: string
+    // Validate and categorise tool calls into valid delegations and error results
+    const validCalls: typeof result.toolCalls = []
+    const errorResults: Array<{ id: string; error: string }> = []
+
+    for (const call of result.toolCalls) {
+      const args = call.arguments as Record<string, unknown>
+      const agentId = typeof args.agent_id === 'string' ? args.agent_id : null
+      const task = typeof args.task === 'string' && args.task.trim() ? args.task : null
+
+      if (call.name !== 'delegate_to_agent' || !agentId || !task) {
+        errorResults.push({ id: call.id, error: 'Invalid tool call: missing or malformed agent_id/task.' })
+        continue
+      }
+      if (!memberIds.has(agentId)) {
+        const known = teamAgents.find((a) => a.agentId === agentId)
+        errorResults.push({
+          id: call.id,
+          error: known
+            ? `Error: Cannot delegate to the primary leader agent "${agentId}".`
+            : `Error: Unknown agent_id "${agentId}". Please choose from the listed team members.`
+        })
+        continue
+      }
+      validCalls.push(call)
     }
 
-    const targetAgent = teamAgents.find((a) => a.agentId === targetAgentId)
-    if (!targetAgent || !memberIds.has(targetAgentId)) {
-      // Unknown agent — inject error and let leader recover
-      loopMessages.push({
-        role: 'assistant' as const,
-        content: null,
-        tool_calls: [{ id: call.id, type: 'function', function: { name: 'delegate_to_agent', arguments: JSON.stringify(call.arguments) } }]
-      })
-      loopMessages.push({
-        role: 'tool' as const,
-        tool_call_id: call.id,
-        content: `Error: Unknown agent_id "${targetAgentId}". Please choose from the listed team members.`
-      })
-      continue
-    }
+    // Run all valid specialist calls concurrently
+    const parallelResults = await Promise.all(validCalls.map(async (call) => {
+      const { agent_id: targetAgentId, task, context } = call.arguments as {
+        agent_id: string; task: string; context?: string
+      }
+      const targetAgent = teamAgents.find((a) => a.agentId === targetAgentId)!
+      const stepId = randomUUID()
+      const step: TeamActivityStep = {
+        stepId,
+        agentId: targetAgentId,
+        agentName: targetAgent.agentName,
+        agentIcon: targetAgent.agentIcon,
+        task: String(task).slice(0, 500),
+        status: 'delegating'
+      }
+      teamActivitySteps.push(step)
+      window.webContents.send('chat:team-activity', { ...step })
 
-    const stepId = randomUUID()
-    const step: TeamActivityStep = {
-      stepId,
-      agentId: targetAgentId,
-      agentName: targetAgent.agentName,
-      agentIcon: targetAgent.agentIcon,
-      task: String(task).slice(0, 500),
-      status: 'delegating'
-    }
-    teamActivitySteps.push(step)
-    window.webContents.send('chat:team-activity', { ...step })
-
-    // Call the specialist agent
-    const specialistCfg = getAgentConfig(targetAgentId)
-    const specialistSystemPrompt =
-      typeof specialistCfg?.systemPrompt === 'string' ? specialistCfg.systemPrompt : undefined
-    const taskContent = context ? `${task}\n\nContext:\n${context}` : task
-    const specialistMessages: ProviderMessage[] = [
-      {
-        role: 'system' as const,
-        content: specialistSystemPrompt
-          ? `${specialistSystemPrompt}\n\nYou are a specialist in the team. Answer concisely and factually.`
-          : 'You are a specialist AI assistant. Answer concisely and factually.'
-      },
-      { role: 'user' as const, content: taskContent }
-    ]
-
-    const delegateStart = Date.now()
-    let specialistResult: string
-    try {
-      specialistResult = await sendCopilotChatMessage(
-        window,
-        specialistMessages,
-        (chunk: string) => {
-          window.webContents.send('chat:team-step-stream', { stepId, chunk })
-        },
-        copilotModel,
-        generationOptions,
-        opts.conversationId
-      )
-      step.status = 'done'
-      step.result = specialistResult
+      const taskContent = context ? `${task}\n\nContext:\n${context}` : task
+      const delegateStart = Date.now()
+      let specialistResult: string
+      try {
+        specialistResult = await callSpecialist(
+          targetAgentId, resolvedLeaderModel, taskContent, stepId, window, opts.conversationId, generationOptions
+        )
+        step.status = 'done'
+        step.result = specialistResult
+      } catch (err) {
+        specialistResult = `Specialist agent error: ${(err as Error).message}`
+        step.status = 'error'
+        step.result = specialistResult
+      }
       step.durationMs = Date.now() - delegateStart
-    } catch (err) {
-      const msg = `Specialist agent error: ${(err as Error).message}`
-      step.status = 'error'
-      step.result = msg
-      step.durationMs = Date.now() - delegateStart
-      specialistResult = msg
-    }
+      window.webContents.send('chat:team-activity', { ...step })
+      return { call, result: specialistResult }
+    }))
 
-    window.webContents.send('chat:team-activity', { ...step })
-
-    // Append the assistant's tool call + tool result to the loop messages
+    // Append ONE assistant message with ALL tool calls (preserving original order),
+    // then one tool result per call in the same order
     loopMessages.push({
       role: 'assistant' as const,
       content: null,
-      tool_calls: [{ id: call.id, type: 'function', function: { name: 'delegate_to_agent', arguments: JSON.stringify(call.arguments) } }]
+      tool_calls: result.toolCalls.map((call) => ({
+        id: call.id,
+        type: 'function' as const,
+        function: { name: call.name, arguments: JSON.stringify(call.arguments) }
+      }))
     })
-    loopMessages.push({
-      role: 'tool' as const,
-      tool_call_id: call.id,
-      content: specialistResult
-    })
+    for (const call of result.toolCalls) {
+      const pr = parallelResults.find((r) => r.call.id === call.id)
+      const er = errorResults.find((e) => e.id === call.id)
+      loopMessages.push({
+        role: 'tool' as const,
+        tool_call_id: call.id,
+        content: pr ? pr.result : (er ? er.error : '')
+      })
+    }
   }
 
-  // Depth cap reached — call leader one last time without tools to force a final answer
-  const finalResult = await sendCopilotChatMessage(
+  // Depth cap reached — stream a final answer from the leader using its configured provider
+  const finalResult = await callLeaderStreaming(
+    leaderProvider,
+    leaderApiKey,
+    resolvedLeaderModel,
     window,
     [
       ...loopMessages,
       {
         role: 'user' as const,
-        content:
-          'You have reached the maximum delegation depth. Please provide your final answer now based on all gathered information.'
+        content: 'You have reached the maximum delegation depth. Please provide your final answer now based on all gathered information.'
       }
     ],
-    (chunk) => window.webContents.send('chat:stream-response', chunk),
-    copilotModel,
-    generationOptions,
-    opts.conversationId
+    opts.conversationId,
+    generationOptions
   )
   window.webContents.send('chat:stream-response', null)
   return { finalContent: finalResult, teamActivity: teamActivitySteps }

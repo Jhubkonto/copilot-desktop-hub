@@ -55,6 +55,15 @@ export interface AgentConfig {
   }
   memory?: string
   customCommands?: { name: string; description: string; prompt: string }[]
+  backend?: 'claude-cli' | 'gh-copilot'
+  /** Model to use when backend is 'claude-cli' (e.g. 'claude-opus-4-5'). */
+  cliModel?: string
+}
+
+export interface CliInstallStatus {
+  installed: boolean
+  path: string | null
+  version: string | null
 }
 
 export interface ProjectOrchestrationConfig {
@@ -152,24 +161,13 @@ export interface ToolApprovalRequest {
 // Auth
 // ---------------------------------------------------------------------------
 
-export interface AuthUser {
-  login: string
-  avatar_url: string
-  name: string | null
-}
-
-export type AuthMode = 'copilot' | 'byok' | 'none'
+export type AuthMode = 'byok' | 'none'
 
 export interface AuthStatus {
   authenticated: boolean
   mode: AuthMode
-  user: AuthUser | null
-}
-
-export interface AuthLoginResult {
-  success: boolean
-  user?: AuthUser
-  error?: string
+  user: null
+  cliInstalled?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -416,8 +414,6 @@ export type IpcReturnMap = {
   'app:set-setting': boolean
   'app:set-theme': boolean
   // Auth
-  'auth:device-code': void
-  'auth:login': AuthLoginResult
   'auth:login-byok': { success: boolean }
   'auth:logout': void
   'auth:status': AuthStatus
@@ -427,6 +423,9 @@ export type IpcReturnMap = {
   'chat:stop-generation': void
   'chat:stream-error': void
   'chat:stream-response': void
+  'chat:cli-tool-start': void
+  'chat:cli-tool-end': void
+  'chat:cli-cost': void
   'chat:tool-call-event': void
   'chat:team-activity': void
   'chat:team-step-stream': void
@@ -434,8 +433,15 @@ export type IpcReturnMap = {
   'chat:stream-model': void
   'chat:wiki-injected': { count: number }
   // CLI
-  'cli:check': void
-  'cli:status': void
+  'cli:check': CliInstallStatus
+  'cli:status': CliInstallStatus
+  'cli:detect-all': Record<string, CliInstallStatus>
+  'cli:spawn': { sessionId: string }
+  'cli:write': void
+  'cli:resize': void
+  'cli:kill': void
+  'cli:data': never
+  'cli:exit': never
   // Context
   'context:git': string
   'context:git-diff': string
@@ -576,8 +582,6 @@ export type IpcChannels =
   | 'app:set-auto-start'
   | 'app:set-setting'
   | 'app:set-theme'
-  | 'auth:device-code'
-  | 'auth:login'
   | 'auth:login-byok'
   | 'auth:logout'
   | 'auth:status'
@@ -586,6 +590,9 @@ export type IpcChannels =
   | 'chat:stop-generation'
   | 'chat:stream-error'
   | 'chat:stream-response'
+  | 'chat:cli-tool-start'
+  | 'chat:cli-tool-end'
+  | 'chat:cli-cost'
   | 'chat:tool-call-event'
   | 'chat:team-activity'
   | 'chat:team-step-stream'
@@ -597,6 +604,13 @@ export type IpcChannels =
   | 'clipboard:read-image'
   | 'cli:check'
   | 'cli:status'
+  | 'cli:detect-all'
+  | 'cli:spawn'
+  | 'cli:write'
+  | 'cli:resize'
+  | 'cli:kill'
+  | 'cli:data'
+  | 'cli:exit'
   | 'context:git'
   | 'context:git-diff'
   | 'context:read-file'

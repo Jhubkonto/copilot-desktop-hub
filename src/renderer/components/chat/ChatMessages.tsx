@@ -6,7 +6,7 @@ import { MarkdownRenderer } from '../MarkdownRenderer'
 import { MessageBubble } from '../MessageBubble'
 import { TeamActivityBlock } from '../TeamActivityBlock'
 import { ToolCallBlock } from './ToolCallBlock'
-import type { ActivityEvent, ChatMessage, TeamActivityStep } from '../../hooks/chat-types'
+import type { ActivityEvent, ChatMessage, CliCostSummary, TeamActivityStep } from '../../hooks/chat-types'
 
 interface ChatMessagesProps {
   messages: ChatMessage[]
@@ -15,6 +15,7 @@ interface ChatMessagesProps {
   isGenerating: boolean
   liveTeamActivity: TeamActivityStep[]
   streamingContent: string
+  cliCost?: CliCostSummary | null
   currentActivity?: ActivityEvent | null
   generationElapsedSec: number
   loadingFailed: boolean
@@ -40,6 +41,7 @@ export function ChatMessagesBase({
   isGenerating,
   liveTeamActivity,
   streamingContent,
+  cliCost,
   currentActivity,
   generationElapsedSec,
   loadingFailed,
@@ -115,6 +117,7 @@ export function ChatMessagesBase({
                   args={message.toolArgs}
                   result={message.toolResult}
                   success={message.toolSuccess ?? true}
+                  inProgress={message.toolInProgress}
                   resultImages={message.toolResultImages}
                   onUseImageAsContext={onUseImageAsContext}
                 />
@@ -198,6 +201,15 @@ export function ChatMessagesBase({
                 <span className="w-1.5 h-1.5 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce" />
               </div>
             </div>
+          </div>
+        )}
+        {cliCost && !isGenerating && (
+          <div className="mt-2 flex items-center gap-3 border-t border-gray-100 px-3 py-1.5 text-xs text-gray-400 dark:border-gray-800 dark:text-gray-500">
+            <span className="font-mono">${cliCost.totalCostUsd.toFixed(4)}</span>
+            <span>·</span>
+            <span>{cliCost.inputTokens.toLocaleString()} in</span>
+            <span>/</span>
+            <span>{cliCost.outputTokens.toLocaleString()} out</span>
           </div>
         )}
         {loadingFailed && !isGenerating && !streamingContent && (

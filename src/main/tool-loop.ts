@@ -1,5 +1,5 @@
 import { callMcpTool, servers } from './mcp'
-import type { ToolDefinition, CopilotNonStreamResult } from './copilot-api'
+import type { ProviderNonStreamResult, ToolChoice, ToolDefinition } from './provider-types'
 import type { ProviderMessage } from './providers'
 
 export const MCP_MAX_ITERATIONS = 20
@@ -30,8 +30,8 @@ export interface ModelToolCaller {
   (
     messages: ProviderMessage[],
     tools: ToolDefinition[] | undefined,
-    toolChoice: 'auto' | 'required' | 'none'
-  ): Promise<CopilotNonStreamResult>
+    toolChoice: ToolChoice
+  ): Promise<ProviderNonStreamResult>
 }
 
 export async function runProviderMcpToolLoop(

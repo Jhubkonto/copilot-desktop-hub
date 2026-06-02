@@ -13,6 +13,8 @@ import { registerProviderHandlers } from './providers'
 import { registerScreenCaptureHandlers } from './screen-capture-handlers'
 import { registerModelCatalogHandlers } from './model-catalog-handlers'
 import { registerWikiHandlers } from './wiki-handlers'
+import { registerCliHandlers } from './cli-detection'
+import { registerPtyHandlers } from './pty-handlers'
 import { cacheExternalWindowLabel, consumeSuppressFocusEvent } from './screen-capture'
 
 export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
@@ -30,6 +32,8 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerToolHandlers()
   registerMcpHandlers()
   registerProviderHandlers()
+  registerCliHandlers()
+  registerPtyHandlers()
   registerScreenCaptureHandlers()
   registerModelCatalogHandlers()
   registerSystemHandlers()

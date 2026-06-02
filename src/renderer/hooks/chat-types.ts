@@ -44,12 +44,20 @@ export interface ChatMessage {
   retryable?: boolean
   isStopped?: boolean
   contextSnapshot?: string
+  toolCallId?: string
   toolName?: string
   serverName?: string
   toolArgs?: Record<string, unknown>
   toolResult?: string
   toolSuccess?: boolean
+  toolInProgress?: boolean
   toolResultImages?: { dataUrl: string }[]
+}
+
+export interface CliCostSummary {
+  totalCostUsd: number
+  inputTokens: number
+  outputTokens: number
 }
 
 export interface ContextRef {

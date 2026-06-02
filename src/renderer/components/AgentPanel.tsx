@@ -61,7 +61,8 @@ const EMPTY_AGENT: Omit<AgentConfig, 'id'> = {
   rootDirectory: '',
   contextRules: { ignoredGlobs: [], autoInjectWorkspace: false, autoInjectGit: false },
   memory: '',
-  customCommands: []
+  customCommands: [],
+  backend: undefined,
 }
 
 const EMOJI_OPTIONS = ['🤖', '🔍', '🐛', '💡', '📝', '🎨', '🔧', '🚀', '🧠', '⚡', '🛡️', '📊']
@@ -451,6 +452,25 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                  Chat Backend
+                </label>
+                <select
+                  value={config.backend ?? 'gh-copilot'}
+                  onChange={(e) => updateField('backend', e.target.value as AgentConfig['backend'])}
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="claude-cli">Claude CLI (claude --print)</option>
+                  <option value="gh-copilot">GitHub Copilot CLI (gh copilot suggest)</option>
+                </select>
+                {config.backend && (
+                  <p className="text-xs text-yellow-500 dark:text-yellow-400">
+                    CLI backends require the CLI tool to be installed and authenticated.
+                  </p>
+                )}
               </div>
 
               <div className="space-y-1.5">

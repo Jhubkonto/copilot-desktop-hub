@@ -54,8 +54,7 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   { name: '/exit', usage: '/exit', description: 'Exit current conversation view' },
   { name: '/help', usage: '/help', description: 'Show slash command help' },
   { name: '/version', usage: '/version', description: 'Show app version' },
-  { name: '/login', usage: '/login', description: 'Start GitHub sign-in flow' },
-  { name: '/logout', usage: '/logout', description: 'Sign out from GitHub' },
+  { name: '/logout', usage: '/logout', description: 'Clear provider mode' },
   { name: '/cwd', usage: '/cwd', description: 'Show working directory' },
   { name: '/cd', usage: '/cd <dir>', description: 'Change working directory' },
   { name: '/add-dir', usage: '/add-dir <dir>', description: 'Add directory to active agent context' },
@@ -138,7 +137,6 @@ export interface SlashCommandContext {
   theme: 'light' | 'dark'
   pushSystemMessage: (text: string) => void
   newChat: (opts?: { projectId?: string | null; agentId?: string | null }) => void
-  login: () => Promise<void>
   logout: () => Promise<void>
   setInput: (value: string) => void
   setTheme: (t: 'light' | 'dark') => void
@@ -175,11 +173,6 @@ export async function executeSlashCommand(
       } catch {
         ctx.pushSystemMessage('Unable to read app version.')
       }
-      return true
-    }
-    case '/login': {
-      await ctx.login()
-      ctx.pushSystemMessage('Started sign-in flow.')
       return true
     }
     case '/logout': {
@@ -323,7 +316,7 @@ export async function executeSlashCommand(
         '',
         contextLine,
         '',
-        '_Note: GitHub Copilot does not expose remaining quota or reset time via its API._',
+        '_Note: Session usage is estimated locally and does not include provider-side quota data._',
       ]
       ctx.pushSystemMessage(lines.join('\n'))
       return true

@@ -37,19 +37,8 @@ const api = {
 
   // Auth
   authStatus: () => typedInvoke('auth:status'),
-  authLogin: () => typedInvoke('auth:login'),
   authLoginByok: () => typedInvoke('auth:login-byok'),
   authLogout: () => typedInvoke('auth:logout'),
-  onDeviceCode: (
-    callback: (data: { userCode: string; verificationUri: string }) => void
-  ) => {
-    const handler = (
-      _event: Electron.IpcRendererEvent,
-      data: { userCode: string; verificationUri: string }
-    ) => callback(data)
-    typedOn('auth:device-code', handler)
-    return () => typedOff('auth:device-code', handler)
-  },
 
   // Chat
   sendMessage: (
@@ -83,6 +72,21 @@ const api = {
       callback(data)
     typedOn('chat:tool-call-event', handler)
     return () => typedOff('chat:tool-call-event', handler)
+  },
+  onCliToolStart: (callback: (data: { id: string; name: string; input: Record<string, unknown> }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { id: string; name: string; input: Record<string, unknown> }) => callback(data)
+    typedOn('chat:cli-tool-start', handler)
+    return () => typedOff('chat:cli-tool-start', handler)
+  },
+  onCliToolEnd: (callback: (data: { id: string; content: string; isError: boolean }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { id: string; content: string; isError: boolean }) => callback(data)
+    typedOn('chat:cli-tool-end', handler)
+    return () => typedOff('chat:cli-tool-end', handler)
+  },
+  onCliCost: (callback: (data: { totalCostUsd: number; inputTokens: number; outputTokens: number }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { totalCostUsd: number; inputTokens: number; outputTokens: number }) => callback(data)
+    typedOn('chat:cli-cost', handler)
+    return () => typedOff('chat:cli-cost', handler)
   },
   onActivity: (callback: (event: { type: 'thinking' } | { type: 'tool'; name: string; server: string }) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, data: { type: 'thinking' } | { type: 'tool'; name: string; server: string }) =>
@@ -130,6 +134,29 @@ const api = {
   getWorkspaceSummary: () => typedInvoke('context:workspace-summary'),
   getGitContext: () => typedInvoke('context:git'),
   getGitDiff: () => typedInvoke('context:git-diff'),
+
+  // CLI
+  checkCli: () => typedInvoke('cli:check'),
+  getCliStatus: () => typedInvoke('cli:status'),
+  detectAllClis: () => typedInvoke('cli:detect-all'),
+  spawnCli: (shell: string, args: string[], cwd: string, cols: number, rows: number) =>
+    typedInvoke('cli:spawn', shell, args, cwd, cols, rows),
+  writeCli: (sessionId: string, data: string) => typedInvoke('cli:write', sessionId, data),
+  resizeCli: (sessionId: string, cols: number, rows: number) =>
+    typedInvoke('cli:resize', sessionId, cols, rows),
+  killCli: (sessionId: string) => typedInvoke('cli:kill', sessionId),
+  onCliData: (callback: (data: { sessionId: string; data: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; data: string }) =>
+      callback(data)
+    typedOn('cli:data', handler)
+    return () => typedOff('cli:data', handler)
+  },
+  onCliExit: (callback: (data: { sessionId: string; code: number | null }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; code: number | null }) =>
+      callback(data)
+    typedOn('cli:exit', handler)
+    return () => typedOff('cli:exit', handler)
+  },
 
   // Agents
   listAgents: () => typedInvoke('agent:list'),

@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
 import { getModelLabel } from '../../shared/models'
 import type { CatalogModel } from '../../shared/types'
-import type { ActivityEvent, ChatMessage, ConversationDbMessage, StreamError, TeamActivityStep, ToolCallEvent, ToastType } from './chat-types'
+import type {
+  ActivityEvent,
+  ChatMessage,
+  CliCostSummary,
+  ConversationDbMessage,
+  StreamError,
+  TeamActivityStep,
+  ToolCallEvent,
+  ToastType,
+} from './chat-types'
 
 function hasIpcError(result: unknown): result is { error: string } {
   return typeof result === 'object' && result !== null && 'error' in result
@@ -36,6 +45,7 @@ export function useChat({
   const [liveTeamActivity, setLiveTeamActivity] = useState<TeamActivityStep[]>([])
   const [generationStartedAt, setGenerationStartedAt] = useState<number | null>(null)
   const [currentActivity, setCurrentActivity] = useState<ActivityEvent | null>(null)
+  const [cliCost, setCliCost] = useState<CliCostSummary | null>(null)
 
   const streamingContentRef = useRef('')
   const liveToolCallsRef = useRef<ChatMessage[]>([])
@@ -133,6 +143,7 @@ export function useChat({
     setGenerationStartedAt(null)
     setLiveTeamActivity([])
     setCurrentActivity(null)
+    setCliCost(null)
     liveToolCallsRef.current = []
     setLoadingFailed(false)
   }, [conversationId, addToast])
@@ -182,6 +193,7 @@ export function useChat({
       setLoadingFailed(false)
       setGenerationStartedAt(null)
       setCurrentActivity(null)
+      setCliCost(null)
       liveToolCallsRef.current = []
 
       if (preRegenMessagesRef.current) {
@@ -233,6 +245,35 @@ export function useChat({
       setMessages((prev) => [...prev, toolCallMsg])
     })
 
+    const unsubscribeCliToolStart = window.api.onCliToolStart(({ id, name, input }) => {
+      const toolCallMsg: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: 'tool-call',
+        content: '',
+        timestamp: Date.now(),
+        toolCallId: id,
+        toolName: name,
+        toolArgs: input,
+        toolInProgress: true,
+        toolSuccess: true,
+      }
+      setMessages((prev) => [...prev, toolCallMsg])
+    })
+
+    const unsubscribeCliToolEnd = window.api.onCliToolEnd(({ id, content, isError }) => {
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.toolCallId === id
+            ? { ...message, toolResult: content, toolSuccess: !isError, toolInProgress: false }
+            : message
+        )
+      )
+    })
+
+    const unsubscribeCliCost = window.api.onCliCost((data) => {
+      setCliCost(data)
+    })
+
     const unsubscribeActivity = window.api.onActivity((event) => {
       setCurrentActivity(event)
     })
@@ -245,6 +286,9 @@ export function useChat({
       unsubscribeStream()
       unsubscribeError()
       unsubscribeToolCall()
+      unsubscribeCliToolStart()
+      unsubscribeCliToolEnd()
+      unsubscribeCliCost()
       unsubscribeActivity()
       unsubscribeStreamModel()
     }
@@ -397,6 +441,7 @@ export function useChat({
     setLiveTeamActivity,
     currentActivity,
     setCurrentActivity,
+    cliCost,
     generationStartedAt,
     setGenerationStartedAt,
     isEditingMessage,
