@@ -459,11 +459,15 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
                   Chat Backend
                 </label>
                 <select
-                  value={config.backend ?? 'gh-copilot'}
-                  onChange={(e) => updateField('backend', e.target.value as AgentConfig['backend'])}
+                  value={config.backend ?? ''}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    updateField('backend', val === '' ? undefined : val as AgentConfig['backend'])
+                  }}
                   className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="claude-cli">Claude CLI (claude --print)</option>
+                  <option value="">Auto (BYOK key, or Claude CLI if no key)</option>
+                  <option value="claude-cli">Force Claude CLI (claude --print)</option>
                   <option value="gh-copilot">GitHub Copilot CLI (gh copilot suggest)</option>
                 </select>
                 {config.backend && (
