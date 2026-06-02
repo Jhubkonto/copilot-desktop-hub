@@ -18,11 +18,20 @@ export function getDatabase(): Database.Database {
   }
 
   const dbPath = join(dbDir, "nexy.db");
-  // Migrate from old filename on first run after rename
-  const legacyPath = join(dbDir, "copilot-hub.db");
-  if (!existsSync(dbPath) && existsSync(legacyPath)) {
-    renameSync(legacyPath, dbPath);
+
+  if (!existsSync(dbPath)) {
+    // 1. Same directory, old filename (rename only, no userData change)
+    const sameDirLegacy = join(dbDir, "copilot-hub.db");
+    // 2. Old userData directory (app was renamed — Electron switches %AppData% folder)
+    const oldUserDataDb = join(app.getPath("appData"), "copilot-desktop-hub", "data", "copilot-hub.db");
+
+    if (existsSync(sameDirLegacy)) {
+      renameSync(sameDirLegacy, dbPath);
+    } else if (existsSync(oldUserDataDb)) {
+      renameSync(oldUserDataDb, dbPath);
+    }
   }
+
   db = new Database(dbPath);
 
   db.pragma("journal_mode = WAL");
