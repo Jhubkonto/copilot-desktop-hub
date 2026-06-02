@@ -1,6 +1,6 @@
 # Nexy — Product Roadmap
 
-> **Last updated:** 2026-06-02  
+> **Last updated:** 2026-06-02 (v0.8.3)  
 > **Status:** Living document  
 > **Related:** [`architecture-overview.md`](./architecture-overview.md)
 
@@ -312,6 +312,26 @@ The model can search the wiki as a tool mid-conversation.
 | UI.5 | Wiki extraction transcript limit raised to 40k chars; head+tail windowing preserves both start and resolution | ✅ |
 | UI.6 | App renamed to **Nexy** everywhere: package, electron-builder, window title, tray, DB file (`nexy.db`), MCP client identity, User-Agent | ✅ |
 | UI.7 | Dead `copilot.ts` and `github-copilot-sdk.d.ts` deleted | ✅ |
+
+---
+
+### v0.8.3 — CLI Backend Polish ✅ _(2026-06-02)_
+
+**Theme**: Fix rough edges in the Claude CLI backend: vision support, model selection, conversation history, and correct model identity.
+
+| Task | Description | Status |
+|---|---|---|
+| CL.1 | Use `--input-format stream-json` for vision — images attached to messages now pass through correctly | ✅ |
+| CL.2 | Remove false model identity injection from CLI system prompt — model no longer claims to be the BYOK default | ✅ |
+| CL.3 | Backend indicator chip in context bar — shows active backend (Claude CLI, BYOK, etc.) | ✅ |
+| CL.4 | Fix DB userData path migration after app rename to Nexy | ✅ |
+| CL.5 | Embed conversation history as labeled text in CLI user message — multi-turn context works correctly | ✅ |
+| CL.6 | Store actual model ID on CLI assistant messages (not the backend name "claude-cli") | ✅ |
+| CL.7 | Pass conversation model to CLI correctly; resolve it at send time from conversation row | ✅ |
+| CL.8 | Replace CLI model text input with styled dropdown; model IDs updated to current Claude 4.x lineup | ✅ |
+| CL.9 | `pendingCliModelRef` — model selection before first message now persists correctly to first send | ✅ |
+| CL.10 | Per-message model label only shows when a model is stored on the message; no retroactive relabelling | ✅ |
+| CL.11 | Auto-detect CLI mode in composer even without an active agent (`authState.mode === 'none' && cliInstalled`) | ✅ |
 
 ---
 

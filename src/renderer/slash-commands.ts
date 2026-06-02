@@ -273,7 +273,9 @@ export async function executeSlashCommand(
         return true
       }
       const modelIds = getAvailableModelIds(ctx.catalogModels, ctx.conversationModel)
-      if (!modelIds.includes(argText)) {
+      // When no catalog is available (CLI / offline), allow any non-empty model ID
+      const hasCatalog = (ctx.catalogModels?.length ?? 0) > 0
+      if (hasCatalog && !modelIds.includes(argText)) {
         ctx.pushSystemMessage(`Unknown model: ${argText}. Use /models to list available models.`)
         return true
       }
@@ -293,6 +295,22 @@ export async function executeSlashCommand(
     }
     case '/models': {
       const current = ctx.conversationModel ?? 'default'
+      const hasCatalog = (ctx.catalogModels?.length ?? 0) > 0
+      if (!hasCatalog) {
+        const claudeModels = [
+          { id: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
+          { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+          { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
+        ]
+        const text = ['Available Claude CLI models:']
+        for (const m of claudeModels) {
+          const mark = m.id === current ? '*' : '-'
+          text.push(`${mark} ${m.label} (${m.id})`)
+        }
+        text.push('\nUse /model <id> to switch.')
+        ctx.pushSystemMessage(text.join('\n'))
+        return true
+      }
       const modelIds = getAvailableModelIds(ctx.catalogModels, ctx.conversationModel)
       const text = ['Available models:']
       for (const model of modelIds) {
