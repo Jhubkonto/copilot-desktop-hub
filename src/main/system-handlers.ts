@@ -1,7 +1,5 @@
 import { app, BrowserWindow, dialog } from "electron";
 import { writeFileSync } from "fs";
-import { retrieveToken } from "./auth";
-import { httpsRequestWithResponse } from "./http-client";
 import { safeHandle } from "./safe-handle";
 
 export function registerSystemHandlers(): void {
@@ -26,51 +24,9 @@ export function registerSystemHandlers(): void {
     },
   );
 
-  safeHandle(
-    "app:create-gist",
-    async (_event, filename: string, content: string, description?: string) => {
-      const githubToken = retrieveToken();
-      if (!githubToken) {
-        throw new Error("Not authenticated — sign in with GitHub first");
-      }
-
-      const body = JSON.stringify({
-        description: description || "Shared from Copilot Desktop Hub",
-        public: false,
-        files: {
-          [filename || "conversation.md"]: {
-            content,
-          },
-        },
-      });
-
-      const response = await httpsRequestWithResponse(
-        {
-          hostname: "api.github.com",
-          path: "/gists",
-          method: "POST",
-          headers: {
-            Accept: "application/vnd.github+json",
-            Authorization: `Bearer ${githubToken}`,
-            "User-Agent": "CopilotDesktopHub",
-            "Content-Type": "application/json",
-            "Content-Length": Buffer.byteLength(body),
-          },
-        },
-        body,
-      );
-
-      if (response.status < 200 || response.status >= 300) {
-        throw new Error(`GitHub Gist API error (HTTP ${response.status})`);
-      }
-
-      const parsed = JSON.parse(response.data) as { html_url?: string };
-      if (!parsed.html_url) {
-        throw new Error("GitHub Gist API did not return a URL");
-      }
-      return parsed.html_url;
-    },
-  );
+  safeHandle("app:create-gist", async () => {
+    throw new Error("GitHub Gist sharing is unavailable without GitHub authentication. Use /share to save locally.");
+  });
 
   safeHandle("app:set-auto-start", (_event, enabled: boolean) => {
     app.setLoginItemSettings({

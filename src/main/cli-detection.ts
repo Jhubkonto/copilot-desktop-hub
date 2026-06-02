@@ -1,15 +1,10 @@
 import { execSync } from 'child_process'
 import { existsSync } from 'fs'
 import { join } from 'path'
+import type { CliInstallStatus } from '../shared/types'
 import { safeHandle } from './safe-handle'
 
-interface CliStatus {
-  installed: boolean
-  path: string | null
-  version: string | null
-}
-
-function findCopilotCli(): CliStatus {
+function findCopilotCli(): CliInstallStatus {
   // Try common CLI names
   const cliNames = ['github-copilot-cli', 'copilot']
   const isWindows = process.platform === 'win32'
@@ -62,7 +57,47 @@ function findCopilotCli(): CliStatus {
   return { installed: false, path: null, version: null }
 }
 
-let cachedStatus: CliStatus | null = null
+function findCli(command: string): CliInstallStatus {
+  const whichCmd = process.platform === 'win32' ? `where ${command}` : `which ${command}`
+
+  try {
+    const cliPath = execSync(whichCmd, {
+      encoding: 'utf-8',
+      timeout: 5000,
+      stdio: ['pipe', 'pipe', 'pipe']
+    }).trim().split(/\r?\n/)[0]
+
+    if (!cliPath || !existsSync(cliPath)) {
+      return { installed: false, path: null, version: null }
+    }
+
+    let version: string | null = null
+    try {
+      version = execSync(`${command} --version`, {
+        encoding: 'utf-8',
+        timeout: 5000,
+        stdio: ['pipe', 'pipe', 'pipe']
+      }).trim().split(/\r?\n/)[0] || null
+    } catch {
+      // Version command may not be supported
+    }
+
+    return { installed: true, path: cliPath, version }
+  } catch {
+    return { installed: false, path: null, version: null }
+  }
+}
+
+export function detectAllClis(): Record<string, CliInstallStatus> {
+  return {
+    copilot: findCopilotCli(),
+    claude: findCli('claude'),
+    gh: findCli('gh'),
+    ollama: findCli('ollama')
+  }
+}
+
+let cachedStatus: CliInstallStatus | null = null
 
 export function registerCliHandlers(): void {
   safeHandle('cli:check', () => {
@@ -76,9 +111,11 @@ export function registerCliHandlers(): void {
     }
     return cachedStatus
   })
+
+  safeHandle('cli:detect-all', () => detectAllClis())
 }
 
-export function checkCliOnStartup(): CliStatus {
+export function checkCliOnStartup(): CliInstallStatus {
   cachedStatus = findCopilotCli()
   return cachedStatus
 }

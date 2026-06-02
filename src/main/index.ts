@@ -56,7 +56,7 @@ function createWindow(): void {
       responseHeaders: {
         ...details.responseHeaders,
         'Content-Security-Policy': [
-          `default-src 'self'${devCsp}; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline'${devCsp}; img-src 'self' data: https:; connect-src 'self' https://api.openai.com https://api.anthropic.com https://*.openai.azure.com https://api.github.com https://api.githubcopilot.com${devCsp}; font-src 'self'${devCsp}`
+          `default-src 'self'${devCsp}; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline'${devCsp}; img-src 'self' data: https:; connect-src 'self' https://api.openai.com https://api.anthropic.com https://*.openai.azure.com https://api.github.com${devCsp}; font-src 'self'${devCsp}`
         ]
       }
     })
