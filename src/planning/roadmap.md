@@ -264,13 +264,21 @@ The model can search the wiki as a tool mid-conversation.
 | CA.7 | `GhCopilotAdapter` — wraps `gh copilot suggest` | ✅ |
 | CA.9 | Agent config UI: "Backend" selector (`claude-cli` / `gh-copilot`) per agent | ✅ |
 
-**Deferred:**
+**Deferred → resolved in v0.8.2:**
 
 | Task | Description | Status |
 |---|---|---|
-| CA.10 | CLI tool-call approval bridge (intercept file-write / bash events) | 🔲 |
-| CA.11 | Auto-approve policy per project | 🔲 |
-| CA.12 | Store CLI output as conversation messages in DB | 🔲 |
+| CA.10 | Tool-call approval bridge — tool events broadcast to WS clients; blocking approval via Android companion (v0.9.0 AR.6) | ✅ |
+| CA.11 | Auto-approve policy — agent Backend selector defaults to "Auto"; `approval` field honoured at runtime | ✅ |
+| CA.12 | Store CLI output as conversation messages in DB — tool calls persisted as `tool-call` messages, loaded on conversation reload | ✅ |
+
+**Removed in v0.8.2 (replaced by unified chat window):**
+
+| Task | Description | Status |
+|---|---|---|
+| CA.1 | Managed PTY wrapper (`node-pty`) | ❌ Removed |
+| CA.2 | PTY IPC channels (`cli:spawn/write/resize/kill`) | ❌ Removed |
+| CA.3 | `CliTerminalPanel` (xterm.js) | ❌ Removed |
 
 ---
 
@@ -291,9 +299,25 @@ The model can search the wiki as a tool mid-conversation.
 
 ---
 
-### v0.9.0 — Android Remote Dispatcher 🔲 _(Target: Q4 2027)_
+### v0.8.2 — Smart Terminal consolidation + Nexy rename ✅ _(2026-06-02)_
 
-**Theme**: A companion Android app that connects to the desktop over local WiFi, lets the user approve or reject tool calls remotely, monitor live agent output, and trigger new conversations — so long-running agentic tasks can run unattended while the user stays in control from their phone.
+**Theme**: Remove the raw PTY terminal and Smart Terminal as separate UI modes; consolidate everything into a single chat window. Rename the product from "Copilot Desktop Hub" to **Nexy**.
+
+| Task | Description | Status |
+|---|---|---|
+| UI.1 | Remove PTY terminal (`node-pty`, `xterm.js`, `CliTerminalPanel`) — no compelling use case over real terminal | ✅ |
+| UI.2 | Remove Smart Terminal as a separate mode — it now duplicated the chat window exactly | ✅ |
+| UI.3 | "Force CLI backend" toggle added to agent config with Auto / Claude CLI / gh-copilot options | ✅ |
+| UI.4 | CLI token cost footer shown in main chat window when CLI backend responds (already in `ChatMessages`) | ✅ |
+| UI.5 | Wiki extraction transcript limit raised to 40k chars; head+tail windowing preserves both start and resolution | ✅ |
+| UI.6 | App renamed to **Nexy** everywhere: package, electron-builder, window title, tray, DB file (`nexy.db`), MCP client identity, User-Agent | ✅ |
+| UI.7 | Dead `copilot.ts` and `github-copilot-sdk.d.ts` deleted | ✅ |
+
+---
+
+### v0.9.0 — Android Remote Dispatcher 🔲 _(In progress — Phase 1 complete 2026-06-02)_
+
+**Theme**: A companion Android app (Kotlin + Jetpack Compose) that connects to the desktop over local WiFi, lets the user approve or reject tool calls remotely, monitor live agent output, and trigger new conversations — so long-running agentic tasks can run unattended while the user stays in control from their phone.
 
 **Problem**: Agentic tasks (MCP browser automation, multi-step orchestration) can run for minutes. The user must stay at their desk to approve each tool call. A mobile companion removes that constraint while keeping full human oversight.
 
@@ -303,28 +327,42 @@ The model can search the wiki as a tool mid-conversation.
 - Approval parity — the mobile approval UI has the same options as the desktop modal (approve / reject / approve-all-from-this-server)
 - Stateless companion — the Android app is a thin client; all state lives in the desktop app
 
+**WS protocol** (server ↔ Android):
+
+| Direction | Event / command | Payload |
+|---|---|---|
+| Desktop → Android | `connected` | `{ version }` |
+| Desktop → Android | `tool:approval-request` | `{ requestId, toolName, args, description }` |
+| Desktop → Android | `chat:stream-chunk` | `{ conversationId, chunk }` |
+| Desktop → Android | `chat:stream-end` | `{ conversationId }` |
+| Desktop → Android | `conversation:list` | `[{ id, title, updated_at }]` |
+| Android → Desktop | `tool:approve` / `tool:reject` | `{ token, command, data: { requestId } }` |
+| Android → Desktop | `chat:send-message` | `{ token, command, data: { conversationId, content, model? } }` |
+| Android → Desktop | `agent:stop` | `{ token, command, data: { conversationId? } }` |
+| Android → Desktop | `conversation:list` | triggers push back |
+
 #### Phases
 
-**Phase 1 — Desktop WebSocket server**
+**Phase 1 — Desktop WebSocket server** ✅ _(2026-06-02)_
 
 | Task | Description | Status |
 |---|---|---|
-| AR.1 | Optional WebSocket server in Electron main process (off by default); port chosen dynamically, stored in settings | 🔲 |
-| AR.2 | Shared-secret auth: desktop generates a token at pairing time; all WS messages must carry it | 🔲 |
-| AR.3 | QR code displayed in Settings → "Connect mobile"; encodes `ws://<local-ip>:<port>?token=<secret>` | 🔲 |
-| AR.4 | mDNS/Bonjour advertisement so Android can discover the desktop by hostname, not raw IP | 🔲 |
-| AR.5 | Event push: `tool:approval-request`, `chat:stream-chunk`, `agent:status`, `conversation:list` over WebSocket | 🔲 |
-| AR.6 | Command receive: `tool:approve`, `tool:reject`, `chat:send-message`, `agent:stop` | 🔲 |
+| AR.1 | Optional WebSocket server in Electron main process (off by default); port 0 (OS assigns), stored in settings | ✅ |
+| AR.2 | Shared-secret auth: desktop generates token via `crypto.randomBytes(24)`; validated on every WS connection and message | ✅ |
+| AR.3 | QR code in Settings → "Connect mobile"; encodes `ws://<local-ip>:<port>?token=<secret>`; regenerate button disconnects all clients | ✅ |
+| AR.4 | mDNS/Bonjour advertisement | 🔲 Deferred — IP shown in settings UI; sufficient for Phase 1 |
+| AR.5 | Event push: `tool:approval-request`, `chat:stream-chunk`, `chat:stream-end`, `conversation:list` | ✅ |
+| AR.6 | Command receive: `tool:approve`, `tool:reject`, `chat:send-message` (calls `dispatchChatSend` directly), `agent:stop` | ✅ |
 
-**Phase 2 — Android companion app**
+**Phase 2 — Android companion app** 🔲 _(Next up — repo: `nexy-android`, Kotlin + Jetpack Compose + OkHttp)_
 
 | Task | Description | Status |
 |---|---|---|
-| AR.7 | Android app (Kotlin + Jetpack Compose); WS client with auto-reconnect and background service | 🔲 |
-| AR.8 | QR scan pairing screen; stores endpoint + token in encrypted SharedPreferences | 🔲 |
-| AR.9 | Live approval screen: shows tool name, server, arguments; Approve / Reject buttons with haptic feedback | 🔲 |
-| AR.10 | Conversation list + live streaming view (markdown rendered, auto-scroll) | 🔲 |
-| AR.11 | Push notification via local FCM-free channel (Android `NotificationManager`) when approval is requested while app is backgrounded | 🔲 |
+| AR.7 | Android project (`nexy-android`); OkHttp WS client with auto-reconnect and background service | 🔲 |
+| AR.8 | QR scan pairing screen; stores endpoint + token in `EncryptedSharedPreferences` | 🔲 |
+| AR.9 | Live approval screen: shows tool name, args; Approve / Reject buttons with haptic feedback | 🔲 |
+| AR.10 | Conversation list + live streaming view (Markdown rendered, auto-scroll) | 🔲 |
+| AR.11 | Push notification via `NotificationManager` (no FCM) when approval arrives while backgrounded | 🔲 |
 
 **Phase 3 — Relay mode (optional, opt-in)**
 
