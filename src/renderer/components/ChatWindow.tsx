@@ -614,6 +614,27 @@ export function ChatWindow() {
     [isNewChat, setActiveAgentId, updateConversationContext],
   )
 
+  const backendChip = useMemo(() => {
+    const agentBackend = chatAgent?.backend
+    if (agentBackend === 'gh-copilot') {
+      return { label: 'gh copilot', cls: 'bg-gray-100 dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-400' }
+    }
+    if (agentBackend === 'claude-cli' && cliInstalled) {
+      return { label: 'Claude CLI', cls: 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-700 text-purple-700 dark:text-purple-300' }
+    }
+    if (!agentBackend && authMode === 'none' && cliInstalled) {
+      return { label: 'Claude CLI', cls: 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-700 text-purple-700 dark:text-purple-300' }
+    }
+    const model = effectiveModel === 'default' ? 'gpt-5-mini' : effectiveModel
+    if (model.startsWith('claude')) {
+      return { label: 'Anthropic', cls: 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-700 text-orange-700 dark:text-orange-300' }
+    }
+    if (model.startsWith('azure:')) {
+      return { label: 'Azure', cls: 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-300' }
+    }
+    return { label: 'OpenAI', cls: 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-700 text-green-700 dark:text-green-300' }
+  }, [chatAgent?.backend, authMode, cliInstalled, effectiveModel])
+
   const contextBar = (
     <div
       ref={contextPickerRef}
@@ -721,6 +742,14 @@ export function ChatWindow() {
           </div>
         )}
       </div>
+
+      <span
+        className={`inline-flex items-center px-2 rounded-full text-xs font-medium border select-none ${backendChip.cls}`}
+        style={{ lineHeight: '20px' }}
+        title="Active backend for this conversation"
+      >
+        {backendChip.label}
+      </span>
 
       <div className="ml-auto flex items-center gap-2">
         {projectRootDir && (
