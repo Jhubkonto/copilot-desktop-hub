@@ -1,6 +1,6 @@
 # Nexy — Product Roadmap
 
-> **Last updated:** 2026-06-02 (v0.8.3)  
+> **Last updated:** 2026-06-02 (v0.8.4)  
 > **Status:** Living document  
 > **Related:** [`architecture-overview.md`](./architecture-overview.md)
 
@@ -8,7 +8,7 @@
 
 ## Vision
 
-Nexy is a provider-agnostic native AI workspace — locally-first, capable of autonomous multi-step work via MCP tools, CLI adapters, and browser automation. Works with BYOK API keys (OpenAI, Anthropic, Azure) or the Claude CLI out of the box, with no vendor lock-in.
+Nexy is a provider-agnostic native AI workspace — locally-first, capable of autonomous multi-step work via MCP tools, CLI adapters, and browser automation. Works with BYOK API keys (OpenAI, Anthropic, Azure), Claude CLI, or Codex CLI, with no vendor lock-in.
 
 ---
 
@@ -335,7 +335,24 @@ The model can search the wiki as a tool mid-conversation.
 
 ---
 
-### v0.9.0 — Android Remote Dispatcher 🔲 _(In progress — Phase 1 complete 2026-06-02)_
+### v0.8.4 — Codex CLI + Setup Flow Polish ✅ _(2026-06-02)_
+
+**Theme**: Make Codex CLI a reliable first-class backend and make first-run setup self-serve for users with no configured provider.
+
+| Task | Description | Status |
+|---|---|---|
+| CX.1 | Add `CodexAdapter` for `codex exec --json`, with stdin prompt transport, image file attachments, JSONL parsing, token usage, and clean nested error extraction | ✅ |
+| CX.2 | Register `codex-cli` as an agent backend and expose it in AgentPanel | ✅ |
+| CX.3 | Add account-aware `cli:get-models`; Codex models are read from `~/.codex/models_cache.json` and filtered to visible account-available entries | ✅ |
+| CX.4 | Codex chat fallback ignores stale unsupported saved models and uses the first available cached Codex model | ✅ |
+| CX.5 | Chat composer model dropdown fetches CLI models dynamically for Claude/Codex and handles Codex-only direct chat | ✅ |
+| CX.6 | CLI auth state now tracks Claude and Codex separately while preserving a combined `cliInstalled` readiness flag | ✅ |
+| CX.7 | Onboarding supports three setup paths: Codex CLI, Claude CLI, or BYOK API key; API key setup opens Settings directly | ✅ |
+| CX.8 | Tests cover Codex adapter parsing/errors, CLI model discovery, auth state, onboarding, and chat-window fallback behavior | ✅ |
+
+---
+
+### v0.9.0 — Android Remote Dispatcher 🔲 _(In progress — desktop WebSocket server complete 2026-06-02)_
 
 **Theme**: A companion Android app (Kotlin + Jetpack Compose) that connects to the desktop over local WiFi, lets the user approve or reject tool calls remotely, monitor live agent output, and trigger new conversations — so long-running agentic tasks can run unattended while the user stays in control from their phone.
 

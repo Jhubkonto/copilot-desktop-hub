@@ -381,7 +381,7 @@ The browser automation pipeline (v0.3.0) and the Context Collector (v0.4.0) inte
 
 ---
 
-## v0.8.1 — Copilot API removal + Smart Terminal integration ✅ *(current)*
+## v0.8.1 — Copilot API removal + Smart Terminal integration ✅
 
 **Theme**: Remove the GitHub Copilot API dependency; unify the Smart Terminal with the main chat state.
 
@@ -393,6 +393,26 @@ The browser automation pipeline (v0.3.0) and the Context Collector (v0.4.0) inte
 - Smart Terminal refactored: shares `useChat` state — same SQLite conversation, same streaming path, same sidebar entry
 - Removed isolated `SmartTerminalSlice`, `smart-terminal-manager`, `smart-terminal-handlers`, and all `smart-terminal:*` IPC channels
 - CLI adapter streaming fix: `receivedDeltas` flag prevents response duplication when CLI emits both per-token delta events and the final complete message event
+
+---
+
+## v0.8.4 — Codex CLI + onboarding polish ✅ *(current)*
+
+**Theme**: Make local CLI setup self-serve and support Codex CLI as a first-class backend alongside Claude CLI.
+
+**Included:**
+- `CodexAdapter` uses `codex exec --json --ephemeral` and sends the full prompt over stdin so multi-turn history is preserved without Windows shell argument issues.
+- Codex JSONL parsing handles current `item.completed` agent messages, token usage, and nested unsupported-model errors.
+- `codex-cli` is registered as an agent backend and appears in the AgentPanel backend selector.
+- `cli:get-models` returns backend-specific model options. Codex reads `~/.codex/models_cache.json` and only exposes listed account-available models, preventing unsupported ChatGPT-account model IDs such as `gpt-4.1`.
+- Chat send ignores stale unsupported Codex `cliModel` values and falls back to the first available cached Codex model.
+- Renderer auth state tracks `clis.claude` and `clis.codex` while keeping `cliInstalled` as a combined readiness flag.
+- Onboarding now covers Codex CLI, Claude CLI, and BYOK API setup. The BYOK path opens Settings so users can paste provider keys immediately.
+- Direct chat fallback works when only Codex CLI is installed; backend chip and empty state show the correct CLI.
+
+**Verification:**
+- Focused main/renderer coverage for Codex adapter behavior, model discovery, auth state, onboarding, and chat-window fallback.
+- `npm run typecheck` passes.
 
 ---
 
