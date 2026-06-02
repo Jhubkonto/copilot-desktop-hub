@@ -814,10 +814,13 @@ export async function dispatchChatSend(
       if (effectiveBackend) {
         const adapter = getAdapter(effectiveBackend)
         if (adapter?.isAvailable()) {
+          // Do not inject modelIdentityInstruction for CLI backends — the model
+          // already knows its own identity and the instruction would cause it to
+          // misreport itself as the BYOK default model (e.g. gpt-5-mini).
           const cliSystemPrompt =
             typeof agentCfg2?.systemPrompt === 'string' && agentCfg2.systemPrompt.trim().length > 0
-              ? `${agentCfg2.systemPrompt}\n\n${modelIdentityInstruction}`
-              : modelIdentityInstruction
+              ? agentCfg2.systemPrompt
+              : undefined
 
           try {
             if (!window.webContents.isDestroyed()) {
