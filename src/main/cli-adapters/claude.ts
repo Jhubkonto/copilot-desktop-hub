@@ -1,4 +1,7 @@
 import { spawn } from 'child_process'
+import { writeFileSync, unlinkSync, mkdtempSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import type { BrowserWindow } from 'electron'
 import type { CliAgentAdapter, CliAdapterRequest } from './types'
 import { resolveCliPath } from './utils'
@@ -44,6 +47,29 @@ export const ClaudeAdapter: CliAgentAdapter = {
       const args = ['--output-format', 'stream-json', '--print', '--verbose']
       if (req.model && req.model !== 'default') {
         args.push('--model', req.model)
+      }
+
+      // Write pending images to temp files and pass via --image flags
+      const tempFiles: string[] = []
+      if (req.images && req.images.length > 0) {
+        const tempDir = mkdtempSync(join(tmpdir(), 'nexy-cli-'))
+        for (const img of req.images) {
+          const ext = img.dataUrl.startsWith('data:image/png') ? 'png'
+            : img.dataUrl.startsWith('data:image/webp') ? 'webp'
+            : img.dataUrl.startsWith('data:image/gif') ? 'gif'
+            : 'jpg'
+          const comma = img.dataUrl.indexOf(',')
+          if (comma === -1) continue
+          const base64Data = img.dataUrl.slice(comma + 1)
+          const tempPath = join(tempDir, `${img.id}.${ext}`)
+          try {
+            writeFileSync(tempPath, Buffer.from(base64Data, 'base64'))
+            tempFiles.push(tempPath)
+            args.push('--image', tempPath)
+          } catch {
+            // skip unwritable images
+          }
+        }
       }
 
       // --verbose is required when combining --output-format stream-json with --print
@@ -158,6 +184,9 @@ export const ClaudeAdapter: CliAgentAdapter = {
       proc.on('error', reject)
       proc.on('close', (code) => {
         if (buffer.trim()) parseLine(buffer)
+        for (const f of tempFiles) {
+          try { unlinkSync(f) } catch {}
+        }
         if (code !== 0 && fullText === '') {
           const detail = stderrText.trim() ? `: ${stderrText.trim()}` : ''
           reject(new Error(`claude exited with code ${code}${detail}`))

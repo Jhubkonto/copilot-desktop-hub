@@ -108,17 +108,38 @@ export function useChat({
               prev.filter((message) => message.images).map((message) => [message.id, message.images!]),
             )
 
-            return dbMessages.map((message) => ({
-              id: message.id,
-              role: message.role as ChatMessage['role'],
-              content: message.content,
-              timestamp: message.timestamp,
-              model: message.model ?? null,
-              isEdited: message.is_edited === 1,
-              attachments: message.attachments ? JSON.parse(message.attachments) : undefined,
-              images: imageMap.get(message.id),
-              contextSnapshot: message.context_snapshot ?? undefined,
-            }))
+            return dbMessages.map((message) => {
+              const base = {
+                id: message.id,
+                role: message.role as ChatMessage['role'],
+                content: message.content,
+                timestamp: message.timestamp,
+                model: message.model ?? null,
+                isEdited: message.is_edited === 1,
+                attachments: message.attachments ? JSON.parse(message.attachments) : undefined,
+                images: imageMap.get(message.id),
+                contextSnapshot: message.context_snapshot ?? undefined,
+              }
+              // Unpack tool-call metadata stored as JSON in content (CA.12 persistence)
+              if (message.role === 'tool-call') {
+                try {
+                  const parsed = JSON.parse(message.content) as Record<string, unknown>
+                  if (parsed.__type === 'tool-call') {
+                    return {
+                      ...base,
+                      content: typeof parsed.toolResult === 'string' ? parsed.toolResult : '',
+                      toolName: typeof parsed.toolName === 'string' ? parsed.toolName : undefined,
+                      serverName: typeof parsed.serverName === 'string' ? parsed.serverName : undefined,
+                      toolArgs: (typeof parsed.toolArgs === 'object' && parsed.toolArgs !== null)
+                        ? parsed.toolArgs as Record<string, unknown>
+                        : undefined,
+                      toolSuccess: typeof parsed.toolSuccess === 'boolean' ? parsed.toolSuccess : true,
+                    }
+                  }
+                } catch {}
+              }
+              return base
+            })
           })
         })
         .catch(() => {

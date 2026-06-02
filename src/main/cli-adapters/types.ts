@@ -4,6 +4,7 @@ import type { ProviderMessage } from '../providers'
 export interface CliAdapterRequest {
   systemPrompt?: string
   messages: ProviderMessage[]
+  images?: { id: string; name: string; dataUrl: string }[]
   cwd: string
   model: string
   conversationId: string
