@@ -42,9 +42,11 @@ vi.mock('../mcp', () => ({ getAvailableMcpTools: vi.fn(() => []) }))
 vi.mock('../orchestrator', () => ({ runOrchestration: vi.fn() }))
 vi.mock('../tool-loop', () => ({ runProviderMcpToolLoop: vi.fn() }))
 vi.mock('../cli-adapters/registry', () => ({ getAdapter: vi.fn(() => null) }))
+vi.mock('../cli-adapters/claude', () => ({ ClaudeAdapter: { isAvailable: vi.fn(() => false) } }))
+vi.mock('../auth', () => ({ retrieveAuthMode: vi.fn(() => 'byok') }))
 vi.mock('../wiki-context', () => ({ getRelevantWikiEntries: vi.fn(() => []), formatWikiSection: vi.fn(() => '') }))
 vi.mock('../wiki-handlers', () => ({ insertWikiEntry: vi.fn() }))
-vi.mock('../tools', () => ({ requestApproval: vi.fn() }))
+vi.mock('../tools', () => ({ requestApproval: vi.fn(), registerApprovalResolver: vi.fn() }))
 vi.mock('../providers', () => ({
   DEFAULT_PROVIDER_MODEL: 'gpt-5-mini',
   NO_PROVIDER_CONFIGURED_MESSAGE: 'No provider configured. Add an API key in Settings.',
@@ -65,6 +67,9 @@ vi.mock('../providers', () => ({
 }))
 
 import { registerChatHandlers } from '../chat-handlers'
+import { getAdapter } from '../cli-adapters/registry'
+import { ClaudeAdapter } from '../cli-adapters/claude'
+import { retrieveAuthMode } from '../auth'
 
 describe('chat handlers', () => {
   beforeEach(() => {
@@ -83,6 +88,29 @@ describe('chat handlers', () => {
     expect(result.assistantMsgId).toBeTruthy()
     expect(state.send).toHaveBeenCalledWith('chat:stream-response', 'Hello')
     expect(state.send).toHaveBeenCalledWith('chat:stream-response', ' world')
+  })
+
+  it('CLI backend does not inject BYOK model identity into system prompt', async () => {
+    // Make the handler route through the CLI adapter
+    const capturedReqs: { systemPrompt?: string }[] = []
+    const mockAdapter = {
+      isAvailable: () => true,
+      send: vi.fn(async (_win: unknown, req: { systemPrompt?: string }, _onChunk: unknown) => {
+        capturedReqs.push({ systemPrompt: req.systemPrompt })
+        return 'cli response'
+      }),
+    }
+    vi.mocked(getAdapter).mockReturnValue(mockAdapter as never)
+    vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(true)
+    vi.mocked(retrieveAuthMode).mockReturnValue('none')
+
+    const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<unknown>
+    await handler({ sender: {} }, 'conv-cli', 'tell me something')
+
+    expect(capturedReqs).toHaveLength(1)
+    // Must NOT contain the BYOK model identity instruction
+    expect(capturedReqs[0].systemPrompt ?? '').not.toContain('gpt-5-mini')
+    expect(capturedReqs[0].systemPrompt ?? '').not.toContain('Runtime model for this conversation')
   })
 
   it('aborts the active provider stream', async () => {

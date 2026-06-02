@@ -152,6 +152,109 @@ describe('CLI adapters', () => {
     expect(ClaudeAdapter.isAvailable()).toBe(false)
   })
 
+  it('ClaudeAdapter uses stream-json input format and embeds image when images provided', async () => {
+    const proc = makeProc()
+    mockSpawn.mockReturnValue(proc)
+
+    const chunks: string[] = []
+    const sendPromise = ClaudeAdapter.send({} as never, {
+      messages: [{ role: 'user', content: 'what is this?' }],
+      cwd: 'C:\\workspace',
+      model: 'default',
+      conversationId: 'conv-1',
+      systemPrompt: 'You are helpful',
+      images: [{ id: 'img-1', name: 'screenshot.png', dataUrl: 'data:image/png;base64,iVBORw0KGgo=' }],
+    }, (chunk: string) => chunks.push(chunk))
+
+    proc.stdout.emit('data', Buffer.from(JSON.stringify({
+      type: 'content_block_delta', delta: { text: 'I see a screenshot.' }
+    }) + '\n'))
+    proc.emit('close', 0)
+
+    await expect(sendPromise).resolves.toBe('I see a screenshot.')
+
+    // Must add --input-format stream-json when images are present
+    expect(mockSpawn).toHaveBeenCalledWith(
+      'C:\\claude.exe',
+      ['--output-format', 'stream-json', '--print', '--verbose', '--input-format', 'stream-json'],
+      expect.objectContaining({ cwd: 'C:\\workspace' })
+    )
+
+    // stdin must be valid JSON with image content block embedded in last user message
+    const stdinArg = (proc.stdin.end as ReturnType<typeof vi.fn>).mock.calls[0][0] as string
+    const parsed = JSON.parse(stdinArg) as { type: string; message: { role: string; content: unknown[] } }
+    expect(parsed.type).toBe('user')
+    expect(parsed.message.content).toHaveLength(2)
+    expect((parsed.message.content[0] as { type: string; text: string }).type).toBe('text')
+    expect((parsed.message.content[0] as { type: string; text: string }).text).toContain('what is this?')
+    expect((parsed.message.content[0] as { type: string; text: string }).text).toContain('You are helpful')
+    const imgBlock = parsed.message.content[1] as { type: string; source: { type: string; media_type: string; data: string } }
+    expect(imgBlock.type).toBe('image')
+    expect(imgBlock.source.type).toBe('base64')
+    expect(imgBlock.source.media_type).toBe('image/png')
+    expect(imgBlock.source.data).toBe('iVBORw0KGgo=')
+  })
+
+  it('ClaudeAdapter uses plain text input and no --input-format flag for text-only messages', async () => {
+    const proc = makeProc()
+    mockSpawn.mockReturnValue(proc)
+
+    const sendPromise = ClaudeAdapter.send({} as never, {
+      messages: [{ role: 'user', content: 'hello' }],
+      cwd: 'C:\\workspace',
+      model: 'default',
+      conversationId: 'conv-1',
+    }, () => {})
+
+    proc.emit('close', 0)
+    await sendPromise
+
+    expect(mockSpawn).toHaveBeenCalledWith(
+      'C:\\claude.exe',
+      ['--output-format', 'stream-json', '--print', '--verbose'],
+      expect.any(Object)
+    )
+    // No --input-format flag in text-only mode
+    const spawnArgs = (mockSpawn.mock.calls[0] as unknown[])[1] as string[]
+    expect(spawnArgs).not.toContain('--input-format')
+  })
+
+  it('ClaudeAdapter preserves conversation history in stream-json format', async () => {
+    const proc = makeProc()
+    mockSpawn.mockReturnValue(proc)
+
+    const sendPromise = ClaudeAdapter.send({} as never, {
+      messages: [
+        { role: 'user', content: 'first message' },
+        { role: 'assistant', content: 'first response' },
+        { role: 'user', content: 'follow-up with image' },
+      ],
+      cwd: 'C:\\workspace',
+      model: 'default',
+      conversationId: 'conv-1',
+      images: [{ id: 'img-1', name: 'img.png', dataUrl: 'data:image/jpeg;base64,/9j/abc' }],
+    }, () => {})
+
+    proc.emit('close', 0)
+    await sendPromise
+
+    const stdinArg = (proc.stdin.end as ReturnType<typeof vi.fn>).mock.calls[0][0] as string
+    const lines = stdinArg.split('\n').filter(Boolean)
+    expect(lines).toHaveLength(3) // user, assistant, user
+
+    const [userTurn1, assistantTurn, userTurn2] = lines.map((l) => JSON.parse(l) as { type: string; message: { content: unknown[] } })
+    expect(userTurn1.type).toBe('user')
+    expect(assistantTurn.type).toBe('assistant')
+    expect(userTurn2.type).toBe('user')
+    // Image only on last user message
+    expect(userTurn2.message.content).toHaveLength(2)
+    expect(userTurn1.message.content).toHaveLength(1)
+    expect(assistantTurn.message.content).toHaveLength(1)
+    // media_type inferred from jpeg data URL
+    const imgBlock = userTurn2.message.content[1] as { source: { media_type: string } }
+    expect(imgBlock.source.media_type).toBe('image/jpeg')
+  })
+
   it('GhCopilotAdapter strips ANSI output', async () => {
     mockSpawnSync.mockReturnValue({ stdout: '\u001b[31mecho hi\u001b[0m', error: undefined })
 
