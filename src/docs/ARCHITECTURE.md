@@ -65,10 +65,9 @@ src/
 │   ├── ipc-handlers.ts           # Aggregator — registers all handler modules
 │   ├── database.ts               # SQLite singleton, schema init
 │   ├── database-migrations.ts    # Versioned migration runner (PRAGMA user_version)
-│   ├── auth.ts                   # GitHub Device-Code OAuth + token storage
-│   ├── copilot-api.ts            # Copilot API streaming (chat completions)
+│   ├── auth.ts                   # BYOK auth mode persistence
 │   ├── http-client.ts            # Shared HTTPS helpers: httpsPost, httpsGet, parseSseStream
-│   ├── providers.ts              # Multi-provider streaming (OpenAI, Anthropic, Azure, Copilot)
+│   ├── providers.ts              # Multi-provider streaming (OpenAI, Anthropic, Azure)
 │   ├── orchestrator.ts           # Multi-agent delegation (leader + team via delegate_to_agent tool)
 │   ├── chat-handlers.ts          # Chat IPC: send message, regenerate, edit, stop
 │   ├── conversation-handlers.ts  # Conversation + message CRUD
@@ -171,9 +170,9 @@ User types + sends
   chat-handlers.ts (main)
        │── loads conversation history from SQLite
        │── resolves agent config + context files
-       │── calls sendCopilotChatMessage() or provider streaming fn
+       │── calls the selected BYOK provider or CLI adapter
        │
-  providers.ts / copilot-api.ts
+  providers.ts
        │── opens HTTPS streaming request
        │── parses SSE chunks via parseSseStream()
        │── emits ipcMain → win.webContents.send('chat:token', chunk)
