@@ -831,7 +831,7 @@ export async function dispatchChatSend(
 
             responseContent = await adapter.send(window, {
               systemPrompt: cliSystemPrompt,
-              messages: [...contextMessages, { role: 'user' as const, content: userContent }],
+              messages: [...contextMessages, { role: 'user' as const, content: augmentedContent }],
               images: attachedImages.length > 0 ? attachedImages : undefined,
               cwd: process.cwd(),
               model: (typeof agentCfg2?.cliModel === 'string' ? agentCfg2.cliModel : '') as string,

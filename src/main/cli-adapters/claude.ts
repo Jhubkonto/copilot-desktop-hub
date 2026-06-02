@@ -1,7 +1,4 @@
 import { spawn } from 'child_process'
-import { writeFileSync, unlinkSync, mkdtempSync } from 'fs'
-import { tmpdir } from 'os'
-import { join } from 'path'
 import type { BrowserWindow } from 'electron'
 import type { CliAgentAdapter, CliAdapterRequest } from './types'
 import { resolveCliPath } from './utils'
@@ -24,6 +21,48 @@ function buildConversationText(req: CliAdapterRequest): string {
   return parts.join('\n\n')
 }
 
+function buildConversationJson(req: CliAdapterRequest): string {
+  const lines: string[] = []
+  let systemPrepended = false
+
+  for (let i = 0; i < req.messages.length; i++) {
+    const msg = req.messages[i]
+    if (msg.role === 'system') continue
+    const role = msg.role === 'user' ? 'user' : 'assistant'
+    const isLast = i === req.messages.length - 1
+
+    let textContent = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+
+    // Embed system prompt as a prefix on the first user message
+    if (role === 'user' && !systemPrepended && req.systemPrompt) {
+      textContent = `[System]: ${req.systemPrompt}\n\n${textContent}`
+      systemPrepended = true
+    }
+
+    const contentBlocks: unknown[] = [{ type: 'text', text: textContent }]
+
+    // Attach images to the last user message
+    if (isLast && role === 'user' && req.images && req.images.length > 0) {
+      for (const img of req.images) {
+        const mediaType = img.dataUrl.startsWith('data:image/png') ? 'image/png'
+          : img.dataUrl.startsWith('data:image/webp') ? 'image/webp'
+          : img.dataUrl.startsWith('data:image/gif') ? 'image/gif'
+          : 'image/jpeg'
+        const comma = img.dataUrl.indexOf(',')
+        if (comma === -1) continue
+        contentBlocks.push({
+          type: 'image',
+          source: { type: 'base64', media_type: mediaType, data: img.dataUrl.slice(comma + 1) },
+        })
+      }
+    }
+
+    lines.push(JSON.stringify({ type: role, message: { role, content: contentBlocks } }))
+  }
+
+  return lines.join('\n')
+}
+
 export const ClaudeAdapter: CliAgentAdapter = {
   name: 'claude-cli',
 
@@ -44,32 +83,13 @@ export const ClaudeAdapter: CliAgentAdapter = {
         return
       }
 
+      const hasImages = (req.images?.length ?? 0) > 0
       const args = ['--output-format', 'stream-json', '--print', '--verbose']
       if (req.model && req.model !== 'default') {
         args.push('--model', req.model)
       }
-
-      // Write pending images to temp files and pass via --image flags
-      const tempFiles: string[] = []
-      if (req.images && req.images.length > 0) {
-        const tempDir = mkdtempSync(join(tmpdir(), 'nexy-cli-'))
-        for (const img of req.images) {
-          const ext = img.dataUrl.startsWith('data:image/png') ? 'png'
-            : img.dataUrl.startsWith('data:image/webp') ? 'webp'
-            : img.dataUrl.startsWith('data:image/gif') ? 'gif'
-            : 'jpg'
-          const comma = img.dataUrl.indexOf(',')
-          if (comma === -1) continue
-          const base64Data = img.dataUrl.slice(comma + 1)
-          const tempPath = join(tempDir, `${img.id}.${ext}`)
-          try {
-            writeFileSync(tempPath, Buffer.from(base64Data, 'base64'))
-            tempFiles.push(tempPath)
-            args.push('--image', tempPath)
-          } catch {
-            // skip unwritable images
-          }
-        }
+      if (hasImages) {
+        args.push('--input-format', 'stream-json')
       }
 
       // --verbose is required when combining --output-format stream-json with --print
@@ -79,7 +99,8 @@ export const ClaudeAdapter: CliAgentAdapter = {
         shell: false,
       })
 
-      proc.stdin.end(buildConversationText(req), 'utf8')
+      const stdinContent = hasImages ? buildConversationJson(req) : buildConversationText(req)
+      proc.stdin.end(stdinContent, 'utf8')
 
       let fullText = ''
       let buffer = ''
@@ -184,9 +205,6 @@ export const ClaudeAdapter: CliAgentAdapter = {
       proc.on('error', reject)
       proc.on('close', (code) => {
         if (buffer.trim()) parseLine(buffer)
-        for (const f of tempFiles) {
-          try { unlinkSync(f) } catch {}
-        }
         if (code !== 0 && fullText === '') {
           const detail = stderrText.trim() ? `: ${stderrText.trim()}` : ''
           reject(new Error(`claude exited with code ${code}${detail}`))
