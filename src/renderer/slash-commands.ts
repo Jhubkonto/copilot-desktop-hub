@@ -169,7 +169,7 @@ export async function executeSlashCommand(
     case '/version': {
       try {
         const version = await window.api.getVersion()
-        ctx.pushSystemMessage(`Copilot Desktop Hub v${version}`)
+        ctx.pushSystemMessage(`Nexy v${version}`)
       } catch {
         ctx.pushSystemMessage('Unable to read app version.')
       }
@@ -255,7 +255,7 @@ export async function executeSlashCommand(
           const gistUrl = await window.api.createGist(
             'conversation.md',
             markdown,
-            'Shared from Copilot Desktop Hub'
+            'Shared from Nexy'
           )
           ctx.pushSystemMessage(`Created secret gist:\n${gistUrl}`)
         } catch {

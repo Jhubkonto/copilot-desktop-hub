@@ -1,5 +1,5 @@
-appId: com.copilot-desktop-hub.app
-productName: Copilot Desktop Hub
+appId: com.nexy.app
+productName: Nexy
 directories:
   output: release
   buildResources: resources
@@ -42,4 +42,4 @@ nsis:
 publish:
   provider: github
   owner: OWNER
-  repo: copilot-desktop-hub
+  repo: nexy

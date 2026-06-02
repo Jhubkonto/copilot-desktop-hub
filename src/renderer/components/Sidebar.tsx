@@ -317,7 +317,7 @@ export function Sidebar() {
       <ResizeHandle direction="horizontal" containerRef={sidebarRef} onSetSize={handleSetSize} minSize={SIDEBAR_MIN} maxSize={getMaxSize} />
       <div className="flex items-center px-4 h-9 border-b border-gray-200 dark:border-gray-700/80">
         <h2 className="text-sm font-medium text-gray-800 dark:text-gray-100 tracking-wide">
-          Copilot Desktop Hub
+          Nexy
         </h2>
       </div>
 

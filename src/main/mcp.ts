@@ -108,7 +108,7 @@ async function connectServer(config: McpServerConfig): Promise<void> {
   })
 
   const client = new Client(
-    { name: 'copilot-desktop-hub', version: '0.1.0' },
+    { name: 'nexy', version: '0.9.0' },
     { capabilities: {} }
   )
 

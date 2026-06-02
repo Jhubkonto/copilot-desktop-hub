@@ -71,7 +71,7 @@ beforeEach(() => {
 describe("ChatWindow — Empty State", () => {
   it("chat-r-1: shows welcome message with default title", () => {
     render(<ChatWindow />);
-    expect(screen.getByText("Copilot Desktop Hub")).toBeInTheDocument();
+    expect(screen.getByText("Nexy")).toBeInTheDocument();
   });
 
   it("chat-r-1b: shows agent name when activeAgent provided", () => {
@@ -351,7 +351,7 @@ describe("ChatWindow — Offline State", () => {
       streamErrorCallback?.({
         type: "rate_limit",
         message:
-          "Rate limited by Copilot API. Please wait a moment and try again.",
+          "Rate limited. Please wait a moment and try again.",
         retryable: true,
         retryAfterSeconds: 8,
       });

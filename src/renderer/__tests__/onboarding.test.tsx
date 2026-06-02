@@ -18,7 +18,7 @@ describe('OnboardingModal', () => {
   it('renders welcome screen with Get Started button', async () => {
     await act(async () => { render(<OnboardingModal onComplete={vi.fn()} />) })
 
-    expect(screen.getByText('Welcome to Copilot Desktop Hub')).toBeInTheDocument()
+    expect(screen.getByText('Welcome to Nexy')).toBeInTheDocument()
     expect(screen.getByText('Get Started')).toBeInTheDocument()
   })
 
@@ -70,7 +70,7 @@ describe('OnboardingModal', () => {
     await user.click(screen.getByText('Get Started'))
     await user.click(screen.getByText('← Back'))
 
-    expect(screen.getByText('Welcome to Copilot Desktop Hub')).toBeInTheDocument()
+    expect(screen.getByText('Welcome to Nexy')).toBeInTheDocument()
   })
 
   it('finish button saves onboarding_complete and calls onComplete', async () => {
@@ -81,7 +81,7 @@ describe('OnboardingModal', () => {
 
     await user.click(screen.getByText('Get Started'))
     await act(async () => { await user.click(screen.getByRole('button', { name: /Add an API key/ })) })
-    await user.click(screen.getByText('Start Using Copilot Desktop Hub'))
+    await user.click(screen.getByText('Start Using Nexy'))
 
     expect(mockApi.setSetting).toHaveBeenCalledWith('onboarding_complete', 'true')
     expect(onComplete).toHaveBeenCalledTimes(1)

@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { existsSync, mkdirSync } from "fs";
+import { existsSync, mkdirSync, renameSync } from "fs";
 import { app } from "electron";
 import { join } from "path";
 
@@ -17,7 +17,12 @@ export function getDatabase(): Database.Database {
     mkdirSync(dbDir, { recursive: true });
   }
 
-  const dbPath = join(dbDir, "copilot-hub.db");
+  const dbPath = join(dbDir, "nexy.db");
+  // Migrate from old filename on first run after rename
+  const legacyPath = join(dbDir, "copilot-hub.db");
+  if (!existsSync(dbPath) && existsSync(legacyPath)) {
+    renameSync(legacyPath, dbPath);
+  }
   db = new Database(dbPath);
 
   db.pragma("journal_mode = WAL");

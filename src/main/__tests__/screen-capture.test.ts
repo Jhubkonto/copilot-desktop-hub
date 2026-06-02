@@ -114,11 +114,11 @@ describe('external window label caching', () => {
 
   it('caches the first non-app window label', async () => {
     mockDesktopCapturer.getSources.mockResolvedValue([
-      { name: 'Copilot Desktop Hub' },
+      { name: 'Nexy' },
       { name: 'VS Code' },
     ])
 
-    await cacheExternalWindowLabel('Copilot Desktop Hub')
+    await cacheExternalWindowLabel('Nexy')
 
     expect(getLastExternalWindowLabel()).toBe('VS Code')
     expect(mockDesktopCapturer.getSources).toHaveBeenCalledWith({
@@ -130,7 +130,7 @@ describe('external window label caching', () => {
   it('clears the cached label when querying sources fails', async () => {
     mockDesktopCapturer.getSources.mockRejectedValue(new Error('boom'))
 
-    await cacheExternalWindowLabel('Copilot Desktop Hub')
+    await cacheExternalWindowLabel('Nexy')
 
     expect(getLastExternalWindowLabel()).toBeUndefined()
   })
@@ -161,7 +161,7 @@ describe('captureWithRegionSelection', () => {
         { display_id: '1', thumbnail: makeNativeImage('data:image/png;base64,region') },
       ])
 
-    await cacheExternalWindowLabel('Copilot Desktop Hub')
+    await cacheExternalWindowLabel('Nexy')
 
     const overlayHandlers = new Map<string, (...args: unknown[]) => void>()
     mockIpcMain.once.mockImplementation((channel: string, handler: (...args: unknown[]) => void) => {

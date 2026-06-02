@@ -52,7 +52,7 @@ describe('registerIpcHandlers window events', () => {
   it('wires blur and focus listeners for clipboard integration', async () => {
     const listeners = new Map<string, () => void>()
     const mainWindow = {
-      getTitle: vi.fn().mockReturnValue('Copilot Desktop Hub'),
+      getTitle: vi.fn().mockReturnValue('Nexy'),
       on: vi.fn((event: string, handler: () => void) => {
         listeners.set(event, handler)
       }),
@@ -63,7 +63,7 @@ describe('registerIpcHandlers window events', () => {
     registerIpcHandlers(mainWindow as never)
 
     listeners.get('blur')?.()
-    expect(mockCacheExternalWindowLabel).toHaveBeenCalledWith('Copilot Desktop Hub')
+    expect(mockCacheExternalWindowLabel).toHaveBeenCalledWith('Nexy')
 
     listeners.get('focus')?.()
     expect(mockConsumeSuppressFocusEvent).toHaveBeenCalled()
@@ -74,7 +74,7 @@ describe('registerIpcHandlers window events', () => {
     mockConsumeSuppressFocusEvent.mockReturnValue(true)
     const listeners = new Map<string, () => void>()
     const mainWindow = {
-      getTitle: vi.fn().mockReturnValue('Copilot Desktop Hub'),
+      getTitle: vi.fn().mockReturnValue('Nexy'),
       on: vi.fn((event: string, handler: () => void) => {
         listeners.set(event, handler)
       }),

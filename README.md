@@ -1,6 +1,6 @@
-# Copilot Desktop Hub
+# Nexy
 
-A cross-platform desktop application that brings GitHub Copilot's AI capabilities into a native chat-and-agent experience — with custom agents, multi-provider LLM support, MCP server integration, built-in tools, and project-scoped workspaces.
+A provider-agnostic native AI workspace — locally-first, with custom agents, multi-provider LLM support (BYOK or Claude CLI), MCP server integration, built-in tools, and project-scoped workspaces.
 
 <!-- TODO: add screenshot -->
 

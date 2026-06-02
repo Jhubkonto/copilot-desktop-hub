@@ -171,7 +171,7 @@ export function TitleBar() {
   const handleAbout = async () => {
     close()
     const version = await window.api.getVersion()
-    addToast(`Copilot Desktop Hub v${version}`, 'info')
+    addToast(`Nexy v${version}`, 'info')
   }
 
   const sections: SectionDef[] = [

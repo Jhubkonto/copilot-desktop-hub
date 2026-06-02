@@ -11,7 +11,7 @@ let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 
 const isDev = !app.isPackaged
-const PROTOCOL = 'copilot-hub'
+const PROTOCOL = 'nexy'
 
 // Register deep link protocol
 if (process.defaultApp) {
@@ -36,7 +36,7 @@ function createWindow(): void {
     height: 800,
     minWidth: 600,
     minHeight: 400,
-    title: 'Copilot Desktop Hub',
+    title: 'Nexy',
     show: false,
     frame: false,
     titleBarStyle: 'hidden',
@@ -102,7 +102,7 @@ function createTray(): void {
 
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: 'Open Copilot Desktop Hub',
+      label: 'Open Nexy',
       click: () => mainWindow?.show()
     },
     {
@@ -119,7 +119,7 @@ function createTray(): void {
     }
   ])
 
-  tray.setToolTip('Copilot Desktop Hub')
+  tray.setToolTip('Nexy')
   tray.setContextMenu(contextMenu)
 
   tray.on('click', () => {

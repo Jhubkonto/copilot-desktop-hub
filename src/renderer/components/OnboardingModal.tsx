@@ -72,7 +72,7 @@ export function OnboardingModal({ onComplete }: OnboardingProps) {
                 <Sparkles className="w-12 h-12 text-gray-400" />
               </div>
               <h1 className="text-xl font-medium text-gray-800 dark:text-gray-100">
-                Welcome to Copilot Desktop Hub
+                Welcome to Nexy
               </h1>
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 A native desktop workspace for chat, custom agents, MCP servers, and built-in tools.
@@ -200,7 +200,7 @@ export function OnboardingModal({ onComplete }: OnboardingProps) {
                 onClick={handleFinish}
                 className="w-full mt-2 px-4 py-2.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-sm font-medium hover:bg-gray-800 dark:hover:bg-gray-200 transition-colors"
               >
-                Start Using Copilot Desktop Hub
+                Start Using Nexy
               </button>
             </div>
           )}

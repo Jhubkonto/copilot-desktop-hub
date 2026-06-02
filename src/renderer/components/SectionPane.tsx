@@ -350,7 +350,7 @@ function AgentsPane() {
           <MessageSquare className="w-3.5 h-3.5 text-gray-400 shrink-0" />
           <div className="flex-1 min-w-0">
             <p className="text-xs font-medium text-gray-700 dark:text-gray-200">No Agent</p>
-            <p className="text-[10px] text-gray-400 dark:text-gray-500">Direct Copilot chat</p>
+            <p className="text-[10px] text-gray-400 dark:text-gray-500">Direct chat</p>
           </div>
         </div>
 
