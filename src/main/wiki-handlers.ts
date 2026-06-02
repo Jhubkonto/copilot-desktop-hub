@@ -183,7 +183,12 @@ Guidelines:
 - If nothing notable was learned, return []
 - Tags should be lowercase, 1-2 words each`
 
-    const userContent = `Here is the conversation to analyze:\n\n${transcript.slice(0, 12000)}`
+    const HARD_LIMIT = 40000
+    const HEAD = 4000
+    const truncatedTranscript = transcript.length <= HARD_LIMIT
+      ? transcript
+      : transcript.slice(0, HEAD) + '\n\n[... conversation truncated ...]\n\n' + transcript.slice(-(HARD_LIMIT - HEAD))
+    const userContent = `Here is the conversation to analyze:\n\n${truncatedTranscript}`
 
     const { provider, model: resolvedModel } = extractionProvider
     const apiKey = getApiKey(provider)
