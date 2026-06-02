@@ -1,38 +1,49 @@
-import { useState, useEffect } from 'react'
-import { Sparkles, Shield, CheckCircle, MessageSquare, Bot, Plug, Wrench, Key } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Sparkles, CheckCircle, MessageSquare, Bot, Plug, Wrench, Key, Terminal, RefreshCw } from 'lucide-react'
+import { useAppStore } from '../store/app-store'
 
 interface OnboardingProps {
   onComplete: () => void
 }
 
-type Step = 'welcome' | 'auth' | 'done'
+type Step = 'welcome' | 'providers' | 'done'
+type SetupMode = 'byok' | 'cli' | null
 
 export function OnboardingModal({ onComplete }: OnboardingProps) {
   const [step, setStep] = useState<Step>('welcome')
-  const [authState, setAuthState] = useState<{
-    authenticated: boolean
-    user: { login: string; avatar_url: string } | null
-  }>({ authenticated: false, user: null })
-  const [loggingIn, setLoggingIn] = useState(false)
-  const [usedByok, setUsedByok] = useState(false)
+  const [setupMode, setSetupMode] = useState<SetupMode>(null)
+  const [cliInstalled, setCliInstalled] = useState(false)
+  const [rechecking, setRechecking] = useState(false)
+  const loginByok = useAppStore((s) => s.loginByok)
+  const checkAuth = useAppStore((s) => s.checkAuth)
 
   useEffect(() => {
-    window.api.authStatus().then(setAuthState)
+    void window.api.authStatus().then((result) => {
+      setCliInstalled(result.cliInstalled ?? false)
+    })
   }, [])
 
-  const handleLogin = async () => {
-    setLoggingIn(true)
-    const result = await window.api.authLogin()
-    if (result.success) {
-      setAuthState({ authenticated: true, user: result.user ?? null })
-    }
-    setLoggingIn(false)
+  const handleByok = async () => {
+    await loginByok()
+    await checkAuth()
+    setSetupMode('byok')
+    setStep('done')
   }
 
-  const handleByok = async () => {
-    await window.api.authLoginByok()
-    setUsedByok(true)
+  const handleUseCli = () => {
+    setSetupMode('cli')
     setStep('done')
+  }
+
+  const handleRecheck = async () => {
+    setRechecking(true)
+    try {
+      const result = await window.api.authStatus()
+      setCliInstalled(result.cliInstalled ?? false)
+      await checkAuth()
+    } finally {
+      setRechecking(false)
+    }
   }
 
   const handleFinish = async () => {
@@ -43,9 +54,8 @@ export function OnboardingModal({ onComplete }: OnboardingProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-label="Welcome setup">
       <div className="w-full max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-        {/* Progress dots */}
         <div className="flex justify-center gap-2 pt-5">
-          {(['welcome', 'auth', 'done'] as Step[]).map((s) => (
+          {(['welcome', 'providers', 'done'] as Step[]).map((s) => (
             <div
               key={s}
               className={`w-2 h-2 rounded-full transition-colors ${
@@ -65,11 +75,13 @@ export function OnboardingModal({ onComplete }: OnboardingProps) {
                 Welcome to Copilot Desktop Hub
               </h1>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                A native desktop experience for GitHub Copilot with custom agents, MCP servers,
-                and powerful tools.
+                A native desktop workspace for chat, custom agents, MCP servers, and built-in tools.
+              </p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">
+                Let's get you set up with an AI backend.
               </p>
               <button
-                onClick={() => setStep('auth')}
+                onClick={() => setStep('providers')}
                 className="w-full mt-4 px-4 py-2.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-sm font-medium hover:bg-gray-800 dark:hover:bg-gray-200 transition-colors"
               >
                 Get Started
@@ -77,58 +89,74 @@ export function OnboardingModal({ onComplete }: OnboardingProps) {
             </div>
           )}
 
-          {step === 'auth' && (
-            <div className="text-center space-y-4">
-              <div className="flex justify-center">
-                <Shield className="w-12 h-12 text-gray-400" />
+          {step === 'providers' && (
+            <div className="space-y-4">
+              <div className="text-center">
+                <h2 className="text-lg font-medium text-gray-800 dark:text-gray-100">
+                  Choose your setup
+                </h2>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                  How would you like to use the app?
+                </p>
               </div>
-              <h2 className="text-lg font-medium text-gray-800 dark:text-gray-100">
-                Connect your AI provider
-              </h2>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Sign in with GitHub to use Copilot, or use your own API keys for OpenAI, Anthropic, or Azure.
-              </p>
 
-              {authState.authenticated ? (
-                <div className="flex items-center justify-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600">
-                  <CheckCircle className="w-4 h-4 text-gray-600 dark:text-gray-300" />
-                  <span className="text-sm text-gray-700 dark:text-gray-200">
-                    Signed in as <strong>{authState.user?.login}</strong>
-                  </span>
-                </div>
+              {cliInstalled ? (
+                <button
+                  onClick={handleUseCli}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-lg border border-green-200 dark:border-green-700 bg-green-50 dark:bg-green-900/20 text-left hover:bg-green-100 dark:hover:bg-green-900/40 transition-colors"
+                >
+                  <Terminal className="w-5 h-5 text-green-600 dark:text-green-400 shrink-0" />
+                  <div>
+                    <p className="text-sm font-medium text-green-800 dark:text-green-200">
+                      Use Claude CLI <span className="text-xs font-normal text-green-600 dark:text-green-400">(detected)</span>
+                    </p>
+                    <p className="text-xs text-green-600 dark:text-green-400">No API key needed — uses your local CLI session</p>
+                  </div>
+                </button>
               ) : (
-                <div className="space-y-2">
-                  <button
-                    onClick={handleLogin}
-                    disabled={loggingIn}
-                    className="w-full px-4 py-2.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-sm font-medium hover:bg-gray-800 dark:hover:bg-gray-200 disabled:opacity-50 transition-colors"
-                  >
-                    {loggingIn ? 'Waiting for browser...' : 'Sign in with GitHub'}
-                  </button>
-                  <button
-                    onClick={handleByok}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                  >
-                    <Key className="w-4 h-4" />
-                    Use API key instead
-                  </button>
+                <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-4 py-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Terminal className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                    <p className="text-xs font-medium text-amber-800 dark:text-amber-200">Claude CLI not detected</p>
+                    <button
+                      onClick={handleRecheck}
+                      disabled={rechecking}
+                      className="ml-auto text-xs text-amber-600 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-200 flex items-center gap-1 disabled:opacity-50"
+                      title="Re-check for Claude CLI"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${rechecking ? 'animate-spin' : ''}`} />
+                      Re-check
+                    </button>
+                  </div>
+                  <p className="text-xs text-amber-700 dark:text-amber-300">
+                    Install Claude CLI to use it without an API key:
+                  </p>
+                  <pre className="text-xs bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-100 rounded px-2 py-1 font-mono overflow-x-auto">
+                    npm install -g @anthropic-ai/claude-code
+                  </pre>
+                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                    After installing, click Re-check above.
+                  </p>
                 </div>
               )}
 
-              <div className="flex gap-2 pt-2">
-                <button
-                  onClick={() => setStep('welcome')}
-                  className="flex-1 text-xs px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-                >
-                  Back
-                </button>
-                <button
-                  onClick={() => setStep('done')}
-                  className="flex-1 text-xs px-3 py-2 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 font-medium"
-                >
-                  {authState.authenticated ? 'Continue' : 'Skip for now'}
-                </button>
-              </div>
+              <button
+                onClick={() => void handleByok()}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50 text-left hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              >
+                <Key className="w-5 h-5 text-gray-500 shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-gray-800 dark:text-gray-200">Add an API key</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">OpenAI, Anthropic, or Azure — configure in Settings → API Providers</p>
+                </div>
+              </button>
+
+              <button
+                onClick={() => setStep('welcome')}
+                className="w-full text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-center"
+              >
+                ← Back
+              </button>
             </div>
           )}
 
@@ -140,18 +168,26 @@ export function OnboardingModal({ onComplete }: OnboardingProps) {
               <h2 className="text-lg font-medium text-gray-800 dark:text-gray-100">
                 You're all set!
               </h2>
-              {usedByok && (
+              {setupMode === 'cli' && (
+                <div className="flex items-start gap-2 p-3 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-left">
+                  <Terminal className="w-4 h-4 text-green-500 shrink-0 mt-0.5" />
+                  <p className="text-xs text-green-700 dark:text-green-300">
+                    Ready to chat via Claude CLI. You can also create agents with custom system prompts using the <strong>+</strong> in the sidebar.
+                  </p>
+                </div>
+              )}
+              {setupMode === 'byok' && (
                 <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-left">
                   <Key className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
                   <p className="text-xs text-blue-700 dark:text-blue-300">
-                    Add your API key in <strong>Settings → Providers</strong> to start chatting.
+                    BYOK mode enabled. Add provider keys anytime in <strong>Settings → API Providers</strong>.
                   </p>
                 </div>
               )}
               <div className="text-left space-y-2 text-sm text-gray-600 dark:text-gray-300">
                 <p>Here are some things you can do:</p>
                 <ul className="space-y-1.5 ml-1">
-                  <li className="flex items-center gap-2"><MessageSquare className="w-3.5 h-3.5 text-gray-400 shrink-0" /> Start chatting with Copilot</li>
+                  <li className="flex items-center gap-2"><MessageSquare className="w-3.5 h-3.5 text-gray-400 shrink-0" /> Start chatting with your configured backend</li>
                   <li className="flex items-center gap-2"><Bot className="w-3.5 h-3.5 text-gray-400 shrink-0" /> Create custom agents with unique personalities</li>
                   <li className="flex items-center gap-2"><Plug className="w-3.5 h-3.5 text-gray-400 shrink-0" /> Connect MCP servers for extended capabilities</li>
                   <li className="flex items-center gap-2"><Wrench className="w-3.5 h-3.5 text-gray-400 shrink-0" /> Use built-in tools (file editing, terminal, web fetch)</li>
@@ -173,4 +209,3 @@ export function OnboardingModal({ onComplete }: OnboardingProps) {
     </div>
   )
 }
-

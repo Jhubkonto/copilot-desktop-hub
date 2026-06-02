@@ -7,8 +7,7 @@ import { vi } from 'vitest'
 export function createMockAppStore(overrides: Record<string, unknown> = {}) {
   return {
     // Auth state
-    authState: { authenticated: false, user: null },
-    deviceCode: null,
+    authState: { authenticated: false, mode: 'none', user: null },
     authLoading: false,
 
     // Conversations
@@ -56,9 +55,8 @@ export function createMockAppStore(overrides: Record<string, unknown> = {}) {
     toolApprovalRequests: [],
     unreadConversationIds: [],
     checkAuth: vi.fn(),
-    login: vi.fn(),
+    loginByok: vi.fn(),
     logout: vi.fn(),
-    setDeviceCode: vi.fn(),
     loadConversations: vi.fn(),
     selectConversation: vi.fn(),
     deleteConversation: vi.fn(),

@@ -72,6 +72,36 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
       CREATE INDEX IF NOT EXISTS idx_wiki_project ON project_wiki_entries(project_id, updated_at);
     `,
   },
+  {
+    version: 14,
+    sql: `
+      CREATE TABLE IF NOT EXISTS agent_delegations (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        leader_agent_id TEXT NOT NULL,
+        specialist_agent_id TEXT NOT NULL,
+        task TEXT NOT NULL,
+        result TEXT,
+        status TEXT NOT NULL CHECK (status IN ('done', 'error')),
+        duration_ms INTEGER,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+      );
+      CREATE INDEX IF NOT EXISTS idx_delegations_conversation ON agent_delegations(conversation_id, created_at);
+    `,
+  },
+  {
+    version: 15,
+    sql: `
+      UPDATE settings SET value = 'none' WHERE key = 'auth_mode' AND value = 'copilot';
+      DELETE FROM settings WHERE key IN ('auth_token', 'auth_user');
+      UPDATE agents
+      SET config_json = replace(config_json, '"backend":"copilot-api"', '"backend":"gh-copilot"')
+      WHERE instr(config_json, '"backend":"copilot-api"') > 0;
+      UPDATE agents
+      SET config_json = replace(config_json, '"backend": "copilot-api"', '"backend": "gh-copilot"')
+      WHERE instr(config_json, '"backend": "copilot-api"') > 0;
+    `,
+  },
 ];
 
 

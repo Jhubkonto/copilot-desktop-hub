@@ -23,12 +23,8 @@ import type { AuthMode } from '../../shared/types'
 export interface AuthState {
   authenticated: boolean
   mode: AuthMode
-  user: { login: string; avatar_url: string; name: string | null } | null
-}
-
-export interface DeviceCode {
-  userCode: string
-  verificationUri: string
+  user: null
+  cliInstalled: boolean
 }
 
 export interface Toast {

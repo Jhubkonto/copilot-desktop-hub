@@ -45,7 +45,7 @@ export function SettingsPanel() {
   const [azureEndpoint, setAzureEndpoint] = useState('')
   const [testResult, setTestResult] = useState<{ valid: boolean; error?: string } | null>(null)
   const [testing, setTesting] = useState(false)
-  const [defaultModel, setDefaultModel] = useState('default')
+  const [defaultModel, setDefaultModel] = useState('gpt-5-mini')
   const [temperature, setTemperature] = useState(0.7)
   const [maxTokens, setMaxTokens] = useState(4096)
 
@@ -57,15 +57,13 @@ export function SettingsPanel() {
   const projects = useAppStore((s) => s.projects)
   const projectId = currentConversation?.project_id ?? activeProjectId
   const projectDefaultModel = projectId ? (projects.find((p) => p.id === projectId)?.default_model ?? null) : null
-  const effectiveModel = currentConversation?.model || projectDefaultModel || 'default'
+  const effectiveModel = currentConversation?.model || projectDefaultModel || defaultModel || 'gpt-5-mini'
   const effectiveProvider =
-    effectiveModel === 'default'
-      ? 'GitHub Copilot'
-      : effectiveModel.startsWith('claude')
-        ? 'Anthropic'
-        : effectiveModel.startsWith('gemini')
-          ? 'Google'
-          : 'OpenAI / Copilot'
+    effectiveModel.startsWith('claude')
+      ? 'Anthropic'
+      : effectiveModel.startsWith('azure:')
+        ? 'Azure OpenAI'
+        : 'OpenAI'
   const modelIds = getAvailableModelIds(catalogModels, defaultModel)
 
   useEffect(() => {
@@ -73,7 +71,7 @@ export function SettingsPanel() {
     window.api.getSettings().then((settings: Record<string, string>) => {
       setAutoStart(settings['autoStart'] === 'true')
       setAutoClipboard(settings['autoClipboard'] === 'true')
-      setDefaultModel(settings['default_model'] || 'default')
+      setDefaultModel(settings['default_model'] || 'gpt-5-mini')
       setTemperature(Number.parseFloat(settings['temperature'] || '0.7') || 0.7)
       setMaxTokens(Number.parseInt(settings['max_tokens'] || '4096', 10) || 4096)
     })
@@ -485,8 +483,8 @@ export function SettingsPanel() {
                 ))}
 
                 <p className="text-xs text-gray-400 dark:text-gray-500">
-                  API keys are stored securely using OS-level encryption. Select a provider's model
-                  in your agent settings to use it instead of GitHub Copilot.
+                  API keys are stored securely using OS-level encryption. Select a provider model
+                  in chat, project, or agent settings to use it.
                 </p>
               </>
             )}

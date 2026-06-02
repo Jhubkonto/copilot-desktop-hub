@@ -4,8 +4,12 @@ import https from 'https'
 import { safeHandle } from './safe-handle'
 import http from 'http'
 import { parseSseStream, httpsRequestWithResponse } from './http-client'
+import type { ProviderNonStreamResult, ToolCallResult, ToolChoice, ToolDefinition } from './provider-types'
 
-export type ProviderName = 'copilot' | 'openai' | 'anthropic' | 'azure'
+export type ProviderName = 'openai' | 'anthropic' | 'azure'
+
+export const DEFAULT_PROVIDER_MODEL = 'gpt-5-mini'
+export const NO_PROVIDER_CONFIGURED_MESSAGE = 'No provider configured. Add an API key in Settings.'
 
 export type MessageContentPart =
   | { type: 'text'; text: string }
@@ -51,28 +55,22 @@ interface ProviderConfig {
 
 export const PROVIDERS: ProviderConfig[] = [
   {
-    name: 'copilot',
-    label: 'GitHub Copilot',
-    apiKeySettingKey: '',
-    models: ['default']
-  },
-  {
     name: 'openai',
     label: 'OpenAI',
     apiKeySettingKey: 'byok_openai_key',
-    models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o1-preview', 'o1-mini']
+    models: ['gpt-5.5', 'gpt-5.4', 'gpt-5.3-codex', 'gpt-5.2-codex', 'gpt-5.2', 'gpt-5-mini', 'gpt-4.1', 'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o1-preview', 'o1-mini']
   },
   {
     name: 'anthropic',
     label: 'Anthropic',
     apiKeySettingKey: 'byok_anthropic_key',
-    models: ['claude-sonnet-4-20250514', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229']
+    models: ['claude-opus-4.8', 'claude-opus-4.7', 'claude-opus-4.6', 'claude-opus-4.5', 'claude-sonnet-4.6', 'claude-sonnet-4.5', 'claude-sonnet-4', 'claude-haiku-4.5', 'claude-sonnet-4-20250514', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229']
   },
   {
     name: 'azure',
     label: 'Azure OpenAI',
     apiKeySettingKey: 'byok_azure_key',
-    models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo']
+    models: ['gpt-5.5', 'gpt-5.4', 'gpt-5.3-codex', 'gpt-5.2-codex', 'gpt-5.2', 'gpt-5-mini', 'gpt-4.1', 'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo']
   }
 ]
 
@@ -323,7 +321,7 @@ export function toAnthropicMessages(
 }
 
 export function toAnthropicTools(
-  tools: import('./copilot-api').ToolDefinition[]
+  tools: ToolDefinition[]
 ): { tools: AnthropicTool[]; nameMap: Map<string, string> } {
   const nameMap = new Map<string, string>()
   const usedNames = new Set<string>()
@@ -354,10 +352,10 @@ export async function sendAnthropicWithTools(
   apiKey: string,
   model: string,
   messages: ProviderMessage[],
-  tools: import('./copilot-api').ToolDefinition[],
-  toolChoice: 'auto' | 'required' | 'none',
+  tools: ToolDefinition[],
+  toolChoice: ToolChoice,
   options: { maxTokens?: number; temperature?: number } = {}
-): Promise<import('./copilot-api').CopilotNonStreamResult> {
+): Promise<ProviderNonStreamResult> {
   const { system, messages: anthropicMsgs } = toAnthropicMessages(messages)
   const { tools: anthropicTools, nameMap } = toAnthropicTools(tools)
 
@@ -410,7 +408,7 @@ export async function sendAnthropicWithTools(
     parsed.content ?? []
 
   let content: string | null = null
-  const toolCalls: import('./copilot-api').ToolCallResult[] = []
+  const toolCalls: ToolCallResult[] = []
 
   for (const block of contentBlocks) {
     if (block.type === 'text' && block.text) {
@@ -633,15 +631,126 @@ export async function sendAzureMessage(
   })
 }
 
+export async function sendAzureNonStreaming(
+  apiKey: string,
+  endpoint: string,
+  deployment: string,
+  messages: ProviderMessage[],
+  options: { maxTokens?: number; temperature?: number } = {}
+): Promise<ProviderNonStreamResult> {
+  const apiVersion = '2024-02-01'
+  const url = `${endpoint.replace(/\/$/, '')}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`
+  const body = JSON.stringify({
+    messages: toOpenAICompatibleMessages(messages),
+    stream: false,
+    max_tokens: options.maxTokens ?? 2000,
+    temperature: options.temperature ?? 0.3
+  })
+
+  const { status, data } = await httpsRequest(
+    url,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'api-key': apiKey,
+        'Content-Length': String(Buffer.byteLength(body))
+      }
+    },
+    body
+  )
+
+  if (status >= 400) {
+    let message = `Azure API error (HTTP ${status})`
+    try {
+      const parsed = JSON.parse(data)
+      if (parsed.error?.message) message = parsed.error.message
+    } catch {
+      // use default message
+    }
+    throw new Error(message)
+  }
+
+  const parsed = JSON.parse(data)
+  const msg = parsed.choices?.[0]?.message
+  return {
+    content: typeof msg?.content === 'string' ? msg.content : null,
+    toolCalls: []
+  }
+}
+
 /**
  * Non-streaming OpenAI-compatible completion. Used for background tasks like wiki extraction.
  */
+export async function sendAzureWithTools(
+  apiKey: string,
+  endpoint: string,
+  deployment: string,
+  messages: ProviderMessage[],
+  tools: ToolDefinition[],
+  toolChoice: ToolChoice,
+  options: { maxTokens?: number; temperature?: number } = {}
+): Promise<ProviderNonStreamResult> {
+  const apiVersion = '2024-02-01'
+  const url = `${endpoint.replace(/\/$/, '')}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`
+  const bodyObj: Record<string, unknown> = {
+    messages: toOpenAICompatibleMessages(messages),
+    stream: false,
+    max_tokens: options.maxTokens ?? 4096,
+    temperature: options.temperature ?? 0.7
+  }
+  if (tools.length > 0) {
+    bodyObj.tools = tools
+    bodyObj.tool_choice = toolChoice
+  }
+  const body = JSON.stringify(bodyObj)
+
+  const { status, data } = await httpsRequest(
+    url,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'api-key': apiKey,
+        'Content-Length': String(Buffer.byteLength(body))
+      }
+    },
+    body
+  )
+
+  if (status >= 400) {
+    let message = `Azure API error (HTTP ${status})`
+    try {
+      const parsed = JSON.parse(data)
+      if (parsed.error?.message) message = parsed.error.message
+    } catch {
+      // use default message
+    }
+    throw new Error(message)
+  }
+
+  const parsed = JSON.parse(data)
+  const msg = parsed.choices?.[0]?.message
+  const toolCalls: ToolCallResult[] = (msg?.tool_calls ?? []).map(
+    (tc: { id: string; function: { name: string; arguments: string } }) => ({
+      id: tc.id,
+      name: tc.function.name,
+      arguments: (() => { try { return JSON.parse(tc.function.arguments) } catch { return {} } })()
+    })
+  )
+
+  return {
+    content: typeof msg?.content === 'string' ? msg.content : null,
+    toolCalls
+  }
+}
+
 export async function sendOpenAINonStreaming(
   apiKey: string,
   model: string,
   messages: ProviderMessage[],
   options: { maxTokens?: number; temperature?: number } = {}
-): Promise<import('./copilot-api').CopilotNonStreamResult> {
+): Promise<ProviderNonStreamResult> {
   const body = JSON.stringify({
     model,
     messages: toOpenAICompatibleMessages(messages),
@@ -681,8 +790,93 @@ export async function sendOpenAINonStreaming(
 }
 
 /**
+ * Non-streaming OpenAI completion with tool calling support.
+ */
+export async function sendOpenAIWithTools(
+  apiKey: string,
+  model: string,
+  messages: ProviderMessage[],
+  tools: ToolDefinition[],
+  toolChoice: ToolChoice,
+  options: { maxTokens?: number; temperature?: number } = {}
+): Promise<ProviderNonStreamResult> {
+  const bodyObj: Record<string, unknown> = {
+    model,
+    messages: toOpenAICompatibleMessages(messages),
+    stream: false,
+    max_tokens: options.maxTokens ?? 4096,
+    temperature: options.temperature ?? 0.7
+  }
+  if (tools.length > 0) {
+    bodyObj.tools = tools
+    bodyObj.tool_choice = toolChoice
+  }
+  const body = JSON.stringify(bodyObj)
+  const { status, data } = await httpsRequest(
+    'https://api.openai.com/v1/chat/completions',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Length': String(Buffer.byteLength(body))
+      }
+    },
+    body
+  )
+  if (status >= 400) {
+    let message = `OpenAI API error (HTTP ${status})`
+    try {
+      const parsed = JSON.parse(data)
+      if (parsed.error?.message) message = parsed.error.message
+    } catch { /* use default */ }
+    throw new Error(message)
+  }
+  const parsed = JSON.parse(data)
+  const msg = parsed.choices?.[0]?.message
+  const toolCalls: ToolCallResult[] = (msg?.tool_calls ?? []).map(
+    (tc: { id: string; function: { name: string; arguments: string } }) => ({
+      id: tc.id,
+      name: tc.function.name,
+      arguments: (() => { try { return JSON.parse(tc.function.arguments) } catch { return {} } })()
+    })
+  )
+  return {
+    content: typeof msg?.content === 'string' ? msg.content : null,
+    toolCalls
+  }
+}
+
+/**
+ * Provider-agnostic non-streaming completion with tool calling support.
+ * Routes to the appropriate backend. Throws for Azure (not yet supported as orchestration leader).
+ */
+export async function sendProviderWithTools(
+  provider: ProviderName,
+  apiKey: string | null,
+  model: string,
+  messages: ProviderMessage[],
+  tools: ToolDefinition[],
+  toolChoice: ToolChoice,
+  options: { maxTokens?: number; temperature?: number } = {}
+): Promise<ProviderNonStreamResult> {
+  if (!apiKey) {
+    throw new Error(NO_PROVIDER_CONFIGURED_MESSAGE)
+  }
+  if (provider === 'anthropic') {
+    return sendAnthropicWithTools(apiKey, model, messages, tools, toolChoice, options)
+  }
+  if (provider === 'openai') {
+    return sendOpenAIWithTools(apiKey, model, messages, tools, toolChoice, options)
+  }
+  throw new Error(
+    'Azure OpenAI does not support the multi-agent orchestration leader role. ' +
+    'Please select an OpenAI or Anthropic model as the team leader.'
+  )
+}
+
+/**
  * Provider-agnostic non-streaming completion. Routes to the correct backend based on provider.
- * Falls back to GitHub Copilot if the provider is 'copilot' or no API key is available.
  */
 export async function sendProviderNonStreaming(
   provider: ProviderName,
@@ -690,19 +884,21 @@ export async function sendProviderNonStreaming(
   model: string,
   messages: ProviderMessage[],
   options: { maxTokens?: number; temperature?: number } = {}
-): Promise<import('./copilot-api').CopilotNonStreamResult> {
-  if (provider === 'anthropic' && apiKey) {
+): Promise<ProviderNonStreamResult> {
+  if (!apiKey) {
+    throw new Error(NO_PROVIDER_CONFIGURED_MESSAGE)
+  }
+  if (provider === 'anthropic') {
     return sendAnthropicWithTools(apiKey, model, messages, [], 'none', options)
   }
-  if (provider === 'openai' && apiKey) {
+  if (provider === 'openai') {
     return sendOpenAINonStreaming(apiKey, model, messages, options)
   }
-  // Copilot and Azure fall back to the Copilot API (Azure extraction support can be added later)
-  const { sendCopilotNonStreaming } = await import('./copilot-api')
-  return sendCopilotNonStreaming(messages, undefined, model, {
-    maxTokens: options.maxTokens ?? 2000,
-    temperature: options.temperature ?? 0.3
-  })
+  const endpoint = getAzureEndpoint()
+  if (!endpoint) {
+    throw new Error('Azure endpoint not configured')
+  }
+  return sendAzureNonStreaming(apiKey, endpoint, model, messages, options)
 }
 
 export function getAzureEndpoint(): string | null {
@@ -717,31 +913,34 @@ export function setAzureEndpoint(endpoint: string): void {
 }
 
 export function getProviderForAgent(agentModel: string): { provider: ProviderName; model: string } {
-  // Check if the model string includes a provider prefix (e.g. "azure:gpt-4o")
-  if (agentModel.includes(':')) {
-    const [prefix, model] = agentModel.split(':', 2)
+  const normalizedModel = !agentModel || agentModel === 'default' ? DEFAULT_PROVIDER_MODEL : agentModel
+
+  if (normalizedModel.includes(':')) {
+    const [prefix, model] = normalizedModel.split(':', 2)
     const provider = PROVIDERS.find((p) => p.name === prefix)
     if (provider) return { provider: provider.name, model }
   }
 
   for (const p of PROVIDERS) {
-    if (p.name === 'copilot') continue
     for (const m of p.models) {
-      if (agentModel === m) {
+      if (normalizedModel === m) {
         return { provider: p.name, model: m }
       }
     }
   }
-  return { provider: 'copilot', model: agentModel || 'default' }
+
+  if (normalizedModel.startsWith('claude')) {
+    return { provider: 'anthropic', model: normalizedModel }
+  }
+
+  return { provider: 'openai', model: normalizedModel }
 }
 
 export function isProviderConfigured(provider: ProviderName): boolean {
-  if (provider === 'copilot') return true
   return !!retrieveApiKey(provider)
 }
 
 export function getApiKey(provider: ProviderName): string | null {
-  if (provider === 'copilot') return null
   return retrieveApiKey(provider)
 }
 
@@ -749,7 +948,7 @@ export function registerProviderHandlers(): void {
   safeHandle('provider:list', () => {
     return PROVIDERS.map((p) => ({
       ...p,
-      configured: p.name === 'copilot' || !!retrieveApiKey(p.name)
+      configured: !!retrieveApiKey(p.name)
     }))
   })
 

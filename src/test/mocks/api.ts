@@ -19,16 +19,18 @@ export function createMockApi() {
     getVersion: vi.fn().mockResolvedValue('0.1.0'),
 
     // Auth
-    authStatus: vi.fn().mockResolvedValue({ authenticated: false, user: null }),
-    authLogin: vi.fn().mockResolvedValue({ success: true, user: { login: 'testuser', avatar_url: 'https://example.com/avatar.png', name: 'Test User' } }),
+    authStatus: vi.fn().mockResolvedValue({ authenticated: false, mode: 'none', user: null, cliInstalled: false }),
+    authLoginByok: vi.fn().mockResolvedValue({ success: true }),
     authLogout: vi.fn().mockResolvedValue(undefined),
-    onDeviceCode: vi.fn().mockReturnValue(() => {}),
 
     // Chat
     sendMessage: vi.fn().mockResolvedValue(undefined),
     onStreamResponse: vi.fn().mockReturnValue(() => {}),
     onStreamError: vi.fn().mockReturnValue(() => {}),
     onToolCallEvent: vi.fn().mockReturnValue(() => {}),
+    onCliToolStart: vi.fn().mockReturnValue(() => {}),
+    onCliToolEnd: vi.fn().mockReturnValue(() => {}),
+    onCliCost: vi.fn().mockReturnValue(() => {}),
     onActivity: vi.fn().mockReturnValue(() => {}),
     onStreamModel: vi.fn().mockReturnValue(() => {}),
     stopGeneration: vi.fn().mockResolvedValue(undefined),

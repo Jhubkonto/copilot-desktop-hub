@@ -1,164 +1,31 @@
-import { safeStorage, BrowserWindow } from 'electron'
 import { getDatabase } from './database'
-import { httpsGet, httpsPost } from './http-client'
 import { safeHandle } from './safe-handle'
-import { loadModelCatalog } from './model-catalog'
+import { ClaudeAdapter } from './cli-adapters/claude'
 import type { AuthMode } from '../shared/types'
 
-const GITHUB_CLIENT_ID = 'Iv1.b507a08c87ecfe98'
-const GITHUB_DEVICE_CODE_URL = 'https://github.com/login/device/code'
-const GITHUB_ACCESS_TOKEN_URL = 'https://github.com/login/oauth/access_token'
-const GITHUB_USER_URL = 'https://api.github.com/user'
-const SCOPES = 'read:user'
-
-interface DeviceCodeResponse {
-  device_code: string
-  user_code: string
-  verification_uri: string
-  expires_in: number
-  interval: number
-}
-
-interface TokenResponse {
-  access_token?: string
-  token_type?: string
-  scope?: string
-  error?: string
-}
-
-interface GitHubUser {
-  login: string
-  avatar_url: string
-  name: string | null
-}
-
-let pollTimer: ReturnType<typeof setTimeout> | null = null
-
-// Public export for copilot-api module
-export { retrieveToken }
-
-// Exported for testing
-export { storeToken as _storeToken, retrieveToken as _retrieveToken, clearToken as _clearToken }
-export { httpPost as _httpPost, httpGet as _httpGet }
-export { fetchGitHubUser as _fetchGitHubUser }
-
-function httpPost(url: string, body: Record<string, string>): Promise<string> {
-  const data = new URLSearchParams(body).toString()
-  return httpsPost(
-    url,
-    {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Accept: 'application/json'
-    },
-    data
-  )
-}
-
-function httpGet(url: string, token: string): Promise<string> {
-  return httpsGet(url, {
-    Accept: 'application/json',
-    Authorization: `Bearer ${token}`,
-    'User-Agent': 'CopilotDesktopHub'
-  })
-}
-
-function storeToken(token: string): void {
-  const db = getDatabase()
-  if (safeStorage.isEncryptionAvailable()) {
-    const encrypted = safeStorage.encryptString(token).toString('base64')
-    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('auth_token', ?)").run(encrypted)
-    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('auth_encrypted', 'true')").run()
-  } else {
-    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('auth_token', ?)").run(token)
-    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('auth_encrypted', 'false')").run()
-  }
-}
-
-function retrieveToken(): string | null {
-  const db = getDatabase()
-  const row = db.prepare("SELECT value FROM settings WHERE key = 'auth_token'").get() as
-    | { value: string }
-    | undefined
-  if (!row) return null
-
-  const encRow = db.prepare("SELECT value FROM settings WHERE key = 'auth_encrypted'").get() as
-    | { value: string }
-    | undefined
-  if (encRow?.value === 'true' && safeStorage.isEncryptionAvailable()) {
-    return safeStorage.decryptString(Buffer.from(row.value, 'base64'))
-  }
-  return row.value
-}
-
-function storeAuthMode(mode: AuthMode): void {
+export function storeAuthMode(mode: AuthMode): void {
   const db = getDatabase()
   db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('auth_mode', ?)").run(mode)
 }
 
-function retrieveAuthMode(): AuthMode {
+export function retrieveAuthMode(): AuthMode {
   const db = getDatabase()
   const row = db.prepare("SELECT value FROM settings WHERE key = 'auth_mode'").get() as
     | { value: string }
     | undefined
-  const val = row?.value
-  if (val === 'copilot' || val === 'byok') return val
-  return 'none'
-}
 
-function clearToken(): void {
-  const db = getDatabase()
-  db.prepare("DELETE FROM settings WHERE key IN ('auth_token', 'auth_encrypted', 'auth_user')").run()
-}
-
-async function fetchGitHubUser(token: string): Promise<GitHubUser | null> {
-  try {
-    const result = await httpGet(GITHUB_USER_URL, token)
-    const user = JSON.parse(result) as GitHubUser
-    if (user.login) {
-      const db = getDatabase()
-      db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('auth_user', ?)").run(
-        JSON.stringify({ login: user.login, avatar_url: user.avatar_url, name: user.name })
-      )
-      return user
-    }
-    return null
-  } catch {
-    return null
-  }
+  return row?.value === 'byok' ? 'byok' : 'none'
 }
 
 export function registerAuthHandlers(): void {
-  safeHandle('auth:status', async () => {
-    const token = retrieveToken()
-
-    if (!token) {
-      const mode = retrieveAuthMode()
-      if (mode === 'byok') {
-        return { authenticated: true, mode: 'byok' as AuthMode, user: null }
-      }
-      return { authenticated: false, mode: 'none' as AuthMode, user: null }
-    }
-
-    const db = getDatabase()
-    const cachedUser = db.prepare("SELECT value FROM settings WHERE key = 'auth_user'").get() as
-      | { value: string }
-      | undefined
-    if (cachedUser) {
-      return { authenticated: true, mode: 'copilot' as AuthMode, user: JSON.parse(cachedUser.value) }
-    }
-
-    const user = await fetchGitHubUser(token)
-    if (user) {
-      return { authenticated: true, mode: 'copilot' as AuthMode, user }
-    }
-
-    // Token is invalid
-    clearToken()
+  safeHandle('auth:status', () => {
     const mode = retrieveAuthMode()
-    if (mode === 'byok') {
-      return { authenticated: true, mode: 'byok' as AuthMode, user: null }
+    return {
+      authenticated: mode === 'byok',
+      mode,
+      user: null,
+      cliInstalled: ClaudeAdapter.isAvailable(),
     }
-    return { authenticated: false, mode: 'none' as AuthMode, user: null }
   })
 
   safeHandle('auth:login-byok', () => {
@@ -166,106 +33,10 @@ export function registerAuthHandlers(): void {
     return { success: true }
   })
 
-  safeHandle('auth:login', async (event) => {
-    console.log('[auth] Login initiated')
-    const window = BrowserWindow.fromWebContents(event.sender)
-
-    try {
-      console.log('[auth] Requesting device code...')
-      const codeResponse = await httpPost(GITHUB_DEVICE_CODE_URL, {
-        client_id: GITHUB_CLIENT_ID,
-        scope: SCOPES
-      })
-      console.log('[auth] Device code response:', codeResponse)
-
-      const deviceData = JSON.parse(codeResponse) as DeviceCodeResponse
-
-      // Send user code and verification URL to renderer
-      window?.webContents.send('auth:device-code', {
-        userCode: deviceData.user_code,
-        verificationUri: deviceData.verification_uri
-      })
-
-      // Poll for token
-      return new Promise<{ success: boolean; user?: GitHubUser; error?: string }>(
-        (resolve) => {
-          const startTime = Date.now()
-          const expiresMs = deviceData.expires_in * 1000
-
-          let currentIntervalMs = (deviceData.interval || 5) * 1000
-          console.log(`[auth] Starting poll every ${currentIntervalMs}ms, expires in ${deviceData.expires_in}s`)
-
-          const poll = async (): Promise<void> => {
-            const elapsed = Date.now() - startTime
-            if (elapsed > expiresMs) {
-              console.log('[auth] Device code expired after', elapsed, 'ms')
-              pollTimer = null
-              resolve({ success: false, error: 'Device code expired' })
-              return
-            }
-
-            try {
-              console.log(`[auth] Polling for access token (interval: ${currentIntervalMs}ms)...`)
-              const tokenResponse = await httpPost(GITHUB_ACCESS_TOKEN_URL, {
-                client_id: GITHUB_CLIENT_ID,
-                device_code: deviceData.device_code,
-                grant_type: 'urn:ietf:params:oauth:grant-type:device_code'
-              })
-
-              console.log('[auth] Poll response:', tokenResponse)
-              const tokenData = JSON.parse(tokenResponse) as TokenResponse & { interval?: number }
-
-              if (tokenData.access_token) {
-                console.log('[auth] Access token received, fetching user...')
-                pollTimer = null
-
-                storeToken(tokenData.access_token)
-                storeAuthMode('copilot')
-                const user = await fetchGitHubUser(tokenData.access_token)
-                console.log('[auth] Login complete, user:', user?.login)
-                resolve({ success: true, user: user ?? undefined })
-                if (window) {
-                  void loadModelCatalog(window).catch(() => {})
-                }
-                return
-              }
-
-              if (tokenData.error === 'slow_down' && tokenData.interval) {
-                currentIntervalMs = tokenData.interval * 1000
-                console.log(`[auth] Slowing down, new interval: ${currentIntervalMs}ms`)
-              } else if (tokenData.error) {
-                console.log('[auth] Poll pending:', tokenData.error)
-              }
-            } catch (err) {
-              console.error('[auth] Poll error:', err)
-            }
-
-            pollTimer = setTimeout(poll, currentIntervalMs)
-          }
-
-          pollTimer = setTimeout(poll, currentIntervalMs)
-        }
-      )
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Login failed'
-      }
-    }
-  })
-
   safeHandle('auth:logout', () => {
-    if (pollTimer) {
-      clearTimeout(pollTimer)
-      pollTimer = null
-    }
-    clearToken()
-    if (retrieveAuthMode() === 'copilot') {
-      storeAuthMode('none')
-    }
-    // Lazy import to avoid circular dependency (copilot-api imports auth)
-    import('./copilot-api').then(m => m.clearCopilotTokenCache())
+    const db = getDatabase()
+    db.prepare("DELETE FROM settings WHERE key IN ('auth_token', 'auth_encrypted', 'auth_user')").run()
+    storeAuthMode('none')
     return true
   })
-
 }

@@ -6,7 +6,6 @@ import { TitleBar } from './components/TitleBar'
 import { ToolApproval } from './components/ToolApproval'
 import { ToastContainer } from './components/Toast'
 import { DeleteAgentDialog } from './components/DeleteAgentDialog'
-import { DeviceCodeModal } from './components/DeviceCodeModal'
 import { useAppStore } from './store/app-store'
 
 const AgentPanel = lazy(() =>
@@ -34,7 +33,6 @@ export default function App() {
   const activeSectionPane = useAppStore((s) => s.activeSectionPane)
   const updateAvailable = useAppStore((s) => s.updateAvailable)
   const updateDownloaded = useAppStore((s) => s.updateDownloaded)
-  const deviceCode = useAppStore((s) => s.deviceCode)
   const toasts = useAppStore((s) => s.toasts)
 
   const showNewProjectForm = useAppStore((s) => s.showNewProjectForm)
@@ -42,7 +40,6 @@ export default function App() {
   const pendingDeleteAgent = useAppStore((s) => s.pendingDeleteAgent)
   const confirmDeleteAgent = useAppStore((s) => s.confirmDeleteAgent)
   const cancelDeleteAgent = useAppStore((s) => s.cancelDeleteAgent)
-  const setDeviceCode = useAppStore((s) => s.setDeviceCode)
   const addToolApprovalRequest = useAppStore((s) => s.addToolApprovalRequest)
   const setUpdateAvailable = useAppStore((s) => s.setUpdateAvailable)
   const setUpdateDownloaded = useAppStore((s) => s.setUpdateDownloaded)
@@ -66,16 +63,6 @@ export default function App() {
   useEffect(() => {
     hydrate()
   }, [hydrate])
-
-  // Listen for device code during auth
-  useEffect(() => {
-    const unsubscribe = window.api.onDeviceCode(
-      (data: { userCode: string; verificationUri: string }) => {
-        setDeviceCode(data)
-      }
-    )
-    return () => { unsubscribe() }
-  }, [setDeviceCode])
 
   // Listen for tool approval requests
   useEffect(() => {
@@ -213,14 +200,6 @@ export default function App() {
       )}
 
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
-
-      {deviceCode && (
-        <DeviceCodeModal
-          userCode={deviceCode.userCode}
-          verificationUri={deviceCode.verificationUri}
-          onCancel={() => setDeviceCode(null)}
-        />
-      )}
     </div>
   )
 }

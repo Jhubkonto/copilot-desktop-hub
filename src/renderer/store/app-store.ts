@@ -26,7 +26,6 @@ export type {
   AuthState,
   Conversation,
   DeleteAgentImpact,
-  DeviceCode,
   Milestone,
   Project,
   ProjectAgent,
@@ -67,18 +66,25 @@ export const useAppStore = create<AppState>()(
         /* use default */
       }
 
-      await Promise.all([
+      const [, onboardingVal] = await Promise.all([
         get().checkAuth(),
-        window.api
-          .getSetting('onboarding_complete')
-          .then((val: string | null) => {
-            if (val !== 'true')
-              set((s) => {
-                s.showOnboarding = true
-              })
-          })
-          .catch(() => {})
+        window.api.getSetting('onboarding_complete').catch(() => null),
       ])
+
+      if (onboardingVal !== 'true') {
+        const { cliInstalled, authenticated } = get().authState
+        if (cliInstalled || authenticated) {
+          // Provider already available — silently mark onboarding complete
+          try {
+            await window.api.setSetting('onboarding_complete', 'true')
+          } catch {
+            // Persistence failed; don't block the user
+          }
+        } else {
+          // Nothing configured — guide the user through setup
+          set((s) => { s.showOnboarding = true })
+        }
+      }
 
       await Promise.all([
         get().loadConversations(),
