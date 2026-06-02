@@ -7,7 +7,6 @@ import { describe, it, expectTypeOf } from 'vitest'
 import type { ElectronAPI } from '../../preload/index'
 import type {
   AuthStatus,
-  AuthLoginResult,
   ConversationRow,
   MessageRow,
   AgentConfig,
@@ -35,7 +34,7 @@ import type {
 describe('preload IPC return types', () => {
   it('auth methods return typed results', () => {
     expectTypeOf<ReturnType<ElectronAPI['authStatus']>>().toEqualTypeOf<Promise<AuthStatus>>()
-    expectTypeOf<ReturnType<ElectronAPI['authLogin']>>().toEqualTypeOf<Promise<AuthLoginResult>>()
+    expectTypeOf<ReturnType<ElectronAPI['authLoginByok']>>().toEqualTypeOf<Promise<IpcReturn<'auth:login-byok'>>>()
     expectTypeOf<ReturnType<ElectronAPI['authLogout']>>().toEqualTypeOf<Promise<void>>()
   })
 

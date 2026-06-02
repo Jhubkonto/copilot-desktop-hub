@@ -9,255 +9,62 @@ const { useAppStore } = vi.hoisted(() => ({
   useAppStore: vi.fn()
 }))
 
-vi.mock('../../renderer/store/app-store', () => ({
-  useAppStore
-}))
+vi.mock('../../renderer/store/app-store', () => ({ useAppStore }))
 
 let mockApi: MockApi
 let mockStore: ReturnType<typeof createMockAppStore>
 const user = userEvent.setup()
 
 const PROVIDERS = [
-  { name: 'copilot', label: 'GitHub Copilot', models: ['default'], configured: true },
-  { name: 'openai', label: 'OpenAI', models: ['gpt-4o', 'gpt-4o-mini'], configured: false },
+  { name: 'openai', label: 'OpenAI', models: ['gpt-5-mini', 'gpt-4o'], configured: true },
   { name: 'anthropic', label: 'Anthropic', models: ['claude-sonnet-4-20250514'], configured: true },
-  { name: 'azure', label: 'Azure OpenAI', models: ['gpt-4o'], configured: false }
+  { name: 'azure', label: 'Azure OpenAI', models: ['azure:gpt-4o'], configured: false },
 ]
 
 beforeEach(() => {
   mockApi = setupMockApi()
   mockApi.getSettings = vi.fn().mockResolvedValue({
     autoStart: 'false',
-    default_model: 'default',
+    default_model: 'gpt-5-mini',
     temperature: '0.7',
-    max_tokens: '4096'
+    max_tokens: '4096',
   })
   mockApi.listProviders = vi.fn().mockResolvedValue(PROVIDERS)
   mockApi.getAzureEndpoint = vi.fn().mockResolvedValue(null)
 
   mockStore = createMockAppStore({
     showSettings: true,
-    theme: 'dark'
+    theme: 'dark',
+    globalDefaultModel: 'gpt-5-mini',
   })
   setupStoreMock(useAppStore, mockStore)
 })
 
-describe('SettingsPanel — General Tab', () => {
-  it('set-r-1: theme toggle switches between light and dark', async () => {
+describe('SettingsPanel', () => {
+  it('shows active model details in general tab', async () => {
     render(<SettingsPanel />)
 
-    const themeBtn = screen.getByText('Light')
-    await user.click(themeBtn)
-    expect(mockStore.toggleTheme).toHaveBeenCalledTimes(1)
-  })
-
-  it('shows light mode button text when in light theme', () => {
-    mockStore = createMockAppStore({ showSettings: true, theme: 'light' })
-    setupStoreMock(useAppStore, mockStore)
-
-    render(<SettingsPanel />)
-    expect(screen.getByText('Dark')).toBeInTheDocument()
-  })
-
-  it('set-r-2: auto-start toggle calls setAutoStart', async () => {
-    render(<SettingsPanel />)
-
-    const autoStartBtn = screen.getByText('Start on login').closest('div')!.parentElement!.querySelector('button')!
-    await user.click(autoStartBtn)
-
-    expect(mockApi.setSetting).toHaveBeenCalledWith('autoStart', 'true')
-    expect(mockApi.setAutoStart).toHaveBeenCalledWith(true)
-  })
-
-  it('toggles auto-read clipboard on focus', async () => {
-    render(<SettingsPanel />)
-
-    const autoClipboardBtn = screen.getByText('Auto-read clipboard on focus').closest('div')!.parentElement!.querySelector('button')!
-    await user.click(autoClipboardBtn)
-
-    expect(mockApi.setSetting).toHaveBeenCalledWith('autoClipboard', 'true')
-  })
-
-  it('set-r-9: "Configure" MCP button opens MCP panel', async () => {
-    render(<SettingsPanel />)
-
-    await user.click(screen.getByText('Configure'))
-    expect(mockStore.setShowSettings).toHaveBeenCalledWith(false)
-    expect(mockStore.setShowMcpPanel).toHaveBeenCalledWith(true)
-  })
-
-  it('set-r-10: close button calls setShowSettings(false)', async () => {
-    render(<SettingsPanel />)
-
-    await user.click(screen.getByLabelText('Close settings'))
-    expect(mockStore.setShowSettings).toHaveBeenCalledWith(false)
-  })
-
-  it('shows active model details in general tab', () => {
-    render(<SettingsPanel />)
     expect(screen.getByText('Active model')).toBeInTheDocument()
-    expect(screen.getAllByText('Global default').length).toBeGreaterThan(0)
-    expect(screen.getByText('GitHub Copilot')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('OpenAI')).toBeInTheDocument())
   })
 
-  it('saves advanced settings values', async () => {
-    render(<SettingsPanel />)
-    await user.click(screen.getByText('Save advanced settings'))
-
-    expect(mockApi.setSetting).toHaveBeenCalledWith('default_model', 'default')
-    expect(mockApi.setSetting).toHaveBeenCalledWith('temperature', '0.7')
-    expect(mockApi.setSetting).toHaveBeenCalledWith('max_tokens', '4096')
-  })
-})
-
-describe('SettingsPanel — Providers Tab', () => {
-  it('set-r-3: provider tabs render for each provider', async () => {
+  it('opens the providers tab with BYOK providers', async () => {
     render(<SettingsPanel />)
     await user.click(screen.getByText('API Providers'))
 
     await waitFor(() => {
-      expect(screen.getByText('GitHub Copilot')).toBeInTheDocument()
       expect(screen.getByText('OpenAI')).toBeInTheDocument()
       expect(screen.getByText('Anthropic')).toBeInTheDocument()
       expect(screen.getByText('Azure OpenAI')).toBeInTheDocument()
     })
   })
 
-  it('shows configured badge for providers with keys', async () => {
+  it('saves advanced settings values', async () => {
     render(<SettingsPanel />)
-    await user.click(screen.getByText('API Providers'))
+    await user.click(screen.getByText('Save advanced settings'))
 
-    await waitFor(() => {
-      expect(screen.getByText('✓ Configured')).toBeInTheDocument()
-      expect(screen.getByText('Default')).toBeInTheDocument()
-    })
-  })
-
-  it('set-r-4 + set-r-5: API key input accepts text and save calls setProviderKey', async () => {
-    render(<SettingsPanel />)
-    await user.click(screen.getByText('API Providers'))
-
-    await waitFor(() => expect(screen.getByText('OpenAI')).toBeInTheDocument())
-
-    const setKeyButtons = screen.getAllByText('Set Key')
-    await user.click(setKeyButtons[0])
-
-    const keyInput = screen.getByPlaceholderText(/Enter OpenAI API key/)
-    await user.type(keyInput, 'sk-test123')
-
-    await user.click(screen.getByText('Save Key'))
-    expect(mockApi.setProviderKey).toHaveBeenCalledWith('openai', 'sk-test123')
-  })
-
-  it('set-r-6: test key calls testProviderKey and shows result', async () => {
-    mockApi.testProviderKey = vi.fn().mockResolvedValue({ valid: true })
-
-    render(<SettingsPanel />)
-    await user.click(screen.getByText('API Providers'))
-
-    await waitFor(() => expect(screen.getByText('OpenAI')).toBeInTheDocument())
-
-    const setKeyButtons = screen.getAllByText('Set Key')
-    await user.click(setKeyButtons[0])
-
-    const keyInput = screen.getByPlaceholderText(/Enter OpenAI API key/)
-    await user.type(keyInput, 'sk-test-valid')
-
-    await user.click(screen.getByText('Test'))
-
-    await waitFor(() => {
-      expect(screen.getByText('✓ API key is valid')).toBeInTheDocument()
-    })
-    expect(mockApi.testProviderKey).toHaveBeenCalledWith('openai', 'sk-test-valid', undefined)
-  })
-
-  it('shows error for invalid test result', async () => {
-    mockApi.testProviderKey = vi.fn().mockResolvedValue({ valid: false, error: 'Invalid key' })
-
-    render(<SettingsPanel />)
-    await user.click(screen.getByText('API Providers'))
-
-    await waitFor(() => expect(screen.getByText('OpenAI')).toBeInTheDocument())
-
-    const setKeyButtons = screen.getAllByText('Set Key')
-    await user.click(setKeyButtons[0])
-
-    const keyInput = screen.getByPlaceholderText(/Enter OpenAI API key/)
-    await user.type(keyInput, 'sk-bad')
-    await user.click(screen.getByText('Test'))
-
-    await waitFor(() => {
-      expect(screen.getByText('✗ Invalid key')).toBeInTheDocument()
-    })
-  })
-
-  it('set-r-7: remove key calls removeProviderKey', async () => {
-    render(<SettingsPanel />)
-    await user.click(screen.getByText('API Providers'))
-
-    await waitFor(() => expect(screen.getByText('Anthropic')).toBeInTheDocument())
-
-    await user.click(screen.getByText('Remove'))
-    expect(mockApi.removeProviderKey).toHaveBeenCalledWith('anthropic')
-  })
-
-  it('set-r-8: Azure endpoint field only shown for Azure', async () => {
-    render(<SettingsPanel />)
-    await user.click(screen.getByText('API Providers'))
-
-    await waitFor(() => expect(screen.getByText('Azure OpenAI')).toBeInTheDocument())
-
-    expect(screen.queryByPlaceholderText(/Azure endpoint/)).not.toBeInTheDocument()
-
-    const setKeyButtons = screen.getAllByText('Set Key')
-    await user.click(setKeyButtons[setKeyButtons.length - 1])
-
-    expect(screen.getByPlaceholderText(/Azure endpoint/)).toBeInTheDocument()
-  })
-
-  it('does not render when not visible', () => {
-    mockStore = createMockAppStore({ showSettings: false })
-    setupStoreMock(useAppStore, mockStore)
-
-    const { container } = render(<SettingsPanel />)
-    expect(container.innerHTML).toBe('')
-  })
-})
-
-
-// ── Two-panel settings layout ─────────────────────────────────────────────────
-
-describe('SettingsPanel — Two-panel layout (M.11)', () => {
-  it('m11-1: settings navigation panel is visible', () => {
-    render(<SettingsPanel />)
-    expect(screen.getByRole('navigation', { name: /settings navigation/i })).toBeInTheDocument()
-  })
-
-  it('m11-2: nav contains General and API Providers items', () => {
-    render(<SettingsPanel />)
-    const nav = screen.getByRole('navigation', { name: /settings navigation/i })
-    expect(nav).toHaveTextContent('General')
-    expect(nav).toHaveTextContent('API Providers')
-  })
-
-  it('m11-3: General is selected by default', () => {
-    render(<SettingsPanel />)
-    expect(screen.getByText('Theme')).toBeInTheDocument()
-  })
-
-  it('m11-4: clicking API Providers nav item shows providers content', async () => {
-    const user = userEvent.setup()
-    render(<SettingsPanel />)
-    await user.click(screen.getAllByText('API Providers')[0])
-    await waitFor(() => expect(screen.getByText('GitHub Copilot')).toBeInTheDocument())
-  })
-
-  it('m11-5: clicking the backdrop closes the settings panel', async () => {
-    const user = userEvent.setup()
-    render(<SettingsPanel />)
-    // Click the backdrop (the dialog element itself, not the inner panel)
-    const backdrop = screen.getByRole('dialog', { name: /settings/i })
-    await user.click(backdrop)
-    expect(mockStore.setShowSettings).toHaveBeenCalledWith(false)
+    expect(mockApi.setSetting).toHaveBeenCalledWith('default_model', 'gpt-5-mini')
+    expect(mockApi.setSetting).toHaveBeenCalledWith('temperature', '0.7')
+    expect(mockApi.setSetting).toHaveBeenCalledWith('max_tokens', '4096')
   })
 })

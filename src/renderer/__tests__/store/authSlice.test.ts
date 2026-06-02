@@ -41,43 +41,44 @@ describe('authSlice', () => {
     const store = createAuthStore()
     mockApi.authStatus.mockResolvedValue({
       authenticated: true,
-      user: { login: 'user1', avatar_url: 'url', name: 'User 1' }
+      mode: 'byok',
+      user: null,
+      cliInstalled: false,
     })
 
     await store.getState().checkAuth()
 
     expect(store.getState().authState).toEqual({
       authenticated: true,
-      user: { login: 'user1', avatar_url: 'url', name: 'User 1' }
+      mode: 'byok',
+      user: null,
+      cliInstalled: false,
     })
   })
 
-  it('login sets authenticated state and clears loading state', async () => {
+  it('loginByok enables BYOK auth mode', async () => {
     const store = createAuthStore()
-    mockApi.authLogin.mockResolvedValue({
-      success: true,
-      user: { login: 'octocat', avatar_url: 'url', name: 'Octo Cat' }
-    })
+    mockApi.authLoginByok.mockResolvedValue({ success: true })
 
-    await store.getState().login()
+    await store.getState().loginByok()
 
     expect(store.getState().authState).toEqual({
       authenticated: true,
-      mode: 'copilot',
-      user: { login: 'octocat', avatar_url: 'url', name: 'Octo Cat' }
+      mode: 'byok',
+      user: null,
+      cliInstalled: false,
     })
     expect(store.getState().authLoading).toBe(false)
-    expect(store.getState().deviceCode).toBeNull()
-    expect(store.getState().toasts[0]?.type).toBe('success')
   })
 
-  it('logout clears authenticated user state', async () => {
+  it('logout clears authenticated state', async () => {
     const store = createAuthStore()
     store.setState({
       authState: {
         authenticated: true,
-        mode: 'copilot' as const,
-        user: { login: 'octocat', avatar_url: 'url', name: 'Octo Cat' }
+        mode: 'byok',
+        user: null,
+        cliInstalled: false,
       }
     })
 
@@ -86,23 +87,26 @@ describe('authSlice', () => {
     expect(store.getState().authState).toEqual({
       authenticated: false,
       mode: 'none',
-      user: null
+      user: null,
+      cliInstalled: false,
     })
   })
 
-  it('setDeviceCode updates and clears the device code state', () => {
+  it('logout errors surface as toasts', async () => {
     const store = createAuthStore()
-
-    store.getState().setDeviceCode({
-      userCode: 'ABCD-1234',
-      verificationUri: 'https://github.com/login/device'
+    store.setState({
+      authState: {
+        authenticated: true,
+        mode: 'byok',
+        user: null,
+        cliInstalled: false,
+      }
     })
-    expect(store.getState().deviceCode).toEqual({
-      userCode: 'ABCD-1234',
-      verificationUri: 'https://github.com/login/device'
-    })
+    mockApi.authLogout.mockResolvedValue({ error: 'fail' })
 
-    store.getState().setDeviceCode(null)
-    expect(store.getState().deviceCode).toBeNull()
+    await store.getState().logout()
+
+    expect(store.getState().authState.authenticated).toBe(true)
+    expect(store.getState().toasts[0]?.type).toBe('error')
   })
 })

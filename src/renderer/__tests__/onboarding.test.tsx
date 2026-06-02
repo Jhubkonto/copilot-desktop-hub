@@ -1,139 +1,89 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { OnboardingModal } from '../../renderer/components/OnboardingModal'
 import { setupMockApi, type MockApi } from '../../test/mocks/api'
+import { useAppStore } from '../../renderer/store/app-store'
 
 let mockApi: MockApi
 const user = userEvent.setup()
+const initialState = useAppStore.getState()
 
 beforeEach(() => {
   mockApi = setupMockApi()
-  mockApi.authStatus = vi.fn().mockResolvedValue({ authenticated: false, user: null })
+  useAppStore.setState(initialState, true)
 })
 
-describe('OnboardingModal — Welcome Step', () => {
-  it('renders welcome screen with Get Started button', () => {
-    render(<OnboardingModal onComplete={vi.fn()} />)
+describe('OnboardingModal', () => {
+  it('renders welcome screen with Get Started button', async () => {
+    await act(async () => { render(<OnboardingModal onComplete={vi.fn()} />) })
 
     expect(screen.getByText('Welcome to Copilot Desktop Hub')).toBeInTheDocument()
     expect(screen.getByText('Get Started')).toBeInTheDocument()
   })
 
-  it('navigates to auth step on Get Started click', async () => {
-    render(<OnboardingModal onComplete={vi.fn()} />)
+  it('navigates to provider setup on Get Started click', async () => {
+    await act(async () => { render(<OnboardingModal onComplete={vi.fn()} />) })
 
     await user.click(screen.getByText('Get Started'))
-    expect(screen.getByRole('heading', { name: 'Connect your AI provider' })).toBeInTheDocument()
-  })
-})
 
-describe('OnboardingModal — Auth Step', () => {
-  it('shows sign-in button when not authenticated', async () => {
-    render(<OnboardingModal onComplete={vi.fn()} />)
-
-    await user.click(screen.getByText('Get Started'))
-    expect(screen.getByRole('button', { name: 'Sign in with GitHub' })).toBeInTheDocument()
-    expect(screen.getByText('Skip for now')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Choose your setup' })).toBeInTheDocument()
+    expect(screen.getByText(/Add an API key/)).toBeInTheDocument()
   })
 
-  it('shows authenticated state when already signed in', async () => {
-    mockApi.authStatus = vi.fn().mockResolvedValue({
-      authenticated: true,
-      user: { login: 'testuser', avatar_url: 'https://example.com/avatar.png' }
-    })
+  it('shows CLI not-detected warning when CLI not available', async () => {
+    mockApi.authStatus.mockResolvedValue({ authenticated: false, mode: 'none', user: null, cliInstalled: false })
 
-    render(<OnboardingModal onComplete={vi.fn()} />)
+    await act(async () => { render(<OnboardingModal onComplete={vi.fn()} />) })
+    await act(async () => { await user.click(screen.getByText('Get Started')) })
 
-    await user.click(screen.getByText('Get Started'))
-    await waitFor(() => {
-      expect(screen.getByText(/Signed in as/)).toBeInTheDocument()
-      expect(screen.getByText('testuser')).toBeInTheDocument()
-    })
-    // Button changes from "Skip for now" to "Continue"
-    expect(screen.getByText('Continue')).toBeInTheDocument()
+    expect(screen.getByText(/Claude CLI not detected/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Re-check/ })).toBeInTheDocument()
+    expect(screen.getByText(/npm install -g @anthropic-ai\/claude-code/)).toBeInTheDocument()
   })
 
-  it('calls authLogin when sign-in button clicked', async () => {
-    mockApi.authLogin = vi.fn().mockResolvedValue({
-      success: true,
-      user: { login: 'newuser', avatar_url: '' }
-    })
+  it('shows Use Claude CLI button when CLI is installed', async () => {
+    mockApi.authStatus.mockResolvedValue({ authenticated: false, mode: 'none', user: null, cliInstalled: true })
 
-    render(<OnboardingModal onComplete={vi.fn()} />)
+    await act(async () => { render(<OnboardingModal onComplete={vi.fn()} />) })
+    await act(async () => { await user.click(screen.getByText('Get Started')) })
 
-    await user.click(screen.getByText('Get Started'))
-    await user.click(screen.getByRole('button', { name: 'Sign in with GitHub' }))
-
-    expect(mockApi.authLogin).toHaveBeenCalledTimes(1)
+    expect(screen.getByText(/Use Claude CLI/)).toBeInTheDocument()
+    expect(screen.queryByText(/Claude CLI not detected/)).not.toBeInTheDocument()
   })
 
-  it('shows waiting state during login', async () => {
-    let resolveLogin: (v: unknown) => void
-    mockApi.authLogin = vi.fn().mockImplementation(
-      () => new Promise((resolve) => { resolveLogin = resolve })
-    )
+  it('enables BYOK mode via store loginByok', async () => {
+    mockApi.authLoginByok.mockResolvedValue({ success: true })
 
-    render(<OnboardingModal onComplete={vi.fn()} />)
+    await act(async () => { render(<OnboardingModal onComplete={vi.fn()} />) })
 
     await user.click(screen.getByText('Get Started'))
-    await user.click(screen.getByRole('button', { name: 'Sign in with GitHub' }))
+    await act(async () => { await user.click(screen.getByRole('button', { name: /Add an API key/ })) })
 
-    expect(screen.getByText('Waiting for browser...')).toBeInTheDocument()
-
-    resolveLogin!({ success: true, user: { login: 'test', avatar_url: '' } })
+    expect(mockApi.authLoginByok).toHaveBeenCalledTimes(1)
+    expect(screen.getByText(/BYOK mode enabled/)).toBeInTheDocument()
   })
 
   it('back button returns to welcome step', async () => {
-    render(<OnboardingModal onComplete={vi.fn()} />)
+    await act(async () => { render(<OnboardingModal onComplete={vi.fn()} />) })
 
     await user.click(screen.getByText('Get Started'))
-    expect(screen.getByRole('heading', { name: 'Connect your AI provider' })).toBeInTheDocument()
+    await user.click(screen.getByText('← Back'))
 
-    await user.click(screen.getByText('Back'))
     expect(screen.getByText('Welcome to Copilot Desktop Hub')).toBeInTheDocument()
-  })
-
-  it('skip button navigates to done step', async () => {
-    render(<OnboardingModal onComplete={vi.fn()} />)
-
-    await user.click(screen.getByText('Get Started'))
-    await user.click(screen.getByText('Skip for now'))
-
-    expect(screen.getByText("You're all set!")).toBeInTheDocument()
-  })
-})
-
-describe('OnboardingModal — Done Step', () => {
-  it('shows completion message with feature list', async () => {
-    render(<OnboardingModal onComplete={vi.fn()} />)
-
-    await user.click(screen.getByText('Get Started'))
-    await user.click(screen.getByText('Skip for now'))
-
-    expect(screen.getByText("You're all set!")).toBeInTheDocument()
-    expect(screen.getByText(/Start chatting with Copilot/)).toBeInTheDocument()
-    expect(screen.getByText(/Create custom agents/)).toBeInTheDocument()
   })
 
   it('finish button saves onboarding_complete and calls onComplete', async () => {
     const onComplete = vi.fn()
-    render(<OnboardingModal onComplete={onComplete} />)
+    mockApi.authLoginByok.mockResolvedValue({ success: true })
+
+    await act(async () => { render(<OnboardingModal onComplete={onComplete} />) })
 
     await user.click(screen.getByText('Get Started'))
-    await user.click(screen.getByText('Skip for now'))
+    await act(async () => { await user.click(screen.getByRole('button', { name: /Add an API key/ })) })
     await user.click(screen.getByText('Start Using Copilot Desktop Hub'))
 
     expect(mockApi.setSetting).toHaveBeenCalledWith('onboarding_complete', 'true')
     expect(onComplete).toHaveBeenCalledTimes(1)
-  })
-
-  it('progress dots show correct active step', async () => {
-    const { container } = render(<OnboardingModal onComplete={vi.fn()} />)
-
-    // On welcome step, first dot should be active (dark gray primary)
-    const dots = container.querySelectorAll('.rounded-full')
-    expect(dots[0].className).toContain('bg-gray-900')
-    expect(dots[1].className).not.toContain('bg-gray-900')
   })
 })

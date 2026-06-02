@@ -27,7 +27,7 @@ vi.mock('fs', () => ({
   existsSync: mockExistsSync
 }))
 
-import { registerCliHandlers, checkCliOnStartup } from '../cli-detection'
+import { registerCliHandlers, checkCliOnStartup, detectAllClis } from '../cli-detection'
 
 async function invokeHandler(channel: string, ...args: unknown[]): Promise<any> {
   const handler = mockIpcMain._handlers.get(channel)
@@ -100,6 +100,44 @@ describe('CLI Detection', () => {
 
     const result = checkCliOnStartup()
     expect(result.installed).toBe(false)
+  })
+
+  it('detectAllClis returns status for all CLIs', async () => {
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd.includes('copilot') && (cmd.includes('where') || cmd.includes('which'))) return '/usr/bin/copilot\n'
+      if (cmd.includes('claude') && (cmd.includes('where') || cmd.includes('which'))) return '/usr/bin/claude\n'
+      if (cmd.includes('gh') && (cmd.includes('where') || cmd.includes('which'))) return '/usr/bin/gh\n'
+      if (cmd.includes('ollama') && (cmd.includes('where') || cmd.includes('which'))) return '/usr/bin/ollama\n'
+      if (cmd.includes('github-copilot-cli --version') || cmd.includes('copilot --version')) return '1.0.0'
+      if (cmd.includes('claude --version')) return '0.9.1'
+      if (cmd.includes('gh --version')) return 'gh version 2.0.0\nmore'
+      if (cmd.includes('ollama --version')) return '0.7.0'
+      throw new Error(`unknown command: ${cmd}`)
+    })
+    mockExistsSync.mockReturnValue(true)
+
+    const result = detectAllClis()
+    expect(result).toEqual({
+      copilot: { installed: true, path: '/usr/bin/copilot', version: '1.0.0' },
+      claude: { installed: true, path: '/usr/bin/claude', version: '0.9.1' },
+      gh: { installed: true, path: '/usr/bin/gh', version: 'gh version 2.0.0' },
+      ollama: { installed: true, path: '/usr/bin/ollama', version: '0.7.0' },
+    })
+
+    const viaIpc = await invokeHandler('cli:detect-all')
+    expect(viaIpc).toEqual(result)
+  })
+
+  it('detectAllClis returns not-installed when commands fail', () => {
+    mockExecSync.mockImplementation(() => { throw new Error('not found') })
+    mockExistsSync.mockReturnValue(false)
+
+    expect(detectAllClis()).toEqual({
+      copilot: { installed: false, path: null, version: null },
+      claude: { installed: false, path: null, version: null },
+      gh: { installed: false, path: null, version: null },
+      ollama: { installed: false, path: null, version: null },
+    })
   })
 
   it('handles version command failure gracefully', async () => {

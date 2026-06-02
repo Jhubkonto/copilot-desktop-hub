@@ -13,7 +13,7 @@ vi.mock('../mcp', () => ({
 import { MCP_MAX_ITERATIONS, MCP_REQUIRED_ITERATIONS, MAX_TOOL_RESULT_CHARS, runProviderMcpToolLoop } from '../tool-loop'
 import type { ModelToolCaller } from '../tool-loop'
 import type { ProviderMessage } from '../providers'
-import type { ToolDefinition } from '../copilot-api'
+import type { ToolDefinition } from '../provider-types'
 
 function makeWebContents() {
   return {

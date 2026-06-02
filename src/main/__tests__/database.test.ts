@@ -36,7 +36,7 @@ describe('database migrations', () => {
     initializeBaseSchema(db)
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(13)
+    expect(db.pragma('user_version', { simple: true })).toBe(15)
     expect(getColumnNames(db, 'projects')).toEqual(
       expect.arrayContaining(['default_model', 'config_json'])
     )
@@ -46,6 +46,9 @@ describe('database migrations', () => {
     expect(getColumnNames(db, 'conversations')).toEqual(expect.arrayContaining(['project_id']))
     expect(getColumnNames(db, 'project_wiki_entries')).toEqual(
       expect.arrayContaining(['tags', 'superseded_by'])
+    )
+    expect(getColumnNames(db, 'agent_delegations')).toEqual(
+      expect.arrayContaining(['conversation_id', 'leader_agent_id', 'specialist_agent_id', 'status'])
     )
   })
 
@@ -58,13 +61,26 @@ describe('database migrations', () => {
       runMigrations(db)
       runMigrations(db)
     }).not.toThrow()
-    expect(db.pragma('user_version', { simple: true })).toBe(13)
+    expect(db.pragma('user_version', { simple: true })).toBe(15)
   })
 
   it('only runs pending migrations for a partial upgrade', () => {
     const db = createDatabase()
 
     db.exec(`
+      CREATE TABLE settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+
+      CREATE TABLE agents (
+        id TEXT PRIMARY KEY,
+        config_json TEXT NOT NULL,
+        is_default INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+      );
+
       CREATE TABLE projects (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -99,7 +115,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(13)
+    expect(db.pragma('user_version', { simple: true })).toBe(15)
     expect(getColumnNames(db, 'messages')).toEqual(
       expect.arrayContaining(['is_edited', 'previous_content', 'context_snapshot'])
     )
@@ -119,7 +135,7 @@ describe('database migrations', () => {
     const db = createDatabase()
     const failingMigrations: ReadonlyArray<Migration> = [
       ...MIGRATIONS,
-      { version: 14, sql: 'ALTER TABLE missing_table ADD COLUMN broken TEXT' },
+      { version: 15, sql: 'ALTER TABLE missing_table ADD COLUMN broken TEXT' },
     ]
 
     initializeBaseSchema(db)

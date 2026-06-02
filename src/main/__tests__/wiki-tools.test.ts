@@ -2,7 +2,7 @@ import Database from 'better-sqlite3'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { initializeBaseSchema, runMigrations } from '../database-migrations'
 import { insertWikiEntry } from '../wiki-handlers'
-import type { ToolDefinition } from '../copilot-api'
+import type { ToolDefinition } from '../provider-types'
 
 let db: Database.Database
 
@@ -53,7 +53,7 @@ describe('insertWikiEntry', () => {
 // ─── runProviderMcpToolLoop inline handler dispatch ─────────────────────────
 
 import { runProviderMcpToolLoop } from '../tool-loop'
-import type { CopilotNonStreamResult } from '../copilot-api'
+import type { ProviderNonStreamResult } from '../provider-types'
 import type { ProviderMessage } from '../providers'
 
 function makeToolDef(name: string): ToolDefinition {
@@ -74,7 +74,7 @@ describe('runProviderMcpToolLoop — inline handlers', () => {
     const inlineHandlers = new Map([['my_inline_tool', handler]])
 
     let callCount = 0
-    const caller = vi.fn().mockImplementation(async (): Promise<CopilotNonStreamResult> => {
+    const caller = vi.fn().mockImplementation(async (): Promise<ProviderNonStreamResult> => {
       callCount++
       if (callCount === 1) {
         return {
@@ -110,7 +110,7 @@ describe('runProviderMcpToolLoop — inline handlers', () => {
 
   it('emits unknown-tool error when neither toolMap nor inlineHandlers match', async () => {
     let callCount = 0
-    const caller = vi.fn().mockImplementation(async (): Promise<CopilotNonStreamResult> => {
+    const caller = vi.fn().mockImplementation(async (): Promise<ProviderNonStreamResult> => {
       callCount++
       if (callCount === 1) {
         return {
@@ -169,7 +169,7 @@ describe('runProviderMcpToolLoop — inline handlers', () => {
     const inlineHandlers = new Map([['bad_tool', handler]])
 
     let callCount = 0
-    const caller = vi.fn().mockImplementation(async (): Promise<CopilotNonStreamResult> => {
+    const caller = vi.fn().mockImplementation(async (): Promise<ProviderNonStreamResult> => {
       callCount++
       if (callCount === 1) {
         return { content: null, toolCalls: [{ id: 'tc1', name: 'bad_tool', arguments: {} }] }
@@ -221,3 +221,4 @@ describe('search_project_wiki handler logic', () => {
     expect(formatted).toContain('JWT')
   })
 })
+

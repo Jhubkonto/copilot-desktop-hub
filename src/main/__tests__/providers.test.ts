@@ -157,16 +157,16 @@ describe('Providers — IPC Handlers', () => {
       mockDb._store.set('byok_openai_key', 'some-value')
 
       const result = await invokeHandler('provider:list')
-      expect(result).toHaveLength(4)
-
-      const copilot = result.find((p: { name: string }) => p.name === 'copilot')
-      expect(copilot.configured).toBe(true) // Always configured
+      expect(result).toHaveLength(3)
 
       const openai = result.find((p: { name: string }) => p.name === 'openai')
       expect(openai.configured).toBe(true)
 
       const anthropic = result.find((p: { name: string }) => p.name === 'anthropic')
       expect(anthropic.configured).toBe(false)
+
+      const azure = result.find((p: { name: string }) => p.name === 'azure')
+      expect(azure.configured).toBe(false)
     })
   })
 

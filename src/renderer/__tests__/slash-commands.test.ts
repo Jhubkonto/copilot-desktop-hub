@@ -42,7 +42,6 @@ function createContext(): SlashCommandContext {
     theme: 'light',
     pushSystemMessage: vi.fn(),
     newChat: vi.fn(),
-    login: vi.fn().mockResolvedValue(undefined),
     logout: vi.fn().mockResolvedValue(undefined),
     setInput: vi.fn(),
     setTheme: vi.fn(),
