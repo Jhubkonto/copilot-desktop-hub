@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
-import { ChevronDown, Loader2, Sparkles } from 'lucide-react'
+import { ChevronDown, Loader2, Sparkles, TerminalSquare, BotMessageSquare, X } from 'lucide-react'
 import { getModelLabel, modelIdSupportsTools } from '../../shared/models'
 import { isApiError, type AgentConfig, type WikiCandidate } from '../../shared/types'
 import type { ContextRef, ToastType } from '../hooks/chat-types'
@@ -12,6 +12,8 @@ import { useTimers } from '../hooks/useTimers'
 import { useAppStore } from '../store/app-store'
 import { ChatComposer } from './chat/ChatComposer'
 import { ChatMessages } from './chat/ChatMessages'
+import { CliTerminalPanel } from './CliTerminalPanel'
+import { SmartTerminalPanel } from './SmartTerminal/SmartTerminalPanel'
 import { SaveToWikiModal } from './SaveToWikiModal'
 import { WikiExtractionModal } from './WikiExtractionModal'
 
@@ -24,6 +26,8 @@ export function ChatWindow() {
   const conversations = useAppStore((state) => state.conversations)
   const authenticated = useAppStore((state) => state.authState.authenticated)
   const authMode = useAppStore((state) => state.authState.mode)
+  const cliInstalled = useAppStore((state) => state.authState.cliInstalled)
+  const isReady = authenticated || cliInstalled
   const theme = useAppStore((state) => state.theme)
   const conversationCreated = useAppStore((state) => state.conversationCreated)
   const loadConversations = useAppStore((state) => state.loadConversations)
@@ -32,7 +36,6 @@ export function ChatWindow() {
   const setActiveProjectId = useAppStore((state) => state.setActiveProjectId)
   const setActiveAgentId = useAppStore((state) => state.setActiveAgentId)
   const setTheme = useAppStore((state) => state.setTheme)
-  const login = useAppStore((state) => state.login)
   const logout = useAppStore((state) => state.logout)
   const addToast = useAppStore((state) => state.addToast) as (
     message: string,
@@ -52,6 +55,8 @@ export function ChatWindow() {
   const [inputPanelHeight, setInputPanelHeight] = useState<number | null>(null)
   const [openContextPicker, setOpenContextPicker] = useState<'project' | 'agent' | null>(null)
   const [hasUnreadBelow, setHasUnreadBelow] = useState(false)
+  const [showCliTerminal, setShowCliTerminal] = useState(false)
+  const [showSmartTerminal, setShowSmartTerminal] = useState(false)
   const [clipboardRef, setClipboardRef] = useState<ContextRef | null>(null)
   const [wikiMessageIds, setWikiMessageIds] = useState<Set<string>>(new Set())
   const [wikiModalMessage, setWikiModalMessage] = useState<{ id: string; content: string } | null>(null)
@@ -205,7 +210,6 @@ export function ChatWindow() {
     pushSystemMessage: chat.pushSystemMessage,
     buildConversationMarkdown: chat.buildConversationMarkdown,
     newChat,
-    login,
     logout,
     setTheme,
     loadAgents,
@@ -722,16 +726,48 @@ export function ChatWindow() {
         )}
       </div>
 
-      {projectRootDir && (
-        <span
-          className="inline-flex items-center gap-1 px-2 rounded-full text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400"
-          style={{ lineHeight: '20px' }}
-          title={`File structure context active: ${projectRootDir}`}
-          aria-label={`File structure context active: ${projectRootDir}`}
+      <div className="ml-auto flex items-center gap-2">
+        {projectRootDir && (
+          <span
+            className="inline-flex items-center gap-1 px-2 rounded-full text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400"
+            style={{ lineHeight: '20px' }}
+            title={`File structure context active: ${projectRootDir}`}
+            aria-label={`File structure context active: ${projectRootDir}`}
+          >
+            📁
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={() => { setShowCliTerminal((current) => !current); setShowSmartTerminal(false) }}
+          className={`inline-flex items-center justify-center rounded-full border px-2 py-1 transition-colors ${
+            showCliTerminal
+              ? 'border-gray-300 bg-white text-gray-700 dark:border-gray-500 dark:bg-gray-700 dark:text-gray-100'
+              : 'border-gray-200 bg-white text-gray-500 hover:text-gray-700 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+          }`}
+          title="Toggle terminal"
+          aria-label="Toggle terminal"
+          aria-pressed={showCliTerminal}
         >
-          📁
-        </span>
-      )}
+          <TerminalSquare className="w-4 h-4" />
+        </button>
+        {cliInstalled && (
+          <button
+            type="button"
+            onClick={() => { setShowSmartTerminal((current) => !current); setShowCliTerminal(false) }}
+            className={`inline-flex items-center justify-center rounded-full border px-2 py-1 transition-colors ${
+              showSmartTerminal
+                ? 'border-purple-400 bg-purple-900/30 text-purple-300 dark:border-purple-500 dark:bg-purple-900/40 dark:text-purple-200'
+                : 'border-gray-200 bg-white text-gray-500 hover:text-gray-700 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+            }`}
+            title="Smart Terminal (Claude CLI)"
+            aria-label="Smart Terminal"
+            aria-pressed={showSmartTerminal}
+          >
+            <BotMessageSquare className="w-4 h-4" />
+          </button>
+        )}
+      </div>
     </div>
   )
 
@@ -741,7 +777,7 @@ export function ChatWindow() {
       inputRef={inputRef}
       messages={chat.messages}
       activeAgent={chatAgent as AgentConfig | null}
-      authenticated={authenticated}
+      authenticated={isReady}
       isOnline={isOnline}
       isGenerating={chat.isGenerating}
       rateLimitRemainingSec={timers.rateLimitRemainingSec}
@@ -787,12 +823,108 @@ export function ChatWindow() {
       onCloseAtMenu={atMenu.closeAtMenu}
       onSetConversationModel={actions.handleSetConversationModel}
       onSetPendingModel={setPendingModel}
+      onSetCliModel={actions.handleSetCliModel}
       isEditingMessage={chat.isEditingMessage}
       onCancelEdit={handleCancelEdit}
       onStop={actions.handleStop}
       onSend={actions.handleSend}
     />
   )
+
+  const handleSmartTerminalSend = useCallback(async (text: string, model?: string) => {
+    if (!text.trim() || chat.isGenerating) return
+
+    const userMessage = {
+      id: crypto.randomUUID(),
+      role: 'user' as const,
+      content: text.trim(),
+      timestamp: Date.now(),
+    }
+
+    chat.setMessages((prev) => [...prev, userMessage])
+    chat.setLoadingFailed(false)
+    chat.setIsGenerating(true)
+    chat.setGenerationStartedAt(Date.now())
+    chat.setStreamingContent('')
+    chat.setLiveTeamActivity([])
+    chat.streamingContentRef.current = ''
+    const requestModel = model ?? (effectiveModel === 'default' ? undefined : effectiveModel)
+    chat.streamModelRef.current = requestModel ?? null
+
+    let conversation = chat.activeConversationRef.current
+    if (!conversation) {
+      conversation = crypto.randomUUID()
+      chat.justCreatedConversationRef.current = true
+      conversationCreated(conversation)
+      chat.activeConversationRef.current = conversation
+    }
+
+    try {
+      const sendResult = await window.api.sendMessage(conversation, text.trim(), {
+        agentId: chatAgentId ?? undefined,
+        model: requestModel,
+        messageId: userMessage.id,
+        projectId: chatProjectId ?? undefined,
+      }) as unknown
+      if (isApiError(sendResult)) throw new Error(String((sendResult as unknown as { error?: string }).error ?? 'API error'))
+    } catch (error) {
+      console.error('Smart terminal send failed:', error)
+      chat.setIsGenerating(false)
+      chat.setLoadingFailed(true)
+      chat.setGenerationStartedAt(null)
+      chat.streamModelRef.current = null
+      addToast('Failed to send message. Please try again.', 'error')
+    }
+  }, [
+    chat,
+    effectiveModel,
+    conversationCreated,
+    chatAgentId,
+    chatProjectId,
+    addToast,
+  ])
+
+  // Smart Terminal full-panel mode
+  if (showSmartTerminal) {
+    return (
+      <SmartTerminalPanel
+        messages={chat.messages}
+        streamingContent={chat.streamingContent}
+        isGenerating={chat.isGenerating}
+        cliCost={chat.cliCost}
+        onSend={handleSmartTerminalSend}
+        onStop={actions.handleStop}
+        onClose={() => setShowSmartTerminal(false)}
+      />
+    )
+  }
+
+  // Raw PTY terminal full-panel mode
+  if (showCliTerminal) {
+    return (
+      <div className="flex-1 flex flex-col min-h-0 bg-gray-950">
+        {/* Header */}
+        <div className="flex items-center gap-2.5 px-4 h-10 shrink-0 border-b border-gray-800 bg-gray-900">
+          <TerminalSquare className="w-4 h-4 text-gray-400" />
+          <span className="text-sm font-medium text-gray-300 select-none">Terminal</span>
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowCliTerminal(false)}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-800 transition-colors"
+            >
+              <X className="w-3 h-3" />
+              Back to chat
+            </button>
+          </div>
+        </div>
+        {/* Full-height terminal */}
+        <div className="flex-1 min-h-0">
+          <CliTerminalPanel />
+        </div>
+      </div>
+    )
+  }
 
   if (!conversationId && chat.messages.length === 0) {
     return (
@@ -810,16 +942,22 @@ export function ChatWindow() {
               {chatAgent ? `${chatAgent.icon} ${chatAgent.name}` : 'Copilot Desktop Hub'}
             </h2>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-              {chatAgent ? `Start a conversation with ${chatAgent.name}` : 'Start a conversation with GitHub Copilot'}
+              {chatAgent ? `Start a conversation with ${chatAgent.name}` : cliInstalled ? 'Chat directly or select an agent' : 'Add an API key in Settings to start chatting'}
             </p>
-            {authMode === 'none' && (
-              <button
-                type="button"
-                onClick={() => void login()}
-                className="mb-4 px-4 py-2 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-sm font-medium hover:bg-gray-800 dark:hover:bg-gray-200 transition-colors"
-              >
-                Sign in with GitHub
-              </button>
+            {authMode === 'none' && !cliInstalled && (
+              <div className="mb-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
+                No provider configured. Add an API key in Settings.
+              </div>
+            )}
+            {authMode === 'none' && cliInstalled && (
+              <div className="mb-4 space-y-3">
+                <div className="rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20 px-4 py-3 text-sm text-green-700 dark:text-green-300">
+                  ✓ Claude CLI is installed — just start typing to chat
+                </div>
+                <p className="text-xs text-gray-400 dark:text-gray-500">
+                  Optionally select an agent from the sidebar to use a custom system prompt or settings.
+                </p>
+              </div>
             )}
             {fileInput.isDragging && <p className="text-sm text-blue-500 animate-pulse">Drop files to attach</p>}
           </div>
@@ -864,6 +1002,7 @@ export function ChatWindow() {
           isGenerating={chat.isGenerating}
           liveTeamActivity={chat.liveTeamActivity}
           streamingContent={chat.streamingContent}
+          cliCost={chat.cliCost}
           currentActivity={chat.currentActivity}
           generationElapsedSec={timers.generationElapsedSec}
           loadingFailed={chat.loadingFailed}
@@ -877,7 +1016,7 @@ export function ChatWindow() {
           onRegenerateWithModel={chat.handleRegenerate}
           onEdit={handleEditMessage}
           onRetry={actions.handleRetry}
-          onSignIn={actions.handleSignIn}
+          onSignIn={() => addToast('No provider configured. Add an API key in Settings.', 'info')}
           onPickModel={handlePickModel}
           onUseImageAsContext={(dataUrl) => {
             fileInput.setPendingImages((prev) => [
