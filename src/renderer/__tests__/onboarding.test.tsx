@@ -32,24 +32,36 @@ describe('OnboardingModal', () => {
   })
 
   it('shows CLI not-detected warning when CLI not available', async () => {
-    mockApi.authStatus.mockResolvedValue({ authenticated: false, mode: 'none', user: null, cliInstalled: false })
+    mockApi.authStatus.mockResolvedValue({ authenticated: false, mode: 'none', user: null, cliInstalled: false, clis: { claude: false, codex: false } })
 
     await act(async () => { render(<OnboardingModal onComplete={vi.fn()} />) })
     await act(async () => { await user.click(screen.getByText('Get Started')) })
 
-    expect(screen.getByText(/Claude CLI not detected/)).toBeInTheDocument()
+    expect(screen.getByText(/No local AI CLI detected/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Re-check/ })).toBeInTheDocument()
+    expect(screen.getByText(/npm install -g @openai\/codex/)).toBeInTheDocument()
+    expect(screen.getByText(/codex login/)).toBeInTheDocument()
     expect(screen.getByText(/npm install -g @anthropic-ai\/claude-code/)).toBeInTheDocument()
   })
 
   it('shows Use Claude CLI button when CLI is installed', async () => {
-    mockApi.authStatus.mockResolvedValue({ authenticated: false, mode: 'none', user: null, cliInstalled: true })
+    mockApi.authStatus.mockResolvedValue({ authenticated: false, mode: 'none', user: null, cliInstalled: true, clis: { claude: true, codex: false } })
 
     await act(async () => { render(<OnboardingModal onComplete={vi.fn()} />) })
     await act(async () => { await user.click(screen.getByText('Get Started')) })
 
     expect(screen.getByText(/Use Claude CLI/)).toBeInTheDocument()
-    expect(screen.queryByText(/Claude CLI not detected/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/No local AI CLI detected/)).not.toBeInTheDocument()
+  })
+
+  it('shows Use Codex CLI button when Codex CLI is installed', async () => {
+    mockApi.authStatus.mockResolvedValue({ authenticated: false, mode: 'none', user: null, cliInstalled: true, clis: { claude: false, codex: true } })
+
+    await act(async () => { render(<OnboardingModal onComplete={vi.fn()} />) })
+    await act(async () => { await user.click(screen.getByText('Get Started')) })
+
+    expect(screen.getByText(/Use Codex CLI/)).toBeInTheDocument()
+    expect(screen.queryByText(/No local AI CLI detected/)).not.toBeInTheDocument()
   })
 
   it('enables BYOK mode via store loginByok', async () => {
@@ -62,6 +74,7 @@ describe('OnboardingModal', () => {
 
     expect(mockApi.authLoginByok).toHaveBeenCalledTimes(1)
     expect(screen.getByText(/BYOK mode enabled/)).toBeInTheDocument()
+    expect(useAppStore.getState().showSettings).toBe(true)
   })
 
   it('back button returns to welcome step', async () => {

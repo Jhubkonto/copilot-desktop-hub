@@ -7,31 +7,33 @@ interface OnboardingProps {
 }
 
 type Step = 'welcome' | 'providers' | 'done'
-type SetupMode = 'byok' | 'cli' | null
+type SetupMode = 'byok' | 'claude-cli' | 'codex-cli' | null
 
 export function OnboardingModal({ onComplete }: OnboardingProps) {
   const [step, setStep] = useState<Step>('welcome')
   const [setupMode, setSetupMode] = useState<SetupMode>(null)
-  const [cliInstalled, setCliInstalled] = useState(false)
+  const [installedClis, setInstalledClis] = useState({ claude: false, codex: false })
   const [rechecking, setRechecking] = useState(false)
   const loginByok = useAppStore((s) => s.loginByok)
   const checkAuth = useAppStore((s) => s.checkAuth)
+  const setShowSettings = useAppStore((s) => s.setShowSettings)
 
   useEffect(() => {
     void window.api.authStatus().then((result) => {
-      setCliInstalled(result.cliInstalled ?? false)
+      setInstalledClis(result.clis ?? { claude: result.cliInstalled ?? false, codex: false })
     })
   }, [])
 
   const handleByok = async () => {
     await loginByok()
     await checkAuth()
+    setShowSettings(true)
     setSetupMode('byok')
     setStep('done')
   }
 
-  const handleUseCli = () => {
-    setSetupMode('cli')
+  const handleUseCli = (mode: 'claude-cli' | 'codex-cli') => {
+    setSetupMode(mode)
     setStep('done')
   }
 
@@ -39,7 +41,7 @@ export function OnboardingModal({ onComplete }: OnboardingProps) {
     setRechecking(true)
     try {
       const result = await window.api.authStatus()
-      setCliInstalled(result.cliInstalled ?? false)
+      setInstalledClis(result.clis ?? { claude: result.cliInstalled ?? false, codex: false })
       await checkAuth()
     } finally {
       setRechecking(false)
@@ -100,9 +102,9 @@ export function OnboardingModal({ onComplete }: OnboardingProps) {
                 </p>
               </div>
 
-              {cliInstalled ? (
+              {installedClis.claude && (
                 <button
-                  onClick={handleUseCli}
+                  onClick={() => handleUseCli('claude-cli')}
                   className="w-full flex items-center gap-3 px-4 py-3 rounded-lg border border-green-200 dark:border-green-700 bg-green-50 dark:bg-green-900/20 text-left hover:bg-green-100 dark:hover:bg-green-900/40 transition-colors"
                 >
                   <Terminal className="w-5 h-5 text-green-600 dark:text-green-400 shrink-0" />
@@ -113,29 +115,48 @@ export function OnboardingModal({ onComplete }: OnboardingProps) {
                     <p className="text-xs text-green-600 dark:text-green-400">No API key needed — uses your local CLI session</p>
                   </div>
                 </button>
-              ) : (
-                <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-4 py-3 space-y-2">
+              )}
+
+              {installedClis.codex && (
+                <button
+                  onClick={() => handleUseCli('codex-cli')}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-lg border border-green-200 dark:border-green-700 bg-green-50 dark:bg-green-900/20 text-left hover:bg-green-100 dark:hover:bg-green-900/40 transition-colors"
+                >
+                  <Terminal className="w-5 h-5 text-green-600 dark:text-green-400 shrink-0" />
+                  <div>
+                    <p className="text-sm font-medium text-green-800 dark:text-green-200">
+                      Use Codex CLI <span className="text-xs font-normal text-green-600 dark:text-green-400">(detected)</span>
+                    </p>
+                    <p className="text-xs text-green-600 dark:text-green-400">No API key needed — uses your local Codex login</p>
+                  </div>
+                </button>
+              )}
+
+              {!installedClis.claude && !installedClis.codex && (
+                <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-4 py-3 space-y-3">
                   <div className="flex items-center gap-2">
                     <Terminal className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
-                    <p className="text-xs font-medium text-amber-800 dark:text-amber-200">Claude CLI not detected</p>
+                    <p className="text-xs font-medium text-amber-800 dark:text-amber-200">No local AI CLI detected</p>
                     <button
                       onClick={handleRecheck}
                       disabled={rechecking}
                       className="ml-auto text-xs text-amber-600 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-200 flex items-center gap-1 disabled:opacity-50"
-                      title="Re-check for Claude CLI"
+                      title="Re-check for installed CLIs"
                     >
                       <RefreshCw className={`w-3 h-3 ${rechecking ? 'animate-spin' : ''}`} />
                       Re-check
                     </button>
                   </div>
-                  <p className="text-xs text-amber-700 dark:text-amber-300">
-                    Install Claude CLI to use it without an API key:
-                  </p>
-                  <pre className="text-xs bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-100 rounded px-2 py-1 font-mono overflow-x-auto">
-                    npm install -g @anthropic-ai/claude-code
-                  </pre>
+                  <div>
+                    <p className="text-xs text-amber-700 dark:text-amber-300 mb-1">Install Codex CLI, then sign in:</p>
+                    <pre className="text-xs bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-100 rounded px-2 py-1 font-mono overflow-x-auto">npm install -g @openai/codex{'\n'}codex login</pre>
+                  </div>
+                  <div>
+                    <p className="text-xs text-amber-700 dark:text-amber-300 mb-1">Or install Claude CLI:</p>
+                    <pre className="text-xs bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-100 rounded px-2 py-1 font-mono overflow-x-auto">npm install -g @anthropic-ai/claude-code</pre>
+                  </div>
                   <p className="text-xs text-amber-600 dark:text-amber-400">
-                    After installing, click Re-check above.
+                    After installing and signing in, click Re-check.
                   </p>
                 </div>
               )}
@@ -147,7 +168,7 @@ export function OnboardingModal({ onComplete }: OnboardingProps) {
                 <Key className="w-5 h-5 text-gray-500 shrink-0" />
                 <div>
                   <p className="text-sm font-medium text-gray-800 dark:text-gray-200">Add an API key</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">OpenAI, Anthropic, or Azure — configure in Settings → API Providers</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Opens Settings → API Providers so you can paste a provider key</p>
                 </div>
               </button>
 
@@ -168,11 +189,11 @@ export function OnboardingModal({ onComplete }: OnboardingProps) {
               <h2 className="text-lg font-medium text-gray-800 dark:text-gray-100">
                 You're all set!
               </h2>
-              {setupMode === 'cli' && (
+              {(setupMode === 'claude-cli' || setupMode === 'codex-cli') && (
                 <div className="flex items-start gap-2 p-3 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-left">
                   <Terminal className="w-4 h-4 text-green-500 shrink-0 mt-0.5" />
                   <p className="text-xs text-green-700 dark:text-green-300">
-                    Ready to chat via Claude CLI. You can also create agents with custom system prompts using the <strong>+</strong> in the sidebar.
+                    Ready to chat via {setupMode === 'codex-cli' ? 'Codex CLI' : 'Claude CLI'}. You can also create agents with custom system prompts using the <strong>+</strong> in the sidebar.
                   </p>
                 </div>
               )}
@@ -180,7 +201,7 @@ export function OnboardingModal({ onComplete }: OnboardingProps) {
                 <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-left">
                   <Key className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
                   <p className="text-xs text-blue-700 dark:text-blue-300">
-                    BYOK mode enabled. Add provider keys anytime in <strong>Settings → API Providers</strong>.
+                    BYOK mode enabled. Settings is open so you can add a provider key in <strong>API Providers</strong>.
                   </p>
                 </div>
               )}

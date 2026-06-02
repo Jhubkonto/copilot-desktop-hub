@@ -468,6 +468,7 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
                 >
                   <option value="">Auto (BYOK key, or Claude CLI if no key)</option>
                   <option value="claude-cli">Force Claude CLI (claude --print)</option>
+                  <option value="codex-cli">OpenAI Codex CLI (codex)</option>
                   <option value="gh-copilot">GitHub Copilot CLI (gh copilot suggest)</option>
                 </select>
                 {config.backend && (

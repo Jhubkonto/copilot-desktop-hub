@@ -55,8 +55,8 @@ export interface AgentConfig {
   }
   memory?: string
   customCommands?: { name: string; description: string; prompt: string }[]
-  backend?: 'claude-cli' | 'gh-copilot'
-  /** Model to use when backend is 'claude-cli' (e.g. 'claude-opus-4-5'). */
+  backend?: 'claude-cli' | 'codex-cli' | 'gh-copilot'
+  /** Model to use when backend is a CLI (e.g. 'claude-sonnet-4-6' or 'gpt-4.1'). */
   cliModel?: string
 }
 
@@ -168,6 +168,10 @@ export interface AuthStatus {
   mode: AuthMode
   user: null
   cliInstalled?: boolean
+  clis?: {
+    claude: boolean
+    codex: boolean
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -436,6 +440,7 @@ export type IpcReturnMap = {
   'cli:check': CliInstallStatus
   'cli:status': CliInstallStatus
   'cli:detect-all': Record<string, CliInstallStatus>
+  'cli:get-models': { id: string; label: string }[]
   // Context
   'context:git': string
   'context:git-diff': string
@@ -605,6 +610,7 @@ export type IpcChannels =
   | 'cli:check'
   | 'cli:status'
   | 'cli:detect-all'
+  | 'cli:get-models'
   | 'context:git'
   | 'context:git-diff'
   | 'context:read-file'

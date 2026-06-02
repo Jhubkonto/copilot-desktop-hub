@@ -7,7 +7,7 @@ import { vi } from 'vitest'
 export function createMockAppStore(overrides: Record<string, unknown> = {}) {
   return {
     // Auth state
-    authState: { authenticated: false, mode: 'none', user: null },
+    authState: { authenticated: false, mode: 'none', user: null, cliInstalled: false, clis: { claude: false, codex: false } },
     authLoading: false,
 
     // Conversations

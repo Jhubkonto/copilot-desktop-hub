@@ -296,14 +296,12 @@ export async function executeSlashCommand(
     case '/models': {
       const current = ctx.conversationModel ?? 'default'
       const hasCatalog = (ctx.catalogModels?.length ?? 0) > 0
-      if (!hasCatalog) {
-        const claudeModels = [
-          { id: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
-          { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
-          { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
-        ]
-        const text = ['Available Claude CLI models:']
-        for (const m of claudeModels) {
+      const backend = ctx.activeAgent?.backend
+      if (!hasCatalog && (backend === 'codex-cli' || backend === 'claude-cli')) {
+        const cliModels = await window.api.getCliModels(backend)
+        const header = backend === 'codex-cli' ? 'Available Codex CLI models:' : 'Available Claude CLI models:'
+        const text = [header]
+        for (const m of cliModels) {
           const mark = m.id === current ? '*' : '-'
           text.push(`${mark} ${m.label} (${m.id})`)
         }

@@ -25,6 +25,7 @@ export function ChatWindow() {
   const authenticated = useAppStore((state) => state.authState.authenticated)
   const authMode = useAppStore((state) => state.authState.mode)
   const cliInstalled = useAppStore((state) => state.authState.cliInstalled)
+  const installedClis = useAppStore((state) => state.authState.clis ?? { claude: state.authState.cliInstalled, codex: false })
   const isReady = authenticated || cliInstalled
   const theme = useAppStore((state) => state.theme)
   const conversationCreated = useAppStore((state) => state.conversationCreated)
@@ -619,11 +620,16 @@ export function ChatWindow() {
     if (agentBackend === 'gh-copilot') {
       return { label: 'gh copilot', cls: 'bg-gray-100 dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-400' }
     }
+    if (agentBackend === 'codex-cli' && cliInstalled) {
+      return { label: 'Codex CLI', cls: 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300' }
+    }
     if (agentBackend === 'claude-cli' && cliInstalled) {
       return { label: 'Claude CLI', cls: 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-700 text-purple-700 dark:text-purple-300' }
     }
     if (!agentBackend && authMode === 'none' && cliInstalled) {
-      return { label: 'Claude CLI', cls: 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-700 text-purple-700 dark:text-purple-300' }
+      return installedClis.codex && !installedClis.claude
+        ? { label: 'Codex CLI', cls: 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300' }
+        : { label: 'Claude CLI', cls: 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-700 text-purple-700 dark:text-purple-300' }
     }
     const model = effectiveModel === 'default' ? 'gpt-5-mini' : effectiveModel
     if (model.startsWith('claude')) {
@@ -633,7 +639,7 @@ export function ChatWindow() {
       return { label: 'Azure', cls: 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-300' }
     }
     return { label: 'OpenAI', cls: 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-700 text-green-700 dark:text-green-300' }
-  }, [chatAgent?.backend, authMode, cliInstalled, effectiveModel])
+  }, [chatAgent?.backend, authMode, cliInstalled, installedClis.claude, installedClis.codex, effectiveModel])
 
   const contextBar = (
     <div
@@ -853,7 +859,9 @@ export function ChatWindow() {
             {authMode === 'none' && cliInstalled && (
               <div className="mb-4 space-y-3">
                 <div className="rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20 px-4 py-3 text-sm text-green-700 dark:text-green-300">
-                  ✓ Claude CLI is installed — just start typing to chat
+                  {installedClis.codex && !installedClis.claude
+                    ? 'Codex CLI is installed - just start typing to chat'
+                    : 'Claude CLI is installed - just start typing to chat'}
                 </div>
                 <p className="text-xs text-gray-400 dark:text-gray-500">
                   Optionally select an agent from the sidebar to use a custom system prompt or settings.

@@ -1,8 +1,71 @@
 import { execSync } from 'child_process'
-import { existsSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
+import { homedir } from 'os'
 import type { CliInstallStatus } from '../shared/types'
 import { safeHandle } from './safe-handle'
+
+type CliModelOption = { id: string; label: string }
+
+const CLAUDE_DEFAULT_MODELS: CliModelOption[] = [
+  { id: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
+  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+  { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
+]
+
+const CODEX_DEFAULT_MODELS: CliModelOption[] = [
+  { id: 'gpt-5.5', label: 'GPT-5.5' },
+  { id: 'gpt-5.4', label: 'GPT-5.4' },
+  { id: 'gpt-5.4-mini', label: 'GPT-5.4-Mini' },
+]
+
+function readCodexConfigModel(): string | null {
+  try {
+    const { readFileSync } = require('fs') as typeof import('fs')
+    const tomlPath = join(homedir(), '.codex', 'config.toml')
+    const content = readFileSync(tomlPath, 'utf8')
+    const match = /^\s*model\s*=\s*["']?([^"'\s\n]+)["']?/m.exec(content)
+    return match?.[1] ?? null
+  } catch {
+    return null
+  }
+}
+
+function readCodexCachedModels(): CliModelOption[] {
+  try {
+    const cachePath = join(homedir(), '.codex', 'models_cache.json')
+    const parsed = JSON.parse(readFileSync(cachePath, 'utf8')) as {
+      models?: Array<{
+        slug?: unknown
+        display_name?: unknown
+        visibility?: unknown
+        priority?: unknown
+      }>
+    }
+    return (parsed.models ?? [])
+      .filter((model) => model.visibility === 'list' && typeof model.slug === 'string')
+      .sort((a, b) => {
+        const aPriority = typeof a.priority === 'number' ? a.priority : Number.MAX_SAFE_INTEGER
+        const bPriority = typeof b.priority === 'number' ? b.priority : Number.MAX_SAFE_INTEGER
+        return aPriority - bPriority
+      })
+      .map((model) => ({
+        id: model.slug as string,
+        label: typeof model.display_name === 'string' ? model.display_name : model.slug as string,
+      }))
+  } catch {
+    return []
+  }
+}
+
+function withPreferredModelFirst(models: CliModelOption[], preferredModel: string | null): CliModelOption[] {
+  if (!preferredModel) return models
+  const existing = models.find((model) => model.id === preferredModel)
+  if (existing) {
+    return [existing, ...models.filter((model) => model.id !== preferredModel)]
+  }
+  return [{ id: preferredModel, label: preferredModel }, ...models]
+}
 
 function findCopilotCli(): CliInstallStatus {
   // Try common CLI names
@@ -92,9 +155,27 @@ export function detectAllClis(): Record<string, CliInstallStatus> {
   return {
     copilot: findCopilotCli(),
     claude: findCli('claude'),
+    codex: findCli('codex'),
     gh: findCli('gh'),
     ollama: findCli('ollama')
   }
+}
+
+export function getCliModels(backend: string): CliModelOption[] {
+  if (backend === 'codex-cli') {
+    const cachedModels = readCodexCachedModels()
+    if (cachedModels.length > 0) {
+      const preferredModel = readCodexConfigModel()
+      return preferredModel && cachedModels.some((model) => model.id === preferredModel)
+        ? withPreferredModelFirst(cachedModels, preferredModel)
+        : cachedModels
+    }
+    return withPreferredModelFirst(CODEX_DEFAULT_MODELS, readCodexConfigModel())
+  }
+  if (backend === 'claude-cli') {
+    return CLAUDE_DEFAULT_MODELS
+  }
+  return []
 }
 
 let cachedStatus: CliInstallStatus | null = null
@@ -113,6 +194,8 @@ export function registerCliHandlers(): void {
   })
 
   safeHandle('cli:detect-all', () => detectAllClis())
+
+  safeHandle('cli:get-models', (_event, backend: string) => getCliModels(backend))
 }
 
 export function checkCliOnStartup(): CliInstallStatus {

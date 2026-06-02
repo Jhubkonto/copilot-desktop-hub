@@ -30,6 +30,8 @@ import { runProviderMcpToolLoop } from './tool-loop'
 import { getAdapter } from './cli-adapters/registry'
 import { broadcastToMobile } from './ws-server'
 import { ClaudeAdapter } from './cli-adapters/claude'
+import { CodexAdapter } from './cli-adapters/codex'
+import { getCliModels } from './cli-detection'
 import { retrieveAuthMode } from './auth'
 import { getRelevantWikiEntries, formatWikiSection } from './wiki-context'
 import { insertWikiEntry } from './wiki-handlers'
@@ -809,8 +811,12 @@ export async function dispatchChatSend(
       // ── End orchestration ─────────────────────────────────────────────────
 
       const agentBackend = typeof agentCfg2?.backend === 'string' ? agentCfg2.backend : undefined
-      // Fall back to Claude CLI when no agent backend is set, no BYOK key is configured, and CLI is available
-      const effectiveBackend = agentBackend ?? (retrieveAuthMode() === 'none' && ClaudeAdapter.isAvailable() ? 'claude-cli' : undefined)
+      // Fall back to an installed CLI when no agent backend is set and no BYOK key is configured.
+      const fallbackCliBackend =
+        retrieveAuthMode() === 'none'
+          ? (ClaudeAdapter.isAvailable() ? 'claude-cli' : CodexAdapter.isAvailable() ? 'codex-cli' : undefined)
+          : undefined
+      const effectiveBackend = agentBackend ?? fallbackCliBackend
       if (effectiveBackend) {
         const adapter = getAdapter(effectiveBackend)
         if (adapter?.isAvailable()) {
@@ -837,10 +843,19 @@ export async function dispatchChatSend(
           if (historyTurns.length > 0) {
             cliUserContent = `[Prior conversation — for context only, do not repeat]\n${historyTurns.join('\n\n')}\n\n[Current message]\n${augmentedContent}`
           }
+          const availableCodexModels = effectiveBackend === 'codex-cli' ? getCliModels('codex-cli') : []
+          const requestedCliModel = (agentCfg2?.cliModel || conversationModel || '') as string
+          const cliModelForRequest = effectiveBackend === 'codex-cli'
+            ? (
+                requestedCliModel && availableCodexModels.some((model) => model.id === requestedCliModel)
+                  ? requestedCliModel
+                  : availableCodexModels[0]?.id ?? ''
+              )
+            : requestedCliModel
 
           try {
             if (!window.webContents.isDestroyed()) {
-              window.webContents.send('chat:stream-model', effectiveBackend)
+              window.webContents.send('chat:stream-model', cliModelForRequest || effectiveBackend)
             }
 
             type PendingTool = { name: string; input: Record<string, unknown>; startTime: number }
@@ -852,7 +867,7 @@ export async function dispatchChatSend(
               messages: [{ role: 'user' as const, content: cliUserContent }],
               images: attachedImages.length > 0 ? attachedImages : undefined,
               cwd: process.cwd(),
-              model: (agentCfg2?.cliModel || conversationModel || '') as string,
+              model: cliModelForRequest,
               conversationId,
             }, sendChunk, (event) => {
               if (window.webContents.isDestroyed()) return
@@ -898,7 +913,7 @@ export async function dispatchChatSend(
             }
 
             const assistantMsgId = randomUUID()
-            const cliModelUsed = (agentCfg2?.cliModel || conversationModel || null) as string | null
+            const cliModelUsed = (cliModelForRequest || null) as string | null
             db.prepare(
               "INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model) VALUES (?, ?, ?, ?, ?, ?, ?)"
             ).run(
@@ -916,6 +931,10 @@ export async function dispatchChatSend(
             return { assistantMsgId }
           } catch (err) {
             console.error(`[cli-adapter] ${agentBackend} failed:`, err)
+            // When the agent explicitly configured a CLI backend, propagate the
+            // error so the user sees the real failure instead of "No provider
+            // configured" from the BYOK fallback path below.
+            if (agentBackend) throw err
           }
         }
       }

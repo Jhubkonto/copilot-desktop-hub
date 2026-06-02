@@ -1,6 +1,7 @@
 import { getDatabase } from './database'
 import { safeHandle } from './safe-handle'
 import { ClaudeAdapter } from './cli-adapters/claude'
+import { CodexAdapter } from './cli-adapters/codex'
 import type { AuthMode } from '../shared/types'
 
 export function storeAuthMode(mode: AuthMode): void {
@@ -20,11 +21,17 @@ export function retrieveAuthMode(): AuthMode {
 export function registerAuthHandlers(): void {
   safeHandle('auth:status', () => {
     const mode = retrieveAuthMode()
+    const claudeInstalled = ClaudeAdapter.isAvailable()
+    const codexInstalled = CodexAdapter.isAvailable()
     return {
       authenticated: mode === 'byok',
       mode,
       user: null,
-      cliInstalled: ClaudeAdapter.isAvailable(),
+      cliInstalled: claudeInstalled || codexInstalled,
+      clis: {
+        claude: claudeInstalled,
+        codex: codexInstalled,
+      },
     }
   })
 

@@ -52,6 +52,9 @@ vi.mock('../safe-handle', () => ({
 vi.mock('../cli-adapters/claude', () => ({
   ClaudeAdapter: { isAvailable: vi.fn(() => false) },
 }))
+vi.mock('../cli-adapters/codex', () => ({
+  CodexAdapter: { isAvailable: vi.fn(() => false) },
+}))
 
 import { registerAuthHandlers, retrieveAuthMode, storeAuthMode } from '../auth'
 
@@ -82,8 +85,14 @@ describe('auth', () => {
     storeAuthMode('byok')
     registerAuthHandlers()
 
-    const handler = ipcHandlers.get('auth:status') as () => { authenticated: boolean; mode: string; user: null; cliInstalled: boolean }
-    expect(handler()).toEqual({ authenticated: true, mode: 'byok', user: null, cliInstalled: false })
+    const handler = ipcHandlers.get('auth:status') as () => { authenticated: boolean; mode: string; user: null; cliInstalled: boolean; clis: { claude: boolean; codex: boolean } }
+    expect(handler()).toEqual({
+      authenticated: true,
+      mode: 'byok',
+      user: null,
+      cliInstalled: false,
+      clis: { claude: false, codex: false },
+    })
   })
 
   it('auth:login-byok enables BYOK mode', async () => {

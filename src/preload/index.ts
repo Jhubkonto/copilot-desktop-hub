@@ -145,6 +145,7 @@ const api = {
   checkCli: () => typedInvoke('cli:check'),
   getCliStatus: () => typedInvoke('cli:status'),
   detectAllClis: () => typedInvoke('cli:detect-all'),
+  getCliModels: (backend: string) => typedInvoke('cli:get-models', backend),
 
   // Agents
   listAgents: () => typedInvoke('agent:list'),

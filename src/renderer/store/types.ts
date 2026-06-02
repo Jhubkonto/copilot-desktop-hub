@@ -25,6 +25,10 @@ export interface AuthState {
   mode: AuthMode
   user: null
   cliInstalled: boolean
+  clis: {
+    claude: boolean
+    codex: boolean
+  }
 }
 
 export interface Toast {

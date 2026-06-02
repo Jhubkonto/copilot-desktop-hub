@@ -17,13 +17,24 @@ export const createAuthSlice: StateCreator<
   [],
   AuthSlice
 > = (set, get) => ({
-  authState: { authenticated: false, mode: 'none', user: null, cliInstalled: false },
+  authState: {
+    authenticated: false,
+    mode: 'none',
+    user: null,
+    cliInstalled: false,
+    clis: { claude: false, codex: false },
+  },
   authLoading: false,
 
   checkAuth: async () => {
     const result = await window.api.authStatus()
     set((s) => {
-      s.authState = { ...result, cliInstalled: result.cliInstalled ?? false }
+      const clis = result.clis ?? { claude: result.cliInstalled ?? false, codex: false }
+      s.authState = {
+        ...result,
+        cliInstalled: result.cliInstalled ?? (clis.claude || clis.codex),
+        clis,
+      }
     })
   },
 
@@ -31,7 +42,13 @@ export const createAuthSlice: StateCreator<
     const result = await window.api.authLoginByok()
     if (!isApiError(result) && result.success) {
       set((s) => {
-        s.authState = { authenticated: true, mode: 'byok', user: null, cliInstalled: s.authState.cliInstalled }
+        s.authState = {
+          authenticated: true,
+          mode: 'byok',
+          user: null,
+          cliInstalled: s.authState.cliInstalled,
+          clis: s.authState.clis,
+        }
       })
     }
   },
@@ -44,7 +61,13 @@ export const createAuthSlice: StateCreator<
         return
       }
       set((s) => {
-        s.authState = { authenticated: false, mode: 'none', user: null, cliInstalled: s.authState.cliInstalled }
+        s.authState = {
+          authenticated: false,
+          mode: 'none',
+          user: null,
+          cliInstalled: s.authState.cliInstalled,
+          clis: s.authState.clis,
+        }
       })
     } catch {
       get().addToast('Logout failed. Please try again.', 'error')

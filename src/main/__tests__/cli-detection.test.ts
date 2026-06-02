@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 /* ── Hoisted mocks ─────────────────────────────────────────── */
-const { mockIpcMain, mockExecSync, mockExistsSync } = vi.hoisted(() => {
+const { mockIpcMain, mockExecSync, mockExistsSync, mockReadFileSync } = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>()
   return {
     mockIpcMain: {
@@ -11,7 +11,8 @@ const { mockIpcMain, mockExecSync, mockExistsSync } = vi.hoisted(() => {
       _handlers: handlers
     },
     mockExecSync: vi.fn(),
-    mockExistsSync: vi.fn()
+    mockExistsSync: vi.fn(),
+    mockReadFileSync: vi.fn()
   }
 })
 
@@ -24,10 +25,11 @@ vi.mock('child_process', () => ({
 }))
 
 vi.mock('fs', () => ({
-  existsSync: mockExistsSync
+  existsSync: mockExistsSync,
+  readFileSync: mockReadFileSync
 }))
 
-import { registerCliHandlers, checkCliOnStartup, detectAllClis } from '../cli-detection'
+import { registerCliHandlers, checkCliOnStartup, detectAllClis, getCliModels } from '../cli-detection'
 
 async function invokeHandler(channel: string, ...args: unknown[]): Promise<any> {
   const handler = mockIpcMain._handlers.get(channel)
@@ -38,6 +40,9 @@ async function invokeHandler(channel: string, ...args: unknown[]): Promise<any> 
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockReadFileSync.mockImplementation(() => {
+    throw new Error('no file')
+  })
   registerCliHandlers()
 })
 
@@ -106,10 +111,12 @@ describe('CLI Detection', () => {
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes('copilot') && (cmd.includes('where') || cmd.includes('which'))) return '/usr/bin/copilot\n'
       if (cmd.includes('claude') && (cmd.includes('where') || cmd.includes('which'))) return '/usr/bin/claude\n'
+      if (cmd.includes('codex') && (cmd.includes('where') || cmd.includes('which'))) return '/usr/bin/codex\n'
       if (cmd.includes('gh') && (cmd.includes('where') || cmd.includes('which'))) return '/usr/bin/gh\n'
       if (cmd.includes('ollama') && (cmd.includes('where') || cmd.includes('which'))) return '/usr/bin/ollama\n'
       if (cmd.includes('github-copilot-cli --version') || cmd.includes('copilot --version')) return '1.0.0'
       if (cmd.includes('claude --version')) return '0.9.1'
+      if (cmd.includes('codex --version')) return 'codex 0.1.0'
       if (cmd.includes('gh --version')) return 'gh version 2.0.0\nmore'
       if (cmd.includes('ollama --version')) return '0.7.0'
       throw new Error(`unknown command: ${cmd}`)
@@ -120,6 +127,7 @@ describe('CLI Detection', () => {
     expect(result).toEqual({
       copilot: { installed: true, path: '/usr/bin/copilot', version: '1.0.0' },
       claude: { installed: true, path: '/usr/bin/claude', version: '0.9.1' },
+      codex: { installed: true, path: '/usr/bin/codex', version: 'codex 0.1.0' },
       gh: { installed: true, path: '/usr/bin/gh', version: 'gh version 2.0.0' },
       ollama: { installed: true, path: '/usr/bin/ollama', version: '0.7.0' },
     })
@@ -135,6 +143,7 @@ describe('CLI Detection', () => {
     expect(detectAllClis()).toEqual({
       copilot: { installed: false, path: null, version: null },
       claude: { installed: false, path: null, version: null },
+      codex: { installed: false, path: null, version: null },
       gh: { installed: false, path: null, version: null },
       ollama: { installed: false, path: null, version: null },
     })
@@ -153,5 +162,26 @@ describe('CLI Detection', () => {
     const result = await invokeHandler('cli:check')
     expect(result.installed).toBe(true)
     expect(result.version).toBeNull()
+  })
+
+  it('getCliModels returns listed Codex cache models only', () => {
+    mockReadFileSync.mockImplementation((path: string) => {
+      if (path.includes('models_cache.json')) {
+        return JSON.stringify({
+          models: [
+            { slug: 'gpt-4.1', display_name: 'GPT-4.1', visibility: 'hidden', priority: 1 },
+            { slug: 'gpt-5.4-mini', display_name: 'GPT-5.4-Mini', visibility: 'list', priority: 20 },
+            { slug: 'gpt-5.5', display_name: 'GPT-5.5', visibility: 'list', priority: 5 },
+          ],
+        })
+      }
+      if (path.includes('config.toml')) return 'model = "gpt-4.1"'
+      throw new Error('unexpected path')
+    })
+
+    expect(getCliModels('codex-cli')).toEqual([
+      { id: 'gpt-5.5', label: 'GPT-5.5' },
+      { id: 'gpt-5.4-mini', label: 'GPT-5.4-Mini' },
+    ])
   })
 })

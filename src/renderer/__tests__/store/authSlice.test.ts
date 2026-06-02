@@ -44,6 +44,7 @@ describe('authSlice', () => {
       mode: 'byok',
       user: null,
       cliInstalled: false,
+      clis: { claude: false, codex: false },
     })
 
     await store.getState().checkAuth()
@@ -53,6 +54,7 @@ describe('authSlice', () => {
       mode: 'byok',
       user: null,
       cliInstalled: false,
+      clis: { claude: false, codex: false },
     })
   })
 
@@ -67,6 +69,7 @@ describe('authSlice', () => {
       mode: 'byok',
       user: null,
       cliInstalled: false,
+      clis: { claude: false, codex: false },
     })
     expect(store.getState().authLoading).toBe(false)
   })
@@ -79,6 +82,7 @@ describe('authSlice', () => {
         mode: 'byok',
         user: null,
         cliInstalled: false,
+        clis: { claude: false, codex: false },
       }
     })
 
@@ -89,6 +93,7 @@ describe('authSlice', () => {
       mode: 'none',
       user: null,
       cliInstalled: false,
+      clis: { claude: false, codex: false },
     })
   })
 
@@ -100,6 +105,7 @@ describe('authSlice', () => {
         mode: 'byok',
         user: null,
         cliInstalled: false,
+        clis: { claude: false, codex: false },
       }
     })
     mockApi.authLogout.mockResolvedValue({ error: 'fail' })

@@ -14,6 +14,7 @@ vi.mock('child_process', () => ({
 }))
 
 import { ClaudeAdapter } from '../cli-adapters/claude'
+import { CodexAdapter } from '../cli-adapters/codex'
 import { GhCopilotAdapter } from '../cli-adapters/gh-copilot'
 
 describe('CLI adapters', () => {
@@ -253,6 +254,75 @@ describe('CLI adapters', () => {
     // media_type inferred from jpeg data URL
     const imgBlock = userTurn2.message.content[1] as { source: { media_type: string } }
     expect(imgBlock.source.media_type).toBe('image/jpeg')
+  })
+
+  it('CodexAdapter parses item.completed agent_message output', async () => {
+    const proc = makeProc()
+    mockSpawn.mockReturnValue(proc)
+
+    const chunks: string[] = []
+    const onEvent = vi.fn()
+    const sendPromise = CodexAdapter.send({} as never, {
+      messages: [{ role: 'user', content: 'test' }],
+      cwd: 'C:\\workspace',
+      model: 'gpt-4.1',
+      conversationId: 'conv-1',
+    }, (chunk: string) => chunks.push(chunk), onEvent)
+
+    proc.stdout.emit('data', Buffer.from([
+      JSON.stringify({ type: 'thread.started', thread_id: 'thread-1' }),
+      JSON.stringify({ type: 'turn.started' }),
+      JSON.stringify({ type: 'item.completed', item: { id: 'item_0', type: 'agent_message', text: 'Received.' } }),
+      JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 11261, output_tokens: 23 } }),
+      '',
+    ].join('\n')))
+    proc.emit('close', 0)
+
+    await expect(sendPromise).resolves.toBe('Received.')
+    expect(chunks).toEqual(['Received.'])
+    expect(mockSpawn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.arrayContaining(['exec', '--json', '--ephemeral', '--model', 'gpt-4.1']),
+      expect.objectContaining({ cwd: 'C:\\workspace', stdio: ['pipe', 'pipe', 'pipe'], shell: false })
+    )
+    expect(proc.stdin.end).toHaveBeenCalledWith('test', 'utf8')
+    expect(onEvent).toHaveBeenCalledWith({
+      type: 'cost',
+      totalCostUsd: 0,
+      inputTokens: 11261,
+      outputTokens: 23,
+    })
+  })
+
+  it('CodexAdapter reports nested unsupported-model errors without raw JSON fallback', async () => {
+    const proc = makeProc()
+    mockSpawn.mockReturnValue(proc)
+
+    const sendPromise = CodexAdapter.send({} as never, {
+      messages: [{ role: 'user', content: 'what model are you?' }],
+      cwd: 'C:\\workspace',
+      model: 'gpt-4.1',
+      conversationId: 'conv-1',
+    }, () => {})
+
+    const nestedMessage = JSON.stringify({
+      type: 'error',
+      status: 400,
+      error: {
+        type: 'invalid_request_error',
+        message: "The 'gpt-4.1' model is not supported when using Codex with a ChatGPT account.",
+      },
+    })
+    proc.stdout.emit('data', Buffer.from([
+      JSON.stringify({ type: 'thread.started', thread_id: 'thread-1' }),
+      JSON.stringify({ type: 'turn.started' }),
+      JSON.stringify({ type: 'error', message: nestedMessage }),
+      JSON.stringify({ type: 'turn.failed', error: { message: nestedMessage } }),
+      '',
+    ].join('\n')))
+    proc.emit('close', 1)
+
+    await expect(sendPromise).rejects.toThrow("The 'gpt-4.1' model is not supported when using Codex with a ChatGPT account.")
   })
 
   it('GhCopilotAdapter strips ANSI output', async () => {

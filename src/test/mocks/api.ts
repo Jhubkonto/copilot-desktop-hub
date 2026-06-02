@@ -19,9 +19,25 @@ export function createMockApi() {
     getVersion: vi.fn().mockResolvedValue('0.1.0'),
 
     // Auth
-    authStatus: vi.fn().mockResolvedValue({ authenticated: false, mode: 'none', user: null, cliInstalled: false }),
+    authStatus: vi.fn().mockResolvedValue({
+      authenticated: false,
+      mode: 'none',
+      user: null,
+      cliInstalled: false,
+      clis: { claude: false, codex: false },
+    }),
     authLoginByok: vi.fn().mockResolvedValue({ success: true }),
     authLogout: vi.fn().mockResolvedValue(undefined),
+
+    // CLI
+    checkCli: vi.fn().mockResolvedValue({ installed: false, path: null, version: null }),
+    getCliStatus: vi.fn().mockResolvedValue({ installed: false, path: null, version: null }),
+    detectAllClis: vi.fn().mockResolvedValue({}),
+    getCliModels: vi.fn().mockResolvedValue([
+      { id: 'gpt-5.5', label: 'GPT-5.5' },
+      { id: 'gpt-5.4', label: 'GPT-5.4' },
+      { id: 'gpt-5.4-mini', label: 'GPT-5.4-Mini' },
+    ]),
 
     // Chat
     sendMessage: vi.fn().mockResolvedValue(undefined),
