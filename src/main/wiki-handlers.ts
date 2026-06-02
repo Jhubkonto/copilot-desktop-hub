@@ -2,9 +2,10 @@ import { randomUUID } from 'crypto'
 import { getDatabase } from './database'
 import type Database from 'better-sqlite3'
 import type { ProviderMessage } from './providers'
-import { getProviderForAgent, getApiKey, sendProviderNonStreaming } from './providers'
+import { DEFAULT_PROVIDER_MODEL, NO_PROVIDER_CONFIGURED_MESSAGE, getProviderForAgent, getApiKey, sendProviderNonStreaming } from './providers'
 import { safeHandle } from './safe-handle'
 import type { WikiCandidate, WikiEntry, WikiExtractionResult } from '../shared/types'
+import { ClaudeAdapter } from './cli-adapters/claude'
 
 function parseRow(row: {
   id: string
@@ -144,7 +145,7 @@ export function registerWikiHandlers(): void {
       .join('\n\n')
 
     // Resolve which provider+model to use for extraction.
-    // Prefer the project's primary agent's configured provider; fall back to Copilot gpt-4o-mini.
+    // Prefer the project's primary agent's configured provider; otherwise use the default BYOK model.
     let extractionProvider: ReturnType<typeof getProviderForAgent>
     if (model) {
       extractionProvider = getProviderForAgent(model)
@@ -156,16 +157,13 @@ export function registerWikiHandlers(): void {
       const agentModel = (() => {
         try {
           const cfg = JSON.parse(agentRow?.config_json ?? '{}') as Record<string, unknown>
-          return typeof cfg.model === 'string' && cfg.model ? cfg.model : 'gpt-4o-mini'
+          return typeof cfg.model === 'string' && cfg.model ? cfg.model : DEFAULT_PROVIDER_MODEL
         } catch {
-          return 'gpt-4o-mini'
+          return DEFAULT_PROVIDER_MODEL
         }
       })()
       extractionProvider = getProviderForAgent(agentModel)
     }
-
-    const { provider, model: resolvedModel } = extractionProvider
-    const apiKey = getApiKey(provider)
 
     const systemPrompt = `You are a knowledge extraction assistant. Analyze this conversation and extract factual learnings, decisions, and procedures as structured wiki entries.
 
@@ -185,23 +183,45 @@ Guidelines:
 - If nothing notable was learned, return []
 - Tags should be lowercase, 1-2 words each`
 
-    const messages: ProviderMessage[] = [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: `Here is the conversation to analyze:\n\n${transcript.slice(0, 12000)}` },
-    ]
+    const userContent = `Here is the conversation to analyze:\n\n${transcript.slice(0, 12000)}`
 
-    const result = await sendProviderNonStreaming(
-      provider,
-      apiKey,
-      resolvedModel,
-      messages,
-      { maxTokens: 2000, temperature: 0.3 },
-    )
+    const { provider, model: resolvedModel } = extractionProvider
+    const apiKey = getApiKey(provider)
+
+    let rawText: string
+    if (apiKey) {
+      const messages: ProviderMessage[] = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userContent },
+      ]
+      const result = await sendProviderNonStreaming(
+        provider,
+        apiKey,
+        resolvedModel,
+        messages,
+        { maxTokens: 2000, temperature: 0.3 },
+      )
+      rawText = result.content ?? ''
+    } else if (ClaudeAdapter.isAvailable()) {
+      // CLI fallback: no BYOK key configured but Claude CLI is installed
+      rawText = await ClaudeAdapter.send(
+        null as never,
+        {
+          systemPrompt,
+          messages: [{ role: 'user', content: userContent }],
+          cwd: '',
+          model: 'default',
+          conversationId: randomUUID(),
+        },
+        () => {},
+      )
+    } else {
+      throw new Error(NO_PROVIDER_CONFIGURED_MESSAGE)
+    }
 
     let rawCandidates: { title: string; body: string; tags: string[] }[] = []
     try {
-      const text = result.content ?? ''
-      const cleaned = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim()
+      const cleaned = rawText.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim()
       rawCandidates = JSON.parse(cleaned) as { title: string; body: string; tags: string[] }[]
       if (!Array.isArray(rawCandidates)) rawCandidates = []
     } catch {
