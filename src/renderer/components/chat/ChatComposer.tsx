@@ -116,26 +116,31 @@ export function ChatComposer({
   const modelMenuRef = useRef<HTMLDivElement | null>(null)
   const catalogModels = useAppStore((state) => state.catalogModels)
   const globalDefaultModel = useAppStore((state) => state.globalDefaultModel)
+  const authState = useAppStore((state) => state.authState)
   const modelIds = getAvailableModelIds(catalogModels, effectiveModel, agentNeedsTools)
-  const isCliBackend = activeAgent?.backend === 'claude-cli' || activeAgent?.backend === 'gh-copilot'
-  const isClaudeCli = activeAgent?.backend === 'claude-cli'
+  const agentBackend = activeAgent?.backend
+  const isClaudeCli =
+    agentBackend === 'claude-cli' ||
+    (!agentBackend && authState.mode === 'none' && authState.cliInstalled)
+  const isCliBackend = isClaudeCli || agentBackend === 'gh-copilot'
 
   const CLAUDE_MODELS: { id: string; label: string }[] = [
-    { id: 'claude-opus-4-5', label: 'Claude Opus 4.5' },
-    { id: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5' },
-    { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
-    { id: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet' },
+    { id: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
+    { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+    { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
   ]
-  const currentCliModel = activeAgent?.cliModel ?? 'claude-sonnet-4-5'
+  // For the auto-fallback case (no agent, CLI detected), the model is stored on
+  // the conversation row via onSetConversationModel and flows back as effectiveModel.
+  const currentCliModel =
+    activeAgent?.cliModel ??
+    (effectiveModel !== 'default' && effectiveModel.startsWith('claude') ? effectiveModel : 'claude-sonnet-4-6')
 
   const [showModelMenu, setShowModelMenu] = useState(false)
   const [modelMenuAbove, setModelMenuAbove] = useState(false)
-  const [cliModelInput, setCliModelInput] = useState(currentCliModel)
-
+  const [selectedCliModel, setSelectedCliModel] = useState(currentCliModel)
   useEffect(() => {
-    setCliModelInput(currentCliModel)
+    setSelectedCliModel(currentCliModel)
   }, [currentCliModel])
-
   useEffect(() => {
     if (!showModelMenu) return
     const handleClickOutside = (e: MouseEvent) => {
@@ -301,36 +306,44 @@ export function ChatComposer({
                  {isCliBackend ? (
                   isClaudeCli ? (
                     <>
-                      <datalist id="claude-models-list">
-                        {CLAUDE_MODELS.map((m) => (
-                          <option key={m.id} value={m.id}>{m.label}</option>
-                        ))}
-                      </datalist>
-                      <input
-                        type="text"
-                        list="claude-models-list"
-                        value={cliModelInput}
-                        onChange={(e) => setCliModelInput(e.target.value)}
-                        onBlur={() => {
-                          const val = cliModelInput.trim()
-                          if (val && val !== currentCliModel) {
-                            void onSetCliModel?.(val)
-                          } else if (!val) {
-                            setCliModelInput(currentCliModel)
-                          }
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault()
-                            const val = cliModelInput.trim()
-                            if (val) void onSetCliModel?.(val)
-                          }
-                          e.stopPropagation()
-                        }}
-                        placeholder="model id"
+                      <button
+                        ref={modelPickerRef}
+                        type="button"
                         aria-label="Claude model"
-                        className="text-xs text-gray-600 dark:text-gray-300 bg-transparent border border-gray-200 dark:border-gray-600 rounded px-1.5 py-0.5 w-40 focus:outline-none focus:border-gray-400 dark:focus:border-gray-400"
-                      />
+                        className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 px-1.5 py-1 rounded-md transition-colors"
+                        onClick={() => {
+                          if (!showModelMenu && modelPickerRef.current) {
+                            const rect = modelPickerRef.current.getBoundingClientRect()
+                            setModelMenuAbove(rect.bottom + 160 > window.innerHeight)
+                          }
+                          setShowModelMenu((prev) => !prev)
+                        }}
+                      >
+                        <span>{CLAUDE_MODELS.find((m) => m.id === selectedCliModel)?.label ?? selectedCliModel}</span>
+                        <ChevronDown className="w-3 h-3 shrink-0 opacity-60" />
+                      </button>
+                      {showModelMenu && (
+                        <div className={`absolute right-0 z-30 w-44 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg p-1 ${modelMenuAbove ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
+                          {CLAUDE_MODELS.map((m) => (
+                            <button
+                              key={m.id}
+                              type="button"
+                              className={`w-full text-left px-2 py-1.5 rounded text-xs transition-colors ${
+                                m.id === selectedCliModel
+                                  ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100'
+                                  : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
+                              }`}
+                              onClick={() => {
+                                setShowModelMenu(false)
+                                setSelectedCliModel(m.id)
+                                void onSetCliModel?.(m.id)
+                              }}
+                            >
+                              {m.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </>
                   ) : (
                     <span

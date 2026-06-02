@@ -133,8 +133,8 @@ export function ChatMessagesBase({
               content={message.content}
               isEdited={message.isEdited}
               modelLabel={
-                message.role === 'assistant'
-                  ? getModelLabel(message.model ?? effectiveModel, catalogModels)
+                message.role === 'assistant' && message.model
+                  ? getModelLabel(message.model, catalogModels)
                   : undefined
               }
               attachments={message.attachments}

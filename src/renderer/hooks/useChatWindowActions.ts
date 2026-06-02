@@ -1,4 +1,4 @@
-import { useCallback, useMemo, type Dispatch, type MutableRefObject, type RefObject, type SetStateAction } from 'react'
+import { useCallback, useMemo, useRef, type Dispatch, type MutableRefObject, type RefObject, type SetStateAction } from 'react'
 import { getModelLabel } from '../../shared/models'
 import type { AgentConfig, CatalogModel } from '../../shared/types'
 import type { Theme } from '../store/types'
@@ -148,6 +148,9 @@ export function useChatWindowActions({
   onAfterSend,
   onEditStateConsumed,
 }: UseChatWindowActionsParams) {
+  // Stores a CLI model chosen before the conversation row exists (new chat), applied on first send.
+  const pendingCliModelRef = useRef<string | null>(null)
+
   const slashCommandCtx = useMemo<SlashCommandContext>(
     () => ({
       conversationId,
@@ -386,11 +389,13 @@ export function useChatWindowActions({
           addToast('Failed to delete messages from edited point', 'error')
         })
       }
+      const effectiveRequestModel = requestModel ?? pendingCliModelRef.current ?? undefined
+      pendingCliModelRef.current = null
       const sendResult = await window.api.sendMessage(conversation, content, {
         attachments,
         images: visionImagesForSend,
         agentId: chatAgentId ?? undefined,
-        model: requestModel,
+        model: effectiveRequestModel,
         messageId: userMessage.id,
         projectId: chatProjectId ?? undefined,
         contextSnapshot: contextSnapshotJson,
@@ -532,7 +537,21 @@ export function useChatWindowActions({
 
   const handleSetCliModel = useCallback(
     async (model: string) => {
-      if (!activeAgent?.id) return
+      if (!activeAgent?.id) {
+        // Auto-fallback case (no agent): store as conversation model so chat-handlers can read it
+        if (!conversationId) {
+          pendingCliModelRef.current = model
+          return
+        }
+        try {
+          const result = await window.api.setConversationModel(conversationId, model)
+          if (hasIpcError(result)) throw new Error(result.error)
+          await loadConversations()
+        } catch {
+          addToast('Failed to set model', 'error')
+        }
+        return
+      }
       try {
         const result = await window.api.updateAgent(activeAgent.id, { ...activeAgent, cliModel: model })
         if (hasIpcError(result)) throw new Error(result.error)
@@ -541,7 +560,7 @@ export function useChatWindowActions({
         addToast('Failed to update CLI model', 'error')
       }
     },
-    [activeAgent, loadAgents, addToast],
+    [activeAgent, conversationId, loadConversations, loadAgents, addToast],
   )
 
   const handleStop = useCallback(async () => {
