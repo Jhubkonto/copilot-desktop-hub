@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { X, Sun, Moon, Plug, Settings, Cpu, Shield } from 'lucide-react'
+import { useState, useEffect, useCallback } from 'react'
+import { X, Sun, Moon, Plug, Settings, Cpu, Shield, Smartphone, RefreshCw } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import { getAvailableModelIds, getModelLabel } from '../../shared/models'
 
@@ -10,11 +10,12 @@ interface ProviderInfo {
   configured: boolean
 }
 
-type SettingsCategory = 'general' | 'providers'
+type SettingsCategory = 'general' | 'providers' | 'mobile'
 
 const NAV_ITEMS: { id: SettingsCategory; label: string; icon: React.ReactNode }[] = [
   { id: 'general',   label: 'General',       icon: <Settings className="w-3.5 h-3.5" /> },
   { id: 'providers', label: 'API Providers', icon: <Shield className="w-3.5 h-3.5" /> },
+  { id: 'mobile',    label: 'Mobile',        icon: <Smartphone className="w-3.5 h-3.5" /> },
 ]
 
 export function SettingsPanel() {
@@ -49,6 +50,13 @@ export function SettingsPanel() {
   const [temperature, setTemperature] = useState(0.7)
   const [maxTokens, setMaxTokens] = useState(4096)
 
+  // Mobile companion state
+  const [mobileEnabled, setMobileEnabled] = useState(false)
+  const [mobileQr, setMobileQr] = useState<string | null>(null)
+  const [mobileClients, setMobileClients] = useState(0)
+  const [mobileLoading, setMobileLoading] = useState(false)
+  const [mobileLocalIp, setMobileLocalIp] = useState('')
+
   const currentConversation = currentConversationId
     ? conversations.find((c) => c.id === currentConversationId) ?? null
     : null
@@ -80,6 +88,53 @@ export function SettingsPanel() {
       if (ep) setAzureEndpoint(ep)
     })
   }, [visible])
+
+  const refreshMobileStatus = useCallback(async () => {
+    const status = await window.api.wsStatus()
+    setMobileEnabled(status.enabled)
+    setMobileQr(status.qrDataUrl ?? null)
+    setMobileClients(status.connectedClients)
+    setMobileLocalIp(status.localIp)
+  }, [])
+
+  useEffect(() => {
+    if (visible && category === 'mobile') void refreshMobileStatus()
+  }, [visible, category, refreshMobileStatus])
+
+  const handleMobileToggle = async () => {
+    setMobileLoading(true)
+    try {
+      if (mobileEnabled) {
+        await window.api.wsStop()
+        setMobileEnabled(false)
+        setMobileQr(null)
+        setMobileClients(0)
+      } else {
+        const result = await window.api.wsStart()
+        setMobileEnabled(true)
+        setMobileQr(result.qrDataUrl ?? null)
+        setMobileClients(0)
+        await refreshMobileStatus()
+      }
+    } catch {
+      addToast('Failed to toggle mobile server', 'error')
+    } finally {
+      setMobileLoading(false)
+    }
+  }
+
+  const handleRegenerateToken = async () => {
+    setMobileLoading(true)
+    try {
+      const result = await window.api.wsRegenerateToken()
+      setMobileQr(result.qrDataUrl ?? null)
+      addToast('Pairing code regenerated — existing connections closed', 'success')
+    } catch {
+      addToast('Failed to regenerate pairing code', 'error')
+    } finally {
+      setMobileLoading(false)
+    }
+  }
 
   const handleAutoStartToggle = async () => {
     const next = !autoStart
@@ -486,6 +541,91 @@ export function SettingsPanel() {
                   API keys are stored securely using OS-level encryption. Select a provider model
                   in chat, project, or agent settings to use it.
                 </p>
+              </>
+            )}
+
+            {category === 'mobile' && (
+              <>
+                <div>
+                  <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Android companion app</p>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Let your phone approve tool calls and monitor agent output over local WiFi.
+                  </p>
+                </div>
+
+                {/* Enable toggle */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Enable mobile server</p>
+                    <p className="text-xs text-gray-500">Starts a local WebSocket server on your network</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleMobileToggle()}
+                    disabled={mobileLoading}
+                    className="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-50"
+                    style={{ backgroundColor: mobileEnabled ? '#3b82f6' : '#d1d5db' }}
+                    aria-checked={mobileEnabled}
+                    role="switch"
+                  >
+                    <span
+                      className="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200"
+                      style={{ transform: mobileEnabled ? 'translateX(16px)' : 'translateX(0)' }}
+                    />
+                  </button>
+                </div>
+
+                {mobileEnabled && (
+                  <>
+                    {/* Status */}
+                    <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 px-4 py-3 text-xs space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-500">Local IP</span>
+                        <span className="font-mono text-gray-800 dark:text-gray-200">{mobileLocalIp}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-500">Connected devices</span>
+                        <span className="font-mono text-gray-800 dark:text-gray-200">{mobileClients}</span>
+                      </div>
+                    </div>
+
+                    {/* QR code */}
+                    {mobileQr ? (
+                      <div className="flex flex-col items-center gap-3">
+                        <p className="text-xs text-gray-500 text-center">
+                          Scan with the Nexy Android app to pair
+                        </p>
+                        <img
+                          src={mobileQr}
+                          alt="Pairing QR code"
+                          className="rounded-lg border border-gray-200 dark:border-gray-700"
+                          style={{ width: 200, height: 200 }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void handleRegenerateToken()}
+                          disabled={mobileLoading}
+                          className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 disabled:opacity-50"
+                        >
+                          <RefreshCw className="w-3 h-3" />
+                          Regenerate pairing code
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex justify-center">
+                        <div className="w-[200px] h-[200px] rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 animate-pulse" />
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => void refreshMobileStatus()}
+                      className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                    >
+                      Refresh status
+                    </button>
+                  </>
+                )}
               </>
             )}
           </div>

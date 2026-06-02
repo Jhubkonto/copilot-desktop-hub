@@ -436,12 +436,6 @@ export type IpcReturnMap = {
   'cli:check': CliInstallStatus
   'cli:status': CliInstallStatus
   'cli:detect-all': Record<string, CliInstallStatus>
-  'cli:spawn': { sessionId: string }
-  'cli:write': void
-  'cli:resize': void
-  'cli:kill': void
-  'cli:data': never
-  'cli:exit': never
   // Context
   'context:git': string
   'context:git-diff': string
@@ -503,6 +497,12 @@ export type IpcReturnMap = {
   'project:set-default-model': boolean
   'project:set-primary-agent': boolean
   'project:update-config': boolean
+  // WebSocket mobile companion
+  'ws:start': { port: number; token: string; qrDataUrl: string | null }
+  'ws:stop': boolean
+  'ws:status': { enabled: boolean; port: number | null; token: string | null; localIp: string; connectedClients: number; qrDataUrl: string | null }
+  'ws:regenerate-token': { token: string; qrDataUrl: string | null }
+  // Wiki
   'wiki:create-entry': WikiEntry
   'wiki:delete-entry': boolean
   'wiki:extract-learnings': WikiExtractionResult
@@ -605,12 +605,6 @@ export type IpcChannels =
   | 'cli:check'
   | 'cli:status'
   | 'cli:detect-all'
-  | 'cli:spawn'
-  | 'cli:write'
-  | 'cli:resize'
-  | 'cli:kill'
-  | 'cli:data'
-  | 'cli:exit'
   | 'context:git'
   | 'context:git-diff'
   | 'context:read-file'
@@ -697,3 +691,7 @@ export type IpcChannels =
   | 'wiki:extract-learnings'
   | 'wiki:list-entries'
   | 'wiki:update-entry'
+  | 'ws:start'
+  | 'ws:stop'
+  | 'ws:status'
+  | 'ws:regenerate-token'

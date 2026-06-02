@@ -28,6 +28,7 @@ import { listDirectoryEntries } from "./file-handlers";
 import { getAvailableMcpTools } from "./mcp";
 import { runProviderMcpToolLoop } from './tool-loop'
 import { getAdapter } from './cli-adapters/registry'
+import { broadcastToMobile } from './ws-server'
 import { ClaudeAdapter } from './cli-adapters/claude'
 import { retrieveAuthMode } from './auth'
 import { getRelevantWikiEntries, formatWikiSection } from './wiki-context'
@@ -44,33 +45,33 @@ export function clearDirListingCache(): void {
   dirListingCache.clear()
 }
 
-export function registerChatHandlers(): void {
+type ChatSendOptions = {
+  attachments?: { id: string; name: string; path: string; size: number }[]
+  images?: { id: string; name: string; dataUrl: string }[]
+  regenerate?: boolean
+  agentId?: string
+  model?: string
+  messageId?: string
+  projectId?: string
+  contextSnapshot?: string
+}
+
+export async function dispatchChatSend(
+  window: BrowserWindow,
+  conversationId: string,
+  content: string,
+  options?: ChatSendOptions,
+): Promise<{ assistantMsgId: string } | null> {
   const db = getDatabase();
 
-  safeHandle(
-    "chat:send-message",
-    async (
-      event,
-      conversationId: string,
-      content: string,
-      options?: {
-        attachments?: {
-          id: string;
-          name: string;
-          path: string;
-          size: number;
-        }[];
-        images?: { id: string; name: string; dataUrl: string }[];
-        regenerate?: boolean;
-        agentId?: string;
-        model?: string;
-        messageId?: string;
-        projectId?: string;
-        contextSnapshot?: string;
-      },
-    ) => {
-      const window = BrowserWindow.fromWebContents(event.sender);
-      if (!window) return null;
+      const sendChunk = (chunk: string) => {
+        if (!window.webContents.isDestroyed()) window.webContents.send('chat:stream-response', chunk)
+        broadcastToMobile({ event: 'chat:stream-chunk', data: { conversationId, chunk } })
+      }
+      const sendStreamEnd = () => {
+        if (!window.webContents.isDestroyed()) window.webContents.send('chat:stream-response', null)
+        broadcastToMobile({ event: 'chat:stream-end', data: { conversationId } })
+      }
 
       const attachments = options?.attachments;
       const pastedImages = options?.images ?? [];
@@ -823,21 +824,29 @@ export function registerChatHandlers(): void {
               window.webContents.send('chat:stream-model', effectiveBackend)
             }
 
+            // Accumulate tool calls for CA.12 persistence
+            type PendingTool = { name: string; input: Record<string, unknown>; startTime: number }
+            const pendingTools = new Map<string, PendingTool>()
+            const completedToolCalls: Array<PendingTool & { id: string; content: string; isError: boolean }> = []
+
             responseContent = await adapter.send(window, {
               systemPrompt: cliSystemPrompt,
               messages: [...contextMessages, { role: 'user' as const, content: userContent }],
+              images: attachedImages.length > 0 ? attachedImages : undefined,
               cwd: process.cwd(),
               model: (typeof agentCfg2?.cliModel === 'string' ? agentCfg2.cliModel : '') as string,
               conversationId,
-            }, (chunk: string) => {
-              if (!window.webContents.isDestroyed()) {
-                window.webContents.send('chat:stream-response', chunk)
-              }
-            }, (event) => {
+            }, sendChunk, (event) => {
               if (window.webContents.isDestroyed()) return
               if (event.type === 'tool_start') {
+                pendingTools.set(event.id, { name: event.name, input: event.input, startTime: Date.now() })
                 window.webContents.send('chat:cli-tool-start', { id: event.id, name: event.name, input: event.input })
               } else if (event.type === 'tool_end') {
+                const pending = pendingTools.get(event.id)
+                if (pending) {
+                  completedToolCalls.push({ id: event.id, ...pending, content: event.content, isError: event.isError })
+                  pendingTools.delete(event.id)
+                }
                 window.webContents.send('chat:cli-tool-end', { id: event.id, content: event.content, isError: event.isError })
               } else if (event.type === 'cost') {
                 window.webContents.send('chat:cli-cost', {
@@ -847,6 +856,28 @@ export function registerChatHandlers(): void {
                 })
               }
             })
+
+            // Persist completed tool calls so they survive conversation reload
+            for (const tc of completedToolCalls) {
+              db.prepare(
+                "INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model) VALUES (?, ?, ?, ?, ?, ?, ?)"
+              ).run(
+                randomUUID(),
+                conversationId,
+                'tool-call',
+                JSON.stringify({
+                  __type: 'tool-call',
+                  toolName: tc.name,
+                  serverName: effectiveBackend,
+                  toolArgs: tc.input,
+                  toolResult: tc.content,
+                  toolSuccess: !tc.isError,
+                }),
+                null,
+                tc.startTime,
+                effectiveBackend,
+              )
+            }
 
             const assistantMsgId = randomUUID()
             db.prepare(
@@ -861,9 +892,7 @@ export function registerChatHandlers(): void {
               agentBackend,
             )
 
-            if (!window.webContents.isDestroyed()) {
-              window.webContents.send('chat:stream-response', null)
-            }
+            sendStreamEnd()
 
             return { assistantMsgId }
           } catch (err) {
@@ -950,7 +979,7 @@ export function registerChatHandlers(): void {
               toolMap,
               agentId ?? convRow?.agent_id ?? "default",
               window.webContents,
-              (chunk) => window.webContents.send("chat:stream-response", chunk),
+              sendChunk,
               undefined,
               agenticMode,
               wikiInlineHandlers.size > 0 ? wikiInlineHandlers : undefined,
@@ -963,9 +992,7 @@ export function registerChatHandlers(): void {
               providerModel,
               chatMessages.slice(1),
               systemPrompt,
-              (chunk) => {
-                window.webContents.send("chat:stream-response", chunk);
-              },
+              sendChunk,
               generationOptions,
             );
           }
@@ -979,7 +1006,7 @@ export function registerChatHandlers(): void {
               toolMap,
               agentId ?? convRow?.agent_id ?? "default",
               window.webContents,
-              (chunk) => window.webContents.send("chat:stream-response", chunk),
+              sendChunk,
               handleStreamModel,
               agenticMode,
               wikiInlineHandlers.size > 0 ? wikiInlineHandlers : undefined,
@@ -991,9 +1018,7 @@ export function registerChatHandlers(): void {
               byokKey,
               providerModel,
               chatMessages,
-              (chunk) => {
-                window.webContents.send("chat:stream-response", chunk);
-              },
+              sendChunk,
               generationOptions,
             );
           }
@@ -1011,7 +1036,7 @@ export function registerChatHandlers(): void {
               toolMap,
               agentId ?? convRow?.agent_id ?? "default",
               window.webContents,
-              (chunk) => window.webContents.send("chat:stream-response", chunk),
+              sendChunk,
               handleStreamModel,
               agenticMode,
               wikiInlineHandlers.size > 0 ? wikiInlineHandlers : undefined,
@@ -1024,15 +1049,13 @@ export function registerChatHandlers(): void {
               azureEndpoint,
               providerModel,
               chatMessages,
-              (chunk) => {
-                window.webContents.send("chat:stream-response", chunk);
-              },
+              sendChunk,
               generationOptions,
             );
           }
         }
 
-        window.webContents.send("chat:stream-response", null);
+        sendStreamEnd();
       } catch (error) {
         console.error(`${providerName} error:`, error);
         const message = error instanceof Error ? error.message : "Unexpected provider error";
@@ -1058,7 +1081,16 @@ export function registerChatHandlers(): void {
         capturedStreamModel ?? selectedModel ?? null,
       );
 
-      return { assistantMsgId };
+  return { assistantMsgId };
+}
+
+export function registerChatHandlers(): void {
+  safeHandle(
+    "chat:send-message",
+    async (event, conversationId: string, content: string, options?: ChatSendOptions) => {
+      const window = BrowserWindow.fromWebContents(event.sender);
+      if (!window) return null;
+      return dispatchChatSend(window, conversationId, content, options);
     },
   );
 

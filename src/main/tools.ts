@@ -4,6 +4,8 @@ import { BrowserWindow } from 'electron'
 import { getDatabase } from './database'
 import { randomUUID } from 'crypto'
 import { safeHandle } from './safe-handle'
+import { broadcastToMobile } from './ws-server'
+import { registerApprovalResolver } from './ws-handlers'
 
 export interface ToolDefinition {
   name: string
@@ -94,7 +96,7 @@ async function executeWebFetch(args: {
   try {
     const response = await fetch(args.url, {
       method: args.method || 'GET',
-      headers: { 'User-Agent': 'CopilotDesktopHub/0.1.0' },
+      headers: { 'User-Agent': 'Nexy/0.9.0' },
       signal: controller.signal
     })
     if (!response.ok) {
@@ -172,6 +174,7 @@ export async function requestApproval(
 ): Promise<boolean> {
   const requestId = randomUUID()
   webContents.send('tool:request-approval', { requestId, tool: toolName, args, description })
+  broadcastToMobile({ event: 'tool:approval-request', data: { requestId, toolName, args, description } })
   return new Promise<boolean>((resolve) => {
     pendingApprovals.set(requestId, { toolName, resolve, noRemember: options?.noRemember })
     setTimeout(() => {
@@ -183,7 +186,16 @@ export async function requestApproval(
   })
 }
 
+export function resolveApprovalFromWs(requestId: string, approved: boolean): boolean {
+  const pending = pendingApprovals.get(requestId)
+  if (!pending) return false
+  pending.resolve(approved)
+  pendingApprovals.delete(requestId)
+  return true
+}
+
 export function registerToolHandlers(): void {
+  registerApprovalResolver(resolveApprovalFromWs)
   safeHandle('tool:list', () => TOOL_DEFINITIONS)
 
   safeHandle(

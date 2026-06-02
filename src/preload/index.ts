@@ -135,28 +135,16 @@ const api = {
   getGitContext: () => typedInvoke('context:git'),
   getGitDiff: () => typedInvoke('context:git-diff'),
 
+  // Mobile companion WebSocket server
+  wsStart: () => typedInvoke('ws:start'),
+  wsStop: () => typedInvoke('ws:stop'),
+  wsStatus: () => typedInvoke('ws:status'),
+  wsRegenerateToken: () => typedInvoke('ws:regenerate-token'),
+
   // CLI
   checkCli: () => typedInvoke('cli:check'),
   getCliStatus: () => typedInvoke('cli:status'),
   detectAllClis: () => typedInvoke('cli:detect-all'),
-  spawnCli: (shell: string, args: string[], cwd: string, cols: number, rows: number) =>
-    typedInvoke('cli:spawn', shell, args, cwd, cols, rows),
-  writeCli: (sessionId: string, data: string) => typedInvoke('cli:write', sessionId, data),
-  resizeCli: (sessionId: string, cols: number, rows: number) =>
-    typedInvoke('cli:resize', sessionId, cols, rows),
-  killCli: (sessionId: string) => typedInvoke('cli:kill', sessionId),
-  onCliData: (callback: (data: { sessionId: string; data: string }) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; data: string }) =>
-      callback(data)
-    typedOn('cli:data', handler)
-    return () => typedOff('cli:data', handler)
-  },
-  onCliExit: (callback: (data: { sessionId: string; code: number | null }) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; code: number | null }) =>
-      callback(data)
-    typedOn('cli:exit', handler)
-    return () => typedOff('cli:exit', handler)
-  },
 
   // Agents
   listAgents: () => typedInvoke('agent:list'),
