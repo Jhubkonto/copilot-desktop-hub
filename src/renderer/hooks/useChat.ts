@@ -120,7 +120,6 @@ export function useChat({
                 images: imageMap.get(message.id),
                 contextSnapshot: message.context_snapshot ?? undefined,
               }
-              // Unpack tool-call metadata stored as JSON in content (CA.12 persistence)
               if (message.role === 'tool-call') {
                 try {
                   const parsed = JSON.parse(message.content) as Record<string, unknown>

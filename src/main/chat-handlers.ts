@@ -822,22 +822,37 @@ export async function dispatchChatSend(
               ? agentCfg2.systemPrompt
               : undefined
 
+          // Embed conversation history as text inside the current user message.
+          // The CLI stdin only supports a single user message; prior turns are
+          // provided as a labeled text block so the model has conversation context.
+          const historyTurns = contextMessages
+            .filter((m) => m.role === 'user' || m.role === 'assistant')
+            .map((m) => {
+              const label = m.role === 'user' ? 'User' : 'Assistant'
+              const text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+              return `${label}: ${text}`
+            })
+
+          let cliUserContent = augmentedContent
+          if (historyTurns.length > 0) {
+            cliUserContent = `[Prior conversation — for context only, do not repeat]\n${historyTurns.join('\n\n')}\n\n[Current message]\n${augmentedContent}`
+          }
+
           try {
             if (!window.webContents.isDestroyed()) {
               window.webContents.send('chat:stream-model', effectiveBackend)
             }
 
-            // Accumulate tool calls for CA.12 persistence
             type PendingTool = { name: string; input: Record<string, unknown>; startTime: number }
             const pendingTools = new Map<string, PendingTool>()
             const completedToolCalls: Array<PendingTool & { id: string; content: string; isError: boolean }> = []
 
             responseContent = await adapter.send(window, {
               systemPrompt: cliSystemPrompt,
-              messages: [...contextMessages, { role: 'user' as const, content: augmentedContent }],
+              messages: [{ role: 'user' as const, content: cliUserContent }],
               images: attachedImages.length > 0 ? attachedImages : undefined,
               cwd: process.cwd(),
-              model: (typeof agentCfg2?.cliModel === 'string' ? agentCfg2.cliModel : '') as string,
+              model: (agentCfg2?.cliModel || conversationModel || '') as string,
               conversationId,
             }, sendChunk, (event) => {
               if (window.webContents.isDestroyed()) return
@@ -883,6 +898,7 @@ export async function dispatchChatSend(
             }
 
             const assistantMsgId = randomUUID()
+            const cliModelUsed = (agentCfg2?.cliModel || conversationModel || null) as string | null
             db.prepare(
               "INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model) VALUES (?, ?, ?, ?, ?, ?, ?)"
             ).run(
@@ -892,7 +908,7 @@ export async function dispatchChatSend(
               responseContent,
               null,
               Date.now(),
-              agentBackend,
+              cliModelUsed,
             )
 
             sendStreamEnd()

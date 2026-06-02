@@ -84,11 +84,12 @@ export const ClaudeAdapter: CliAgentAdapter = {
       }
 
       const hasImages = (req.images?.length ?? 0) > 0
+      const useJsonInput = hasImages
       const args = ['--output-format', 'stream-json', '--print', '--verbose']
       if (req.model && req.model !== 'default') {
         args.push('--model', req.model)
       }
-      if (hasImages) {
+      if (useJsonInput) {
         args.push('--input-format', 'stream-json')
       }
 
@@ -99,7 +100,7 @@ export const ClaudeAdapter: CliAgentAdapter = {
         shell: false,
       })
 
-      const stdinContent = hasImages ? buildConversationJson(req) : buildConversationText(req)
+      const stdinContent = useJsonInput ? buildConversationJson(req) : buildConversationText(req)
       proc.stdin.end(stdinContent, 'utf8')
 
       let fullText = ''
