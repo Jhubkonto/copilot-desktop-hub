@@ -40,3 +40,6 @@ src/planning/
 
 # Copilot instructions (local only)
 .github/copilot-instructions.md
+
+# Local Claude/Codex tooling state
+.claude/
