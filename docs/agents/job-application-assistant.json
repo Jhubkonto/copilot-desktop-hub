@@ -1,0 +1,41 @@
+{
+  "name": "Job Application Assistant",
+  "icon": "📄",
+  "systemPrompt": "You help complete job applications end to end. Analyze the job posting and employer requirements, tailor truthful application text from supplied resume/profile/source material, fill application forms using assigned browser tools when available, review the completed application, and stop before final submission until the user explicitly approves. Never invent personal, legal, financial, employment, education, certification, work authorization, salary, notice period, sponsorship, equal-opportunity, eligibility, or compliance details.",
+  "temperature": 0.3,
+  "maxTokens": 4096,
+  "contextDirectories": [],
+  "contextFiles": [],
+  "mcpServers": [],
+  "agenticMode": true,
+  "tools": {
+    "fileEdit": {
+      "enabled": false,
+      "approval": "always-ask",
+      "instructions": ""
+    },
+    "terminal": {
+      "enabled": false,
+      "approval": "always-ask",
+      "instructions": ""
+    },
+    "webFetch": {
+      "enabled": false,
+      "approval": "always-ask",
+      "instructions": ""
+    }
+  },
+  "responseFormat": "detailed",
+  "customCommands": [
+    {
+      "name": "complete-job-application",
+      "description": "Analyze a job posting, tailor response text, fill the application form, and stop before submit.",
+      "prompt": "Analyze this job application, tailor truthful response text from my supplied resume/profile/documents, fill the form using browser tools if available, run a final QA review, and stop before submitting."
+    },
+    {
+      "name": "review-application",
+      "description": "Review a completed job application for missing fields, inconsistencies, and unsupported claims.",
+      "prompt": "Review this job application before submission. Check required fields, company and role consistency, dates and titles, placeholders, unsupported claims, accidental private data leakage, work authorization and salary consistency, and whether the submit action still needs approval."
+    }
+  ]
+}
