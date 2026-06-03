@@ -32,8 +32,6 @@ export function ChatWindow() {
   const loadConversations = useAppStore((state) => state.loadConversations)
   const loadAgents = useAppStore((state) => state.loadAgents)
   const newChat = useAppStore((state) => state.newChat)
-  const setActiveProjectId = useAppStore((state) => state.setActiveProjectId)
-  const setActiveAgentId = useAppStore((state) => state.setActiveAgentId)
   const setTheme = useAppStore((state) => state.setTheme)
   const logout = useAppStore((state) => state.logout)
   const addToast = useAppStore((state) => state.addToast) as (
@@ -41,7 +39,6 @@ export function ChatWindow() {
     type?: ToastType,
   ) => void
   const markConversationUnread = useAppStore((state) => state.markConversationUnread)
-  const projectAgents = useAppStore((state) => state.projectAgents)
   const catalogModels = useAppStore((state) => state.catalogModels)
   const markConversationRead = useAppStore((state) => state.markConversationRead)
   const defaultModelSetting = useAppStore((state) => state.globalDefaultModel)
@@ -52,7 +49,6 @@ export function ChatWindow() {
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [projectRootDir, setProjectRootDir] = useState<string | null>(null)
   const [inputPanelHeight, setInputPanelHeight] = useState<number | null>(null)
-  const [openContextPicker, setOpenContextPicker] = useState<'project' | 'agent' | null>(null)
   const [hasUnreadBelow, setHasUnreadBelow] = useState(false)
   const [clipboardRef, setClipboardRef] = useState<ContextRef | null>(null)
   const [wikiMessageIds, setWikiMessageIds] = useState<Set<string>>(new Set())
@@ -66,7 +62,6 @@ export function ChatWindow() {
   const prevGeneratingRef = useRef(false)
   const prevMessagesLengthRef = useRef(0)
   const modelPickerRef = useRef<HTMLButtonElement>(null)
-  const contextPickerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const inputPanelResizeRef = useRef<{ startY: number; startHeight: number } | null>(null)
   const inputHistoryRef = useRef<string[]>([])
@@ -274,26 +269,6 @@ export function ChatWindow() {
   useEffect(() => {
     setPendingModel(null)
   }, [conversationId])
-
-  useEffect(() => {
-    if (!openContextPicker) return
-
-    const handlePointerDown = (event: MouseEvent) => {
-      if (contextPickerRef.current?.contains(event.target as Node)) return
-      setOpenContextPicker(null)
-    }
-
-    document.addEventListener('mousedown', handlePointerDown)
-    return () => {
-      document.removeEventListener('mousedown', handlePointerDown)
-    }
-  }, [openContextPicker])
-
-  useEffect(() => {
-    if (chat.isGenerating) {
-      setOpenContextPicker(null)
-    }
-  }, [chat.isGenerating])
 
   useEffect(() => {
     const unsubscribe = window.api.onAutoClipboardFocus(async () => {
@@ -567,54 +542,6 @@ export function ChatWindow() {
     window.addEventListener('pointerup', onUp)
   }, [])
 
-  const updateConversationContext = useCallback(
-    async (updates: { projectId?: string | null; agentId?: string | null }) => {
-      if (!currentConversation) return
-      try {
-        const result = await window.api.updateConversationContext(currentConversation.id, updates)
-        if (isApiError(result)) {
-          addToast('Failed to update chat context', 'error')
-          return
-        }
-        await loadConversations()
-      } catch {
-        addToast('Failed to update chat context', 'error')
-      }
-    },
-    [addToast, currentConversation, loadConversations],
-  )
-
-  const handleProjectContextChange = useCallback(
-    async (projectId: string | null) => {
-      setOpenContextPicker(null)
-      if (isNewChat) {
-        setActiveProjectId(projectId)
-        if (projectId) {
-          const agents = projectAgents[projectId] ?? []
-          const primary = agents.find((a) => a.isPrimary) ?? agents[0] ?? null
-          setActiveAgentId(primary?.agentId ?? null)
-        } else {
-          setActiveAgentId(null)
-        }
-        return
-      }
-      await updateConversationContext({ projectId })
-    },
-    [isNewChat, setActiveProjectId, setActiveAgentId, projectAgents, updateConversationContext],
-  )
-
-  const handleAgentContextChange = useCallback(
-    async (agentId: string | null) => {
-      setOpenContextPicker(null)
-      if (isNewChat) {
-        setActiveAgentId(agentId)
-        return
-      }
-      await updateConversationContext({ agentId })
-    },
-    [isNewChat, setActiveAgentId, updateConversationContext],
-  )
-
   const backendChip = useMemo(() => {
     const agentBackend = chatAgent?.backend
     if (agentBackend === 'gh-copilot') {
@@ -643,111 +570,38 @@ export function ChatWindow() {
 
   const contextBar = (
     <div
-      ref={contextPickerRef}
       className="flex items-center gap-2 px-4 h-9 border-b border-gray-200 dark:border-gray-700/80 bg-gray-50 dark:bg-gray-800/50"
       aria-label="Chat context"
     >
-      <div className="relative">
-        <button
-          type="button"
-          disabled={chat.isGenerating}
-          onClick={() => setOpenContextPicker((current) => (current === 'project' ? null : 'project'))}
-          className="inline-flex items-center gap-1 px-2 rounded-full text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{ lineHeight: '20px' }}
-          aria-label="Select project context"
-        >
-          {chatProject ? (
-            <>
-              <span className={`w-2 h-2 rounded-full bg-${chatProject.color}-400`} aria-hidden="true" />
-              {chatProject.name}
-            </>
-          ) : (
-            'No project'
-          )}
-          <span className="text-gray-400" aria-hidden="true">▾</span>
-        </button>
-        {openContextPicker === 'project' && (
-          <div className="absolute left-0 top-full mt-1 z-20 w-56 max-h-72 overflow-y-auto rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg p-1">
-            <button
-              type="button"
-              onClick={() => void handleProjectContextChange(null)}
-              className={`w-full flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-                chatProjectId === null ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
-              }`}
-            >
-              <span>No project</span>
-              {chatProjectId === null && <span aria-hidden="true">✓</span>}
-            </button>
-            {projects.map((project) => (
-              <button
-                key={project.id}
-                type="button"
-                onClick={() => void handleProjectContextChange(project.id)}
-                className={`w-full flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-                  chatProjectId === project.id ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
-                }`}
-              >
-                <span className="flex items-center gap-2 min-w-0">
-                  <span className={`w-2 h-2 rounded-full shrink-0 bg-${project.color}-400`} aria-hidden="true" />
-                  <span className="truncate">{project.name}</span>
-                </span>
-                {chatProjectId === project.id && <span aria-hidden="true">✓</span>}
-              </button>
-            ))}
-          </div>
+      <span
+        className="inline-flex items-center gap-1 px-2 rounded-full text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 select-none"
+        style={{ lineHeight: '20px' }}
+        aria-label="Project context"
+      >
+        {chatProject ? (
+          <>
+            <span className={`w-2 h-2 rounded-full bg-${chatProject.color}-400`} aria-hidden="true" />
+            {chatProject.name}
+          </>
+        ) : (
+          'No project'
         )}
-      </div>
+      </span>
 
-      <div className="relative">
-        <button
-          type="button"
-          disabled={chat.isGenerating}
-          onClick={() => setOpenContextPicker((current) => (current === 'agent' ? null : 'agent'))}
-          className="inline-flex items-center gap-1 px-2 rounded-full text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{ lineHeight: '20px' }}
-          aria-label="Select agent context"
-        >
-          {chatAgent ? (
-            <>
-              <span aria-hidden="true">{chatAgent.icon}</span>
-              {chatAgent.name}
-            </>
-          ) : (
-            'No agent'
-          )}
-          <span className="text-gray-400" aria-hidden="true">▾</span>
-        </button>
-        {openContextPicker === 'agent' && (
-          <div className="absolute left-0 top-full mt-1 z-20 w-56 max-h-72 overflow-y-auto rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg p-1">
-            <button
-              type="button"
-              onClick={() => void handleAgentContextChange(null)}
-              className={`w-full flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-                chatAgentId === null ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
-              }`}
-            >
-              <span>No agent</span>
-              {chatAgentId === null && <span aria-hidden="true">✓</span>}
-            </button>
-            {agents.map((agent) => (
-              <button
-                key={agent.id}
-                type="button"
-                onClick={() => void handleAgentContextChange(agent.id)}
-                className={`w-full flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-                  chatAgentId === agent.id ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
-                }`}
-              >
-                <span className="flex items-center gap-2 min-w-0">
-                  <span aria-hidden="true">{agent.icon}</span>
-                  <span className="truncate">{agent.name}</span>
-                </span>
-                {chatAgentId === agent.id && <span aria-hidden="true">✓</span>}
-              </button>
-            ))}
-          </div>
+      <span
+        className="inline-flex items-center gap-1 px-2 rounded-full text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 select-none"
+        style={{ lineHeight: '20px' }}
+        aria-label="Agent context"
+      >
+        {chatAgent ? (
+          <>
+            <span aria-hidden="true">{chatAgent.icon}</span>
+            {chatAgent.name}
+          </>
+        ) : (
+          'No agent'
         )}
-      </div>
+      </span>
 
       <span
         className={`inline-flex items-center px-2 rounded-full text-xs font-medium border select-none ${backendChip.cls}`}
@@ -856,18 +710,27 @@ export function ChatWindow() {
                 No provider configured. Add an API key in Settings.
               </div>
             )}
-            {authMode === 'none' && cliInstalled && (
-              <div className="mb-4 space-y-3">
-                <div className="rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20 px-4 py-3 text-sm text-green-700 dark:text-green-300">
-                  {installedClis.codex && !installedClis.claude
-                    ? 'Codex CLI is installed - just start typing to chat'
-                    : 'Claude CLI is installed - just start typing to chat'}
+            {authMode === 'none' && cliInstalled && (() => {
+              const both = installedClis.claude && installedClis.codex
+              const label = both
+                ? 'Claude CLI + Codex CLI ready — start typing'
+                : installedClis.codex
+                  ? 'Codex CLI is installed — just start typing to chat'
+                  : 'Claude CLI is installed — just start typing to chat'
+              const cls = both
+                ? 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300'
+                : installedClis.codex
+                  ? 'border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300'
+                  : 'border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300'
+              return (
+                <div className="mb-4">
+                  <div className={`rounded-lg border px-4 py-3 text-sm ${cls}`}>{label}</div>
+                  <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
+                    Optionally select an agent from the sidebar to use a custom system prompt or settings.
+                  </p>
                 </div>
-                <p className="text-xs text-gray-400 dark:text-gray-500">
-                  Optionally select an agent from the sidebar to use a custom system prompt or settings.
-                </p>
-              </div>
-            )}
+              )
+            })()}
             {fileInput.isDragging && <p className="text-sm text-blue-500 animate-pulse">Drop files to attach</p>}
           </div>
         </div>
