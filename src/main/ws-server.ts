@@ -26,15 +26,24 @@ let currentToken: string | null = null
 const connectedClients = new Set<WebSocket>()
 let commandHandler: CommandHandler | null = null
 
+function ipScore(addr: string): number {
+  if (addr.startsWith('192.168.')) return 0  // WiFi / home LAN — best
+  if (addr.startsWith('10.')) return 1        // corporate LAN
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(addr)) return 2  // RFC-1918 (incl. WSL2)
+  return 3                                    // VPN, Tailscale, etc.
+}
+
 function getLocalIp(): string {
   const ifaces = networkInterfaces()
+  const candidates: string[] = []
   for (const iface of Object.values(ifaces)) {
     if (!iface) continue
     for (const info of iface) {
-      if (info.family === 'IPv4' && !info.internal) return info.address
+      if (info.family === 'IPv4' && !info.internal) candidates.push(info.address)
     }
   }
-  return '127.0.0.1'
+  candidates.sort((a, b) => ipScore(a) - ipScore(b))
+  return candidates[0] ?? '127.0.0.1'
 }
 
 function getOrCreateToken(): string {
