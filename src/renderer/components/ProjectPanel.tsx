@@ -25,6 +25,8 @@ export function ProjectPanel() {
   const setShowNewProjectForm = useAppStore((s) => s.setShowNewProjectForm)
   const closeEditProject = useAppStore((s) => s.closeEditProject)
   const addToast = useAppStore((s) => s.addToast)
+  const newlyCreatedProjectId = useAppStore((s) => s.newlyCreatedProjectId)
+  const clearNewlyCreatedProjectId = useAppStore((s) => s.clearNewlyCreatedProjectId)
 
   const handleSetSize = useCallback((size: number) => {
     setWidth(Math.max(PANEL_MIN, Math.min(PANEL_MAX, size)))
@@ -101,6 +103,9 @@ export function ProjectPanel() {
             <ProjectSettingsPanel
               projectId={editingProjectId}
               onClose={handleClose}
+              initialTab={newlyCreatedProjectId === editingProjectId ? 'team' : undefined}
+              onMount={newlyCreatedProjectId === editingProjectId ? clearNewlyCreatedProjectId : undefined}
+              flashTeam={newlyCreatedProjectId === editingProjectId}
             />
           ) : null}
         </div>

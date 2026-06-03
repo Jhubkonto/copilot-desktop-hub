@@ -16,6 +16,7 @@ export interface ProjectSlice {
   pendingSettingsProjectId: string | null
   showNewProjectForm: boolean
   editingProjectId: string | null
+  newlyCreatedProjectId: string | null
   projectsLoading: boolean
   projectAgents: Record<string, ProjectAgent[]>
   projectConfigs: Record<string, ProjectConfig>
@@ -51,6 +52,7 @@ export interface ProjectSlice {
     config: Partial<ProjectConfig>
   ) => Promise<void>
   loadProjectConfig: (projectId: string) => Promise<void>
+  clearNewlyCreatedProjectId: () => void
 }
 
 export const createProjectSlice: StateCreator<
@@ -65,6 +67,7 @@ export const createProjectSlice: StateCreator<
   pendingSettingsProjectId: null,
   showNewProjectForm: false,
   editingProjectId: null,
+  newlyCreatedProjectId: null,
   projectsLoading: false,
   projectAgents: {},
   projectConfigs: {},
@@ -146,8 +149,12 @@ export const createProjectSlice: StateCreator<
       set((s) => {
         s.activeProjectId = result.id
         s.editingProjectId = result.id
+        s.newlyCreatedProjectId = result.id
       })
       get().addToast(`Project "${name}" created`, 'success')
+      setTimeout(() => {
+        get().addToast(`Tip: open the Team tab to add agents to "${name}"`, 'info')
+      }, 300)
     } catch {
       get().addToast('Failed to create project', 'error')
     }
@@ -389,5 +396,11 @@ export const createProjectSlice: StateCreator<
     } catch {
       get().addToast('Failed to update orchestration settings', 'error')
     }
-  }
+  },
+
+  clearNewlyCreatedProjectId: () => {
+    set((s) => {
+      s.newlyCreatedProjectId = null
+    })
+  },
 })

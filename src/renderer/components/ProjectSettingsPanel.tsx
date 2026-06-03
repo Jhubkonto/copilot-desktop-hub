@@ -4,6 +4,7 @@ import { useAppStore } from '../store/app-store'
 import type { AgentConfig, WikiEntry } from '../../shared/types'
 import type { Milestone, ProjectConfig, ScopeRule } from '../store/types'
 import { DEFAULT_PROJECT_CONFIG } from '../store/types'
+import { DropdownPanel } from './DropdownPanel'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -15,6 +16,8 @@ interface EditProps {
   onClose: () => void
   onConfirm?: never
   initialTab?: TabId
+  onMount?: () => void
+  flashTeam?: boolean
 }
 
 interface DraftProps {
@@ -484,6 +487,7 @@ export function ProjectSettingsPanel(props: Props) {
   const project = projectId ? projects.find((p) => p.id === projectId) : null
   const cfg = projectId ? projectConfigs[projectId] : null
 
+  const onMount = 'onMount' in props ? props.onMount : undefined
   const [activeTab, setActiveTab] = useState<TabId>(props.initialTab ?? 'general')
   const [name, setName] = useState(project?.name ?? '')
   const [color, setColor] = useState(project?.color ?? 'blue')
@@ -502,8 +506,29 @@ export function ProjectSettingsPanel(props: Props) {
   const [showAgentPicker, setShowAgentPicker] = useState(false)
   const [teamDraggingId, setTeamDraggingId] = useState<string | null>(null)
 
+  const flashTeam = !isDraft && 'flashTeam' in props ? props.flashTeam : false
+  const [teamFlashOn, setTeamFlashOn] = useState(false)
+
+  useEffect(() => {
+    if (!flashTeam) return
+    setTeamFlashOn(true)
+    let on = true
+    const interval = setInterval(() => {
+      on = !on
+      setTeamFlashOn(on)
+    }, 350)
+    const timeout = setTimeout(() => {
+      clearInterval(interval)
+      setTeamFlashOn(false)
+    }, 2800)
+    return () => { clearInterval(interval); clearTimeout(timeout) }
+  }, [flashTeam])
+
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const modeDropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    onMount?.()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync from store when switching to a different existing project
   useEffect(() => {
@@ -527,17 +552,6 @@ export function ProjectSettingsPanel(props: Props) {
   useEffect(() => {
     if (!isDraft && projectId) void loadProjectConfig(projectId)
   }, [projectId, isDraft, loadProjectConfig])
-
-  useEffect(() => {
-    if (!showModeDropdown) return
-    const handler = (e: MouseEvent) => {
-      if (modeDropdownRef.current && !modeDropdownRef.current.contains(e.target as Node)) {
-        setShowModeDropdown(false)
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [showModeDropdown])
 
   const debounceSave = useCallback((partial: Partial<ProjectConfig>) => {
     if (isDraft || !projectId) return
@@ -734,7 +748,9 @@ export function ProjectSettingsPanel(props: Props) {
             className={`text-[11px] px-2.5 py-1 rounded-md font-medium transition-colors ${
               activeTab === tab
                 ? 'bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 shadow-sm'
-                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                : tab === 'team' && teamFlashOn
+                  ? 'bg-blue-500 text-white'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
             }`}
           >
             {tab === 'general'
@@ -829,30 +845,34 @@ export function ProjectSettingsPanel(props: Props) {
               </div>
 
               {/* Instruction mode dropdown */}
-              <div className="mb-2 relative" ref={modeDropdownRef}>
-                <button
-                  type="button"
-                  onClick={() => setShowModeDropdown((v) => !v)}
-                  className="w-full flex items-center justify-between text-xs bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-2.5 py-1.5 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600"
-                  aria-label="Instruction mode"
+              <div className="mb-2">
+                <DropdownPanel
+                  open={showModeDropdown}
+                  onClose={() => setShowModeDropdown(false)}
+                  width="w-full"
+                  trigger={
+                    <button
+                      type="button"
+                      onClick={() => setShowModeDropdown((v) => !v)}
+                      className="w-full flex items-center justify-between text-xs bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-2.5 py-1.5 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600"
+                      aria-label="Instruction mode"
+                    >
+                      <span>{selectedModeLabel}</span>
+                      <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
+                    </button>
+                  }
                 >
-                  <span>{selectedModeLabel}</span>
-                  <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
-                </button>
-                {showModeDropdown && (
-                  <div className="absolute z-50 left-0 right-0 top-full mt-0.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg overflow-hidden">
-                    {INSTRUCTION_MODES.map((m) => (
-                      <button
-                        key={m.value}
-                        type="button"
-                        onClick={() => handleModeChange(m.value)}
-                        className={`w-full text-left text-xs px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 ${instructionMode === m.value ? 'text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-700 dark:text-gray-300'}`}
-                      >
-                        {m.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
+                  {INSTRUCTION_MODES.map((m) => (
+                    <button
+                      key={m.value}
+                      type="button"
+                      onClick={() => handleModeChange(m.value)}
+                      className={`w-full text-left text-xs px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 ${instructionMode === m.value ? 'text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-700 dark:text-gray-300'}`}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </DropdownPanel>
               </div>
 
               {/* Instructions textarea */}
@@ -1113,15 +1133,68 @@ export function ProjectSettingsPanel(props: Props) {
             {/* Agent list header */}
             <div className="flex items-center justify-between">
               <label className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Team agents</label>
-              <button
-                type="button"
-                onClick={() => setShowAgentPicker((v) => !v)}
-                className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
-                aria-label="Add agent to project"
+              <DropdownPanel
+                open={showAgentPicker}
+                onClose={() => { setShowAgentPicker(false); setAgentPickerQuery('') }}
+                align="right"
+                width="w-64"
+                trigger={
+                  <button
+                    type="button"
+                    onClick={() => setShowAgentPicker((v) => !v)}
+                    className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
+                    aria-label="Add agent to project"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Add agent
+                  </button>
+                }
               >
-                <Plus className="w-3.5 h-3.5" />
-                Add agent
-              </button>
+                <div className="p-1.5 border-b border-gray-100 dark:border-gray-700">
+                  <input
+                    autoFocus
+                    value={agentPickerQuery}
+                    onChange={(e) => setAgentPickerQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') { setShowAgentPicker(false); setAgentPickerQuery('') }
+                    }}
+                    placeholder="Search agents…"
+                    aria-label="Search agents to add"
+                    className="w-full text-xs bg-white dark:bg-gray-700 border border-blue-400 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                  />
+                </div>
+                <div className="max-h-48 overflow-y-auto">
+                  {(() => {
+                    const memberIds = new Set((projectAgents[projectId] ?? []).map((m) => m.agentId))
+                    const filtered = agents.filter(
+                      (a: AgentConfig) => !memberIds.has(a.id) && a.name.toLowerCase().includes(agentPickerQuery.toLowerCase())
+                    )
+                    return filtered.length === 0 ? (
+                      <p className="text-[10px] text-gray-400 dark:text-gray-500 px-3 py-2 italic">
+                        {agents.length === 0 ? 'No agents configured' : 'All agents already added'}
+                      </p>
+                    ) : filtered.map((agent: AgentConfig) => (
+                      <button
+                        key={agent.id}
+                        type="button"
+                        onClick={async () => {
+                          const currentMembers = projectAgents[projectId] ?? []
+                          await addAgentToProject(projectId, agent.id)
+                          if (currentMembers.length === 0) await setProjectPrimaryAgent(projectId, agent.id)
+                          addToast(`🤖 ${agent.name} added to project`, 'success')
+                          setShowAgentPicker(false)
+                          setAgentPickerQuery('')
+                        }}
+                        className="w-full text-left flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                        aria-label={`Add ${agent.name} to project`}
+                      >
+                        <span>{agent.icon}</span>
+                        <span className="truncate">{agent.name}</span>
+                      </button>
+                    ))
+                  })()}
+                </div>
+              </DropdownPanel>
             </div>
 
             {/* Orchestration toggle — shown inline when ≥2 agents */}
@@ -1165,54 +1238,6 @@ export function ProjectSettingsPanel(props: Props) {
                 </div>
               )
             })()}
-
-            {/* Agent picker */}
-            {showAgentPicker && (
-              <div className="space-y-1">
-                <input
-                  autoFocus
-                  value={agentPickerQuery}
-                  onChange={(e) => setAgentPickerQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Escape') { setShowAgentPicker(false); setAgentPickerQuery('') }
-                  }}
-                  placeholder="Search agents…"
-                  aria-label="Search agents to add"
-                  className="w-full text-xs bg-white dark:bg-gray-700 border border-blue-400 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
-                />
-                <div className="max-h-36 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
-                  {(() => {
-                    const memberIds = new Set((projectAgents[projectId] ?? []).map((m) => m.agentId))
-                    const filtered = agents.filter(
-                      (a: AgentConfig) => !memberIds.has(a.id) && a.name.toLowerCase().includes(agentPickerQuery.toLowerCase())
-                    )
-                    return filtered.length === 0 ? (
-                      <p className="text-[10px] text-gray-400 dark:text-gray-500 px-3 py-2 italic">
-                        {agents.length === 0 ? 'No agents configured' : 'All agents already added'}
-                      </p>
-                    ) : filtered.map((agent: AgentConfig) => (
-                      <button
-                        key={agent.id}
-                        type="button"
-                        onClick={async () => {
-                          const currentMembers = projectAgents[projectId] ?? []
-                          await addAgentToProject(projectId, agent.id)
-                          if (currentMembers.length === 0) await setProjectPrimaryAgent(projectId, agent.id)
-                          addToast(`🤖 ${agent.name} added to project`, 'success')
-                          setShowAgentPicker(false)
-                          setAgentPickerQuery('')
-                        }}
-                        className="w-full text-left flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                        aria-label={`Add ${agent.name} to project`}
-                      >
-                        <span>{agent.icon}</span>
-                        <span className="truncate">{agent.name}</span>
-                      </button>
-                    ))
-                  })()}
-                </div>
-              </div>
-            )}
 
             {/* Member list */}
             {(projectAgents[projectId] ?? []).length === 0 ? (
