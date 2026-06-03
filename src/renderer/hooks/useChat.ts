@@ -48,6 +48,7 @@ export function useChat({
   const [cliCost, setCliCost] = useState<CliCostSummary | null>(null)
 
   const streamingContentRef = useRef('')
+  const ignoreRemoteStreamRef = useRef(false)
   const liveToolCallsRef = useRef<ChatMessage[]>([])
   const streamModelRef = useRef<string | null>(null)
   const activeConversationRef = useRef<string | null>(conversationId)
@@ -169,8 +170,26 @@ export function useChat({
   }, [conversationId, addToast])
 
   useEffect(() => {
+    const unsubscribeRemoteMessage = window.api.onRemoteMessage(({ conversationId: remoteId, content }) => {
+      if (remoteId !== activeConversationRef.current) {
+        ignoreRemoteStreamRef.current = true
+        return
+      }
+      ignoreRemoteStreamRef.current = false
+      const userMsg: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: 'user',
+        content,
+        timestamp: Date.now(),
+      }
+      setMessages((prev) => [...prev, userMsg])
+      setIsGenerating(true)
+      setGenerationStartedAt(Date.now())
+    })
+
     const unsubscribeStream = window.api.onStreamResponse((chunk: string | null) => {
       if (chunk === null) {
+        ignoreRemoteStreamRef.current = false
         const finalContent = streamingContentRef.current
         if (finalContent) {
           const assistantMessage: ChatMessage = {
@@ -201,6 +220,7 @@ export function useChat({
         return
       }
 
+      if (ignoreRemoteStreamRef.current) return
       streamingContentRef.current += chunk
       setStreamingContent((prev) => prev + chunk)
     })
@@ -303,6 +323,7 @@ export function useChat({
     })
 
     return () => {
+      unsubscribeRemoteMessage()
       unsubscribeStream()
       unsubscribeError()
       unsubscribeToolCall()

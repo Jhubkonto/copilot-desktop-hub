@@ -436,6 +436,7 @@ export type IpcReturnMap = {
   'chat:activity': void
   'chat:stream-model': void
   'chat:wiki-injected': { count: number }
+  'chat:remote-message': void
   // CLI
   'cli:check': CliInstallStatus
   'cli:status': CliInstallStatus
@@ -604,6 +605,7 @@ export type IpcChannels =
   | 'chat:activity'
   | 'chat:stream-model'
   | 'chat:wiki-injected'
+  | 'chat:remote-message'
   | 'clipboard:auto-focus'
   | 'clipboard:read-content'
   | 'clipboard:read-image'
