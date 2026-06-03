@@ -316,9 +316,7 @@ export function Sidebar() {
     >
       <ResizeHandle direction="horizontal" containerRef={sidebarRef} onSetSize={handleSetSize} minSize={SIDEBAR_MIN} maxSize={getMaxSize} />
       <div className="flex items-center px-4 h-9 border-b border-gray-200 dark:border-gray-700/80">
-        <h2 className="text-sm font-medium text-gray-800 dark:text-gray-100 tracking-wide">
-          Nexy
-        </h2>
+        <span className="flex items-center justify-center rounded bg-black px-2 h-[22px] text-[13px] font-bold italic leading-none tracking-tight select-none"><span className="text-purple-400">N</span><span className="text-white">exy</span></span>
       </div>
 
       <div className="p-3 space-y-2">
