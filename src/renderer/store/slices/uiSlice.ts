@@ -28,10 +28,13 @@ export interface UiSlice {
   toggleAgentPanel: () => void
   setShowMcpPanel: (show: boolean) => void
   setShowSettings: (show: boolean) => void
+  settingsInitialTab: string | null
+  setSettingsInitialTab: (tab: string | null) => void
   setShowOnboarding: (show: boolean) => void
   setUpdateAvailable: (info: { version: string } | null) => void
   setUpdateDownloaded: (downloaded: boolean) => void
   setSectionPane: (section: ActiveSectionPane) => void
+  openSectionPane: (section: Exclude<ActiveSectionPane, null>) => void
   addToast: (message: string, type?: Toast['type']) => void
   dismissToast: (id: string) => void
   setCatalogModels: (models: CatalogModel[]) => void
@@ -56,6 +59,7 @@ export const createUiSlice: StateCreator<
   showSidebar: true,
   showMcpPanel: false,
   showSettings: false,
+  settingsInitialTab: null,
   showOnboarding: false,
   updateAvailable: null,
   updateDownloaded: false,
@@ -103,6 +107,12 @@ export const createUiSlice: StateCreator<
     })
   },
 
+  setSettingsInitialTab: (tab) => {
+    set((s) => {
+      s.settingsInitialTab = tab
+    })
+  },
+
   setShowOnboarding: (show) => {
     set((s) => {
       s.showOnboarding = show
@@ -124,6 +134,12 @@ export const createUiSlice: StateCreator<
   setSectionPane: (section) => {
     set((s) => {
       s.activeSectionPane = s.activeSectionPane === section ? null : section
+    })
+  },
+
+  openSectionPane: (section) => {
+    set((s) => {
+      s.activeSectionPane = section
     })
   },
 

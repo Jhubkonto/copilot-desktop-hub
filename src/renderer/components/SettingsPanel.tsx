@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { X, Sun, Moon, Plug, Settings, Cpu, Shield, Smartphone, RefreshCw } from 'lucide-react'
+import { X, Sun, Moon, Plug, Settings, Cpu, Shield, Smartphone, RefreshCw, Terminal } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import { getAvailableModelIds, getModelLabel } from '../../shared/models'
 
@@ -10,11 +10,12 @@ interface ProviderInfo {
   configured: boolean
 }
 
-type SettingsCategory = 'general' | 'providers' | 'mobile'
+type SettingsCategory = 'general' | 'providers' | 'cli' | 'mobile'
 
 const NAV_ITEMS: { id: SettingsCategory; label: string; icon: React.ReactNode }[] = [
   { id: 'general',   label: 'General',       icon: <Settings className="w-3.5 h-3.5" /> },
   { id: 'providers', label: 'API Providers', icon: <Shield className="w-3.5 h-3.5" /> },
+  { id: 'cli',       label: 'CLI Tools',     icon: <Terminal className="w-3.5 h-3.5" /> },
   { id: 'mobile',    label: 'Mobile',        icon: <Smartphone className="w-3.5 h-3.5" /> },
 ]
 
@@ -33,11 +34,22 @@ export function SettingsPanel() {
   const catalogModels = useAppStore((s) => s.catalogModels)
 
   const authMode = useAppStore((s) => s.authState.mode)
+  const installedClis = useAppStore((s) => s.authState.clis ?? { claude: s.authState.cliInstalled, codex: false })
+  const checkAuth = useAppStore((s) => s.checkAuth)
+  const settingsInitialTab = useAppStore((s) => s.settingsInitialTab)
+  const setSettingsInitialTab = useAppStore((s) => s.setSettingsInitialTab)
   const onClose = () => setShowSettings(false)
   const onOpenMcp = () => { setShowSettings(false); setShowMcpPanel(true) }
   const [category, setCategory] = useState<SettingsCategory>(() =>
     authMode === 'byok' ? 'providers' : 'general'
   )
+
+  useEffect(() => {
+    if (visible && settingsInitialTab) {
+      setCategory(settingsInitialTab as SettingsCategory)
+      setSettingsInitialTab(null)
+    }
+  }, [visible, settingsInitialTab, setSettingsInitialTab])
   const [autoStart, setAutoStart] = useState(false)
   const [autoClipboard, setAutoClipboard] = useState(false)
   const [providers, setProviders] = useState<ProviderInfo[]>([])
@@ -46,6 +58,7 @@ export function SettingsPanel() {
   const [azureEndpoint, setAzureEndpoint] = useState('')
   const [testResult, setTestResult] = useState<{ valid: boolean; error?: string } | null>(null)
   const [testing, setTesting] = useState(false)
+  const [cliRefreshing, setCliRefreshing] = useState(false)
   const [defaultModel, setDefaultModel] = useState('gpt-5-mini')
   const [temperature, setTemperature] = useState(0.7)
   const [maxTokens, setMaxTokens] = useState(4096)
@@ -213,7 +226,7 @@ export function SettingsPanel() {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-label="Settings" onClick={onClose}>
-      <div className="w-full max-w-2xl bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col" style={{ maxHeight: '80vh' }} onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-2xl bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col" style={{ height: '80vh' }} onClick={(e) => e.stopPropagation()}>
 
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 dark:border-gray-700 shrink-0">
@@ -247,7 +260,7 @@ export function SettingsPanel() {
 
           {/* Right content */}
           <div className="flex-1 overflow-y-auto p-5 space-y-4">
-            {category === 'general' ? (
+            {category === 'general' && (
               <>
                 {/* Theme */}
                 <div className="flex items-center justify-between">
@@ -374,16 +387,30 @@ export function SettingsPanel() {
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
                       Default model
                     </label>
+                    <p className="text-xs text-gray-400 dark:text-gray-500 mb-1.5">
+                      Fallback used when no agent or project default is set
+                    </p>
                     <select
                       value={defaultModel}
                       onChange={(e) => setDefaultModel(e.target.value)}
                       className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                      {modelIds.map((modelId) => (
-                        <option key={modelId} value={modelId}>
-                          {getModelLabel(modelId, catalogModels)}
-                        </option>
+                      {providers.filter((p) => p.configured && p.name !== 'copilot').map((p) => (
+                        <optgroup key={p.name} label={p.label}>
+                          {p.models.map((modelId) => (
+                            <option key={modelId} value={modelId}>
+                              {getModelLabel(modelId, catalogModels)}
+                            </option>
+                          ))}
+                        </optgroup>
                       ))}
+                      {providers.filter((p) => p.configured && p.name !== 'copilot').length === 0 && (
+                        modelIds.map((modelId) => (
+                          <option key={modelId} value={modelId}>
+                            {getModelLabel(modelId, catalogModels)}
+                          </option>
+                        ))
+                      )}
                     </select>
                   </div>
 
@@ -425,7 +452,8 @@ export function SettingsPanel() {
                   </button>
                 </div>
               </>
-            ) : (
+            )}
+            {category === 'providers' && (
               <>
                 {authMode === 'byok' && providers.every((p) => !p.configured) && (
                   <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 mb-1">
@@ -541,6 +569,91 @@ export function SettingsPanel() {
                   API keys are stored securely using OS-level encryption. Select a provider model
                   in chat, project, or agent settings to use it.
                 </p>
+              </>
+            )}
+
+            {category === 'cli' && (
+              <>
+                <div>
+                  <p className="text-sm font-medium text-gray-800 dark:text-gray-100">CLI Tools</p>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Install CLI tools to chat without an API key. Each tool authenticates with its own provider.
+                  </p>
+                </div>
+
+                {/* Claude CLI */}
+                <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-gray-800 dark:text-gray-100">Claude CLI</span>
+                      <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
+                        installedClis.claude
+                          ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300'
+                          : 'bg-gray-100 dark:bg-gray-700 text-gray-500'
+                      }`}>
+                        {installedClis.claude ? '✓ Installed' : 'Not installed'}
+                      </span>
+                    </div>
+                    <button
+                      disabled={cliRefreshing}
+                      onClick={async () => {
+                        setCliRefreshing(true)
+                        await checkAuth()
+                        setCliRefreshing(false)
+                        addToast('CLI status refreshed', 'success')
+                      }}
+                      className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex items-center gap-1 disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${cliRefreshing ? 'animate-spin' : ''}`} />
+                      Refresh
+                    </button>
+                  </div>
+                  <div className="space-y-1.5">
+                    <p className="text-xs text-gray-500">Install</p>
+                    <pre className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded px-3 py-2 font-mono overflow-x-auto select-all">npm install -g @anthropic-ai/claude-code</pre>
+                  </div>
+                  <div className="space-y-1.5">
+                    <p className="text-xs text-gray-500">Authenticate (run once)</p>
+                    <pre className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded px-3 py-2 font-mono overflow-x-auto select-all">claude</pre>
+                  </div>
+                </div>
+
+                {/* Codex CLI */}
+                <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-gray-800 dark:text-gray-100">Codex CLI</span>
+                      <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
+                        installedClis.codex
+                          ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'
+                          : 'bg-gray-100 dark:bg-gray-700 text-gray-500'
+                      }`}>
+                        {installedClis.codex ? '✓ Installed' : 'Not installed'}
+                      </span>
+                    </div>
+                    <button
+                      disabled={cliRefreshing}
+                      onClick={async () => {
+                        setCliRefreshing(true)
+                        await checkAuth()
+                        setCliRefreshing(false)
+                        addToast('CLI status refreshed', 'success')
+                      }}
+                      className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex items-center gap-1 disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${cliRefreshing ? 'animate-spin' : ''}`} />
+                      Refresh
+                    </button>
+                  </div>
+                  <div className="space-y-1.5">
+                    <p className="text-xs text-gray-500">Install</p>
+                    <pre className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded px-3 py-2 font-mono overflow-x-auto select-all">npm install -g @openai/codex</pre>
+                  </div>
+                  <div className="space-y-1.5">
+                    <p className="text-xs text-gray-500">Authenticate (run once)</p>
+                    <pre className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded px-3 py-2 font-mono overflow-x-auto select-all">codex login</pre>
+                  </div>
+                </div>
               </>
             )}
 

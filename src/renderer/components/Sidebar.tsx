@@ -100,6 +100,7 @@ export function Sidebar() {
   const setConversationProject = useAppStore((s) => s.setConversationProject)
   const activeSectionPane = useAppStore((s) => s.activeSectionPane)
   const setSectionPane = useAppStore((s) => s.setSectionPane)
+  const openSectionPane = useAppStore((s) => s.openSectionPane)
   const setHistoryProjectId = useAppStore((s) => s.setHistoryProjectId)
   const historyProjectId = useAppStore((s) => s.historyProjectId)
   const setShowNewProjectForm = useAppStore((s) => s.setShowNewProjectForm)
@@ -359,7 +360,7 @@ export function Sidebar() {
               </button>
               <button
                 onClick={() => {
-                  setSectionPane('projects')
+                  openSectionPane('projects')
                   setHistoryProjectId(null)
                 }}
                 className={`text-xs font-medium uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300 ${
@@ -489,7 +490,7 @@ export function Sidebar() {
               </button>
               <button
                 onClick={() => {
-                  setSectionPane('agents')
+                  openSectionPane('agents')
                   setHistoryAgentId(null)
                 }}
                 className={`text-xs font-medium uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300 ${
@@ -670,7 +671,9 @@ export function Sidebar() {
               {authState.authenticated
                 ? 'API keys configured'
                 : authState.cliInstalled
-                  ? 'Claude CLI'
+                  ? (authState.clis?.claude && authState.clis?.codex
+                      ? 'Claude CLI + Codex CLI'
+                      : authState.clis?.codex ? 'Codex CLI' : 'Claude CLI')
                   : 'No provider configured'}
             </div>
             <div className="text-[11px] text-gray-500 dark:text-gray-400 truncate">

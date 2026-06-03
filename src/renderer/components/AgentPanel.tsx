@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { X, Settings, Folder, FileText, Plus, Pencil, Wrench, ToggleLeft, ToggleRight } from 'lucide-react'
+import { X, Settings, Folder, FileText, Plus, Pencil, Wrench, ToggleLeft, ToggleRight, ExternalLink } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import type { AgentConfig } from '../../shared/types'
 import { ResizeHandle } from './ResizeHandle'
@@ -99,6 +99,8 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
   const [expandedCustomServers, setExpandedCustomServers] = useState<Set<string>>(new Set())
 
   const setShowMcpPanel = useAppStore((s) => s.setShowMcpPanel)
+  const setShowSettings = useAppStore((s) => s.setShowSettings)
+  const setSettingsInitialTab = useAppStore((s) => s.setSettingsInitialTab)
 
   const isEditing = !!agent?.id
   const isDefault = agent?.isDefault === true
@@ -472,9 +474,17 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
                   <option value="gh-copilot">GitHub Copilot CLI (gh copilot suggest)</option>
                 </select>
                 {config.backend && (
-                  <p className="text-xs text-yellow-500 dark:text-yellow-400">
-                    CLI backends require the CLI tool to be installed and authenticated.
-                  </p>
+                  <div className="flex items-start justify-between gap-2 text-xs text-gray-500 dark:text-gray-400">
+                    <span>CLI tool must be installed and authenticated.</span>
+                    <button
+                      type="button"
+                      onClick={() => { setSettingsInitialTab('cli'); setShowSettings(true) }}
+                      className="shrink-0 flex items-center gap-1 text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                    >
+                      Setup instructions
+                      <ExternalLink className="w-3 h-3" />
+                    </button>
+                  </div>
                 )}
               </div>
 
