@@ -1,0 +1,24 @@
+# Android build artifacts
+*.iml
+.gradle/
+/local.properties
+/build/
+app/build/
+
+# IDE
+/.idea/caches/
+/.idea/libraries/
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+
+# NDK
+/captures/
+.externalNativeBuild/
+.cxx/
+
+# Keystore (never commit signing keys)
+*.keystore
+*.jks
