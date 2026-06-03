@@ -5,6 +5,7 @@ import type { ToolDefinition } from './provider-types'
 import {
   DEFAULT_PROVIDER_MODEL,
   NO_PROVIDER_CONFIGURED_MESSAGE,
+  PROVIDERS,
   getProviderForAgent,
   getApiKey,
   getAzureEndpoint,
@@ -134,6 +135,11 @@ async function callLeaderStreaming(
     return sendAnthropicMessage(conversationId, apiKey, model, messages.filter((m) => m.role !== 'system'), systemPrompt, onChunk, generationOptions)
   }
 
+  const providerCfg = PROVIDERS.find((p) => p.name === provider)
+  if (providerCfg?.baseUrl) {
+    return sendOpenAIMessage(conversationId, apiKey, model, messages, onChunk, generationOptions, providerCfg.baseUrl)
+  }
+
   const endpoint = getAzureEndpoint()
   if (!endpoint) {
     throw new Error('Azure endpoint not configured')
@@ -186,6 +192,10 @@ async function callSpecialist(
     }
     if (provider === 'anthropic') {
       return sendAnthropicMessage(stepConversationId, apiKey, model, messages.filter((m) => m.role !== 'system'), systemContent, onChunk, generationOptions)
+    }
+    const providerCfg = PROVIDERS.find((p) => p.name === provider)
+    if (providerCfg?.baseUrl) {
+      return sendOpenAIMessage(stepConversationId, apiKey, model, messages, onChunk, generationOptions, providerCfg.baseUrl)
     }
     const endpoint = getAzureEndpoint()
     if (!endpoint) {

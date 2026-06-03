@@ -6,7 +6,7 @@ import http from 'http'
 import { parseSseStream, httpsRequestWithResponse } from './http-client'
 import type { ProviderNonStreamResult, ToolCallResult, ToolChoice, ToolDefinition } from './provider-types'
 
-export type ProviderName = 'openai' | 'anthropic' | 'azure'
+export type ProviderName = 'openai' | 'anthropic' | 'azure' | 'gemini' | 'mistral' | 'groq' | 'xai'
 
 export const DEFAULT_PROVIDER_MODEL = 'gpt-5-mini'
 export const NO_PROVIDER_CONFIGURED_MESSAGE = 'No provider configured. Add an API key in Settings.'
@@ -51,6 +51,7 @@ interface ProviderConfig {
   label: string
   apiKeySettingKey: string
   models: string[]
+  baseUrl?: string
 }
 
 export const PROVIDERS: ProviderConfig[] = [
@@ -71,6 +72,34 @@ export const PROVIDERS: ProviderConfig[] = [
     label: 'Azure OpenAI',
     apiKeySettingKey: 'byok_azure_key',
     models: ['gpt-5.5', 'gpt-5.4', 'gpt-5.3-codex', 'gpt-5.2-codex', 'gpt-5.2', 'gpt-5-mini', 'gpt-4.1', 'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo']
+  },
+  {
+    name: 'gemini',
+    label: 'Google Gemini',
+    apiKeySettingKey: 'byok_gemini_key',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    models: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash']
+  },
+  {
+    name: 'mistral',
+    label: 'Mistral',
+    apiKeySettingKey: 'byok_mistral_key',
+    baseUrl: 'https://api.mistral.ai/v1',
+    models: ['mistral-large-latest', 'mistral-small-latest', 'codestral-latest', 'open-mistral-7b']
+  },
+  {
+    name: 'groq',
+    label: 'Groq',
+    apiKeySettingKey: 'byok_groq_key',
+    baseUrl: 'https://api.groq.com/openai/v1',
+    models: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768', 'gemma2-9b-it']
+  },
+  {
+    name: 'xai',
+    label: 'xAI (Grok)',
+    apiKeySettingKey: 'byok_xai_key',
+    baseUrl: 'https://api.x.ai/v1',
+    models: ['grok-3', 'grok-3-mini', 'grok-2-1212']
   }
 ]
 
@@ -128,7 +157,8 @@ export async function sendOpenAIMessage(
   model: string,
   messages: ProviderMessage[],
   onChunk: (chunk: string) => void,
-  options: { maxTokens?: number; temperature?: number } = {}
+  options: { maxTokens?: number; temperature?: number } = {},
+  baseUrl?: string
 ): Promise<string> {
   const body = JSON.stringify({
     model,
@@ -145,7 +175,7 @@ export async function sendOpenAIMessage(
         activeStreamingRequests.delete(requestId)
       }
     }
-    const urlObj = new URL('https://api.openai.com/v1/chat/completions')
+    const urlObj = new URL(`${baseUrl ?? 'https://api.openai.com/v1'}/chat/completions`)
     const req = https.request(
       {
         hostname: urlObj.hostname,
@@ -1007,6 +1037,21 @@ export function registerProviderHandlers(): void {
           {
             method: 'GET',
             headers: { 'api-key': key, 'Content-Length': '0' }
+          },
+          ''
+        )
+        return { valid: result.status === 200 }
+      }
+      const providerCfg = PROVIDERS.find((p) => p.name === provider)
+      if (providerCfg?.baseUrl) {
+        const result = await httpsRequest(
+          `${providerCfg.baseUrl}/models`,
+          {
+            method: 'GET',
+            headers: {
+              Authorization: `Bearer ${key}`,
+              'Content-Length': '0'
+            }
           },
           ''
         )
