@@ -41,6 +41,7 @@ export function createMockApi() {
 
     // Chat
     sendMessage: vi.fn().mockResolvedValue(undefined),
+    onRemoteMessage: vi.fn().mockReturnValue(() => {}),
     onStreamResponse: vi.fn().mockReturnValue(() => {}),
     onStreamError: vi.fn().mockReturnValue(() => {}),
     onToolCallEvent: vi.fn().mockReturnValue(() => {}),

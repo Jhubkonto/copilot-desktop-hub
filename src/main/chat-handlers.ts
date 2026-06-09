@@ -25,7 +25,7 @@ import { safeHandle } from "./safe-handle";
 import { runOrchestration, type OrchestratorAgent } from "./orchestrator";
 import { parseProjectConfig } from "./project-handlers";
 import { listDirectoryEntries } from "./file-handlers";
-import { getAvailableMcpTools } from "./mcp";
+import { ensureMcpServersReady, getAvailableMcpTools, getMcpServerConfigsForCli } from "./mcp";
 import { runProviderMcpToolLoop } from './tool-loop'
 import { getAdapter } from './cli-adapters/registry'
 import { broadcastToMobile } from './ws-server'
@@ -58,6 +58,13 @@ type ChatSendOptions = {
   contextSnapshot?: string
 }
 
+type MobileChatActivity =
+  | { state: 'thinking'; label: string }
+  | { state: 'tool'; label: string; toolName?: string; serverName?: string }
+  | { state: 'approval'; label: string; toolName?: string }
+  | { state: 'complete'; label: string }
+  | { state: 'error'; label: string }
+
 export async function dispatchChatSend(
   window: BrowserWindow,
   conversationId: string,
@@ -66,6 +73,9 @@ export async function dispatchChatSend(
 ): Promise<{ assistantMsgId: string } | null> {
   const db = getDatabase();
 
+      const sendActivity = (activity: MobileChatActivity) => {
+        broadcastToMobile({ event: 'chat:activity', data: { conversationId, ...activity } })
+      }
       const sendChunk = (chunk: string) => {
         if (!window.webContents.isDestroyed()) window.webContents.send('chat:stream-response', chunk)
         broadcastToMobile({ event: 'chat:stream-chunk', data: { conversationId, chunk } })
@@ -73,6 +83,7 @@ export async function dispatchChatSend(
       const sendStreamEnd = () => {
         if (!window.webContents.isDestroyed()) window.webContents.send('chat:stream-response', null)
         broadcastToMobile({ event: 'chat:stream-end', data: { conversationId } })
+        sendActivity({ state: 'complete', label: 'Complete' })
       }
 
       const attachments = options?.attachments;
@@ -82,6 +93,8 @@ export async function dispatchChatSend(
       const modelOverride = options?.model;
       const projectId = options?.projectId;
       const contextSnapshot = options?.contextSnapshot ?? null;
+
+      sendActivity({ state: 'thinking', label: 'Preparing context' })
 
       if (!regenerate) {
         // Ensure conversation exists, create if needed
@@ -536,8 +549,9 @@ export async function dispatchChatSend(
       let responseContent: string;
 
       // Determine which provider to use based on the selected or default model
-      const agentCfg2 = convRow?.agent_id
-        ? getAgentConfig(convRow.agent_id)
+      const effectiveAgentId = agentId ?? convRow?.agent_id ?? null
+      const agentCfg2 = effectiveAgentId
+        ? getAgentConfig(effectiveAgentId)
         : null;
       const agenticMode = agentCfg2?.agenticMode === true
       const conversationModel =
@@ -599,6 +613,7 @@ export async function dispatchChatSend(
         const capturedWebContents = window.webContents
 
         wikiInlineHandlers.set('search_project_wiki', async (args) => {
+          sendActivity({ state: 'tool', label: 'Searching project wiki', toolName: 'search_project_wiki', serverName: 'Project Wiki' })
           const query = typeof args.query === 'string' ? args.query : String(args.query ?? '')
           const entries = getRelevantWikiEntries(capturedDb, capturedProjectId, query)
           if (entries.length === 0) return { success: true, result: 'No relevant wiki entries found for this query.' }
@@ -607,6 +622,7 @@ export async function dispatchChatSend(
 
         wikiInlineHandlers.set('create_wiki_entry', async (args) => {
           if (capturedWebContents.isDestroyed()) return { success: false, error: 'Window closed — cannot request approval' }
+          sendActivity({ state: 'approval', label: 'Waiting for wiki approval', toolName: 'create_wiki_entry' })
           const approved = await requestApproval(
             capturedWebContents,
             'create_wiki_entry',
@@ -619,6 +635,7 @@ export async function dispatchChatSend(
           const body = typeof args.body === 'string' ? args.body : String(args.body ?? '')
           const tags = Array.isArray(args.tags) ? (args.tags as string[]).map(String) : []
           insertWikiEntry(capturedDb, capturedProjectId, title, body, tags, { conversationId })
+          sendActivity({ state: 'tool', label: 'Saved wiki entry', toolName: 'create_wiki_entry', serverName: 'Project Wiki' })
           return { success: true, result: `Wiki entry "${title}" saved to the project wiki.` }
         })
       }
@@ -811,10 +828,21 @@ export async function dispatchChatSend(
       // ── End orchestration ─────────────────────────────────────────────────
 
       const agentBackend = typeof agentCfg2?.backend === 'string' ? agentCfg2.backend : undefined
+      const assignedAgentMcpServerIds = Array.isArray(agentCfg2?.mcpServers)
+        ? agentCfg2.mcpServers as string[]
+        : []
+      const agentHasAssignedMcpServers =
+        assignedAgentMcpServerIds.length > 0
       // Fall back to an installed CLI when no agent backend is set and no BYOK key is configured.
+      // Claude can receive the agent's assigned MCP servers per invocation, so
+      // it can handle MCP agents without relying on Claude's saved tool config.
       const fallbackCliBackend =
         retrieveAuthMode() === 'none'
-          ? (ClaudeAdapter.isAvailable() ? 'claude-cli' : CodexAdapter.isAvailable() ? 'codex-cli' : undefined)
+          ? (
+              ClaudeAdapter.isAvailable()
+                ? 'claude-cli'
+                : (CodexAdapter.isAvailable() ? 'codex-cli' : undefined)
+            )
           : undefined
       const effectiveBackend = agentBackend ?? fallbackCliBackend
       if (effectiveBackend) {
@@ -852,46 +880,14 @@ export async function dispatchChatSend(
                   : availableCodexModels[0]?.id ?? ''
               )
             : requestedCliModel
-
-          try {
-            if (!window.webContents.isDestroyed()) {
-              window.webContents.send('chat:stream-model', cliModelForRequest || effectiveBackend)
-            }
-
-            type PendingTool = { name: string; input: Record<string, unknown>; startTime: number }
-            const pendingTools = new Map<string, PendingTool>()
-            const completedToolCalls: Array<PendingTool & { id: string; content: string; isError: boolean }> = []
-
-            responseContent = await adapter.send(window, {
-              systemPrompt: cliSystemPrompt,
-              messages: [{ role: 'user' as const, content: cliUserContent }],
-              images: attachedImages.length > 0 ? attachedImages : undefined,
-              cwd: process.cwd(),
-              model: cliModelForRequest,
-              conversationId,
-            }, sendChunk, (event) => {
-              if (window.webContents.isDestroyed()) return
-              if (event.type === 'tool_start') {
-                pendingTools.set(event.id, { name: event.name, input: event.input, startTime: Date.now() })
-                window.webContents.send('chat:cli-tool-start', { id: event.id, name: event.name, input: event.input })
-              } else if (event.type === 'tool_end') {
-                const pending = pendingTools.get(event.id)
-                if (pending) {
-                  completedToolCalls.push({ id: event.id, ...pending, content: event.content, isError: event.isError })
-                  pendingTools.delete(event.id)
-                }
-                window.webContents.send('chat:cli-tool-end', { id: event.id, content: event.content, isError: event.isError })
-              } else if (event.type === 'cost') {
-                window.webContents.send('chat:cli-cost', {
-                  totalCostUsd: event.totalCostUsd,
-                  inputTokens: event.inputTokens,
-                  outputTokens: event.outputTokens,
-                })
-              }
-            })
-
-            // Persist completed tool calls so they survive conversation reload
-            for (const tc of completedToolCalls) {
+          const cliMcpServers = (effectiveBackend === 'claude-cli' || effectiveBackend === 'codex-cli') && agentHasAssignedMcpServers
+            ? getMcpServerConfigsForCli(assignedAgentMcpServerIds)
+            : undefined
+          type PendingTool = { name: string; input: Record<string, unknown>; startTime: number }
+          const pendingTools = new Map<string, PendingTool>()
+          const completedToolCalls: Array<PendingTool & { id: string; content: string; isError: boolean }> = []
+          const persistCompletedCliToolCalls = () => {
+            for (const tc of completedToolCalls.splice(0)) {
               db.prepare(
                 "INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model) VALUES (?, ?, ?, ?, ?, ?, ?)"
               ).run(
@@ -911,6 +907,59 @@ export async function dispatchChatSend(
                 effectiveBackend,
               )
             }
+          }
+
+          try {
+            if (!window.webContents.isDestroyed()) {
+              window.webContents.send('chat:stream-model', cliModelForRequest || effectiveBackend)
+            }
+            sendActivity({ state: 'thinking', label: 'Starting CLI agent' })
+            if (cliMcpServers && cliMcpServers.length > 0) {
+              sendActivity({ state: 'thinking', label: 'Preparing MCP tools' })
+              await ensureMcpServersReady(assignedAgentMcpServerIds)
+            }
+            const cliAllowedMcpTools =
+              cliMcpServers && cliMcpServers.length > 0
+                ? getAvailableMcpTools(assignedAgentMcpServerIds).flatMap((tool) => {
+                    const server = cliMcpServers.find((s) => s.id === tool.serverId)
+                    return server ? [`mcp__${server.key}__${tool.name}`] : []
+                  })
+                : undefined
+
+            responseContent = await adapter.send(window, {
+              systemPrompt: cliSystemPrompt,
+              messages: [{ role: 'user' as const, content: cliUserContent }],
+              images: attachedImages.length > 0 ? attachedImages : undefined,
+              cwd: process.cwd(),
+              model: cliModelForRequest,
+              conversationId,
+              mcpServers: cliMcpServers,
+              allowedTools: cliAllowedMcpTools,
+            }, sendChunk, (event) => {
+              if (window.webContents.isDestroyed()) return
+              if (event.type === 'tool_start') {
+                pendingTools.set(event.id, { name: event.name, input: event.input, startTime: Date.now() })
+                window.webContents.send('chat:cli-tool-start', { id: event.id, name: event.name, input: event.input })
+                sendActivity({ state: 'tool', label: `Running ${event.name}`, toolName: event.name, serverName: effectiveBackend })
+              } else if (event.type === 'tool_end') {
+                const pending = pendingTools.get(event.id)
+                if (pending) {
+                  completedToolCalls.push({ id: event.id, ...pending, content: event.content, isError: event.isError })
+                  pendingTools.delete(event.id)
+                }
+                window.webContents.send('chat:cli-tool-end', { id: event.id, content: event.content, isError: event.isError })
+                sendActivity({ state: 'thinking', label: 'Processing tool result' })
+              } else if (event.type === 'cost') {
+                window.webContents.send('chat:cli-cost', {
+                  totalCostUsd: event.totalCostUsd,
+                  inputTokens: event.inputTokens,
+                  outputTokens: event.outputTokens,
+                })
+              }
+            })
+
+            // Persist completed tool calls so they survive conversation reload
+            persistCompletedCliToolCalls()
 
             const assistantMsgId = randomUUID()
             const cliModelUsed = (cliModelForRequest || null) as string | null
@@ -930,11 +979,34 @@ export async function dispatchChatSend(
 
             return { assistantMsgId }
           } catch (err) {
-            console.error(`[cli-adapter] ${agentBackend} failed:`, err)
-            // When the agent explicitly configured a CLI backend, propagate the
-            // error so the user sees the real failure instead of "No provider
-            // configured" from the BYOK fallback path below.
-            if (agentBackend) throw err
+            console.error(`[cli-adapter] ${effectiveBackend} failed:`, err)
+            persistCompletedCliToolCalls()
+            const message = err instanceof Error ? err.message : 'CLI backend failed'
+
+            // Once a CLI backend has been selected, do not fall through into
+            // BYOK provider routing. With no API key configured that produces a
+            // misleading "No provider configured" error after the CLI already ran.
+            window.webContents.send("chat:stream-error", {
+              type: "api",
+              message,
+              retryable: true,
+            });
+            sendActivity({ state: 'error', label: message })
+            broadcastToMobile({ event: 'chat:stream-end', data: { conversationId } })
+
+            const assistantMsgId = randomUUID()
+            db.prepare(
+              "INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model) VALUES (?, ?, ?, ?, ?, ?, ?)"
+            ).run(
+              assistantMsgId,
+              conversationId,
+              'assistant',
+              message,
+              null,
+              Date.now(),
+              effectiveBackend,
+            )
+            return { assistantMsgId }
           }
         }
       }
@@ -948,6 +1020,7 @@ export async function dispatchChatSend(
       }
 
       try {
+        sendActivity({ state: 'thinking', label: 'Contacting model' })
         const agentSystemPrompt =
           typeof agentCfg2?.systemPrompt === "string"
             ? agentCfg2.systemPrompt
@@ -966,9 +1039,16 @@ export async function dispatchChatSend(
         const assignedServerIds = Array.isArray(agentCfg2?.mcpServers)
           ? agentCfg2.mcpServers as string[]
           : [];
+        if (assignedServerIds.length > 0) {
+          sendActivity({ state: 'thinking', label: 'Preparing MCP tools' })
+          await ensureMcpServersReady(assignedServerIds)
+        }
         const mcpTools = assignedServerIds.length > 0
           ? getAvailableMcpTools(assignedServerIds)
           : [];
+        if (assignedServerIds.length > 0 && mcpTools.length === 0) {
+          throw new Error('Assigned MCP server has no available tools. Restart the MCP server from Settings > MCP Servers and try again.')
+        }
         const toolMap = new Map<string, { serverId: string; toolName: string }>();
         const toolDefs: ToolDefinition[] = mcpTools.map((t) => {
           const namespacedName = `${t.serverId}__${t.name}`;
@@ -1015,15 +1095,28 @@ export async function dispatchChatSend(
               chatMessages,
               toolDefs,
               toolMap,
-              agentId ?? convRow?.agent_id ?? "default",
+              effectiveAgentId ?? "default",
               window.webContents,
               sendChunk,
               undefined,
               agenticMode,
               wikiInlineHandlers.size > 0 ? wikiInlineHandlers : undefined,
               toolDirective,
+              (event) => {
+                if (event.type === 'tool') {
+                  sendActivity({
+                    state: 'tool',
+                    label: `Running ${event.name}`,
+                    toolName: event.name,
+                    serverName: event.server,
+                  })
+                } else {
+                  sendActivity({ state: 'thinking', label: 'Thinking' })
+                }
+              },
             );
           } else {
+            sendActivity({ state: 'thinking', label: 'Generating response' })
             responseContent = await sendAnthropicMessage(
               conversationId,
               byokKey,
@@ -1042,15 +1135,28 @@ export async function dispatchChatSend(
               chatMessages,
               toolDefs,
               toolMap,
-              agentId ?? convRow?.agent_id ?? "default",
+              effectiveAgentId ?? "default",
               window.webContents,
               sendChunk,
               handleStreamModel,
               agenticMode,
               wikiInlineHandlers.size > 0 ? wikiInlineHandlers : undefined,
               toolDirective,
+              (event) => {
+                if (event.type === 'tool') {
+                  sendActivity({
+                    state: 'tool',
+                    label: `Running ${event.name}`,
+                    toolName: event.name,
+                    serverName: event.server,
+                  })
+                } else {
+                  sendActivity({ state: 'thinking', label: 'Thinking' })
+                }
+              },
             );
           } else {
+            sendActivity({ state: 'thinking', label: 'Generating response' })
             responseContent = await sendOpenAIMessage(
               conversationId,
               byokKey,
@@ -1072,15 +1178,28 @@ export async function dispatchChatSend(
               chatMessages,
               toolDefs,
               toolMap,
-              agentId ?? convRow?.agent_id ?? "default",
+              effectiveAgentId ?? "default",
               window.webContents,
               sendChunk,
               handleStreamModel,
               agenticMode,
               wikiInlineHandlers.size > 0 ? wikiInlineHandlers : undefined,
               toolDirective,
+              (event) => {
+                if (event.type === 'tool') {
+                  sendActivity({
+                    state: 'tool',
+                    label: `Running ${event.name}`,
+                    toolName: event.name,
+                    serverName: event.server,
+                  })
+                } else {
+                  sendActivity({ state: 'thinking', label: 'Thinking' })
+                }
+              },
             );
           } else {
+            sendActivity({ state: 'thinking', label: 'Generating response' })
             responseContent = await sendAzureMessage(
               conversationId,
               byokKey,
@@ -1102,6 +1221,8 @@ export async function dispatchChatSend(
           message,
           retryable: message !== NO_PROVIDER_CONFIGURED_MESSAGE && message !== "Azure endpoint not configured",
         });
+        sendActivity({ state: 'error', label: message })
+        broadcastToMobile({ event: 'chat:stream-end', data: { conversationId } })
         responseContent = message;
       }
 

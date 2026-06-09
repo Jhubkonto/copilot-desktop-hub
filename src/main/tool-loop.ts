@@ -45,7 +45,8 @@ export async function runProviderMcpToolLoop(
   onModel?: (model: string) => void,
   agenticMode?: boolean,
   inlineHandlers?: Map<string, (args: Record<string, unknown>) => Promise<{ success: boolean; result?: string; error?: string }>>,
-  toolDirective?: string
+  toolDirective?: string,
+  onActivity?: (event: { type: 'thinking' } | { type: 'tool'; name: string; server: string }) => void,
 ): Promise<string> {
   const toolNames = [...new Set(toolDefs.map((t) => t.function.name.split('__').pop()))].join(', ')
   const directive = toolDirective ??
@@ -76,6 +77,7 @@ export async function runProviderMcpToolLoop(
 
   const sendActivity = (event: { type: 'thinking' } | { type: 'tool'; name: string; server: string }) => {
     if (!webContents.isDestroyed()) webContents.send('chat:activity', event)
+    onActivity?.(event)
   }
 
   for (let i = 0; i < MCP_MAX_ITERATIONS; i++) {

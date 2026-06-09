@@ -102,6 +102,32 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
       WHERE instr(config_json, '"backend": "copilot-api"') > 0;
     `,
   },
+  {
+    // Recreate messages table to add 'tool-call' to the role CHECK constraint.
+    // CLI adapters persist completed tool calls as history messages so they can
+    // be replayed after reopening desktop or Android chat windows.
+    version: 16,
+    sql: `
+      CREATE TABLE IF NOT EXISTS messages_v16 (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system', 'team-activity', 'tool-call')),
+        content TEXT NOT NULL,
+        model TEXT,
+        is_edited INTEGER NOT NULL DEFAULT 0,
+        previous_content TEXT,
+        context_snapshot TEXT,
+        attachments TEXT,
+        timestamp INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+        FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+      );
+      INSERT OR IGNORE INTO messages_v16 (id, conversation_id, role, content, model, is_edited, previous_content, context_snapshot, attachments, timestamp)
+        SELECT id, conversation_id, role, content, model, is_edited, previous_content, context_snapshot, attachments, timestamp FROM messages;
+      DROP TABLE messages;
+      ALTER TABLE messages_v16 RENAME TO messages;
+      CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, timestamp);
+    `,
+  },
 ];
 
 
@@ -129,7 +155,7 @@ export function initializeBaseSchema(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS messages (
       id TEXT PRIMARY KEY,
       conversation_id TEXT NOT NULL,
-      role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system', 'team-activity')),
+      role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system', 'team-activity', 'tool-call')),
       content TEXT NOT NULL,
       model TEXT,
       is_edited INTEGER NOT NULL DEFAULT 0,

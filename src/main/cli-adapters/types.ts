@@ -5,6 +5,15 @@ export interface CliAdapterRequest {
   systemPrompt?: string
   messages: ProviderMessage[]
   images?: { id: string; name: string; dataUrl: string }[]
+  mcpServers?: {
+    id: string
+    key: string
+    command: string
+    args: string[]
+    env?: Record<string, string>
+    cwd?: string
+  }[]
+  allowedTools?: string[]
   cwd: string
   model: string
   conversationId: string

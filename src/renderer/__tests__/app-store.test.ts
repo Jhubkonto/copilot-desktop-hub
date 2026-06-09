@@ -44,7 +44,13 @@ describe('app store', () => {
 
     await useAppStore.getState().checkAuth()
 
-    expect(useAppStore.getState().authState).toEqual({ authenticated: true, mode: 'byok', user: null, cliInstalled: false })
+    expect(useAppStore.getState().authState).toEqual({
+      authenticated: true,
+      mode: 'byok',
+      user: null,
+      cliInstalled: false,
+      clis: { claude: false, codex: false },
+    })
   })
 
   it('enables BYOK auth mode', async () => {
@@ -52,7 +58,13 @@ describe('app store', () => {
 
     await useAppStore.getState().loginByok()
 
-    expect(useAppStore.getState().authState).toEqual({ authenticated: true, mode: 'byok', user: null, cliInstalled: false })
+    expect(useAppStore.getState().authState).toEqual({
+      authenticated: true,
+      mode: 'byok',
+      user: null,
+      cliInstalled: false,
+      clis: { claude: false, codex: false },
+    })
   })
 
   it('loads conversations from IPC', async () => {

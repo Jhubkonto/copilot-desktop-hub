@@ -23,6 +23,18 @@ function getColumnNames(db: Database.Database, tableName: string) {
   )
 }
 
+function insertConversation(db: Database.Database, id = 'conv-1') {
+  db.prepare(
+    "INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)"
+  ).run(id, 'Test', 1, 1)
+}
+
+function insertMessageWithRole(db: Database.Database, role: string, conversationId = 'conv-1') {
+  db.prepare(
+    "INSERT INTO messages (id, conversation_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)"
+  ).run(`msg-${role}`, conversationId, role, 'content', 1)
+}
+
 afterEach(() => {
   while (openDatabases.length > 0) {
     openDatabases.pop()?.close()
@@ -36,7 +48,7 @@ describe('database migrations', () => {
     initializeBaseSchema(db)
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(15)
+    expect(db.pragma('user_version', { simple: true })).toBe(16)
     expect(getColumnNames(db, 'projects')).toEqual(
       expect.arrayContaining(['default_model', 'config_json'])
     )
@@ -52,6 +64,16 @@ describe('database migrations', () => {
     )
   })
 
+  it('allows persisted tool call messages on a fresh DB', () => {
+    const db = createDatabase()
+
+    initializeBaseSchema(db)
+    runMigrations(db)
+    insertConversation(db)
+
+    expect(() => insertMessageWithRole(db, 'tool-call')).not.toThrow()
+  })
+
   it('is idempotent when run twice', () => {
     const db = createDatabase()
 
@@ -61,7 +83,7 @@ describe('database migrations', () => {
       runMigrations(db)
       runMigrations(db)
     }).not.toThrow()
-    expect(db.pragma('user_version', { simple: true })).toBe(15)
+    expect(db.pragma('user_version', { simple: true })).toBe(16)
   })
 
   it('only runs pending migrations for a partial upgrade', () => {
@@ -115,7 +137,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(15)
+    expect(db.pragma('user_version', { simple: true })).toBe(16)
     expect(getColumnNames(db, 'messages')).toEqual(
       expect.arrayContaining(['is_edited', 'previous_content', 'context_snapshot'])
     )
@@ -131,11 +153,53 @@ describe('database migrations', () => {
     ).toBeTruthy()
   })
 
+  it('upgrades a v15 messages table to allow persisted tool call messages', () => {
+    const db = createDatabase()
+
+    db.exec(`
+      CREATE TABLE conversations (
+        id TEXT PRIMARY KEY,
+        agent_id TEXT,
+        model TEXT,
+        pinned INTEGER NOT NULL DEFAULT 0,
+        project_id TEXT,
+        title TEXT NOT NULL DEFAULT 'New Chat',
+        created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+      );
+
+      CREATE TABLE messages (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system', 'team-activity')),
+        content TEXT NOT NULL,
+        model TEXT,
+        is_edited INTEGER NOT NULL DEFAULT 0,
+        previous_content TEXT,
+        context_snapshot TEXT,
+        attachments TEXT,
+        timestamp INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+        FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+      );
+    `)
+    db.pragma('user_version = 15')
+    insertConversation(db)
+    insertMessageWithRole(db, 'assistant')
+
+    runMigrations(db)
+
+    expect(db.pragma('user_version', { simple: true })).toBe(16)
+    expect(() => insertMessageWithRole(db, 'tool-call')).not.toThrow()
+    expect(
+      db.prepare("SELECT COUNT(*) AS count FROM messages WHERE role = ?").get('assistant')
+    ).toEqual({ count: 1 })
+  })
+
   it('re-throws genuine errors', () => {
     const db = createDatabase()
     const failingMigrations: ReadonlyArray<Migration> = [
       ...MIGRATIONS,
-      { version: 15, sql: 'ALTER TABLE missing_table ADD COLUMN broken TEXT' },
+      { version: 17, sql: 'ALTER TABLE missing_table ADD COLUMN broken TEXT' },
     ]
 
     initializeBaseSchema(db)

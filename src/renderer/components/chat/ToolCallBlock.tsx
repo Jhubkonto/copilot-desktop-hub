@@ -18,36 +18,45 @@ export function ToolCallBlock({
   const [expanded, setExpanded] = useState(false)
 
   const hasDetails = (args && Object.keys(args).length > 0) || result || resultImages?.length
+  const resultPreview = result?.replace(/\s+/g, ' ').trim()
 
   return (
-    <div className="my-1 overflow-hidden rounded-lg border border-gray-200 bg-gray-50 text-xs dark:border-gray-700 dark:bg-gray-800/60">
+    <div className="my-1 overflow-hidden rounded-lg border border-gray-200 bg-gray-50 text-xs shadow-sm dark:border-gray-700 dark:bg-gray-800/60">
       <button
         type="button"
         onClick={() => hasDetails && setExpanded((value) => !value)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-gray-100 dark:hover:bg-gray-700/60"
+        className="flex w-full items-start gap-2 px-3 py-2 text-left transition-colors hover:bg-gray-100 dark:hover:bg-gray-700/60"
         aria-expanded={expanded}
         disabled={!hasDetails}
       >
-        <Globe className="h-3.5 w-3.5 shrink-0 text-blue-500 dark:text-blue-400" />
-        <span className="flex-1 truncate font-mono font-medium text-gray-800 dark:text-gray-100">
-          {toolName}
-          {inProgress && (
-            <span className="font-normal text-gray-400 dark:text-gray-500"> (running...)</span>
-          )}
-          {serverName && (
-            <span className="font-normal text-gray-400 dark:text-gray-500"> — {serverName}</span>
-          )}
+        <Globe className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-500 dark:text-blue-400" />
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-2">
+            <span className="truncate font-mono font-medium text-gray-800 dark:text-gray-100">{toolName}</span>
+            {serverName && (
+              <span className="shrink-0 rounded bg-gray-200 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                {serverName}
+              </span>
+            )}
+          </span>
+          <span className="mt-0.5 block truncate text-[11px] text-gray-500 dark:text-gray-400">
+            {inProgress
+              ? 'Running...'
+              : success
+                ? (resultPreview || 'Completed')
+                : (resultPreview || 'Failed')}
+          </span>
         </span>
         {inProgress ? (
-          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-blue-400" />
+          <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-blue-400" />
         ) : success ? (
-          <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-500" />
+          <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-green-500" />
         ) : (
-          <AlertCircle className="h-3.5 w-3.5 shrink-0 text-red-400" />
+          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-400" />
         )}
         {hasDetails && (expanded
-          ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400" />
-          : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-gray-400" />)}
+          ? <ChevronDown className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-400" />
+          : <ChevronRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-400" />)}
       </button>
       {expanded && hasDetails && (
         <div className="space-y-2 border-t border-gray-200 px-3 py-2 dark:border-gray-700">

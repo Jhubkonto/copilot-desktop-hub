@@ -1,7 +1,7 @@
 export interface Message {
   id: string
   conversationId: string
-  role: 'user' | 'assistant' | 'system'
+  role: 'user' | 'assistant' | 'system' | 'team-activity' | 'tool-call'
   content: string
   model?: string | null
   isEdited?: boolean

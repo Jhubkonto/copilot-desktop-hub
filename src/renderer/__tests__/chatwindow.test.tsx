@@ -756,7 +756,7 @@ describe("ChatWindow — Context Bar (O.1)", () => {
     setupStoreMock(useAppStore, mockStore);
     render(<ChatWindow />);
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /select agent context/i })).toHaveTextContent("No agent");
+      expect(screen.getByLabelText("Agent context")).toHaveTextContent("No agent");
       expect(screen.queryByText("Reviewer")).not.toBeInTheDocument();
     });
   });

@@ -6,7 +6,26 @@ import { resolveCliPath } from './utils'
 type ClaudeContentBlock =
   | { type: 'text'; text?: string }
   | { type: 'tool_use'; id: string; name: string; input?: Record<string, unknown> }
-  | { type: string; text?: string }
+  | { type: 'tool_result'; tool_use_id?: string; content?: unknown; is_error?: boolean }
+  | { type: string; text?: string; content?: unknown; tool_use_id?: string; is_error?: boolean }
+
+function textFromClaudeContent(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  return content
+    .flatMap((block) => {
+      if (
+        typeof block === 'object' &&
+        block !== null &&
+        (block as Record<string, unknown>).type === 'text' &&
+        typeof (block as Record<string, unknown>).text === 'string'
+      ) {
+        return [(block as { text: string }).text]
+      }
+      return []
+    })
+    .join('')
+}
 
 function buildConversationText(req: CliAdapterRequest): string {
   const parts: string[] = []
@@ -89,6 +108,23 @@ export const ClaudeAdapter: CliAgentAdapter = {
       if (req.model && req.model !== 'default') {
         args.push('--model', req.model)
       }
+      if (req.mcpServers && req.mcpServers.length > 0) {
+        const mcpConfig = {
+          mcpServers: Object.fromEntries(req.mcpServers.map((server) => {
+            const config: Record<string, unknown> = {
+              command: server.command,
+              args: server.args,
+            }
+            if (server.env && Object.keys(server.env).length > 0) config.env = server.env
+            if (server.cwd) config.cwd = server.cwd
+            return [server.key, config]
+          })),
+        }
+        args.push('--mcp-config', JSON.stringify(mcpConfig), '--strict-mcp-config')
+      }
+      if (req.allowedTools && req.allowedTools.length > 0) {
+        args.push('--allowedTools', req.allowedTools.join(','))
+      }
       if (useJsonInput) {
         args.push('--input-format', 'stream-json')
       }
@@ -109,6 +145,7 @@ export const ClaudeAdapter: CliAgentAdapter = {
       // Track whether we received per-token delta events. When true, the final
       // `assistant` message carries the same text and must not be re-emitted.
       let receivedDeltas = false
+      const openToolIds = new Set<string>()
 
       proc.stderr?.on('data', (chunk: Buffer) => {
         stderrText += chunk.toString('utf8')
@@ -133,6 +170,7 @@ export const ClaudeAdapter: CliAgentAdapter = {
                 }
               }
               if (block.type === 'tool_use' && 'id' in block && 'name' in block) {
+                openToolIds.add(block.id)
                 onEvent?.({
                   type: 'tool_start',
                   id: block.id,
@@ -142,29 +180,26 @@ export const ClaudeAdapter: CliAgentAdapter = {
               }
             }
           }
-          if (obj.type === 'tool_result') {
-            const content = Array.isArray(obj.content)
-              ? obj.content
-              : []
-            const resultText = content
-              .flatMap((block) => {
-                if (
-                  typeof block === 'object' &&
-                  block !== null &&
-                  (block as Record<string, unknown>).type === 'text' &&
-                  typeof (block as Record<string, unknown>).text === 'string'
-                ) {
-                  return [(block as { text: string }).text]
-                }
-                return []
+          if (obj.type === 'user' && obj.message) {
+            const content = ((obj.message as { content?: ClaudeContentBlock[] }).content ?? []) as ClaudeContentBlock[]
+            for (const block of content) {
+              if (block.type !== 'tool_result' || typeof block.tool_use_id !== 'string') continue
+              openToolIds.delete(block.tool_use_id)
+              onEvent?.({
+                type: 'tool_end',
+                id: block.tool_use_id,
+                content: textFromClaudeContent(block.content),
+                isError: !!block.is_error,
               })
-              .join('')
-
+            }
+          }
+          if (obj.type === 'tool_result') {
             if (typeof obj.tool_use_id === 'string') {
+              openToolIds.delete(obj.tool_use_id)
               onEvent?.({
                 type: 'tool_end',
                 id: obj.tool_use_id,
-                content: resultText,
+                content: textFromClaudeContent(obj.content),
                 isError: !!obj.is_error,
               })
             }
@@ -206,6 +241,15 @@ export const ClaudeAdapter: CliAgentAdapter = {
       proc.on('error', reject)
       proc.on('close', (code) => {
         if (buffer.trim()) parseLine(buffer)
+        for (const id of openToolIds) {
+          onEvent?.({
+            type: 'tool_end',
+            id,
+            content: '',
+            isError: code !== 0,
+          })
+        }
+        openToolIds.clear()
         if (code !== 0 && fullText === '') {
           const detail = stderrText.trim() ? `: ${stderrText.trim()}` : ''
           reject(new Error(`claude exited with code ${code}${detail}`))

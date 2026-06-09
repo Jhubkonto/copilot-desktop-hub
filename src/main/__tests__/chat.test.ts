@@ -4,8 +4,9 @@ const state = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>()
   const messages: Array<{ role: string; content: string }> = []
   const send = vi.fn()
+  const broadcastToMobile = vi.fn()
   const abortActiveStream = vi.fn()
-  return { handlers, messages, send, abortActiveStream }
+  return { handlers, messages, send, broadcastToMobile, abortActiveStream }
 })
 
 vi.mock('../safe-handle', () => ({
@@ -38,11 +39,21 @@ vi.mock('electron', () => ({
 vi.mock('../agents', () => ({ getAgentConfig: vi.fn(() => null) }))
 vi.mock('../project-handlers', () => ({ parseProjectConfig: vi.fn(() => null) }))
 vi.mock('../file-handlers', () => ({ listDirectoryEntries: vi.fn(() => []) }))
-vi.mock('../mcp', () => ({ getAvailableMcpTools: vi.fn(() => []) }))
+vi.mock('../mcp', () => ({
+  ensureMcpServersReady: vi.fn(async () => undefined),
+  getAvailableMcpTools: vi.fn(() => []),
+  getMcpServerConfigsForCli: vi.fn(() => []),
+}))
 vi.mock('../orchestrator', () => ({ runOrchestration: vi.fn() }))
 vi.mock('../tool-loop', () => ({ runProviderMcpToolLoop: vi.fn() }))
 vi.mock('../cli-adapters/registry', () => ({ getAdapter: vi.fn(() => null) }))
 vi.mock('../cli-adapters/claude', () => ({ ClaudeAdapter: { isAvailable: vi.fn(() => false) } }))
+vi.mock('../cli-adapters/codex', () => ({
+  CodexAdapter: { isAvailable: vi.fn(() => false) },
+  readCodexConfigModel: vi.fn(() => null),
+  CODEX_DEFAULT_MODELS: [],
+}))
+vi.mock('../ws-server', () => ({ broadcastToMobile: state.broadcastToMobile }))
 vi.mock('../auth', () => ({ retrieveAuthMode: vi.fn(() => 'byok') }))
 vi.mock('../wiki-context', () => ({ getRelevantWikiEntries: vi.fn(() => []), formatWikiSection: vi.fn(() => '') }))
 vi.mock('../wiki-handlers', () => ({ insertWikiEntry: vi.fn() }))
@@ -69,13 +80,17 @@ vi.mock('../providers', () => ({
 import { registerChatHandlers } from '../chat-handlers'
 import { getAdapter } from '../cli-adapters/registry'
 import { ClaudeAdapter } from '../cli-adapters/claude'
+import { CodexAdapter } from '../cli-adapters/codex'
 import { retrieveAuthMode } from '../auth'
+import { getAgentConfig } from '../agents'
+import { getAvailableMcpTools, getMcpServerConfigsForCli } from '../mcp'
 
 describe('chat handlers', () => {
   beforeEach(() => {
     state.handlers.clear()
     state.messages.length = 0
     state.send.mockClear()
+    state.broadcastToMobile.mockClear()
     state.abortActiveStream.mockClear()
     registerChatHandlers()
   })
@@ -88,6 +103,18 @@ describe('chat handlers', () => {
     expect(result.assistantMsgId).toBeTruthy()
     expect(state.send).toHaveBeenCalledWith('chat:stream-response', 'Hello')
     expect(state.send).toHaveBeenCalledWith('chat:stream-response', ' world')
+    expect(state.broadcastToMobile).toHaveBeenCalledWith({
+      event: 'chat:activity',
+      data: { conversationId: 'conv-1', state: 'thinking', label: 'Preparing context' },
+    })
+    expect(state.broadcastToMobile).toHaveBeenCalledWith({
+      event: 'chat:activity',
+      data: { conversationId: 'conv-1', state: 'thinking', label: 'Generating response' },
+    })
+    expect(state.broadcastToMobile).toHaveBeenCalledWith({
+      event: 'chat:activity',
+      data: { conversationId: 'conv-1', state: 'complete', label: 'Complete' },
+    })
   })
 
   it('CLI backend does not inject BYOK model identity into system prompt', async () => {
@@ -111,6 +138,117 @@ describe('chat handlers', () => {
     // Must NOT contain the BYOK model identity instruction
     expect(capturedReqs[0].systemPrompt ?? '').not.toContain('gpt-5-mini')
     expect(capturedReqs[0].systemPrompt ?? '').not.toContain('Runtime model for this conversation')
+  })
+
+  it('injects assigned MCP servers when falling back to Claude CLI for MCP agents', async () => {
+    const capturedReqs: Array<{ mcpServers?: unknown[]; allowedTools?: string[] }> = []
+    const mockAdapter = {
+      isAvailable: () => true,
+      send: vi.fn(async (_win: unknown, req: { mcpServers?: unknown[]; allowedTools?: string[] }) => {
+        capturedReqs.push({ mcpServers: req.mcpServers, allowedTools: req.allowedTools })
+        return 'cli response'
+      }),
+    }
+    vi.mocked(getAgentConfig).mockReturnValue({
+      id: 'agent-mcp',
+      name: 'MCP Agent',
+      systemPrompt: 'Use browser tools.',
+      mcpServers: ['server-1'],
+      agenticMode: true,
+    } as never)
+    vi.mocked(getAdapter).mockReturnValue(mockAdapter as never)
+    vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(true)
+    vi.mocked(retrieveAuthMode).mockReturnValue('none')
+    vi.mocked(getMcpServerConfigsForCli).mockReturnValue([{
+      id: 'server-1',
+      key: 'playwright_chromium',
+      command: 'npx',
+      args: ['-y', '@playwright/mcp'],
+    }])
+    vi.mocked(getAvailableMcpTools).mockReturnValue([{
+      name: 'browser_navigate',
+      serverId: 'server-1',
+      serverName: 'Playwright (Chromium)',
+    }])
+
+    const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<unknown>
+    await handler({ sender: {} }, 'conv-mcp', 'open google', { agentId: 'agent-mcp' })
+
+    expect(mockAdapter.send).toHaveBeenCalled()
+    expect(capturedReqs[0].mcpServers).toEqual([{
+      id: 'server-1',
+      key: 'playwright_chromium',
+      command: 'npx',
+      args: ['-y', '@playwright/mcp'],
+    }])
+    expect(capturedReqs[0].allowedTools).toEqual(['mcp__playwright_chromium__browser_navigate'])
+  })
+
+  it('injects assigned MCP servers when falling back to Codex CLI for MCP agents', async () => {
+    const capturedReqs: Array<{ mcpServers?: unknown[]; allowedTools?: string[] }> = []
+    const mockAdapter = {
+      isAvailable: () => true,
+      send: vi.fn(async (_win: unknown, req: { mcpServers?: unknown[]; allowedTools?: string[] }) => {
+        capturedReqs.push({ mcpServers: req.mcpServers, allowedTools: req.allowedTools })
+        return 'cli response'
+      }),
+    }
+    vi.mocked(getAgentConfig).mockReturnValue({
+      id: 'agent-mcp',
+      name: 'MCP Agent',
+      systemPrompt: 'Use browser tools.',
+      mcpServers: ['server-1'],
+      agenticMode: true,
+    } as never)
+    vi.mocked(getAdapter).mockReturnValue(mockAdapter as never)
+    vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(false)
+    vi.mocked(CodexAdapter.isAvailable).mockReturnValue(true)
+    vi.mocked(retrieveAuthMode).mockReturnValue('none')
+    vi.mocked(getMcpServerConfigsForCli).mockReturnValue([{
+      id: 'server-1',
+      key: 'playwright_chromium',
+      command: 'npx',
+      args: ['-y', '@playwright/mcp'],
+    }])
+    vi.mocked(getAvailableMcpTools).mockReturnValue([{
+      name: 'browser_navigate',
+      serverId: 'server-1',
+      serverName: 'Playwright (Chromium)',
+    }])
+
+    const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<unknown>
+    await handler({ sender: {} }, 'conv-mcp', 'open google', { agentId: 'agent-mcp' })
+
+    expect(mockAdapter.send).toHaveBeenCalled()
+    expect(capturedReqs[0].mcpServers).toEqual([{
+      id: 'server-1',
+      key: 'playwright_chromium',
+      command: 'npx',
+      args: ['-y', '@playwright/mcp'],
+    }])
+    expect(capturedReqs[0].allowedTools).toEqual(['mcp__playwright_chromium__browser_navigate'])
+  })
+
+  it('reports fallback CLI errors without falling through to provider configuration errors', async () => {
+    const mockAdapter = {
+      isAvailable: () => true,
+      send: vi.fn(async () => {
+        throw new Error('claude failed after running MCP tools')
+      }),
+    }
+    vi.mocked(getAgentConfig).mockReturnValue(null)
+    vi.mocked(getAdapter).mockReturnValue(mockAdapter as never)
+    vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(true)
+    vi.mocked(retrieveAuthMode).mockReturnValue('none')
+
+    const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<unknown>
+    await handler({ sender: {} }, 'conv-cli-error', 'open google')
+
+    expect(mockAdapter.send).toHaveBeenCalled()
+    expect(state.send).toHaveBeenCalledWith('chat:stream-error', expect.objectContaining({
+      message: 'claude failed after running MCP tools',
+    }))
+    expect(state.messages.some((message) => message.content.includes('No provider configured'))).toBe(false)
   })
 
   it('aborts the active provider stream', async () => {

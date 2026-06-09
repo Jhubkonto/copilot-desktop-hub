@@ -34,6 +34,15 @@ interface McpTool {
   serverName: string
 }
 
+export interface CliMcpServerConfig {
+  id: string
+  key: string
+  command: string
+  args: string[]
+  env?: Record<string, string>
+  cwd?: string
+}
+
 export const servers = new Map<string, McpServerInstance>()
 const reconnectTimers = new Map<string, NodeJS.Timeout>()
 const intentionallyDisconnected = new Set<string>()
@@ -184,6 +193,49 @@ export function getAvailableMcpTools(serverIds?: string[]): McpTool[] {
     tools.push(...instance.tools)
   }
   return tools
+}
+
+export async function ensureMcpServersReady(serverIds: string[]): Promise<void> {
+  if (serverIds.length === 0) return
+
+  const configs = loadServerConfigs()
+  for (const serverId of serverIds) {
+    const instance = servers.get(serverId)
+    if (instance?.status === 'connected' && instance.tools.length > 0) continue
+
+    const config = configs.find((c) => c.id === serverId)
+    if (!config || !config.enabled) continue
+    await connectServer(config).catch((err) => {
+      console.error(`Failed to prepare MCP server ${config.name}:`, err)
+    })
+  }
+}
+
+function toCliMcpServerKey(config: McpServerConfig): string {
+  const base = config.name
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+  return base || `mcp_${config.id.replace(/[^a-zA-Z0-9_-]+/g, '_')}`
+}
+
+export function getMcpServerConfigsForCli(serverIds: string[]): CliMcpServerConfig[] {
+  const allowed = new Set(serverIds)
+  return loadServerConfigs()
+    .filter((config) => config.enabled && allowed.has(config.id))
+    .map((config) => {
+      const extraArgs = config.imageResponses === 'omit'
+        ? ['--imageResponses', 'omit']
+        : []
+      return {
+        id: config.id,
+        key: toCliMcpServerKey(config),
+        command: config.command,
+        args: [...config.args, ...extraArgs],
+        ...(Object.keys(config.env).length > 0 && { env: config.env }),
+        ...(config.cwd && { cwd: config.cwd }),
+      }
+    })
 }
 
 export async function callMcpTool(

@@ -157,7 +157,15 @@ describe('Providers — IPC Handlers', () => {
       mockDb._store.set('byok_openai_key', 'some-value')
 
       const result = await invokeHandler('provider:list')
-      expect(result).toHaveLength(3)
+      expect(result.map((p: { name: string }) => p.name)).toEqual([
+        'openai',
+        'anthropic',
+        'azure',
+        'gemini',
+        'mistral',
+        'groq',
+        'xai',
+      ])
 
       const openai = result.find((p: { name: string }) => p.name === 'openai')
       expect(openai.configured).toBe(true)

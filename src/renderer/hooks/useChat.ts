@@ -133,6 +133,7 @@ export function useChat({
                       toolArgs: (typeof parsed.toolArgs === 'object' && parsed.toolArgs !== null)
                         ? parsed.toolArgs as Record<string, unknown>
                         : undefined,
+                      toolResult: typeof parsed.toolResult === 'string' ? parsed.toolResult : undefined,
                       toolSuccess: typeof parsed.toolSuccess === 'boolean' ? parsed.toolSuccess : true,
                     }
                   }

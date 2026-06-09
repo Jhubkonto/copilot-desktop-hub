@@ -144,6 +144,123 @@ function extractCost(line: string): { inputTokens: number; outputTokens: number 
   return null
 }
 
+function tomlString(value: string): string {
+  return JSON.stringify(value)
+}
+
+function tomlStringArray(values: string[]): string {
+  return `[${values.map(tomlString).join(', ')}]`
+}
+
+function tomlKey(key: string): string {
+  return /^[A-Za-z0-9_-]+$/.test(key)
+    ? key
+    : tomlString(key)
+}
+
+function buildCodexMcpConfigArgs(req: CliAdapterRequest): string[] {
+  if (!req.mcpServers || req.mcpServers.length === 0) return []
+
+  const args: string[] = []
+  for (const server of req.mcpServers) {
+    const prefix = `mcp_servers.${tomlKey(server.key)}`
+    args.push('-c', `${prefix}.command=${tomlString(server.command)}`)
+    if (server.args.length > 0) {
+      args.push('-c', `${prefix}.args=${tomlStringArray(server.args)}`)
+    }
+    if (server.cwd) {
+      args.push('-c', `${prefix}.cwd=${tomlString(server.cwd)}`)
+    }
+    if (server.env && Object.keys(server.env).length > 0) {
+      for (const [key, value] of Object.entries(server.env)) {
+        args.push('-c', `${prefix}.env.${tomlKey(key)}=${tomlString(value)}`)
+      }
+    }
+
+    const enabledTools = (req.allowedTools ?? [])
+      .flatMap((toolName) => {
+        const mcpPrefix = `mcp__${server.key}__`
+        return toolName.startsWith(mcpPrefix) ? [toolName.slice(mcpPrefix.length)] : []
+      })
+    if (enabledTools.length > 0) {
+      args.push('-c', `${prefix}.enabled_tools=${tomlStringArray(enabledTools)}`)
+    }
+  }
+
+  return args
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null ? value as Record<string, unknown> : null
+}
+
+function textFromUnknown(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (Array.isArray(value)) {
+    return value.map(textFromUnknown).filter(Boolean).join('\n')
+  }
+  const record = asRecord(value)
+  if (!record) return ''
+  if (typeof record.text === 'string') return record.text
+  if (typeof record.content === 'string') return record.content
+  if (typeof record.output === 'string') return record.output
+  if (typeof record.result === 'string') return record.result
+  return JSON.stringify(value)
+}
+
+function objectFromUnknown(value: unknown): Record<string, unknown> {
+  const record = asRecord(value)
+  if (record) return record
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value) as unknown
+      return asRecord(parsed) ?? { value }
+    } catch {
+      return { value }
+    }
+  }
+  return {}
+}
+
+function extractToolEvent(line: string):
+  | { phase: 'start'; id: string; name: string; input: Record<string, unknown> }
+  | { phase: 'end'; id: string; content: string; isError: boolean }
+  | null {
+  try {
+    const obj = JSON.parse(line) as Record<string, unknown>
+    if (obj.type !== 'item.started' && obj.type !== 'item.completed') return null
+
+    const item = asRecord(obj.item)
+    if (!item) return null
+    const itemType = typeof item.type === 'string' ? item.type : ''
+    if (!/mcp|tool/.test(itemType) || itemType === 'agent_message') return null
+
+    const id = typeof item.id === 'string' ? item.id : `${itemType}-${Date.now()}`
+    if (obj.type === 'item.started') {
+      const name =
+        typeof item.name === 'string' ? item.name
+          : typeof item.tool_name === 'string' ? item.tool_name
+          : typeof item.tool === 'string' ? item.tool
+          : itemType
+      return {
+        phase: 'start',
+        id,
+        name,
+        input: objectFromUnknown(item.arguments ?? item.input ?? item.args),
+      }
+    }
+
+    return {
+      phase: 'end',
+      id,
+      content: textFromUnknown(item.output ?? item.result ?? item.content ?? item.error ?? ''),
+      isError: item.status === 'failed' || item.status === 'error' || Boolean(item.error),
+    }
+  } catch {
+    return null
+  }
+}
+
 /** Read the configured model from ~/.codex/config.toml if present. */
 export function readCodexConfigModel(): string | null {
   try {
@@ -225,7 +342,16 @@ export const CodexAdapter: CliAgentAdapter = {
 
       // codex exec: non-interactive subcommand with JSONL output. The prompt is
       // written to stdin below so multi-line chat history never crosses cmd.exe.
-      const execArgs = ['exec', '--json', '--ephemeral', '--skip-git-repo-check', '-C', req.cwd, ...imageArgs]
+      const execArgs = [
+        'exec',
+        '--json',
+        '--ephemeral',
+        '--skip-git-repo-check',
+        ...buildCodexMcpConfigArgs(req),
+        '-C',
+        req.cwd,
+        ...imageArgs,
+      ]
       if (req.model && req.model !== 'default') {
         execArgs.push('--model', req.model)
       }
@@ -270,6 +396,26 @@ export const CodexAdapter: CliAgentAdapter = {
         const costData = extractCost(line)
         if (costData) {
           onEvent?.({ type: 'cost', totalCostUsd: 0, ...costData })
+          return
+        }
+
+        const toolEvent = extractToolEvent(line)
+        if (toolEvent) {
+          if (toolEvent.phase === 'start') {
+            onEvent?.({
+              type: 'tool_start',
+              id: toolEvent.id,
+              name: toolEvent.name,
+              input: toolEvent.input,
+            })
+          } else {
+            onEvent?.({
+              type: 'tool_end',
+              id: toolEvent.id,
+              content: toolEvent.content,
+              isError: toolEvent.isError,
+            })
+          }
           return
         }
 

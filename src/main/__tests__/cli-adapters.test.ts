@@ -129,6 +129,81 @@ describe('CLI adapters', () => {
     expect(chunks).toEqual(['Hello', ' world'])
   })
 
+  it('ClaudeAdapter emits tool_end for tool_result blocks embedded in user messages', async () => {
+    const proc = makeProc()
+    mockSpawn.mockReturnValue(proc)
+
+    const onEvent = vi.fn()
+    const sendPromise = ClaudeAdapter.send({} as never, {
+      messages: [{ role: 'user', content: 'use playwright' }],
+      cwd: 'C:\\workspace',
+      model: 'default',
+      conversationId: 'conv-1',
+    }, () => {}, onEvent)
+
+    proc.stdout.emit('data', Buffer.from(`${JSON.stringify({
+      type: 'assistant',
+      message: {
+        content: [
+          { type: 'tool_use', id: 'toolu_mcp', name: 'mcp__playwright_chromium__browser_navigate', input: { url: 'https://www.google.com' } },
+        ],
+      },
+    })}\n${JSON.stringify({
+      type: 'user',
+      message: {
+        content: [
+          { type: 'tool_result', tool_use_id: 'toolu_mcp', content: [{ type: 'text', text: 'Navigated to Google' }], is_error: false },
+        ],
+      },
+    })}\n`))
+    proc.emit('close', 0)
+
+    await sendPromise
+    expect(onEvent).toHaveBeenNthCalledWith(1, {
+      type: 'tool_start',
+      id: 'toolu_mcp',
+      name: 'mcp__playwright_chromium__browser_navigate',
+      input: { url: 'https://www.google.com' },
+    })
+    expect(onEvent).toHaveBeenNthCalledWith(2, {
+      type: 'tool_end',
+      id: 'toolu_mcp',
+      content: 'Navigated to Google',
+      isError: false,
+    })
+  })
+
+  it('ClaudeAdapter closes dangling tool rows when the process exits', async () => {
+    const proc = makeProc()
+    mockSpawn.mockReturnValue(proc)
+
+    const onEvent = vi.fn()
+    const sendPromise = ClaudeAdapter.send({} as never, {
+      messages: [{ role: 'user', content: 'use a tool' }],
+      cwd: 'C:\\workspace',
+      model: 'default',
+      conversationId: 'conv-1',
+    }, () => {}, onEvent)
+
+    proc.stdout.emit('data', Buffer.from(`${JSON.stringify({
+      type: 'assistant',
+      message: {
+        content: [
+          { type: 'tool_use', id: 'toolu_dangling', name: 'ToolSearch', input: { query: 'playwright navigate click' } },
+        ],
+      },
+    })}\n`))
+    proc.emit('close', 0)
+
+    await sendPromise
+    expect(onEvent).toHaveBeenLastCalledWith({
+      type: 'tool_end',
+      id: 'toolu_dangling',
+      content: '',
+      isError: false,
+    })
+  })
+
   it('ClaudeAdapter includes stderr in error message', async () => {
     const proc = makeProc()
     mockSpawn.mockReturnValue(proc)
@@ -218,6 +293,45 @@ describe('CLI adapters', () => {
     // No --input-format flag in text-only mode
     const spawnArgs = (mockSpawn.mock.calls[0] as unknown[])[1] as string[]
     expect(spawnArgs).not.toContain('--input-format')
+  })
+
+  it('ClaudeAdapter passes per-run MCP config and allowed tools', async () => {
+    const proc = makeProc()
+    mockSpawn.mockReturnValue(proc)
+
+    const sendPromise = ClaudeAdapter.send({} as never, {
+      messages: [{ role: 'user', content: 'open a browser' }],
+      cwd: 'C:\\workspace',
+      model: 'default',
+      conversationId: 'conv-1',
+      mcpServers: [{
+        id: 'server-1',
+        key: 'playwright_chromium',
+        command: 'npx',
+        args: ['-y', '@playwright/mcp'],
+      }],
+      allowedTools: ['mcp__playwright_chromium__browser_navigate'],
+    }, () => {})
+
+    proc.emit('close', 0)
+    await sendPromise
+
+    const spawnArgs = (mockSpawn.mock.calls[0] as unknown[])[1] as string[]
+    const configIndex = spawnArgs.indexOf('--mcp-config')
+    expect(configIndex).toBeGreaterThan(-1)
+    expect(spawnArgs).toContain('--strict-mcp-config')
+    expect(JSON.parse(spawnArgs[configIndex + 1])).toEqual({
+      mcpServers: {
+        playwright_chromium: {
+          command: 'npx',
+          args: ['-y', '@playwright/mcp'],
+        },
+      },
+    })
+    expect(spawnArgs).toEqual(expect.arrayContaining([
+      '--allowedTools',
+      'mcp__playwright_chromium__browser_navigate',
+    ]))
   })
 
   it('ClaudeAdapter preserves conversation history in stream-json format', async () => {
@@ -323,6 +437,78 @@ describe('CLI adapters', () => {
     proc.emit('close', 1)
 
     await expect(sendPromise).rejects.toThrow("The 'gpt-4.1' model is not supported when using Codex with a ChatGPT account.")
+  })
+
+  it('CodexAdapter passes per-run MCP config and emits tool events', async () => {
+    const proc = makeProc()
+    mockSpawn.mockReturnValue(proc)
+
+    const onEvent = vi.fn()
+    const sendPromise = CodexAdapter.send({} as never, {
+      messages: [{ role: 'user', content: 'open google' }],
+      cwd: 'C:\\workspace',
+      model: 'default',
+      conversationId: 'conv-1',
+      mcpServers: [{
+        id: 'server-1',
+        key: 'playwright_chromium',
+        command: 'npx',
+        args: ['-y', '@playwright/mcp'],
+        env: { BROWSER: 'chromium' },
+      }],
+      allowedTools: ['mcp__playwright_chromium__browser_navigate'],
+    }, () => {}, onEvent)
+
+    proc.stdout.emit('data', Buffer.from([
+      JSON.stringify({
+        type: 'item.started',
+        item: {
+          id: 'tool-1',
+          type: 'mcp_tool_call',
+          name: 'browser_navigate',
+          arguments: { url: 'https://www.google.com' },
+        },
+      }),
+      JSON.stringify({
+        type: 'item.completed',
+        item: {
+          id: 'tool-1',
+          type: 'mcp_tool_call',
+          name: 'browser_navigate',
+          output: 'Navigated to Google',
+          status: 'completed',
+        },
+      }),
+      JSON.stringify({ type: 'item.completed', item: { id: 'item_2', type: 'agent_message', text: 'Done.' } }),
+      '',
+    ].join('\n')))
+    proc.emit('close', 0)
+
+    await expect(sendPromise).resolves.toBe('Done.')
+
+    const spawnArgs = (mockSpawn.mock.calls[0] as unknown[])[1] as string[]
+    expect(spawnArgs).toEqual(expect.arrayContaining([
+      '-c',
+      'mcp_servers.playwright_chromium.command="npx"',
+      '-c',
+      'mcp_servers.playwright_chromium.args=["-y", "@playwright/mcp"]',
+      '-c',
+      'mcp_servers.playwright_chromium.env.BROWSER="chromium"',
+      '-c',
+      'mcp_servers.playwright_chromium.enabled_tools=["browser_navigate"]',
+    ]))
+    expect(onEvent).toHaveBeenNthCalledWith(1, {
+      type: 'tool_start',
+      id: 'tool-1',
+      name: 'browser_navigate',
+      input: { url: 'https://www.google.com' },
+    })
+    expect(onEvent).toHaveBeenNthCalledWith(2, {
+      type: 'tool_end',
+      id: 'tool-1',
+      content: 'Navigated to Google',
+      isError: false,
+    })
   })
 
   it('GhCopilotAdapter strips ANSI output', async () => {

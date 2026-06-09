@@ -28,11 +28,14 @@ describe('ToolCallBlock', () => {
 
     render(<ToolCallBlock toolName="browser_click" args={args} result={result} />)
 
-    expect(screen.queryByText('Clicked successfully')).not.toBeInTheDocument()
+    expect(screen.queryByText('Arguments')).not.toBeInTheDocument()
+    expect(screen.queryByText('Result')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button'))
 
-    expect(screen.getByText('Clicked successfully')).toBeInTheDocument()
+    expect(screen.getAllByText('Clicked successfully')).toHaveLength(2)
+    expect(screen.getByText('Arguments')).toBeInTheDocument()
+    expect(screen.getByText('Result')).toBeInTheDocument()
     expect(screen.getByText(/selector/)).toBeInTheDocument()
   })
 
@@ -41,10 +44,12 @@ describe('ToolCallBlock', () => {
     const button = screen.getByRole('button')
 
     fireEvent.click(button)
-    expect(screen.getByText('ok')).toBeInTheDocument()
+    expect(screen.getByText('Result')).toBeInTheDocument()
+    expect(screen.getAllByText('ok')).toHaveLength(2)
 
     fireEvent.click(button)
-    expect(screen.queryByText('ok')).not.toBeInTheDocument()
+    expect(screen.queryByText('Result')).not.toBeInTheDocument()
+    expect(screen.getByText('ok')).toBeInTheDocument()
   })
 
   it('truncates long results', () => {
