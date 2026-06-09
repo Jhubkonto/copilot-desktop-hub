@@ -1,6 +1,6 @@
 # Nexy — Product Roadmap
 
-> **Last updated:** 2026-06-02 (v0.8.4)  
+> **Last updated:** 2026-06-08 (v0.9.0)
 > **Status:** Living document  
 > **Related:** [`architecture-overview.md`](./architecture-overview.md)
 
@@ -408,6 +408,60 @@ The model can search the wiki as a tool mid-conversation.
 | AR.12 | Optional self-hosted relay server (Node.js, open source) for approvals when desktop and phone are not on the same network | 🔲 |
 | AR.13 | End-to-end encryption for relay path (NaCl box, keys exchanged at QR pairing time) | 🔲 |
 | AR.14 | Desktop setting: "Allow remote access" toggle with relay URL config | 🔲 |
+
+---
+
+### v0.10.0 — Prompt Management 🔲
+
+**Theme**: Treat prompts as reusable, versioned project assets instead of one-off text copied between conversations.
+
+**Problem**: High-value prompts for coding, support, reports, and workflows are hard to find, compare, reuse, and improve. Users lose track of what changed, which prompt performed best, and how to roll back after a bad edit.
+
+| Task | Description | Status |
+|---|---|---|
+| PM.1 | Prompt library with categories for coding prompts, support prompts, report generation prompts, and custom collections | 🔲 |
+| PM.2 | Prompt editor with title, body, description, tags, project scope, and global scope | 🔲 |
+| PM.3 | Prompt variables using `{{variable}}` syntax, e.g. `Analyze {{repository}}` or `Generate report for {{customer}}` | 🔲 |
+| PM.4 | Variable resolver UI before insertion or execution, with remembered defaults per project where appropriate | 🔲 |
+| PM.5 | Prompt version history: track edits, author/source, timestamp, and diff between versions | 🔲 |
+| PM.6 | Rollback to any previous prompt version | 🔲 |
+| PM.7 | Lightweight performance tracking: usage count, accepted/rejected outcomes, manual rating, and notes | 🔲 |
+| PM.8 | Insert prompt into composer, run prompt against current project context, or attach prompt as an agent instruction block | 🔲 |
+
+---
+
+### v0.11.0 — Conversation Portability 🔲
+
+**Theme**: Let conversations move between providers and models without losing useful context.
+
+**Problem**: Users often start in one assistant or provider, then need to continue in another — Claude to GPT, GPT to a local model, BYOK to CLI, or desktop to another environment. Today that usually means copy/paste, lost metadata, and broken context.
+
+| Task | Description | Status |
+|---|---|---|
+| CP.1 | Provider-neutral conversation export format containing messages, attachments metadata, tool-call summaries, model IDs, timestamps, and project context references | 🔲 |
+| CP.2 | Import conversation into a new or existing Nexy conversation while preserving role order and key metadata | 🔲 |
+| CP.3 | "Continue with..." action to fork a conversation onto another configured backend or model | 🔲 |
+| CP.4 | Model/provider compatibility layer that rewrites unsupported content into portable summaries, e.g. tool calls, images, or provider-specific message parts | 🔲 |
+| CP.5 | Export packs for external use: Markdown transcript, JSON archive, and compact context bundle | 🔲 |
+| CP.6 | Local-model continuation path with automatic context compression when the target context window is smaller | 🔲 |
+
+---
+
+### v0.12.0 — Context Compression 🔲
+
+**Theme**: Keep long-running conversations useful by automatically preserving decisions, facts, unresolved tasks, and current working state.
+
+**Problem**: Long conversations eventually exceed context windows or become expensive to continue. Naive truncation drops important decisions and debugging history; full replay wastes tokens.
+
+| Task | Description | Status |
+|---|---|---|
+| CCMP.1 | Automatic rolling summaries for long conversations when token budget thresholds are crossed | 🔲 |
+| CCMP.2 | Structured summary format: goals, decisions, constraints, files touched, commands run, open questions, and next actions | 🔲 |
+| CCMP.3 | Preserve key user preferences and project facts separately from temporary conversation details | 🔲 |
+| CCMP.4 | Compression preview in context inspector showing what will be retained, summarized, or omitted | 🔲 |
+| CCMP.5 | Manual "compress now" action with editable summary before continuing | 🔲 |
+| CCMP.6 | Provider-aware compression targets so summaries fit the selected model's context window | 🔲 |
+| CCMP.7 | Conversation restore path that combines compressed summaries, recent messages, and referenced wiki entries | 🔲 |
 
 ---
 
