@@ -17,7 +17,8 @@ export interface WsCommand {
   data?: Record<string, unknown>
 }
 
-type CommandHandler = (command: string, data: Record<string, unknown>) => void
+export type WsReply = (event: WsPushEvent) => void
+type CommandHandler = (command: string, data: Record<string, unknown>, reply: WsReply) => void
 
 let wss: WebSocketServer | null = null
 let httpServer: HttpServer | null = null
@@ -108,7 +109,9 @@ export function startWsServer(): Promise<{ port: number; token: string }> {
         try {
           const msg = JSON.parse(String(raw)) as WsCommand
           if (msg.token !== currentToken) { ws.close(4001, 'Unauthorized'); return }
-          commandHandler?.(msg.command, msg.data ?? {})
+          commandHandler?.(msg.command, msg.data ?? {}, (event) => {
+            if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(event))
+          })
         } catch { /* ignore malformed */ }
       })
 

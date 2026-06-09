@@ -9,6 +9,13 @@ sealed class WsEvent {
     ) : WsEvent()
     data class ChatStreamChunk(val conversationId: String, val text: String) : WsEvent()
     data class ChatStreamEnd(val conversationId: String) : WsEvent()
+    data class ChatActivity(
+        val conversationId: String,
+        val state: String,
+        val label: String,
+        val toolName: String?,
+        val serverName: String?,
+    ) : WsEvent()
     data class ConversationList(val conversations: List<Conversation>) : WsEvent()
     data class ConversationMessages(
         val conversationId: String,
@@ -16,6 +23,8 @@ sealed class WsEvent {
     ) : WsEvent()
     data class AgentList(val agents: List<Agent>) : WsEvent()
     data class ProjectList(val projects: List<Project>) : WsEvent()
+    data class ModelList(val models: List<ModelOption>) : WsEvent()
+    data class ConversationModelUpdated(val conversationId: String, val model: String?) : WsEvent()
     data class ConversationCreated(
         val id: String,
         val agentId: String?,

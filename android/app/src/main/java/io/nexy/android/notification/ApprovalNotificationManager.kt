@@ -1,10 +1,17 @@
 package io.nexy.android.notification
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
+import androidx.core.content.ContextCompat
 import io.nexy.android.MainActivity
 import io.nexy.android.NexyApp
 
@@ -16,6 +23,11 @@ object ApprovalNotificationManager {
     const val EXTRA_REQUEST_ID = "requestId"
 
     fun show(context: Context, requestId: String, toolName: String) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) return
+
         val nm = context.getSystemService(NotificationManager::class.java)
 
         val openIntent = PendingIntent.getActivity(
@@ -50,6 +62,7 @@ object ApprovalNotificationManager {
             .setContentText(toolName)
             .setContentIntent(openIntent)
             .setAutoCancel(true)
+            .setCategory(Notification.CATEGORY_STATUS)
             .addAction(Notification.Action.Builder(null, "Approve", approveIntent).build())
             .addAction(Notification.Action.Builder(null, "Reject", rejectIntent).build())
             .build()
@@ -59,5 +72,18 @@ object ApprovalNotificationManager {
 
     fun cancel(context: android.content.Context) {
         context.getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION_ID)
+    }
+
+    fun vibrateDecision(context: Context, approved: Boolean) {
+        val durationMs = if (approved) 50L else 100L
+        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            context.getSystemService(VibratorManager::class.java)?.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            context.getSystemService(Vibrator::class.java)
+        } ?: return
+
+        if (!vibrator.hasVibrator()) return
+        vibrator.vibrate(VibrationEffect.createOneShot(durationMs, VibrationEffect.DEFAULT_AMPLITUDE))
     }
 }

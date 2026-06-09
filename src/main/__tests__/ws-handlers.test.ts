@@ -1,0 +1,231 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const state = vi.hoisted(() => {
+  let commandHandler: ((command: string, data: Record<string, unknown>, reply: (event: unknown) => void) => void) | null = null
+  const replies: unknown[] = []
+  const runs: Array<{ sql: string; args: unknown[] }> = []
+  const abortActiveStream = vi.fn()
+  const dispatchChatSend = vi.fn()
+  const webContentsSend = vi.fn()
+
+  return {
+    get commandHandler() { return commandHandler },
+    set commandHandler(handler) { commandHandler = handler },
+    replies,
+    runs,
+    abortActiveStream,
+    dispatchChatSend,
+    webContentsSend,
+  }
+})
+
+vi.mock('../safe-handle', () => ({
+  safeHandle: vi.fn(),
+}))
+
+vi.mock('../database', () => ({
+  getDatabase: () => ({
+    prepare: (sql: string) => ({
+      all: (..._args: unknown[]) => {
+        if (sql.includes('FROM conversations c')) return [{ id: 'conv-1', title: 'Chat 1' }]
+        if (sql.includes('FROM projects p')) return [{ id: 'proj-1', name: 'Project 1' }]
+        if (sql.includes('FROM messages')) return [{ id: 'msg-1', role: 'user', content: 'hello', timestamp: 1 }]
+        if (sql.includes('FROM agents')) return [{ id: 'agent-1', name: 'Codex', icon: 'C', backend: 'codex-cli', cli_model: 'gpt-5.5' }]
+        return []
+      },
+      get: (..._args: unknown[]) => {
+        if (sql.includes('FROM agents')) return { backend: 'codex-cli' }
+        return undefined
+      },
+      run: (...args: unknown[]) => {
+        state.runs.push({ sql, args })
+        return { changes: 1 }
+      },
+    }),
+  }),
+}))
+
+vi.mock('electron', () => ({
+  BrowserWindow: {
+    getAllWindows: () => [{ webContents: { send: state.webContentsSend } }],
+  },
+}))
+
+vi.mock('../providers', () => ({
+  abortActiveStream: state.abortActiveStream,
+}))
+
+vi.mock('../chat-handlers', () => ({
+  dispatchChatSend: state.dispatchChatSend,
+}))
+
+vi.mock('../model-catalog', () => ({
+  getCachedCatalog: vi.fn(() => [{ id: 'gpt-5-mini', name: 'GPT-5 mini', vendor: 'OpenAI' }]),
+}))
+
+vi.mock('../cli-detection', () => ({
+  getCliModels: vi.fn((backend: string) => backend === 'codex-cli'
+    ? [{ id: 'gpt-5.5', label: 'GPT-5.5' }]
+    : [{ id: 'claude-sonnet-4.6', label: 'Claude Sonnet 4.6' }]
+  ),
+}))
+
+vi.mock('../ws-server', () => ({
+  startWsServer: vi.fn(),
+  stopWsServer: vi.fn(),
+  getWsStatus: vi.fn(() => ({ enabled: false })),
+  getQrDataUrl: vi.fn(),
+  regenerateToken: vi.fn(),
+  setWsCommandHandler: vi.fn((handler) => { state.commandHandler = handler }),
+}))
+
+import { registerWsHandlers, registerApprovalResolver } from '../ws-handlers'
+
+function sendCommand(command: string, data: Record<string, unknown> = {}) {
+  if (!state.commandHandler) throw new Error('WS command handler not registered')
+  const reply = vi.fn((event: unknown) => state.replies.push(event))
+  state.commandHandler(command, data, reply)
+  return reply
+}
+
+describe('ws handlers', () => {
+  beforeEach(() => {
+    state.replies.length = 0
+    state.runs.length = 0
+    state.abortActiveStream.mockClear()
+    state.dispatchChatSend.mockClear()
+    state.webContentsSend.mockClear()
+    registerWsHandlers()
+  })
+
+  it('replies to the requesting client for conversation lists', () => {
+    const reply = sendCommand('conversation:list')
+
+    expect(reply).toHaveBeenCalledWith({
+      event: 'conversation:list',
+      data: [{ id: 'conv-1', title: 'Chat 1' }],
+    })
+  })
+
+  it('replies to the requesting client for message history', () => {
+    const reply = sendCommand('conversation:get-messages', { conversationId: 'conv-1' })
+
+    expect(reply).toHaveBeenCalledWith({
+      event: 'conversation:messages',
+      data: {
+        conversationId: 'conv-1',
+        messages: [{ id: 'msg-1', role: 'user', content: 'hello', timestamp: 1 }],
+      },
+    })
+  })
+
+  it('replies to the requesting client when creating a conversation', () => {
+    const reply = sendCommand('conversation:create', { agentId: 'agent-1', projectId: 'proj-1' })
+
+    expect(state.runs).toHaveLength(1)
+    expect(reply).toHaveBeenCalledWith(expect.objectContaining({
+      event: 'conversation:created',
+      data: expect.objectContaining({ agentId: 'agent-1', projectId: 'proj-1', title: 'New Chat' }),
+    }))
+  })
+
+  it('does not send request replies for approval and stop commands', () => {
+    const resolve = vi.fn()
+    registerApprovalResolver(resolve)
+
+    const approvalReply = sendCommand('tool:approve', { requestId: 'req-1' })
+    const stopReply = sendCommand('agent:stop', { conversationId: 'conv-1' })
+
+    expect(resolve).toHaveBeenCalledWith('req-1', true)
+    expect(state.abortActiveStream).toHaveBeenCalledWith('conv-1')
+    expect(approvalReply).not.toHaveBeenCalled()
+    expect(stopReply).not.toHaveBeenCalled()
+  })
+
+  it('dispatches remote chat without sending a request reply', () => {
+    const reply = sendCommand('chat:send-message', {
+      conversationId: 'conv-1',
+      content: 'hello',
+      agentId: 'agent-1',
+      projectId: 'project-1',
+    })
+
+    expect(state.webContentsSend).toHaveBeenCalledWith('chat:remote-message', { conversationId: 'conv-1', content: 'hello' })
+    expect(state.dispatchChatSend).toHaveBeenCalledWith(
+      expect.anything(),
+      'conv-1',
+      'hello',
+      expect.objectContaining({ agentId: 'agent-1', projectId: 'project-1' }),
+    )
+    expect(reply).not.toHaveBeenCalled()
+  })
+
+  it('replies with catalog models when no mobile backend is provided', () => {
+    const reply = sendCommand('model:list')
+
+    expect(reply).toHaveBeenCalledWith({
+      event: 'model:list',
+      data: {
+        models: [
+          { id: 'default', label: 'Default model' },
+          { id: 'gpt-5-mini', label: 'GPT-5 mini', vendor: 'OpenAI' },
+        ],
+      },
+    })
+  })
+
+  it('replies with Codex CLI models for Codex-backed mobile chats', () => {
+    const reply = sendCommand('model:list', { backend: 'codex-cli' })
+
+    expect(reply).toHaveBeenCalledWith({
+      event: 'model:list',
+      data: {
+        models: [
+          { id: 'default', label: 'Default model' },
+          { id: 'gpt-5.5', label: 'GPT-5.5', vendor: 'Codex CLI' },
+        ],
+      },
+    })
+  })
+
+  it('replies with CLI models using the mobile chat agent backend', () => {
+    const reply = sendCommand('model:list', { agentId: 'agent-1' })
+
+    expect(reply).toHaveBeenCalledWith({
+      event: 'model:list',
+      data: {
+        models: [
+          { id: 'default', label: 'Default model' },
+          { id: 'gpt-5.5', label: 'GPT-5.5', vendor: 'Codex CLI' },
+        ],
+      },
+    })
+  })
+
+  it('replies with Claude CLI models for Claude-backed mobile chats', () => {
+    const reply = sendCommand('model:list', { backend: 'claude-cli' })
+
+    expect(reply).toHaveBeenCalledWith({
+      event: 'model:list',
+      data: {
+        models: [
+          { id: 'default', label: 'Default model' },
+          { id: 'claude-sonnet-4.6', label: 'Claude Sonnet 4.6', vendor: 'Claude CLI' },
+        ],
+      },
+    })
+  })
+
+  it('updates a conversation model over mobile websocket', () => {
+    const reply = sendCommand('conversation:set-model', { conversationId: 'conv-1', model: 'gpt-5.5' })
+
+    expect(state.runs[0]).toEqual(expect.objectContaining({
+      sql: expect.stringContaining('UPDATE conversations SET model'),
+      args: ['gpt-5.5', expect.any(Number), 'conv-1'],
+    }))
+    expect(reply).toHaveBeenCalledWith({
+      event: 'conversation:model-updated',
+      data: { conversationId: 'conv-1', model: 'gpt-5.5' },
+    })
+  })
+})

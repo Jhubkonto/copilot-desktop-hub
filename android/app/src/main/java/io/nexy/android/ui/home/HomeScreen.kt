@@ -2,6 +2,7 @@ package io.nexy.android.ui.home
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,23 +16,28 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -41,6 +47,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -53,6 +60,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
@@ -62,10 +70,12 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.ConnectionState
+import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.Agent
 import io.nexy.android.data.model.Project
 import io.nexy.android.ui.components.ApprovalDialog
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 private sealed class ChatFilter {
     object All : ChatFilter()
@@ -75,10 +85,18 @@ private sealed class ChatFilter {
 
 private val tabTitles = listOf("Chats", "Projects", "Agents")
 
+enum class HistoryScope {
+    Agent,
+    Project,
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     onOpenChat: (String) -> Unit,
+    onOpenDraftChat: (String, String?, String?) -> Unit,
+    onOpenAgentHistory: (String) -> Unit,
+    onOpenProjectHistory: (String) -> Unit,
     onDisconnected: () -> Unit,
     onOpenSettings: () -> Unit,
     vm: HomeViewModel = viewModel(),
@@ -87,6 +105,9 @@ fun HomeScreen(
     val conversations by vm.conversations.collectAsState()
     val agents by vm.agents.collectAsState()
     val projects by vm.projects.collectAsState()
+    val isRefreshingConversations by vm.isRefreshingConversations.collectAsState()
+    val isRefreshingAgents by vm.isRefreshingAgents.collectAsState()
+    val isRefreshingProjects by vm.isRefreshingProjects.collectAsState()
     val pendingApproval by vm.pendingApproval.collectAsState()
     val newConversationId by vm.newConversationId.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -123,6 +144,10 @@ fun HomeScreen(
         }
     }
 
+    BackHandler(enabled = selectedTab != 0) {
+        selectedTab = 0
+    }
+
     if (pendingApproval != null) {
         ApprovalDialog(
             request = pendingApproval!!,
@@ -145,7 +170,7 @@ fun HomeScreen(
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             NewChatItem(label = "No agent / No project") {
                 scope.launch { sheetState.hide() }.invokeOnCompletion { showNewChatSheet = false }
-                vm.createConversation()
+                onOpenDraftChat(UUID.randomUUID().toString(), null, null)
             }
             if (agents.isNotEmpty()) {
                 Text(
@@ -157,7 +182,7 @@ fun HomeScreen(
                 agents.forEach { agent ->
                     NewChatItem(label = if (agent.icon.isNotBlank()) "${agent.icon}  ${agent.name}" else agent.name) {
                         scope.launch { sheetState.hide() }.invokeOnCompletion { showNewChatSheet = false }
-                        vm.createConversation(agentId = agent.id)
+                        onOpenDraftChat(UUID.randomUUID().toString(), agent.id, null)
                     }
                 }
             }
@@ -174,7 +199,7 @@ fun HomeScreen(
                         dotColor = projectColor(project.color),
                     ) {
                         scope.launch { sheetState.hide() }.invokeOnCompletion { showNewChatSheet = false }
-                        vm.createConversation(projectId = project.id)
+                        onOpenDraftChat(UUID.randomUUID().toString(), null, project.id)
                     }
                 }
             }
@@ -249,137 +274,559 @@ fun HomeScreen(
             }
 
             when (selectedTab) {
-                0 -> ChatsTab(conversations = conversations, agents = agents, projects = projects, onOpenChat = onOpenChat, onRefresh = { vm.refreshConversations() }, onDisconnect = { vm.disconnect() })
-                1 -> ProjectsTab(projects = projects, onNewChatInProject = { projectId ->
-                    vm.createConversation(projectId = projectId)
-                })
-                2 -> AgentsTab(agents = agents, onNewChatWithAgent = { agentId ->
-                    vm.createConversation(agentId = agentId)
-                })
+                0 -> ChatsTab(
+                    conversations = conversations,
+                    agents = agents,
+                    projects = projects,
+                    isRefreshing = isRefreshingConversations,
+                    onOpenChat = onOpenChat,
+                    onRefresh = { vm.refreshConversations() },
+                    onDisconnect = { vm.disconnect() },
+                )
+                1 -> ProjectsTab(projects = projects, isRefreshing = isRefreshingProjects, onRefresh = { vm.requestProjects() }, onOpenProjectHistory = onOpenProjectHistory)
+                2 -> AgentsTab(agents = agents, isRefreshing = isRefreshingAgents, onRefresh = { vm.requestAgents() }, onOpenAgentHistory = onOpenAgentHistory)
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ScopedChatHistoryScreen(
+    scopeType: HistoryScope,
+    scopeId: String,
+    onBack: () -> Unit,
+    onOpenChat: (String) -> Unit,
+    onOpenDraftChat: (String, String?, String?) -> Unit,
+) {
+    val conversations by WsRepository.conversations.collectAsState()
+    val agents by WsRepository.agents.collectAsState()
+    val projects by WsRepository.projects.collectAsState()
+    var searchQuery by remember { mutableStateOf("") }
+
+    val title = when (scopeType) {
+        HistoryScope.Agent -> agents.find { it.id == scopeId }?.let { agent ->
+            if (agent.icon.isNotBlank()) "${agent.icon}  ${agent.name}" else agent.name
+        } ?: "Agent chats"
+        HistoryScope.Project -> projects.find { it.id == scopeId }?.name ?: "Project chats"
+    }
+    val filtered = remember(conversations, scopeType, scopeId, searchQuery) {
+        val scoped = when (scopeType) {
+            HistoryScope.Agent -> conversations.filter { it.agent_id == scopeId }
+            HistoryScope.Project -> conversations.filter { it.project_id == scopeId }
+        }
+        val query = searchQuery.trim()
+        if (query.isBlank()) scoped else scoped.filter { conversation ->
+            listOfNotNull(conversation.title, conversation.last_message, conversation.agent_name, conversation.project_name)
+                .any { it.contains(query, ignoreCase = true) }
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Column {
+                        Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            "${filtered.size} chat${if (filtered.size == 1) "" else "s"}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
+            )
+        },
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = {
+                    val id = UUID.randomUUID().toString()
+                    when (scopeType) {
+                        HistoryScope.Agent -> onOpenDraftChat(id, scopeId, null)
+                        HistoryScope.Project -> onOpenDraftChat(id, null, scopeId)
+                    }
+                },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+            ) {
+                Icon(Icons.Default.Add, contentDescription = "New Chat")
+            }
+        },
+    ) { padding ->
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+                    .padding(horizontal = 12.dp),
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (searchQuery.isNotBlank()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Default.Close, contentDescription = "Clear search")
+                        }
+                    }
+                },
+                placeholder = {
+                    Text("Search chats", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                },
+                shape = RoundedCornerShape(14.dp),
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(top = 8.dp))
+            if (filtered.isEmpty()) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Text(
+                        if (searchQuery.isBlank()) "No chats yet." else "No matching chats.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (searchQuery.isNotBlank()) {
+                        TextButton(onClick = { searchQuery = "" }) { Text("Clear search") }
+                    }
+                }
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    items(filtered, key = { it.id }) { conversation ->
+                        ConversationRow(conv = conversation, onOpenChat = onOpenChat)
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ChatsTab(
     conversations: List<io.nexy.android.data.model.Conversation>,
     agents: List<Agent>,
     projects: List<Project>,
+    isRefreshing: Boolean,
     onOpenChat: (String) -> Unit,
     onRefresh: () -> Unit,
     onDisconnect: () -> Unit,
 ) {
     var activeFilter by remember { mutableStateOf<ChatFilter>(ChatFilter.All) }
+    var searchQuery by remember { mutableStateOf("") }
+    var showFilterSheet by remember { mutableStateOf(false) }
+    val filterSheetState = rememberModalBottomSheetState()
+    val scope = rememberCoroutineScope()
     val uniqueAgentNames = remember(conversations) {
         conversations.mapNotNull { it.agent_name }.distinct()
     }
     val uniqueProjectsWithChats = remember(conversations, projects) {
         projects.filter { p -> conversations.any { c -> c.project_id == p.id } }
     }
-    val filteredConversations = remember(conversations, activeFilter) {
+    val filteredByScope = remember(conversations, activeFilter) {
         when (val f = activeFilter) {
             is ChatFilter.All -> conversations
             is ChatFilter.ByAgent -> conversations.filter { it.agent_name == f.agentName }
             is ChatFilter.ByProject -> conversations.filter { it.project_id == f.projectId }
         }
     }
+    val filteredConversations = remember(filteredByScope, searchQuery) {
+        val query = searchQuery.trim()
+        if (query.isBlank()) {
+            filteredByScope
+        } else {
+            filteredByScope.filter { conversation ->
+                listOfNotNull(
+                    conversation.title,
+                    conversation.agent_name,
+                    conversation.project_name,
+                    conversation.last_message,
+                ).any { it.contains(query, ignoreCase = true) }
+            }
+        }
+    }
     val showFilters = uniqueAgentNames.isNotEmpty() || uniqueProjectsWithChats.isNotEmpty()
+    val activeFilterLabel = when (val f = activeFilter) {
+        is ChatFilter.All -> "All chats"
+        is ChatFilter.ByAgent -> "Agent: ${f.agentName}"
+        is ChatFilter.ByProject -> "Project: ${f.projectName}"
+    }
 
-    if (conversations.isEmpty()) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
+    if (showFilterSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showFilterSheet = false },
+            sheetState = filterSheetState,
+            containerColor = MaterialTheme.colorScheme.surface,
         ) {
             Text(
-                "No conversations yet.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                "Filter chats",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
             )
-            TextButton(onClick = onRefresh) { Text("Refresh") }
-            TextButton(onClick = onDisconnect) { Text("Disconnect") }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            FilterSheetItem(
+                label = "All chats",
+                selected = activeFilter is ChatFilter.All,
+            ) {
+                activeFilter = ChatFilter.All
+                scope.launch { filterSheetState.hide() }.invokeOnCompletion { showFilterSheet = false }
+            }
+            if (uniqueAgentNames.isNotEmpty()) {
+                Text(
+                    "Agents",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+                )
+                uniqueAgentNames.forEach { name ->
+                    FilterSheetItem(
+                        label = name,
+                        prefix = "Agent",
+                        selected = activeFilter == ChatFilter.ByAgent(name),
+                    ) {
+                        activeFilter = ChatFilter.ByAgent(name)
+                        scope.launch { filterSheetState.hide() }.invokeOnCompletion { showFilterSheet = false }
+                    }
+                }
+            }
+            if (uniqueProjectsWithChats.isNotEmpty()) {
+                Text(
+                    "Projects",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+                )
+                uniqueProjectsWithChats.forEach { project ->
+                    FilterSheetItem(
+                        label = project.name,
+                        prefix = "Project",
+                        selected = activeFilter == ChatFilter.ByProject(project.id, project.name),
+                    ) {
+                        activeFilter = ChatFilter.ByProject(project.id, project.name)
+                        scope.launch { filterSheetState.hide() }.invokeOnCompletion { showFilterSheet = false }
+                    }
+                }
+            }
+            Spacer(Modifier.padding(bottom = 16.dp))
         }
-    } else {
-        Column(modifier = Modifier.fillMaxSize()) {
-            if (showFilters) {
-                LazyRow(
+    }
+
+    RefreshableContent(isRefreshing = isRefreshing, onRefresh = onRefresh) {
+        if (conversations.isEmpty()) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(
+                    "No conversations yet.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextButton(onClick = onRefresh) { Text("Refresh") }
+                TextButton(onClick = onDisconnect) { Text("Disconnect") }
+            }
+        } else {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    item {
-                        FilterChip(
-                            selected = activeFilter is ChatFilter.All,
-                            onClick = { activeFilter = ChatFilter.All },
-                            label = { Text("All", style = MaterialTheme.typography.labelSmall) },
-                        )
-                    }
-                    items(uniqueAgentNames) { name ->
-                        FilterChip(
-                            selected = activeFilter == ChatFilter.ByAgent(name),
-                            onClick = {
-                                activeFilter = if (activeFilter == ChatFilter.ByAgent(name))
-                                    ChatFilter.All else ChatFilter.ByAgent(name)
-                            },
-                            label = { Text(name, style = MaterialTheme.typography.labelSmall) },
-                        )
-                    }
-                    items(uniqueProjectsWithChats) { project ->
-                        val f = ChatFilter.ByProject(project.id, project.name)
-                        FilterChip(
-                            selected = activeFilter == f,
-                            onClick = { activeFilter = if (activeFilter == f) ChatFilter.All else f },
-                            label = { Text(project.name, style = MaterialTheme.typography.labelSmall) },
-                        )
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(56.dp),
+                        singleLine = true,
+                        leadingIcon = {
+                            Icon(Icons.Default.Search, contentDescription = null)
+                        },
+                        trailingIcon = {
+                            if (searchQuery.isNotBlank()) {
+                                IconButton(onClick = { searchQuery = "" }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Clear search")
+                                }
+                            }
+                        },
+                        placeholder = {
+                            Text(
+                                "Search chats",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        },
+                        shape = RoundedCornerShape(14.dp),
+                    )
+                    Surface(
+                        modifier = Modifier
+                            .height(56.dp)
+                            .widthIn(min = 112.dp, max = 148.dp)
+                            .clickable(enabled = showFilters) { showFilterSheet = true },
+                        shape = RoundedCornerShape(14.dp),
+                        color = if (activeFilter is ChatFilter.All)
+                            MaterialTheme.colorScheme.surfaceVariant
+                        else
+                            MaterialTheme.colorScheme.primaryContainer,
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .padding(horizontal = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.FilterList,
+                                contentDescription = "Filter chats",
+                                modifier = Modifier.size(18.dp),
+                                tint = if (activeFilter is ChatFilter.All)
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                else
+                                    MaterialTheme.colorScheme.onPrimaryContainer,
+                            )
+                            Text(
+                                activeFilterLabel,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (activeFilter is ChatFilter.All)
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                else
+                                    MaterialTheme.colorScheme.onPrimaryContainer,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                if (filteredConversations.isEmpty()) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Text(
+                            "No matching chats.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        TextButton(onClick = {
+                            searchQuery = ""
+                            activeFilter = ChatFilter.All
+                        }) {
+                            Text("Clear filters")
+                        }
+                    }
+                } else {
+                    LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                        items(filteredConversations, key = { it.id }) { conv ->
+                            ConversationRow(conv = conv, onOpenChat = onOpenChat)
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        }
+                    }
+                }
             }
-            LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                items(filteredConversations, key = { it.id }) { conv ->
-                    val badge = conv.agent_name ?: conv.project_name ?: ""
-                    val preview = conv.last_message ?: ""
+        }
+    }
+}
+
+@Composable
+private fun ConversationRow(
+    conv: io.nexy.android.data.model.Conversation,
+    onOpenChat: (String) -> Unit,
+) {
+    val preview = conv.last_message ?: ""
+    Surface(
+        modifier = Modifier.fillMaxWidth().clickable { onOpenChat(conv.id) },
+        color = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = conv.title.ifBlank { "Untitled" },
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = timeAgo(conv.updated_at.toLongOrNull() ?: 0L),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
+            Row(
+                modifier = Modifier.padding(top = 3.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val contextParts = listOfNotNull(
+                    conv.agent_name?.takeIf { it.isNotBlank() }?.let { "Agent: $it" },
+                    conv.project_name?.takeIf { it.isNotBlank() }?.let { "Project: $it" },
+                )
+                Text(
+                    text = contextParts.joinToString(" · "),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (contextParts.isNotEmpty()) MaterialTheme.colorScheme.primary else Color.Transparent,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Text(
+                text = preview,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (preview.isNotEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else Color.Transparent,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun FilterSheetItem(
+    label: String,
+    selected: Boolean,
+    prefix: String? = null,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                if (prefix != null) {
+                    Text(
+                        prefix,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Text(
+                    label,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (selected) {
+                Text(
+                    "Selected",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
+        }
+    }
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+}
+
+@Composable
+private fun ProjectsTab(
+    projects: List<Project>,
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit,
+    onOpenProjectHistory: (String) -> Unit,
+) {
+    RefreshableContent(isRefreshing = isRefreshing, onRefresh = onRefresh) {
+        if (projects.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "No projects found.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                items(projects, key = { it.id }) { project ->
+                    val accentColor = projectColor(project.color)
                     Surface(
-                        modifier = Modifier.fillMaxWidth().clickable { onOpenChat(conv.id) },
+                        modifier = Modifier.fillMaxWidth().clickable { onOpenProjectHistory(project.id) },
                         color = MaterialTheme.colorScheme.surface,
                     ) {
-                        Column(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                        Row(
+                            modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
+                            Box(
+                                modifier = Modifier
+                                    .width(4.dp)
+                                    .fillMaxHeight()
+                                    .background(accentColor),
+                            )
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(3.dp),
                             ) {
                                 Text(
-                                    text = conv.title.ifBlank { "Untitled" },
+                                    text = project.name,
                                     style = MaterialTheme.typography.bodyLarge,
-                                    modifier = Modifier.weight(1f),
+                                    fontWeight = FontWeight.Medium,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
+                                val agentCount = project.agentIcons.size
+                                val chatCount = project.chatCount
+                                val subtitle = buildString {
+                                    append(if (agentCount == 0) "No agents" else "$agentCount agent${if (agentCount != 1) "s" else ""}")
+                                    append(" · ")
+                                    append(if (chatCount == 0) "No chats" else "$chatCount chat${if (chatCount != 1) "s" else ""}")
+                                }
                                 Text(
-                                    text = timeAgo(conv.updated_at.toLongOrNull() ?: 0L),
+                                    text = subtitle,
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(start = 8.dp),
                                 )
+                                if (project.agentIcons.isNotEmpty()) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        project.agentIcons.forEach { emoji ->
+                                            Text(
+                                                text = emoji,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                            )
+                                        }
+                                    }
+                                }
                             }
                             Text(
-                                text = badge,
+                                text = "View chats →",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = if (badge.isNotEmpty()) MaterialTheme.colorScheme.primary else Color.Transparent,
-                                modifier = Modifier.padding(top = 2.dp),
-                                maxLines = 1,
-                            )
-                            Text(
-                                text = preview,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (preview.isNotEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else Color.Transparent,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.padding(top = 2.dp),
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(end = 16.dp),
                             )
                         }
                     }
@@ -391,132 +838,113 @@ private fun ChatsTab(
 }
 
 @Composable
-private fun ProjectsTab(
-    projects: List<Project>,
-    onNewChatInProject: (String) -> Unit,
+private fun AgentsTab(
+    agents: List<Agent>,
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit,
+    onOpenAgentHistory: (String) -> Unit,
 ) {
-    if (projects.isEmpty()) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(
-                "No projects found.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    } else {
-        LazyColumn(modifier = Modifier.fillMaxSize()) {
-            items(projects, key = { it.id }) { project ->
-                val accentColor = projectColor(project.color)
-                Surface(
-                    modifier = Modifier.fillMaxWidth().clickable { onNewChatInProject(project.id) },
-                    color = MaterialTheme.colorScheme.surface,
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
-                        verticalAlignment = Alignment.CenterVertically,
+    RefreshableContent(isRefreshing = isRefreshing, onRefresh = onRefresh) {
+        if (agents.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "No agents found.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                items(agents, key = { it.id }) { agent ->
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().clickable { onOpenAgentHistory(agent.id) },
+                        color = MaterialTheme.colorScheme.surface,
                     ) {
-                        // Left color accent bar (like desktop)
-                        Box(
-                            modifier = Modifier
-                                .width(4.dp)
-                                .fillMaxHeight()
-                                .background(accentColor),
-                        )
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
-                            verticalArrangement = Arrangement.spacedBy(3.dp),
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
+                            if (agent.icon.isNotBlank()) {
+                                Text(
+                                    text = agent.icon,
+                                    style = MaterialTheme.typography.titleMedium,
+                                )
+                            }
                             Text(
-                                text = project.name,
+                                text = agent.name,
                                 style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.Medium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
                             )
-                            val agentCount = project.agentIcons.size
-                            val chatCount = project.chatCount
-                            val subtitle = buildString {
-                                append(if (agentCount == 0) "No agents" else "$agentCount agent${if (agentCount != 1) "s" else ""}")
-                                append(" · ")
-                                append(if (chatCount == 0) "No chats" else "$chatCount chat${if (chatCount != 1) "s" else ""}")
-                            }
                             Text(
-                                text = subtitle,
+                                text = "View chats →",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = MaterialTheme.colorScheme.primary,
                             )
-                            if (project.agentIcons.isNotEmpty()) {
-                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    project.agentIcons.forEach { emoji ->
-                                        Text(
-                                            text = emoji,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                        )
-                                    }
-                                }
-                            }
                         }
-                        Text(
-                            text = "New Chat →",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(end = 16.dp),
-                        )
                     }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             }
         }
     }
 }
 
 @Composable
-private fun AgentsTab(
-    agents: List<Agent>,
-    onNewChatWithAgent: (String) -> Unit,
+private fun RefreshableContent(
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit,
+    content: @Composable () -> Unit,
 ) {
-    if (agents.isEmpty()) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(
-                "No agents found.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+    var dragDistance by remember { mutableStateOf(0f) }
+    val threshold = 120f
+    val distanceFraction = (dragDistance / threshold).coerceAtMost(1.25f)
+    val label = when {
+        isRefreshing -> "Refreshing…"
+        distanceFraction >= 1f -> "Release to refresh"
+        distanceFraction > 0.08f -> "Pull to refresh"
+        else -> null
+    }
+
+    Column(
+        modifier = Modifier.fillMaxSize().pointerInput(onRefresh, isRefreshing) {
+            detectVerticalDragGestures(
+                onDragStart = { dragDistance = 0f },
+                onVerticalDrag = { _, dragAmount ->
+                    if (dragAmount > 0 && !isRefreshing) dragDistance += dragAmount
+                },
+                onDragEnd = {
+                    if (dragDistance >= threshold && !isRefreshing) onRefresh()
+                    dragDistance = 0f
+                },
+                onDragCancel = { dragDistance = 0f },
             )
-        }
-    } else {
-        LazyColumn(modifier = Modifier.fillMaxSize()) {
-            items(agents, key = { it.id }) { agent ->
-                Surface(
-                    modifier = Modifier.fillMaxWidth().clickable { onNewChatWithAgent(agent.id) },
-                    color = MaterialTheme.colorScheme.surface,
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        if (agent.icon.isNotBlank()) {
-                            Text(
-                                text = agent.icon,
-                                style = MaterialTheme.typography.titleMedium,
-                            )
-                        }
-                        Text(
-                            text = agent.name,
-                            style = MaterialTheme.typography.bodyLarge,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            text = "New Chat →",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    }
+        },
+    ) {
+        if (label != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 2.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (isRefreshing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp).padding(end = 4.dp),
+                        strokeWidth = 2.dp,
+                    )
                 }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
+        }
+        Box(modifier = Modifier.fillMaxSize()) {
+            content()
         }
     }
 }

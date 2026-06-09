@@ -4,6 +4,8 @@ import { safeHandle } from './safe-handle'
 import { getDatabase } from './database'
 import { abortActiveStream } from './providers'
 import { dispatchChatSend } from './chat-handlers'
+import { getCliModels } from './cli-detection'
+import { getCachedCatalog } from './model-catalog'
 import {
   startWsServer,
   stopWsServer,
@@ -20,7 +22,7 @@ export function registerApprovalResolver(fn: (requestId: string, approved: boole
 }
 
 export function registerWsHandlers(): void {
-  setWsCommandHandler((command, data) => {
+  setWsCommandHandler((command, data, reply) => {
     if (command === 'ping') return
 
     if (command === 'tool:approve' || command === 'tool:reject') {
@@ -35,11 +37,43 @@ export function registerWsHandlers(): void {
       return
     }
 
+    if (command === 'model:list') {
+      let backend = typeof data.backend === 'string' ? data.backend : undefined
+      const agentId = typeof data.agentId === 'string' ? data.agentId : undefined
+      if (!backend && agentId) {
+        const db = getDatabase()
+        const row = db.prepare("SELECT json_extract(config_json, '$.backend') AS backend FROM agents WHERE id = ?").get(agentId) as
+          | { backend: string | null }
+          | undefined
+        backend = row?.backend ?? undefined
+      }
+      const byId = new Map<string, { id: string; label: string; vendor?: string }>()
+      byId.set('default', { id: 'default', label: 'Default model' })
+
+      const models =
+        backend === 'codex-cli'
+          ? getCliModels('codex-cli').map((model) => ({ ...model, vendor: 'Codex CLI' }))
+          : backend === 'claude-cli'
+            ? getCliModels('claude-cli').map((model) => ({ ...model, vendor: 'Claude CLI' }))
+            : getCachedCatalog().map((model) => ({
+                id: model.id,
+                label: model.name,
+                vendor: model.vendor,
+              }))
+
+      for (const model of models) {
+        if (!byId.has(model.id)) byId.set(model.id, model)
+      }
+      reply({ event: 'model:list', data: { models: [...byId.values()] } })
+      return
+    }
+
     if (command === 'chat:send-message') {
       const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
       const content = typeof data.content === 'string' ? data.content : ''
       const model = typeof data.model === 'string' ? data.model : undefined
       const agentId = typeof data.agentId === 'string' ? data.agentId : undefined
+      const projectId = typeof data.projectId === 'string' ? data.projectId : undefined
       const rawImages = Array.isArray(data.images) ? data.images : []
       const images = rawImages.filter(
         (img): img is { id: string; name: string; dataUrl: string } =>
@@ -52,17 +86,17 @@ export function registerWsHandlers(): void {
       const wins = BrowserWindow.getAllWindows()
       if (wins.length === 0) return
       wins[0].webContents.send('chat:remote-message', { conversationId, content })
-      void dispatchChatSend(wins[0], conversationId, content, { model, agentId, images: images.length > 0 ? images : undefined })
+      void dispatchChatSend(wins[0], conversationId, content, { model, agentId, projectId, images: images.length > 0 ? images : undefined })
       return
     }
 
-    // Import broadcastToMobile lazily to avoid circular dep at module load time
-    void import('./ws-server').then(({ broadcastToMobile }) => {
-      const db = getDatabase()
+    const db = getDatabase()
 
-      if (command === 'conversation:list') {
-        const rows = db.prepare(`
+    if (command === 'conversation:list') {
+      const rows = db.prepare(`
           SELECT c.id, c.title, c.created_at, c.updated_at,
+            c.agent_id,
+            c.model,
             json_extract(a.config_json, '$.name') AS agent_name,
             json_extract(a.config_json, '$.icon') AS agent_icon,
             c.project_id,
@@ -74,12 +108,21 @@ export function registerWsHandlers(): void {
           ORDER BY c.updated_at DESC
           LIMIT 50
         `).all()
-        broadcastToMobile({ event: 'conversation:list', data: rows })
-        return
-      }
+      reply({ event: 'conversation:list', data: rows })
+      return
+    }
 
-      if (command === 'project:list') {
-        const rows = db.prepare(`
+    if (command === 'conversation:set-model') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+      const model = typeof data.model === 'string' && data.model !== 'default' ? data.model : null
+      if (!conversationId) return
+      db.prepare('UPDATE conversations SET model = ?, updated_at = ? WHERE id = ?').run(model, Date.now(), conversationId)
+      reply({ event: 'conversation:model-updated', data: { conversationId, model } })
+      return
+    }
+
+    if (command === 'project:list') {
+      const rows = db.prepare(`
           SELECT p.id, p.name, p.color,
             (SELECT COUNT(*) FROM conversations WHERE project_id = p.id) AS chat_count,
             (SELECT GROUP_CONCAT(NULLIF(json_extract(a.config_json, '$.icon'), ''), ',')
@@ -88,42 +131,46 @@ export function registerWsHandlers(): void {
              ORDER BY pa.sort_order ASC) AS agent_icons
           FROM projects p ORDER BY p.name ASC
         `).all()
-        broadcastToMobile({ event: 'project:list', data: { projects: rows } })
-        return
-      }
+      reply({ event: 'project:list', data: { projects: rows } })
+      return
+    }
 
-      if (command === 'conversation:get-messages') {
-        const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
-        if (!conversationId) return
-        const rows = db.prepare(
-          `SELECT id, role, content, model, timestamp FROM messages
+    if (command === 'conversation:get-messages') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+      if (!conversationId) return
+      const rows = db.prepare(
+        `SELECT id, role, content, model, timestamp FROM messages
            WHERE conversation_id = ? ORDER BY timestamp ASC`
-        ).all(conversationId)
-        broadcastToMobile({ event: 'conversation:messages', data: { conversationId, messages: rows } })
-        return
-      }
+      ).all(conversationId)
+      reply({ event: 'conversation:messages', data: { conversationId, messages: rows } })
+      return
+    }
 
-      if (command === 'agent:list') {
-        const rows = db.prepare(
-          `SELECT id, json_extract(config_json, '$.name') AS name, json_extract(config_json, '$.icon') AS icon FROM agents ORDER BY created_at ASC`
-        ).all()
-        broadcastToMobile({ event: 'agent:list', data: { agents: rows } })
-        return
-      }
+    if (command === 'agent:list') {
+      const rows = db.prepare(
+        `SELECT id,
+          json_extract(config_json, '$.name') AS name,
+          json_extract(config_json, '$.icon') AS icon,
+          json_extract(config_json, '$.backend') AS backend,
+          json_extract(config_json, '$.cliModel') AS cli_model
+         FROM agents ORDER BY created_at ASC`
+      ).all()
+      reply({ event: 'agent:list', data: { agents: rows } })
+      return
+    }
 
-      if (command === 'conversation:create') {
-        const agentId = typeof data.agentId === 'string' ? data.agentId : null
-        const projectId = typeof data.projectId === 'string' ? data.projectId : null
-        const title = typeof data.title === 'string' ? data.title : 'New Chat'
-        const id = randomUUID()
-        const now = Date.now()
-        db.prepare(
-          `INSERT INTO conversations (id, agent_id, project_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
-        ).run(id, agentId, projectId, title, now, now)
-        broadcastToMobile({ event: 'conversation:created', data: { id, agentId, projectId, title } })
-        return
-      }
-    })
+    if (command === 'conversation:create') {
+      const agentId = typeof data.agentId === 'string' ? data.agentId : null
+      const projectId = typeof data.projectId === 'string' ? data.projectId : null
+      const title = typeof data.title === 'string' ? data.title : 'New Chat'
+      const id = randomUUID()
+      const now = Date.now()
+      db.prepare(
+        `INSERT INTO conversations (id, agent_id, project_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
+      ).run(id, agentId, projectId, title, now, now)
+      reply({ event: 'conversation:created', data: { id, agentId, projectId, title } })
+      return
+    }
   })
 
   safeHandle('ws:start', async () => {

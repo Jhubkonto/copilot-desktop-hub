@@ -36,7 +36,7 @@ fun SettingsScreen(
     vm: SettingsViewModel = viewModel(),
 ) {
     val connectionState by vm.connectionState.collectAsState()
-    val savedUrl = vm.savedUrl
+    val savedEndpoint = vm.savedEndpoint
 
     Scaffold(
         topBar = {
@@ -86,7 +86,7 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        savedUrl?.substringBefore("?token=") ?: "Not configured",
+                        savedEndpoint ?: "Not configured",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                     )

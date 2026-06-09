@@ -3,18 +3,24 @@ package io.nexy.android.ui.home
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.nexy.android.data.WsClient
 import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.Agent
 import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.Project
 import io.nexy.android.data.model.WsEvent
-import io.nexy.android.notification.ApprovalNotificationManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
-class HomeViewModel(app: Application) : AndroidViewModel(app) {
+class HomeViewModel(
+    app: Application,
+    private val wsClient: WsClient,
+    private val approvalEffects: ApprovalEffects,
+) : AndroidViewModel(app) {
+
+    constructor(app: Application) : this(app, WsRepository, AndroidApprovalEffects(app))
 
     val connectionState: StateFlow<ConnectionState> = WsRepository.connectionState
     val conversations: StateFlow<List<Conversation>> = WsRepository.conversations
@@ -27,15 +33,27 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     private val _newConversationId = MutableStateFlow<String?>(null)
     val newConversationId: StateFlow<String?> = _newConversationId
 
+    private val _isRefreshingConversations = MutableStateFlow(false)
+    val isRefreshingConversations: StateFlow<Boolean> = _isRefreshingConversations
+
+    private val _isRefreshingAgents = MutableStateFlow(false)
+    val isRefreshingAgents: StateFlow<Boolean> = _isRefreshingAgents
+
+    private val _isRefreshingProjects = MutableStateFlow(false)
+    val isRefreshingProjects: StateFlow<Boolean> = _isRefreshingProjects
+
     init {
         viewModelScope.launch {
-            WsRepository.events.collect { event ->
+            wsClient.events.collect { event ->
                 when (event) {
                     is WsEvent.ToolApprovalRequest -> {
                         _pendingApproval.value = event
-                        ApprovalNotificationManager.show(getApplication(), event.requestId, event.toolName)
+                        approvalEffects.showApproval(event)
                     }
                     is WsEvent.ConversationCreated -> _newConversationId.value = event.id
+                    is WsEvent.ConversationList -> _isRefreshingConversations.value = false
+                    is WsEvent.AgentList -> _isRefreshingAgents.value = false
+                    is WsEvent.ProjectList -> _isRefreshingProjects.value = false
                     else -> {}
                 }
             }
@@ -44,15 +62,18 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun refreshConversations() {
-        WsRepository.send("conversation:list")
+        _isRefreshingConversations.value = true
+        wsClient.send("conversation:list", emptyMap())
     }
 
     fun requestAgents() {
-        WsRepository.send("agent:list")
+        _isRefreshingAgents.value = true
+        wsClient.send("agent:list", emptyMap())
     }
 
     fun requestProjects() {
-        WsRepository.send("project:list")
+        _isRefreshingProjects.value = true
+        wsClient.send("project:list", emptyMap())
     }
 
     fun createConversation(agentId: String? = null, projectId: String? = null) {
@@ -60,7 +81,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             if (agentId != null) put("agentId", agentId)
             if (projectId != null) put("projectId", projectId)
         }
-        WsRepository.send("conversation:create", data)
+        wsClient.send("conversation:create", data)
     }
 
     fun clearNewConversation() {
@@ -68,15 +89,17 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun approveRequest(requestId: String) {
-        WsRepository.send("tool:approve", mapOf("requestId" to requestId))
+        wsClient.send("tool:approve", mapOf("requestId" to requestId))
+        approvalEffects.vibrateDecision(approved = true)
         _pendingApproval.value = null
-        WsRepository.cancelApprovalNotification()
+        approvalEffects.cancelApproval()
     }
 
     fun rejectRequest(requestId: String) {
-        WsRepository.send("tool:reject", mapOf("requestId" to requestId))
+        wsClient.send("tool:reject", mapOf("requestId" to requestId))
+        approvalEffects.vibrateDecision(approved = false)
         _pendingApproval.value = null
-        WsRepository.cancelApprovalNotification()
+        approvalEffects.cancelApproval()
     }
 
     fun disconnect() {

@@ -2,11 +2,11 @@ package io.nexy.android.data
 
 import android.app.Application
 import android.app.NotificationManager
-import android.content.Context
 import io.nexy.android.data.model.Agent
 import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.Project
 import io.nexy.android.data.model.HistoryMessage
+import io.nexy.android.data.model.ModelOption
 import io.nexy.android.data.model.WsEvent
 import io.nexy.android.notification.ApprovalNotificationManager
 import kotlinx.coroutines.CoroutineScope
@@ -29,7 +29,7 @@ import java.util.concurrent.TimeUnit
 
 enum class ConnectionState { DISCONNECTED, CONNECTING, CONNECTED }
 
-object WsRepository {
+object WsRepository : WsClient {
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
@@ -45,7 +45,7 @@ object WsRepository {
     val lastError: StateFlow<String?> = _lastError
 
     private val _events = MutableSharedFlow<WsEvent>(extraBufferCapacity = 64)
-    val events: SharedFlow<WsEvent> = _events
+    override val events: SharedFlow<WsEvent> = _events
 
     private val _conversations = MutableStateFlow<List<Conversation>>(emptyList())
     val conversations: StateFlow<List<Conversation>> = _conversations
@@ -56,6 +56,9 @@ object WsRepository {
     private val _projects = MutableStateFlow<List<Project>>(emptyList())
     val projects: StateFlow<List<Project>> = _projects
 
+    private val _models = MutableStateFlow<List<ModelOption>>(emptyList())
+    val models: StateFlow<List<ModelOption>> = _models
+
     private var ws: WebSocket? = null
     private var currentUrl: String? = null
     private var currentToken: String? = null
@@ -64,39 +67,49 @@ object WsRepository {
     private val maxReconnects = 5
 
     private var app: Application? = null
+    private var pairedServerStore: PairedServerStore? = null
 
     fun init(application: Application) {
         app = application
-        val prefs = application.getSharedPreferences("nexy_prefs", Context.MODE_PRIVATE)
-        val savedUrl = prefs.getString("last_ws_url", null)
-        if (!savedUrl.isNullOrBlank()) {
-            val uri = android.net.Uri.parse(savedUrl)
-            val token = uri.getQueryParameter("token") ?: return
-            currentUrl = savedUrl
-            currentToken = token
-            doConnect(savedUrl, token)
+        pairedServerStore = runCatching { PairedServerStore(application) }
+            .onFailure { _lastError.value = it.message ?: "Unable to open secure pairing storage" }
+            .getOrNull()
+        pairedServerStore?.load()?.let { config ->
+            currentUrl = config.connectUrl
+            currentToken = config.token
+            if (!doConnect(config.connectUrl)) {
+                pairedServerStore?.clear()
+            }
         }
     }
 
-    fun connect(wsUrl: String, token: String) {
+    fun connect(config: PairedServerConfig) {
         reconnectJob?.cancel()
         ws?.cancel()
-        currentUrl = wsUrl
-        currentToken = token
+        currentUrl = config.connectUrl
+        currentToken = config.token
         reconnectAttempts = 0
-        doConnect(wsUrl, token)
+        doConnect(config.connectUrl)
     }
 
-    private fun doConnect(wsUrl: String, token: String) {
+    private fun doConnect(wsUrl: String): Boolean {
         _connectionState.value = ConnectionState.CONNECTING
-        val request = Request.Builder().url(wsUrl).build()
+        val request = runCatching { Request.Builder().url(wsUrl).build() }
+            .getOrElse {
+                _lastError.value = it.message ?: "Invalid WebSocket URL"
+                _connectionState.value = ConnectionState.DISCONNECTED
+                return false
+            }
         ws = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 reconnectAttempts = 0
                 _connectionState.value = ConnectionState.CONNECTED
                 _lastError.value = null
-                app?.getSharedPreferences("nexy_prefs", Context.MODE_PRIVATE)
-                    ?.edit()?.putString("last_ws_url", currentUrl)?.apply()
+                val endpoint = currentUrl?.substringBefore("?token=")
+                val token = currentToken
+                if (!endpoint.isNullOrBlank() && !token.isNullOrBlank()) {
+                    pairedServerStore?.save(PairedServerConfig(endpoint, token))
+                }
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -114,17 +127,18 @@ object WsRepository {
                 if (code != 4001 && code != 4002) scheduleReconnect()
             }
         })
+        return true
     }
 
     private fun scheduleReconnect() {
         val url = currentUrl ?: return
-        val token = currentToken ?: return
+        if (currentToken == null) return
         if (reconnectAttempts >= maxReconnects) return
         reconnectJob?.cancel()
         reconnectJob = scope.launch {
             delay(3_000L)
             reconnectAttempts++
-            doConnect(url, token)
+            doConnect(url)
         }
     }
 
@@ -138,15 +152,17 @@ object WsRepository {
         _conversations.value = emptyList()
         _agents.value = emptyList()
         _projects.value = emptyList()
+        _models.value = emptyList()
     }
 
     fun forgetServer() {
-        app?.getSharedPreferences("nexy_prefs", Context.MODE_PRIVATE)
-            ?.edit()?.remove("last_ws_url")?.apply()
+        pairedServerStore?.clear()
         disconnect()
     }
 
-    fun send(command: String, data: Map<String, Any> = emptyMap()) {
+    fun pairedServer(): PairedServerConfig? = pairedServerStore?.load()
+
+    override fun send(command: String, data: Map<String, Any>) {
         val token = currentToken ?: return
         val obj = JSONObject()
         obj.put("token", token)
@@ -204,6 +220,14 @@ object WsRepository {
                     conversationId = data?.optString("conversationId") ?: "",
                 )
 
+                "chat:activity" -> WsEvent.ChatActivity(
+                    conversationId = data?.optString("conversationId") ?: "",
+                    state = data?.optString("state") ?: "thinking",
+                    label = data?.optString("label") ?: "Assistant is thinking",
+                    toolName = data?.nullableString("toolName"),
+                    serverName = data?.nullableString("serverName"),
+                )
+
                 "conversation:list" -> {
                     val rows = when {
                         data != null && data.has("rows") -> data.optJSONArray("rows") ?: JSONArray()
@@ -217,10 +241,12 @@ object WsRepository {
                             title = row.optString("title"),
                             created_at = row.optString("created_at"),
                             updated_at = row.optString("updated_at"),
+                            agent_id = row.nullableString("agent_id"),
                             agent_name = row.nullableString("agent_name"),
                             agent_icon = row.nullableString("agent_icon"),
                             project_id = row.nullableString("project_id"),
                             project_name = row.nullableString("project_name"),
+                            model = row.nullableString("model"),
                             last_message = row.nullableString("last_message"),
                         )
                     }
@@ -246,6 +272,29 @@ object WsRepository {
                     WsEvent.ProjectList(list)
                 }
 
+                "model:list" -> {
+                    val modelsArray = data?.optJSONArray("models") ?: JSONArray()
+                    val list = (0 until modelsArray.length()).map { i ->
+                        val model = modelsArray.getJSONObject(i)
+                        ModelOption(
+                            id = model.optString("id"),
+                            label = model.optString("label"),
+                            vendor = model.nullableString("vendor"),
+                        )
+                    }
+                    _models.value = list
+                    WsEvent.ModelList(list)
+                }
+
+                "conversation:model-updated" -> {
+                    val conversationId = data?.optString("conversationId") ?: ""
+                    val model = data?.nullableString("model")
+                    _conversations.value = _conversations.value.map { conversation ->
+                        if (conversation.id == conversationId) conversation.copy(model = model) else conversation
+                    }
+                    WsEvent.ConversationModelUpdated(conversationId, model)
+                }
+
                 "conversation:messages" -> {
                     val conversationId = data?.optString("conversationId") ?: ""
                     val messagesArray = data?.optJSONArray("messages") ?: JSONArray()
@@ -265,7 +314,13 @@ object WsRepository {
                     val agentsArray = data?.optJSONArray("agents") ?: JSONArray()
                     val list = (0 until agentsArray.length()).map { i ->
                         val a = agentsArray.getJSONObject(i)
-                        Agent(id = a.optString("id"), name = a.optString("name"), icon = a.optString("icon", ""))
+                        Agent(
+                            id = a.optString("id"),
+                            name = a.optString("name"),
+                            icon = a.optString("icon", ""),
+                            backend = a.nullableString("backend"),
+                            cliModel = a.nullableString("cli_model"),
+                        )
                     }
                     _agents.value = list
                     WsEvent.AgentList(list)
