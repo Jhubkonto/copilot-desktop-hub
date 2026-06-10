@@ -2,10 +2,13 @@ import { BrowserWindow } from 'electron'
 import { randomUUID } from 'crypto'
 import { safeHandle } from './safe-handle'
 import { getDatabase } from './database'
-import { abortActiveStream } from './providers'
+import { abortActiveStream, PROVIDERS, isProviderConfigured } from './providers'
 import { dispatchChatSend } from './chat-handlers'
 import { getCliModels } from './cli-detection'
 import { getCachedCatalog } from './model-catalog'
+import { retrieveAuthMode } from './auth'
+import { ClaudeAdapter } from './cli-adapters/claude'
+import { CodexAdapter } from './cli-adapters/codex'
 import {
   startWsServer,
   stopWsServer,
@@ -50,16 +53,29 @@ export function registerWsHandlers(): void {
       const byId = new Map<string, { id: string; label: string; vendor?: string }>()
       byId.set('default', { id: 'default', label: 'Default model' })
 
+      const fallbackBackend =
+        !backend && retrieveAuthMode() === 'none'
+          ? (
+              ClaudeAdapter.isAvailable()
+                ? 'claude-cli'
+                : (CodexAdapter.isAvailable() ? 'codex-cli' : undefined)
+            )
+          : undefined
+      const resolvedBackend = backend ?? fallbackBackend
+      const catalogById = new Map(getCachedCatalog().map((model) => [model.id, model]))
+
       const models =
-        backend === 'codex-cli'
+        resolvedBackend === 'codex-cli'
           ? getCliModels('codex-cli').map((model) => ({ ...model, vendor: 'Codex CLI' }))
-          : backend === 'claude-cli'
+          : resolvedBackend === 'claude-cli'
             ? getCliModels('claude-cli').map((model) => ({ ...model, vendor: 'Claude CLI' }))
-            : getCachedCatalog().map((model) => ({
-                id: model.id,
-                label: model.name,
-                vendor: model.vendor,
-              }))
+            : PROVIDERS
+                .filter((provider) => isProviderConfigured(provider.name))
+                .flatMap((provider) => provider.models.map((model) => ({
+                  id: provider.name === 'azure' ? `azure:${model}` : model,
+                  label: catalogById.get(model)?.name ?? (provider.name === 'azure' ? `Azure ${model}` : model),
+                  vendor: provider.label,
+                })))
 
       for (const model of models) {
         if (!byId.has(model.id)) byId.set(model.id, model)

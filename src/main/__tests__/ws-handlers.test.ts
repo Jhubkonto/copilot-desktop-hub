@@ -53,14 +53,22 @@ vi.mock('electron', () => ({
 
 vi.mock('../providers', () => ({
   abortActiveStream: state.abortActiveStream,
+  PROVIDERS: [
+    { name: 'openai', label: 'OpenAI', models: ['gpt-5-mini'] },
+    { name: 'anthropic', label: 'Anthropic', models: ['claude-haiku-4.5'] },
+  ],
+  isProviderConfigured: vi.fn((provider: string) => provider === 'openai'),
+}))
+
+vi.mock('../model-catalog', () => ({
+  getCachedCatalog: vi.fn(() => [
+    { id: 'gpt-5-mini', name: 'GPT-5 mini', vendor: 'OpenAI' },
+    { id: 'claude-haiku-4.5', name: 'Claude Haiku 4.5', vendor: 'Anthropic' },
+  ]),
 }))
 
 vi.mock('../chat-handlers', () => ({
   dispatchChatSend: state.dispatchChatSend,
-}))
-
-vi.mock('../model-catalog', () => ({
-  getCachedCatalog: vi.fn(() => [{ id: 'gpt-5-mini', name: 'GPT-5 mini', vendor: 'OpenAI' }]),
 }))
 
 vi.mock('../cli-detection', () => ({
@@ -68,6 +76,18 @@ vi.mock('../cli-detection', () => ({
     ? [{ id: 'gpt-5.5', label: 'GPT-5.5' }]
     : [{ id: 'claude-sonnet-4.6', label: 'Claude Sonnet 4.6' }]
   ),
+}))
+
+vi.mock('../auth', () => ({
+  retrieveAuthMode: vi.fn(() => 'byok'),
+}))
+
+vi.mock('../cli-adapters/claude', () => ({
+  ClaudeAdapter: { isAvailable: vi.fn(() => false) },
+}))
+
+vi.mock('../cli-adapters/codex', () => ({
+  CodexAdapter: { isAvailable: vi.fn(() => false) },
 }))
 
 vi.mock('../ws-server', () => ({
@@ -80,6 +100,9 @@ vi.mock('../ws-server', () => ({
 }))
 
 import { registerWsHandlers, registerApprovalResolver } from '../ws-handlers'
+import { retrieveAuthMode } from '../auth'
+import { ClaudeAdapter } from '../cli-adapters/claude'
+import { CodexAdapter } from '../cli-adapters/codex'
 
 function sendCommand(command: string, data: Record<string, unknown> = {}) {
   if (!state.commandHandler) throw new Error('WS command handler not registered')
@@ -95,6 +118,9 @@ describe('ws handlers', () => {
     state.abortActiveStream.mockClear()
     state.dispatchChatSend.mockClear()
     state.webContentsSend.mockClear()
+    vi.mocked(retrieveAuthMode).mockReturnValue('byok')
+    vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(false)
+    vi.mocked(CodexAdapter.isAvailable).mockReturnValue(false)
     registerWsHandlers()
   })
 
@@ -178,7 +204,7 @@ describe('ws handlers', () => {
     expect(reply).not.toHaveBeenCalled()
   })
 
-  it('replies with catalog models when no mobile backend is provided', () => {
+  it('replies with configured BYOK provider models when no mobile backend is provided', () => {
     const reply = sendCommand('model:list')
 
     expect(reply).toHaveBeenCalledWith({
@@ -187,6 +213,23 @@ describe('ws handlers', () => {
         models: [
           { id: 'default', label: 'Default model' },
           { id: 'gpt-5-mini', label: 'GPT-5 mini', vendor: 'OpenAI' },
+        ],
+      },
+    })
+  })
+
+  it('falls back to installed Claude CLI models when no BYOK backend is active', () => {
+    vi.mocked(retrieveAuthMode).mockReturnValue('none')
+    vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(true)
+
+    const reply = sendCommand('model:list')
+
+    expect(reply).toHaveBeenCalledWith({
+      event: 'model:list',
+      data: {
+        models: [
+          { id: 'default', label: 'Default model' },
+          { id: 'claude-sonnet-4.6', label: 'Claude Sonnet 4.6', vendor: 'Claude CLI' },
         ],
       },
     })
