@@ -192,6 +192,26 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
     version: 20,
     sql: "ALTER TABLE conversation_summaries ADD COLUMN summary_json TEXT NOT NULL DEFAULT '{}'",
   },
+  {
+    version: 21,
+    sql: `
+      CREATE TABLE IF NOT EXISTS build_records (
+        id TEXT PRIMARY KEY,
+        workspace_path TEXT NOT NULL,
+        commit_sha TEXT,
+        branch TEXT,
+        version TEXT,
+        platform TEXT NOT NULL,
+        command TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'running',
+        exit_code INTEGER,
+        artifact_paths TEXT,
+        log_tail TEXT,
+        started_at INTEGER NOT NULL,
+        finished_at INTEGER
+      )
+    `,
+  },
 ];
 
 

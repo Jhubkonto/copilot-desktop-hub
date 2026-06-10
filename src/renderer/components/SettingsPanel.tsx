@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { X, Sun, Moon, Plug, Settings, Cpu, Shield, Smartphone, RefreshCw, Terminal, BookOpen, Plus, Trash2 } from 'lucide-react'
+import { Sun, Moon, Plug, Settings, Cpu, Shield, Smartphone, RefreshCw, Terminal, BookOpen, Plus, Trash2, Wrench, CheckCircle, AlertTriangle, XCircle } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import { getAvailableModelIds, getModelLabel } from '../../shared/models'
-import type { PromptLibraryEntry, PromptLibraryInput, PromptLibraryVersion } from '../../shared/types'
+import type { BuildCommandName, BuildRecord, BuildStatus, PreflightCheck, PromptLibraryEntry, PromptLibraryInput, PromptLibraryVersion, WorkspaceInfo } from '../../shared/types'
 import { extractPromptVariables } from '../../shared/prompt-variables'
+import { ModalShell, SelectField, TextareaField, TextField } from './ui/primitives'
 
 interface ProviderInfo {
   name: string
@@ -12,7 +13,7 @@ interface ProviderInfo {
   configured: boolean
 }
 
-type SettingsCategory = 'general' | 'providers' | 'cli' | 'mobile' | 'prompts'
+type SettingsCategory = 'general' | 'providers' | 'cli' | 'mobile' | 'prompts' | 'developer'
 
 const NAV_ITEMS: { id: SettingsCategory; label: string; icon: React.ReactNode }[] = [
   { id: 'general',   label: 'General',       icon: <Settings className="w-3.5 h-3.5" /> },
@@ -20,6 +21,7 @@ const NAV_ITEMS: { id: SettingsCategory; label: string; icon: React.ReactNode }[
   { id: 'cli',       label: 'CLI Tools',     icon: <Terminal className="w-3.5 h-3.5" /> },
   { id: 'prompts',   label: 'Prompts',       icon: <BookOpen className="w-3.5 h-3.5" /> },
   { id: 'mobile',    label: 'Mobile',        icon: <Smartphone className="w-3.5 h-3.5" /> },
+  { id: 'developer', label: 'Developer',     icon: <Wrench className="w-3.5 h-3.5" /> },
 ]
 
 const EMPTY_PROMPT_DRAFT: PromptLibraryInput = {
@@ -93,6 +95,18 @@ export function SettingsPanel() {
   const [mobileClients, setMobileClients] = useState(0)
   const [mobileLoading, setMobileLoading] = useState(false)
   const [mobileLocalIp, setMobileLocalIp] = useState('')
+
+  // Developer / build orchestrator state
+  const [workspaceInfo, setWorkspaceInfo] = useState<WorkspaceInfo | null>(null)
+  const [workspacePathInput, setWorkspacePathInput] = useState('')
+  const [buildRecords, setBuildRecords] = useState<BuildRecord[]>([])
+  const [activeBuildId, setActiveBuildId] = useState<string | null>(null)
+  const [activeBuildCommand, setActiveBuildCommand] = useState<BuildCommandName | null>(null)
+  const [buildLogLines, setBuildLogLines] = useState<string[]>([])
+  const [preflightChecks, setPreflightChecks] = useState<PreflightCheck[] | null>(null)
+  const [preflightRunning, setPreflightRunning] = useState(false)
+  const [lastBuildStatus, setLastBuildStatus] = useState<BuildStatus | null>(null)
+  const [launchDevError, setLaunchDevError] = useState<string | null>(null)
 
   // Prompt library state
   const [prompts, setPrompts] = useState<PromptLibraryEntry[]>([])
@@ -300,6 +314,36 @@ export function SettingsPanel() {
     if (visible && category === 'mobile') void refreshMobileStatus()
   }, [visible, category, refreshMobileStatus])
 
+  const refreshWorkspaceInfo = useCallback(async () => {
+    const info = await window.api.buildGetWorkspaceInfo()
+    setWorkspaceInfo(info)
+    setWorkspacePathInput(info.path)
+  }, [])
+
+  useEffect(() => {
+    if (!visible || category !== 'developer') return
+    void refreshWorkspaceInfo()
+    window.api.buildGetRecords(5).then(setBuildRecords).catch(() => {})
+  }, [visible, category, refreshWorkspaceInfo])
+
+  useEffect(() => {
+    if (!visible) return
+    const offChunk = window.api.onBuildLogChunk(({ buildId, line }) => {
+      if (buildId === activeBuildId || activeBuildId === null) {
+        setBuildLogLines((prev) => [...prev.slice(-299), line])
+      }
+    })
+    const offDone = window.api.onBuildCommandDone(({ buildId, status }) => {
+      if (buildId === activeBuildId || activeBuildId === null) {
+        setActiveBuildId(null)
+        setActiveBuildCommand(null)
+        setLastBuildStatus(status)
+        window.api.buildGetRecords(5).then(setBuildRecords).catch(() => {})
+      }
+    })
+    return () => { offChunk(); offDone() }
+  }, [visible, activeBuildId])
+
   const handleMobileToggle = async () => {
     setMobileLoading(true)
     try {
@@ -333,6 +377,45 @@ export function SettingsPanel() {
     } finally {
       setMobileLoading(false)
     }
+  }
+
+  const handleSaveWorkspacePath = async () => {
+    const info = await window.api.buildSetWorkspacePath(workspacePathInput.trim())
+    setWorkspaceInfo(info)
+    addToast('Workspace path saved', 'success')
+  }
+
+  const handleRunBuildCommand = async (cmd: BuildCommandName) => {
+    setBuildLogLines([])
+    setActiveBuildCommand(cmd)
+    const { buildId } = await window.api.buildStartCommand(cmd)
+    setActiveBuildId(buildId)
+  }
+
+  const handleCancelBuild = async () => {
+    if (!activeBuildId) return
+    await window.api.buildCancelCommand(activeBuildId)
+    setActiveBuildId(null)
+    setActiveBuildCommand(null)
+    window.api.buildGetRecords(5).then(setBuildRecords).catch(() => {})
+  }
+
+  const handleRunPreflight = async () => {
+    setPreflightRunning(true)
+    try {
+      const result = await window.api.buildRunPreflight()
+      setPreflightChecks(result.checks)
+    } catch {
+      addToast('Preflight check failed', 'error')
+    } finally {
+      setPreflightRunning(false)
+    }
+  }
+
+  const handleLaunchDev = async () => {
+    setLaunchDevError(null)
+    const result = await window.api.buildLaunchDev()
+    if (!result.launched) setLaunchDevError(result.error ?? 'Failed to launch')
   }
 
   const handleAutoStartToggle = async () => {
@@ -411,19 +494,13 @@ export function SettingsPanel() {
   if (!visible) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-label="Settings" onClick={onClose}>
-      <div className="w-full max-w-5xl bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col" style={{ height: '84vh' }} onClick={(e) => e.stopPropagation()}>
-
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 dark:border-gray-700 shrink-0">
-          <h2 className="text-sm font-medium text-gray-800 dark:text-gray-100">Settings</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700" aria-label="Close settings">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Two-panel body */}
-        <div className="flex flex-1 overflow-hidden">
+    <ModalShell
+      title="Settings"
+      ariaLabel="Settings"
+      maxWidth="max-w-5xl"
+      bodyClassName="flex flex-1 overflow-hidden"
+      onClose={onClose}
+    >
 
           {/* Left navigation */}
           <nav className="w-44 shrink-0 border-r border-gray-200 dark:border-gray-700 py-2 flex flex-col gap-0.5 px-2" aria-label="Settings navigation">
@@ -900,81 +977,53 @@ export function SettingsPanel() {
 
                   <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 overflow-y-auto space-y-3">
                     <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                          Title
-                        </label>
-                        <input
+                      <TextField
+                          label="Title"
                           value={promptDraft.title}
                           onChange={(e) => setPromptDraft((draft) => ({ ...draft, title: e.target.value }))}
-                          className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                           placeholder="Code review checklist"
                         />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                          Category
-                        </label>
-                        <input
+                      <TextField
+                          label="Category"
                           value={promptDraft.category ?? ''}
                           onChange={(e) => setPromptDraft((draft) => ({ ...draft, category: e.target.value }))}
-                          className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                           placeholder="Coding"
                         />
-                      </div>
                     </div>
 
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                        Description
-                      </label>
-                      <input
+                    <TextField
+                        label="Description"
                         value={promptDraft.description ?? ''}
                         onChange={(e) => setPromptDraft((draft) => ({ ...draft, description: e.target.value }))}
-                        className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                         placeholder="Short note about when to use this prompt"
                       />
-                    </div>
 
                     <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                          Scope
-                        </label>
-                        <select
+                      <SelectField
+                          label="Scope"
                           value={promptDraft.scope ?? 'global'}
                           onChange={(e) => setPromptDraft((draft) => ({
                             ...draft,
                             scope: e.target.value === 'project' ? 'project' : 'global',
                             project_id: e.target.value === 'project' ? (projectId ?? null) : null,
                           }))}
-                          className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                         >
                           <option value="global">Available everywhere</option>
                           <option value="project" disabled={!projectId}>{activeProject?.name ? `Project: ${activeProject.name}` : 'Project prompt'}</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                          Tags
-                        </label>
-                        <input
+                        </SelectField>
+                      <TextField
+                          label="Tags"
                           value={promptTagInput}
                           onChange={(e) => setPromptTagInput(e.target.value)}
-                          className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                           placeholder="review, typescript"
                         />
-                      </div>
                     </div>
 
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                        Prompt
-                      </label>
-                      <textarea
+                    <TextareaField
+                        label="Prompt"
                         value={promptDraft.body}
                         onChange={(e) => setPromptDraft((draft) => ({ ...draft, body: e.target.value }))}
-                        className="w-full min-h-[300px] px-3 py-2 text-sm leading-6 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
+                        className="min-h-[300px]"
                         placeholder="Write the reusable prompt..."
                       />
                       {promptVariables.length > 0 && (
@@ -989,7 +1038,6 @@ export function SettingsPanel() {
                           ))}
                         </div>
                       )}
-                    </div>
 
                     <div className="flex items-center justify-between pt-1">
                       <button
@@ -1173,9 +1221,177 @@ export function SettingsPanel() {
                 )}
               </>
             )}
+
+            {category === 'developer' && (
+              <>
+                <div>
+                  <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Developer</p>
+                  <p className="text-xs text-gray-500 mt-0.5">Build, test, and package the app from within Nexy.</p>
+                </div>
+
+                {/* Workspace */}
+                <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Workspace</p>
+                    <button
+                      onClick={() => void refreshWorkspaceInfo()}
+                      className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex items-center gap-1"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      Refresh
+                    </button>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={workspacePathInput}
+                      onChange={(e) => setWorkspacePathInput(e.target.value)}
+                      className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <button
+                      onClick={() => void handleSaveWorkspacePath()}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 font-medium"
+                    >
+                      Save
+                    </button>
+                  </div>
+                  {workspaceInfo && (
+                    <div className="flex flex-wrap gap-1.5 text-xs">
+                      {workspaceInfo.isGitRepo ? (
+                        <>
+                          <span className="px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-mono">
+                            {workspaceInfo.branch ?? '(detached)'}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 font-mono">
+                            {workspaceInfo.commitSha ?? '—'}
+                          </span>
+                          {workspaceInfo.dirty && (
+                            <span className="px-2 py-0.5 rounded-full bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300">
+                              dirty
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-gray-400">Not a git repo</span>
+                      )}
+                      {workspaceInfo.version && (
+                        <span className="px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300">
+                          v{workspaceInfo.version}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Build actions */}
+                <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3">
+                  <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Build commands</p>
+                  <div className="flex flex-wrap gap-2">
+                    {(['typecheck', 'test', 'build', 'package'] as const).map((cmd) => (
+                      <button
+                        key={cmd}
+                        onClick={() => activeBuildId ? handleCancelBuild() : void handleRunBuildCommand(cmd)}
+                        disabled={!!activeBuildId && activeBuildCommand !== cmd}
+                        className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors disabled:opacity-40 ${
+                          activeBuildCommand === cmd
+                            ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-700'
+                            : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                        }`}
+                      >
+                        {activeBuildCommand === cmd ? `Cancel ${cmd}` : cmd}
+                      </button>
+                    ))}
+                  </div>
+                  {lastBuildStatus && !activeBuildId && (
+                    <p className={`text-xs ${lastBuildStatus === 'success' ? 'text-green-600 dark:text-green-400' : lastBuildStatus === 'cancelled' ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}`}>
+                      {lastBuildStatus === 'success' ? '✓ Completed successfully' : lastBuildStatus === 'cancelled' ? '⊘ Cancelled' : '✗ Failed'}
+                    </p>
+                  )}
+                </div>
+
+                {/* Live log */}
+                {buildLogLines.length > 0 && (
+                  <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                    <div className="px-3 py-1.5 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
+                      <p className="text-xs font-medium text-gray-500">Output {activeBuildId && <span className="text-blue-500 animate-pulse">● running</span>}</p>
+                    </div>
+                    <pre className="p-3 text-xs font-mono text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900/50 overflow-y-auto max-h-48 whitespace-pre-wrap break-words">
+                      {buildLogLines.join('\n')}
+                    </pre>
+                  </div>
+                )}
+
+                {/* Build history */}
+                {buildRecords.length > 0 && (
+                  <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                    <div className="px-3 py-1.5 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
+                      <p className="text-xs font-medium text-gray-500">Recent builds</p>
+                    </div>
+                    <div className="divide-y divide-gray-100 dark:divide-gray-700">
+                      {buildRecords.map((rec) => (
+                        <div key={rec.id} className="flex items-center gap-3 px-3 py-2 text-xs">
+                          <span className={`font-mono w-16 shrink-0 ${rec.status === 'success' ? 'text-green-600 dark:text-green-400' : rec.status === 'running' ? 'text-blue-500' : rec.status === 'cancelled' ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-500'}`}>
+                            {rec.status}
+                          </span>
+                          <span className="font-mono text-gray-700 dark:text-gray-300 w-20 shrink-0">{rec.command}</span>
+                          <span className="text-gray-400 font-mono truncate">{rec.branch ?? '—'}</span>
+                          {rec.finishedAt && (
+                            <span className="text-gray-400 ml-auto shrink-0">{Math.round((rec.finishedAt - rec.startedAt) / 1000)}s</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Preflight */}
+                <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Preflight checks</p>
+                    <button
+                      onClick={() => void handleRunPreflight()}
+                      disabled={preflightRunning}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50"
+                    >
+                      {preflightRunning ? 'Running...' : 'Run checks'}
+                    </button>
+                  </div>
+                  {preflightChecks && (
+                    <div className="space-y-1.5">
+                      {preflightChecks.map((check) => (
+                        <div key={check.label} className="flex items-start gap-2 text-xs">
+                          {check.status === 'ok' && <CheckCircle className="w-3.5 h-3.5 text-green-500 shrink-0 mt-px" />}
+                          {check.status === 'warn' && <AlertTriangle className="w-3.5 h-3.5 text-yellow-500 shrink-0 mt-px" />}
+                          {check.status === 'fail' && <XCircle className="w-3.5 h-3.5 text-red-500 shrink-0 mt-px" />}
+                          <div>
+                            <span className="font-medium text-gray-700 dark:text-gray-300">{check.label}</span>
+                            <span className="text-gray-400 ml-1.5">{check.detail}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Launch dev build */}
+                {lastBuildStatus === 'success' && (
+                  <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-2">
+                    <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Launch dev build</p>
+                    <p className="text-xs text-gray-500">Open the just-built app as a separate Electron process for smoke testing.</p>
+                    <button
+                      onClick={() => void handleLaunchDev()}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 font-medium"
+                    >
+                      Launch
+                    </button>
+                    {launchDevError && (
+                      <p className="text-xs text-red-500">{launchDevError}</p>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
           </div>
-        </div>
-      </div>
-    </div>
+    </ModalShell>
   )
 }

@@ -393,6 +393,48 @@ export interface WikiExtractionResult {
 }
 
 // ---------------------------------------------------------------------------
+// Build orchestrator
+// ---------------------------------------------------------------------------
+
+export type BuildCommandName = 'typecheck' | 'test' | 'build' | 'package'
+export type BuildStatus = 'running' | 'success' | 'failed' | 'cancelled'
+
+export interface WorkspaceInfo {
+  path: string
+  branch: string | null
+  commitSha: string | null
+  dirty: boolean
+  version: string | null
+  isGitRepo: boolean
+}
+
+export interface BuildRecord {
+  id: string
+  workspacePath: string
+  commitSha: string | null
+  branch: string | null
+  version: string | null
+  platform: string
+  command: BuildCommandName
+  status: BuildStatus
+  exitCode: number | null
+  artifactPaths: string[]
+  logTail: string
+  startedAt: number
+  finishedAt: number | null
+}
+
+export interface PreflightCheck {
+  label: string
+  status: 'ok' | 'warn' | 'fail'
+  detail: string
+}
+
+export interface PreflightResult {
+  checks: PreflightCheck[]
+}
+
+// ---------------------------------------------------------------------------
 // Prompt library
 // ---------------------------------------------------------------------------
 
@@ -736,6 +778,16 @@ export type IpcReturnMap = {
   'prompt:list': PromptLibraryEntry[]
   'prompt:rollback': PromptLibraryEntry
   'prompt:update': PromptLibraryEntry
+  // Build orchestrator
+  'build:get-workspace-info': WorkspaceInfo
+  'build:set-workspace-path': WorkspaceInfo
+  'build:start-command': { buildId: string }
+  'build:cancel-command': boolean
+  'build:get-records': BuildRecord[]
+  'build:run-preflight': PreflightResult
+  'build:launch-dev': { launched: boolean; error?: string }
+  'build:log-chunk': void
+  'build:command-done': void
   // WebSocket mobile companion
   'ws:start': { port: number; token: string; qrDataUrl: string | null }
   'ws:stop': boolean
@@ -945,6 +997,15 @@ export type IpcChannels =
   | 'wiki:extract-learnings'
   | 'wiki:list-entries'
   | 'wiki:update-entry'
+  | 'build:get-workspace-info'
+  | 'build:set-workspace-path'
+  | 'build:start-command'
+  | 'build:cancel-command'
+  | 'build:get-records'
+  | 'build:run-preflight'
+  | 'build:launch-dev'
+  | 'build:log-chunk'
+  | 'build:command-done'
   | 'ws:start'
   | 'ws:stop'
   | 'ws:status'

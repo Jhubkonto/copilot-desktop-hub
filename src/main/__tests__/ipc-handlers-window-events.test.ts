@@ -6,6 +6,7 @@ const { mockCacheExternalWindowLabel, mockConsumeSuppressFocusEvent } = vi.hoist
 }))
 
 vi.mock('electron', () => ({
+  app: { isPackaged: false, getPath: () => '/tmp' },
   BrowserWindow: vi.fn(),
   ipcMain: {
     handle: vi.fn(),
@@ -32,9 +33,11 @@ vi.mock('../file-handlers', () => ({
   listDirectoryEntries: vi.fn(),
 }))
 vi.mock('../system-handlers', () => ({ registerSystemHandlers: vi.fn() }))
+vi.mock('../build-handlers', () => ({ registerBuildHandlers: vi.fn() }))
 vi.mock('../agents', () => ({ registerAgentHandlers: vi.fn() }))
 vi.mock('../knowledge', () => ({ registerKnowledgeHandlers: vi.fn() }))
 vi.mock('../wiki-handlers', () => ({ registerWikiHandlers: vi.fn() }))
+vi.mock('../prompt-handlers', () => ({ registerPromptHandlers: vi.fn() }))
 vi.mock('../tools', () => ({ registerToolHandlers: vi.fn() }))
 vi.mock('../mcp', () => ({ registerMcpHandlers: vi.fn() }))
 vi.mock('../providers', () => ({ registerProviderHandlers: vi.fn() }))

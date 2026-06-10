@@ -1,5 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
+  BuildCommandName,
+  BuildRecord,
+  BuildStatus,
   CatalogModel,
   ConversationCompressionSaveInput,
   IpcChannels,
@@ -413,9 +416,29 @@ const api = {
   onNewChat: (callback: () => void) => {
     typedOn('chat:new', callback)
     return () => typedOff('chat:new', callback)
-  }
+  },
+
+  // Build orchestrator
+  buildGetWorkspaceInfo: () => typedInvoke('build:get-workspace-info'),
+  buildSetWorkspacePath: (path: string) => typedInvoke('build:set-workspace-path', path),
+  buildStartCommand: (cmd: BuildCommandName) => typedInvoke('build:start-command', cmd),
+  buildCancelCommand: (buildId: string) => typedInvoke('build:cancel-command', buildId),
+  buildGetRecords: (limit?: number) => typedInvoke('build:get-records', limit),
+  buildRunPreflight: () => typedInvoke('build:run-preflight'),
+  buildLaunchDev: () => typedInvoke('build:launch-dev'),
+  onBuildLogChunk: (callback: (data: { buildId: string; line: string; stream: 'stdout' | 'stderr' }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { buildId: string; line: string; stream: 'stdout' | 'stderr' }) => callback(data)
+    typedOn('build:log-chunk', handler)
+    return () => typedOff('build:log-chunk', handler)
+  },
+  onBuildCommandDone: (callback: (data: { buildId: string; status: BuildStatus; exitCode: number }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { buildId: string; status: BuildStatus; exitCode: number }) => callback(data)
+    typedOn('build:command-done', handler)
+    return () => typedOff('build:command-done', handler)
+  },
 }
 
 contextBridge.exposeInMainWorld('api', api)
 
 export type ElectronAPI = typeof api
+

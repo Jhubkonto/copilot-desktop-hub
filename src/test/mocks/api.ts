@@ -314,6 +314,31 @@ export function createMockApi() {
     onTeamStepStream: vi.fn().mockReturnValue(() => {}),
     onWikiInjected: vi.fn().mockReturnValue(() => {}),
 
+    // Build orchestrator
+    buildGetWorkspaceInfo: vi.fn().mockResolvedValue({
+      path: 'C:\\project',
+      branch: 'main',
+      commitSha: 'abc1234',
+      dirty: false,
+      version: '0.9.0',
+      isGitRepo: true,
+    }),
+    buildSetWorkspacePath: vi.fn().mockResolvedValue({
+      path: 'C:\\project',
+      branch: 'main',
+      commitSha: 'abc1234',
+      dirty: false,
+      version: '0.9.0',
+      isGitRepo: true,
+    }),
+    buildStartCommand: vi.fn().mockResolvedValue({ buildId: 'build-1' }),
+    buildCancelCommand: vi.fn().mockResolvedValue(true),
+    buildGetRecords: vi.fn().mockResolvedValue([]),
+    buildRunPreflight: vi.fn().mockResolvedValue({ checks: [] }),
+    buildLaunchDev: vi.fn().mockResolvedValue({ launched: true }),
+    onBuildLogChunk: vi.fn().mockReturnValue(() => {}),
+    onBuildCommandDone: vi.fn().mockReturnValue(() => {}),
+
     // Window controls
     minimizeWindow: vi.fn().mockResolvedValue(undefined),
     maximizeWindow: vi.fn().mockResolvedValue(undefined),
