@@ -58,6 +58,9 @@ vi.mock('../auth', () => ({ retrieveAuthMode: vi.fn(() => 'byok') }))
 vi.mock('../wiki-context', () => ({ getRelevantWikiEntries: vi.fn(() => []), formatWikiSection: vi.fn(() => '') }))
 vi.mock('../wiki-handlers', () => ({ insertWikiEntry: vi.fn() }))
 vi.mock('../tools', () => ({ requestApproval: vi.fn(), registerApprovalResolver: vi.fn() }))
+vi.mock('../context-compression', () => ({
+  applyRollingContextCompression: vi.fn((_db, _conversationId, messages) => ({ messages, summary: null })),
+}))
 vi.mock('../providers', () => ({
   DEFAULT_PROVIDER_MODEL: 'gpt-5-mini',
   NO_PROVIDER_CONFIGURED_MESSAGE: 'No provider configured. Add an API key in Settings.',

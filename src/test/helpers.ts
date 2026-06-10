@@ -1,7 +1,7 @@
 /**
  * Shared test helpers and factories.
  */
-import { render, type RenderOptions } from '@testing-library/react'
+import { render, type RenderOptions, type RenderResult } from '@testing-library/react'
 import { type ReactElement } from 'react'
 
 /**
@@ -74,6 +74,6 @@ export function createMockAgent(overrides: Record<string, unknown> = {}) {
 /**
  * Render helper — just re-exports render for now, can wrap with providers later.
  */
-export function renderComponent(ui: ReactElement, options?: RenderOptions) {
+export function renderComponent(ui: ReactElement, options?: RenderOptions): RenderResult {
   return render(ui, options)
 }
