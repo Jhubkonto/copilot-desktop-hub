@@ -16,6 +16,7 @@ export type RollingCompressionResult = {
     retainedMessageCount: number;
     estimatedTokensBefore: number;
     targetBudget: number;
+    structuredSummary: StructuredConversationSummary;
   } | null;
 };
 
@@ -267,6 +268,7 @@ export function applyRollingContextCompression(
       retainedMessageCount: retained.length,
       estimatedTokensBefore,
       targetBudget,
+      structuredSummary,
     },
   };
 }

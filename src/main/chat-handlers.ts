@@ -682,6 +682,19 @@ export async function dispatchChatSend(
         content: message.content,
       })) as ProviderMessage[];
 
+      // CCMP.7: inject relevant wiki entries into the restored context after compression
+      if (compressedContext.summary !== null && wikiProjectId && effectiveContextMessages.length > 0) {
+        const ss = compressedContext.summary.structuredSummary;
+        const wikiSearchQuery = [...ss.goals, ...ss.filesTouched, ...ss.decisions].join(" ");
+        const wikiEntries = getRelevantWikiEntries(db, wikiProjectId, wikiSearchQuery, 3);
+        if (wikiEntries.length > 0) {
+          effectiveContextMessages[0] = {
+            ...effectiveContextMessages[0],
+            content: `${effectiveContextMessages[0].content}\n\n${formatWikiSection(wikiEntries)}`,
+          };
+        }
+      }
+
       // Build the current user message content — include pasted images for vision-capable providers
       const buildVisionUserContent = (): MessageContentPart[] => {
         const parts: MessageContentPart[] = [
