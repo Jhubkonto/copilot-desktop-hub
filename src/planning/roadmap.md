@@ -465,7 +465,7 @@ The model can search the wiki as a tool mid-conversation.
 
 ---
 
-### v0.13.0 — In-App Build, Run, and Update Pipeline 🔲
+### v0.13.0 — In-App Build, Run, and Update Pipeline 🔶
 
 **Theme**: Let Nexy modify itself from inside the app, build installable artifacts, and offer those artifacts back as updates for the installed desktop and Android apps.
 
@@ -482,32 +482,32 @@ The model can search the wiki as a tool mid-conversation.
 
 | Task | Description | Status |
 |---|---|---|
-| UPD.1 | Add a "Developer Updates" settings panel showing workspace path, current git branch/commit, dirty state, installed app version, and last build status | 🔲 |
-| UPD.2 | Add safe build commands for desktop: typecheck, tests, package, and installer generation, with streamed logs into the app | 🔲 |
-| UPD.3 | Store build records in SQLite: commit SHA, artifact paths, test result summary, version, platform, timestamp, and status | 🔲 |
-| UPD.4 | Add explicit preflight checks before packaging: clean/dirty diff summary, required signing config, dependency install status, and minimum passing test set | 🔲 |
-| UPD.5 | Add "run dev build" action that launches the built app separately from the installed stable app for smoke testing | 🔲 |
+| UPD.1 | Add a "Developer Updates" settings panel showing workspace path, current git branch/commit, dirty state, installed app version, and last build status | ✅ |
+| UPD.2 | Add safe build commands for desktop: typecheck, tests, package, and installer generation, with streamed logs into the app | ✅ |
+| UPD.3 | Store build records in SQLite: commit SHA, artifact paths, test result summary, version, platform, timestamp, and status | ✅ |
+| UPD.4 | Add explicit preflight checks before packaging: clean/dirty diff summary, required signing config, dependency install status, and minimum passing test set | ✅ |
+| UPD.5 | Add "run dev build" action that launches the built app separately from the installed stable app for smoke testing | ✅ |
 
 #### Phase 2 — Desktop Self-Update Channel
 
 | Task | Description | Status |
 |---|---|---|
-| UPD.6 | Configure electron-builder update metadata for a local/private update channel, not only public release artifacts | 🔲 |
-| UPD.7 | Add a local update feed directory or small localhost update server that the installed desktop app can check | 🔲 |
-| UPD.8 | Add "publish local update" action that copies signed desktop artifacts and update metadata into the configured feed | 🔲 |
-| UPD.9 | Add installed-app update UI: check for update, show version/commit/changelog/test summary, download, install, restart | 🔲 |
-| UPD.10 | Add rollback support by retaining the previous installer/update package and exposing "reinstall previous version" | 🔲 |
+| UPD.6 | Configure electron-builder update metadata for a local/private update channel, not only public release artifacts | ✅ |
+| UPD.7 | Add a local update feed directory or small localhost update server that the installed desktop app can check | ✅ |
+| UPD.8 | Add "publish local update" action that copies signed desktop artifacts and update metadata into the configured feed | ✅ |
+| UPD.9 | Add installed-app update UI: check for update, show version/commit/changelog/test summary, download, install, restart | ✅ |
+| UPD.10 | Add rollback support by retaining the previous installer/update package and exposing "reinstall previous version" | ✅ |
 
 #### Phase 3 — Android Build and Distribution
 
 | Task | Description | Status |
 |---|---|---|
-| UPD.11 | Add Android build actions from desktop: unit tests, debug APK, release APK/App Bundle, and signed artifact generation | 🔲 |
-| UPD.12 | Store Android signing configuration outside source control and validate it before release builds | 🔲 |
-| UPD.13 | Add paired-device install flow for debug/internal APKs via ADB when the phone is connected and the user approves | 🔲 |
-| UPD.14 | Add Android update manifest served by desktop with version code, version name, commit SHA, changelog, checksum, and artifact URL | 🔲 |
-| UPD.15 | Android app checks the paired desktop for update metadata and opens the system package installer or configured distribution link when an update is available | 🔲 |
-| UPD.16 | Document production Android update path: Play Internal App Sharing / internal testing track / private distribution, because installed Android apps cannot silently self-patch | 🔲 |
+| UPD.11 | Add Android build actions from desktop: unit tests, debug APK, release APK/App Bundle, and signed artifact generation | ✅ |
+| UPD.12 | Store Android signing configuration outside source control and validate it before release builds | ✅ |
+| UPD.13 | Add paired-device install flow for debug/internal APKs via ADB when the phone is connected and the user approves | ✅ |
+| UPD.14 | Add Android update manifest served by desktop with version code, version name, commit SHA, changelog, checksum, and artifact URL | ✅ |
+| UPD.15 | Android app checks the paired desktop for update metadata and opens the system package installer or configured distribution link when an update is available | ✅ |
+| UPD.16 | Document production Android update path: Play Internal App Sharing / internal testing track / private distribution, because installed Android apps cannot silently self-patch | ✅ |
 
 #### Phase 4 — In-App Change Workflow
 

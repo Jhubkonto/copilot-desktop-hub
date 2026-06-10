@@ -141,6 +141,18 @@ Critical bugs identified during live testing:
 
 ---
 
+## v0.14 — Android Model & Settings Parity 🔶
+
+- ✅ **MSP.1 Model source indicator** — Android model picker shows whether options come from Claude CLI, Codex CLI, configured BYOK providers, or no configured backend
+- 🔲 **MSP.2 Mobile settings audit** — compare Android Settings against Desktop Settings and group missing controls by connection, models, notifications, appearance, and diagnostics
+- 🔲 **MSP.3 Model backend diagnostics** — show active agent/backend/default model context in Android chat and settings for easier troubleshooting
+- 🔲 **MSP.4 Notification controls** — mirror relevant desktop/mobile notification controls, including approval notification behavior and permission state
+- 🔲 **MSP.5 Appearance controls** — add Android theme override if desktop dark/light toggle work lands
+- 🔲 **MSP.6 Connection diagnostics** — show server profile, URL scheme, connected state, client version, and last error in one mobile diagnostics panel
+- 🔲 **MSP.7 Settings polish pass** — reorganize Android Settings into sections that mirror the desktop settings structure as closely as mobile constraints allow
+
+---
+
 ## Desktop Context Compression ✅
 
 - ✅ **CCMP.1 Rolling compression** — long conversations can persist a rolling deterministic summary plus recent turns
