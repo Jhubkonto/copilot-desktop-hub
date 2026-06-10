@@ -6,6 +6,7 @@ import io.nexy.android.data.model.Agent
 import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.Project
 import io.nexy.android.data.model.HistoryMessage
+import io.nexy.android.data.model.ModelListSource
 import io.nexy.android.data.model.ModelOption
 import io.nexy.android.data.model.WsEvent
 import io.nexy.android.notification.ApprovalNotificationManager
@@ -58,6 +59,9 @@ object WsRepository : WsClient {
 
     private val _models = MutableStateFlow<List<ModelOption>>(emptyList())
     val models: StateFlow<List<ModelOption>> = _models
+
+    private val _modelSource = MutableStateFlow<ModelListSource?>(null)
+    val modelSource: StateFlow<ModelListSource?> = _modelSource
 
     private val _profiles = MutableStateFlow<List<PairedServerProfile>>(emptyList())
     val profiles: StateFlow<List<PairedServerProfile>> = _profiles
@@ -163,6 +167,7 @@ object WsRepository : WsClient {
         _agents.value = emptyList()
         _projects.value = emptyList()
         _models.value = emptyList()
+        _modelSource.value = null
     }
 
     fun forgetServer() {
@@ -302,6 +307,7 @@ object WsRepository : WsClient {
 
                 "model:list" -> {
                     val modelsArray = data?.optJSONArray("models") ?: JSONArray()
+                    val sourceObject = data?.optJSONObject("source")
                     val list = (0 until modelsArray.length()).map { i ->
                         val model = modelsArray.getJSONObject(i)
                         ModelOption(
@@ -311,7 +317,15 @@ object WsRepository : WsClient {
                         )
                     }
                     _models.value = list
-                    WsEvent.ModelList(list)
+                    val source = sourceObject?.let {
+                        ModelListSource(
+                            type = it.optString("type"),
+                            label = it.optString("label"),
+                            backend = it.nullableString("backend"),
+                        )
+                    }
+                    _modelSource.value = source
+                    WsEvent.ModelList(list, source)
                 }
 
                 "conversation:model-updated" -> {

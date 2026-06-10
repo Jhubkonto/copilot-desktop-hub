@@ -210,6 +210,7 @@ describe('ws handlers', () => {
     expect(reply).toHaveBeenCalledWith({
       event: 'model:list',
       data: {
+        source: { type: 'provider', label: 'Configured OpenAI models' },
         models: [
           { id: 'default', label: 'Default model' },
           { id: 'gpt-5-mini', label: 'GPT-5 mini', vendor: 'OpenAI' },
@@ -227,6 +228,7 @@ describe('ws handlers', () => {
     expect(reply).toHaveBeenCalledWith({
       event: 'model:list',
       data: {
+        source: { type: 'cli', label: 'Claude CLI models', backend: 'claude-cli' },
         models: [
           { id: 'default', label: 'Default model' },
           { id: 'claude-sonnet-4.6', label: 'Claude Sonnet 4.6', vendor: 'Claude CLI' },
@@ -241,6 +243,7 @@ describe('ws handlers', () => {
     expect(reply).toHaveBeenCalledWith({
       event: 'model:list',
       data: {
+        source: { type: 'cli', label: 'Codex CLI models', backend: 'codex-cli' },
         models: [
           { id: 'default', label: 'Default model' },
           { id: 'gpt-5.5', label: 'GPT-5.5', vendor: 'Codex CLI' },
@@ -255,6 +258,7 @@ describe('ws handlers', () => {
     expect(reply).toHaveBeenCalledWith({
       event: 'model:list',
       data: {
+        source: { type: 'cli', label: 'Codex CLI models', backend: 'codex-cli' },
         models: [
           { id: 'default', label: 'Default model' },
           { id: 'gpt-5.5', label: 'GPT-5.5', vendor: 'Codex CLI' },
@@ -269,6 +273,7 @@ describe('ws handlers', () => {
     expect(reply).toHaveBeenCalledWith({
       event: 'model:list',
       data: {
+        source: { type: 'cli', label: 'Claude CLI models', backend: 'claude-cli' },
         models: [
           { id: 'default', label: 'Default model' },
           { id: 'claude-sonnet-4.6', label: 'Claude Sonnet 4.6', vendor: 'Claude CLI' },

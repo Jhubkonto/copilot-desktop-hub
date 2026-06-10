@@ -119,6 +119,7 @@ fun ChatScreen(
     val agents by WsRepository.agents.collectAsState()
     val projects by WsRepository.projects.collectAsState()
     val models by WsRepository.models.collectAsState()
+    val modelSource by WsRepository.modelSource.collectAsState()
     val conversation = conversations.find { it.id == conversationId }
     val title = conversation?.title?.ifBlank { null } ?: "Chat"
     val chatAgentId = conversation?.agent_id ?: agentId
@@ -201,6 +202,14 @@ fun ChatScreen(
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
             )
+            modelSource?.let { source ->
+                Text(
+                    source.label,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 12.dp),
+                )
+            }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             val modelOptions = if (models.isNotEmpty()) models else listOf(io.nexy.android.data.model.ModelOption("default", "Default model"))
             modelOptions.forEach { model ->

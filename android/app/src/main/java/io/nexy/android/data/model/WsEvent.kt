@@ -23,7 +23,7 @@ sealed class WsEvent {
     ) : WsEvent()
     data class AgentList(val agents: List<Agent>) : WsEvent()
     data class ProjectList(val projects: List<Project>) : WsEvent()
-    data class ModelList(val models: List<ModelOption>) : WsEvent()
+    data class ModelList(val models: List<ModelOption>, val source: ModelListSource?) : WsEvent()
     data class ConversationModelUpdated(val conversationId: String, val model: String?) : WsEvent()
     data class ConversationCreated(
         val id: String,

@@ -19,3 +19,9 @@ data class ModelOption(
     val label: String,
     val vendor: String? = null,
 )
+
+data class ModelListSource(
+    val type: String,
+    val label: String,
+    val backend: String? = null,
+)

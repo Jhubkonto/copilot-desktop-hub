@@ -63,14 +63,25 @@ export function registerWsHandlers(): void {
           : undefined
       const resolvedBackend = backend ?? fallbackBackend
       const catalogById = new Map(getCachedCatalog().map((model) => [model.id, model]))
+      const configuredProviders = PROVIDERS.filter((provider) => isProviderConfigured(provider.name))
+      const source =
+        resolvedBackend === 'codex-cli'
+          ? { type: 'cli', label: 'Codex CLI models', backend: 'codex-cli' }
+          : resolvedBackend === 'claude-cli'
+            ? { type: 'cli', label: 'Claude CLI models', backend: 'claude-cli' }
+            : configuredProviders.length > 0
+              ? {
+                  type: 'provider',
+                  label: `Configured ${configuredProviders.map((provider) => provider.label).join(', ')} models`,
+                }
+              : { type: 'none', label: 'No configured model backend' }
 
       const models =
         resolvedBackend === 'codex-cli'
           ? getCliModels('codex-cli').map((model) => ({ ...model, vendor: 'Codex CLI' }))
           : resolvedBackend === 'claude-cli'
             ? getCliModels('claude-cli').map((model) => ({ ...model, vendor: 'Claude CLI' }))
-            : PROVIDERS
-                .filter((provider) => isProviderConfigured(provider.name))
+            : configuredProviders
                 .flatMap((provider) => provider.models.map((model) => ({
                   id: provider.name === 'azure' ? `azure:${model}` : model,
                   label: catalogById.get(model)?.name ?? (provider.name === 'azure' ? `Azure ${model}` : model),
@@ -80,7 +91,7 @@ export function registerWsHandlers(): void {
       for (const model of models) {
         if (!byId.has(model.id)) byId.set(model.id, model)
       }
-      reply({ event: 'model:list', data: { models: [...byId.values()] } })
+      reply({ event: 'model:list', data: { models: [...byId.values()], source } })
       return
     }
 
