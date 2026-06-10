@@ -1,6 +1,6 @@
 # Nexy — Product Roadmap
 
-> **Last updated:** 2026-06-08 (v0.9.0)
+> **Last updated:** 2026-06-10 (v0.9.0)
 > **Status:** Living document  
 > **Related:** [`architecture-overview.md`](./architecture-overview.md)
 
@@ -352,7 +352,7 @@ The model can search the wiki as a tool mid-conversation.
 
 ---
 
-### v0.9.0 — Android Remote Dispatcher 🔲 _(In progress — desktop WebSocket server complete 2026-06-02)_
+### v0.9.0 — Android Remote Dispatcher ✅ _(Released: 2026-06-10; relay mode deferred)_
 
 **Theme**: A companion Android app (Kotlin + Jetpack Compose) that connects to the desktop over local WiFi, lets the user approve or reject tool calls remotely, monitor live agent output, and trigger new conversations — so long-running agentic tasks can run unattended while the user stays in control from their phone.
 
@@ -391,15 +391,15 @@ The model can search the wiki as a tool mid-conversation.
 | AR.5 | Event push: `tool:approval-request`, `chat:stream-chunk`, `chat:stream-end`, `conversation:list` | ✅ |
 | AR.6 | Command receive: `tool:approve`, `tool:reject`, `chat:send-message` (calls `dispatchChatSend` directly), `agent:stop` | ✅ |
 
-**Phase 2 — Android companion app** 🔲 _(Next up — repo: `nexy-android`, Kotlin + Jetpack Compose + OkHttp)_
+**Phase 2 — Android companion app** ✅
 
 | Task | Description | Status |
 |---|---|---|
-| AR.7 | Android project (`nexy-android`); OkHttp WS client with auto-reconnect and background service | 🔲 |
-| AR.8 | QR scan pairing screen; stores endpoint + token in `EncryptedSharedPreferences` | 🔲 |
-| AR.9 | Live approval screen: shows tool name, args; Approve / Reject buttons with haptic feedback | 🔲 |
-| AR.10 | Conversation list + live streaming view (Markdown rendered, auto-scroll) | 🔲 |
-| AR.11 | Push notification via `NotificationManager` (no FCM) when approval arrives while backgrounded | 🔲 |
+| AR.7 | Android project (`nexy-android`); OkHttp WS client with auto-reconnect and background service | ✅ |
+| AR.8 | QR scan pairing screen; stores endpoint + token in `EncryptedSharedPreferences` | ✅ |
+| AR.9 | Live approval screen: shows tool name, args; Approve / Reject buttons with haptic feedback | ✅ |
+| AR.10 | Conversation list + live streaming view (Markdown rendered, auto-scroll) | ✅ |
+| AR.11 | Push notification via `NotificationManager` (no FCM) when approval arrives while backgrounded | ✅ |
 
 **Phase 3 — Relay mode (optional, opt-in)**
 
@@ -411,7 +411,7 @@ The model can search the wiki as a tool mid-conversation.
 
 ---
 
-### v0.10.0 — Prompt Management 🔲
+### v0.10.0 — Prompt Management 🔶
 
 **Theme**: Treat prompts as reusable, versioned project assets instead of one-off text copied between conversations.
 
@@ -419,18 +419,18 @@ The model can search the wiki as a tool mid-conversation.
 
 | Task | Description | Status |
 |---|---|---|
-| PM.1 | Prompt library with categories for coding prompts, support prompts, report generation prompts, and custom collections | 🔲 |
-| PM.2 | Prompt editor with title, body, description, tags, project scope, and global scope | 🔲 |
-| PM.3 | Prompt variables using `{{variable}}` syntax, e.g. `Analyze {{repository}}` or `Generate report for {{customer}}` | 🔲 |
-| PM.4 | Variable resolver UI before insertion or execution, with remembered defaults per project where appropriate | 🔲 |
-| PM.5 | Prompt version history: track edits, author/source, timestamp, and diff between versions | 🔲 |
-| PM.6 | Rollback to any previous prompt version | 🔲 |
-| PM.7 | Lightweight performance tracking: usage count, accepted/rejected outcomes, manual rating, and notes | 🔲 |
-| PM.8 | Insert prompt into composer, run prompt against current project context, or attach prompt as an agent instruction block | 🔲 |
+| PM.1 | Prompt library with categories for coding prompts, support prompts, report generation prompts, and custom collections | ✅ |
+| PM.2 | Prompt editor with title, body, description, tags, project scope, and global scope | ✅ |
+| PM.3 | Prompt variables using `{{variable}}` syntax, e.g. `Analyze {{repository}}` or `Generate report for {{customer}}` | ✅ |
+| PM.4 | Variable resolver UI before insertion or execution, with remembered defaults per project where appropriate | ✅ |
+| PM.5 | Prompt version history: track edits, author/source, timestamp, and diff between versions | ✅ |
+| PM.6 | Rollback to any previous prompt version | ✅ |
+| PM.7 | Lightweight performance tracking: usage count, accepted/rejected outcomes, manual rating, and notes | Deferred |
+| PM.8 | Insert prompt into composer, run prompt against current project context, or attach prompt as a temporary instruction block | ✅ |
 
 ---
 
-### v0.11.0 — Conversation Portability 🔲
+### v0.11.0 — Conversation Portability 🔶
 
 **Theme**: Let conversations move between providers and models without losing useful context.
 
@@ -438,12 +438,12 @@ The model can search the wiki as a tool mid-conversation.
 
 | Task | Description | Status |
 |---|---|---|
-| CP.1 | Provider-neutral conversation export format containing messages, attachments metadata, tool-call summaries, model IDs, timestamps, and project context references | 🔲 |
-| CP.2 | Import conversation into a new or existing Nexy conversation while preserving role order and key metadata | 🔲 |
-| CP.3 | "Continue with..." action to fork a conversation onto another configured backend or model | 🔲 |
-| CP.4 | Model/provider compatibility layer that rewrites unsupported content into portable summaries, e.g. tool calls, images, or provider-specific message parts | 🔲 |
-| CP.5 | Export packs for external use: Markdown transcript, JSON archive, and compact context bundle | 🔲 |
-| CP.6 | Local-model continuation path with automatic context compression when the target context window is smaller | 🔲 |
+| CP.1 | Provider-neutral conversation export format containing messages, attachments metadata, tool-call summaries, model IDs, timestamps, and project context references | ✅ |
+| CP.2 | Import conversation into a new or existing Nexy conversation while preserving role order and key metadata | ✅ |
+| CP.3 | "Continue with..." action to fork a conversation onto another configured backend or model | ✅ |
+| CP.4 | Model/provider compatibility layer that rewrites unsupported content into portable summaries, e.g. tool calls, images, or provider-specific message parts | ✅ |
+| CP.5 | Export packs for external use: Markdown transcript, JSON archive, and compact context bundle | ✅ |
+| CP.6 | Local-model continuation path with automatic context compression when the target context window is smaller | ✅ |
 
 ---
 
@@ -455,13 +455,68 @@ The model can search the wiki as a tool mid-conversation.
 
 | Task | Description | Status |
 |---|---|---|
-| CCMP.1 | Automatic rolling summaries for long conversations when token budget thresholds are crossed | 🔲 |
-| CCMP.2 | Structured summary format: goals, decisions, constraints, files touched, commands run, open questions, and next actions | 🔲 |
-| CCMP.3 | Preserve key user preferences and project facts separately from temporary conversation details | 🔲 |
-| CCMP.4 | Compression preview in context inspector showing what will be retained, summarized, or omitted | 🔲 |
-| CCMP.5 | Manual "compress now" action with editable summary before continuing | 🔲 |
-| CCMP.6 | Provider-aware compression targets so summaries fit the selected model's context window | 🔲 |
-| CCMP.7 | Conversation restore path that combines compressed summaries, recent messages, and referenced wiki entries | 🔲 |
+| CCMP.1 | Automatic rolling summaries for long conversations when token budget thresholds are crossed | ✅ |
+| CCMP.2 | Structured summary format: goals, decisions, constraints, files touched, commands run, open questions, and next actions | ✅ |
+| CCMP.3 | Preserve key user preferences and project facts separately from temporary conversation details | ❌ Removed — duplicates project wiki, agent memory, prompt library, and project instructions |
+| CCMP.4 | Compression preview in context inspector showing what will be retained, summarized, or omitted | ✅ |
+| CCMP.5 | Manual "compress now" action with editable summary before continuing | ✅ |
+| CCMP.6 | Provider-aware compression targets so summaries fit the selected model's context window | ✅ |
+| CCMP.7 | Conversation restore path that combines compressed summaries, recent messages, and referenced wiki entries | ✅ |
+
+---
+
+### v0.13.0 — In-App Build, Run, and Update Pipeline 🔲
+
+**Theme**: Let Nexy modify itself from inside the app, build installable artifacts, and offer those artifacts back as updates for the installed desktop and Android apps.
+
+**Problem**: Development currently happens outside the installed app: edit files, run builds manually, install desktop packages/APKs manually, then restart and test. The desired workflow is: install Nexy once, ask Nexy to make changes, let it build/test/package those changes, then apply the resulting update to the installed desktop app and Android companion.
+
+**Design principles**:
+- Explicit control — no silent self-modification; every build, install, and update requires user confirmation.
+- Separate dev workspace from installed app — changes are made in a checked-out project directory, not directly inside the installed binary/resources.
+- Signed artifacts only — installed apps apply only artifacts signed by the configured local signing identity.
+- Rollback first — every update path keeps the previous working version available.
+- Android platform compliance — Android updates are delivered through APK/App Bundle install flows or an app-store/internal distribution track; the app must not try to silently patch its own installed package.
+
+#### Phase 1 — Desktop Build Orchestrator
+
+| Task | Description | Status |
+|---|---|---|
+| UPD.1 | Add a "Developer Updates" settings panel showing workspace path, current git branch/commit, dirty state, installed app version, and last build status | 🔲 |
+| UPD.2 | Add safe build commands for desktop: typecheck, tests, package, and installer generation, with streamed logs into the app | 🔲 |
+| UPD.3 | Store build records in SQLite: commit SHA, artifact paths, test result summary, version, platform, timestamp, and status | 🔲 |
+| UPD.4 | Add explicit preflight checks before packaging: clean/dirty diff summary, required signing config, dependency install status, and minimum passing test set | 🔲 |
+| UPD.5 | Add "run dev build" action that launches the built app separately from the installed stable app for smoke testing | 🔲 |
+
+#### Phase 2 — Desktop Self-Update Channel
+
+| Task | Description | Status |
+|---|---|---|
+| UPD.6 | Configure electron-builder update metadata for a local/private update channel, not only public release artifacts | 🔲 |
+| UPD.7 | Add a local update feed directory or small localhost update server that the installed desktop app can check | 🔲 |
+| UPD.8 | Add "publish local update" action that copies signed desktop artifacts and update metadata into the configured feed | 🔲 |
+| UPD.9 | Add installed-app update UI: check for update, show version/commit/changelog/test summary, download, install, restart | 🔲 |
+| UPD.10 | Add rollback support by retaining the previous installer/update package and exposing "reinstall previous version" | 🔲 |
+
+#### Phase 3 — Android Build and Distribution
+
+| Task | Description | Status |
+|---|---|---|
+| UPD.11 | Add Android build actions from desktop: unit tests, debug APK, release APK/App Bundle, and signed artifact generation | 🔲 |
+| UPD.12 | Store Android signing configuration outside source control and validate it before release builds | 🔲 |
+| UPD.13 | Add paired-device install flow for debug/internal APKs via ADB when the phone is connected and the user approves | 🔲 |
+| UPD.14 | Add Android update manifest served by desktop with version code, version name, commit SHA, changelog, checksum, and artifact URL | 🔲 |
+| UPD.15 | Android app checks the paired desktop for update metadata and opens the system package installer or configured distribution link when an update is available | 🔲 |
+| UPD.16 | Document production Android update path: Play Internal App Sharing / internal testing track / private distribution, because installed Android apps cannot silently self-patch | 🔲 |
+
+#### Phase 4 — In-App Change Workflow
+
+| Task | Description | Status |
+|---|---|---|
+| UPD.17 | Add an "Apply app change" workflow that creates a branch, lets an agent edit the workspace, runs tests, and summarizes the diff before build | 🔲 |
+| UPD.18 | Add guarded commit creation from the app with user-reviewed staged files and conventional commit labels | 🔲 |
+| UPD.19 | Generate update notes from commit history and test/build records for both desktop and Android update prompts | 🔲 |
+| UPD.20 | Add failure recovery: failed build logs, failed update diagnostics, retry actions, and restore-to-last-known-good guidance | 🔲 |
 
 ---
 
