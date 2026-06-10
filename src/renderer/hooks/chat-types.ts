@@ -61,7 +61,7 @@ export interface CliCostSummary {
 }
 
 export interface ContextRef {
-  key: 'workspace' | 'git' | 'git-diff' | 'file' | 'clipboard' | 'wiki'
+  key: 'workspace' | 'git' | 'git-diff' | 'file' | 'clipboard' | 'wiki' | 'prompt-instruction'
   token: string
   value?: string
 }

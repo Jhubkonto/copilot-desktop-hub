@@ -1,5 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { CatalogModel, IpcChannels, IpcReturn } from '../shared/types'
+import type {
+  CatalogModel,
+  ConversationCompressionSaveInput,
+  IpcChannels,
+  IpcReturn,
+  PromptLibraryInput,
+  PromptLibraryUpdate,
+} from '../shared/types'
 
 // ---------------------------------------------------------------------------
 // Typed IPC helpers — channels constrained to IpcChannels union
@@ -111,7 +118,19 @@ const api = {
   listConversations: () => typedInvoke('conversation:list'),
   createConversation: (agentId?: string, projectId?: string) =>
     typedInvoke('conversation:create', agentId, projectId),
+  getConversationCompressionPreview: (id: string) => typedInvoke('conversation:compression-preview', id),
+  prepareConversationCompressionSummary: (id: string) =>
+    typedInvoke('conversation:prepare-compression-summary', id),
+  saveConversationCompressionSummary: (input: ConversationCompressionSaveInput) =>
+    typedInvoke('conversation:save-compression-summary', input),
   deleteConversation: (id: string) => typedInvoke('conversation:delete', id),
+  exportConversationJson: (id: string) => typedInvoke('conversation:export-json', id),
+  exportConversationPack: (id: string, options: { format: 'json' | 'markdown' | 'context-bundle' }) =>
+    typedInvoke('conversation:export-pack', id, options),
+  forkConversation: (id: string, options?: { model?: string | null; agentId?: string | null }) =>
+    typedInvoke('conversation:fork', id, options ?? {}),
+  importConversationJson: (targetConversationId?: string | null) =>
+    typedInvoke('conversation:import-json', { targetConversationId: targetConversationId ?? null }),
   getMessages: (conversationId: string) =>
     typedInvoke('conversation:get-messages', conversationId),
   searchConversations: (query: string) =>
@@ -183,6 +202,14 @@ const api = {
   deleteWikiEntry: (id: string) => typedInvoke('wiki:delete-entry', id),
   extractWikiLearnings: (conversationId: string, projectId: string, model?: string) =>
     typedInvoke('wiki:extract-learnings', conversationId, projectId, model),
+
+  // Prompt Library
+  listPrompts: (projectId?: string | null) => typedInvoke('prompt:list', projectId ?? null),
+  listPromptVersions: (promptId: string) => typedInvoke('prompt:list-versions', promptId),
+  createPrompt: (input: PromptLibraryInput) => typedInvoke('prompt:create', input),
+  updatePrompt: (id: string, fields: PromptLibraryUpdate) => typedInvoke('prompt:update', id, fields),
+  rollbackPrompt: (promptId: string, version: number) => typedInvoke('prompt:rollback', promptId, version),
+  deletePrompt: (id: string) => typedInvoke('prompt:delete', id),
 
   // Knowledge files
   listKnowledgeFiles: (agentId: string) =>

@@ -97,6 +97,13 @@ export function useAtMenu({ input, setInput, projectId }: UseAtMenuParams) {
         continue
       }
 
+      if (ref.key === 'prompt-instruction') {
+        if (ref.value) {
+          lines.push(`[Temporary Instructions]\n${ref.value}`)
+        }
+        continue
+      }
+
       if (ref.key === 'file' && ref.value) {
         const result = await window.api.readContextFile(ref.value)
         const header = result.truncated

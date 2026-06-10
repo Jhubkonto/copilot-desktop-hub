@@ -252,14 +252,15 @@ export function useChatWindowActions({
     [closeAtMenu, closeSlashMenu, historyDraftRef, historyIndexRef, openAtMenu, openSlashMenu, setInput],
   )
 
-  const handleSend = useCallback(async () => {
-    const hasContent = input.trim().length > 0 || pendingImages.length > 0 || pendingAttachments.length > 0
+  const handleSend = useCallback(async (inputOverride?: unknown) => {
+    const draftInput = typeof inputOverride === 'string' ? inputOverride : input
+    const hasContent = draftInput.trim().length > 0 || pendingImages.length > 0 || pendingAttachments.length > 0
     if (!hasContent || isGenerating || rateLimitRemainingSec > 0) return
 
     // Block send while any OCR job is in progress
     if (pendingImages.some((img) => img.ocrPending)) return
 
-    let content = input.trim()
+    let content = draftInput.trim()
     if (!content && (pendingImages.length > 0 || pendingAttachments.length > 0)) {
       content = 'Please analyze the attached context.'
     }
@@ -277,7 +278,7 @@ export function useChatWindowActions({
       }
     }
 
-    if (input.trim().startsWith('/')) closeSlashMenu()
+    if (draftInput.trim().startsWith('/')) closeSlashMenu()
 
     const attachments = pendingAttachments.length > 0 ? [...pendingAttachments] : undefined
     // Separate OCR-text images from vision images
@@ -307,6 +308,7 @@ export function useChatWindowActions({
     const cleanedContent = content
       .replace(/(?:^|\s)@(workspace|git|wiki)\b/gi, ' ')
       .replace(/(?:^|\s)@file:[^\s]+/gi, ' ')
+      .replace(/(?:^|\s)@prompt:[^\s]+/gi, ' ')
       .replace(/\s{2,}/g, ' ')
       .trim()
 
@@ -321,7 +323,7 @@ export function useChatWindowActions({
       }
     }
 
-    const userDisplayContent = input.trim()
+    const userDisplayContent = draftInput.trim()
     const editCutoffTimestamp =
       pendingEditedResendRef.current && editCutoffTimestampRef.current != null
         ? editCutoffTimestampRef.current
@@ -335,7 +337,7 @@ export function useChatWindowActions({
       historyLength: messages.filter((message) => message.role !== 'system').length,
       estimatedTokens:
         tokenEstimate(systemPrompt) +
-        effectiveRefs.reduce((sum, ref) => sum + (ref.key === 'workspace' ? 500 : ref.key === 'git' ? 200 : ref.key === 'wiki' ? 1000 : 300), 0) +
+        effectiveRefs.reduce((sum, ref) => sum + (ref.key === 'workspace' ? 500 : ref.key === 'git' ? 200 : ref.key === 'wiki' ? 1000 : ref.key === 'prompt-instruction' ? tokenEstimate(ref.value ?? '') : 300), 0) +
         messages.filter((message) => message.role !== 'system').length * 200 +
         tokenEstimate(userDisplayContent),
       model: effectiveModel,
@@ -357,7 +359,7 @@ export function useChatWindowActions({
     onEditStateConsumed?.()
 
     setMessages((prev) => [...prev, userMessage])
-    const sent = input.trim()
+    const sent = draftInput.trim()
     if (sent && inputHistoryRef.current[0] !== sent) {
       inputHistoryRef.current = [sent, ...inputHistoryRef.current].slice(0, 100)
     }

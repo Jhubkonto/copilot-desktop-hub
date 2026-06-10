@@ -14,6 +14,7 @@ export function registerSystemHandlers(): void {
       const result = await dialog.showSaveDialog(win, {
         defaultPath: defaultFileName,
         filters: [
+          { name: "JSON", extensions: ["json"] },
           { name: "Markdown", extensions: ["md"] },
           { name: "Text", extensions: ["txt"] },
         ],

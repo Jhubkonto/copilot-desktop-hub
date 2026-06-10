@@ -111,6 +111,7 @@ export function Sidebar() {
   const [searchResults, setSearchResults] = useState<Conversation[] | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editTitle, setEditTitle] = useState('')
+  const [isImportingConversation, setIsImportingConversation] = useState(false)
   const [pendingDeleteConv, setPendingDeleteConv] = useState<{ id: string; title: string } | null>(null)
 
   // Conversation project picker state
@@ -154,6 +155,22 @@ export function Sidebar() {
     }
     setEditingId(null)
   }
+
+  const handleImportConversation = useCallback(async () => {
+    setIsImportingConversation(true)
+    try {
+      const result = await window.api.importConversationJson(null)
+      if (result) {
+        await loadConversations()
+        selectConversation(result.conversation.id)
+        addToast(`Imported ${result.message_count} messages`, 'success')
+      }
+    } catch {
+      addToast('Failed to import conversation', 'error')
+    } finally {
+      setIsImportingConversation(false)
+    }
+  }, [addToast, loadConversations, selectConversation])
 
 
   // When a project is selected
@@ -614,6 +631,16 @@ export function Sidebar() {
             </button>
           </div>
           {chatsOpen && (<>
+          <div className="px-2 mb-2">
+            <button
+              onClick={() => void handleImportConversation()}
+              disabled={isImportingConversation}
+              className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Upload className="w-3 h-3" />
+              {isImportingConversation ? 'Importing...' : 'Import Chat'}
+            </button>
+          </div>
           {conversationsLoading && filteredConversations.length === 0 ? (
             <div className="space-y-1 px-2" aria-label="Loading conversations">
               {[1, 2, 3, 4, 5].map((i) => (

@@ -203,6 +203,158 @@ export interface MessageRow {
   context_snapshot: string | null
 }
 
+export interface ConversationExportAttachment {
+  id?: string
+  name?: string
+  path?: string
+  size?: number
+  type?: string
+  [key: string]: unknown
+}
+
+export interface ConversationExportContextRef {
+  key?: string
+  token?: string
+  value?: string
+  label?: string
+  [key: string]: unknown
+}
+
+export interface ConversationExportToolCall {
+  id?: string
+  name?: string
+  server?: string
+  args?: unknown
+  result?: unknown
+  success?: boolean
+  summary: string
+  [key: string]: unknown
+}
+
+export interface ConversationExportProject {
+  id: string
+  name: string
+  color: string
+  default_model: string | null
+  created_at: number
+  updated_at: number
+}
+
+export interface ConversationExportAgent {
+  id: string
+  name: string | null
+  icon: string | null
+  backend: string | null
+  cli_model: string | null
+  is_default: boolean
+  created_at: number
+  updated_at: number
+}
+
+export interface ConversationExportMessage {
+  id: string
+  role: string
+  content: string
+  model: string | null
+  timestamp: number
+  is_edited: boolean
+  previous_content: string | null
+  attachments: ConversationExportAttachment[]
+  context_refs: ConversationExportContextRef[]
+  context_snapshot: unknown
+  tool_call: ConversationExportToolCall | null
+}
+
+export interface ConversationExportV1 {
+  schema: 'nexy.conversation.v1'
+  exported_at: number
+  conversation: ConversationRow
+  project: ConversationExportProject | null
+  agent: ConversationExportAgent | null
+  messages: ConversationExportMessage[]
+}
+
+export type ConversationExportPackFormat = 'json' | 'markdown' | 'context-bundle'
+
+export interface ConversationExportPackOptions {
+  format: ConversationExportPackFormat
+}
+
+export interface ConversationExportPack {
+  format: ConversationExportPackFormat
+  conversation_id: string
+  file_name: string
+  mime_type: string
+  content: string
+}
+
+export interface ConversationImportOptions {
+  targetConversationId?: string | null
+}
+
+export interface ConversationImportResult {
+  conversation: ConversationRow
+  message_count: number
+  imported_into_existing: boolean
+}
+
+export interface ConversationForkOptions {
+  model?: string | null
+  agentId?: string | null
+}
+
+export interface ConversationForkResult {
+  conversation: ConversationRow
+  message_count: number
+  rewritten_message_count: number
+  compressed_message_count: number
+}
+
+export interface StructuredConversationSummary {
+  goals: string[]
+  decisions: string[]
+  constraints: string[]
+  filesTouched: string[]
+  commandsRun: string[]
+  openQuestions: string[]
+  nextActions: string[]
+  recentContextNotes: string[]
+}
+
+export interface ConversationCompressionPreview {
+  conversation_id: string
+  has_summary: boolean
+  summarized_message_count: number
+  retained_message_count: number
+  omitted_message_count: number
+  estimated_tokens_before: number
+  target_budget: number
+  strategy: string | null
+  updated_at: number | null
+  sections: StructuredConversationSummary | null
+}
+
+export interface ConversationCompressionDraft {
+  conversation_id: string
+  summarized_message_count: number
+  retained_message_count: number
+  omitted_message_count: number
+  estimated_tokens_before: number
+  target_budget: number
+  strategy: string
+  sections: StructuredConversationSummary
+}
+
+export interface ConversationCompressionSaveInput {
+  conversationId: string
+  summarizedMessageCount: number
+  retainedMessageCount: number
+  estimatedTokensBefore: number
+  targetBudget: number
+  strategy: string
+  sections: StructuredConversationSummary
+}
+
 export interface KnowledgeFile {
   id: string
   agent_id: string
@@ -238,6 +390,73 @@ export interface WikiCandidate {
 
 export interface WikiExtractionResult {
   candidates: WikiCandidate[]
+}
+
+// ---------------------------------------------------------------------------
+// Prompt library
+// ---------------------------------------------------------------------------
+
+export type PromptScope = 'global' | 'project'
+
+export interface PromptLibraryEntry {
+  id: string
+  title: string
+  body: string
+  description: string
+  category: string
+  tags: string[]
+  variables: string[]
+  scope: PromptScope
+  project_id: string | null
+  created_at: number
+  updated_at: number
+}
+
+export interface PromptLibraryInput {
+  title: string
+  body: string
+  description?: string
+  category?: string
+  tags?: string[]
+  scope?: PromptScope
+  project_id?: string | null
+}
+
+export interface PromptLibraryUpdate {
+  title?: string
+  body?: string
+  description?: string
+  category?: string
+  tags?: string[]
+  scope?: PromptScope
+  project_id?: string | null
+}
+
+export interface PromptVersionDiff {
+  titleChanged: boolean
+  descriptionChanged: boolean
+  categoryChanged: boolean
+  tagsChanged: boolean
+  scopeChanged: boolean
+  addedLines: string[]
+  removedLines: string[]
+}
+
+export interface PromptLibraryVersion {
+  id: string
+  prompt_id: string
+  version: number
+  title: string
+  body: string
+  description: string
+  category: string
+  tags: string[]
+  variables: string[]
+  scope: PromptScope
+  project_id: string | null
+  source: string
+  created_at: number
+  diff: PromptVersionDiff
 }
 
 // ---------------------------------------------------------------------------
@@ -413,7 +632,7 @@ export type IpcReturnMap = {
   'app:get-theme': string
   'app:get-version': string
   'app:install-update': void
-  'app:save-text-file': string
+  'app:save-text-file': string | null
   'app:set-auto-start': boolean
   'app:set-setting': boolean
   'app:set-theme': boolean
@@ -449,7 +668,14 @@ export type IpcReturnMap = {
   'context:workspace-summary': string
   // Conversation
   'conversation:create': ConversationRow
+  'conversation:compression-preview': ConversationCompressionPreview
+  'conversation:prepare-compression-summary': ConversationCompressionDraft
+  'conversation:save-compression-summary': ConversationCompressionPreview
   'conversation:delete': boolean
+  'conversation:export-json': ConversationExportV1
+  'conversation:export-pack': ConversationExportPack
+  'conversation:fork': ConversationForkResult
+  'conversation:import-json': ConversationImportResult | null
   'conversation:get-messages': MessageRow[]
   'conversation:list': ConversationRow[]
   'conversation:rename': boolean
@@ -503,6 +729,13 @@ export type IpcReturnMap = {
   'project:set-default-model': boolean
   'project:set-primary-agent': boolean
   'project:update-config': boolean
+  // Prompt library
+  'prompt:create': PromptLibraryEntry
+  'prompt:delete': boolean
+  'prompt:list-versions': PromptLibraryVersion[]
+  'prompt:list': PromptLibraryEntry[]
+  'prompt:rollback': PromptLibraryEntry
+  'prompt:update': PromptLibraryEntry
   // WebSocket mobile companion
   'ws:start': { port: number; token: string; qrDataUrl: string | null }
   'ws:stop': boolean
@@ -618,7 +851,14 @@ export type IpcChannels =
   | 'context:read-file'
   | 'context:workspace-summary'
   | 'conversation:create'
+  | 'conversation:compression-preview'
+  | 'conversation:prepare-compression-summary'
+  | 'conversation:save-compression-summary'
   | 'conversation:delete'
+  | 'conversation:export-json'
+  | 'conversation:export-pack'
+  | 'conversation:fork'
+  | 'conversation:import-json'
   | 'conversation:get-messages'
   | 'conversation:list'
   | 'conversation:rename'
@@ -665,6 +905,12 @@ export type IpcChannels =
   | 'project:set-default-model'
   | 'project:set-primary-agent'
   | 'project:update-config'
+  | 'prompt:create'
+  | 'prompt:delete'
+  | 'prompt:list-versions'
+  | 'prompt:list'
+  | 'prompt:rollback'
+  | 'prompt:update'
   | 'provider:get-azure-endpoint'
   | 'provider:has-key'
   | 'provider:list'

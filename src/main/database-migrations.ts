@@ -128,6 +128,70 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
       CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, timestamp);
     `,
   },
+  {
+    version: 17,
+    sql: `
+      CREATE TABLE IF NOT EXISTS prompt_library_entries (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL DEFAULT '',
+        description TEXT NOT NULL DEFAULT '',
+        category TEXT NOT NULL DEFAULT 'Custom',
+        tags TEXT NOT NULL DEFAULT '[]',
+        scope TEXT NOT NULL CHECK (scope IN ('global', 'project')) DEFAULT 'global',
+        project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+      );
+      CREATE INDEX IF NOT EXISTS idx_prompt_library_scope
+        ON prompt_library_entries(scope, project_id, category, updated_at);
+    `,
+  },
+  {
+    version: 18,
+    sql: `
+      CREATE TABLE IF NOT EXISTS prompt_library_versions (
+        id TEXT PRIMARY KEY,
+        prompt_id TEXT NOT NULL REFERENCES prompt_library_entries(id) ON DELETE CASCADE,
+        version INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL DEFAULT '',
+        description TEXT NOT NULL DEFAULT '',
+        category TEXT NOT NULL DEFAULT 'Custom',
+        tags TEXT NOT NULL DEFAULT '[]',
+        scope TEXT NOT NULL CHECK (scope IN ('global', 'project')) DEFAULT 'global',
+        project_id TEXT,
+        source TEXT NOT NULL DEFAULT 'manual',
+        created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+        UNIQUE(prompt_id, version)
+      );
+      CREATE INDEX IF NOT EXISTS idx_prompt_versions_prompt
+        ON prompt_library_versions(prompt_id, version DESC);
+    `,
+  },
+  {
+    version: 19,
+    sql: `
+      CREATE TABLE IF NOT EXISTS conversation_summaries (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL UNIQUE REFERENCES conversations(id) ON DELETE CASCADE,
+        summary TEXT NOT NULL,
+        source_message_count INTEGER NOT NULL,
+        retained_message_count INTEGER NOT NULL,
+        estimated_tokens_before INTEGER NOT NULL,
+        target_budget INTEGER NOT NULL,
+        strategy TEXT NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+      );
+      CREATE INDEX IF NOT EXISTS idx_conversation_summaries_updated
+        ON conversation_summaries(updated_at);
+    `,
+  },
+  {
+    version: 20,
+    sql: "ALTER TABLE conversation_summaries ADD COLUMN summary_json TEXT NOT NULL DEFAULT '{}'",
+  },
 ];
 
 
@@ -219,6 +283,58 @@ export function initializeBaseSchema(db: Database.Database): void {
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
       FOREIGN KEY (agent_id)   REFERENCES agents(id)   ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS prompt_library_entries (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      category TEXT NOT NULL DEFAULT 'Custom',
+      tags TEXT NOT NULL DEFAULT '[]',
+      scope TEXT NOT NULL CHECK (scope IN ('global', 'project')) DEFAULT 'global',
+      project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_prompt_library_scope
+      ON prompt_library_entries(scope, project_id, category, updated_at);
+
+    CREATE TABLE IF NOT EXISTS prompt_library_versions (
+      id TEXT PRIMARY KEY,
+      prompt_id TEXT NOT NULL REFERENCES prompt_library_entries(id) ON DELETE CASCADE,
+      version INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      category TEXT NOT NULL DEFAULT 'Custom',
+      tags TEXT NOT NULL DEFAULT '[]',
+      scope TEXT NOT NULL CHECK (scope IN ('global', 'project')) DEFAULT 'global',
+      project_id TEXT,
+      source TEXT NOT NULL DEFAULT 'manual',
+      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      UNIQUE(prompt_id, version)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_prompt_versions_prompt
+      ON prompt_library_versions(prompt_id, version DESC);
+
+    CREATE TABLE IF NOT EXISTS conversation_summaries (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL UNIQUE REFERENCES conversations(id) ON DELETE CASCADE,
+      summary TEXT NOT NULL,
+      summary_json TEXT NOT NULL DEFAULT '{}',
+      source_message_count INTEGER NOT NULL,
+      retained_message_count INTEGER NOT NULL,
+      estimated_tokens_before INTEGER NOT NULL,
+      target_budget INTEGER NOT NULL,
+      strategy TEXT NOT NULL,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_conversation_summaries_updated
+      ON conversation_summaries(updated_at);
   `);
 }
 

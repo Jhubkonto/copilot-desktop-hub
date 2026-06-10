@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
-import { ChevronDown, Loader2, Sparkles } from 'lucide-react'
-import { getModelLabel, modelIdSupportsTools } from '../../shared/models'
-import { isApiError, type AgentConfig, type WikiCandidate } from '../../shared/types'
+import { ChevronDown, Download, Loader2, Sparkles, Upload } from 'lucide-react'
+import { getAvailableModelIds, getModelLabel, modelIdSupportsTools } from '../../shared/models'
+import { isApiError, type AgentConfig, type ConversationExportPackFormat, type WikiCandidate } from '../../shared/types'
 import type { ContextRef, ToastType } from '../hooks/chat-types'
 import { useAtMenu } from '../hooks/useAtMenu'
 import { useChat } from '../hooks/useChat'
@@ -12,8 +12,21 @@ import { useTimers } from '../hooks/useTimers'
 import { useAppStore } from '../store/app-store'
 import { ChatComposer } from './chat/ChatComposer'
 import { ChatMessages } from './chat/ChatMessages'
+import { PromptLibraryModal } from './PromptLibraryModal'
 import { SaveToWikiModal } from './SaveToWikiModal'
 import { WikiExtractionModal } from './WikiExtractionModal'
+
+const FALLBACK_CLAUDE_MODELS = [
+  { id: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
+  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+  { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
+]
+
+const FALLBACK_CODEX_MODELS = [
+  { id: 'gpt-5.5', label: 'GPT-5.5' },
+  { id: 'gpt-5.4', label: 'GPT-5.4' },
+  { id: 'gpt-5.4-mini', label: 'GPT-5.4-Mini' },
+]
 
 export function ChatWindow() {
   const conversationId = useAppStore((state) => state.currentConversationId)
@@ -32,6 +45,7 @@ export function ChatWindow() {
   const loadConversations = useAppStore((state) => state.loadConversations)
   const loadAgents = useAppStore((state) => state.loadAgents)
   const newChat = useAppStore((state) => state.newChat)
+  const selectConversation = useAppStore((state) => state.selectConversation)
   const setTheme = useAppStore((state) => state.setTheme)
   const logout = useAppStore((state) => state.logout)
   const addToast = useAppStore((state) => state.addToast) as (
@@ -51,10 +65,20 @@ export function ChatWindow() {
   const [inputPanelHeight, setInputPanelHeight] = useState<number | null>(null)
   const [hasUnreadBelow, setHasUnreadBelow] = useState(false)
   const [clipboardRef, setClipboardRef] = useState<ContextRef | null>(null)
+  const [promptInstructionRef, setPromptInstructionRef] = useState<ContextRef | null>(null)
   const [wikiMessageIds, setWikiMessageIds] = useState<Set<string>>(new Set())
   const [wikiModalMessage, setWikiModalMessage] = useState<{ id: string; content: string } | null>(null)
   const [isExtracting, setIsExtracting] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
+  const [isImporting, setIsImporting] = useState(false)
+  const [showExportMenu, setShowExportMenu] = useState(false)
+  const [showContinueWith, setShowContinueWith] = useState(false)
+  const [continueModel, setContinueModel] = useState<string>('default')
+  const [continueAgentId, setContinueAgentId] = useState<string | null>(null)
+  const [continueCliModels, setContinueCliModels] = useState<{ id: string; label: string }[]>([])
+  const [isForking, setIsForking] = useState(false)
   const [extractionCandidates, setExtractionCandidates] = useState<WikiCandidate[] | null>(null)
+  const [showPromptLibrary, setShowPromptLibrary] = useState(false)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -120,6 +144,23 @@ export function ChatWindow() {
   }
 
   const effectiveModelLabel = getModelLabel(effectiveModel, catalogModels)
+  const continueAgent = continueAgentId ? (agents.find((agent) => agent.id === continueAgentId) ?? null) : null
+  const continueBackend = continueAgent?.backend ?? null
+  const continueAgentNeedsTools = !!(continueAgent && (continueAgent.mcpServers?.length ?? 0) > 0)
+  const continueProviderModelIds = useMemo(
+    () => getAvailableModelIds(catalogModels, effectiveModel, continueAgentNeedsTools),
+    [catalogModels, continueAgentNeedsTools, effectiveModel],
+  )
+  const continueModelOptions = useMemo(() => {
+    if (continueBackend === 'gh-copilot') return []
+    if (continueBackend === 'claude-cli' || continueBackend === 'codex-cli') {
+      return continueCliModels.map((model) => ({ id: model.id, label: model.label }))
+    }
+    return continueProviderModelIds.map((model) => ({
+      id: model,
+      label: getModelLabel(model, catalogModels, defaultModelSetting ?? undefined),
+    }))
+  }, [catalogModels, continueBackend, continueCliModels, continueProviderModelIds, defaultModelSetting])
 
   const chat = useChat({
     conversationId,
@@ -138,8 +179,9 @@ export function ChatWindow() {
   const mergedContextRefs = useMemo(() => {
     const refs = [...atMenu.contextRefs]
     if (clipboardRef) refs.push(clipboardRef)
+    if (promptInstructionRef) refs.push(promptInstructionRef)
     return refs
-  }, [atMenu.contextRefs, clipboardRef])
+  }, [atMenu.contextRefs, clipboardRef, promptInstructionRef])
   const timers = useTimers({
     isGenerating: chat.isGenerating,
     generationStartedAt: chat.generationStartedAt,
@@ -208,6 +250,7 @@ export function ChatWindow() {
     loadConversations,
     onAfterSend: () => {
       setClipboardRef(null)
+      setPromptInstructionRef(null)
     },
     onEditStateConsumed: chat.clearEditState,
   })
@@ -402,6 +445,118 @@ export function ChatWindow() {
     }
   }, [addToast, chatProjectId, conversationId])
 
+  const handleExportConversation = useCallback(async (format: ConversationExportPackFormat) => {
+    if (!conversationId) return
+    setIsExporting(true)
+    setShowExportMenu(false)
+    try {
+      const pack = await window.api.exportConversationPack(conversationId, { format })
+      const savedPath = await window.api.saveTextFile(pack.file_name, pack.content)
+      if (savedPath) {
+        addToast('Conversation exported', 'success')
+      }
+    } catch {
+      addToast('Failed to export conversation', 'error')
+    } finally {
+      setIsExporting(false)
+    }
+  }, [addToast, conversationId])
+
+  const handleImportIntoConversation = useCallback(async () => {
+    if (!conversationId) return
+    setIsImporting(true)
+    try {
+      const result = await window.api.importConversationJson(conversationId)
+      if (result) {
+        await loadConversations()
+        addToast(`Imported ${result.message_count} messages`, 'success')
+      }
+    } catch {
+      addToast('Failed to import conversation', 'error')
+    } finally {
+      setIsImporting(false)
+    }
+  }, [addToast, conversationId, loadConversations])
+
+  const handleOpenContinueWith = useCallback(() => {
+    setContinueModel(effectiveModel === 'default' ? 'default' : effectiveModel)
+    setContinueAgentId(chatAgentId)
+    setShowExportMenu(false)
+    setShowContinueWith(true)
+  }, [chatAgentId, effectiveModel])
+
+  const handleContinueWith = useCallback(async () => {
+    if (!conversationId) return
+    setIsForking(true)
+    try {
+      const result = await window.api.forkConversation(conversationId, {
+        model: continueBackend === 'gh-copilot' ? null : continueModel,
+        agentId: continueAgentId,
+      })
+      await loadConversations()
+      selectConversation(result.conversation.id)
+      setShowContinueWith(false)
+      const details = [
+        result.rewritten_message_count > 0 ? `${result.rewritten_message_count} converted for compatibility` : null,
+        result.compressed_message_count > 0 ? `${result.compressed_message_count} compressed for context` : null,
+      ].filter(Boolean)
+      addToast(
+        details.length > 0
+          ? `Forked ${result.message_count} messages (${details.join(', ')})`
+          : `Forked ${result.message_count} messages`,
+        'success',
+      )
+    } catch {
+      addToast('Failed to continue conversation', 'error')
+    } finally {
+      setIsForking(false)
+    }
+  }, [addToast, continueAgentId, continueBackend, continueModel, conversationId, loadConversations, selectConversation])
+
+  useEffect(() => {
+    if (!showContinueWith) return
+    if (continueBackend !== 'claude-cli' && continueBackend !== 'codex-cli') {
+      setContinueCliModels([])
+      return
+    }
+
+    const backend = continueBackend
+    const fallbackModels = backend === 'codex-cli' ? FALLBACK_CODEX_MODELS : FALLBACK_CLAUDE_MODELS
+    let cancelled = false
+    setContinueCliModels(fallbackModels)
+    window.api.getCliModels(backend)
+      .then((models) => {
+        if (!cancelled) setContinueCliModels(models.length > 0 ? models : fallbackModels)
+      })
+      .catch(() => {
+        if (!cancelled) setContinueCliModels(fallbackModels)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [continueBackend, showContinueWith])
+
+  useEffect(() => {
+    if (!showContinueWith) return
+    if (continueBackend === 'gh-copilot') {
+      setContinueModel('default')
+      return
+    }
+    if (continueBackend === 'claude-cli' || continueBackend === 'codex-cli') {
+      if (continueModelOptions.length === 0) return
+      const preferred = continueAgent?.cliModel && continueModelOptions.some((model) => model.id === continueAgent.cliModel)
+        ? continueAgent.cliModel
+        : continueModelOptions[0].id
+      if (!continueModelOptions.some((model) => model.id === continueModel)) {
+        setContinueModel(preferred)
+      }
+      return
+    }
+    if (continueModelOptions.length > 0 && !continueModelOptions.some((model) => model.id === continueModel)) {
+      setContinueModel(continueModelOptions[0].id)
+    }
+  }, [continueAgent?.cliModel, continueBackend, continueModel, continueModelOptions, showContinueWith])
+
   const handleCaptureScreen = useCallback(async () => {
     const permission = await window.api.checkScreenPermission()
     if (isApiError(permission)) {
@@ -515,6 +670,26 @@ export function ChatWindow() {
     },
     [actions],
   )
+
+  const handleInsertPrompt = useCallback((content: string) => {
+    setInput((current) => current.trim() ? `${current.trimEnd()}\n\n${content}` : content)
+    requestAnimationFrame(() => inputRef.current?.focus())
+  }, [])
+
+  const handleRunPrompt = useCallback(async (content: string) => {
+    setInput(content)
+    await actions.handleSend(content)
+  }, [actions])
+
+  const handleAttachPromptInstruction = useCallback((content: string, title: string) => {
+    const label = title.trim() || 'Prompt'
+    setPromptInstructionRef({
+      key: 'prompt-instruction',
+      token: `@prompt:${label.slice(0, 32)}`,
+      value: content,
+    })
+    addToast('Prompt attached as temporary instructions', 'success')
+  }, [addToast])
 
   const handleInputResizePointerDown = useCallback((event: PointerEvent<HTMLDivElement>) => {
     event.preventDefault()
@@ -660,6 +835,7 @@ export function ChatWindow() {
       onAttachFiles={fileInput.handleFilePick}
       onCaptureScreen={handleCaptureScreen}
       onPasteClipboardImage={handlePasteClipboard}
+      onOpenPromptLibrary={() => setShowPromptLibrary(true)}
       onToggleContextInspector={() => setShowContextInspector((value) => !value)}
       onCloseContextInspector={() => setShowContextInspector(false)}
       onRemoveAttachment={fileInput.removeAttachment}
@@ -668,6 +844,8 @@ export function ChatWindow() {
       onRemoveContextToken={(token) => {
         if (token === '@clipboard') {
           setClipboardRef(null)
+        } else if (token.startsWith('@prompt:')) {
+          setPromptInstructionRef(null)
         } else {
           atMenu.removeContextToken(token)
         }
@@ -685,6 +863,18 @@ export function ChatWindow() {
       onSend={actions.handleSend}
     />
   )
+
+  const promptLibraryModal = showPromptLibrary ? (
+    <PromptLibraryModal
+      projectId={chatProjectId && chatProjectId !== '__none__' ? chatProjectId : null}
+      projectName={chatProject?.name ?? null}
+      draftContent={input}
+      onInsert={handleInsertPrompt}
+      onRun={handleRunPrompt}
+      onAttachInstruction={handleAttachPromptInstruction}
+      onClose={() => setShowPromptLibrary(false)}
+    />
+  ) : null
 
 
   if (!conversationId && chat.messages.length === 0) {
@@ -735,6 +925,7 @@ export function ChatWindow() {
           </div>
         </div>
         {composer}
+        {promptLibraryModal}
       </div>
     )
   }
@@ -752,19 +943,155 @@ export function ChatWindow() {
       {contextBar}
 
       <div className="relative flex flex-col flex-1 min-h-0">
-        {chatProjectId && chatProjectId !== '__none__' && chat.messages.length > 0 && !chat.isGenerating && (
-          <div className="absolute right-4 top-4 z-10">
-            <button
-              type="button"
-              onClick={() => void handleExtractLearnings()}
-              disabled={isExtracting}
-              className="inline-flex items-center gap-2 rounded-full border border-gray-200 dark:border-gray-700 bg-white/95 dark:bg-gray-800/95 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-200 shadow-sm transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
-              aria-label="Extract learnings"
-              title="Extract learnings"
-            >
-              {isExtracting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-              <span>Extract learnings</span>
-            </button>
+        {(conversationId || chat.messages.length > 0) && !chat.isGenerating && (
+          <div className="absolute right-4 top-4 z-10 flex items-center gap-2">
+            {chatProjectId && chatProjectId !== '__none__' && (
+              <button
+                type="button"
+                onClick={() => void handleExtractLearnings()}
+                disabled={isExtracting}
+                className="inline-flex items-center gap-2 rounded-full border border-gray-200 dark:border-gray-700 bg-white/95 dark:bg-gray-800/95 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-200 shadow-sm transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
+                aria-label="Extract learnings"
+                title="Extract learnings"
+              >
+                {isExtracting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                <span>Extract learnings</span>
+              </button>
+            )}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowContinueWith(false)
+                  setShowExportMenu((value) => !value)
+                }}
+                disabled={isExporting || !conversationId || chat.messages.length === 0}
+                className="inline-flex items-center gap-2 rounded-full border border-gray-200 dark:border-gray-700 bg-white/95 dark:bg-gray-800/95 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-200 shadow-sm transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
+                aria-label="Export conversation"
+                title="Export conversation"
+              >
+                {isExporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                <span>Export</span>
+                <ChevronDown className="w-3 h-3" />
+              </button>
+              {showExportMenu && (
+                <div className="absolute right-0 top-10 z-20 w-56 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xl p-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleExportConversation('json')}
+                    className="block w-full rounded-md px-2 py-1.5 text-left text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  >
+                    JSON archive
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleExportConversation('markdown')}
+                    className="block w-full rounded-md px-2 py-1.5 text-left text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  >
+                    Markdown transcript
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleExportConversation('context-bundle')}
+                    className="block w-full rounded-md px-2 py-1.5 text-left text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  >
+                    Compact context bundle
+                  </button>
+                </div>
+              )}
+            </div>
+            {conversationId && chat.messages.length > 0 && (
+              <button
+                type="button"
+                onClick={handleOpenContinueWith}
+                disabled={isForking}
+                className="inline-flex items-center gap-2 rounded-full border border-gray-200 dark:border-gray-700 bg-white/95 dark:bg-gray-800/95 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-200 shadow-sm transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
+                aria-label="Continue with another model or agent"
+                title="Continue with another model or agent"
+              >
+                {isForking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                <span>Continue with</span>
+              </button>
+            )}
+            {conversationId && (
+              <button
+                type="button"
+                onClick={() => void handleImportIntoConversation()}
+                disabled={isImporting}
+                className="inline-flex items-center gap-2 rounded-full border border-gray-200 dark:border-gray-700 bg-white/95 dark:bg-gray-800/95 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-200 shadow-sm transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
+                aria-label="Import conversation"
+                title="Import conversation into this chat"
+              >
+                {isImporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                <span>Import</span>
+              </button>
+            )}
+            {showContinueWith && (
+              <div className="absolute right-0 top-10 z-20 w-72 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xl p-3">
+                <div className="mb-3">
+                  <div className="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1">Continue with</div>
+                  <div className="text-[11px] text-gray-500 dark:text-gray-400">Fork this chat into a new conversation.</div>
+                </div>
+                <label className="block mb-2">
+                  <span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Model</span>
+                  {continueBackend === 'gh-copilot' ? (
+                    <div className="rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-2 py-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      Managed by GitHub Copilot CLI
+                    </div>
+                  ) : (
+                    <select
+                      value={continueModel}
+                      onChange={(event) => setContinueModel(event.target.value)}
+                      className="w-full rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1.5 text-xs text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 dark:focus:ring-gray-600"
+                    >
+                      {continueModelOptions.map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.label}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {continueBackend === 'claude-cli' && (
+                    <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">Showing Claude CLI models only.</div>
+                  )}
+                  {continueBackend === 'codex-cli' && (
+                    <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">Showing Codex CLI models only.</div>
+                  )}
+                </label>
+                <label className="block mb-3">
+                  <span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Agent</span>
+                  <select
+                    value={continueAgentId ?? '__none__'}
+                    onChange={(event) => setContinueAgentId(event.target.value === '__none__' ? null : event.target.value)}
+                    className="w-full rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1.5 text-xs text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 dark:focus:ring-gray-600"
+                  >
+                    <option value="__none__">No agent</option>
+                    {agents.map((agent) => (
+                      <option key={agent.id} value={agent.id}>
+                        {agent.icon} {agent.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowContinueWith(false)}
+                    className="rounded-md px-2 py-1 text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleContinueWith()}
+                    disabled={isForking}
+                    className="rounded-md bg-gray-900 dark:bg-gray-100 px-2 py-1 text-xs font-medium text-white dark:text-gray-900 disabled:opacity-60"
+                  >
+                    {isForking ? 'Forking...' : 'Create fork'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
         <ChatMessages
@@ -833,6 +1160,7 @@ export function ChatWindow() {
             }}
           />
         )}
+        {promptLibraryModal}
       </div>
 
       {fileInput.isDragging && (

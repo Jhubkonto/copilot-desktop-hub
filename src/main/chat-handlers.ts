@@ -36,6 +36,7 @@ import { retrieveAuthMode } from './auth'
 import { getRelevantWikiEntries, formatWikiSection } from './wiki-context'
 import { insertWikiEntry } from './wiki-handlers'
 import { requestApproval } from './tools'
+import { applyRollingContextCompression } from './context-compression'
 
 // Session-scoped cache for directory listings. Keyed by project ID.
 // Entries are invalidated when the project's rootDirectory changes.
@@ -667,6 +668,19 @@ export async function dispatchChatSend(
         regenerate && providerHistoryMessages.length > 0
           ? providerHistoryMessages.slice(0, -1)
           : providerHistoryMessages;
+      const compressedContext = applyRollingContextCompression(
+        db,
+        conversationId,
+        contextMessages.map((message) => ({
+          role: message.role,
+          content: typeof message.content === "string" ? message.content : JSON.stringify(message.content),
+        })),
+        selectedModel ?? null,
+      );
+      const effectiveContextMessages = compressedContext.messages.map((message) => ({
+        role: message.role,
+        content: message.content,
+      })) as ProviderMessage[];
 
       // Build the current user message content — include pasted images for vision-capable providers
       const buildVisionUserContent = (): MessageContentPart[] => {
@@ -769,7 +783,7 @@ export async function dispatchChatSend(
                 showActivity,
               },
               userContent,
-              contextMessages,
+              effectiveContextMessages,
             );
 
             // Persist team-activity block if there were delegation steps
@@ -859,10 +873,10 @@ export async function dispatchChatSend(
           // Embed conversation history as text inside the current user message.
           // The CLI stdin only supports a single user message; prior turns are
           // provided as a labeled text block so the model has conversation context.
-          const historyTurns = contextMessages
-            .filter((m) => m.role === 'user' || m.role === 'assistant')
+          const historyTurns = effectiveContextMessages
+            .filter((m) => m.role === 'user' || m.role === 'assistant' || m.role === 'system')
             .map((m) => {
-              const label = m.role === 'user' ? 'User' : 'Assistant'
+              const label = m.role === 'user' ? 'User' : m.role === 'assistant' ? 'Assistant' : 'System context'
               const text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
               return `${label}: ${text}`
             })
@@ -1033,7 +1047,7 @@ export async function dispatchChatSend(
           : `You are an AI programming assistant.${rootDirNote}\n\n${modelIdentityInstruction}`;
         const chatMessages: ProviderMessage[] = [
           { role: "system" as const, content: systemPrompt },
-          ...contextMessages,
+          ...effectiveContextMessages,
           { role: "user" as const, content: userContent },
         ];
         const assignedServerIds = Array.isArray(agentCfg2?.mcpServers)
