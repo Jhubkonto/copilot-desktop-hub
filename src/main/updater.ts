@@ -2,6 +2,7 @@ import pkg from 'electron-updater'
 const { autoUpdater } = pkg
 import { BrowserWindow } from 'electron'
 import { safeHandle } from './safe-handle'
+import { getFeedUrl, isFeedRunning } from './local-feed-server'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -11,6 +12,13 @@ export function initAutoUpdater(window: BrowserWindow): void {
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = true
   autoUpdater.logger = console
+
+  // Point at the local feed server if it was started during registerBuildHandlers
+  if (isFeedRunning()) {
+    try {
+      autoUpdater.setFeedURL({ provider: 'generic', url: getFeedUrl() } as never)
+    } catch { /* ignore — may not work in dev mode */ }
+  }
 
   autoUpdater.on('update-available', (info) => {
     mainWindow?.webContents.send('updater:update-available', {

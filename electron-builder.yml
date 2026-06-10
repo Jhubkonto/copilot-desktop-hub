@@ -40,6 +40,5 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
 publish:
-  provider: github
-  owner: OWNER
-  repo: nexy
+  provider: generic
+  url: http://127.0.0.1

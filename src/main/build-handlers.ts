@@ -1,12 +1,13 @@
 import { randomUUID } from 'crypto'
 import { execSync, spawn } from 'child_process'
-import { existsSync, readdirSync, statSync } from 'fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'fs'
 import path from 'path'
 import { app, BrowserWindow } from 'electron'
 import type Database from 'better-sqlite3'
 import { safeHandle } from './safe-handle'
 import { getDatabase } from './database'
-import type { BuildCommandName, BuildRecord, BuildStatus, PreflightCheck, WorkspaceInfo } from '../shared/types'
+import { startFeedServer, isFeedRunning, getFeedUrl, getFeedPort } from './local-feed-server'
+import type { BuildCommandName, BuildRecord, BuildStatus, LocalUpdateFeed, PreflightCheck, PublishedEntry, WorkspaceInfo } from '../shared/types'
 
 // ---------------------------------------------------------------------------
 // In-flight process registry
@@ -82,6 +83,43 @@ function rowToRecord(row: Record<string, unknown>): BuildRecord {
     startedAt: row.started_at as number,
     finishedAt: (row.finished_at as number | null) ?? null,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Local update feed helpers
+// ---------------------------------------------------------------------------
+
+function getLocalFeedPath(db: Database.Database): string | null {
+  const row = db.prepare("SELECT value FROM settings WHERE key = 'local_update_feed_path'").get() as { value: string } | undefined
+  return row?.value ?? null
+}
+
+function getYmlName(): string {
+  if (process.platform === 'darwin') return 'latest-mac.yml'
+  if (process.platform === 'linux') return 'latest-linux.yml'
+  return 'latest.yml'
+}
+
+function getInstallerExt(): string {
+  if (process.platform === 'win32') return '.exe'
+  if (process.platform === 'darwin') return '.dmg'
+  return '.AppImage'
+}
+
+function parseYmlMeta(content: string): { version: string; installerName: string; size: number } | null {
+  const vMatch = /^version:\s*['"]?(.+?)['"]?\s*$/m.exec(content)
+  const pMatch = /^path:\s*['"]?(.+?)['"]?\s*$/m.exec(content)
+  const sMatch = /size:\s*(\d+)/m.exec(content)
+  if (!vMatch || !pMatch) return null
+  return {
+    version: vMatch[1].trim(),
+    installerName: path.basename(pMatch[1].trim()),
+    size: sMatch ? parseInt(sMatch[1], 10) : 0,
+  }
+}
+
+function buildFeedInfo(feedPath: string): LocalUpdateFeed {
+  return { feedPath, feedUrl: getFeedUrl(), port: getFeedPort(), running: isFeedRunning() }
 }
 
 function scanArtifacts(releaseDir: string, beforeMtime: number): string[] {
@@ -263,4 +301,162 @@ export function registerBuildHandlers(mainWindow?: BrowserWindow): void {
       return { launched: false, error: err instanceof Error ? err.message : String(err) }
     }
   })
+
+  // ---------------------------------------------------------------------------
+  // Local update feed handlers (UPD.6–10)
+  // ---------------------------------------------------------------------------
+
+  safeHandle('build:get-feed-info', () => {
+    const feedPath = getLocalFeedPath(db)
+    if (!feedPath) return null
+    return buildFeedInfo(feedPath)
+  })
+
+  safeHandle('build:set-feed-path', async (_event, newFeedPath: string) => {
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('local_update_feed_path', ?)").run(newFeedPath)
+    if (!existsSync(newFeedPath)) mkdirSync(newFeedPath, { recursive: true })
+    const port = await startFeedServer(newFeedPath)
+    try {
+      const pkg = await import('electron-updater')
+      pkg.default.autoUpdater.setFeedURL({ provider: 'generic', url: `http://127.0.0.1:${port}` } as never)
+    } catch { /* ignore — autoUpdater may not support setFeedURL in dev */ }
+    return buildFeedInfo(newFeedPath)
+  })
+
+  safeHandle('build:publish-update', async () => {
+    const feedPath = getLocalFeedPath(db)
+    if (!feedPath) return { published: false, error: 'No local update feed path configured' }
+
+    const workspacePath = getWorkspacePath(db)
+    const releaseDir = path.join(workspacePath, 'release')
+    const ymlName = getYmlName()
+    const ymlSrc = path.join(releaseDir, ymlName)
+    const ext = getInstallerExt()
+
+    // Find the most recently modified installer
+    let installerSrc: string | null = null
+    if (existsSync(releaseDir)) {
+      let latestMtime = 0
+      for (const entry of readdirSync(releaseDir)) {
+        if (entry.endsWith(ext)) {
+          const full = path.join(releaseDir, entry)
+          try {
+            const st = statSync(full)
+            if (st.isFile() && st.mtimeMs > latestMtime) { installerSrc = full; latestMtime = st.mtimeMs }
+          } catch { /* skip */ }
+        }
+      }
+    }
+
+    if (!installerSrc) return { published: false, error: `No ${ext} installer found in release/` }
+    if (!existsSync(ymlSrc)) return { published: false, error: `${ymlName} not found in release/` }
+
+    const ymlContent = readFileSync(ymlSrc, 'utf8')
+    const parsed = parseYmlMeta(ymlContent)
+    if (!parsed) return { published: false, error: 'Could not parse version from latest.yml' }
+
+    // Backup existing feed before overwriting
+    const existingYml = path.join(feedPath, ymlName)
+    if (existsSync(existingYml)) {
+      try {
+        const oldContent = readFileSync(existingYml, 'utf8')
+        const oldParsed = parseYmlMeta(oldContent)
+        if (oldParsed) {
+          const backupDir = path.join(feedPath, '_backups', `v${oldParsed.version}`)
+          mkdirSync(backupDir, { recursive: true })
+          copyFileSync(existingYml, path.join(backupDir, ymlName))
+          const oldInstaller = path.join(feedPath, oldParsed.installerName)
+          if (existsSync(oldInstaller)) copyFileSync(oldInstaller, path.join(backupDir, oldParsed.installerName))
+        }
+      } catch { /* backup failure is non-fatal */ }
+    }
+
+    mkdirSync(feedPath, { recursive: true })
+    copyFileSync(ymlSrc, path.join(feedPath, ymlName))
+    copyFileSync(installerSrc, path.join(feedPath, parsed.installerName))
+
+    if (!isFeedRunning()) {
+      const port = await startFeedServer(feedPath)
+      try {
+        const pkg = await import('electron-updater')
+        pkg.default.autoUpdater.setFeedURL({ provider: 'generic', url: `http://127.0.0.1:${port}` } as never)
+      } catch { /* ignore */ }
+    }
+
+    return { published: true, version: parsed.version }
+  })
+
+  safeHandle('build:list-published', () => {
+    const feedPath = getLocalFeedPath(db)
+    if (!feedPath || !existsSync(feedPath)) return []
+
+    const entries: PublishedEntry[] = []
+    const ymlName = getYmlName()
+
+    const ymlPath = path.join(feedPath, ymlName)
+    if (existsSync(ymlPath)) {
+      try {
+        const content = readFileSync(ymlPath, 'utf8')
+        const parsed = parseYmlMeta(content)
+        if (parsed) {
+          const installerPath = path.join(feedPath, parsed.installerName)
+          const mtime = existsSync(installerPath) ? statSync(installerPath).mtimeMs : statSync(ymlPath).mtimeMs
+          entries.push({ version: parsed.version, publishedAt: mtime, installerName: parsed.installerName, installerSize: parsed.size, platform: process.platform, isBackup: false })
+        }
+      } catch { /* skip */ }
+    }
+
+    const backupBase = path.join(feedPath, '_backups')
+    if (existsSync(backupBase)) {
+      for (const vDir of readdirSync(backupBase)) {
+        const backupDir = path.join(backupBase, vDir)
+        try {
+          if (!statSync(backupDir).isDirectory()) continue
+          const backupYml = path.join(backupDir, ymlName)
+          if (!existsSync(backupYml)) continue
+          const content = readFileSync(backupYml, 'utf8')
+          const parsed = parseYmlMeta(content)
+          if (!parsed) continue
+          const installerPath = path.join(backupDir, parsed.installerName)
+          const mtime = existsSync(installerPath) ? statSync(installerPath).mtimeMs : statSync(backupYml).mtimeMs
+          entries.push({ version: parsed.version, publishedAt: mtime, installerName: parsed.installerName, installerSize: parsed.size, platform: process.platform, isBackup: true })
+        } catch { /* skip */ }
+      }
+    }
+
+    return entries.sort((a, b) => b.publishedAt - a.publishedAt)
+  })
+
+  safeHandle('build:rollback-update', (_event, version: string) => {
+    const feedPath = getLocalFeedPath(db)
+    if (!feedPath) return { launched: false, error: 'No local update feed configured' }
+
+    const backupDir = path.join(feedPath, '_backups', `v${version}`)
+    if (!existsSync(backupDir)) return { launched: false, error: `No backup found for v${version}` }
+
+    const ymlName = getYmlName()
+    const ymlPath = path.join(backupDir, ymlName)
+    if (!existsSync(ymlPath)) return { launched: false, error: 'Backup yml not found' }
+
+    const content = readFileSync(ymlPath, 'utf8')
+    const parsed = parseYmlMeta(content)
+    if (!parsed) return { launched: false, error: 'Could not parse backup installer name' }
+
+    const installerPath = path.join(backupDir, parsed.installerName)
+    if (!existsSync(installerPath)) return { launched: false, error: 'Backup installer file not found' }
+
+    try {
+      const child = spawn(installerPath, [], { detached: true, stdio: 'ignore' })
+      child.unref()
+      return { launched: true }
+    } catch (err) {
+      return { launched: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  // Start local feed server if a path is already configured
+  const existingFeedPath = getLocalFeedPath(db)
+  if (existingFeedPath && existsSync(existingFeedPath)) {
+    startFeedServer(existingFeedPath).catch(() => {})
+  }
 }

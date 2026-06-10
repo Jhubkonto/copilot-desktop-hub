@@ -11,12 +11,25 @@ vi.mock('electron', () => ({
   BrowserWindow: class {},
 }))
 
+vi.mock('electron-updater', () => ({
+  default: { autoUpdater: { setFeedURL: vi.fn() } },
+}))
+
 vi.mock('../database', () => ({
   getDatabase: vi.fn(),
 }))
 
 vi.mock('../safe-handle', () => ({
   safeHandle: vi.fn(),
+}))
+
+vi.mock('../local-feed-server', () => ({
+  startFeedServer: vi.fn().mockResolvedValue(0),
+  stopFeedServer: vi.fn(),
+  getFeedUrl: vi.fn().mockReturnValue(''),
+  getFeedPort: vi.fn().mockReturnValue(0),
+  isFeedRunning: vi.fn().mockReturnValue(false),
+  getFeedDir: vi.fn().mockReturnValue(''),
 }))
 
 // ---------------------------------------------------------------------------

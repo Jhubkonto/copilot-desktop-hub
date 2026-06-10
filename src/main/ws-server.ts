@@ -5,6 +5,7 @@ import { WebSocketServer, WebSocket } from 'ws'
 import type { AddressInfo } from 'net'
 import QRCode from 'qrcode'
 import { getDatabase } from './database'
+import { isFeedRunning, getFeedLanUrl } from './local-feed-server'
 
 export interface WsPushEvent {
   event: string
@@ -134,7 +135,8 @@ export function startWsServer(): Promise<{ port: number; token: string }> {
       }
 
       connectedClients.add(ws)
-      ws.send(JSON.stringify({ event: 'connected', data: { version: '0.9.0' } }))
+      const feedUrl = isFeedRunning() ? getFeedLanUrl(getLocalIp()) : null
+      ws.send(JSON.stringify({ event: 'connected', data: { version: '0.9.0', feedUrl } }))
 
       ws.on('message', (raw) => {
         try {
