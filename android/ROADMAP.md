@@ -98,6 +98,38 @@ Critical bugs identified during live testing:
 
 ---
 
+## v0.10 — Android Attachments 🔶
+
+- ✅ **ATT.1 Android picker and pending chips** — verified Android can select files/images, show removable pending attachment chips, and allow attachment-only sends
+- ✅ **ATT.2 Image payloads from phone gallery** — verified Android converts selected images to data URLs and sends them as `images` on `chat:send-message`
+- ✅ **ATT.3 Desktop WebSocket forwarding** — verified desktop accepts mobile image payloads and forwards them to `dispatchChatSend`
+- ✅ **ATT.4 Live desktop echo for mobile images** — desktop `chat:remote-message` now includes mobile image data so the open desktop chat can display the sent image
+- ✅ **ATT.5 Focused tests** — added Android ViewModel coverage for image attachment sends and desktop WebSocket coverage for mobile image forwarding
+- ✅ **ATT.6 Persisted attachment metadata after history reload** — mobile image sends now store lightweight attachment metadata in message history and Android restores attachment names after refresh without persisting base64 image data
+- 🔲 **ATT.7 Full persisted image previews** — optional follow-up if thumbnail persistence is worth the DB/storage tradeoff
+
+---
+
+## v0.11 — Server Profiles ✅
+
+- ✅ **SP.1 Profile-capable secure pairing store** — store multiple endpoint/token pairs with a selected active profile while migrating existing single-server installs
+- ✅ **SP.2 Pairing saves profiles** — QR/manual pairing adds or updates a profile and makes it active through the existing connection success path
+- ✅ **SP.3 Settings profile switcher** — show saved servers, active status, and allow switching without re-pairing
+- ✅ **SP.4 Forget active profile** — remove only the active profile, falling back to another saved server when available
+- ✅ **SP.5 Unit coverage** — cover deterministic profile IDs, display names, and profile conversion; repository/UI compile tests cover integration wiring
+
+---
+
+## v0.12 — Android Start Dashboard ✅
+
+- ✅ **SD.1 First-run start screen** — route disconnected/no-server users to a calm setup dashboard instead of immediately opening the QR scanner
+- ✅ **SD.2 Explicit pairing actions** — provide Scan QR Code and Enter URL Manually actions from the start screen
+- ✅ **SD.3 Saved profile quick connect** — show saved server profiles and allow connecting without scanning again
+- ✅ **SD.4 Pairing route split** — keep QR scanner and manual URL entry as focused screens behind explicit navigation
+- ✅ **SD.5 Verification** — compile Android navigation/UI changes and keep existing pairing config tests passing
+
+---
+
 ## Desktop Context Compression ✅
 
 - ✅ **CCMP.1 Rolling compression** — long conversations can persist a rolling deterministic summary plus recent turns
@@ -123,9 +155,8 @@ Critical bugs identified during live testing:
 ## Backlog (larger scope)
 
 - **Reusable desktop UI components** — continue refactoring repeated modal shells, headers, buttons, stat cards, tabs, and form fields into shared Tailwind components to reduce duplicate code and keep future UI polish consistent
-- **Image/file attachments** — send images from phone gallery to desktop chat
+- **Persisted mobile image thumbnails** — optional thumbnail cache for history reloads if attachment-name chips are not enough
 - **Push notifications** — replace heads-up notification with proper FCM push for when phone is truly backgrounded / screen off
-- **Multiple server profiles** — save and switch between multiple desktop connections
 - **Dark/light theme toggle** — currently follows system theme; add in-app override
 - **wss:// support** — TLS WebSocket for remote/Tailscale access without cleartext workaround
 - **Desktop-served Android updates** — Android checks the paired desktop for update metadata, then opens the system package installer or internal distribution link for approved updates
