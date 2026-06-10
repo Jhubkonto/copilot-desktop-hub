@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Plug, X, RefreshCw, Settings, Trash2, Plus } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
+import { Button, ModalShell } from './ui/primitives'
 
 interface McpServerConfig {
   id: string
@@ -246,36 +247,27 @@ export function McpServerPanel() {
   if (!visible) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-label="MCP Servers">
-      <div className="w-full max-w-xl bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 max-h-[80vh] flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-sm font-medium text-gray-800 dark:text-gray-100 flex items-center gap-1.5">
-            <Plug className="w-4 h-4" />
-            MCP Servers
-          </h2>
-          <div className="flex items-center gap-2">
-            <button
+    <ModalShell
+      title="MCP Servers"
+      icon={<Plug className="w-4 h-4" />}
+      ariaLabel="MCP Servers"
+      maxWidth="max-w-xl"
+      height="max-h-[80vh]"
+      bodyClassName="flex-1 min-h-0 overflow-y-auto p-5"
+      onClose={onClose}
+      headerActions={
+        <Button
               onClick={() => {
                 setJsonMode(!jsonMode)
                 setJsonError(null)
                 setEditingServer(null)
               }}
-              className="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
+              className="px-2 py-1"
             >
               {jsonMode ? 'List' : 'Import JSON'}
-            </button>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
-              aria-label="Close MCP panel"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-5">
+        </Button>
+      }
+    >
           {jsonMode ? (
             <div className="space-y-3">
               <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -291,12 +283,13 @@ export function McpServerPanel() {
               {jsonError && (
                 <p className="text-xs text-red-500">{jsonError}</p>
               )}
-              <button
+              <Button
                 onClick={handleJsonImport}
-                className="w-full text-xs px-3 py-2 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 font-medium"
+                variant="primary"
+                className="w-full justify-center py-2"
               >
                 Import Servers
-              </button>
+              </Button>
             </div>
           ) : editingServer ? (
             <div className="space-y-3">
@@ -396,19 +389,20 @@ export function McpServerPanel() {
               </div>
 
               <div className="flex gap-2 pt-2">
-                <button
+                <Button
                   onClick={handleSave}
                   disabled={!editingServer.name || !editingServer.command}
-                  className="flex-1 text-xs px-3 py-2 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 disabled:opacity-50 font-medium"
+                  variant="primary"
+                  className="flex-1 justify-center py-2"
                 >
                   {isNew ? 'Add Server' : 'Save Changes'}
-                </button>
-                <button
+                </Button>
+                <Button
                   onClick={() => setEditingServer(null)}
-                  className="text-xs px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  className="py-2"
                 >
                   Cancel
-                </button>
+                </Button>
               </div>
             </div>
           ) : (
@@ -489,13 +483,13 @@ export function McpServerPanel() {
                 ))
               )}
 
-              <button
+              <Button
                 onClick={handleNew}
-                className="w-full flex items-center justify-center gap-1.5 text-xs px-3 py-2 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-gray-400 dark:hover:border-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                className="w-full justify-center border-2 border-dashed border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-gray-400 dark:hover:border-gray-500 py-2"
               >
                 <Plus className="w-3.5 h-3.5" />
                 Add MCP Server
-              </button>
+              </Button>
 
               <div className="space-y-1">
                 <p className="text-xs text-gray-400 dark:text-gray-500 font-medium uppercase tracking-wide">Quick-add presets</p>
@@ -512,8 +506,6 @@ export function McpServerPanel() {
               </div>
             </div>
           )}
-        </div>
-      </div>
-    </div>
+    </ModalShell>
   )
 }

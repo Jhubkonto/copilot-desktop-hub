@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { Trash2, AlertTriangle } from 'lucide-react'
 import type { DeleteAgentImpact } from '../store/types'
+import { Button, ModalShell } from './ui/primitives'
 
 interface DeleteAgentDialogProps {
   impact: DeleteAgentImpact
@@ -22,14 +23,28 @@ export function DeleteAgentDialog({ impact, onConfirm, onCancel }: DeleteAgentDi
   }, [onCancel])
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      role="dialog"
-      aria-modal="true"
-      aria-label={`Delete ${agentName}`}
-      onClick={(e) => { if (e.target === e.currentTarget) onCancel() }}
+    <ModalShell
+      title="Delete agent"
+      ariaLabel={`Delete ${agentName}`}
+      maxWidth="max-w-md"
+      height=""
+      bodyClassName="p-6 space-y-4"
+      onClose={onCancel}
+      footer={
+        <>
+          <Button ref={cancelRef} onClick={onCancel} className="px-4 py-2 text-sm">
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            onClick={onConfirm}
+            className="px-4 py-2 text-sm bg-red-600 hover:bg-red-700 dark:bg-red-600 dark:hover:bg-red-700 dark:text-white"
+          >
+            Delete Agent
+          </Button>
+        </>
+      }
     >
-      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md mx-4 p-6 space-y-4">
         {/* Header */}
         <div className="flex items-center gap-3">
           <div className="flex-shrink-0 w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
@@ -84,24 +99,6 @@ export function DeleteAgentDialog({ impact, onConfirm, onCancel }: DeleteAgentDi
         <p className="text-xs text-gray-400 dark:text-gray-500 font-medium">
           This action cannot be undone.
         </p>
-
-        {/* Actions */}
-        <div className="flex justify-end gap-3 pt-1">
-          <button
-            ref={cancelRef}
-            onClick={onCancel}
-            className="px-4 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onConfirm}
-            className="px-4 py-2 text-sm rounded-lg bg-red-600 hover:bg-red-700 text-white font-medium transition-colors"
-          >
-            Delete Agent
-          </button>
-        </div>
-      </div>
-    </div>
+    </ModalShell>
   )
 }

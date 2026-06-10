@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { BookOpen, Loader2, Plus, Save, X } from 'lucide-react'
+import { BookOpen, Loader2, Plus, Save } from 'lucide-react'
 import type { PromptLibraryEntry, PromptLibraryInput } from '../../shared/types'
 import { extractPromptVariables, resolvePromptVariables } from '../../shared/prompt-variables'
+import { Button, ModalShell, SegmentedTabs, SelectField, TextareaField, TextField } from './ui/primitives'
 
 interface PromptLibraryModalProps {
   projectId: string | null
@@ -242,65 +243,59 @@ export function PromptLibraryModal({
   }, [onAttachInstruction, onClose, rememberVariableDefaults, resolvedPrompt, selectedPrompt])
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Prompt library"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-6xl h-[84vh] bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="flex items-center justify-between gap-4 px-5 py-3 border-b border-gray-200 dark:border-gray-700 shrink-0">
-          <div className="min-w-0">
-            <h2 className="text-sm font-medium text-gray-800 dark:text-gray-100 flex items-center gap-2">
-              <BookOpen className="w-4 h-4 text-gray-400" />
-              Prompt library
-            </h2>
-            <p className="text-xs text-gray-500 mt-0.5">
-              Use, save, and edit reusable prompts{projectName ? ` for ${projectName}` : ''}.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
+    <ModalShell
+      title="Prompt library"
+      description={`Use, save, and edit reusable prompts${projectName ? ` for ${projectName}` : ''}.`}
+      icon={<BookOpen className="w-4 h-4 text-gray-400" />}
+      ariaLabel="Prompt library"
+      maxWidth="max-w-6xl"
+      bodyClassName="grid grid-cols-[280px_1fr] min-h-0 flex-1"
+      onClose={onClose}
+      headerActions={
+        <Button
               type="button"
               onClick={() => startNewPrompt(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
             >
               <Plus className="w-3.5 h-3.5" />
               Save current draft
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
-              aria-label="Close prompt library"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-[280px_1fr] min-h-0 flex-1">
+        </Button>
+      }
+      footer={
+        <>
+          <Button onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            onClick={() => void handleInsert()}
+            disabled={mode !== 'use' || !selectedPrompt}
+          >
+            Insert prompt
+          </Button>
+          <Button
+            onClick={() => void handleAttachInstruction()}
+            disabled={mode !== 'use' || !selectedPrompt || !onAttachInstruction}
+          >
+            Attach as instructions
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => void handleRun()}
+            disabled={mode !== 'use' || !selectedPrompt || !onRun}
+          >
+            Run prompt
+          </Button>
+        </>
+      }
+    >
           <div className="border-r border-gray-200 dark:border-gray-700 min-h-0 flex flex-col">
-            <div className="flex gap-1 p-2 border-b border-gray-100 dark:border-gray-700">
-              {(['use', 'save'] as Mode[]).map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  onClick={() => item === 'save' ? startNewPrompt(false) : setMode('use')}
-                  className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium ${
-                    mode === item
-                      ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900'
-                      : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-                  }`}
-                >
-                  {item === 'use' ? 'Use prompts' : 'Save prompt'}
-                </button>
-              ))}
-            </div>
+            <SegmentedTabs
+              value={mode}
+              items={[
+                { id: 'use', label: 'Use prompts' },
+                { id: 'save', label: 'Save prompt' },
+              ]}
+              onChange={(nextMode) => nextMode === 'save' ? startNewPrompt(false) : setMode('use')}
+            />
             <div className="overflow-y-auto p-2">
               {loading && (
                 <div className="flex items-center gap-2 p-3 text-xs text-gray-400">
@@ -354,13 +349,13 @@ export function PromptLibraryModal({
                           <p className="text-sm text-gray-500 mt-2 whitespace-pre-wrap">{selectedPrompt.description}</p>
                         )}
                       </div>
-                      <button
+                      <Button
                         type="button"
                         onClick={() => startEditPrompt(selectedPrompt)}
-                        className="shrink-0 rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                        className="shrink-0"
                       >
                         Edit
-                      </button>
+                      </Button>
                     </div>
 
                     {selectedPrompt.variables.length > 0 && (
@@ -368,14 +363,13 @@ export function PromptLibraryModal({
                         <p className="text-xs font-medium text-gray-600 dark:text-gray-300">Variables</p>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           {selectedPrompt.variables.map((variable) => (
-                            <label key={variable} className="block">
-                              <span className="block text-[11px] font-mono text-gray-500 mb-1">{'{{'}{variable}{'}}'}</span>
-                              <input
+                            <TextField
+                              key={variable}
+                              label={`{{${variable}}}`}
                                 value={values[variable] ?? ''}
                                 onChange={(event) => setValues((current) => ({ ...current, [variable]: event.target.value }))}
-                                className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              />
-                            </label>
+                              className="font-mono"
+                            />
                           ))}
                         </div>
                       </div>
@@ -404,72 +398,55 @@ export function PromptLibraryModal({
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                  <label className="block">
-                    <span className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Title</span>
-                    <input
+                  <TextField
+                      label="Title"
                       value={draft.title}
                       onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
-                      className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                       placeholder="Code review checklist"
                     />
-                  </label>
-                  <label className="block">
-                    <span className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Category</span>
-                    <input
+                  <TextField
+                      label="Category"
                       value={draft.category ?? ''}
                       onChange={(event) => setDraft((current) => ({ ...current, category: event.target.value }))}
-                      className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                       placeholder="Coding"
                     />
-                  </label>
                 </div>
 
-                <label className="block">
-                  <span className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Description</span>
-                  <input
+                <TextField
+                    label="Description"
                     value={draft.description ?? ''}
                     onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))}
-                    className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="When to use this prompt"
                   />
-                </label>
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                  <label className="block">
-                    <span className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Scope</span>
-                    <select
+                  <SelectField
+                      label="Scope"
                       value={draft.scope ?? 'global'}
                       onChange={(event) => setDraft((current) => ({
                         ...current,
                         scope: event.target.value === 'project' ? 'project' : 'global',
                         project_id: event.target.value === 'project' ? projectId : null,
                       }))}
-                      className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
                       <option value="global">Available everywhere</option>
                       <option value="project" disabled={!projectId}>{projectName ? `Project: ${projectName}` : 'Project prompt'}</option>
-                    </select>
-                  </label>
-                  <label className="block">
-                    <span className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Tags</span>
-                    <input
+                    </SelectField>
+                  <TextField
+                      label="Tags"
                       value={tagInput}
                       onChange={(event) => setTagInput(event.target.value)}
-                      className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                       placeholder="review, typescript"
                     />
-                  </label>
                 </div>
 
-                <label className="block">
-                  <span className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Prompt</span>
-                  <textarea
+                <TextareaField
+                    label="Prompt"
                     value={draft.body}
                     onChange={(event) => setDraft((current) => ({ ...current, body: event.target.value }))}
-                    className="w-full min-h-[280px] px-3 py-2 text-sm leading-6 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
+                    className="min-h-[280px]"
                     placeholder="Write the reusable prompt..."
                   />
-                </label>
 
                 {draftVariables.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
@@ -484,55 +461,19 @@ export function PromptLibraryModal({
                 {error && <p className="text-xs text-red-500">{error}</p>}
 
                 <div className="flex justify-end">
-                  <button
+                  <Button
                     type="button"
                     onClick={() => void handleSave()}
                     disabled={saving}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 px-3 py-1.5 text-xs font-medium text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 disabled:opacity-60"
+                    variant="primary"
                   >
                     {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                     Save prompt
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
           </div>
-        </div>
-
-        <div className="flex flex-wrap justify-end gap-2 px-5 py-3 border-t border-gray-200 dark:border-gray-700 shrink-0">
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleInsert()}
-            disabled={mode !== 'use' || !selectedPrompt}
-            className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 font-medium"
-          >
-            Insert prompt
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleAttachInstruction()}
-            disabled={mode !== 'use' || !selectedPrompt || !onAttachInstruction}
-            className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 font-medium"
-          >
-            Attach as instructions
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleRun()}
-            disabled={mode !== 'use' || !selectedPrompt || !onRun}
-            className="text-xs px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 disabled:opacity-50 font-medium"
-          >
-            Run prompt
-          </button>
-        </div>
-      </div>
-    </div>
+    </ModalShell>
   )
 }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { BookOpen, Loader2, X } from 'lucide-react'
+import { BookOpen, Loader2 } from 'lucide-react'
 import type { WikiEntry } from '../../shared/types'
+import { Button, ModalShell } from './ui/primitives'
 
 interface SaveToWikiModalProps {
   projectId: string
@@ -86,33 +87,31 @@ export function SaveToWikiModal({
   }, [body, conversationId, messageId, onClose, onSaved, projectId, tagInput, tags, title])
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Save to project wiki"
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
-    >
-      <div className="w-full max-w-lg rounded-xl bg-white dark:bg-gray-900 shadow-xl border border-gray-200 dark:border-gray-700 p-5 space-y-4">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 min-w-0">
-            <BookOpen className="w-4 h-4 text-blue-500 shrink-0" />
-            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 truncate">
-              Save to project wiki
-            </h2>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-            aria-label="Close save to wiki dialog"
+    <ModalShell
+      title="Save to project wiki"
+      icon={<BookOpen className="w-4 h-4 text-blue-500 shrink-0" />}
+      ariaLabel="Save to project wiki"
+      maxWidth="max-w-lg"
+      height=""
+      bodyClassName="p-5 space-y-4"
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose} className="px-4 py-2 text-sm">
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => void handleSave()}
+            disabled={saving || !title.trim()}
+            className="px-4 py-2 text-sm"
           >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
+            {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+            <span>{saving ? 'Saving...' : 'Save to wiki'}</span>
+          </Button>
+        </>
+      }
+    >
         <div className="space-y-1">
           <label className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
             Title
@@ -189,26 +188,6 @@ export function SaveToWikiModal({
             {error}
           </div>
         )}
-
-        <div className="flex items-center justify-end gap-3 pt-1">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleSave()}
-            disabled={saving || !title.trim()}
-            className="inline-flex items-center gap-2 rounded-lg bg-gray-900 dark:bg-gray-100 px-4 py-2 text-sm font-medium text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-            <span>{saving ? 'Saving…' : 'Save to wiki'}</span>
-          </button>
-        </div>
-      </div>
-    </div>
+    </ModalShell>
   )
 }

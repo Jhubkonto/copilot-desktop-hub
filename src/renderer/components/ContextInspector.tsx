@@ -1,11 +1,12 @@
-import { useEffect, useState, type ReactNode } from 'react'
-import { Activity, ChevronDown, ChevronUp, FileText, MessageSquare, X, Zap } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Activity, ChevronDown, ChevronUp, FileText, MessageSquare, Zap } from 'lucide-react'
 import type { ContextRef, ContextSnapshot } from '../hooks/chat-types'
 import type {
   ConversationCompressionDraft,
   ConversationCompressionPreview,
   StructuredConversationSummary,
 } from '../../shared/types'
+import { Button, InfoRow, ModalShell, StatCard, TextareaField } from './ui/primitives'
 
 interface Attachment {
   id: string
@@ -72,40 +73,6 @@ function textToList(value: string): string[] {
     .split('\n')
     .map((item) => item.replace(/\s+/g, ' ').trim())
     .filter(Boolean)
-}
-
-function ContextRow({
-  label,
-  detail,
-  value,
-  children,
-}: {
-  label: string
-  detail?: string
-  value?: string
-  children?: ReactNode
-}) {
-  return (
-    <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/50 p-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-xs font-medium text-gray-700 dark:text-gray-200">{label}</p>
-          {detail && <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400 break-words">{detail}</p>}
-        </div>
-        {value && <span className="shrink-0 text-[11px] tabular-nums text-gray-400">{value}</span>}
-      </div>
-      {children}
-    </div>
-  )
-}
-
-function StatCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/50 px-3 py-2">
-      <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">{label}</p>
-      <p className="mt-1 text-sm font-medium text-gray-800 dark:text-gray-100">{value}</p>
-    </div>
-  )
 }
 
 /** Collapsible panel showing what will be included in the next message payload. */
@@ -222,40 +189,13 @@ export function ContextInspector({
   }, [onClose])
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Context inspector"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
+    <ModalShell
+      title="Context inspector"
+      description="Review the payload that will be included with the next message."
+      icon={<Activity className="w-4 h-4 text-gray-400" />}
+      onClose={onClose}
     >
-      <div
-        className="w-full max-w-5xl h-[84vh] overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-xs text-gray-700 dark:text-gray-300 shadow-2xl flex flex-col"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <div className="flex items-center justify-between gap-4 px-5 py-3 border-b border-gray-200 dark:border-gray-700 shrink-0">
-          <div className="min-w-0">
-            <h2 className="text-sm font-medium text-gray-800 dark:text-gray-100 flex items-center gap-2">
-              <Activity className="w-4 h-4 text-gray-400" />
-              Context inspector
-            </h2>
-            <p className="text-xs text-gray-500 mt-0.5">
-              Review the payload that will be included with the next message.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
-            aria-label="Close context inspector"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-5">
+      <div className="space-y-5 text-xs text-gray-700 dark:text-gray-300">
           <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 p-4">
             <div className="flex items-center gap-3">
               <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
@@ -282,7 +222,7 @@ export function ContextInspector({
               <section className="space-y-2">
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-400">Payload sources</h3>
                 {systemPrompt.length > 0 && (
-                  <ContextRow label="System prompt" value={`${fmtTokens(systemTokens)} tok`}>
+                  <InfoRow label="System prompt" value={`${fmtTokens(systemTokens)} tok`}>
                     <button
                       type="button"
                       className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-gray-500 hover:text-gray-700 dark:hover:text-gray-200"
@@ -296,27 +236,27 @@ export function ContextInspector({
                         {systemPrompt}
                       </pre>
                     )}
-                  </ContextRow>
+                  </InfoRow>
                 )}
                 {contextRefs.length > 0 ? contextRefs.map((ref, i) => (
-                  <ContextRow
+                  <InfoRow
                     key={`${ref.token}-${i}`}
                     label={ref.token}
                     detail="Resolved when the next message is dispatched."
                     value={`${fmtTokens(REF_TOKEN_ESTIMATE[ref.key] ?? 300)} tok`}
                   />
                 )) : (
-                  <ContextRow label="@refs" detail="No explicit context references attached." />
+                  <InfoRow label="@refs" detail="No explicit context references attached." />
                 )}
                 {attachments.length > 0 ? attachments.map((att) => (
-                  <ContextRow
+                  <InfoRow
                     key={att.id}
                     label={att.name}
                     detail={`${att.size.toLocaleString()} bytes`}
                     value={`${fmtTokens(estimateTokens(att.size))} tok`}
                   />
                 )) : (
-                  <ContextRow label="File attachments" detail="No files attached to the draft message." />
+                  <InfoRow label="File attachments" detail="No files attached to the draft message." />
                 )}
               </section>
             </div>
@@ -355,14 +295,13 @@ export function ContextInspector({
                       <StatCard label="Retained" value={`${compressionPreview.retained_message_count}`} />
                       <StatCard label="Omitted" value={`${compressionPreview.omitted_message_count}`} />
                     </div>
-                    <button
-                      type="button"
+                    <Button
                       className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
                       onClick={() => setShowCompression((value) => !value)}
                     >
                       {showCompression ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                       {showCompression ? 'Hide details' : 'Show details'}
-                    </button>
+                    </Button>
                     {!compressionPreview.has_summary && (
                       <p className="text-xs text-gray-500">
                         No rolling summary yet. Recent history will be sent until compression starts.
@@ -385,15 +324,14 @@ export function ContextInspector({
                     Inspect or replace the rolling summary used for long conversations.
                   </p>
                 </div>
-                <button
-                  type="button"
+                <Button
+                  variant="primary"
                   disabled={!conversationId || isPreparingCompression}
                   onClick={prepareManualCompression}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 px-3 py-1.5 text-xs font-medium text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 disabled:opacity-60"
                 >
                   <FileText className="w-3.5 h-3.5" />
                   {isPreparingCompression ? 'Preparing...' : 'Compress now'}
-                </button>
+                </Button>
               </div>
 
               {compressionError && (
@@ -411,33 +349,29 @@ export function ContextInspector({
                   </div>
                   <div className="grid gap-3 md:grid-cols-2">
                     {SUMMARY_SECTION_LABELS.map(([key, label]) => (
-                      <label key={key} className="block">
-                        <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">{label}</span>
-                        <textarea
+                      <TextareaField
+                          key={key}
+                          label={label}
                           value={listToText(compressionDraft.sections[key])}
                           onChange={(event) => updateDraftSection(key, event.target.value)}
-                          className="h-24 w-full resize-y rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-xs leading-5 text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-blue-500"
+                          className="h-24 text-xs leading-5"
                           placeholder="One item per line"
                         />
-                      </label>
                     ))}
                   </div>
                   <div className="flex justify-end gap-2">
-                    <button
-                      type="button"
+                    <Button
                       onClick={() => setCompressionDraft(null)}
-                      className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
                     >
                       Cancel
-                    </button>
-                    <button
-                      type="button"
+                    </Button>
+                    <Button
+                      variant="primary"
                       disabled={isSavingCompression}
                       onClick={saveManualCompression}
-                      className="text-xs px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 disabled:opacity-60 font-medium"
                     >
                       {isSavingCompression ? 'Saving...' : 'Save summary'}
-                    </button>
+                    </Button>
                   </div>
                 </div>
               )}
@@ -467,9 +401,8 @@ export function ContextInspector({
               )}
             </section>
           )}
-        </div>
       </div>
-    </div>
+    </ModalShell>
   )
 }
 

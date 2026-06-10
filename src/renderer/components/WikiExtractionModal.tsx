@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, Loader2, Pencil, X } from 'lucide-react'
 import type { WikiCandidate } from '../../shared/types'
+import { Button, ModalShell } from './ui/primitives'
 
 type CandidateStatus = 'pending' | 'accepted' | 'discarded' | 'saving' | 'error'
 
@@ -147,32 +148,35 @@ export function WikiExtractionModal({
   }, [items, onAllDone, saveCandidate])
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-6"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Extracted learnings"
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
-    >
-      <div className="w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-xl">
-        <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-gray-200 dark:border-gray-700 bg-white/95 dark:bg-gray-900/95 px-5 py-4 backdrop-blur">
-          <div className="min-w-0">
-            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">💡 Extracted learnings</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400">{candidates.length} candidate{candidates.length === 1 ? '' : 's'}</p>
+    <ModalShell
+      title="Extracted learnings"
+      description={`${candidates.length} candidate${candidates.length === 1 ? '' : 's'}`}
+      icon={<span className="text-sm" aria-hidden="true">💡</span>}
+      ariaLabel="Extracted learnings"
+      maxWidth="max-w-2xl"
+      height="max-h-[85vh]"
+      bodyClassName="flex-1 min-h-0 overflow-y-auto space-y-4 px-5 py-4"
+      onClose={onClose}
+      footer={
+        <div className="flex w-full flex-wrap items-center justify-between gap-3">
+          <div className="text-sm text-gray-500 dark:text-gray-400">{savedCount} saved</div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="primary"
+              onClick={() => void handleAcceptAll()}
+              disabled={pendingCount === 0}
+              className="px-4 py-2 text-sm"
+            >
+              {items.some((item) => item.status === 'saving') && <Loader2 className="w-4 h-4 animate-spin" />}
+              <span>Accept All</span>
+            </Button>
+            <Button onClick={onClose} className="px-4 py-2 text-sm">
+              Close
+            </Button>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-200"
-            aria-label="Close extracted learnings dialog"
-          >
-            <X className="w-4 h-4" />
-          </button>
         </div>
-
-        <div className="space-y-4 px-5 py-4">
+      }
+    >
           {candidates.map((candidate, index) => {
             const item = items[index]
             const previewTags = addUniqueTag(item.tags, item.tagInput)
@@ -314,33 +318,35 @@ export function WikiExtractionModal({
                     )}
 
                     <div className="flex flex-wrap items-center gap-2 pt-1">
-                      <button
+                      <Button
                         type="button"
                         onClick={() => void saveCandidate(index)}
                         disabled={isSaving || isDone}
-                        className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-50"
+                        variant="primary"
+                        className="bg-green-600 px-3 py-1.5 text-sm hover:bg-green-500 dark:bg-green-600 dark:hover:bg-green-500 dark:text-white"
                       >
                         {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                         <span>{candidate.matchingEntryId ? 'Update existing' : 'Accept'}</span>
-                      </button>
-                      <button
+                      </Button>
+                      <Button
                         type="button"
                         onClick={() => beginEdit(index)}
                         disabled={isSaving || isDone}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-200 transition-colors hover:bg-gray-100 dark:hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="px-3 py-1.5 text-sm"
                       >
                         <Pencil className="w-4 h-4" />
                         <span>{item.editing ? 'Editing' : 'Edit'}</span>
-                      </button>
-                      <button
+                      </Button>
+                      <Button
                         type="button"
                         onClick={() => updateItem(index, (current) => ({ ...current, status: 'discarded', editing: false, error: undefined, tagInput: '' }))}
                         disabled={isSaving || item.status === 'accepted' || item.status === 'discarded'}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm text-red-600 dark:text-red-300 transition-colors hover:bg-red-50 dark:hover:bg-red-900/10 disabled:cursor-not-allowed disabled:opacity-50"
+                        variant="danger"
+                        className="border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm text-red-600 dark:text-red-300 dark:hover:bg-red-900/10"
                       >
                         <X className="w-4 h-4" />
                         <span>Discard</span>
-                      </button>
+                      </Button>
                     </div>
                   </div>
 
@@ -353,30 +359,6 @@ export function WikiExtractionModal({
               </div>
             )
           })}
-        </div>
-
-        <div className="sticky bottom-0 flex flex-wrap items-center justify-between gap-3 border-t border-gray-200 dark:border-gray-700 bg-white/95 dark:bg-gray-900/95 px-5 py-4 backdrop-blur">
-          <div className="text-sm text-gray-500 dark:text-gray-400">{savedCount} saved</div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void handleAcceptAll()}
-              disabled={pendingCount === 0}
-              className="inline-flex items-center gap-2 rounded-lg bg-gray-900 dark:bg-gray-100 px-4 py-2 text-sm font-medium text-white dark:text-gray-900 transition-colors hover:bg-gray-800 dark:hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {items.some((item) => item.status === 'saving') && <Loader2 className="w-4 h-4 animate-spin" />}
-              <span>Accept All</span>
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm text-gray-700 dark:text-gray-200 transition-colors hover:bg-gray-100 dark:hover:bg-gray-800"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+    </ModalShell>
   )
 }
