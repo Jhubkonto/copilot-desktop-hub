@@ -314,6 +314,13 @@ export function createMockApi() {
     onTeamStepStream: vi.fn().mockReturnValue(() => {}),
     onWikiInjected: vi.fn().mockReturnValue(() => {}),
 
+    // Local update feed
+    buildGetFeedInfo: vi.fn().mockResolvedValue(null),
+    buildSetFeedPath: vi.fn().mockResolvedValue({ feedPath: '/tmp/feed', feedUrl: 'http://127.0.0.1:12345', port: 12345, running: true }),
+    buildPublishUpdate: vi.fn().mockResolvedValue({ published: true, version: '0.9.0' }),
+    buildListPublished: vi.fn().mockResolvedValue([]),
+    buildRollbackUpdate: vi.fn().mockResolvedValue({ launched: true }),
+
     // Build orchestrator
     buildGetWorkspaceInfo: vi.fn().mockResolvedValue({
       path: 'C:\\project',
@@ -354,6 +361,22 @@ export function createMockApi() {
     readClipboardContent: vi.fn().mockResolvedValue(null),
     readClipboardImage: vi.fn().mockResolvedValue(null),
     ocrImage: vi.fn().mockResolvedValue({ text: '' }),
+
+    // Android build and distribution
+    androidGetWorkspaceInfo: vi.fn().mockResolvedValue({ path: '', branch: 'main', commitSha: 'abc1234', dirty: false, versionCode: 1, versionName: '1.0', isGitRepo: true }),
+    androidSetWorkspacePath: vi.fn().mockResolvedValue({ path: '', branch: 'main', commitSha: 'abc1234', dirty: false, versionCode: 1, versionName: '1.0', isGitRepo: true }),
+    androidStartCommand: vi.fn().mockResolvedValue({ buildId: 'android-build-1' }),
+    androidCancelCommand: vi.fn().mockResolvedValue(true),
+    androidGetRecords: vi.fn().mockResolvedValue([]),
+    androidGetSigningConfig: vi.fn().mockResolvedValue(null),
+    androidSetSigningConfig: vi.fn().mockResolvedValue(true),
+    androidValidateSigningConfig: vi.fn().mockResolvedValue({ valid: true, checks: [] }),
+    androidListAdbDevices: vi.fn().mockResolvedValue([]),
+    androidInstallApk: vi.fn().mockResolvedValue({ success: true }),
+    androidPublishUpdate: vi.fn().mockResolvedValue({ published: true }),
+    androidGetUpdateManifest: vi.fn().mockResolvedValue(null),
+    onAndroidLogChunk: vi.fn().mockReturnValue(() => {}),
+    onAndroidCommandDone: vi.fn().mockReturnValue(() => {}),
   }
 }
 

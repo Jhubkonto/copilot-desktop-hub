@@ -1,5 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
+  AndroidBuildCommandName,
+  AndroidSigningConfig,
+  AndroidWorkspaceInfo,
   BuildCommandName,
   BuildRecord,
   BuildStatus,
@@ -9,6 +12,7 @@ import type {
   IpcReturn,
   PromptLibraryInput,
   PromptLibraryUpdate,
+  PublishedEntry,
 } from '../shared/types'
 
 // ---------------------------------------------------------------------------
@@ -435,6 +439,37 @@ const api = {
     const handler = (_event: Electron.IpcRendererEvent, data: { buildId: string; status: BuildStatus; exitCode: number }) => callback(data)
     typedOn('build:command-done', handler)
     return () => typedOff('build:command-done', handler)
+  },
+
+  // Local update feed
+  buildGetFeedInfo: () => typedInvoke('build:get-feed-info'),
+  buildSetFeedPath: (feedPath: string) => typedInvoke('build:set-feed-path', feedPath),
+  buildPublishUpdate: () => typedInvoke('build:publish-update'),
+  buildListPublished: () => typedInvoke('build:list-published') as Promise<PublishedEntry[]>,
+  buildRollbackUpdate: (version: string) => typedInvoke('build:rollback-update', version),
+
+  // Android build and distribution
+  androidGetWorkspaceInfo: () => typedInvoke('android:get-workspace-info') as Promise<AndroidWorkspaceInfo>,
+  androidSetWorkspacePath: (workspacePath: string) => typedInvoke('android:set-workspace-path', workspacePath) as Promise<AndroidWorkspaceInfo>,
+  androidStartCommand: (cmd: AndroidBuildCommandName) => typedInvoke('android:start-command', cmd),
+  androidCancelCommand: (buildId: string) => typedInvoke('android:cancel-command', buildId),
+  androidGetRecords: (limit?: number) => typedInvoke('android:get-records', limit) as Promise<BuildRecord[]>,
+  androidGetSigningConfig: () => typedInvoke('android:get-signing-config') as Promise<AndroidSigningConfig | null>,
+  androidSetSigningConfig: (config: AndroidSigningConfig) => typedInvoke('android:set-signing-config', config),
+  androidValidateSigningConfig: () => typedInvoke('android:validate-signing-config'),
+  androidListAdbDevices: () => typedInvoke('android:list-adb-devices'),
+  androidInstallApk: (serial: string, apkPath: string) => typedInvoke('android:install-apk', serial, apkPath),
+  androidPublishUpdate: () => typedInvoke('android:publish-update'),
+  androidGetUpdateManifest: () => typedInvoke('android:get-update-manifest'),
+  onAndroidLogChunk: (callback: (data: { buildId: string; line: string; stream: 'stdout' | 'stderr' }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { buildId: string; line: string; stream: 'stdout' | 'stderr' }) => callback(data)
+    typedOn('android:log-chunk', handler)
+    return () => typedOff('android:log-chunk', handler)
+  },
+  onAndroidCommandDone: (callback: (data: { buildId: string; status: BuildStatus; exitCode: number }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { buildId: string; status: BuildStatus; exitCode: number }) => callback(data)
+    typedOn('android:command-done', handler)
+    return () => typedOff('android:command-done', handler)
   },
 }
 

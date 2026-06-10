@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Sun, Moon, Plug, Settings, Cpu, Shield, Smartphone, RefreshCw, Terminal, BookOpen, Plus, Trash2, Wrench, CheckCircle, AlertTriangle, XCircle } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import { getAvailableModelIds, getModelLabel } from '../../shared/models'
-import type { BuildCommandName, BuildRecord, BuildStatus, PreflightCheck, PromptLibraryEntry, PromptLibraryInput, PromptLibraryVersion, WorkspaceInfo } from '../../shared/types'
+import type { AdbDevice, AndroidBuildCommandName, AndroidSigningConfig, AndroidUpdateManifest, AndroidWorkspaceInfo, BuildCommandName, BuildRecord, BuildStatus, LocalUpdateFeed, PreflightCheck, PromptLibraryEntry, PromptLibraryInput, PromptLibraryVersion, PublishedEntry, WorkspaceInfo } from '../../shared/types'
 import { extractPromptVariables } from '../../shared/prompt-variables'
 import { ModalShell, SelectField, TextareaField, TextField } from './ui/primitives'
 
@@ -109,6 +109,27 @@ export function SettingsPanel() {
   const [preflightRunning, setPreflightRunning] = useState(false)
   const [lastBuildStatus, setLastBuildStatus] = useState<BuildStatus | null>(null)
   const [launchDevError, setLaunchDevError] = useState<string | null>(null)
+  // Local update feed state
+  const [feedInfo, setFeedInfo] = useState<LocalUpdateFeed | null>(null)
+  const [feedPathInput, setFeedPathInput] = useState('')
+  const [publishedEntries, setPublishedEntries] = useState<PublishedEntry[]>([])
+  const [publishing, setPublishing] = useState(false)
+  const [publishResult, setPublishResult] = useState<string | null>(null)
+
+  // Android build state
+  const [androidWorkspaceInfo, setAndroidWorkspaceInfo] = useState<AndroidWorkspaceInfo | null>(null)
+  const [androidWorkspacePathInput, setAndroidWorkspacePathInput] = useState('')
+  const [androidBuildRecords, setAndroidBuildRecords] = useState<BuildRecord[]>([])
+  const [activeAndroidBuildId, setActiveAndroidBuildId] = useState<string | null>(null)
+  const [activeAndroidCommand, setActiveAndroidCommand] = useState<AndroidBuildCommandName | null>(null)
+  const [androidLogLines, setAndroidLogLines] = useState<string[]>([])
+  const [androidLastBuildStatus, setAndroidLastBuildStatus] = useState<BuildStatus | null>(null)
+  const [signingDraft, setSigningDraft] = useState<AndroidSigningConfig>({ keystorePath: '', keystorePassword: '', keyAlias: '', keyPassword: '' })
+  const [signingValidation, setSigningValidation] = useState<PreflightCheck[] | null>(null)
+  const [adbDevices, setAdbDevices] = useState<AdbDevice[]>([])
+  const [adbInstalling, setAdbInstalling] = useState(false)
+  const [androidPublishResult, setAndroidPublishResult] = useState<string | null>(null)
+  const [androidUpdateManifest, setAndroidUpdateManifest] = useState<AndroidUpdateManifest | null>(null)
 
   // Prompt library state
   const [prompts, setPrompts] = useState<PromptLibraryEntry[]>([])
@@ -329,6 +350,20 @@ export function SettingsPanel() {
     if (!visible || category !== 'developer') return
     void refreshWorkspaceInfo()
     window.api.buildGetRecords(5).then(setBuildRecords).catch(() => {})
+    window.api.buildGetFeedInfo().then((info) => {
+      setFeedInfo(info)
+      setFeedPathInput(info?.feedPath ?? '')
+    }).catch(() => {})
+    window.api.buildListPublished().then(setPublishedEntries).catch(() => {})
+    window.api.androidGetWorkspaceInfo().then((info) => {
+      setAndroidWorkspaceInfo(info)
+      setAndroidWorkspacePathInput(info.path)
+    }).catch(() => {})
+    window.api.androidGetRecords(10).then(setAndroidBuildRecords).catch(() => {})
+    window.api.androidGetSigningConfig().then((config) => {
+      if (config) setSigningDraft(config)
+    }).catch(() => {})
+    window.api.androidGetUpdateManifest().then(setAndroidUpdateManifest).catch(() => {})
   }, [visible, category, refreshWorkspaceInfo])
 
   useEffect(() => {
@@ -346,8 +381,21 @@ export function SettingsPanel() {
         window.api.buildGetRecords(5).then(setBuildRecords).catch(() => {})
       }
     })
-    return () => { offChunk(); offDone() }
-  }, [visible, activeBuildId])
+    const offAndroidChunk = window.api.onAndroidLogChunk(({ buildId, line }) => {
+      if (buildId === activeAndroidBuildId || activeAndroidBuildId === null) {
+        setAndroidLogLines((prev) => [...prev.slice(-299), line])
+      }
+    })
+    const offAndroidDone = window.api.onAndroidCommandDone(({ buildId, status }) => {
+      if (buildId === activeAndroidBuildId || activeAndroidBuildId === null) {
+        setActiveAndroidBuildId(null)
+        setActiveAndroidCommand(null)
+        setAndroidLastBuildStatus(status)
+        window.api.androidGetRecords(10).then(setAndroidBuildRecords).catch(() => {})
+      }
+    })
+    return () => { offChunk(); offDone(); offAndroidChunk(); offAndroidDone() }
+  }, [visible, activeBuildId, activeAndroidBuildId])
 
   const handleMobileToggle = async () => {
     setMobileLoading(true)
@@ -441,6 +489,110 @@ export function SettingsPanel() {
     setLaunchDevError(null)
     const result = await window.api.buildLaunchDev()
     if (!result.launched) setLaunchDevError(result.error ?? 'Failed to launch')
+  }
+
+  const handleSaveFeedPath = async () => {
+    const trimmed = feedPathInput.trim()
+    if (!trimmed) return
+    const info = await window.api.buildSetFeedPath(trimmed)
+    setFeedInfo(info)
+    addToast('Local update feed path saved', 'success')
+  }
+
+  const handlePublishUpdate = async () => {
+    setPublishing(true)
+    setPublishResult(null)
+    try {
+      const result = await window.api.buildPublishUpdate()
+      if (result.published) {
+        setPublishResult(`Published v${result.version ?? '?'} to local feed`)
+        const [info, entries] = await Promise.all([
+          window.api.buildGetFeedInfo(),
+          window.api.buildListPublished(),
+        ])
+        setFeedInfo(info)
+        setPublishedEntries(entries)
+      } else {
+        setPublishResult(result.error ?? 'Publish failed')
+      }
+    } catch {
+      setPublishResult('Publish failed')
+    } finally {
+      setPublishing(false)
+    }
+  }
+
+  const handleRollback = async (version: string) => {
+    const result = await window.api.buildRollbackUpdate(version)
+    if (!result.launched) addToast(result.error ?? 'Failed to launch installer', 'error')
+    else addToast(`Launching v${version} installer…`, 'success')
+  }
+
+  const handleSaveAndroidWorkspacePath = async () => {
+    const trimmed = androidWorkspacePathInput.trim()
+    if (!trimmed) return
+    const info = await window.api.androidSetWorkspacePath(trimmed)
+    setAndroidWorkspaceInfo(info)
+  }
+
+  const handleRefreshAndroidWorkspace = async () => {
+    const info = await window.api.androidGetWorkspaceInfo()
+    setAndroidWorkspaceInfo(info)
+  }
+
+  const handleAndroidStartCommand = async (cmd: AndroidBuildCommandName) => {
+    setAndroidLogLines([])
+    setActiveAndroidCommand(cmd)
+    const result = await window.api.androidStartCommand(cmd)
+    setActiveAndroidBuildId(result.buildId)
+  }
+
+  const handleAndroidCancelCommand = async () => {
+    if (!activeAndroidBuildId) return
+    await window.api.androidCancelCommand(activeAndroidBuildId)
+    setActiveAndroidBuildId(null)
+    setActiveAndroidCommand(null)
+  }
+
+  const handleSaveSigningConfig = async () => {
+    await window.api.androidSetSigningConfig(signingDraft)
+    addToast('Signing config saved', 'success')
+  }
+
+  const handleValidateSigningConfig = async () => {
+    const result = await window.api.androidValidateSigningConfig()
+    setSigningValidation(result.checks)
+  }
+
+  const handleRefreshAdbDevices = async () => {
+    const devices = await window.api.androidListAdbDevices()
+    setAdbDevices(devices)
+  }
+
+  const handleAndroidInstallApk = async (serial: string) => {
+    const releaseRecord = androidBuildRecords.find(
+      (r) => r.command === 'assembleRelease' && r.status === 'success' && r.artifactPaths.length > 0
+    )
+    if (!releaseRecord) { addToast('No successful release APK build found', 'error'); return }
+    setAdbInstalling(true)
+    try {
+      const result = await window.api.androidInstallApk(serial, releaseRecord.artifactPaths[0])
+      if (result.success) addToast('APK installed successfully', 'success')
+      else addToast(result.error ?? 'Install failed', 'error')
+    } finally {
+      setAdbInstalling(false)
+    }
+  }
+
+  const handleAndroidPublishUpdate = async () => {
+    setAndroidPublishResult(null)
+    const result = await window.api.androidPublishUpdate()
+    if (result.published) {
+      setAndroidPublishResult(`Published v${result.manifest?.versionName ?? '?'} (build ${result.manifest?.versionCode ?? '?'}) to feed`)
+      setAndroidUpdateManifest(result.manifest ?? null)
+    } else {
+      setAndroidPublishResult(`Error: ${result.error ?? 'Unknown error'}`)
+    }
   }
 
   const handleAutoStartToggle = async () => {
@@ -1432,6 +1584,75 @@ export function SettingsPanel() {
                   )}
                 </div>
 
+                {/* Local update feed */}
+                <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3">
+                  <div>
+                    <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Local update feed</p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Serve signed installers from a local directory. The app's "Check for updates" points here when the server is running.
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={feedPathInput}
+                      onChange={(e) => setFeedPathInput(e.target.value)}
+                      placeholder="/path/to/feed-directory"
+                      className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <button
+                      onClick={() => void handleSaveFeedPath()}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 font-medium"
+                    >
+                      Set
+                    </button>
+                  </div>
+                  {feedInfo && (
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${feedInfo.running ? 'bg-green-500' : 'bg-gray-400'}`} />
+                      <span className="text-gray-500 font-mono">
+                        {feedInfo.running ? feedInfo.feedUrl : 'Server not running'}
+                      </span>
+                    </div>
+                  )}
+                  {feedInfo?.feedPath && (
+                    <button
+                      onClick={() => void handlePublishUpdate()}
+                      disabled={publishing}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 font-medium disabled:opacity-50"
+                    >
+                      {publishing ? 'Publishing…' : 'Publish latest build to feed'}
+                    </button>
+                  )}
+                  {publishResult && (
+                    <p className="text-xs text-gray-500">{publishResult}</p>
+                  )}
+                  {publishedEntries.length > 0 && (
+                    <div className="space-y-1.5">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Published versions</p>
+                      {publishedEntries.map((entry) => (
+                        <div key={`${entry.version}-${String(entry.isBackup)}`} className="flex items-center gap-2 text-xs">
+                          <span className={`font-mono ${entry.isBackup ? 'text-gray-400' : 'text-gray-700 dark:text-gray-300'}`}>
+                            v{entry.version}
+                          </span>
+                          {entry.isBackup && <span className="text-[11px] text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">backup</span>}
+                          <span className="text-gray-400 ml-auto text-[11px]">
+                            {new Date(entry.publishedAt).toLocaleDateString()}
+                          </span>
+                          {entry.isBackup && (
+                            <button
+                              onClick={() => void handleRollback(entry.version)}
+                              className="text-[11px] px-2 py-0.5 rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                            >
+                              Reinstall
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 {/* Launch dev build */}
                 {lastBuildStatus === 'success' && (
                   <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-2">
@@ -1448,6 +1669,159 @@ export function SettingsPanel() {
                     )}
                   </div>
                 )}
+
+                {/* Android Build */}
+                <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-4">
+                  <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Android Build</p>
+
+                  {/* Workspace */}
+                  <div className="space-y-2">
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={androidWorkspacePathInput}
+                        onChange={(e) => setAndroidWorkspacePathInput(e.target.value)}
+                        placeholder="/path/to/nexy-android"
+                        className="flex-1 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 font-mono"
+                      />
+                      <button onClick={() => void handleSaveAndroidWorkspacePath()} className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Save</button>
+                      <button onClick={() => void handleRefreshAndroidWorkspace()} className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"><RefreshCw className="w-3.5 h-3.5" /></button>
+                    </div>
+                    {androidWorkspaceInfo && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {androidWorkspaceInfo.branch && <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-mono">{androidWorkspaceInfo.branch}</span>}
+                        {androidWorkspaceInfo.commitSha && <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 font-mono">{androidWorkspaceInfo.commitSha}</span>}
+                        {androidWorkspaceInfo.dirty && <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300">dirty</span>}
+                        {androidWorkspaceInfo.versionCode != null && <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300">build {androidWorkspaceInfo.versionCode}</span>}
+                        {androidWorkspaceInfo.versionName && <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300">v{androidWorkspaceInfo.versionName}</span>}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Build commands */}
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap gap-1.5">
+                      {(['test', 'assembleDebug', 'assembleRelease', 'bundleRelease'] as AndroidBuildCommandName[]).map((cmd) => (
+                        <button
+                          key={cmd}
+                          onClick={() => void handleAndroidStartCommand(cmd)}
+                          disabled={activeAndroidBuildId !== null}
+                          className="text-xs px-2.5 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 font-mono"
+                        >
+                          {cmd}
+                        </button>
+                      ))}
+                      {activeAndroidBuildId && (
+                        <button onClick={() => void handleAndroidCancelCommand()} className="text-xs px-2.5 py-1 rounded bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-700">
+                          Cancel {activeAndroidCommand}
+                        </button>
+                      )}
+                    </div>
+                    {androidLastBuildStatus && !activeAndroidBuildId && (
+                      <p className={`text-xs ${androidLastBuildStatus === 'success' ? 'text-green-600 dark:text-green-400' : 'text-red-500'}`}>
+                        {androidLastBuildStatus === 'success' ? '✓ Build succeeded' : `✗ Build ${androidLastBuildStatus}`}
+                      </p>
+                    )}
+                    {androidLogLines.length > 0 && (
+                      <pre className="text-[10px] font-mono bg-gray-950 text-gray-200 rounded-lg p-2 max-h-48 overflow-y-auto whitespace-pre-wrap break-all">
+                        {androidLogLines.join('\n')}
+                      </pre>
+                    )}
+                  </div>
+
+                  {/* Build history */}
+                  {androidBuildRecords.length > 0 && (
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Recent builds</p>
+                      <div className="space-y-1">
+                        {androidBuildRecords.slice(0, 5).map((r) => (
+                          <div key={r.id} className="flex items-center gap-2 text-[11px]">
+                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${r.status === 'success' ? 'bg-green-500' : r.status === 'running' ? 'bg-blue-500 animate-pulse' : 'bg-red-400'}`} />
+                            <span className="font-mono text-gray-600 dark:text-gray-300 w-32 truncate">{r.command}</span>
+                            <span className="text-gray-400">{r.branch ?? '—'}</span>
+                            <span className="text-gray-400 ml-auto">{r.finishedAt ? `${Math.round((r.finishedAt - r.startedAt) / 1000)}s` : '…'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Signing config */}
+                  <div className="space-y-2 border-t border-gray-100 dark:border-gray-700 pt-3">
+                    <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Signing config</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input type="text" value={signingDraft.keystorePath} onChange={(e) => setSigningDraft((d) => ({ ...d, keystorePath: e.target.value }))} placeholder="Keystore path" className="col-span-2 text-xs px-2.5 py-1.5 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 font-mono" />
+                      <input type="password" value={signingDraft.keystorePassword} onChange={(e) => setSigningDraft((d) => ({ ...d, keystorePassword: e.target.value }))} placeholder="Keystore password" className="text-xs px-2.5 py-1.5 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200" />
+                      <input type="text" value={signingDraft.keyAlias} onChange={(e) => setSigningDraft((d) => ({ ...d, keyAlias: e.target.value }))} placeholder="Key alias" className="text-xs px-2.5 py-1.5 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200" />
+                      <input type="password" value={signingDraft.keyPassword} onChange={(e) => setSigningDraft((d) => ({ ...d, keyPassword: e.target.value }))} placeholder="Key password" className="text-xs px-2.5 py-1.5 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200" />
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => void handleSaveSigningConfig()} className="text-xs px-2.5 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Save</button>
+                      <button onClick={() => void handleValidateSigningConfig()} className="text-xs px-2.5 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Validate</button>
+                    </div>
+                    {signingValidation && (
+                      <div className="space-y-1">
+                        {signingValidation.map((c) => (
+                          <div key={c.label} className="flex items-center gap-1.5 text-[11px]">
+                            {c.status === 'ok' ? <CheckCircle className="w-3 h-3 text-green-500 shrink-0" /> : c.status === 'warn' ? <AlertTriangle className="w-3 h-3 text-yellow-500 shrink-0" /> : <XCircle className="w-3 h-3 text-red-500 shrink-0" />}
+                            <span className="text-gray-700 dark:text-gray-300">{c.label}</span>
+                            <span className="text-gray-400 ml-auto">{c.detail}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ADB Install */}
+                  <div className="space-y-2 border-t border-gray-100 dark:border-gray-700 pt-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">ADB Install</p>
+                      <button onClick={() => void handleRefreshAdbDevices()} className="text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex items-center gap-1"><RefreshCw className="w-3 h-3" /> Refresh</button>
+                    </div>
+                    {adbDevices.length === 0 ? (
+                      <p className="text-[11px] text-gray-400">No devices connected. Connect via USB and enable USB debugging.</p>
+                    ) : (
+                      <div className="space-y-1">
+                        {adbDevices.map((d) => (
+                          <div key={d.serial} className="flex items-center gap-2 text-[11px]">
+                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${d.state === 'device' ? 'bg-green-500' : 'bg-gray-400'}`} />
+                            <span className="font-mono text-gray-600 dark:text-gray-300">{d.model ?? d.serial}</span>
+                            <span className="text-gray-400 text-[10px]">{d.state}</span>
+                            <button
+                              onClick={() => void handleAndroidInstallApk(d.serial)}
+                              disabled={adbInstalling || d.state !== 'device'}
+                              className="ml-auto text-[10px] px-2 py-0.5 rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40"
+                            >
+                              Install last APK
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Android update feed */}
+                  <div className="space-y-2 border-t border-gray-100 dark:border-gray-700 pt-3">
+                    <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Android Update Feed</p>
+                    <button
+                      onClick={() => void handleAndroidPublishUpdate()}
+                      className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+                    >
+                      Publish release APK to feed
+                    </button>
+                    {androidPublishResult && (
+                      <p className="text-[11px] text-gray-500">{androidPublishResult}</p>
+                    )}
+                    {androidUpdateManifest && (
+                      <div className="flex flex-wrap gap-1.5">
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300">build {androidUpdateManifest.versionCode}</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300">v{androidUpdateManifest.versionName}</span>
+                        {androidUpdateManifest.commitSha && <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 font-mono">{androidUpdateManifest.commitSha}</span>}
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-500">{new Date(androidUpdateManifest.publishedAt).toLocaleDateString()}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </>
             )}
           </div>

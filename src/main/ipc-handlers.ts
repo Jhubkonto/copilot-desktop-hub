@@ -17,6 +17,7 @@ import { registerPromptHandlers } from './prompt-handlers'
 import { registerCliHandlers } from './cli-detection'
 import { registerWsHandlers } from './ws-handlers'
 import { registerBuildHandlers } from './build-handlers'
+import { registerAndroidHandlers } from './android-handlers'
 import { cacheExternalWindowLabel, consumeSuppressFocusEvent } from './screen-capture'
 
 export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
@@ -41,6 +42,7 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerModelCatalogHandlers()
   registerSystemHandlers()
   registerBuildHandlers(mainWindow)
+  registerAndroidHandlers(mainWindow)
 
   if (mainWindow) {
     mainWindow.on('blur', () => {

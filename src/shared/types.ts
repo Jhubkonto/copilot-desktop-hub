@@ -434,6 +434,66 @@ export interface PreflightResult {
   checks: PreflightCheck[]
 }
 
+export interface LocalUpdateFeed {
+  feedPath: string
+  feedUrl: string
+  port: number
+  running: boolean
+}
+
+export interface PublishedEntry {
+  version: string
+  publishedAt: number
+  installerName: string
+  installerSize: number
+  platform: string
+  isBackup: boolean
+}
+
+// ---------------------------------------------------------------------------
+// Android build and distribution
+// ---------------------------------------------------------------------------
+
+export type AndroidBuildCommandName =
+  | 'test'
+  | 'assembleDebug'
+  | 'assembleRelease'
+  | 'bundleRelease'
+
+export interface AndroidWorkspaceInfo {
+  path: string
+  branch: string | null
+  commitSha: string | null
+  dirty: boolean
+  versionCode: number | null
+  versionName: string | null
+  isGitRepo: boolean
+}
+
+export interface AndroidSigningConfig {
+  keystorePath: string
+  keystorePassword: string
+  keyAlias: string
+  keyPassword: string
+}
+
+export interface AdbDevice {
+  serial: string
+  state: 'device' | 'offline' | 'unauthorized' | 'unknown'
+  model: string | null
+  product: string | null
+}
+
+export interface AndroidUpdateManifest {
+  versionCode: number
+  versionName: string
+  commitSha: string | null
+  changelog: string
+  checksum: string
+  artifactUrl: string
+  publishedAt: number
+}
+
 // ---------------------------------------------------------------------------
 // Prompt library
 // ---------------------------------------------------------------------------
@@ -788,6 +848,26 @@ export type IpcReturnMap = {
   'build:launch-dev': { launched: boolean; error?: string }
   'build:log-chunk': void
   'build:command-done': void
+  'build:get-feed-info': LocalUpdateFeed | null
+  'build:set-feed-path': LocalUpdateFeed
+  'build:publish-update': { published: boolean; version?: string; error?: string }
+  'build:list-published': PublishedEntry[]
+  'build:rollback-update': { launched: boolean; error?: string }
+  // Android build and distribution
+  'android:get-workspace-info': AndroidWorkspaceInfo
+  'android:set-workspace-path': AndroidWorkspaceInfo
+  'android:start-command': { buildId: string }
+  'android:cancel-command': boolean
+  'android:get-records': BuildRecord[]
+  'android:get-signing-config': AndroidSigningConfig | null
+  'android:set-signing-config': boolean
+  'android:validate-signing-config': { valid: boolean; checks: PreflightCheck[] }
+  'android:list-adb-devices': AdbDevice[]
+  'android:install-apk': { success: boolean; error?: string }
+  'android:publish-update': { published: boolean; manifest?: AndroidUpdateManifest; error?: string }
+  'android:get-update-manifest': AndroidUpdateManifest | null
+  'android:log-chunk': void
+  'android:command-done': void
   // WebSocket mobile companion
   'ws:start': { port: number; token: string; qrDataUrl: string | null; pairingUrl?: string | null; secure?: boolean }
   'ws:stop': boolean
@@ -1006,6 +1086,25 @@ export type IpcChannels =
   | 'build:launch-dev'
   | 'build:log-chunk'
   | 'build:command-done'
+  | 'build:get-feed-info'
+  | 'build:set-feed-path'
+  | 'build:publish-update'
+  | 'build:list-published'
+  | 'build:rollback-update'
+  | 'android:get-workspace-info'
+  | 'android:set-workspace-path'
+  | 'android:start-command'
+  | 'android:cancel-command'
+  | 'android:get-records'
+  | 'android:get-signing-config'
+  | 'android:set-signing-config'
+  | 'android:validate-signing-config'
+  | 'android:list-adb-devices'
+  | 'android:install-apk'
+  | 'android:publish-update'
+  | 'android:get-update-manifest'
+  | 'android:log-chunk'
+  | 'android:command-done'
   | 'ws:start'
   | 'ws:stop'
   | 'ws:status'
