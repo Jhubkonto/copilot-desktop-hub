@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, type ChangeEvent, type ClipboardEvent, type KeyboardEvent, type PointerEvent, type RefObject } from 'react'
-import { Camera, ChevronDown, ClipboardPaste, Eye, Paperclip, SendHorizontal, Square, X } from 'lucide-react'
+import { BookOpen, Camera, ChevronDown, ClipboardPaste, Eye, Paperclip, SendHorizontal, Square, X } from 'lucide-react'
 import { getAvailableModelIds, getModelLabel, getModelMultiplier } from '../../../shared/models'
 import { ContextInspector } from '../ContextInspector'
 import { AttachmentBar } from './AttachmentBar'
@@ -55,6 +55,7 @@ interface ChatComposerProps {
   onAttachFiles: () => void | Promise<void>
   onCaptureScreen?: () => void | Promise<void>
   onPasteClipboardImage?: () => void | Promise<void>
+  onOpenPromptLibrary?: () => void
   onToggleContextInspector: () => void
   onCloseContextInspector: () => void
   onRemoveAttachment: (id: string) => void
@@ -107,6 +108,7 @@ export function ChatComposer({
   onAttachFiles,
   onCaptureScreen,
   onPasteClipboardImage,
+  onOpenPromptLibrary,
   onToggleContextInspector,
   onCloseContextInspector,
   onRemoveAttachment,
@@ -218,6 +220,7 @@ export function ChatComposer({
               historyMessages={messages.filter((message) => message.role !== 'system')}
               currentInput={input}
               model={effectiveModel}
+              conversationId={conversationId}
               onClose={onCloseContextInspector}
             />
           )}
@@ -317,6 +320,18 @@ export function ChatComposer({
                     <ClipboardPaste className="w-4 h-4" />
                   </button>
                 )}
+                {onOpenPromptLibrary && (
+                  <button
+                    type="button"
+                    onClick={onOpenPromptLibrary}
+                    disabled={isGenerating}
+                    className="p-1.5 rounded-md text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    title="Insert prompt"
+                    aria-label="Insert prompt"
+                  >
+                    <BookOpen className="w-4 h-4" />
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={onToggleContextInspector}
@@ -325,8 +340,8 @@ export function ChatComposer({
                       ? 'text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700'
                       : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
                   }`}
-                  title="Toggle context inspector"
-                  aria-label="Toggle context inspector"
+                  title="Open context inspector"
+                  aria-label="Open context inspector"
                   aria-pressed={showContextInspector}
                 >
                   <Eye className="w-4 h-4" />

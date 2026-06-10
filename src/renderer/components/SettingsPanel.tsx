@@ -1,7 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
-import { X, Sun, Moon, Plug, Settings, Cpu, Shield, Smartphone, RefreshCw, Terminal } from 'lucide-react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { X, Sun, Moon, Plug, Settings, Cpu, Shield, Smartphone, RefreshCw, Terminal, BookOpen, Plus, Trash2 } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import { getAvailableModelIds, getModelLabel } from '../../shared/models'
+import type { PromptLibraryEntry, PromptLibraryInput, PromptLibraryVersion } from '../../shared/types'
+import { extractPromptVariables } from '../../shared/prompt-variables'
 
 interface ProviderInfo {
   name: string
@@ -10,14 +12,36 @@ interface ProviderInfo {
   configured: boolean
 }
 
-type SettingsCategory = 'general' | 'providers' | 'cli' | 'mobile'
+type SettingsCategory = 'general' | 'providers' | 'cli' | 'mobile' | 'prompts'
 
 const NAV_ITEMS: { id: SettingsCategory; label: string; icon: React.ReactNode }[] = [
   { id: 'general',   label: 'General',       icon: <Settings className="w-3.5 h-3.5" /> },
   { id: 'providers', label: 'API Providers', icon: <Shield className="w-3.5 h-3.5" /> },
   { id: 'cli',       label: 'CLI Tools',     icon: <Terminal className="w-3.5 h-3.5" /> },
+  { id: 'prompts',   label: 'Prompts',       icon: <BookOpen className="w-3.5 h-3.5" /> },
   { id: 'mobile',    label: 'Mobile',        icon: <Smartphone className="w-3.5 h-3.5" /> },
 ]
+
+const EMPTY_PROMPT_DRAFT: PromptLibraryInput = {
+  title: '',
+  description: '',
+  body: '',
+  category: 'Custom',
+  tags: [],
+  scope: 'global',
+  project_id: null,
+}
+
+function tagsToInput(tags: string[] | undefined): string {
+  return (tags ?? []).join(', ')
+}
+
+function inputToTags(value: string): string[] {
+  return value
+    .split(',')
+    .map((tag) => tag.trim())
+    .filter(Boolean)
+}
 
 export function SettingsPanel() {
   const visible = useAppStore((s) => s.showSettings)
@@ -70,6 +94,15 @@ export function SettingsPanel() {
   const [mobileLoading, setMobileLoading] = useState(false)
   const [mobileLocalIp, setMobileLocalIp] = useState('')
 
+  // Prompt library state
+  const [prompts, setPrompts] = useState<PromptLibraryEntry[]>([])
+  const [promptsLoading, setPromptsLoading] = useState(false)
+  const [selectedPromptId, setSelectedPromptId] = useState<string | null>(null)
+  const [promptDraft, setPromptDraft] = useState<PromptLibraryInput>(EMPTY_PROMPT_DRAFT)
+  const [promptTagInput, setPromptTagInput] = useState('')
+  const [promptVersions, setPromptVersions] = useState<PromptLibraryVersion[]>([])
+  const [versionsLoading, setVersionsLoading] = useState(false)
+
   const currentConversation = currentConversationId
     ? conversations.find((c) => c.id === currentConversationId) ?? null
     : null
@@ -78,6 +111,7 @@ export function SettingsPanel() {
   const projects = useAppStore((s) => s.projects)
   const projectId = currentConversation?.project_id ?? activeProjectId
   const projectDefaultModel = projectId ? (projects.find((p) => p.id === projectId)?.default_model ?? null) : null
+  const activeProject = projectId ? projects.find((p) => p.id === projectId) ?? null : null
   const effectiveModel = currentConversation?.model || projectDefaultModel || defaultModel || 'gpt-5-mini'
   const effectiveProvider =
     effectiveModel.startsWith('claude')
@@ -109,6 +143,158 @@ export function SettingsPanel() {
     setMobileClients(status.connectedClients)
     setMobileLocalIp(status.localIp)
   }, [])
+
+  const loadPrompts = useCallback(async () => {
+    setPromptsLoading(true)
+    try {
+      const entries = await window.api.listPrompts(projectId ?? null)
+      setPrompts(entries)
+      if (selectedPromptId && !entries.some((entry) => entry.id === selectedPromptId)) {
+        setSelectedPromptId(null)
+        setPromptDraft({ ...EMPTY_PROMPT_DRAFT, project_id: projectId ?? null })
+        setPromptTagInput('')
+        setPromptVersions([])
+      }
+    } catch {
+      addToast('Failed to load prompt library', 'error')
+    } finally {
+      setPromptsLoading(false)
+    }
+  }, [addToast, projectId, selectedPromptId])
+
+  useEffect(() => {
+    if (visible && category === 'prompts') void loadPrompts()
+  }, [visible, category, loadPrompts])
+
+  const promptsByCategory = useMemo(() => {
+    return prompts.reduce<Record<string, PromptLibraryEntry[]>>((groups, prompt) => {
+      const categoryName = prompt.category || 'Custom'
+      groups[categoryName] = groups[categoryName] ?? []
+      groups[categoryName].push(prompt)
+      return groups
+    }, {})
+  }, [prompts])
+
+  const promptVariables = useMemo(
+    () => extractPromptVariables(promptDraft.body),
+    [promptDraft.body]
+  )
+
+  const handleNewPrompt = () => {
+    const nextDraft = {
+      ...EMPTY_PROMPT_DRAFT,
+      scope: projectId ? 'project' as const : 'global' as const,
+      project_id: projectId ?? null,
+    }
+    setSelectedPromptId(null)
+    setPromptDraft(nextDraft)
+    setPromptTagInput('')
+    setPromptVersions([])
+  }
+
+  const handleSelectPrompt = (prompt: PromptLibraryEntry) => {
+    setSelectedPromptId(prompt.id)
+    setPromptDraft({
+      title: prompt.title,
+      body: prompt.body,
+      description: prompt.description,
+      category: prompt.category,
+      tags: prompt.tags,
+      scope: prompt.scope,
+      project_id: prompt.project_id,
+    })
+    setPromptTagInput(tagsToInput(prompt.tags))
+    setVersionsLoading(true)
+    window.api.listPromptVersions(prompt.id)
+      .then(setPromptVersions)
+      .catch(() => {
+        setPromptVersions([])
+        addToast('Failed to load prompt history', 'error')
+      })
+      .finally(() => setVersionsLoading(false))
+  }
+
+  const handleSavePrompt = async () => {
+    const tags = inputToTags(promptTagInput)
+    const scope = promptDraft.scope === 'project' ? 'project' : 'global'
+    const payload: PromptLibraryInput = {
+      ...promptDraft,
+      title: String(promptDraft.title ?? '').trim(),
+      body: String(promptDraft.body ?? ''),
+      description: String(promptDraft.description ?? '').trim(),
+      category: String(promptDraft.category ?? 'Custom').trim() || 'Custom',
+      tags,
+      scope,
+      project_id: scope === 'project' ? (projectId ?? promptDraft.project_id ?? null) : null,
+    }
+    if (!payload.title || !payload.body.trim()) {
+      addToast('Prompt title and body are required', 'error')
+      return
+    }
+    if (payload.scope === 'project' && !payload.project_id) {
+      addToast('Select a project before saving a project prompt', 'error')
+      return
+    }
+
+    try {
+      const saved = selectedPromptId
+        ? await window.api.updatePrompt(selectedPromptId, payload)
+        : await window.api.createPrompt(payload)
+      setSelectedPromptId(saved.id)
+      setPromptDraft({
+        title: saved.title,
+        body: saved.body,
+        description: saved.description,
+        category: saved.category,
+        tags: saved.tags,
+        scope: saved.scope,
+        project_id: saved.project_id,
+      })
+      setPromptTagInput(tagsToInput(saved.tags))
+      await loadPrompts()
+      setPromptVersions(await window.api.listPromptVersions(saved.id).catch(() => []))
+      addToast('Prompt saved', 'success')
+    } catch {
+      addToast('Failed to save prompt', 'error')
+    }
+  }
+
+  const handleDeletePrompt = async () => {
+    if (!selectedPromptId) return
+    try {
+      await window.api.deletePrompt(selectedPromptId)
+      setSelectedPromptId(null)
+      setPromptDraft({ ...EMPTY_PROMPT_DRAFT, project_id: projectId ?? null })
+      setPromptTagInput('')
+      setPromptVersions([])
+      await loadPrompts()
+      addToast('Prompt deleted', 'success')
+    } catch {
+      addToast('Failed to delete prompt', 'error')
+    }
+  }
+
+  const handleRollbackPrompt = async (version: PromptLibraryVersion) => {
+    if (!selectedPromptId) return
+    try {
+      const restored = await window.api.rollbackPrompt(selectedPromptId, version.version)
+      setPromptDraft({
+        title: restored.title,
+        body: restored.body,
+        description: restored.description,
+        category: restored.category,
+        tags: restored.tags,
+        scope: restored.scope,
+        project_id: restored.project_id,
+      })
+      setPromptTagInput(tagsToInput(restored.tags))
+      await loadPrompts()
+      setPromptVersions(await window.api.listPromptVersions(restored.id).catch(() => []))
+      addToast(`Rolled back to v${version.version}`, 'success')
+    } catch {
+      addToast('Failed to roll back prompt', 'error')
+    }
+  }
 
   useEffect(() => {
     if (visible && category === 'mobile') void refreshMobileStatus()
@@ -226,7 +412,7 @@ export function SettingsPanel() {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-label="Settings" onClick={onClose}>
-      <div className="w-full max-w-2xl bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col" style={{ height: '80vh' }} onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-5xl bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col" style={{ height: '84vh' }} onClick={(e) => e.stopPropagation()}>
 
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 dark:border-gray-700 shrink-0">
@@ -655,6 +841,252 @@ export function SettingsPanel() {
                   </div>
                 </div>
               </>
+            )}
+
+            {category === 'prompts' && (
+              <div className="h-full min-h-[520px] flex flex-col gap-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Prompt library</p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Save reusable prompts by category. Project prompts are shown with global prompts when a project is active.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleNewPrompt}
+                    className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 font-medium"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    New
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-[280px_minmax(0,1fr)] gap-4 min-h-0 flex-1">
+                  <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-y-auto">
+                    {promptsLoading && (
+                      <p className="text-xs text-gray-400 p-3">Loading prompts...</p>
+                    )}
+                    {!promptsLoading && prompts.length === 0 && (
+                      <p className="text-xs text-gray-400 p-3">No prompts yet.</p>
+                    )}
+                    {!promptsLoading && Object.entries(promptsByCategory).map(([categoryName, entries]) => (
+                      <div key={categoryName} className="border-b border-gray-100 dark:border-gray-700 last:border-b-0">
+                        <div className="px-3 py-2 bg-gray-50 dark:bg-gray-900/40 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                          {categoryName}
+                        </div>
+                        <div className="p-1">
+                          {entries.map((prompt) => (
+                            <button
+                              key={prompt.id}
+                              type="button"
+                              onClick={() => handleSelectPrompt(prompt)}
+                              className={`w-full text-left px-2.5 py-2 rounded-md transition-colors ${
+                                selectedPromptId === prompt.id
+                                  ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                                  : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200'
+                              }`}
+                            >
+                              <span className="block text-xs font-medium whitespace-normal break-words leading-4">{prompt.title}</span>
+                              <span className="block text-[11px] text-gray-400 whitespace-normal break-words mt-0.5">
+                                {prompt.scope === 'project' ? `Project: ${activeProject?.name ?? 'selected project'}` : 'Available everywhere'}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 overflow-y-auto space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          Title
+                        </label>
+                        <input
+                          value={promptDraft.title}
+                          onChange={(e) => setPromptDraft((draft) => ({ ...draft, title: e.target.value }))}
+                          className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="Code review checklist"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          Category
+                        </label>
+                        <input
+                          value={promptDraft.category ?? ''}
+                          onChange={(e) => setPromptDraft((draft) => ({ ...draft, category: e.target.value }))}
+                          className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="Coding"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                        Description
+                      </label>
+                      <input
+                        value={promptDraft.description ?? ''}
+                        onChange={(e) => setPromptDraft((draft) => ({ ...draft, description: e.target.value }))}
+                        className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="Short note about when to use this prompt"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          Scope
+                        </label>
+                        <select
+                          value={promptDraft.scope ?? 'global'}
+                          onChange={(e) => setPromptDraft((draft) => ({
+                            ...draft,
+                            scope: e.target.value === 'project' ? 'project' : 'global',
+                            project_id: e.target.value === 'project' ? (projectId ?? null) : null,
+                          }))}
+                          className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="global">Available everywhere</option>
+                          <option value="project" disabled={!projectId}>{activeProject?.name ? `Project: ${activeProject.name}` : 'Project prompt'}</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          Tags
+                        </label>
+                        <input
+                          value={promptTagInput}
+                          onChange={(e) => setPromptTagInput(e.target.value)}
+                          className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="review, typescript"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                        Prompt
+                      </label>
+                      <textarea
+                        value={promptDraft.body}
+                        onChange={(e) => setPromptDraft((draft) => ({ ...draft, body: e.target.value }))}
+                        className="w-full min-h-[300px] px-3 py-2 text-sm leading-6 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
+                        placeholder="Write the reusable prompt..."
+                      />
+                      {promptVariables.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {promptVariables.map((variable) => (
+                            <span
+                              key={variable}
+                              className="px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-700 text-[11px] font-mono text-gray-600 dark:text-gray-300"
+                            >
+                              {'{{'}{variable}{'}}'}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <button
+                        type="button"
+                        onClick={handleDeletePrompt}
+                        disabled={!selectedPromptId}
+                        className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 disabled:opacity-40 disabled:hover:bg-transparent"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Delete
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSavePrompt}
+                        className="text-xs px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 font-medium"
+                      >
+                        Save prompt
+                      </button>
+                    </div>
+
+                    {selectedPromptId && (
+                      <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs font-medium text-gray-600 dark:text-gray-300">Version history</p>
+                          {versionsLoading && <span className="text-[11px] text-gray-400">Loading...</span>}
+                        </div>
+                        {!versionsLoading && promptVersions.length === 0 && (
+                          <p className="text-xs text-gray-400">No versions recorded yet.</p>
+                        )}
+                        <div className="space-y-2">
+                          {promptVersions.map((version) => {
+                            const changedFields = [
+                              version.diff.titleChanged ? 'title' : null,
+                              version.diff.descriptionChanged ? 'description' : null,
+                              version.diff.categoryChanged ? 'category' : null,
+                              version.diff.tagsChanged ? 'tags' : null,
+                              version.diff.scopeChanged ? 'scope' : null,
+                            ].filter(Boolean)
+                            return (
+                              <details
+                                key={version.id}
+                                className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40"
+                              >
+                                <summary className="cursor-pointer px-3 py-2 text-xs text-gray-700 dark:text-gray-200 flex items-center justify-between gap-3">
+                                  <span>
+                                    v{version.version} · {new Date(version.created_at).toLocaleString()} · {version.source}
+                                  </span>
+                                  <span className="text-[11px] text-gray-400">
+                                    {version.diff.addedLines.length} added / {version.diff.removedLines.length} removed
+                                  </span>
+                                </summary>
+                                <div className="px-3 pb-3 space-y-2">
+                                  {changedFields.length > 0 && (
+                                    <div className="flex flex-wrap gap-1">
+                                      {changedFields.map((field) => (
+                                        <span key={field} className="px-2 py-0.5 rounded bg-gray-200 dark:bg-gray-700 text-[11px] text-gray-600 dark:text-gray-300">
+                                          {field}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                  <div className="rounded-md overflow-hidden border border-gray-200 dark:border-gray-700">
+                                    {version.diff.removedLines.slice(0, 8).map((line, index) => (
+                                      <div key={`removed-${index}`} className="px-2 py-1 text-[11px] font-mono bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300">
+                                        - {line}
+                                      </div>
+                                    ))}
+                                    {version.diff.addedLines.slice(0, 8).map((line, index) => (
+                                      <div key={`added-${index}`} className="px-2 py-1 text-[11px] font-mono bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300">
+                                        + {line}
+                                      </div>
+                                    ))}
+                                    {version.diff.addedLines.length === 0 && version.diff.removedLines.length === 0 && (
+                                      <div className="px-2 py-1 text-[11px] text-gray-400">No body line changes</div>
+                                    )}
+                                  </div>
+                                  {version.version !== promptVersions[0]?.version && (
+                                    <div className="flex justify-end">
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleRollbackPrompt(version)}
+                                        className="text-[11px] px-2.5 py-1 rounded-md border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                                      >
+                                        Roll back to v{version.version}
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              </details>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
             )}
 
             {category === 'mobile' && (
