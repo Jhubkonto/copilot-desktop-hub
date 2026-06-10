@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const state = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>()
-  const messages: Array<{ role: string; content: string }> = []
+  const messages: Array<{ role: string; content: string; attachments: string | null }> = []
   const send = vi.fn()
   const broadcastToMobile = vi.fn()
   const abortActiveStream = vi.fn()
@@ -20,7 +20,11 @@ vi.mock('../database', () => ({
     prepare: (sql: string) => ({
       run: (...args: unknown[]) => {
         if (sql.includes('INSERT INTO messages')) {
-          state.messages.push({ role: String(args[2]), content: String(args[3]) })
+          state.messages.push({
+            role: String(args[2]),
+            content: String(args[3]),
+            attachments: typeof args[4] === 'string' ? args[4] : null,
+          })
         }
         return { changes: 1 }
       },
@@ -118,6 +122,29 @@ describe('chat handlers', () => {
       event: 'chat:activity',
       data: { conversationId: 'conv-1', state: 'complete', label: 'Complete' },
     })
+  })
+
+  it('stores mobile image attachment metadata without persisting image data', async () => {
+    const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<{ assistantMsgId: string }>
+
+    await handler({ sender: {} }, 'conv-1', '', {
+      images: [{ id: 'img-1', name: 'photo.png', dataUrl: 'data:image/png;base64,abc123' }],
+    })
+
+    const userMessage = state.messages.find((message) => message.role === 'user')
+    expect(userMessage?.attachments).toBeTruthy()
+    const attachments = JSON.parse(userMessage?.attachments ?? '[]')
+    expect(attachments).toEqual([
+      {
+        id: 'img-1',
+        name: 'photo.png',
+        size: 4,
+        type: 'image',
+        source: 'mobile',
+      },
+    ])
+    expect(userMessage?.attachments).not.toContain('abc123')
+    expect(userMessage?.attachments).not.toContain('data:image/png')
   })
 
   it('CLI backend does not inject BYOK model identity into system prompt', async () => {

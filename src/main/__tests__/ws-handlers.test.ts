@@ -150,12 +150,30 @@ describe('ws handlers', () => {
       projectId: 'project-1',
     })
 
-    expect(state.webContentsSend).toHaveBeenCalledWith('chat:remote-message', { conversationId: 'conv-1', content: 'hello' })
+    expect(state.webContentsSend).toHaveBeenCalledWith('chat:remote-message', { conversationId: 'conv-1', content: 'hello', images: undefined })
     expect(state.dispatchChatSend).toHaveBeenCalledWith(
       expect.anything(),
       'conv-1',
       'hello',
       expect.objectContaining({ agentId: 'agent-1', projectId: 'project-1' }),
+    )
+    expect(reply).not.toHaveBeenCalled()
+  })
+
+  it('dispatches mobile image attachments to the desktop chat path', () => {
+    const images = [{ id: 'img-1', name: 'photo.png', dataUrl: 'data:image/png;base64,abc123' }]
+    const reply = sendCommand('chat:send-message', {
+      conversationId: 'conv-1',
+      content: '',
+      images,
+    })
+
+    expect(state.webContentsSend).toHaveBeenCalledWith('chat:remote-message', { conversationId: 'conv-1', content: '', images })
+    expect(state.dispatchChatSend).toHaveBeenCalledWith(
+      expect.anything(),
+      'conv-1',
+      '',
+      expect.objectContaining({ images }),
     )
     expect(reply).not.toHaveBeenCalled()
   })

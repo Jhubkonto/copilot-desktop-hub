@@ -5,14 +5,22 @@ import { setupMockApi, type MockApi } from '../../../test/mocks/api'
 
 let mockApi: MockApi
 let streamCallback: ((chunk: string | null) => void) | null = null
+let remoteMessageCallback: ((data: { conversationId: string; content: string; images?: { id: string; name: string; dataUrl: string }[] }) => void) | null = null
 
 beforeEach(() => {
   mockApi = setupMockApi()
   streamCallback = null
+  remoteMessageCallback = null
   mockApi.onStreamResponse.mockImplementation((cb: (chunk: string | null) => void) => {
     streamCallback = cb
     return () => {
       streamCallback = null
+    }
+  })
+  mockApi.onRemoteMessage.mockImplementation((cb: (data: { conversationId: string; content: string; images?: { id: string; name: string; dataUrl: string }[] }) => void) => {
+    remoteMessageCallback = cb
+    return () => {
+      remoteMessageCallback = null
     }
   })
   mockApi.onStreamError.mockImplementation(() => () => undefined)
@@ -139,5 +147,37 @@ describe('useChat', () => {
       })
     })
     expect(loadConversations).toHaveBeenCalled()
+  })
+
+  it('adds remote mobile images to the live user message', async () => {
+    const addToast = vi.fn()
+    const loadConversations = vi.fn().mockResolvedValue(undefined)
+    const conversationCreated = vi.fn()
+    const { result } = renderHook(() =>
+      useChat({
+        conversationId: 'conv-1',
+        activeAgentId: null,
+        activeProjectId: null,
+        effectiveModel: 'default',
+        catalogModels: [],
+        addToast,
+        loadConversations,
+        conversationCreated,
+      }),
+    )
+
+    const images = [{ id: 'img-1', name: 'photo.png', dataUrl: 'data:image/png;base64,abc123' }]
+    act(() => {
+      remoteMessageCallback?.({ conversationId: 'conv-1', content: '', images })
+    })
+
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({
+        role: 'user',
+        content: '',
+        images,
+      }),
+    ])
+    expect(result.current.isGenerating).toBe(true)
   })
 })

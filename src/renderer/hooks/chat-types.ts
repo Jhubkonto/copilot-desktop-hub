@@ -16,8 +16,14 @@ export interface ToolCallEvent {
 export interface Attachment {
   id: string
   name: string
-  path: string
+  path?: string
   size: number
+  type?: 'file' | 'image'
+  source?: 'desktop' | 'mobile' | 'pasted'
+}
+
+export interface LocalAttachment extends Attachment {
+  path: string
 }
 
 export interface PastedImage {

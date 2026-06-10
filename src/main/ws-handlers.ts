@@ -85,7 +85,11 @@ export function registerWsHandlers(): void {
       if (!conversationId || (!content && images.length === 0)) return
       const wins = BrowserWindow.getAllWindows()
       if (wins.length === 0) return
-      wins[0].webContents.send('chat:remote-message', { conversationId, content })
+      wins[0].webContents.send('chat:remote-message', {
+        conversationId,
+        content,
+        images: images.length > 0 ? images : undefined,
+      })
       void dispatchChatSend(wins[0], conversationId, content, { model, agentId, projectId, images: images.length > 0 ? images : undefined })
       return
     }
@@ -139,7 +143,7 @@ export function registerWsHandlers(): void {
       const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
       if (!conversationId) return
       const rows = db.prepare(
-        `SELECT id, role, content, model, timestamp FROM messages
+        `SELECT id, role, content, model, attachments, timestamp FROM messages
            WHERE conversation_id = ? ORDER BY timestamp ASC`
       ).all(conversationId)
       reply({ event: 'conversation:messages', data: { conversationId, messages: rows } })

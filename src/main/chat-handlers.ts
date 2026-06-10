@@ -59,12 +59,50 @@ type ChatSendOptions = {
   contextSnapshot?: string
 }
 
+type StoredAttachment = {
+  id: string
+  name: string
+  size: number
+  path?: string
+  type?: 'file' | 'image'
+  source?: 'desktop' | 'mobile' | 'pasted'
+}
+
 type MobileChatActivity =
   | { state: 'thinking'; label: string }
   | { state: 'tool'; label: string; toolName?: string; serverName?: string }
   | { state: 'approval'; label: string; toolName?: string }
   | { state: 'complete'; label: string }
   | { state: 'error'; label: string }
+
+function estimateDataUrlBytes(dataUrl: string): number {
+  const payload = dataUrl.split(',', 2)[1] ?? ''
+  const padding = payload.endsWith('==') ? 2 : payload.endsWith('=') ? 1 : 0
+  return Math.max(0, Math.floor((payload.length * 3) / 4) - padding)
+}
+
+function buildStoredAttachments(
+  attachments: ChatSendOptions['attachments'],
+  images: ChatSendOptions['images'],
+): StoredAttachment[] {
+  return [
+    ...(attachments ?? []).map((attachment) => ({
+      id: attachment.id,
+      name: attachment.name,
+      path: attachment.path,
+      size: attachment.size,
+      type: 'file' as const,
+      source: 'desktop' as const,
+    })),
+    ...(images ?? []).map((image) => ({
+      id: image.id,
+      name: image.name,
+      size: estimateDataUrlBytes(image.dataUrl),
+      type: 'image' as const,
+      source: 'mobile' as const,
+    })),
+  ]
+}
 
 export async function dispatchChatSend(
   window: BrowserWindow,
@@ -124,10 +162,8 @@ export async function dispatchChatSend(
 
         // Save user message
         const userMsgId = options?.messageId ?? randomUUID();
-        const attachmentsJson =
-          attachments && attachments.length > 0
-            ? JSON.stringify(attachments)
-            : null;
+        const storedAttachments = buildStoredAttachments(attachments, pastedImages);
+        const attachmentsJson = storedAttachments.length > 0 ? JSON.stringify(storedAttachments) : null;
         db.prepare(
           "INSERT INTO messages (id, conversation_id, role, content, attachments, context_snapshot, timestamp, model) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         ).run(
@@ -196,6 +232,10 @@ export async function dispatchChatSend(
       if (attachments && attachments.length > 0) {
         let fileContext = "";
         for (const att of attachments) {
+          if (!att.path) {
+            fileContext += `File: ${att.name} (stored attachment metadata only)\n\n`;
+            continue;
+          }
           const ext = att.name.split(".").pop()?.toLowerCase() ?? "";
           if (IMAGE_EXTENSIONS.has(ext)) {
             try {

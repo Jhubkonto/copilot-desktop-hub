@@ -171,7 +171,7 @@ export function useChat({
   }, [conversationId, addToast])
 
   useEffect(() => {
-    const unsubscribeRemoteMessage = window.api.onRemoteMessage(({ conversationId: remoteId, content }) => {
+    const unsubscribeRemoteMessage = window.api.onRemoteMessage(({ conversationId: remoteId, content, images }) => {
       if (remoteId !== activeConversationRef.current) {
         ignoreRemoteStreamRef.current = true
         return
@@ -181,6 +181,7 @@ export function useChat({
         id: crypto.randomUUID(),
         role: 'user',
         content,
+        images,
         timestamp: Date.now(),
       }
       setMessages((prev) => [...prev, userMsg])
@@ -414,7 +415,11 @@ export function useChat({
 
         if (regenerateModel) options.model = String(regenerateModel)
         if (lastUser.images?.length) options.images = lastUser.images
-        if (lastUser.attachments?.length) options.attachments = lastUser.attachments
+        const fileAttachments = lastUser.attachments?.filter(
+          (attachment): attachment is { id: string; name: string; path: string; size: number } =>
+            typeof attachment.path === 'string' && attachment.path.length > 0,
+        )
+        if (fileAttachments?.length) options.attachments = fileAttachments
 
         const regenResult = await window.api.sendMessage(String(conversationId), String(lastUser.content), options) as unknown
         if (hasIpcError(regenResult)) throw new Error(regenResult.error)

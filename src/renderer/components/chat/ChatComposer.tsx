@@ -6,7 +6,7 @@ import { AttachmentBar } from './AttachmentBar'
 import { AtContextMenu } from './AtContextMenu'
 import { SlashCommandMenu } from './SlashCommandMenu'
 import type { AgentConfig } from '../../../shared/types'
-import type { AtContextOption, Attachment, ChatMessage, ContextRef, PastedImage } from '../../hooks/chat-types'
+import type { AtContextOption, ChatMessage, ContextRef, LocalAttachment, PastedImage } from '../../hooks/chat-types'
 import type { SlashCommandDef } from '../../slash-commands'
 import { useAppStore } from '../../store/app-store'
 
@@ -35,7 +35,7 @@ interface ChatComposerProps {
   effectiveModel: string
   modelSourceLabel?: string
   agentNeedsTools?: boolean
-  pendingAttachments: Attachment[]
+  pendingAttachments: LocalAttachment[]
   pendingImages: PastedImage[]
   showContextInspector: boolean
   contextRefs: ContextRef[]

@@ -71,8 +71,8 @@ const api = {
     typedOn('chat:stream-response', handler)
     return () => typedOff('chat:stream-response', handler)
   },
-  onRemoteMessage: (callback: (data: { conversationId: string; content: string }) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: { conversationId: string; content: string }) =>
+  onRemoteMessage: (callback: (data: { conversationId: string; content: string; images?: { id: string; name: string; dataUrl: string }[] }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { conversationId: string; content: string; images?: { id: string; name: string; dataUrl: string }[] }) =>
       callback(data)
     typedOn('chat:remote-message', handler)
     return () => typedOff('chat:remote-message', handler)

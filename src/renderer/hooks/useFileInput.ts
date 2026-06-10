@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState, type ClipboardEvent, type DragEvent } from 'react'
-import type { Attachment, PastedImage } from './chat-types'
+import type { LocalAttachment, PastedImage } from './chat-types'
 
 const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'])
 
@@ -13,7 +13,7 @@ function readFileAsDataUrl(file: File) {
 }
 
 export function useFileInput() {
-  const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([])
+  const [pendingAttachments, setPendingAttachments] = useState<LocalAttachment[]>([])
   const [pendingImages, setPendingImages] = useState<PastedImage[]>([])
   const [isDragging, setIsDragging] = useState(false)
   const dragDepthRef = useRef(0)
