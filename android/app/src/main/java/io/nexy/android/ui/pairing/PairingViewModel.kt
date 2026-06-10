@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.PairedServerConfig
+import io.nexy.android.data.PairedServerProfile
 import io.nexy.android.data.WsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -12,6 +13,7 @@ import kotlinx.coroutines.launch
 class PairingViewModel : ViewModel() {
 
     val connectionState: StateFlow<ConnectionState> = WsRepository.connectionState
+    val profiles: StateFlow<List<PairedServerProfile>> = WsRepository.profiles
 
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error
@@ -55,6 +57,13 @@ class PairingViewModel : ViewModel() {
             return
         }
         runCatching { WsRepository.connect(config) }
+            .onFailure { _error.value = it.message ?: "Unable to connect" }
+    }
+
+    fun connectProfile(profileId: String) {
+        userInitiated = true
+        _error.value = null
+        runCatching { WsRepository.switchProfile(profileId) }
             .onFailure { _error.value = it.message ?: "Unable to connect" }
     }
 }

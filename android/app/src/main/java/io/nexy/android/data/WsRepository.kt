@@ -59,6 +59,12 @@ object WsRepository : WsClient {
     private val _models = MutableStateFlow<List<ModelOption>>(emptyList())
     val models: StateFlow<List<ModelOption>> = _models
 
+    private val _profiles = MutableStateFlow<List<PairedServerProfile>>(emptyList())
+    val profiles: StateFlow<List<PairedServerProfile>> = _profiles
+
+    private val _activeProfileId = MutableStateFlow<String?>(null)
+    val activeProfileId: StateFlow<String?> = _activeProfileId
+
     private var ws: WebSocket? = null
     private var currentUrl: String? = null
     private var currentToken: String? = null
@@ -74,11 +80,14 @@ object WsRepository : WsClient {
         pairedServerStore = runCatching { PairedServerStore(application) }
             .onFailure { _lastError.value = it.message ?: "Unable to open secure pairing storage" }
             .getOrNull()
+        refreshProfiles()
         pairedServerStore?.load()?.let { config ->
+            refreshProfiles()
             currentUrl = config.connectUrl
             currentToken = config.token
             if (!doConnect(config.connectUrl)) {
                 pairedServerStore?.clear()
+                refreshProfiles()
             }
         }
     }
@@ -109,6 +118,7 @@ object WsRepository : WsClient {
                 val token = currentToken
                 if (!endpoint.isNullOrBlank() && !token.isNullOrBlank()) {
                     pairedServerStore?.save(PairedServerConfig(endpoint, token))
+                    refreshProfiles()
                 }
             }
 
@@ -156,11 +166,29 @@ object WsRepository : WsClient {
     }
 
     fun forgetServer() {
-        pairedServerStore?.clear()
         disconnect()
+        val fallback = pairedServerStore?.removeActive()
+        refreshProfiles()
+        if (fallback != null) {
+            connect(fallback)
+        }
     }
 
+    fun switchProfile(profileId: String) {
+        val config = pairedServerStore?.setActive(profileId) ?: return
+        refreshProfiles()
+        disconnect()
+        connect(config)
+    }
+
+    fun hasPairedServer(): Boolean = pairedServerStore?.profiles()?.isNotEmpty() == true
+
     fun pairedServer(): PairedServerConfig? = pairedServerStore?.load()
+
+    private fun refreshProfiles() {
+        _profiles.value = pairedServerStore?.profiles().orEmpty()
+        _activeProfileId.value = pairedServerStore?.activeProfile()?.id
+    }
 
     override fun send(command: String, data: Map<String, Any>) {
         val token = currentToken ?: return
@@ -305,6 +333,7 @@ object WsRepository : WsClient {
                             role = m.optString("role"),
                             content = m.optString("content"),
                             timestamp = m.optLong("timestamp"),
+                            attachmentNames = attachmentNamesFromJson(m.nullableString("attachments")),
                         )
                     }
                     WsEvent.ConversationMessages(conversationId, messages)
@@ -342,6 +371,16 @@ object WsRepository : WsClient {
     // org.json returns the string "null" for JSON null values via optString — use this instead
     private fun JSONObject.nullableString(key: String): String? =
         if (isNull(key)) null else optString(key).takeIf { it.isNotEmpty() }
+
+    private fun attachmentNamesFromJson(attachmentsJson: String?): List<String> {
+        if (attachmentsJson.isNullOrBlank()) return emptyList()
+        return runCatching {
+            val attachments = JSONArray(attachmentsJson)
+            (0 until attachments.length()).mapNotNull { i ->
+                attachments.optJSONObject(i)?.optString("name")?.takeIf { it.isNotBlank() }
+            }
+        }.getOrDefault(emptyList())
+    }
 
     private fun jsonObjectToMap(obj: JSONObject?): Map<String, Any> {
         if (obj == null) return emptyMap()

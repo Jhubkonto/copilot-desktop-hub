@@ -31,4 +31,33 @@ class PairedServerConfigTest {
     fun fromUrlRejectsMissingHost() {
         assertNull(PairedServerConfig.fromUrl("not-a-url"))
     }
+
+    @Test
+    fun profileIdIsStableForEndpoint() {
+        val first = PairedServerConfig.profileIdForEndpoint("ws://192.168.1.10:53421")
+        val second = PairedServerConfig.profileIdForEndpoint("WS://192.168.1.10:53421")
+
+        assertEquals(first, second)
+    }
+
+    @Test
+    fun displayNameUsesHostAndPort() {
+        assertEquals(
+            "192.168.1.10:53421",
+            PairedServerConfig.displayNameForEndpoint("ws://192.168.1.10:53421"),
+        )
+    }
+
+    @Test
+    fun profileFromConfigUsesEndpointIdentity() {
+        val config = PairedServerConfig("ws://192.168.1.10:53421", "abc123")
+        val profile = PairedServerProfile.fromConfig(config, now = 123L)
+
+        assertEquals(config.id, profile.id)
+        assertEquals(config.endpoint, profile.endpoint)
+        assertEquals(config.token, profile.token)
+        assertEquals(config.displayName, profile.name)
+        assertEquals(123L, profile.lastUsedAt)
+        assertEquals(config, profile.toConfig())
+    }
 }

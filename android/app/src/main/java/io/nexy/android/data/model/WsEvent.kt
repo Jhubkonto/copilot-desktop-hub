@@ -38,4 +38,5 @@ data class HistoryMessage(
     val role: String,
     val content: String,
     val timestamp: Long,
+    val attachmentNames: List<String> = emptyList(),
 )

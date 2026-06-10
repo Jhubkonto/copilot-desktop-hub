@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ButtonDefaults
@@ -24,6 +25,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.ConnectionState
@@ -36,6 +38,8 @@ fun SettingsScreen(
     vm: SettingsViewModel = viewModel(),
 ) {
     val connectionState by vm.connectionState.collectAsState()
+    val profiles by vm.profiles.collectAsState()
+    val activeProfileId by vm.activeProfileId.collectAsState()
     val savedEndpoint = vm.savedEndpoint
 
     Scaffold(
@@ -94,6 +98,57 @@ fun SettingsScreen(
             }
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            if (profiles.isNotEmpty()) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    profiles.forEach { profile ->
+                        Surface(
+                            color = MaterialTheme.colorScheme.surface,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                                ) {
+                                    Text(
+                                        profile.name,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                    Text(
+                                        profile.endpoint,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    if (profile.id == activeProfileId) {
+                                        Text(
+                                            "Active profile",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                        )
+                                    }
+                                }
+                                if (profile.id != activeProfileId) {
+                                    OutlinedButton(
+                                        onClick = { vm.switchProfile(profile.id) },
+                                        shape = MaterialTheme.shapes.small,
+                                    ) {
+                                        Text("Use")
+                                    }
+                                }
+                            }
+                        }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    }
+                }
+            }
 
             Surface(
                 color = MaterialTheme.colorScheme.surface,
@@ -156,8 +211,8 @@ fun SettingsScreen(
 
                 OutlinedButton(
                     onClick = {
-                        vm.forgetServer()
-                        onForgetServer()
+                        val hasRemainingProfiles = vm.forgetServer()
+                        if (!hasRemainingProfiles) onForgetServer()
                     },
                     modifier = Modifier.fillMaxWidth(),
                     shape = MaterialTheme.shapes.small,
@@ -165,7 +220,7 @@ fun SettingsScreen(
                         contentColor = Color(0xFFEF4444),
                     ),
                 ) {
-                    Text("Forget server & re-pair")
+                    Text("Forget active server")
                 }
             }
         }

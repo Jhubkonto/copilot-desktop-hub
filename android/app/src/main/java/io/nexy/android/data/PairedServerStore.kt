@@ -4,15 +4,37 @@ import android.content.Context
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import java.net.URI
+import java.security.MessageDigest
+import org.json.JSONArray
+import org.json.JSONObject
 
 data class PairedServerConfig(
     val endpoint: String,
     val token: String,
 ) {
+    val id: String
+        get() = profileIdForEndpoint(endpoint)
+
+    val displayName: String
+        get() = displayNameForEndpoint(endpoint)
+
     val connectUrl: String
         get() = "$endpoint?token=$token"
 
     companion object {
+        fun profileIdForEndpoint(endpoint: String): String {
+            val digest = MessageDigest.getInstance("SHA-256")
+                .digest(endpoint.trim().lowercase().toByteArray())
+            return digest.take(12).joinToString("") { "%02x".format(it) }
+        }
+
+        fun displayNameForEndpoint(endpoint: String): String {
+            val uri = runCatching { URI(endpoint) }.getOrNull()
+            val host = uri?.host?.takeIf { it.isNotBlank() } ?: return endpoint
+            val port = uri.port.takeIf { it >= 0 }?.let { ":$it" }.orEmpty()
+            return "$host$port"
+        }
+
         fun fromUrl(rawValue: String): PairedServerConfig? {
             val uri = runCatching { URI(rawValue.trim()) }.getOrNull() ?: return null
             val scheme = uri.scheme ?: return null
@@ -33,6 +55,30 @@ data class PairedServerConfig(
     }
 }
 
+data class PairedServerProfile(
+    val id: String,
+    val endpoint: String,
+    val token: String,
+    val name: String,
+    val lastUsedAt: Long,
+) {
+    val connectUrl: String
+        get() = "$endpoint?token=$token"
+
+    fun toConfig(): PairedServerConfig = PairedServerConfig(endpoint, token)
+
+    companion object {
+        fun fromConfig(config: PairedServerConfig, now: Long = System.currentTimeMillis()): PairedServerProfile =
+            PairedServerProfile(
+                id = config.id,
+                endpoint = config.endpoint,
+                token = config.token,
+                name = config.displayName,
+                lastUsedAt = now,
+            )
+    }
+}
+
 class PairedServerStore(context: Context) {
     private val appContext = context.applicationContext
     private val legacyPrefs = context.getSharedPreferences(LEGACY_PREFS_NAME, Context.MODE_PRIVATE)
@@ -49,19 +95,8 @@ class PairedServerStore(context: Context) {
     }
 
     fun load(): PairedServerConfig? {
-        val stored = runCatching {
-            val endpoint = prefs.getString(KEY_ENDPOINT, null)
-            val token = prefs.getString(KEY_TOKEN, null)
-            if (!endpoint.isNullOrBlank() && !token.isNullOrBlank()) {
-                PairedServerConfig(endpoint, token)
-            } else {
-                null
-            }
-        }.getOrElse {
-            clear()
-            null
-        }
-        if (stored != null) return stored
+        val active = activeProfile()?.toConfig()
+        if (active != null) return active
 
         val legacy = legacyPrefs.getString(LEGACY_KEY_LAST_WS_URL, null)
         val migrated = legacy?.let { PairedServerConfig.fromUrl(it) } ?: return null
@@ -70,13 +105,71 @@ class PairedServerStore(context: Context) {
         return migrated
     }
 
+    fun profiles(): List<PairedServerProfile> =
+        runCatching { readProfiles() }.getOrElse {
+            clear()
+            emptyList()
+        }
+
+    fun activeProfileId(): String? = runCatching { prefs.getString(KEY_ACTIVE_PROFILE_ID, null) }.getOrNull()
+
+    fun activeProfile(): PairedServerProfile? {
+        val profiles = profiles()
+        val activeId = activeProfileId()
+        return profiles.firstOrNull { it.id == activeId } ?: profiles.firstOrNull()
+    }
+
     fun save(config: PairedServerConfig) {
         runCatching {
+            val nextProfile = PairedServerProfile.fromConfig(config)
+            val nextProfiles = (readProfiles().filterNot { it.id == nextProfile.id } + nextProfile)
+                .sortedByDescending { it.lastUsedAt }
             prefs.edit()
-            .putString(KEY_ENDPOINT, config.endpoint)
-            .putString(KEY_TOKEN, config.token)
-            .apply()
+                .putString(KEY_PROFILES, profilesToJson(nextProfiles))
+                .putString(KEY_ACTIVE_PROFILE_ID, nextProfile.id)
+                .putString(KEY_ENDPOINT, config.endpoint)
+                .putString(KEY_TOKEN, config.token)
+                .apply()
         }
+    }
+
+    fun setActive(profileId: String): PairedServerConfig? {
+        val profile = profiles().firstOrNull { it.id == profileId } ?: return null
+        val updated = profile.copy(lastUsedAt = System.currentTimeMillis())
+        val nextProfiles = (profiles().filterNot { it.id == profileId } + updated)
+            .sortedByDescending { it.lastUsedAt }
+        runCatching {
+            prefs.edit()
+                .putString(KEY_PROFILES, profilesToJson(nextProfiles))
+                .putString(KEY_ACTIVE_PROFILE_ID, profileId)
+                .putString(KEY_ENDPOINT, updated.endpoint)
+                .putString(KEY_TOKEN, updated.token)
+                .apply()
+        }
+        return updated.toConfig()
+    }
+
+    fun removeActive(): PairedServerConfig? {
+        val activeId = activeProfile()?.id ?: return null
+        val remaining = profiles().filterNot { it.id == activeId }
+        val nextActive = remaining.firstOrNull()
+        runCatching {
+            val editor = prefs.edit()
+                .putString(KEY_PROFILES, profilesToJson(remaining))
+            if (nextActive != null) {
+                editor
+                    .putString(KEY_ACTIVE_PROFILE_ID, nextActive.id)
+                    .putString(KEY_ENDPOINT, nextActive.endpoint)
+                    .putString(KEY_TOKEN, nextActive.token)
+            } else {
+                editor
+                    .remove(KEY_ACTIVE_PROFILE_ID)
+                    .remove(KEY_ENDPOINT)
+                    .remove(KEY_TOKEN)
+            }
+            editor.apply()
+        }
+        return nextActive?.toConfig()
     }
 
     fun clear() {
@@ -85,8 +178,56 @@ class PairedServerStore(context: Context) {
         legacyPrefs.edit().remove(LEGACY_KEY_LAST_WS_URL).apply()
     }
 
+    private fun readProfiles(): List<PairedServerProfile> {
+        val profilesJson = prefs.getString(KEY_PROFILES, null)
+        if (!profilesJson.isNullOrBlank()) return profilesFromJson(profilesJson)
+
+        val endpoint = prefs.getString(KEY_ENDPOINT, null)
+        val token = prefs.getString(KEY_TOKEN, null)
+        if (endpoint.isNullOrBlank() || token.isNullOrBlank()) return emptyList()
+        val migrated = PairedServerProfile.fromConfig(PairedServerConfig(endpoint, token))
+        prefs.edit()
+            .putString(KEY_PROFILES, profilesToJson(listOf(migrated)))
+            .putString(KEY_ACTIVE_PROFILE_ID, migrated.id)
+            .apply()
+        return listOf(migrated)
+    }
+
+    private fun profilesToJson(profiles: List<PairedServerProfile>): String {
+        val array = JSONArray()
+        profiles.forEach { profile ->
+            array.put(
+                JSONObject()
+                    .put("id", profile.id)
+                    .put("endpoint", profile.endpoint)
+                    .put("token", profile.token)
+                    .put("name", profile.name)
+                    .put("lastUsedAt", profile.lastUsedAt),
+            )
+        }
+        return array.toString()
+    }
+
+    private fun profilesFromJson(raw: String): List<PairedServerProfile> {
+        val array = JSONArray(raw)
+        return (0 until array.length()).mapNotNull { index ->
+            val obj = array.optJSONObject(index) ?: return@mapNotNull null
+            val endpoint = obj.optString("endpoint").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val token = obj.optString("token").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            PairedServerProfile(
+                id = obj.optString("id").takeIf { it.isNotBlank() } ?: PairedServerConfig.profileIdForEndpoint(endpoint),
+                endpoint = endpoint,
+                token = token,
+                name = obj.optString("name").takeIf { it.isNotBlank() } ?: PairedServerConfig.displayNameForEndpoint(endpoint),
+                lastUsedAt = obj.optLong("lastUsedAt", 0L),
+            )
+        }.sortedByDescending { it.lastUsedAt }
+    }
+
     companion object {
         private const val PREFS_NAME = "nexy_secure_pairing"
+        private const val KEY_PROFILES = "profiles"
+        private const val KEY_ACTIVE_PROFILE_ID = "active_profile_id"
         private const val KEY_ENDPOINT = "endpoint"
         private const val KEY_TOKEN = "token"
         private const val LEGACY_PREFS_NAME = "nexy_prefs"

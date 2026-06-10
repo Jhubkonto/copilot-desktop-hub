@@ -48,11 +48,12 @@ import io.nexy.android.data.ConnectionState
 @Composable
 fun PairingScreen(
     onConnected: () -> Unit,
+    initialShowManual: Boolean = false,
     vm: PairingViewModel = viewModel(),
 ) {
     val connectionState by vm.connectionState.collectAsState()
     val error by vm.error.collectAsState()
-    var showManual by remember { mutableStateOf(false) }
+    var showManual by remember { mutableStateOf(initialShowManual) }
     var manualUrl by remember { mutableStateOf("") }
     var cameraPermissionGranted by remember { mutableStateOf(false) }
     var barcodeView: DecoratedBarcodeView? by remember { mutableStateOf(null) }
@@ -61,8 +62,8 @@ fun PairingScreen(
         ActivityResultContracts.RequestPermission()
     ) { granted -> cameraPermissionGranted = granted }
 
-    LaunchedEffect(Unit) {
-        cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+    LaunchedEffect(showManual) {
+        if (!showManual) cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
     }
 
     LaunchedEffect(connectionState) {

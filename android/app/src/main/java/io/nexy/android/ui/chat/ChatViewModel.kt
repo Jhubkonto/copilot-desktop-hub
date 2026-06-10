@@ -193,7 +193,12 @@ class ChatViewModel(
 
     private fun io.nexy.android.data.model.HistoryMessage.toChatMessage(): ChatMessage {
         if (role != "tool-call") {
-            return ChatMessage(text = content, isUser = role == "user", isStreaming = false)
+            return ChatMessage(
+                text = content,
+                isUser = role == "user",
+                isStreaming = false,
+                attachmentNames = attachmentNames,
+            )
         }
 
         return runCatching {

@@ -95,6 +95,41 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun restoresAttachmentNamesFromHistory() = runTest {
+        val fakeWs = FakeWsClient()
+        val vm = ChatViewModel("conv-1", fakeWs)
+        advanceUntilIdle()
+
+        fakeWs.emit(
+            WsEvent.ConversationMessages(
+                conversationId = "conv-1",
+                messages = listOf(
+                    HistoryMessage(
+                        id = "m1",
+                        role = "user",
+                        content = "",
+                        timestamp = 1,
+                        attachmentNames = listOf("photo.png"),
+                    ),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals(
+            ChatMessage(
+                text = "",
+                isUser = true,
+                isStreaming = false,
+                attachmentNames = listOf("photo.png"),
+            ),
+            vm.messages.value.single(),
+        )
+
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
     fun appendsStreamChunksAndFinalizesAssistantMessage() = runTest {
         val fakeWs = FakeWsClient()
         val vm = ChatViewModel("conv-1", fakeWs)
@@ -211,6 +246,39 @@ class ChatViewModelTest {
             SentCommand("chat:send-message", mapOf("conversationId" to "conv-1", "content" to "Hello")),
             fakeWs.sentCommands.last(),
         )
+
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
+    fun sendMessageIncludesImageAttachments() = runTest {
+        val fakeWs = FakeWsClient()
+        val vm = ChatViewModel("conv-1", fakeWs)
+        advanceUntilIdle()
+
+        vm.addAttachment("photo.png", "image/png", "data:image/png;base64,abc123", null)
+        vm.sendMessage("")
+
+        assertTrue(vm.attachments.value.isEmpty())
+        assertEquals(
+            ChatMessage(
+                text = "",
+                isUser = true,
+                isStreaming = false,
+                attachmentNames = listOf("photo.png"),
+            ),
+            vm.messages.value.single(),
+        )
+
+        val sent = fakeWs.sentCommands.last()
+        assertEquals("chat:send-message", sent.command)
+        assertEquals("conv-1", sent.data["conversationId"])
+        assertEquals("", sent.data["content"])
+        @Suppress("UNCHECKED_CAST")
+        val images = sent.data["images"] as List<Map<String, String>>
+        assertEquals(1, images.size)
+        assertEquals("photo.png", images[0]["name"])
+        assertEquals("data:image/png;base64,abc123", images[0]["dataUrl"])
 
         vm.viewModelScope.cancel()
     }

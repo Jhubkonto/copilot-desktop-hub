@@ -16,6 +16,7 @@ import io.nexy.android.ui.home.HistoryScope
 import io.nexy.android.ui.home.HomeScreen
 import io.nexy.android.ui.home.ScopedChatHistoryScreen
 import io.nexy.android.ui.pairing.PairingScreen
+import io.nexy.android.ui.pairing.PairingStartScreen
 import io.nexy.android.ui.settings.SettingsScreen
 import io.nexy.android.ui.splash.SplashScreen
 
@@ -35,11 +36,34 @@ fun NavGraph() {
         }
 
         composable("pairing") {
+            PairingStartScreen(
+                onScanQr = { navController.navigate("pairing/scan") },
+                onManualEntry = { navController.navigate("pairing/manual") },
+                onConnected = {
+                    navController.navigate("home") {
+                        popUpTo("pairing") { inclusive = true }
+                    }
+                },
+            )
+        }
+
+        composable("pairing/scan") {
             PairingScreen(onConnected = {
                 navController.navigate("home") {
                     popUpTo("pairing") { inclusive = true }
                 }
             })
+        }
+
+        composable("pairing/manual") {
+            PairingScreen(
+                initialShowManual = true,
+                onConnected = {
+                    navController.navigate("home") {
+                        popUpTo("pairing") { inclusive = true }
+                    }
+                },
+            )
         }
 
         composable("home") {
