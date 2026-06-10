@@ -23,6 +23,15 @@ class PairedServerConfigTest {
     }
 
     @Test
+    fun fromUrlAcceptsSecureWebSocketPairingUrls() {
+        val config = PairedServerConfig.fromUrl("wss://nexy.example/mobile?token=secure")
+
+        assertEquals("wss://nexy.example/mobile", config?.endpoint)
+        assertEquals("secure", config?.token)
+        assertEquals("wss://nexy.example/mobile?token=secure", config?.connectUrl)
+    }
+
+    @Test
     fun fromUrlRejectsMissingToken() {
         assertNull(PairedServerConfig.fromUrl("ws://192.168.1.10:53421"))
     }

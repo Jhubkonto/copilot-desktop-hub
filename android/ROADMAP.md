@@ -130,6 +130,17 @@ Critical bugs identified during live testing:
 
 ---
 
+## v0.13 — Secure WebSocket Connections 🔶
+
+- ✅ **WSS.1 Android URL parsing** — Android accepts `wss://...?...token=...` pairing URLs and stores them as secure server profiles
+- ✅ **WSS.2 Desktop secure pairing URL** — desktop Mobile settings can store an optional external `wss://` URL and use it for QR pairing
+- ✅ **WSS.3 Token injection** — QR generation injects the current pairing token into the configured secure URL, replacing stale tokens
+- ✅ **WSS.4 LAN fallback** — leaving the secure URL blank keeps local `ws://<lan-ip>:<port>` pairing behavior unchanged
+- ✅ **WSS.5 Setup documentation** — documented local LAN behavior versus TLS/Tailscale/reverse-proxy behavior
+- 🔲 **WSS.6 Native TLS listener** — optional future work if in-app certificate/key management becomes worth the complexity
+
+---
+
 ## Desktop Context Compression ✅
 
 - ✅ **CCMP.1 Rolling compression** — long conversations can persist a rolling deterministic summary plus recent turns
@@ -158,7 +169,6 @@ Critical bugs identified during live testing:
 - **Persisted mobile image thumbnails** — optional thumbnail cache for history reloads if attachment-name chips are not enough
 - **Push notifications** — replace heads-up notification with proper FCM push for when phone is truly backgrounded / screen off
 - **Dark/light theme toggle** — currently follows system theme; add in-app override
-- **wss:// support** — TLS WebSocket for remote/Tailscale access without cleartext workaround
 - **Desktop-served Android updates** — Android checks the paired desktop for update metadata, then opens the system package installer or internal distribution link for approved updates
 
 ---

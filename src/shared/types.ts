@@ -789,10 +789,10 @@ export type IpcReturnMap = {
   'build:log-chunk': void
   'build:command-done': void
   // WebSocket mobile companion
-  'ws:start': { port: number; token: string; qrDataUrl: string | null }
+  'ws:start': { port: number; token: string; qrDataUrl: string | null; pairingUrl?: string | null; secure?: boolean }
   'ws:stop': boolean
-  'ws:status': { enabled: boolean; port: number | null; token: string | null; localIp: string; connectedClients: number; qrDataUrl: string | null }
-  'ws:regenerate-token': { token: string; qrDataUrl: string | null }
+  'ws:status': { enabled: boolean; port: number | null; token: string | null; localIp: string; connectedClients: number; qrDataUrl: string | null; pairingUrl?: string | null; externalUrl?: string | null; secure?: boolean }
+  'ws:regenerate-token': { token: string; qrDataUrl: string | null; pairingUrl?: string | null; secure?: boolean }
   // Wiki
   'wiki:create-entry': WikiEntry
   'wiki:delete-entry': boolean

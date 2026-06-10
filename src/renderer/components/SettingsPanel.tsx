@@ -95,6 +95,8 @@ export function SettingsPanel() {
   const [mobileClients, setMobileClients] = useState(0)
   const [mobileLoading, setMobileLoading] = useState(false)
   const [mobileLocalIp, setMobileLocalIp] = useState('')
+  const [mobilePairingUrl, setMobilePairingUrl] = useState<string | null>(null)
+  const [mobileExternalUrl, setMobileExternalUrl] = useState('')
 
   // Developer / build orchestrator state
   const [workspaceInfo, setWorkspaceInfo] = useState<WorkspaceInfo | null>(null)
@@ -143,6 +145,7 @@ export function SettingsPanel() {
       setDefaultModel(settings['default_model'] || 'gpt-5-mini')
       setTemperature(Number.parseFloat(settings['temperature'] || '0.7') || 0.7)
       setMaxTokens(Number.parseInt(settings['max_tokens'] || '4096', 10) || 4096)
+      setMobileExternalUrl(settings['ws_external_url'] || '')
     })
     window.api.listProviders().then(setProviders)
     window.api.getAzureEndpoint().then((ep: string | null) => {
@@ -156,7 +159,9 @@ export function SettingsPanel() {
     setMobileQr(status.qrDataUrl ?? null)
     setMobileClients(status.connectedClients)
     setMobileLocalIp(status.localIp)
-  }, [])
+    setMobilePairingUrl(status.pairingUrl ?? null)
+    setMobileExternalUrl(status.externalUrl ?? mobileExternalUrl)
+  }, [mobileExternalUrl])
 
   const loadPrompts = useCallback(async () => {
     setPromptsLoading(true)
@@ -356,6 +361,7 @@ export function SettingsPanel() {
         const result = await window.api.wsStart()
         setMobileEnabled(true)
         setMobileQr(result.qrDataUrl ?? null)
+        setMobilePairingUrl(result.pairingUrl ?? null)
         setMobileClients(0)
         await refreshMobileStatus()
       }
@@ -371,9 +377,28 @@ export function SettingsPanel() {
     try {
       const result = await window.api.wsRegenerateToken()
       setMobileQr(result.qrDataUrl ?? null)
+      setMobilePairingUrl(result.pairingUrl ?? null)
       addToast('Pairing code regenerated — existing connections closed', 'success')
     } catch {
       addToast('Failed to regenerate pairing code', 'error')
+    } finally {
+      setMobileLoading(false)
+    }
+  }
+
+  const handleSaveMobileExternalUrl = async () => {
+    const value = mobileExternalUrl.trim()
+    if (value && !value.startsWith('wss://')) {
+      addToast('Secure mobile URL must start with wss://', 'error')
+      return
+    }
+    setMobileLoading(true)
+    try {
+      await window.api.setSetting('ws_external_url', value)
+      await refreshMobileStatus()
+      addToast(value ? 'Secure mobile URL saved' : 'Secure mobile URL cleared', 'success')
+    } catch {
+      addToast('Failed to save secure mobile URL', 'error')
     } finally {
       setMobileLoading(false)
     }
@@ -1176,9 +1201,43 @@ export function SettingsPanel() {
                         <span className="text-gray-500">Local IP</span>
                         <span className="font-mono text-gray-800 dark:text-gray-200">{mobileLocalIp}</span>
                       </div>
+                      <div className="flex items-start justify-between gap-3">
+                        <span className="text-gray-500">Pairing URL</span>
+                        <span className="font-mono text-right text-gray-800 dark:text-gray-200 break-all">
+                          {mobilePairingUrl ?? 'Not available'}
+                        </span>
+                      </div>
                       <div className="flex items-center justify-between">
                         <span className="text-gray-500">Connected devices</span>
                         <span className="font-mono text-gray-800 dark:text-gray-200">{mobileClients}</span>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/40 px-4 py-3 space-y-2">
+                      <div>
+                        <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Secure external URL</p>
+                        <p className="text-xs text-gray-500">
+                          Optional. Use a public TLS endpoint such as Tailscale Funnel or a reverse proxy that forwards to this mobile server.
+                        </p>
+                      </div>
+                      <input
+                        value={mobileExternalUrl}
+                        onChange={(event) => setMobileExternalUrl(event.target.value)}
+                        placeholder="wss://your-host.example/mobile"
+                        className="w-full px-3 py-2 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-800 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                      />
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-xs text-gray-500">
+                          Leave blank for local LAN pairing over ws://.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => void handleSaveMobileExternalUrl()}
+                          disabled={mobileLoading}
+                          className="px-3 py-1.5 rounded-md text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50"
+                        >
+                          Save URL
+                        </button>
                       </div>
                     </div>
 

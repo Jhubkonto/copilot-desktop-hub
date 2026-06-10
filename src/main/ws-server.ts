@@ -26,6 +26,7 @@ let currentPort: number | null = null
 let currentToken: string | null = null
 const connectedClients = new Set<WebSocket>()
 let commandHandler: CommandHandler | null = null
+const EXTERNAL_WSS_URL_SETTING = 'ws_external_url'
 
 function ipScore(addr: string): number {
   if (addr.startsWith('192.168.')) return 0  // WiFi / home LAN — best
@@ -65,18 +66,48 @@ export function broadcastToMobile(event: WsPushEvent): void {
 }
 
 export function getWsStatus() {
+  const pairingUrl = getPairingUrl()
   return {
     enabled: wss !== null,
     port: currentPort,
     token: currentToken,
     localIp: getLocalIp(),
+    pairingUrl,
+    externalUrl: getExternalWssUrl(),
+    secure: pairingUrl?.startsWith('wss://') ?? false,
     connectedClients: connectedClients.size,
   }
 }
 
-export async function getQrDataUrl(): Promise<string | null> {
+export function normalizeExternalWssUrl(rawValue: string | null | undefined, token: string): string | null {
+  const raw = rawValue?.trim()
+  if (!raw) return null
+  const parsed = (() => {
+    try {
+      return new URL(raw)
+    } catch {
+      return null
+    }
+  })()
+  if (!parsed || parsed.protocol !== 'wss:' || !parsed.host) return null
+  parsed.searchParams.set('token', token)
+  return parsed.toString()
+}
+
+function getExternalWssUrl(): string | null {
+  const db = getDatabase()
+  const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(EXTERNAL_WSS_URL_SETTING) as { value: string } | undefined
+  return row?.value?.trim() || null
+}
+
+function getPairingUrl(): string | null {
   if (!currentPort || !currentToken) return null
-  const url = `ws://${getLocalIp()}:${currentPort}?token=${currentToken}`
+  return normalizeExternalWssUrl(getExternalWssUrl(), currentToken) ?? `ws://${getLocalIp()}:${currentPort}?token=${currentToken}`
+}
+
+export async function getQrDataUrl(): Promise<string | null> {
+  const url = getPairingUrl()
+  if (!url) return null
   return QRCode.toDataURL(url, { width: 240, margin: 2 })
 }
 

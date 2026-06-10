@@ -149,7 +149,7 @@ fun PairingScreen(
                 OutlinedTextField(
                     value = manualUrl,
                     onValueChange = { manualUrl = it },
-                    label = { Text("ws://<ip>:<port>?token=…") },
+                    label = { Text("ws://<ip>:<port>?token=... or wss://host/path?token=...") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     textStyle = MaterialTheme.typography.bodyMedium,

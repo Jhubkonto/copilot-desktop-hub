@@ -179,8 +179,9 @@ export function registerWsHandlers(): void {
 
   safeHandle('ws:start', async () => {
     const result = await startWsServer()
+    const status = getWsStatus()
     const qrDataUrl = await getQrDataUrl()
-    return { ...result, qrDataUrl }
+    return { ...result, qrDataUrl, pairingUrl: status.pairingUrl, secure: status.secure }
   })
 
   safeHandle('ws:stop', () => {
@@ -196,7 +197,8 @@ export function registerWsHandlers(): void {
 
   safeHandle('ws:regenerate-token', async () => {
     const token = regenerateToken()
+    const status = getWsStatus()
     const qrDataUrl = await getQrDataUrl()
-    return { token, qrDataUrl }
+    return { token, qrDataUrl, pairingUrl: status.pairingUrl, secure: status.secure }
   })
 }
