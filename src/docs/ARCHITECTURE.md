@@ -1,8 +1,8 @@
-# Architecture — Copilot Desktop Hub
+# Architecture — Nexy
 
 ## Overview
 
-Copilot Desktop Hub is a cross-platform desktop application built with Electron, React 19, and TypeScript. It follows Electron's standard multi-process model with a hard security boundary between the renderer (UI) and the main process (system access, network, database).
+Nexy is a cross-platform desktop application built with Electron, React 19, and TypeScript. It follows Electron's standard multi-process model with a hard security boundary between the renderer (UI) and the main process (system access, network, database).
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -20,12 +20,12 @@ Copilot Desktop Hub is a cross-platform desktop application built with Electron,
 ┌─────────────────────────┼───────────────────────────────────────┐
 │  Main process  (full Node / Electron access)                    │
 │                                                                 │
-│  IPC handlers ──► Auth ──► GitHub / Copilot API                 │
+│  IPC handlers ──► Auth ──► BYOK providers / CLI backends        │
 │               ──► Providers (OpenAI / Anthropic / Azure)        │
+│               ──► CLI adapters (Claude CLI / Codex CLI)         │
 │               ──► Orchestrator (multi-agent delegation)         │
 │               ──► Agents / Knowledge / Tools                    │
 │               ──► MCP servers (stdio child processes)           │
-│               ──► Terminal (node-pty / spawn)                   │
 │               ──► File handlers / Context injection             │
 │               ──► Database (better-sqlite3)                     │
 │               ──► Auto-updater (electron-updater)               │
@@ -39,7 +39,7 @@ Copilot Desktop Hub is a cross-platform desktop application built with Electron,
 ### Main process (`src/main/`)
 
 The entry point is `src/main/index.ts`. On startup it:
-1. Enforces a single-instance lock and registers the `copilot-hub://` deep-link protocol.
+1. Enforces a single-instance lock and registers the app deep-link protocol.
 2. Creates the frameless `BrowserWindow` with `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`.
 3. Applies a Content Security Policy (relaxed in dev for Vite HMR).
 4. Opens the SQLite database (`getDatabase()`), runs schema init and versioned migrations.
@@ -74,7 +74,6 @@ src/
 │   ├── agents.ts                 # Agent CRUD + config persistence
 │   ├── knowledge.ts              # Agent knowledge file management
 │   ├── tools.ts                  # Built-in tool IPC (file-edit, terminal, web-fetch)
-│   ├── terminal.ts               # Terminal session management
 │   ├── mcp.ts                    # MCP server lifecycle + tool discovery
 │   ├── file-handlers.ts          # File/directory read + context injection
 │   ├── project-handlers.ts       # Project CRUD + per-project agent config
@@ -101,7 +100,6 @@ src/
 │   │   ├── ProjectSettingsPanel.tsx
 │   │   ├── SettingsPanel.tsx      # App settings UI
 │   │   ├── McpServerPanel.tsx     # MCP server config + tool list
-│   │   ├── TerminalPanel.tsx      # Embedded xterm.js terminal
 │   │   ├── MessageBubble.tsx      # Single chat message renderer
 │   │   ├── MarkdownRenderer.tsx   # react-markdown + rehype-highlight
 │   │   ├── ToolApproval.tsx       # Approval modal for tool calls
@@ -138,7 +136,7 @@ src/
 │       ├── app-store.ts           # Zustand store root + hydrate action
 │       ├── types.ts               # Store state type
 │       └── slices/
-│           ├── authSlice.ts       # GitHub auth state, device-code flow
+│           ├── authSlice.ts       # Setup/auth state, BYOK mode, CLI readiness
 │           ├── conversationSlice.ts # Active conversation, messages, streaming
 │           ├── projectSlice.ts    # Projects list, active project
 │           ├── agentSlice.ts      # Agents list, active agent, agent panel state
@@ -148,9 +146,8 @@ src/
 │   ├── types.ts                   # Cross-boundary types: Message, Conversation, AgentConfig,
 │   │                              #   ProjectConfig, DEFAULT_PROJECT_CONFIG, IpcChannels,
 │   │                              #   ProviderMessage discriminated union, ToolConfig…
-│   ├── models.ts                  # Provider model lists
+│   ├── models.ts                  # Provider model display helpers
 │   ├── utils.ts                   # Shared utilities
-│   └── github-copilot-sdk.d.ts    # Manual type declarations for Copilot internals
 │
 └── test/                          # Vitest test helpers, renderer mocks
 ```
@@ -192,7 +189,7 @@ The renderer uses a single **Zustand** store (`useAppStore`) composed from five 
 
 | Slice | Responsibility |
 |---|---|
-| `authSlice` | GitHub token, user profile, device-code flow state |
+| `authSlice` | Setup/auth mode, provider key readiness, CLI readiness |
 | `conversationSlice` | Active conversation, message list, streaming state, model selection |
 | `projectSlice` | Projects list, active project |
 | `agentSlice` | Agents list, active agent, agent panel open/closed |
@@ -205,7 +202,7 @@ The `hydrate` action in `app-store.ts` loads all persistent state from the main 
 ## Database
 
 **Engine:** `better-sqlite3` (synchronous, single-file SQLite)  
-**Location:** `{userData}/data/copilot-hub.db`  
+**Location:** `{userData}/data/nexy.db`  
 **Settings:** `WAL` journal mode, `foreign_keys = ON`
 
 ### Schema
@@ -235,32 +232,23 @@ The full channel surface is typed in `src/shared/types.ts` as the `IpcChannels` 
 
 ---
 
-## Authentication
+## Authentication And Backend Setup
 
-GitHub authentication uses the **Device Code OAuth flow** (no redirect URI required):
-
-1. Main process requests a device code from `https://github.com/login/device/code`.
-2. The `user_code` + `verification_uri` are pushed to the renderer via IPC.
-3. The renderer displays the code in an `OnboardingModal`; the user opens the browser link manually.
-4. The main process polls `https://github.com/login/oauth/access_token` until granted or expired.
-5. The access token is stored via Electron's `safeStorage` (OS keychain-backed encryption).
-
-The token is then exchanged for a Copilot API session token (`https://api.github.com/copilot_internal/v2/token`) at the start of each streaming request.
+Nexy supports BYOK API providers and local CLI backends. Provider API keys are stored with Electron `safeStorage` where available. CLI backends authenticate through their own tools, such as Claude CLI or Codex CLI, and Nexy detects their availability before routing chats to them.
 
 ---
 
 ## Provider Abstraction
 
-`src/main/providers.ts` implements a uniform streaming interface over four LLM providers:
+`src/main/providers.ts` implements a uniform streaming interface over configured API providers:
 
 | Provider | Endpoint |
 |---|---|
-| `copilot` | `https://api.githubcopilot.com/chat/completions` |
 | `openai` | `https://api.openai.com/v1/chat/completions` |
 | `anthropic` | `https://api.anthropic.com/v1/messages` |
 | `azure` | `https://{resource}.openai.azure.com/openai/deployments/{deployment}/chat/completions` |
 
-All providers stream over HTTPS using `parseSseStream()` from `http-client.ts`. Active streaming requests are tracked in `activeStreamingRequests: Map<string, http.ClientRequest>` to support per-conversation abort.
+CLI backends are implemented in `src/main/cli-adapters/`. Active streaming requests are tracked so per-conversation abort works across provider paths.
 
 ---
 
@@ -293,7 +281,6 @@ The following built-in tools are available to agents (subject to per-agent confi
 | Tool | Handler | Description |
 |---|---|---|
 | `file_edit` | `tools.ts` | Read, write, create, and diff files in the working directory |
-| `terminal` | `terminal.ts` | Run shell commands in a managed terminal session |
 | `web_fetch` | `tools.ts` | Fetch a URL and return its content |
 
 Each tool has an approval mode: `auto` (no prompt), `always-ask` (modal per call), or `disabled`. The `ToolApproval.tsx` component handles the approval dialog.
@@ -310,7 +297,7 @@ Each tool has an approval mode: `auto` (no prompt), `always-ask` (modal per call
 | `tsconfig.typecheck.json` | Non-composite typecheck config (avoids TS6305 project-ref noise) |
 | `Tailwind CSS` | Utility-first styling in renderer |
 | `electron-builder` | Cross-platform distributable packaging |
-| `Vitest` | Test runner (612 tests across main + renderer) |
+| `Vitest` | Test runner across main, renderer, and shared logic |
 | `eslint` + `typescript-eslint` | Linting |
 | `electron-rebuild` | Rebuilds native modules (better-sqlite3) against Electron's Node ABI |
 
@@ -347,5 +334,5 @@ npm test
 - Renderer runs with `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`.
 - The preload script is the only allowed bridge; it exposes only explicitly listed methods.
 - A restrictive CSP is applied via `webRequest.onHeadersReceived`; external `connect-src` is limited to the known API endpoints.
-- Credentials (GitHub token, provider API keys) are stored via Electron `safeStorage` (OS keychain encryption on Windows/macOS).
+- Provider API keys are stored via Electron `safeStorage` where available (OS keychain encryption on Windows/macOS).
 - External URLs opened from the app are delegated to the OS browser via `shell.openExternal`; `setWindowOpenHandler` returns `{ action: 'deny' }` for all in-app navigation.

@@ -112,15 +112,16 @@ Packaged distributable files are written to the `release/` directory.
 │   ├── shared/           # Cross-boundary types, models, utilities
 │   └── test/             # Test helpers and renderer environment mocks
 ├── resources/            # Bundled app resources (icons, assets)
-├── ARCHITECTURE.md       # Detailed architecture documentation
-├── implementation-plan.md
+├── docs/                 # Mobile setup notes, agent presets, and feature plans
+├── src/docs/             # Architecture and technical reference docs
+├── android/ROADMAP.md    # Active roadmap
 ├── electron.vite.config.ts
 ├── electron-builder.yml
 ├── tsconfig.typecheck.json   # Standalone typecheck config (no project-ref noise)
 └── vitest.config.ts
 ```
 
-For a detailed breakdown of every module, data flows, database schema, IPC model, auth flow, and security model, see [ARCHITECTURE.md](docs/ARCHITECTURE.md).
+For a detailed breakdown of modules, data flows, database schema, IPC model, auth flow, and security model, see [ARCHITECTURE.md](src/docs/ARCHITECTURE.md). The active roadmap lives in [android/ROADMAP.md](android/ROADMAP.md).
 
 ## Troubleshooting
 
@@ -134,12 +135,12 @@ npx electron-rebuild -f -w better-sqlite3
 **Blank window / white screen on dev start**  
 Wait for Vite to finish its initial bundle — the renderer URL loads before the Vite dev server is ready on the first cold start. The window will populate automatically.
 
-**Authentication loop**  
-If the GitHub token becomes invalid, open Settings and sign out, then re-authenticate via the Device Code flow.
+**Backend unavailable**  
+If chats cannot start, open Settings and verify that at least one backend is ready: a configured BYOK provider key, Claude CLI, or Codex CLI.
 
 ## Contributing
 
-Contributions are welcome. Before making major changes, review `implementation-plan.md` to understand the feature roadmap, expected behavior, and test coverage requirements. Run `npm test` and `npm run typecheck` before submitting a PR.
+Contributions are welcome. Before making major changes, review [android/ROADMAP.md](android/ROADMAP.md) for current priorities and expected coverage. Run `npm test` and `npm run typecheck` before submitting a PR.
 
 ## License
 
