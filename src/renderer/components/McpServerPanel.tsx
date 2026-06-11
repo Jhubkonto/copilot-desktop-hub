@@ -250,7 +250,7 @@ export function McpServerPanel() {
     <ModalShell
       title="MCP Servers"
       icon={<Plug className="w-4 h-4" />}
-      ariaLabel="MCP Servers"
+      ariaLabel="MCP panel"
       maxWidth="max-w-xl"
       height="max-h-[80vh]"
       bodyClassName="flex-1 min-h-0 overflow-y-auto p-5"

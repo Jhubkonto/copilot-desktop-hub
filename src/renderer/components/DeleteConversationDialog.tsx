@@ -21,7 +21,6 @@ export function DeleteConversationDialog({ conversationTitle, onConfirm, onCance
   return (
     <ModalShell
       title={`Delete "${conversationTitle}"?`}
-      ariaLabel={`Delete chat "${conversationTitle}"`}
       maxWidth="max-w-md"
       height=""
       bodyClassName="p-6 space-y-4"
@@ -45,9 +44,6 @@ export function DeleteConversationDialog({ conversationTitle, onConfirm, onCance
           <div className="flex-shrink-0 w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
             <Trash2 className="w-5 h-5 text-red-500" />
           </div>
-          <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
-            Delete &ldquo;{conversationTitle}&rdquo;?
-          </h2>
         </div>
 
         <p className="text-sm text-gray-600 dark:text-gray-300">
