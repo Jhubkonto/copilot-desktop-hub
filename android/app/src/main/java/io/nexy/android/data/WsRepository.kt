@@ -6,6 +6,7 @@ import io.nexy.android.data.model.Agent
 import io.nexy.android.data.model.AndroidUpdateManifest
 import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.Project
+import io.nexy.android.data.model.AttachmentMeta
 import io.nexy.android.data.model.HistoryMessage
 import io.nexy.android.data.model.ModelListSource
 import io.nexy.android.data.model.ModelOption
@@ -79,6 +80,7 @@ object WsRepository : WsClient {
     private var ws: WebSocket? = null
     private var currentUrl: String? = null
     private var currentToken: String? = null
+    private var currentCertFingerprint: String? = null
     private var reconnectJob: Job? = null
     private var reconnectAttempts = 0
     private val maxReconnects = 5
@@ -96,6 +98,7 @@ object WsRepository : WsClient {
             refreshProfiles()
             currentUrl = config.connectUrl
             currentToken = config.token
+            currentCertFingerprint = config.certFingerprint
             if (!doConnect(config.connectUrl)) {
                 pairedServerStore?.clear()
                 refreshProfiles()
@@ -108,8 +111,31 @@ object WsRepository : WsClient {
         ws?.cancel()
         currentUrl = config.connectUrl
         currentToken = config.token
+        currentCertFingerprint = config.certFingerprint
         reconnectAttempts = 0
         doConnect(config.connectUrl)
+    }
+
+    private fun buildPinnedClient(fingerprint: String): OkHttpClient {
+        val trustManager = object : javax.net.ssl.X509TrustManager {
+            override fun checkClientTrusted(chain: Array<java.security.cert.X509Certificate>, authType: String) {}
+            override fun checkServerTrusted(chain: Array<java.security.cert.X509Certificate>, authType: String) {
+                val cert = chain.firstOrNull()
+                    ?: throw java.security.cert.CertificateException("No certificate in chain")
+                val digest = java.security.MessageDigest.getInstance("SHA-256").digest(cert.encoded)
+                val fp = digest.joinToString("") { "%02x".format(it) }
+                if (fp != fingerprint.lowercase())
+                    throw java.security.cert.CertificateException("Certificate fingerprint mismatch")
+            }
+            override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = emptyArray()
+        }
+        val sslContext = javax.net.ssl.SSLContext.getInstance("TLS")
+        sslContext.init(null, arrayOf(trustManager), null)
+        @Suppress("CustomX509TrustManager")
+        return client.newBuilder()
+            .sslSocketFactory(sslContext.socketFactory, trustManager)
+            .hostnameVerifier { _, _ -> true }
+            .build()
     }
 
     private fun doConnect(wsUrl: String): Boolean {
@@ -120,7 +146,9 @@ object WsRepository : WsClient {
                 _connectionState.value = ConnectionState.DISCONNECTED
                 return false
             }
-        ws = client.newWebSocket(request, object : WebSocketListener() {
+        val activeClient = currentCertFingerprint?.takeIf { it.isNotBlank() }
+            ?.let { buildPinnedClient(it) } ?: client
+        ws = activeClient.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 reconnectAttempts = 0
                 _connectionState.value = ConnectionState.CONNECTED
@@ -168,6 +196,7 @@ object WsRepository : WsClient {
         reconnectJob?.cancel()
         currentUrl = null
         currentToken = null
+        currentCertFingerprint = null
         ws?.close(1000, "User disconnected")
         ws = null
         _connectionState.value = ConnectionState.DISCONNECTED
@@ -386,7 +415,7 @@ object WsRepository : WsClient {
                             role = m.optString("role"),
                             content = m.optString("content"),
                             timestamp = m.optLong("timestamp"),
-                            attachmentNames = attachmentNamesFromJson(m.nullableString("attachments")),
+                            attachments = attachmentsFromJson(m.nullableString("attachments")),
                         )
                     }
                     WsEvent.ConversationMessages(conversationId, messages)
@@ -425,12 +454,19 @@ object WsRepository : WsClient {
     private fun JSONObject.nullableString(key: String): String? =
         if (isNull(key)) null else optString(key).takeIf { it.isNotEmpty() }
 
-    private fun attachmentNamesFromJson(attachmentsJson: String?): List<String> {
+    private fun attachmentsFromJson(attachmentsJson: String?): List<AttachmentMeta> {
         if (attachmentsJson.isNullOrBlank()) return emptyList()
         return runCatching {
-            val attachments = JSONArray(attachmentsJson)
-            (0 until attachments.length()).mapNotNull { i ->
-                attachments.optJSONObject(i)?.optString("name")?.takeIf { it.isNotBlank() }
+            val arr = JSONArray(attachmentsJson)
+            (0 until arr.length()).mapNotNull { i ->
+                val obj = arr.optJSONObject(i) ?: return@mapNotNull null
+                val name = obj.optString("name").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                AttachmentMeta(
+                    id = obj.optString("id").ifBlank { name },
+                    name = name,
+                    type = obj.nullableString("type"),
+                    thumbnailDataUrl = obj.nullableString("thumbnailDataUrl"),
+                )
             }
         }.getOrDefault(emptyList())
     }

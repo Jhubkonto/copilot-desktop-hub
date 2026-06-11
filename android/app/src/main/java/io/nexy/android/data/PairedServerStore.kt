@@ -11,6 +11,7 @@ import org.json.JSONObject
 data class PairedServerConfig(
     val endpoint: String,
     val token: String,
+    val certFingerprint: String? = null,
 ) {
     val id: String
         get() = profileIdForEndpoint(endpoint)
@@ -19,7 +20,10 @@ data class PairedServerConfig(
         get() = displayNameForEndpoint(endpoint)
 
     val connectUrl: String
-        get() = "$endpoint?token=$token"
+        get() = buildString {
+            append("$endpoint?token=$token")
+            if (!certFingerprint.isNullOrBlank()) append("&certFP=$certFingerprint")
+        }
 
     companion object {
         fun profileIdForEndpoint(endpoint: String): String {
@@ -39,18 +43,18 @@ data class PairedServerConfig(
             val uri = runCatching { URI(rawValue.trim()) }.getOrNull() ?: return null
             val scheme = uri.scheme ?: return null
             val host = uri.host ?: return null
-            val token = uri.rawQuery
+            val params = uri.rawQuery
                 ?.split("&")
                 ?.mapNotNull {
                     val parts = it.split("=", limit = 2)
                     if (parts.size == 2) parts[0] to parts[1] else null
                 }
-                ?.firstOrNull { it.first == "token" }
-                ?.second
-                ?.takeIf { it.isNotBlank() } ?: return null
+                ?.toMap().orEmpty()
+            val token = params["token"]?.takeIf { it.isNotBlank() } ?: return null
+            val certFP = params["certFP"]?.takeIf { it.isNotBlank() }
             val port = if (uri.port >= 0) ":${uri.port}" else ""
             val path = uri.rawPath?.takeIf { it.isNotBlank() && it != "/" } ?: ""
-            return PairedServerConfig(endpoint = "$scheme://$host$port$path", token = token)
+            return PairedServerConfig(endpoint = "$scheme://$host$port$path", token = token, certFingerprint = certFP)
         }
     }
 }
@@ -61,11 +65,15 @@ data class PairedServerProfile(
     val token: String,
     val name: String,
     val lastUsedAt: Long,
+    val certFingerprint: String? = null,
 ) {
     val connectUrl: String
-        get() = "$endpoint?token=$token"
+        get() = buildString {
+            append("$endpoint?token=$token")
+            if (!certFingerprint.isNullOrBlank()) append("&certFP=$certFingerprint")
+        }
 
-    fun toConfig(): PairedServerConfig = PairedServerConfig(endpoint, token)
+    fun toConfig(): PairedServerConfig = PairedServerConfig(endpoint, token, certFingerprint)
 
     companion object {
         fun fromConfig(config: PairedServerConfig, now: Long = System.currentTimeMillis()): PairedServerProfile =
@@ -75,6 +83,7 @@ data class PairedServerProfile(
                 token = config.token,
                 name = config.displayName,
                 lastUsedAt = now,
+                certFingerprint = config.certFingerprint,
             )
     }
 }
@@ -215,7 +224,8 @@ class PairedServerStore(context: Context) {
                     .put("endpoint", profile.endpoint)
                     .put("token", profile.token)
                     .put("name", profile.name)
-                    .put("lastUsedAt", profile.lastUsedAt),
+                    .put("lastUsedAt", profile.lastUsedAt)
+                    .put("certFingerprint", profile.certFingerprint),
             )
         }
         return array.toString()
@@ -233,6 +243,7 @@ class PairedServerStore(context: Context) {
                 token = token,
                 name = obj.optString("name").takeIf { it.isNotBlank() } ?: PairedServerConfig.displayNameForEndpoint(endpoint),
                 lastUsedAt = obj.optLong("lastUsedAt", 0L),
+                certFingerprint = obj.optString("certFingerprint").takeIf { it.isNotBlank() },
             )
         }.sortedByDescending { it.lastUsedAt }
     }

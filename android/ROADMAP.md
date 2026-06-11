@@ -1,6 +1,6 @@
 # Nexy — Active Roadmap
 
-Last updated: 2026-06-11 (v0.14 complete; desktop release readiness in progress)
+Last updated: 2026-06-11 (v0.14 complete; WSS.6 native TLS complete)
 
 ---
 
@@ -108,7 +108,7 @@ Critical bugs identified during live testing:
 - ✅ **ATT.5 Desktop coverage** — desktop WebSocket tests cover mobile image forwarding
 - ✅ **ATT.5 Android coverage** — `ChatViewModelTest.sendMessageIncludesImageAttachments()` covers image attachment sends end-to-end
 - ✅ **ATT.6 Persisted attachment metadata after history reload** — mobile image sends now store lightweight attachment metadata in message history and Android restores attachment names after refresh without persisting base64 image data
-- 🔲 **ATT.7 Full persisted image previews** — optional follow-up if thumbnail persistence is worth the DB/storage tradeoff
+- ✅ **ATT.7 Full persisted image thumbnails** — desktop generates a 120px JPEG thumbnail via `nativeImage` at send time, stored in the existing `attachments` JSON column; Android and desktop both render the thumbnail on history reload, falling back to filename chips for older messages
 
 ---
 
@@ -140,7 +140,7 @@ Critical bugs identified during live testing:
 - ✅ **WSS.3 Token injection** — QR generation injects the current pairing token into the configured secure URL, replacing stale tokens
 - ✅ **WSS.4 LAN fallback** — leaving the secure URL blank keeps local `ws://<lan-ip>:<port>` pairing behavior unchanged
 - ✅ **WSS.5 Setup documentation** — documented local LAN behavior versus TLS/Tailscale/reverse-proxy behavior
-- 🔲 **WSS.6 Native TLS listener** — optional future work if in-app certificate/key management becomes worth the complexity
+- ✅ **WSS.6 Native TLS listener** — desktop generates a self-signed cert on first launch; local server runs wss://; cert fingerprint embedded in QR pairing URL; Android pins via custom X509TrustManager
 
 ---
 
@@ -255,10 +255,10 @@ Goal: replace split CLI/provider model pickers with one grouped model picker tha
 |---|---|---|
 | Packaging | Windows installer, macOS DMG, Linux packages; auto-update via GitHub Releases (`electron-builder.yml` publish provider set to `github/Jhubkonto/nexy`) | ✅ |
 | Reliability | Local crash log via `electron-log`; `uncaughtException`/`unhandledRejection` handlers write to `{userData}/logs/main.log` | ✅ |
-| Accessibility | WCAG 2.1 AA audit and keyboard/navigation fixes | 🔲 |
-| Performance | Baseline and p95 targets for chat composer interaction | 🔲 |
+| Accessibility | WCAG 2.1 AA audit and keyboard/navigation fixes | ⏸ Deferred |
+| Performance | Baseline and p95 targets for chat composer interaction | ⏸ Deferred |
 | Security | CSP hardened (production: no unsafe-eval, strict origins); all 6 window-control IPC handlers now call `validateSender()` | ✅ |
-| Documentation | Public docs, privacy policy, and terms | 🔲 |
+| Documentation | Public docs, privacy policy, and terms | ⏸ Deferred |
 
 ---
 
