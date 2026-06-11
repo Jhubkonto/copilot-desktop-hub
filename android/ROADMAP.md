@@ -1,6 +1,6 @@
-# Nexy Android — Roadmap
+# Nexy — Active Roadmap
 
-Last updated: 2026-06-10
+Last updated: 2026-06-11
 
 ---
 
@@ -117,6 +117,7 @@ Critical bugs identified during live testing:
 - ✅ **SP.3 Settings profile switcher** — show saved servers, active status, and allow switching without re-pairing
 - ✅ **SP.4 Forget active profile** — remove only the active profile, falling back to another saved server when available
 - ✅ **SP.5 Unit coverage** — cover deterministic profile IDs, display names, and profile conversion; repository/UI compile tests cover integration wiring
+- ✅ **SP.6 Delete inactive profiles** — Android Settings can remove unused saved servers without switching away from the active connection
 
 ---
 
@@ -144,12 +145,48 @@ Critical bugs identified during live testing:
 ## v0.14 — Android Model & Settings Parity 🔶
 
 - ✅ **MSP.1 Model source indicator** — Android model picker shows whether options come from Claude CLI, Codex CLI, configured BYOK providers, or no configured backend
-- 🔲 **MSP.2 Mobile settings audit** — compare Android Settings against Desktop Settings and group missing controls by connection, models, notifications, appearance, and diagnostics
-- 🔲 **MSP.3 Model backend diagnostics** — show active agent/backend/default model context in Android chat and settings for easier troubleshooting
-- 🔲 **MSP.4 Notification controls** — mirror relevant desktop/mobile notification controls, including approval notification behavior and permission state
-- 🔲 **MSP.5 Appearance controls** — add Android theme override if desktop dark/light toggle work lands
-- 🔲 **MSP.6 Connection diagnostics** — show server profile, URL scheme, connected state, client version, and last error in one mobile diagnostics panel
-- 🔲 **MSP.7 Settings polish pass** — reorganize Android Settings into sections that mirror the desktop settings structure as closely as mobile constraints allow
+- ✅ **MSP.2 Mobile settings audit** — compared Android Settings against Desktop Settings and folded follow-up controls into this roadmap
+- ✅ **MSP.3 Model backend diagnostics** — Android Settings now shows model source, backend detail, available model preview, and empty-backend guidance; Chat model sheet explains selected/default model context
+- ✅ **MSP.4 Notification controls** — Android Settings now shows approval notification readiness, runtime permission state, app notification state, Tool Approvals channel state, refresh, and a link to Android notification settings
+- ✅ **MSP.5 Appearance controls** — Android Settings now has a persisted System/Light/Dark theme override that mirrors the desktop light/dark control concept locally on mobile
+- ✅ **MSP.6 Connection diagnostics** — Android Settings now shows active profile, endpoint, URL scheme, connection state, client version, server version, and last error in one diagnostics panel
+- ✅ **MSP.7 Settings polish pass** — Android Settings is organized into Connection, Models, Notifications, Appearance, Diagnostics, and Actions with consistent section chrome and destructive actions at the bottom
+
+**MSP.2 audit outcome:**
+- **Connection:** Android has endpoint, profiles, connected state, disconnect, and forget active server; still needs scheme, profile metadata, client/server version, last error, and diagnostics grouping.
+- **Models:** Android already receives model options and source metadata; Settings still needs active backend/source/default model context.
+- **Notifications:** approval notifications exist; Settings still needs permission state and a route to platform notification settings.
+- **Appearance:** Android follows system theme; defer an in-app override until the desktop theme override is ready to mirror.
+- **Diagnostics:** repository state already includes last WebSocket error and connected server version payload; Settings should expose these in MSP.6.
+
+**MSP.3 implementation notes:**
+- Added shared model diagnostic text helpers for source labels, backend details, default-model explanations, and empty model-list guidance.
+- Settings refreshes `model:list` on open and surfaces the active model source plus a short available-model preview.
+- Chat model picker now explains whether the conversation uses an override, an agent default, a backend default, or the desktop fallback.
+- Covered diagnostic formatting with Android unit tests.
+
+**Remaining settings parity scope:**
+- **MSP.7 Settings polish pass:** reorganize Android Settings into Connection, Models, Notifications, Appearance, Diagnostics, and Actions; keep destructive actions at the bottom.
+
+**MSP.4 implementation notes:**
+- Added notification diagnostic helpers for approval readiness, permission label, and user-facing remediation text.
+- Settings reads `POST_NOTIFICATIONS`, app notification enablement, and the `Tool Approvals` channel state.
+- Settings includes refresh and "Open Android settings" actions so users can fix denied permission or disabled channel state.
+- Covered notification diagnostic wording with Android unit tests.
+
+**MSP.5 implementation notes:**
+- Added a persisted Android theme preference store with System, Light, and Dark modes.
+- MainActivity applies the preference at the root `NexyTheme`, while System continues to follow Android's current dark-mode state.
+- Settings exposes the override as a three-option segmented control.
+
+**MSP.6 implementation notes:**
+- `WsRepository` now retains the connected desktop server version from the `connected` event.
+- Settings diagnostics show active profile, endpoint, `ws`/`wss` scheme detail, connection state, client version, server version, and last error.
+- Covered connection diagnostic formatting with Android unit tests.
+
+**MSP.7 implementation notes:**
+- Settings now uses a shared section header treatment for Connection, Models, Notifications, Appearance, Diagnostics, and Actions.
+- Profile and model rows align their trailing controls consistently while keeping active/disconnect/destructive actions separated.
 
 ---
 
@@ -196,13 +233,67 @@ Goal: support the workflow where Nexy changes its own source workspace, desktop 
 
 | Task | Description | Status |
 |---|---|---|
-| AU.1 | Desktop build action creates debug/release Android artifacts and records versionCode, commit SHA, checksum, and build status | 🔲 |
-| AU.2 | Android update manifest served by paired desktop over the existing trusted connection | 🔲 |
-| AU.3 | Android Settings screen shows available update, version notes, checksum, and source desktop | 🔲 |
-| AU.4 | Tap "Install update" downloads the APK and opens Android's system package installer with clear user confirmation | 🔲 |
-| AU.5 | ADB install path for developer testing when the phone is connected to the desktop and the user explicitly approves | 🔲 |
+| AU.1 | Desktop build action creates debug/release Android artifacts and records versionCode, commit SHA, checksum, and build status | ✅ |
+| AU.2 | Android update manifest served by paired desktop over the existing trusted connection | ✅ |
+| AU.3 | Android Settings screen shows available update, version notes, checksum, and source desktop | ✅ |
+| AU.4 | Tap "Install update" downloads the APK and opens Android's system package installer with clear user confirmation | ✅ |
+| AU.5 | ADB install path for developer testing when the phone is connected to the desktop and the user explicitly approves | ✅ |
 | AU.6 | Production/internal distribution path documented: Play Internal App Sharing, internal testing track, or private signed APK distribution | 🔲 |
 | AU.7 | Rollback guidance: retain previous APK artifact and expose reinstall instructions/action where platform rules allow it | 🔲 |
+
+**AU.1 implementation notes:**
+- Desktop Android build commands run Gradle `test`, `assembleDebug`, `assembleRelease`, and `bundleRelease` from the configured Android workspace.
+- Android build records now persist desktop-observed commit SHA, branch, versionName, versionCode, build status, artifact paths, and SHA-256 checksums.
+- Settings build history surfaces versionCode and checksum previews for generated Android artifacts.
+
+**AU.2 implementation notes:**
+- Desktop now serves the published Android update manifest over the authenticated mobile WebSocket command `android:update-manifest`.
+- The WebSocket response mirrors the desktop manifest shape: versionCode, versionName, commit SHA, changelog, checksum, artifact URL, and published timestamp; it returns `null` when no manifest is published.
+- The existing Electron IPC manifest reader and WebSocket command share the same manifest-loading helper.
+
+**AU.3 implementation notes:**
+- Android Settings requests `android:update-manifest` from the paired desktop and tracks the latest manifest in `WsRepository`.
+- Settings now includes an Updates section with availability status, version/build number, commit SHA, checksum preview, source desktop, artifact URL, published time, and version notes when present.
+- Update status compares the published manifest versionCode against the installed Android app versionCode.
+
+**AU.4 implementation notes:**
+- Android Settings shows "Install update" only when the paired desktop manifest advertises a newer versionCode.
+- The install flow downloads the APK from the manifest artifact URL, verifies its SHA-256 checksum, and opens Android's package installer through a FileProvider URI.
+- On Android 8+, the flow routes users to the per-app "install unknown apps" permission screen when required, then asks them to retry installation.
+
+**AU.5 implementation notes:**
+- Desktop Settings lists connected ADB devices and requires an explicit "Install APK" click for each developer install.
+- The ADB install path selects the latest successful `assembleDebug` or `assembleRelease` APK artifact and shows the selected artifact before install.
+- The main process rejects non-APK artifacts and APK paths outside the configured Android workspace before invoking `adb install -r`.
+
+---
+
+## Desktop/Product Follow-ups 🔲
+
+These were retained from the old desktop planning roadmap because they are still product-relevant but not part of the current Android settings sprint.
+
+### Unified Model Source Detection
+
+Goal: replace split CLI/provider model pickers with one grouped model picker that detects installed CLIs and configured BYOK providers together.
+
+| Task | Description | Status |
+|---|---|---|
+| MS.1 | Add a `model:list-available` IPC handler that returns connected CLI/provider model groups | 🔲 |
+| MS.2 | Add shared `AvailableModelEntry` and `AvailableModelGroup` types plus preload bridge support | 🔲 |
+| MS.3 | Refactor desktop chat model picker into one grouped dropdown with source badges | 🔲 |
+| MS.4 | Wire selection so CLI picks can set both backend and model when needed | 🔲 |
+| MS.5 | Cover no-source, CLI-only, provider-only, mixed-source, and Azure-prefix cases with tests | 🔲 |
+
+### Public Release Readiness
+
+| Area | Requirement | Status |
+|---|---|---|
+| Packaging | Windows installer, macOS DMG, Linux packages, and auto-update path | 🔲 |
+| Reliability | Crash reporting or equivalent telemetry, opt-in where appropriate | 🔲 |
+| Accessibility | WCAG 2.1 AA audit and keyboard/navigation fixes | 🔲 |
+| Performance | Baseline and p95 targets for chat composer interaction | 🔲 |
+| Security | IPC surface review and CSP hardening pass | 🔲 |
+| Documentation | Public docs, privacy policy, and terms | 🔲 |
 
 ---
 
