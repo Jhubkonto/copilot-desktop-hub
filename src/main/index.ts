@@ -6,6 +6,8 @@ import { registerAuthHandlers } from './auth'
 import { initMcpServers, shutdownMcpServers } from './mcp'
 import { initAutoUpdater, registerUpdaterHandlers, checkForUpdatesOnStartup } from './updater'
 import { loadModelCatalog } from './model-catalog'
+import { initLogger } from './logger'
+import { validateSender } from './safe-handle'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -180,6 +182,8 @@ app.on('open-url', (_event, url) => {
 })
 
 app.whenReady().then(() => {
+  initLogger()
+
   // Remove the default Electron application menu
   Menu.setApplicationMenu(null)
 
@@ -198,26 +202,32 @@ app.whenReady().then(() => {
   const EDIT_ACTIONS = new Set(['undo', 'redo', 'cut', 'copy', 'paste', 'selectAll'])
 
   ipcMain.handle('window:minimize', (event) => {
+    if (!validateSender(event)) return
     BrowserWindow.fromWebContents(event.sender)?.minimize()
   })
   ipcMain.handle('window:maximize', (event) => {
+    if (!validateSender(event)) return
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
     if (win.isMaximized()) win.unmaximize(); else win.maximize()
   })
   ipcMain.handle('window:close', (event) => {
+    if (!validateSender(event)) return
     BrowserWindow.fromWebContents(event.sender)?.close()
   })
   ipcMain.handle('window:is-maximized', (event) => {
+    if (!validateSender(event)) return false
     return BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false
   })
   ipcMain.handle('window:edit-action', (event, action: string) => {
+    if (!validateSender(event)) return
     if (!EDIT_ACTIONS.has(action)) return
     const wc = BrowserWindow.fromWebContents(event.sender)?.webContents
     if (!wc) return
     ;(wc as unknown as Record<string, () => void>)[action]?.()
   })
   ipcMain.handle('window:zoom', (event, delta: number) => {
+    if (!validateSender(event)) return
     const wc = BrowserWindow.fromWebContents(event.sender)?.webContents
     if (!wc) return
     const db = getDatabase()

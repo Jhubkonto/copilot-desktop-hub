@@ -3,6 +3,7 @@ const { autoUpdater } = pkg
 import { BrowserWindow } from 'electron'
 import { safeHandle } from './safe-handle'
 import { getFeedUrl, isFeedRunning } from './local-feed-server'
+import { log } from './logger'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -11,7 +12,7 @@ export function initAutoUpdater(window: BrowserWindow): void {
 
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = true
-  autoUpdater.logger = console
+  autoUpdater.logger = log
 
   // Point at the local feed server if it was started during registerBuildHandlers
   if (isFeedRunning()) {
