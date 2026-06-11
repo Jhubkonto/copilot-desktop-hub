@@ -1,26 +1,15 @@
 import { useState, useRef, useEffect, type ChangeEvent, type ClipboardEvent, type KeyboardEvent, type PointerEvent, type RefObject } from 'react'
 import { BookOpen, Camera, ChevronDown, ClipboardPaste, Eye, Paperclip, SendHorizontal, Square, X } from 'lucide-react'
-import { getAvailableModelIds, getModelLabel, getModelMultiplier } from '../../../shared/models'
+import { getModelLabel } from '../../../shared/models'
 import { ContextInspector } from '../ContextInspector'
 import { AttachmentBar } from './AttachmentBar'
 import { AtContextMenu } from './AtContextMenu'
 import { SlashCommandMenu } from './SlashCommandMenu'
-import type { AgentConfig } from '../../../shared/types'
+import type { AgentConfig, AvailableModelEntry, AvailableModelGroup } from '../../../shared/types'
 import type { AtContextOption, ChatMessage, ContextRef, LocalAttachment, PastedImage } from '../../hooks/chat-types'
 import type { SlashCommandDef } from '../../slash-commands'
 import { useAppStore } from '../../store/app-store'
 
-const FALLBACK_CLAUDE_MODELS: { id: string; label: string }[] = [
-  { id: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
-  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
-  { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
-]
-
-const FALLBACK_CODEX_MODELS: { id: string; label: string }[] = [
-  { id: 'gpt-5.5', label: 'GPT-5.5' },
-  { id: 'gpt-5.4', label: 'GPT-5.4' },
-  { id: 'gpt-5.4-mini', label: 'GPT-5.4-Mini' },
-]
 
 interface ChatComposerProps {
   input: string
@@ -68,7 +57,8 @@ interface ChatComposerProps {
   onCloseAtMenu: () => void
   onSetConversationModel: (model: string) => void | Promise<void>
   onSetPendingModel: (model: string | null) => void
-  onSetCliModel?: (model: string) => void | Promise<void>
+  availableGroups: AvailableModelGroup[]
+  onSelectAvailableModel: (group: AvailableModelGroup, model: AvailableModelEntry) => void
   isEditingMessage: boolean
   onCancelEdit: () => void
   onStop: () => void | Promise<void>
@@ -121,7 +111,8 @@ export function ChatComposer({
   onCloseAtMenu,
   onSetConversationModel,
   onSetPendingModel,
-  onSetCliModel,
+  availableGroups,
+  onSelectAvailableModel,
   isEditingMessage,
   onCancelEdit,
   onStop,
@@ -130,59 +121,11 @@ export function ChatComposer({
   const modelMenuRef = useRef<HTMLDivElement | null>(null)
   const catalogModels = useAppStore((state) => state.catalogModels)
   const globalDefaultModel = useAppStore((state) => state.globalDefaultModel)
-  const authState = useAppStore((state) => state.authState)
-  const modelIds = getAvailableModelIds(catalogModels, effectiveModel, agentNeedsTools)
   const agentBackend = activeAgent?.backend
-  const isClaudeCli =
-    agentBackend === 'claude-cli' ||
-    (!agentBackend && authState.mode === 'none' && authState.clis?.claude)
-  const isCodexCli =
-    agentBackend === 'codex-cli' ||
-    (!agentBackend && authState.mode === 'none' && !authState.clis?.claude && authState.clis?.codex)
-  const isCliBackend = isClaudeCli || isCodexCli || agentBackend === 'gh-copilot'
-
-  const [cliModels, setCliModels] = useState<{ id: string; label: string }[]>(
-    isCodexCli ? FALLBACK_CODEX_MODELS : FALLBACK_CLAUDE_MODELS
-  )
-  useEffect(() => {
-    if (!isClaudeCli && !isCodexCli) return
-    const backend = isCodexCli ? 'codex-cli' : 'claude-cli'
-    const fallbackModels = isCodexCli ? FALLBACK_CODEX_MODELS : FALLBACK_CLAUDE_MODELS
-    let cancelled = false
-    window.api.getCliModels(backend)
-      .then((models) => {
-        if (!cancelled) {
-          setCliModels(models.length > 0 ? models : fallbackModels)
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setCliModels(fallbackModels)
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [isClaudeCli, isCodexCli])
-
-  // For the auto-fallback case (no agent, CLI detected), the model is stored on
-  // the conversation row via onSetConversationModel and flows back as effectiveModel.
-  const savedCodexModel = activeAgent?.cliModel
-  const savedCodexModelIsAvailable = Boolean(savedCodexModel && cliModels.some((model) => model.id === savedCodexModel))
-  const currentCliModel = isCodexCli
-    ? (
-        savedCodexModelIsAvailable && savedCodexModel
-          ? savedCodexModel
-          : (effectiveModel !== 'default' && cliModels.some((model) => model.id === effectiveModel) ? effectiveModel : cliModels[0]?.id ?? 'gpt-5.5')
-      )
-    : (activeAgent?.cliModel ?? (effectiveModel !== 'default' && effectiveModel.startsWith('claude') ? effectiveModel : 'claude-sonnet-4-6'))
+  const isGhCopilot = agentBackend === 'gh-copilot'
 
   const [showModelMenu, setShowModelMenu] = useState(false)
   const [modelMenuAbove, setModelMenuAbove] = useState(false)
-  const [selectedCliModel, setSelectedCliModel] = useState(currentCliModel)
-  useEffect(() => {
-    setSelectedCliModel(currentCliModel)
-  }, [currentCliModel])
   useEffect(() => {
     if (!showModelMenu) return
     const handleClickOutside = (e: MouseEvent) => {
@@ -358,58 +301,13 @@ export function ChatComposer({
                 </button>
               )}
               <div className="relative flex items-center" ref={modelMenuRef}>
-                 {isCliBackend ? (
-                  isClaudeCli || isCodexCli ? (
-                    <>
-                      <button
-                        ref={modelPickerRef}
-                        type="button"
-                        aria-label={isCodexCli ? 'Codex model' : 'Claude model'}
-                        className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 px-1.5 py-1 rounded-md transition-colors"
-                        onClick={() => {
-                          if (!showModelMenu && modelPickerRef.current) {
-                            const rect = modelPickerRef.current.getBoundingClientRect()
-                            setModelMenuAbove(rect.bottom + 160 > window.innerHeight)
-                          }
-                          setShowModelMenu((prev) => !prev)
-                        }}
-                      >
-                        <span>
-                          {cliModels.find((m) => m.id === selectedCliModel)?.label ?? selectedCliModel}
-                        </span>
-                        <ChevronDown className="w-3 h-3 shrink-0 opacity-60" />
-                      </button>
-                      {showModelMenu && (
-                        <div className={`absolute right-0 z-30 w-44 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg p-1 ${modelMenuAbove ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
-                          {cliModels.map((m) => (
-                            <button
-                              key={m.id}
-                              type="button"
-                              className={`w-full text-left px-2 py-1.5 rounded text-xs transition-colors ${
-                                m.id === selectedCliModel
-                                  ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100'
-                                  : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
-                              }`}
-                              onClick={() => {
-                                setShowModelMenu(false)
-                                setSelectedCliModel(m.id)
-                                void onSetCliModel?.(m.id)
-                              }}
-                            >
-                              {m.label}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <span
-                      className="text-xs text-gray-500 dark:text-gray-400 px-2 py-1 rounded bg-gray-100 dark:bg-gray-800 cursor-default"
-                      title="Model is determined by the CLI tool"
-                    >
-                      gh copilot
-                    </span>
-                  )
+                {isGhCopilot ? (
+                  <span
+                    className="text-xs text-gray-500 dark:text-gray-400 px-2 py-1 rounded bg-gray-100 dark:bg-gray-800 cursor-default"
+                    title="Model is determined by the CLI tool"
+                  >
+                    gh copilot
+                  </span>
                 ) : (
                   <>
                     <button
@@ -421,8 +319,7 @@ export function ChatComposer({
                       onClick={() => {
                         if (!showModelMenu && modelPickerRef.current) {
                           const rect = modelPickerRef.current.getBoundingClientRect()
-                          const dropdownHeight = 300
-                          setModelMenuAbove(rect.bottom + dropdownHeight > window.innerHeight)
+                          setModelMenuAbove(rect.bottom + 300 > window.innerHeight)
                         }
                         setShowModelMenu((prev) => !prev)
                       }}
@@ -434,42 +331,58 @@ export function ChatComposer({
                       <ChevronDown className="w-3 h-3 shrink-0 opacity-60" />
                     </button>
                     {showModelMenu && (
-                      <div className={`absolute right-0 z-30 w-56 max-h-64 overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg p-1 ${modelMenuAbove ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
+                      <div className={`absolute right-0 z-30 w-64 max-h-72 overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg p-1 ${modelMenuAbove ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
                         {agentNeedsTools && (
                           <div className="px-2 py-1.5 mb-0.5 text-[10px] text-amber-600 dark:text-amber-400 border-b border-gray-100 dark:border-gray-700 flex items-center gap-1">
                             <span>⚙</span>
                             <span>Showing models that support tool calling</span>
                           </div>
                         )}
-                        {modelIds.map((model) => (
-                          <button
-                            key={model}
-                            type="button"
-                            className={`w-full text-left px-2 py-1.5 rounded text-xs flex items-center justify-between gap-2 transition-colors ${
-                              model === effectiveModel
-                                ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100'
-                                : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
-                            }`}
-                            onClick={() => {
-                              setShowModelMenu(false)
-                              if (conversationId) {
-                                void onSetConversationModel(model)
-                              } else {
-                                onSetPendingModel(model === 'default' ? null : model)
-                              }
-                            }}
-                          >
-                            <span>
-                              {model === 'default'
-                                ? globalDefaultModel && globalDefaultModel !== 'default'
-                                  ? `Global default (${getModelLabel(globalDefaultModel, catalogModels)})`
-                                  : 'Global default'
-                                : getModelLabel(model, catalogModels)}
-                            </span>
-                            {getModelMultiplier(model, catalogModels) && (
-                              <span className="text-gray-400 dark:text-gray-500 shrink-0">{getModelMultiplier(model, catalogModels)}</span>
-                            )}
-                          </button>
+                        <button
+                          type="button"
+                          className={`w-full text-left px-2 py-1.5 rounded text-xs transition-colors ${'default' === effectiveModel ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                          onClick={() => {
+                            setShowModelMenu(false)
+                            if (conversationId) {
+                              void onSetConversationModel('default')
+                            } else {
+                              onSetPendingModel(null)
+                            }
+                          }}
+                        >
+                          {globalDefaultModel && globalDefaultModel !== 'default'
+                            ? `Global default (${getModelLabel(globalDefaultModel, catalogModels)})`
+                            : 'Global default'}
+                        </button>
+                        {availableGroups.length === 0 && (
+                          <p className="px-2 py-2 text-xs text-gray-400 dark:text-gray-500">No models configured</p>
+                        )}
+                        {availableGroups.map((group) => (
+                          <div key={group.sourceKey}>
+                            <div className="px-2 pt-2 pb-1 text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500 border-t border-gray-100 dark:border-gray-700 mt-0.5">
+                              {group.sourceLabel}
+                            </div>
+                            {group.models.map((model) => (
+                              <button
+                                key={model.id}
+                                type="button"
+                                className={`w-full text-left px-2 py-1.5 rounded text-xs flex items-center justify-between gap-2 transition-colors ${
+                                  model.id === effectiveModel
+                                    ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100'
+                                    : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
+                                }`}
+                                onClick={() => {
+                                  setShowModelMenu(false)
+                                  onSelectAvailableModel(group, model)
+                                }}
+                              >
+                                <span>{getModelLabel(model.id, catalogModels) !== model.id ? getModelLabel(model.id, catalogModels) : model.label}</span>
+                                {availableGroups.length > 1 && (
+                                  <span className="text-[9px] text-gray-400 dark:text-gray-500 shrink-0">{group.sourceLabel}</span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
                         ))}
                       </div>
                     )}

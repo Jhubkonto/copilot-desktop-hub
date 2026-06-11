@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { ChevronDown, Download, Loader2, Sparkles, Upload } from 'lucide-react'
 import { getAvailableModelIds, getModelLabel, modelIdSupportsTools } from '../../shared/models'
-import { isApiError, type AgentConfig, type ConversationExportPackFormat, type WikiCandidate } from '../../shared/types'
+import { isApiError, type AgentConfig, type AvailableModelEntry, type AvailableModelGroup, type ConversationExportPackFormat, type WikiCandidate } from '../../shared/types'
 import type { ContextRef, ToastType } from '../hooks/chat-types'
 import { useAtMenu } from '../hooks/useAtMenu'
 import { useChat } from '../hooks/useChat'
@@ -58,6 +58,7 @@ export function ChatWindow() {
   const defaultModelSetting = useAppStore((state) => state.globalDefaultModel)
 
   const [pendingModel, setPendingModel] = useState<string | null>(null)
+  const [availableGroups, setAvailableGroups] = useState<AvailableModelGroup[]>([])
   const [input, setInput] = useState('')
   const [showContextInspector, setShowContextInspector] = useState(false)
   const [isOnline, setIsOnline] = useState(navigator.onLine)
@@ -262,6 +263,12 @@ export function ChatWindow() {
     const floor = inputPanelHeight ?? 0
     element.style.height = `${Math.min(Math.max(floor, element.scrollHeight), 400)}px`
   }, [input, inputPanelHeight])
+
+  useEffect(() => {
+    let cancelled = false
+    window.api.listAvailableModels().then((g) => { if (!cancelled) setAvailableGroups(g) }).catch(() => {})
+    return () => { cancelled = true }
+  }, [])
 
   useEffect(() => {
     const goOnline = () => setIsOnline(true)
@@ -660,6 +667,21 @@ export function ChatWindow() {
     setInput('')
   }, [chat.cancelEdit, setInput])
 
+  const handleSelectAvailableModel = useCallback(
+    (group: AvailableModelGroup, model: AvailableModelEntry) => {
+      if (group.sourceType === 'cli') {
+        void actions.handleSetCliBackendAndModel(group.sourceKey as 'claude-cli' | 'codex-cli', model.id)
+      } else {
+        if (conversationId) {
+          void actions.handleSetConversationModel(model.id)
+        } else {
+          setPendingModel(model.id === 'default' ? null : model.id)
+        }
+      }
+    },
+    [actions, conversationId],
+  )
+
   const handlePickModel = useCallback(() => {
     modelPickerRef.current?.focus()
   }, [])
@@ -856,7 +878,8 @@ export function ChatWindow() {
       onCloseAtMenu={atMenu.closeAtMenu}
       onSetConversationModel={actions.handleSetConversationModel}
       onSetPendingModel={setPendingModel}
-      onSetCliModel={actions.handleSetCliModel}
+      availableGroups={availableGroups}
+      onSelectAvailableModel={handleSelectAvailableModel}
       isEditingMessage={chat.isEditingMessage}
       onCancelEdit={handleCancelEdit}
       onStop={actions.handleStop}

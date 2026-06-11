@@ -565,6 +565,33 @@ export function useChatWindowActions({
     [activeAgent, conversationId, loadConversations, loadAgents, addToast],
   )
 
+  const handleSetCliBackendAndModel = useCallback(
+    async (backend: 'claude-cli' | 'codex-cli', modelId: string) => {
+      if (activeAgent?.id) {
+        try {
+          const result = await window.api.updateAgent(activeAgent.id, { ...activeAgent, backend, cliModel: modelId })
+          if (hasIpcError(result)) throw new Error(result.error)
+          await loadAgents()
+        } catch {
+          addToast('Failed to update CLI model', 'error')
+        }
+        return
+      }
+      if (conversationId) {
+        try {
+          const result = await window.api.setConversationModel(conversationId, modelId)
+          if (hasIpcError(result)) throw new Error(result.error)
+          await loadConversations()
+        } catch {
+          addToast('Failed to set model', 'error')
+        }
+        return
+      }
+      pendingCliModelRef.current = modelId
+    },
+    [activeAgent, conversationId, loadConversations, loadAgents, addToast],
+  )
+
   const handleStop = useCallback(async () => {
     try {
       await window.api.stopGeneration(conversationId ?? undefined)
@@ -710,6 +737,7 @@ export function useChatWindowActions({
     handleEdit,
     handleSetConversationModel,
     handleSetCliModel,
+    handleSetCliBackendAndModel,
     handleStop,
     handleKeyDown,
   }
