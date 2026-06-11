@@ -20,6 +20,7 @@ export interface Attachment {
   size: number
   type?: 'file' | 'image'
   source?: 'desktop' | 'mobile' | 'pasted'
+  thumbnailDataUrl?: string
 }
 
 export interface LocalAttachment extends Attachment {

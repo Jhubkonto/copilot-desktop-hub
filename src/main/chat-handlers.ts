@@ -1,4 +1,4 @@
-import { BrowserWindow } from "electron";
+import { BrowserWindow, nativeImage } from "electron";
 import { randomUUID } from "crypto";
 import { existsSync, readFileSync } from "fs";
 import { basename } from "path";
@@ -66,6 +66,7 @@ type StoredAttachment = {
   path?: string
   type?: 'file' | 'image'
   source?: 'desktop' | 'mobile' | 'pasted'
+  thumbnailDataUrl?: string
 }
 
 type MobileChatActivity =
@@ -74,6 +75,17 @@ type MobileChatActivity =
   | { state: 'approval'; label: string; toolName?: string }
   | { state: 'complete'; label: string }
   | { state: 'error'; label: string }
+
+function generateThumbnail(dataUrl: string): string | undefined {
+  try {
+    const ni = nativeImage.createFromDataURL(dataUrl)
+    if (ni.isEmpty()) return undefined
+    const thumb = ni.resize({ width: 120 }).toJPEG(70)
+    return `data:image/jpeg;base64,${thumb.toString('base64')}`
+  } catch {
+    return undefined
+  }
+}
 
 function estimateDataUrlBytes(dataUrl: string): number {
   const payload = dataUrl.split(',', 2)[1] ?? ''
@@ -94,13 +106,17 @@ function buildStoredAttachments(
       type: 'file' as const,
       source: 'desktop' as const,
     })),
-    ...(images ?? []).map((image) => ({
-      id: image.id,
-      name: image.name,
-      size: estimateDataUrlBytes(image.dataUrl),
-      type: 'image' as const,
-      source: 'mobile' as const,
-    })),
+    ...(images ?? []).map((image) => {
+      const thumbnailDataUrl = generateThumbnail(image.dataUrl)
+      return {
+        id: image.id,
+        name: image.name,
+        size: estimateDataUrlBytes(image.dataUrl),
+        type: 'image' as const,
+        source: 'mobile' as const,
+        ...(thumbnailDataUrl !== undefined ? { thumbnailDataUrl } : {}),
+      }
+    }),
   ]
 }
 

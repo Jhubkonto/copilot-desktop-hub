@@ -86,6 +86,12 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -98,6 +104,11 @@ import io.nexy.android.ui.model.emptyModelListDetail
 import io.nexy.android.ui.model.modelSourceDetail
 import io.noties.markwon.Markwon
 import kotlinx.coroutines.launch
+
+private fun decodeDataUrl(dataUrl: String): android.graphics.Bitmap? = runCatching {
+    val bytes = android.util.Base64.decode(dataUrl.substringAfter(','), android.util.Base64.DEFAULT)
+    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+}.getOrNull()
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -763,8 +774,30 @@ private fun MessageBubble(
                         )
                     }
                 }
-                if (msg.attachmentNames.isNotEmpty()) {
-                    msg.attachmentNames.forEach { name ->
+                if (msg.attachments.isNotEmpty()) {
+                    val thumbs = msg.attachments.filter { it.type == "image" && it.thumbnailDataUrl != null }
+                    if (thumbs.isNotEmpty()) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.padding(bottom = 4.dp),
+                        ) {
+                            thumbs.forEach { att ->
+                                val bmp = remember(att.thumbnailDataUrl) { decodeDataUrl(att.thumbnailDataUrl!!) }
+                                if (bmp != null) {
+                                    Image(
+                                        bitmap = bmp.asImageBitmap(),
+                                        contentDescription = att.name,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .height(96.dp)
+                                            .width(120.dp)
+                                            .clip(RoundedCornerShape(8.dp)),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    msg.attachments.filter { it.type != "image" || it.thumbnailDataUrl == null }.forEach { att ->
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -776,7 +809,7 @@ private fun MessageBubble(
                                 tint = textColor.copy(alpha = 0.7f),
                             )
                             Text(
-                                name,
+                                att.name,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = textColor.copy(alpha = 0.7f),
                                 maxLines = 1,

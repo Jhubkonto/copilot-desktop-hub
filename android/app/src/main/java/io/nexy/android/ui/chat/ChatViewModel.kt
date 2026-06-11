@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.nexy.android.data.WsClient
 import io.nexy.android.data.WsRepository
+import io.nexy.android.data.model.AttachmentMeta
 import io.nexy.android.data.model.WsEvent
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,7 +24,7 @@ data class ChatMessage(
     val text: String,
     val isUser: Boolean,
     val isStreaming: Boolean,
-    val attachmentNames: List<String> = emptyList(),
+    val attachments: List<AttachmentMeta> = emptyList(),
     val isToolCall: Boolean = false,
     val toolName: String? = null,
     val serverName: String? = null,
@@ -166,7 +167,7 @@ class ChatViewModel(
             text = if (augmented.isBlank() && imageAtts.isNotEmpty()) "" else augmented,
             isUser = true,
             isStreaming = false,
-            attachmentNames = imageAtts.map { it.name },
+            attachments = imageAtts.map { AttachmentMeta(id = it.id, name = it.name, type = "image", thumbnailDataUrl = null) },
         )
         _isAwaitingResponse.value = true
         _activityLabel.value = "Assistant is thinking"
@@ -197,7 +198,7 @@ class ChatViewModel(
                 text = content,
                 isUser = role == "user",
                 isStreaming = false,
-                attachmentNames = attachmentNames,
+                attachments = attachments,
             )
         }
 

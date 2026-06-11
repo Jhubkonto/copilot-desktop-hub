@@ -39,5 +39,12 @@ data class HistoryMessage(
     val role: String,
     val content: String,
     val timestamp: Long,
-    val attachmentNames: List<String> = emptyList(),
+    val attachments: List<AttachmentMeta> = emptyList(),
+)
+
+data class AttachmentMeta(
+    val id: String,
+    val name: String,
+    val type: String?,
+    val thumbnailDataUrl: String?,
 )

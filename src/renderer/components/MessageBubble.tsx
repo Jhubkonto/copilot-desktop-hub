@@ -17,6 +17,8 @@ interface Attachment {
   id: string
   name: string
   size: number
+  type?: 'file' | 'image'
+  thumbnailDataUrl?: string
 }
 
 interface PastedImage {
@@ -132,18 +134,32 @@ export function MessageBubbleBase({
           }`}
         >
           {attachments && attachments.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mb-2">
-              {attachments.map((att) => (
-                <span
-                  key={att.id}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-200/60 dark:bg-gray-700/60 text-xs text-gray-600 dark:text-gray-400"
-                >
-                  {att.name}
-                  <span className="opacity-60">
-                    ({formatFileSize(att.size)})
-                  </span>
-                </span>
-              ))}
+            <div className="flex flex-col gap-1.5 mb-2">
+              {attachments.filter(a => a.type === 'image' && a.thumbnailDataUrl).length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {attachments.filter(a => a.type === 'image' && a.thumbnailDataUrl).map(att => (
+                    <img
+                      key={att.id}
+                      src={att.thumbnailDataUrl}
+                      alt={att.name}
+                      className="h-32 max-w-[240px] object-cover rounded-lg border border-gray-200 dark:border-gray-700"
+                    />
+                  ))}
+                </div>
+              )}
+              {attachments.filter(a => a.type !== 'image' || !a.thumbnailDataUrl).length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {attachments.filter(a => a.type !== 'image' || !a.thumbnailDataUrl).map(att => (
+                    <span
+                      key={att.id}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-200/60 dark:bg-gray-700/60 text-xs text-gray-600 dark:text-gray-400"
+                    >
+                      {att.name}
+                      <span className="opacity-60">({formatFileSize(att.size)})</span>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 

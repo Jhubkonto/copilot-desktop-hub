@@ -2,6 +2,7 @@ package io.nexy.android.ui.chat
 
 import androidx.lifecycle.viewModelScope
 import io.nexy.android.data.WsClient
+import io.nexy.android.data.model.AttachmentMeta
 import io.nexy.android.data.model.HistoryMessage
 import io.nexy.android.data.model.WsEvent
 import kotlinx.coroutines.Dispatchers
@@ -109,7 +110,7 @@ class ChatViewModelTest {
                         role = "user",
                         content = "",
                         timestamp = 1,
-                        attachmentNames = listOf("photo.png"),
+                        attachments = listOf(AttachmentMeta(id = "m1", name = "photo.png", type = "image", thumbnailDataUrl = null)),
                     ),
                 ),
             ),
@@ -121,7 +122,7 @@ class ChatViewModelTest {
                 text = "",
                 isUser = true,
                 isStreaming = false,
-                attachmentNames = listOf("photo.png"),
+                attachments = listOf(AttachmentMeta(id = "m1", name = "photo.png", type = "image", thumbnailDataUrl = null)),
             ),
             vm.messages.value.single(),
         )
@@ -260,14 +261,16 @@ class ChatViewModelTest {
         vm.sendMessage("")
 
         assertTrue(vm.attachments.value.isEmpty())
+        val actualMsg = vm.messages.value.single()
+        val attId = actualMsg.attachments.firstOrNull()?.id.orEmpty()
         assertEquals(
             ChatMessage(
                 text = "",
                 isUser = true,
                 isStreaming = false,
-                attachmentNames = listOf("photo.png"),
+                attachments = listOf(AttachmentMeta(id = attId, name = "photo.png", type = "image", thumbnailDataUrl = null)),
             ),
-            vm.messages.value.single(),
+            actualMsg,
         )
 
         val sent = fakeWs.sentCommands.last()
