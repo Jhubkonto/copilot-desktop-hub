@@ -30,7 +30,7 @@ class NexyFcmService : FirebaseMessagingService() {
             }
             map
         }.getOrDefault(emptyMap())
-        ApprovalNotificationManager.show(this, requestId, toolName, args)
+        ApprovalNotificationManager.show(this, requestId, toolName)
     }
 
     companion object {
