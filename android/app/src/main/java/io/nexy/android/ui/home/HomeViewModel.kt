@@ -30,9 +30,6 @@ class HomeViewModel(
     private val _pendingApproval = MutableStateFlow<WsEvent.ToolApprovalRequest?>(null)
     val pendingApproval: StateFlow<WsEvent.ToolApprovalRequest?> = _pendingApproval
 
-    private val _newConversationId = MutableStateFlow<String?>(null)
-    val newConversationId: StateFlow<String?> = _newConversationId
-
     private val _isRefreshingConversations = MutableStateFlow(false)
     val isRefreshingConversations: StateFlow<Boolean> = _isRefreshingConversations
 
@@ -50,7 +47,6 @@ class HomeViewModel(
                         _pendingApproval.value = event
                         approvalEffects.showApproval(event)
                     }
-                    is WsEvent.ConversationCreated -> _newConversationId.value = event.id
                     is WsEvent.ConversationList -> _isRefreshingConversations.value = false
                     is WsEvent.AgentList -> _isRefreshingAgents.value = false
                     is WsEvent.ProjectList -> _isRefreshingProjects.value = false
@@ -74,18 +70,6 @@ class HomeViewModel(
     fun requestProjects() {
         _isRefreshingProjects.value = true
         wsClient.send("project:list", emptyMap())
-    }
-
-    fun createConversation(agentId: String? = null, projectId: String? = null) {
-        val data = buildMap<String, Any> {
-            if (agentId != null) put("agentId", agentId)
-            if (projectId != null) put("projectId", projectId)
-        }
-        wsClient.send("conversation:create", data)
-    }
-
-    fun clearNewConversation() {
-        _newConversationId.value = null
     }
 
     fun approveRequest(requestId: String) {

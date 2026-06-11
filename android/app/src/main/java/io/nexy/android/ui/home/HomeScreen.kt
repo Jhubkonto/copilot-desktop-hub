@@ -109,7 +109,6 @@ fun HomeScreen(
     val isRefreshingAgents by vm.isRefreshingAgents.collectAsState()
     val isRefreshingProjects by vm.isRefreshingProjects.collectAsState()
     val pendingApproval by vm.pendingApproval.collectAsState()
-    val newConversationId by vm.newConversationId.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
     var showNewChatSheet by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState()
@@ -124,14 +123,6 @@ fun HomeScreen(
             }
             ConnectionState.DISCONNECTED -> onDisconnected()
             else -> {}
-        }
-    }
-
-    LaunchedEffect(newConversationId) {
-        val id = newConversationId
-        if (id != null) {
-            vm.clearNewConversation()
-            onOpenChat(id)
         }
     }
 
