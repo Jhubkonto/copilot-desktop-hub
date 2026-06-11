@@ -40,5 +40,6 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
 publish:
-  provider: generic
-  url: http://127.0.0.1
+  provider: github
+  owner: Jhubkonto
+  repo: nexy
