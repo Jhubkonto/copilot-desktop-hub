@@ -130,6 +130,8 @@ export function SettingsPanel() {
   const [adbInstalling, setAdbInstalling] = useState(false)
   const [androidPublishResult, setAndroidPublishResult] = useState<string | null>(null)
   const [androidUpdateManifest, setAndroidUpdateManifest] = useState<AndroidUpdateManifest | null>(null)
+  const [androidPublishHistory, setAndroidPublishHistory] = useState<AndroidUpdateManifest[]>([])
+  const [androidRestoring, setAndroidRestoring] = useState<number | null>(null)
 
   // Prompt library state
   const [prompts, setPrompts] = useState<PromptLibraryEntry[]>([])
@@ -364,6 +366,7 @@ export function SettingsPanel() {
       if (config) setSigningDraft(config)
     }).catch(() => {})
     window.api.androidGetUpdateManifest().then(setAndroidUpdateManifest).catch(() => {})
+    window.api.androidGetPublishHistory().then(setAndroidPublishHistory).catch(() => {})
   }, [visible, category, refreshWorkspaceInfo])
 
   useEffect(() => {
@@ -601,8 +604,24 @@ export function SettingsPanel() {
     if (result.published) {
       setAndroidPublishResult(`Published v${result.manifest?.versionName ?? '?'} (build ${result.manifest?.versionCode ?? '?'}) to feed`)
       setAndroidUpdateManifest(result.manifest ?? null)
+      window.api.androidGetPublishHistory().then(setAndroidPublishHistory).catch(() => {})
     } else {
       setAndroidPublishResult(`Error: ${result.error ?? 'Unknown error'}`)
+    }
+  }
+
+  const handleAndroidRestoreVersion = async (versionCode: number) => {
+    setAndroidRestoring(versionCode)
+    try {
+      const result = await window.api.androidRestoreVersion(versionCode)
+      if (result.restored) {
+        setAndroidUpdateManifest(result.manifest ?? null)
+        window.api.androidGetPublishHistory().then(setAndroidPublishHistory).catch(() => {})
+      } else {
+        console.error('Restore failed:', result.error)
+      }
+    } finally {
+      setAndroidRestoring(null)
     }
   }
 
@@ -1829,6 +1848,27 @@ export function SettingsPanel() {
                     )}
                   </div>
 
+                  {/* AU.6 — Distribution options guide */}
+                  <details className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 border-t border-gray-100 dark:border-gray-700 mt-3">
+                    <summary className="cursor-pointer px-3 py-2 text-[10px] font-medium text-gray-500 uppercase tracking-wide select-none">
+                      Distribution Options
+                    </summary>
+                    <div className="px-3 pb-3 space-y-3 text-[11px] text-gray-600 dark:text-gray-400">
+                      <div>
+                        <p className="font-semibold text-gray-700 dark:text-gray-300 mb-0.5">LAN Feed (default)</p>
+                        <p>Run <code className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">assembleRelease</code>, then click Publish below. The Android app's Settings → Updates section detects the new version automatically when on the same network.</p>
+                      </div>
+                      <div>
+                        <p className="font-semibold text-gray-700 dark:text-gray-300 mb-0.5">Play Internal App Sharing</p>
+                        <p>Run <code className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">bundleRelease</code> to produce an <code className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">.aab</code> artifact. In the Google Play Console, open your app → Internal App Sharing → Upload bundle. Share the generated link with testers — no store review required.</p>
+                      </div>
+                      <div>
+                        <p className="font-semibold text-gray-700 dark:text-gray-300 mb-0.5">Private APK Distribution</p>
+                        <p>Share the signed <code className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">assembleRelease</code> APK directly (email, cloud storage, etc.) or host it on any HTTPS server. For OTA delivery through the companion app, serve the APK at a stable URL and publish a matching <code className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">android-update.json</code> manifest with the same schema.</p>
+                      </div>
+                    </div>
+                  </details>
+
                   {/* Android update feed */}
                   <div className="space-y-2 border-t border-gray-100 dark:border-gray-700 pt-3">
                     <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Android Update Feed</p>
@@ -1850,6 +1890,36 @@ export function SettingsPanel() {
                       </div>
                     )}
                   </div>
+
+                  {/* AU.7 — Published history + rollback */}
+                  {androidPublishHistory.length > 0 && (
+                    <details className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 border-t border-gray-100 dark:border-gray-700 mt-1">
+                      <summary className="cursor-pointer px-3 py-2 text-[10px] font-medium text-gray-500 uppercase tracking-wide select-none">
+                        Published History ({androidPublishHistory.length})
+                      </summary>
+                      <div className="px-3 pb-3 space-y-2">
+                        {androidPublishHistory.map((entry) => (
+                          <div key={entry.versionCode} className="flex items-center justify-between gap-2 text-[11px] py-1 border-b border-gray-100 dark:border-gray-700 last:border-0">
+                            <div className="flex flex-wrap gap-1 items-center min-w-0">
+                              <span className="font-mono text-gray-700 dark:text-gray-300">v{entry.versionName}</span>
+                              <span className="text-gray-400">(build {entry.versionCode})</span>
+                              <span className="text-gray-400">{new Date(entry.publishedAt).toLocaleDateString()}</span>
+                              {entry.commitSha && <span className="font-mono text-gray-400 text-[10px]">{entry.commitSha}</span>}
+                              <span className="font-mono text-gray-400 text-[10px]">{entry.checksum.slice(0, 12)}…</span>
+                            </div>
+                            <button
+                              onClick={() => void handleAndroidRestoreVersion(entry.versionCode)}
+                              disabled={androidRestoring === entry.versionCode}
+                              className="shrink-0 text-[11px] px-2 py-0.5 rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
+                            >
+                              {androidRestoring === entry.versionCode ? 'Restoring…' : 'Restore to feed'}
+                            </button>
+                          </div>
+                        ))}
+                        <p className="text-[10px] text-gray-400 italic mt-1">To install a previous version on device, uninstall the current app first, then tap Install update in the Android app after restoring.</p>
+                      </div>
+                    </details>
+                  )}
                 </div>
               </>
             )}

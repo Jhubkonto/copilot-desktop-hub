@@ -1,6 +1,6 @@
 # Nexy — Active Roadmap
 
-Last updated: 2026-06-11 (v0.14 complete; WSS.6 native TLS complete; image thumbnails complete)
+Last updated: 2026-06-11 (v0.14 complete; WSS.6 native TLS complete; image thumbnails complete; AU.6 and AU.7 complete)
 
 ---
 
@@ -202,8 +202,8 @@ Goal: support the workflow where Nexy changes its own source workspace, desktop 
 | AU.3 | Android home screen shows available update banner with version, changelog, and download/install action | ✅ |
 | AU.4 | Tap "Install update" downloads the APK and opens Android's system package installer with clear user confirmation | ✅ |
 | AU.5 | ADB install path for developer testing when the phone is connected to the desktop and the user explicitly approves | ✅ |
-| AU.6 | Production/internal distribution path documented: Play Internal App Sharing, internal testing track, or private signed APK distribution | 🔲 |
-| AU.7 | Rollback guidance: retain previous APK artifact and expose reinstall instructions/action where platform rules allow it | 🔲 |
+| AU.6 | Production/internal distribution path documented: Play Internal App Sharing, internal testing track, or private signed APK distribution | ✅ |
+| AU.7 | Rollback guidance: retain previous APK artifact and expose reinstall instructions/action where platform rules allow it | ✅ |
 
 **AU.1 implementation notes:**
 - Desktop Android build commands run Gradle `test`, `assembleDebug`, `assembleRelease`, and `bundleRelease` from the configured Android workspace.

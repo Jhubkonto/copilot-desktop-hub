@@ -463,6 +463,8 @@ const api = {
   androidInstallApk: (serial: string, apkPath: string) => typedInvoke('android:install-apk', serial, apkPath),
   androidPublishUpdate: () => typedInvoke('android:publish-update'),
   androidGetUpdateManifest: () => typedInvoke('android:get-update-manifest'),
+  androidGetPublishHistory: () => typedInvoke('android:get-publish-history') as Promise<import('../shared/types').AndroidUpdateManifest[]>,
+  androidRestoreVersion: (versionCode: number) => typedInvoke('android:restore-version', versionCode),
   onAndroidLogChunk: (callback: (data: { buildId: string; line: string; stream: 'stdout' | 'stderr' }) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, data: { buildId: string; line: string; stream: 'stdout' | 'stderr' }) => callback(data)
     typedOn('android:log-chunk', handler)

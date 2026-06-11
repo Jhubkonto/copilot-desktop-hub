@@ -492,6 +492,13 @@ fun SettingsScreen(
                             color = Color(0xFFEF4444),
                         )
                     }
+                    if (androidUpdateManifest != null) {
+                        Text(
+                            "To roll back: on the desktop, open Settings → Android → Published History and click Restore. Then uninstall the current app from Android Settings and tap Install update here.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        )
+                    }
                 }
             }
 

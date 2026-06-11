@@ -877,6 +877,8 @@ export type IpcReturnMap = {
   'android:install-apk': { success: boolean; error?: string }
   'android:publish-update': { published: boolean; manifest?: AndroidUpdateManifest; error?: string }
   'android:get-update-manifest': AndroidUpdateManifest | null
+  'android:get-publish-history': AndroidUpdateManifest[]
+  'android:restore-version': { restored: boolean; manifest?: AndroidUpdateManifest; error?: string }
   'android:log-chunk': void
   'android:command-done': void
   // WebSocket mobile companion
@@ -1115,6 +1117,8 @@ export type IpcChannels =
   | 'android:install-apk'
   | 'android:publish-update'
   | 'android:get-update-manifest'
+  | 'android:get-publish-history'
+  | 'android:restore-version'
   | 'android:log-chunk'
   | 'android:command-done'
   | 'ws:start'

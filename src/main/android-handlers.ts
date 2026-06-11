@@ -131,6 +131,28 @@ export function getAndroidUpdateManifest(db: Database.Database): AndroidUpdateMa
   }
 }
 
+function getPublishHistoryPath(androidFeedDir: string): string {
+  return path.join(androidFeedDir, 'android-update-history.json')
+}
+
+function readPublishHistory(androidFeedDir: string): AndroidUpdateManifest[] {
+  const historyPath = getPublishHistoryPath(androidFeedDir)
+  if (!existsSync(historyPath)) return []
+  try {
+    return JSON.parse(readFileSync(historyPath, 'utf8')) as AndroidUpdateManifest[]
+  } catch {
+    return []
+  }
+}
+
+function appendPublishHistory(androidFeedDir: string, manifest: AndroidUpdateManifest, archiveApkPath: string): void {
+  const MAX_HISTORY = 5
+  const entry = { ...manifest, archiveApkPath }
+  const existing = readPublishHistory(androidFeedDir)
+  const updated = [entry, ...existing.filter((e) => e.versionCode !== manifest.versionCode)].slice(0, MAX_HISTORY)
+  writeFileSync(getPublishHistoryPath(androidFeedDir), JSON.stringify(updated, null, 2), 'utf8')
+}
+
 function getLocalIp(): string {
   const ifaces = networkInterfaces()
   const candidates: string[] = []
@@ -435,6 +457,21 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
 
     mkdirSync(androidFeedDir, { recursive: true })
 
+    // Archive the previous release before overwriting so rollback is possible
+    const prevManifest = getAndroidUpdateManifest(db)
+    if (prevManifest) {
+      const prevApkName = prevManifest.artifactUrl.split('/').pop()
+      const prevApkInFeed = prevApkName ? path.join(androidFeedDir, prevApkName) : null
+      if (prevApkInFeed && existsSync(prevApkInFeed)) {
+        const archiveDir = path.join(androidFeedDir, 'archive')
+        mkdirSync(archiveDir, { recursive: true })
+        const archiveName = `nexy-v${prevManifest.versionCode}-${prevManifest.publishedAt}.apk`
+        const archivePath = path.join(archiveDir, archiveName)
+        if (!existsSync(archivePath)) copyFileSync(prevApkInFeed, archivePath)
+        appendPublishHistory(androidFeedDir, prevManifest, archivePath)
+      }
+    }
+
     const apkName = path.basename(apkSrc)
     const destApk = path.join(androidFeedDir, apkName)
     copyFileSync(apkSrc, destApk)
@@ -446,7 +483,7 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
     // Restart feed server bound to all interfaces so Android can reach it over LAN
     const feedPathRow = db.prepare("SELECT value FROM settings WHERE key = 'local_update_feed_path'").get() as { value: string } | undefined
     const feedRootPath = feedPathRow?.value ?? androidFeedDir
-    const port = await startFeedServer(feedRootPath, '0.0.0.0')
+    await startFeedServer(feedRootPath, '0.0.0.0')
     const feedLanUrl = getFeedLanUrl(lanIp)
 
     const artifactUrl = `${feedLanUrl}/android/${apkName}`
@@ -467,5 +504,44 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
 
   safeHandle('android:get-update-manifest', () => {
     return getAndroidUpdateManifest(db)
+  })
+
+  safeHandle('android:get-publish-history', () => {
+    const androidFeedDir = getAndroidFeedDir(db)
+    if (!androidFeedDir) return []
+    return readPublishHistory(androidFeedDir)
+  })
+
+  safeHandle('android:restore-version', async (_event, versionCode: number) => {
+    const androidFeedDir = getAndroidFeedDir(db)
+    if (!androidFeedDir) return { restored: false, error: 'No local update feed path configured' }
+
+    const history = readPublishHistory(androidFeedDir)
+    const entry = history.find((e) => e.versionCode === versionCode) as (AndroidUpdateManifest & { archiveApkPath?: string }) | undefined
+    if (!entry) return { restored: false, error: `Version ${versionCode} not found in publish history` }
+
+    const archivePath = entry.archiveApkPath
+    if (!archivePath || !existsSync(archivePath)) {
+      return { restored: false, error: `Archived APK for version ${versionCode} not found` }
+    }
+
+    const apkName = path.basename(archivePath)
+    const destApk = path.join(androidFeedDir, apkName)
+    copyFileSync(archivePath, destApk)
+
+    const lanIp = getLocalIp()
+    const feedPathRow = db.prepare("SELECT value FROM settings WHERE key = 'local_update_feed_path'").get() as { value: string } | undefined
+    const feedRootPath = feedPathRow?.value ?? androidFeedDir
+    await startFeedServer(feedRootPath, '0.0.0.0')
+    const feedLanUrl = getFeedLanUrl(lanIp)
+
+    const restoredManifest: AndroidUpdateManifest = {
+      ...entry,
+      artifactUrl: `${feedLanUrl}/android/${apkName}`,
+      publishedAt: entry.publishedAt,
+    }
+    writeFileSync(path.join(androidFeedDir, 'android-update.json'), JSON.stringify(restoredManifest, null, 2), 'utf8')
+
+    return { restored: true, manifest: restoredManifest }
   })
 }
