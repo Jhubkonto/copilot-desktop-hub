@@ -78,6 +78,10 @@ function computeFingerprint(certPem: string): string {
   return new X509Certificate(certPem).fingerprint256.replace(/:/g, '').toLowerCase()
 }
 
+export function hasMobileClients(): boolean {
+  return connectedClients.size > 0
+}
+
 export function broadcastToMobile(event: WsPushEvent): void {
   if (!wss || connectedClients.size === 0) return
   const msg = JSON.stringify(event)

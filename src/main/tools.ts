@@ -4,7 +4,8 @@ import { BrowserWindow } from 'electron'
 import { getDatabase } from './database'
 import { randomUUID } from 'crypto'
 import { safeHandle } from './safe-handle'
-import { broadcastToMobile } from './ws-server'
+import { broadcastToMobile, hasMobileClients } from './ws-server'
+import { sendApprovalPush } from './fcm-sender'
 import { registerApprovalResolver } from './ws-handlers'
 
 export interface ToolDefinition {
@@ -175,6 +176,9 @@ export async function requestApproval(
   const requestId = randomUUID()
   webContents.send('tool:request-approval', { requestId, tool: toolName, args, description })
   broadcastToMobile({ event: 'tool:approval-request', data: { requestId, toolName, args, description } })
+  if (!hasMobileClients()) {
+    sendApprovalPush(getDatabase(), { requestId, toolName, args, description }).catch(() => {})
+  }
   return new Promise<boolean>((resolve) => {
     pendingApprovals.set(requestId, { toolName, resolve, noRemember: options?.noRemember })
     setTimeout(() => {

@@ -221,6 +221,16 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
       ALTER TABLE build_records ADD COLUMN artifact_checksums TEXT;
     `,
   },
+  {
+    version: 23,
+    sql: `
+      CREATE TABLE IF NOT EXISTS mobile_clients (
+        device_id TEXT PRIMARY KEY,
+        fcm_token TEXT NOT NULL,
+        registered_at INTEGER NOT NULL
+      );
+    `,
+  },
 ];
 
 

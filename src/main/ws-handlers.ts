@@ -29,6 +29,18 @@ export function registerWsHandlers(): void {
   setWsCommandHandler((command, data, reply) => {
     if (command === 'ping') return
 
+    if (command === 'mobile:fcm-token') {
+      const deviceId = typeof data.deviceId === 'string' ? data.deviceId : null
+      const token = typeof data.token === 'string' ? data.token : null
+      if (deviceId && token) {
+        const db = getDatabase()
+        db.prepare(
+          'INSERT OR REPLACE INTO mobile_clients (device_id, fcm_token, registered_at) VALUES (?, ?, ?)'
+        ).run(deviceId, token, Date.now())
+      }
+      return
+    }
+
     if (command === 'tool:approve' || command === 'tool:reject') {
       const requestId = typeof data.requestId === 'string' ? data.requestId : ''
       resolveApprovalFn?.(requestId, command === 'tool:approve')

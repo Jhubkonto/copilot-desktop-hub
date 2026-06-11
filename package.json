@@ -57,6 +57,7 @@
     "better-sqlite3": "^12.9.0",
     "electron-log": "^5.4.4",
     "electron-updater": "^6.8.3",
+    "google-auth-library": "^10.7.0",
     "immer": "^11.1.4",
     "lucide-react": "^1.8.0",
     "qrcode": "^1.5.4",
