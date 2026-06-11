@@ -1,6 +1,6 @@
 # Nexy — Active Roadmap
 
-Last updated: 2026-06-11 (v0.14 complete; WSS.6 native TLS complete; image thumbnails complete; AU.6 and AU.7 complete)
+Last updated: 2026-06-11 (v0.15 FCM push notifications in progress)
 
 ---
 
@@ -179,10 +179,23 @@ Critical bugs identified during live testing:
 
 ---
 
-## Backlog (larger scope)
+## v0.15 — Push Notifications 🔶
 
-- **Push notifications** — replace heads-up notification with proper FCM push for when phone is truly backgrounded / screen off
-- **Android in-app theme override** — Android currently follows the system theme; add a persisted in-app System/Light/Dark override (desktop already has this)
+Goal: deliver tool approval requests to the Android device even when the WebSocket is closed (screen off, app killed).
+
+| Task | Description | Status |
+|---|---|---|
+| PN.1 | Firebase project setup and `google-services.json` placed in `android/app/` | 🔲 (manual) |
+| PN.2 | Android FCM token registration — `NexyFcmService` relays token to desktop via `mobile:fcm-token` WS command | ✅ |
+| PN.3 | Desktop FCM send — `fcm-sender.ts` uses `google-auth-library` + FCM HTTP v1 API; falls back to FCM when no WS client is connected | ✅ |
+| PN.4 | Offline approve/reject reconnect — `ApprovalActionReceiver` uses `sendOrQueue`; `WsRepository` reconnects and drains pending commands on connect | ✅ |
+| PN.5 | Desktop settings UI — FCM Push Notifications `<details>` section with service account JSON paste + status badge | ✅ |
+
+**PN.1 manual steps:**
+1. Create project at `console.firebase.google.com`, add Android app (`io.nexy.android`), download `google-services.json` → `android/app/google-services.json`
+2. Firebase Console → Project Settings → Service accounts → Generate new private key → paste JSON into Nexy desktop Settings → Android → FCM Push Notifications
+
+## Backlog (larger scope)
 
 ---
 

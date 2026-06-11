@@ -20,13 +20,13 @@ A provider-agnostic native AI workspace — locally-first, with custom agents, m
 - Prompt library with versioning, variable substitution, and per-version rollback
 - Conversation portability: export/import, fork to another provider, and context compression for long sessions
 - Screen capture overlay with rubber-band region selection and clipboard image injection
-- Android companion app (Kotlin + Jetpack Compose): approves tool calls, monitors live output, and receives OTA updates from the desktop
+- Android companion app (Kotlin + Jetpack Compose): approves tool calls, monitors live output, receives OTA updates from the desktop, and sends FCM push notifications for offline approval requests
 - Desktop build pipeline: typecheck, test, package, and publish releases to a local update feed from inside the app
 - Android build pipeline: Gradle commands, APK signing config, ADB device install, and Android update feed
 - SQLite-backed persistence for all settings, conversations, agents, projects, and tool overrides
 - Versioned database migrations (no data loss on upgrades)
 - Theming, zoom, global hotkey, auto-start, toast notifications, and auto-updates
-- 690+ Vitest tests across main-process and renderer
+- 714 Vitest tests across main-process and renderer
 
 ## Tech Stack
 
