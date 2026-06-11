@@ -267,7 +267,7 @@ Goal: replace split CLI/provider model pickers with one grouped model picker tha
 |---|---|---|
 | Packaging | Windows installer, macOS DMG, Linux packages; auto-update via GitHub Releases (`electron-builder.yml` publish provider set to `github/Jhubkonto/nexy`) | ✅ |
 | Reliability | Local crash log via `electron-log`; `uncaughtException`/`unhandledRejection` handlers write to `{userData}/logs/main.log` | ✅ |
-| Accessibility | WCAG 2.1 AA audit and keyboard/navigation fixes | ⏸ Deferred |
+| Accessibility | WCAG 2.1 AA audit and keyboard/navigation fixes — focus trap in all modals, correct dialog role placement, listbox/option ARIA on command menus, tablist/tab roles on SegmentedTabs, aria-activedescendant on chat textarea | ✅ |
 | Performance | Baseline and p95 targets for chat composer interaction | ⏸ Deferred |
 | Security | CSP hardened (production: no unsafe-eval, strict origins); all 6 window-control IPC handlers now call `validateSender()` | ✅ |
 | Documentation | Public docs, privacy policy, and terms | ⏸ Deferred |

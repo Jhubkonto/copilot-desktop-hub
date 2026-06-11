@@ -26,6 +26,7 @@ A provider-agnostic native AI workspace — locally-first, with custom agents, m
 - SQLite-backed persistence for all settings, conversations, agents, projects, and tool overrides
 - Versioned database migrations (no data loss on upgrades)
 - Theming, zoom, global hotkey, auto-start, toast notifications, and auto-updates
+- WCAG 2.1 AA accessible: focus-trapped modals, listbox/option ARIA on command menus, tablist/tab roles, aria-activedescendant on chat composer
 - 714 Vitest tests across main-process and renderer
 
 ## Tech Stack
