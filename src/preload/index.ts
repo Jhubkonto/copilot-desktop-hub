@@ -12,6 +12,7 @@ import type {
   IpcReturn,
   PromptLibraryInput,
   PromptLibraryUpdate,
+  AvailableModelGroup,
   PublishedEntry,
 } from '../shared/types'
 
@@ -240,6 +241,7 @@ const api = {
 
   // Models
   listModelCatalog: () => typedInvoke('model:list-catalog'),
+  listAvailableModels: (): Promise<AvailableModelGroup[]> => typedInvoke('model:list-available'),
   onCatalogUpdated: (
     callback: (data: { models: CatalogModel[]; changeSummary?: string }) => void
   ) => {

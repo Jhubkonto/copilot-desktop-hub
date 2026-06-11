@@ -84,6 +84,7 @@ const ALL_CHANNELS = [
   'mcp:update-server',
   'message:delete',
   'message:delete-after',
+  'model:list-available',
   'project:add-agent',
   'project:create',
   'project:delete',

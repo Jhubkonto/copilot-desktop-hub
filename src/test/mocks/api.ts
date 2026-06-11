@@ -174,6 +174,7 @@ export function createMockApi() {
 
     // Models
     listModelCatalog: vi.fn().mockResolvedValue([]),
+    listAvailableModels: vi.fn().mockResolvedValue([]),
     onCatalogUpdated: vi.fn().mockReturnValue(() => {}),
 
     // Tools

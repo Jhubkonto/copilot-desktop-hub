@@ -696,6 +696,14 @@ export interface ProviderTestResult {
   error?: string
 }
 
+export interface AvailableModelEntry { id: string; label: string }
+export interface AvailableModelGroup {
+  sourceKey: string
+  sourceLabel: string
+  sourceType: 'cli' | 'provider'
+  models: AvailableModelEntry[]
+}
+
 export interface CatalogModel {
   id: string
   name: string
@@ -814,6 +822,7 @@ export type IpcReturnMap = {
   // Model
   'model:list-catalog': CatalogModel[]
   'model:catalog-updated': { models: CatalogModel[]; changeSummary?: string }
+  'model:list-available': AvailableModelGroup[]
   // Message
   'message:delete': void
   'message:delete-after': void
@@ -1022,6 +1031,7 @@ export type IpcChannels =
   | 'mcp:update-server'
   | 'model:list-catalog'
   | 'model:catalog-updated'
+  | 'model:list-available'
   | 'message:delete'
   | 'message:delete-after'
   | 'project:add-agent'
