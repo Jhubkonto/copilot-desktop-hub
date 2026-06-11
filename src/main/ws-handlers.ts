@@ -7,6 +7,7 @@ import { dispatchChatSend } from './chat-handlers'
 import { getCliModels } from './cli-detection'
 import { getCachedCatalog } from './model-catalog'
 import { retrieveAuthMode } from './auth'
+import { getAndroidUpdateManifest } from './android-handlers'
 import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
 import {
@@ -122,6 +123,11 @@ export function registerWsHandlers(): void {
     }
 
     const db = getDatabase()
+
+    if (command === 'android:update-manifest') {
+      reply({ event: 'android:update-manifest', data: getAndroidUpdateManifest(db) })
+      return
+    }
 
     if (command === 'conversation:list') {
       const rows = db.prepare(`

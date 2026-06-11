@@ -309,6 +309,58 @@ describe('registerAndroidHandlers — android:start-command', () => {
     expect(result).toHaveProperty('buildId')
     expect(typeof result.buildId).toBe('string')
   })
+
+  it('records versionCode, artifact paths, and checksums when a build completes', async () => {
+    const { createHash } = await import('crypto')
+    const { mkdirSync, rmSync, writeFileSync } = await import('fs')
+    const { join } = await import('path')
+    const tmpDir = require('os').tmpdir() as string
+    const wsDir = join(tmpDir, `nexy-android-build-${Date.now()}`)
+    const artifactDir = join(wsDir, 'app', 'build', 'outputs', 'apk', 'debug')
+    const artifactPath = join(artifactDir, 'app-debug.apk')
+    const artifactBody = Buffer.from('debug apk')
+    const closeHandlers: Array<(code: number) => Promise<void>> = []
+
+    mkdirSync(artifactDir, { recursive: true })
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('android_workspace_path', ?)").run(wsDir)
+
+    execSyncMock.mockImplementation((command: string) => {
+      if (command.includes('rev-parse --abbrev-ref')) return 'main\n'
+      if (command.includes('rev-parse --short')) return 'abc123\n'
+      if (command.includes('status --porcelain')) return ''
+      if (command.includes('properties')) return 'versionCode: 42\nversionName: 1.2.3\n'
+      if (command.includes('rev-parse HEAD')) return 'abc123def456\n'
+      throw new Error(`unexpected command ${command}`)
+    })
+    spawnMock.mockReturnValue({
+      stdout: { on: vi.fn() },
+      stderr: { on: vi.fn() },
+      on: vi.fn((event: string, handler: (code: number) => Promise<void>) => {
+        if (event === 'close') closeHandlers.push(handler)
+      }),
+      kill: vi.fn(),
+    })
+
+    try {
+      const handler = handlers.get('android:start-command')
+      const result = await handler?.({}, 'assembleDebug')
+      writeFileSync(artifactPath, artifactBody)
+      await closeHandlers[0]?.(0)
+
+      const row = db.prepare('SELECT * FROM build_records WHERE id = ?').get(result.buildId) as Record<string, unknown>
+      const artifactPaths = JSON.parse(row.artifact_paths as string) as string[]
+      const artifactChecksums = JSON.parse(row.artifact_checksums as string) as Record<string, string>
+      const expectedChecksum = createHash('sha256').update(artifactBody).digest('hex')
+
+      expect(row.status).toBe('success')
+      expect(row.version).toBe('1.2.3')
+      expect(row.version_code).toBe(42)
+      expect(artifactPaths).toContain(artifactPath)
+      expect(artifactChecksums[artifactPath]).toBe(expectedChecksum)
+    } finally {
+      rmSync(wsDir, { recursive: true, force: true })
+    }
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -453,6 +505,108 @@ describe('registerAndroidHandlers — android:list-adb-devices', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Tests: android:install-apk
+// ---------------------------------------------------------------------------
+
+describe('registerAndroidHandlers — android:install-apk', () => {
+  let db: Database.Database
+  let handlers: Map<string, Function>
+
+  beforeEach(async () => {
+    db = createDatabase()
+    handlers = new Map()
+
+    const { safeHandle } = await import('../safe-handle')
+    vi.mocked(safeHandle).mockImplementation((channel, handler) => {
+      handlers.set(channel, handler)
+    })
+
+    const { getDatabase } = await import('../database')
+    vi.mocked(getDatabase).mockReturnValue(db)
+
+    const { registerAndroidHandlers } = await import('../android-handlers')
+    registerAndroidHandlers()
+  })
+
+  it('installs an APK inside the configured Android workspace through adb', async () => {
+    const { mkdirSync, rmSync, writeFileSync } = await import('fs')
+    const { join } = await import('path')
+    const tmpDir = require('os').tmpdir() as string
+    const wsDir = join(tmpDir, `nexy-adb-install-${Date.now()}`)
+    const apkPath = join(wsDir, 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk')
+
+    mkdirSync(join(wsDir, 'app', 'build', 'outputs', 'apk', 'debug'), { recursive: true })
+    writeFileSync(apkPath, Buffer.from('apk'))
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('android_workspace_path', ?)").run(wsDir)
+    spawnMock.mockReturnValue({
+      stderr: { on: vi.fn() },
+      on: vi.fn((event: string, handler: (code: number) => void) => {
+        if (event === 'close') handler(0)
+      }),
+    })
+
+    try {
+      const handler = handlers.get('android:install-apk')
+      const result = await handler?.({}, 'device-1', apkPath)
+
+      expect(result).toEqual({ success: true })
+      expect(spawnMock).toHaveBeenCalledWith('adb', ['-s', 'device-1', 'install', '-r', apkPath], { shell: true })
+    } finally {
+      rmSync(wsDir, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects non-APK artifacts before invoking adb', async () => {
+    const { mkdirSync, rmSync, writeFileSync } = await import('fs')
+    const { join } = await import('path')
+    const tmpDir = require('os').tmpdir() as string
+    const wsDir = join(tmpDir, `nexy-adb-aab-${Date.now()}`)
+    const aabPath = join(wsDir, 'app', 'build', 'outputs', 'bundle', 'release', 'app-release.aab')
+
+    mkdirSync(join(wsDir, 'app', 'build', 'outputs', 'bundle', 'release'), { recursive: true })
+    writeFileSync(aabPath, Buffer.from('aab'))
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('android_workspace_path', ?)").run(wsDir)
+
+    try {
+      const handler = handlers.get('android:install-apk')
+      const result = await handler?.({}, 'device-1', aabPath)
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('APK')
+      expect(spawnMock).not.toHaveBeenCalled()
+    } finally {
+      rmSync(wsDir, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects APK paths outside the configured Android workspace', async () => {
+    const { mkdirSync, rmSync, writeFileSync } = await import('fs')
+    const { join } = await import('path')
+    const tmpDir = require('os').tmpdir() as string
+    const wsDir = join(tmpDir, `nexy-adb-ws-${Date.now()}`)
+    const outsideDir = join(tmpDir, `nexy-adb-outside-${Date.now()}`)
+    const apkPath = join(outsideDir, 'app-debug.apk')
+
+    mkdirSync(wsDir, { recursive: true })
+    mkdirSync(outsideDir, { recursive: true })
+    writeFileSync(apkPath, Buffer.from('apk'))
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('android_workspace_path', ?)").run(wsDir)
+
+    try {
+      const handler = handlers.get('android:install-apk')
+      const result = await handler?.({}, 'device-1', apkPath)
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('inside the Android workspace')
+      expect(spawnMock).not.toHaveBeenCalled()
+    } finally {
+      rmSync(wsDir, { recursive: true, force: true })
+      rmSync(outsideDir, { recursive: true, force: true })
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Tests: android:publish-update
 // ---------------------------------------------------------------------------
 
@@ -531,5 +685,47 @@ describe('registerAndroidHandlers — android:publish-update', () => {
       rmSync(wsDir, { recursive: true, force: true })
       rmSync(feedDir, { recursive: true, force: true })
     }
+  })
+})
+
+describe('getAndroidUpdateManifest', () => {
+  let db: Database.Database
+
+  beforeEach(() => {
+    db = createDatabase()
+  })
+
+  it('reads the published Android manifest from the configured feed path', async () => {
+    const { mkdirSync, rmSync, writeFileSync } = await import('fs')
+    const { join } = await import('path')
+    const tmpDir = require('os').tmpdir() as string
+    const feedDir = join(tmpDir, `nexy-feed-manifest-${Date.now()}`)
+    const androidDir = join(feedDir, 'android')
+    const manifest = {
+      versionCode: 7,
+      versionName: '0.7.0',
+      commitSha: 'abc123',
+      changelog: '',
+      checksum: 'checksum',
+      artifactUrl: 'http://127.0.0.1/android/app-release.apk',
+      publishedAt: 1000,
+    }
+
+    mkdirSync(androidDir, { recursive: true })
+    writeFileSync(join(androidDir, 'android-update.json'), JSON.stringify(manifest))
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('local_update_feed_path', ?)").run(feedDir)
+
+    try {
+      const { getAndroidUpdateManifest } = await import('../android-handlers')
+      expect(getAndroidUpdateManifest(db)).toEqual(manifest)
+    } finally {
+      rmSync(feedDir, { recursive: true, force: true })
+    }
+  })
+
+  it('returns null when no Android manifest has been published', async () => {
+    const { getAndroidUpdateManifest } = await import('../android-handlers')
+
+    expect(getAndroidUpdateManifest(db)).toBeNull()
   })
 })

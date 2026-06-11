@@ -119,6 +119,18 @@ function getAndroidFeedDir(db: Database.Database): string | null {
   return path.join(row.value, 'android')
 }
 
+export function getAndroidUpdateManifest(db: Database.Database): AndroidUpdateManifest | null {
+  const androidFeedDir = getAndroidFeedDir(db)
+  if (!androidFeedDir) return null
+  const manifestPath = path.join(androidFeedDir, 'android-update.json')
+  if (!existsSync(manifestPath)) return null
+  try {
+    return JSON.parse(readFileSync(manifestPath, 'utf8')) as AndroidUpdateManifest
+  } catch {
+    return null
+  }
+}
+
 function getLocalIp(): string {
   const ifaces = networkInterfaces()
   const candidates: string[] = []
@@ -144,11 +156,13 @@ function rowToRecord(row: Record<string, unknown>): BuildRecord {
     commitSha: (row.commit_sha as string | null) ?? null,
     branch: (row.branch as string | null) ?? null,
     version: (row.version as string | null) ?? null,
+    versionCode: (row.version_code as number | null) ?? null,
     platform: row.platform as string,
     command: row.command as AndroidBuildCommandName,
     status: row.status as BuildStatus,
     exitCode: (row.exit_code as number | null) ?? null,
     artifactPaths: JSON.parse((row.artifact_paths as string | null) ?? '[]') as string[],
+    artifactChecksums: JSON.parse((row.artifact_checksums as string | null) ?? '{}') as Record<string, string>,
     logTail: (row.log_tail as string | null) ?? '',
     startedAt: row.started_at as number,
     finishedAt: (row.finished_at as number | null) ?? null,
@@ -169,6 +183,11 @@ function getArtifactDir(workspacePath: string, command: AndroidBuildCommandName)
   if (command === 'assembleRelease') return path.join(workspacePath, 'app', 'build', 'outputs', 'apk', 'release')
   if (command === 'assembleDebug') return path.join(workspacePath, 'app', 'build', 'outputs', 'apk', 'debug')
   return ''
+}
+
+function isInsideDirectory(candidatePath: string, directoryPath: string): boolean {
+  const relative = path.relative(path.resolve(directoryPath), path.resolve(candidatePath))
+  return relative === '' || (!!relative && !relative.startsWith('..') && !path.isAbsolute(relative))
 }
 
 // ---------------------------------------------------------------------------
@@ -195,9 +214,9 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
 
     db.prepare(
       `INSERT INTO build_records
-        (id, workspace_path, commit_sha, branch, version, platform, command, status, started_at)
-       VALUES (?, ?, ?, ?, ?, 'android', ?, 'running', ?)`
-    ).run(buildId, workspacePath, wsInfo.commitSha, wsInfo.branch, wsInfo.versionName, command, now)
+        (id, workspace_path, commit_sha, branch, version, version_code, platform, command, status, started_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'android', ?, 'running', ?)`
+    ).run(buildId, workspacePath, wsInfo.commitSha, wsInfo.branch, wsInfo.versionName, wsInfo.versionCode, command, now)
 
     const gradlew = getGradlew()
     const args = ANDROID_COMMANDS[command]
@@ -233,7 +252,7 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
       }
     })
 
-    child.on('close', (code) => {
+    child.on('close', async (code) => {
       activeAndroidProcesses.delete(buildId)
       const exitCode = code ?? -1
       const status: BuildStatus = exitCode === 0 ? 'success' : 'failed'
@@ -251,12 +270,20 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
             })
         } catch { /* ignore */ }
       }
+      const artifactChecksums: Record<string, string> = {}
+      await Promise.all(artifactPaths.map(async (artifactPath) => {
+        try {
+          artifactChecksums[artifactPath] = await computeSha256(artifactPath)
+        } catch {
+          // Leave checksum absent for files that disappear before hashing.
+        }
+      }))
 
       db.prepare(
         `UPDATE build_records
-         SET status = ?, exit_code = ?, finished_at = ?, log_tail = ?, artifact_paths = ?
+         SET status = ?, exit_code = ?, finished_at = ?, log_tail = ?, artifact_paths = ?, artifact_checksums = ?
          WHERE id = ?`
-      ).run(status, exitCode, finishedAt, logTail, JSON.stringify(artifactPaths), buildId)
+      ).run(status, exitCode, finishedAt, logTail, JSON.stringify(artifactPaths), JSON.stringify(artifactChecksums), buildId)
 
       mainWindow?.webContents.send('android:command-done', { buildId, status, exitCode })
     })
@@ -353,8 +380,11 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
 
   safeHandle('android:install-apk', async (_event, serial: string, apkPath: string) => {
     const workspacePath = getAndroidWorkspacePath(db)
-    if (workspacePath && !apkPath.startsWith(workspacePath)) {
+    if (workspacePath && !isInsideDirectory(apkPath, workspacePath)) {
       return { success: false, error: 'APK path must be inside the Android workspace' }
+    }
+    if (path.extname(apkPath).toLowerCase() !== '.apk') {
+      return { success: false, error: 'ADB install requires an APK artifact' }
     }
     if (!existsSync(apkPath)) {
       return { success: false, error: `APK not found: ${apkPath}` }
@@ -436,14 +466,6 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
   })
 
   safeHandle('android:get-update-manifest', () => {
-    const androidFeedDir = getAndroidFeedDir(db)
-    if (!androidFeedDir) return null
-    const manifestPath = path.join(androidFeedDir, 'android-update.json')
-    if (!existsSync(manifestPath)) return null
-    try {
-      return JSON.parse(readFileSync(manifestPath, 'utf8')) as AndroidUpdateManifest
-    } catch {
-      return null
-    }
+    return getAndroidUpdateManifest(db)
   })
 }

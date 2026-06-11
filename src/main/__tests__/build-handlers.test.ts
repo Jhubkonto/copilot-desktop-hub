@@ -66,17 +66,33 @@ describe('getWorkspaceInfo', () => {
   })
 
   it('returns git metadata when inside a git repo', async () => {
-    // Use the actual project directory which is a git repo
-    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('build_workspace_path', ?)").run(process.cwd())
+    const { execSync } = await import('child_process')
+    const { mkdirSync, rmSync, writeFileSync } = await import('fs')
+    const { join } = await import('path')
+    const tmpDir = require('os').tmpdir() as string
+    const repoDir = join(tmpDir, `nexy-build-git-${Date.now()}`)
 
-    const { getWorkspaceInfo } = await import('../build-handlers')
-    const info = getWorkspaceInfo(db)
+    mkdirSync(repoDir, { recursive: true })
+    execSync('git init', { cwd: repoDir, stdio: 'ignore' })
+    execSync('git config user.email test@example.com', { cwd: repoDir, stdio: 'ignore' })
+    execSync('git config user.name Test', { cwd: repoDir, stdio: 'ignore' })
+    writeFileSync(join(repoDir, 'package.json'), JSON.stringify({ version: '1.2.3' }))
+    execSync('git add package.json', { cwd: repoDir, stdio: 'ignore' })
+    execSync('git commit -m init', { cwd: repoDir, stdio: 'ignore' })
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('build_workspace_path', ?)").run(repoDir)
 
-    expect(info.isGitRepo).toBe(true)
-    expect(info.path).toBe(process.cwd())
-    expect(info.branch).toBeTruthy()
-    expect(info.commitSha).toBeTruthy()
-    expect(typeof info.dirty).toBe('boolean')
+    try {
+      const { getWorkspaceInfo } = await import('../build-handlers')
+      const info = getWorkspaceInfo(db)
+
+      expect(info.isGitRepo).toBe(true)
+      expect(info.path).toBe(repoDir)
+      expect(info.branch).toBeTruthy()
+      expect(info.commitSha).toBeTruthy()
+      expect(typeof info.dirty).toBe('boolean')
+    } finally {
+      rmSync(repoDir, { recursive: true, force: true })
+    }
   })
 
   it('returns isGitRepo false when workspace is not a git repo', async () => {
@@ -112,11 +128,11 @@ describe('getWorkspaceInfo', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Tests: build_records migration (v21)
+// Tests: build_records migration
 // ---------------------------------------------------------------------------
 
 describe('build_records migration', () => {
-  it('creates the build_records table after migration v21', () => {
+  it('creates the build_records table with artifact metadata columns', () => {
     const db = createDatabase()
     openDatabases.push(db)
 
@@ -138,7 +154,9 @@ describe('build_records migration', () => {
     expect(columnNames).toContain('command')
     expect(columnNames).toContain('status')
     expect(columnNames).toContain('exit_code')
+    expect(columnNames).toContain('version_code')
     expect(columnNames).toContain('artifact_paths')
+    expect(columnNames).toContain('artifact_checksums')
     expect(columnNames).toContain('log_tail')
     expect(columnNames).toContain('started_at')
     expect(columnNames).toContain('finished_at')

@@ -569,15 +569,26 @@ export function SettingsPanel() {
     setAdbDevices(devices)
   }
 
-  const handleAndroidInstallApk = async (serial: string) => {
-    const releaseRecord = androidBuildRecords.find(
-      (r) => r.command === 'assembleRelease' && r.status === 'success' && r.artifactPaths.length > 0
+  const latestAdbInstallRecord = androidBuildRecords
+    .filter((r) =>
+      (r.command === 'assembleDebug' || r.command === 'assembleRelease') &&
+      r.status === 'success' &&
+      r.artifactPaths.some((artifactPath) => artifactPath.toLowerCase().endsWith('.apk'))
     )
-    if (!releaseRecord) { addToast('No successful release APK build found', 'error'); return }
+    .sort((a, b) => (b.finishedAt ?? b.startedAt) - (a.finishedAt ?? a.startedAt))[0]
+  const latestAdbInstallApk = latestAdbInstallRecord?.artifactPaths.find((artifactPath) =>
+    artifactPath.toLowerCase().endsWith('.apk')
+  )
+
+  const handleAndroidInstallApk = async (serial: string) => {
+    if (!latestAdbInstallApk || !latestAdbInstallRecord) {
+      addToast('No successful debug or release APK build found', 'error')
+      return
+    }
     setAdbInstalling(true)
     try {
-      const result = await window.api.androidInstallApk(serial, releaseRecord.artifactPaths[0])
-      if (result.success) addToast('APK installed successfully', 'success')
+      const result = await window.api.androidInstallApk(serial, latestAdbInstallApk)
+      if (result.success) addToast(`${latestAdbInstallRecord.command} installed successfully`, 'success')
       else addToast(result.error ?? 'Install failed', 'error')
     } finally {
       setAdbInstalling(false)
@@ -1735,11 +1746,22 @@ export function SettingsPanel() {
                       <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Recent builds</p>
                       <div className="space-y-1">
                         {androidBuildRecords.slice(0, 5).map((r) => (
-                          <div key={r.id} className="flex items-center gap-2 text-[11px]">
-                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${r.status === 'success' ? 'bg-green-500' : r.status === 'running' ? 'bg-blue-500 animate-pulse' : 'bg-red-400'}`} />
-                            <span className="font-mono text-gray-600 dark:text-gray-300 w-32 truncate">{r.command}</span>
-                            <span className="text-gray-400">{r.branch ?? '—'}</span>
-                            <span className="text-gray-400 ml-auto">{r.finishedAt ? `${Math.round((r.finishedAt - r.startedAt) / 1000)}s` : '…'}</span>
+                          <div key={r.id} className="space-y-0.5 text-[11px]">
+                            <div className="flex items-center gap-2">
+                              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${r.status === 'success' ? 'bg-green-500' : r.status === 'running' ? 'bg-blue-500 animate-pulse' : 'bg-red-400'}`} />
+                              <span className="font-mono text-gray-600 dark:text-gray-300 w-32 truncate">{r.command}</span>
+                              <span className="text-gray-400">{r.branch ?? '—'}</span>
+                              {r.versionCode != null && <span className="text-gray-400">build {r.versionCode}</span>}
+                              <span className="text-gray-400 ml-auto">{r.finishedAt ? `${Math.round((r.finishedAt - r.startedAt) / 1000)}s` : '…'}</span>
+                            </div>
+                            {r.artifactPaths.length > 0 && (
+                              <div className="pl-3.5 text-[10px] text-gray-400 font-mono truncate">
+                                {r.artifactPaths.map((artifactPath) => {
+                                  const checksum = r.artifactChecksums[artifactPath]
+                                  return checksum ? `${artifactPath} · sha256 ${checksum.slice(0, 12)}` : artifactPath
+                                }).join(', ')}
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -1778,6 +1800,13 @@ export function SettingsPanel() {
                       <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">ADB Install</p>
                       <button onClick={() => void handleRefreshAdbDevices()} className="text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex items-center gap-1"><RefreshCw className="w-3 h-3" /> Refresh</button>
                     </div>
+                    {latestAdbInstallRecord && latestAdbInstallApk ? (
+                      <p className="text-[11px] text-gray-500">
+                        Ready to install {latestAdbInstallRecord.command} artifact: <span className="font-mono">{latestAdbInstallApk.split(/[\\/]/).pop()}</span>
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-gray-400">Run assembleDebug or assembleRelease successfully before installing over ADB.</p>
+                    )}
                     {adbDevices.length === 0 ? (
                       <p className="text-[11px] text-gray-400">No devices connected. Connect via USB and enable USB debugging.</p>
                     ) : (
@@ -1789,10 +1818,10 @@ export function SettingsPanel() {
                             <span className="text-gray-400 text-[10px]">{d.state}</span>
                             <button
                               onClick={() => void handleAndroidInstallApk(d.serial)}
-                              disabled={adbInstalling || d.state !== 'device'}
+                              disabled={adbInstalling || d.state !== 'device' || !latestAdbInstallApk}
                               className="ml-auto text-[10px] px-2 py-0.5 rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40"
                             >
-                              Install last APK
+                              Install APK
                             </button>
                           </div>
                         ))}

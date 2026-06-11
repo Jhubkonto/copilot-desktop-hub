@@ -414,11 +414,13 @@ export interface BuildRecord {
   commitSha: string | null
   branch: string | null
   version: string | null
+  versionCode: number | null
   platform: string
-  command: BuildCommandName
+  command: BuildCommandName | AndroidBuildCommandName
   status: BuildStatus
   exitCode: number | null
   artifactPaths: string[]
+  artifactChecksums: Record<string, string>
   logTail: string
   startedAt: number
   finishedAt: number | null

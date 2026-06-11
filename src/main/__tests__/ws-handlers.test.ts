@@ -82,6 +82,10 @@ vi.mock('../auth', () => ({
   retrieveAuthMode: vi.fn(() => 'byok'),
 }))
 
+vi.mock('../android-handlers', () => ({
+  getAndroidUpdateManifest: vi.fn(),
+}))
+
 vi.mock('../cli-adapters/claude', () => ({
   ClaudeAdapter: { isAvailable: vi.fn(() => false) },
 }))
@@ -101,6 +105,7 @@ vi.mock('../ws-server', () => ({
 
 import { registerWsHandlers, registerApprovalResolver } from '../ws-handlers'
 import { retrieveAuthMode } from '../auth'
+import { getAndroidUpdateManifest } from '../android-handlers'
 import { ClaudeAdapter } from '../cli-adapters/claude'
 import { CodexAdapter } from '../cli-adapters/codex'
 
@@ -119,6 +124,7 @@ describe('ws handlers', () => {
     state.dispatchChatSend.mockClear()
     state.webContentsSend.mockClear()
     vi.mocked(retrieveAuthMode).mockReturnValue('byok')
+    vi.mocked(getAndroidUpdateManifest).mockReturnValue(null)
     vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(false)
     vi.mocked(CodexAdapter.isAvailable).mockReturnValue(false)
     registerWsHandlers()
@@ -292,6 +298,35 @@ describe('ws handlers', () => {
     expect(reply).toHaveBeenCalledWith({
       event: 'conversation:model-updated',
       data: { conversationId: 'conv-1', model: 'gpt-5.5' },
+    })
+  })
+
+  it('serves the Android update manifest over the paired websocket', () => {
+    const manifest = {
+      versionCode: 42,
+      versionName: '1.2.3',
+      commitSha: 'abc123',
+      changelog: '',
+      checksum: 'sha256',
+      artifactUrl: 'http://192.168.1.100:12345/android/app-release.apk',
+      publishedAt: 123456,
+    }
+    vi.mocked(getAndroidUpdateManifest).mockReturnValue(manifest)
+
+    const reply = sendCommand('android:update-manifest')
+
+    expect(reply).toHaveBeenCalledWith({
+      event: 'android:update-manifest',
+      data: manifest,
+    })
+  })
+
+  it('returns null when no Android update manifest has been published', () => {
+    const reply = sendCommand('android:update-manifest')
+
+    expect(reply).toHaveBeenCalledWith({
+      event: 'android:update-manifest',
+      data: null,
     })
   })
 })

@@ -205,11 +205,20 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
         command TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'running',
         exit_code INTEGER,
+        version_code INTEGER,
         artifact_paths TEXT,
+        artifact_checksums TEXT,
         log_tail TEXT,
         started_at INTEGER NOT NULL,
         finished_at INTEGER
       )
+    `,
+  },
+  {
+    version: 22,
+    sql: `
+      ALTER TABLE build_records ADD COLUMN version_code INTEGER;
+      ALTER TABLE build_records ADD COLUMN artifact_checksums TEXT;
     `,
   },
 ];
