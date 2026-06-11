@@ -465,6 +465,8 @@ const api = {
   androidGetUpdateManifest: () => typedInvoke('android:get-update-manifest'),
   androidGetPublishHistory: () => typedInvoke('android:get-publish-history') as Promise<import('../shared/types').AndroidUpdateManifest[]>,
   androidRestoreVersion: (versionCode: number) => typedInvoke('android:restore-version', versionCode),
+  androidSaveFcmServiceAccount: (json: string) => typedInvoke('android:save-fcm-service-account', json),
+  androidGetFcmConfigStatus: () => typedInvoke('android:get-fcm-config-status'),
   onAndroidLogChunk: (callback: (data: { buildId: string; line: string; stream: 'stdout' | 'stderr' }) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, data: { buildId: string; line: string; stream: 'stdout' | 'stderr' }) => callback(data)
     typedOn('android:log-chunk', handler)

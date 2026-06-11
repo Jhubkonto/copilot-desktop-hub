@@ -18,6 +18,7 @@ import type {
   BuildStatus,
   PreflightCheck,
 } from '../shared/types'
+import { saveFcmServiceAccount, getFcmConfigStatus } from './fcm-sender'
 
 // ---------------------------------------------------------------------------
 // In-flight process registry
@@ -504,6 +505,19 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
 
   safeHandle('android:get-update-manifest', () => {
     return getAndroidUpdateManifest(db)
+  })
+
+  safeHandle('android:save-fcm-service-account', (_event, json: string) => {
+    try {
+      saveFcmServiceAccount(db, json)
+      return { saved: true }
+    } catch (err) {
+      return { saved: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  safeHandle('android:get-fcm-config-status', () => {
+    return getFcmConfigStatus(db)
   })
 
   safeHandle('android:get-publish-history', () => {

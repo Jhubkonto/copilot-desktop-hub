@@ -132,6 +132,9 @@ export function SettingsPanel() {
   const [androidUpdateManifest, setAndroidUpdateManifest] = useState<AndroidUpdateManifest | null>(null)
   const [androidPublishHistory, setAndroidPublishHistory] = useState<AndroidUpdateManifest[]>([])
   const [androidRestoring, setAndroidRestoring] = useState<number | null>(null)
+  const [fcmStatus, setFcmStatus] = useState<{ configured: boolean; projectId?: string } | null>(null)
+  const [fcmJsonDraft, setFcmJsonDraft] = useState('')
+  const [fcmSaving, setFcmSaving] = useState(false)
 
   // Prompt library state
   const [prompts, setPrompts] = useState<PromptLibraryEntry[]>([])
@@ -367,6 +370,7 @@ export function SettingsPanel() {
     }).catch(() => {})
     window.api.androidGetUpdateManifest().then(setAndroidUpdateManifest).catch(() => {})
     window.api.androidGetPublishHistory().then(setAndroidPublishHistory).catch(() => {})
+    window.api.androidGetFcmConfigStatus().then(setFcmStatus).catch(() => {})
   }, [visible, category, refreshWorkspaceInfo])
 
   useEffect(() => {
@@ -1920,6 +1924,45 @@ export function SettingsPanel() {
                       </div>
                     </details>
                   )}
+
+                  {/* PN — FCM Push Notifications */}
+                  <details className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 border-t border-gray-100 dark:border-gray-700 mt-1">
+                    <summary className="cursor-pointer px-3 py-2 text-[10px] font-medium text-gray-500 uppercase tracking-wide select-none">
+                      FCM Push Notifications
+                      {fcmStatus && (
+                        <span className={`ml-2 normal-case font-normal ${fcmStatus.configured ? 'text-green-600 dark:text-green-400' : 'text-gray-400'}`}>
+                          — {fcmStatus.configured ? `configured (project: ${fcmStatus.projectId})` : 'not configured'}
+                        </span>
+                      )}
+                    </summary>
+                    <div className="px-3 pb-3 space-y-2 text-[11px] text-gray-600 dark:text-gray-400">
+                      <p>Sends push notifications to offline devices when tool approvals are requested. Paste your Firebase service account JSON key below. Get it from Firebase Console → Project Settings → Service accounts → Generate new private key.</p>
+                      <textarea
+                        value={fcmJsonDraft}
+                        onChange={(e) => setFcmJsonDraft(e.target.value)}
+                        placeholder={'{\n  "type": "service_account",\n  "project_id": "my-project",\n  ...\n}'}
+                        rows={4}
+                        className="w-full font-mono text-[10px] p-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 resize-none"
+                      />
+                      <button
+                        onClick={() => {
+                          setFcmSaving(true)
+                          void window.api.androidSaveFcmServiceAccount(fcmJsonDraft)
+                            .then((result) => {
+                              if (result.saved) {
+                                void window.api.androidGetFcmConfigStatus().then(setFcmStatus)
+                                setFcmJsonDraft('')
+                              }
+                            })
+                            .finally(() => setFcmSaving(false))
+                        }}
+                        disabled={fcmSaving || !fcmJsonDraft.trim()}
+                        className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40"
+                      >
+                        {fcmSaving ? 'Saving…' : 'Save configuration'}
+                      </button>
+                    </div>
+                  </details>
                 </div>
               </>
             )}

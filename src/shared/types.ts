@@ -879,6 +879,8 @@ export type IpcReturnMap = {
   'android:get-update-manifest': AndroidUpdateManifest | null
   'android:get-publish-history': AndroidUpdateManifest[]
   'android:restore-version': { restored: boolean; manifest?: AndroidUpdateManifest; error?: string }
+  'android:save-fcm-service-account': { saved: boolean; error?: string }
+  'android:get-fcm-config-status': { configured: boolean; projectId?: string }
   'android:log-chunk': void
   'android:command-done': void
   // WebSocket mobile companion
@@ -1119,6 +1121,8 @@ export type IpcChannels =
   | 'android:get-update-manifest'
   | 'android:get-publish-history'
   | 'android:restore-version'
+  | 'android:save-fcm-service-account'
+  | 'android:get-fcm-config-status'
   | 'android:log-chunk'
   | 'android:command-done'
   | 'ws:start'
