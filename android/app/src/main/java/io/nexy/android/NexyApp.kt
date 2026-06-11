@@ -7,6 +7,7 @@ import android.app.NotificationManager
 class NexyApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        io.nexy.android.ui.theme.ThemePreferenceStore.init(this)
         io.nexy.android.data.WsRepository.init(this)
         val channel = NotificationChannel(
             APPROVAL_CHANNEL_ID,

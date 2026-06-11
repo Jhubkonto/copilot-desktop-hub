@@ -92,6 +92,10 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.viewinterop.AndroidView
 import io.nexy.android.data.WsRepository
+import io.nexy.android.ui.model.activeModelDetail
+import io.nexy.android.ui.model.activeModelLabel
+import io.nexy.android.ui.model.emptyModelListDetail
+import io.nexy.android.ui.model.modelSourceDetail
 import io.noties.markwon.Markwon
 import kotlinx.coroutines.launch
 
@@ -187,8 +191,8 @@ fun ChatScreen(
     }
     val projectLabel = conversation?.project_name ?: draftProject?.name
     val activeModelId = selectedModel ?: "default"
-    val activeModelLabel = models.find { it.id == activeModelId }?.label
-        ?: if (activeModelId == "default") "Default model" else activeModelId
+    val activeModelLabel = activeModelLabel(selectedModel, models)
+    val activeModelDetail = activeModelDetail(selectedModel, chatAgent, modelSource)
     val clipboardManager = LocalClipboardManager.current
 
     if (showModelSheet) {
@@ -204,12 +208,18 @@ fun ChatScreen(
             )
             modelSource?.let { source ->
                 Text(
-                    source.label,
+                    modelSourceDetail(source, models.size),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 12.dp),
                 )
             }
+            Text(
+                activeModelDetail,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 12.dp),
+            )
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             val modelOptions = if (models.isNotEmpty()) models else listOf(io.nexy.android.data.model.ModelOption("default", "Default model"))
             modelOptions.forEach { model ->
@@ -221,6 +231,14 @@ fun ChatScreen(
                     vm.setModel(model.id)
                     scope.launch { modelSheetState.hide() }.invokeOnCompletion { showModelSheet = false }
                 }
+            }
+            if (models.isEmpty()) {
+                Text(
+                    emptyModelListDetail(modelSource),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                )
             }
             Spacer(Modifier.padding(bottom = 16.dp))
         }

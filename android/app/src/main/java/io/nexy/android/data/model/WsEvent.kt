@@ -24,6 +24,7 @@ sealed class WsEvent {
     data class AgentList(val agents: List<Agent>) : WsEvent()
     data class ProjectList(val projects: List<Project>) : WsEvent()
     data class ModelList(val models: List<ModelOption>, val source: ModelListSource?) : WsEvent()
+    data class AndroidUpdateManifestResult(val manifest: AndroidUpdateManifest?) : WsEvent()
     data class ConversationModelUpdated(val conversationId: String, val model: String?) : WsEvent()
     data class ConversationCreated(
         val id: String,

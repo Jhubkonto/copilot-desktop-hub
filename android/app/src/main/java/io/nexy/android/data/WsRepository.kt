@@ -3,6 +3,7 @@ package io.nexy.android.data
 import android.app.Application
 import android.app.NotificationManager
 import io.nexy.android.data.model.Agent
+import io.nexy.android.data.model.AndroidUpdateManifest
 import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.Project
 import io.nexy.android.data.model.HistoryMessage
@@ -45,6 +46,9 @@ object WsRepository : WsClient {
     private val _lastError = MutableStateFlow<String?>(null)
     val lastError: StateFlow<String?> = _lastError
 
+    private val _serverVersion = MutableStateFlow<String?>(null)
+    val serverVersion: StateFlow<String?> = _serverVersion
+
     private val _events = MutableSharedFlow<WsEvent>(extraBufferCapacity = 64)
     override val events: SharedFlow<WsEvent> = _events
 
@@ -62,6 +66,9 @@ object WsRepository : WsClient {
 
     private val _modelSource = MutableStateFlow<ModelListSource?>(null)
     val modelSource: StateFlow<ModelListSource?> = _modelSource
+
+    private val _androidUpdateManifest = MutableStateFlow<AndroidUpdateManifest?>(null)
+    val androidUpdateManifest: StateFlow<AndroidUpdateManifest?> = _androidUpdateManifest
 
     private val _profiles = MutableStateFlow<List<PairedServerProfile>>(emptyList())
     val profiles: StateFlow<List<PairedServerProfile>> = _profiles
@@ -118,6 +125,7 @@ object WsRepository : WsClient {
                 reconnectAttempts = 0
                 _connectionState.value = ConnectionState.CONNECTED
                 _lastError.value = null
+                _serverVersion.value = null
                 val endpoint = currentUrl?.substringBefore("?token=")
                 val token = currentToken
                 if (!endpoint.isNullOrBlank() && !token.isNullOrBlank()) {
@@ -168,6 +176,8 @@ object WsRepository : WsClient {
         _projects.value = emptyList()
         _models.value = emptyList()
         _modelSource.value = null
+        _androidUpdateManifest.value = null
+        _serverVersion.value = null
     }
 
     fun forgetServer() {
@@ -177,6 +187,15 @@ object WsRepository : WsClient {
         if (fallback != null) {
             connect(fallback)
         }
+    }
+
+    fun forgetProfile(profileId: String) {
+        if (profileId == _activeProfileId.value) {
+            forgetServer()
+            return
+        }
+        pairedServerStore?.removeProfile(profileId)
+        refreshProfiles()
     }
 
     fun switchProfile(profileId: String) {
@@ -236,7 +255,11 @@ object WsRepository : WsClient {
             val data = obj.optJSONObject("data")
 
             val wsEvent: WsEvent = when (event) {
-                "connected" -> WsEvent.Connected(data?.optString("version") ?: "")
+                "connected" -> {
+                    val version = data?.optString("version") ?: ""
+                    _serverVersion.value = version.takeIf { it.isNotBlank() }
+                    WsEvent.Connected(version)
+                }
 
                 "tool:approval-request" -> WsEvent.ToolApprovalRequest(
                     requestId = data?.optString("requestId") ?: "",
@@ -326,6 +349,22 @@ object WsRepository : WsClient {
                     }
                     _modelSource.value = source
                     WsEvent.ModelList(list, source)
+                }
+
+                "android:update-manifest" -> {
+                    val manifest = data?.let {
+                        AndroidUpdateManifest(
+                            versionCode = it.optInt("versionCode", 0),
+                            versionName = it.optString("versionName"),
+                            commitSha = it.nullableString("commitSha"),
+                            changelog = it.optString("changelog"),
+                            checksum = it.optString("checksum"),
+                            artifactUrl = it.optString("artifactUrl"),
+                            publishedAt = it.optLong("publishedAt", 0L),
+                        )
+                    }
+                    _androidUpdateManifest.value = manifest
+                    WsEvent.AndroidUpdateManifestResult(manifest)
                 }
 
                 "conversation:model-updated" -> {

@@ -151,8 +151,21 @@ class PairedServerStore(context: Context) {
 
     fun removeActive(): PairedServerConfig? {
         val activeId = activeProfile()?.id ?: return null
-        val remaining = profiles().filterNot { it.id == activeId }
-        val nextActive = remaining.firstOrNull()
+        return removeProfile(activeId)
+    }
+
+    fun removeProfile(profileId: String): PairedServerConfig? {
+        val currentProfiles = profiles()
+        val activeId = activeProfile()?.id
+        val remaining = currentProfiles.filterNot { it.id == profileId }
+        if (remaining.size == currentProfiles.size) {
+            return activeProfile()?.toConfig()
+        }
+        val nextActive = if (activeId == profileId) {
+            remaining.firstOrNull()
+        } else {
+            currentProfiles.firstOrNull { it.id == activeId }
+        }
         runCatching {
             val editor = prefs.edit()
                 .putString(KEY_PROFILES, profilesToJson(remaining))
