@@ -1,6 +1,6 @@
 # Nexy — Active Roadmap
 
-Last updated: 2026-06-11 (v0.9 complete)
+Last updated: 2026-06-11 (v0.14 complete; desktop release readiness in progress)
 
 ---
 
@@ -70,10 +70,10 @@ Critical bugs identified during live testing:
 
 ---
 
-## v0.7 — Protocol & Test Hardening 🔶
+## v0.7 — Protocol & Test Hardening ✅
 
 - ✅ **Targeted desktop replies** — request/response commands reply only to the requesting mobile client
-- 🔲 **Android unit tests** — URL parsing, history loading, stream handling, optimistic send, stop command, and approval event handling
+- ✅ **Android unit tests** — `ChatViewModelTest` covers history loading, stream handling, optimistic send, stop command, activity events, attachment sends, and draft context; `HomeViewModelTest` covers approval handling
 - ✅ **Desktop WebSocket tests** — cover targeted request replies
 - ✅ **Manual device test checklist** — pairing, reconnect, chat send/stream, attachments, approval dialog, notification actions
 
@@ -99,37 +99,37 @@ Critical bugs identified during live testing:
 
 ---
 
-## v0.10 — Android Attachments 🔶
+## v0.10 — Android Attachments ✅
 
 - ✅ **ATT.1 Android picker and pending chips** — verified Android can select files/images, show removable pending attachment chips, and allow attachment-only sends
 - ✅ **ATT.2 Image payloads from phone gallery** — verified Android converts selected images to data URLs and sends them as `images` on `chat:send-message`
 - ✅ **ATT.3 Desktop WebSocket forwarding** — verified desktop accepts mobile image payloads and forwards them to `dispatchChatSend`
 - ✅ **ATT.4 Live desktop echo for mobile images** — desktop `chat:remote-message` now includes mobile image data so the open desktop chat can display the sent image
 - ✅ **ATT.5 Desktop coverage** — desktop WebSocket tests cover mobile image forwarding
-- 🔲 **ATT.5 Android coverage** — Android ViewModel unit tests for image attachment sends
+- ✅ **ATT.5 Android coverage** — `ChatViewModelTest.sendMessageIncludesImageAttachments()` covers image attachment sends end-to-end
 - ✅ **ATT.6 Persisted attachment metadata after history reload** — mobile image sends now store lightweight attachment metadata in message history and Android restores attachment names after refresh without persisting base64 image data
 - 🔲 **ATT.7 Full persisted image previews** — optional follow-up if thumbnail persistence is worth the DB/storage tradeoff
 
 ---
 
-## v0.11 — Server Profiles 🔲
+## v0.11 — Server Profiles ✅
 
-- 🔲 **SP.1 Profile-capable secure pairing store** — store multiple endpoint/token pairs with a selected active profile while migrating existing single-server installs
-- 🔲 **SP.2 Pairing saves profiles** — QR/manual pairing adds or updates a profile and makes it active through the existing connection success path
-- 🔲 **SP.3 Settings profile switcher** — show saved servers, active status, and allow switching without re-pairing
-- 🔲 **SP.4 Forget active profile** — remove only the active profile, falling back to another saved server when available
-- 🔲 **SP.5 Unit coverage** — cover deterministic profile IDs, display names, and profile conversion; repository/UI compile tests cover integration wiring
-- 🔲 **SP.6 Delete inactive profiles** — Android Settings can remove unused saved servers without switching away from the active connection
+- ✅ **SP.1 Profile-capable secure pairing store** — `PairedServerProfile` store with multiple endpoint/token pairs, active profile tracking, and migration from single-server installs
+- ✅ **SP.2 Pairing saves profiles** — QR/manual pairing adds or updates a profile and makes it active through the existing connection success path
+- ✅ **SP.3 Settings profile switcher** — Settings Connection section lists all saved servers with active status badge and a Use button to switch without re-pairing
+- ✅ **SP.4 Forget active profile** — disconnect/forget falls back to another saved profile when available
+- ✅ **SP.5 Unit coverage** — `PairedServerConfigTest` covers deterministic profile IDs, display names, and profile conversion
+- ✅ **SP.6 Delete inactive profiles** — Settings shows a Delete button for each inactive profile without affecting the active connection
 
 ---
 
-## v0.12 — Android Start Dashboard 🔲
+## v0.12 — Android Start Dashboard ✅
 
-- 🔲 **SD.1 First-run start screen** — route disconnected/no-server users to a calm setup dashboard instead of immediately opening the QR scanner
-- 🔲 **SD.2 Explicit pairing actions** — provide Scan QR Code and Enter URL Manually actions from the start screen
-- 🔲 **SD.3 Saved profile quick connect** — show saved server profiles and allow connecting without scanning again (depends on SP.1–SP.2)
-- 🔲 **SD.4 Pairing route split** — keep QR scanner and manual URL entry as focused screens behind explicit navigation
-- 🔲 **SD.5 Verification** — compile Android navigation/UI changes and keep existing pairing config tests passing
+- ✅ **SD.1 First-run start screen** — `PairingStartScreen` routes disconnected users to a calm setup dashboard with header and connection instructions
+- ✅ **SD.2 Explicit pairing actions** — Scan QR Code and Enter URL Manually buttons on the start screen
+- ✅ **SD.3 Saved profile quick connect** — start screen shows all saved server profiles with a Connect button to reconnect without re-pairing
+- ✅ **SD.4 Pairing route split** — `pairing/scan` and `pairing/manual` are focused screens behind explicit navigation from the start screen
+- ✅ **SD.5 Verification** — NavGraph routes to `PairingStartScreen` as the disconnected landing; existing pairing config tests pass
 
 ---
 
@@ -144,25 +144,16 @@ Critical bugs identified during live testing:
 
 ---
 
-## v0.14 — Android Model & Settings Parity 🔶
+## v0.14 — Android Model & Settings Parity ✅
 
-- ✅ **MSP.1 Desktop model source metadata** — desktop `model:list` WS response now includes a `source` object with type, label, and backend fields
-- 🔲 **MSP.1 Android model source display** — Android receives and displays model source in the chat model picker
+- ✅ **MSP.1 Desktop model source metadata** — desktop `model:list` WS response includes a `source` object with type, label, and backend fields
+- ✅ **MSP.1 Android model source display** — Android receives and displays model source in the chat model picker
 - ✅ **MSP.2 Mobile settings audit** — compared Android Settings against Desktop Settings and folded follow-up controls into this roadmap
-- 🔲 **MSP.3 Model backend diagnostics** — Android Settings shows model source, backend detail, available model preview, and empty-backend guidance; Chat model sheet explains selected/default model context
-- 🔲 **MSP.4 Notification controls** — Android Settings shows approval notification readiness, runtime permission state, app notification state, Tool Approvals channel state, refresh, and a link to Android notification settings
-- 🔲 **MSP.5 Appearance controls** — Android Settings has a persisted System/Light/Dark theme override
-- 🔲 **MSP.6 Connection diagnostics** — Android Settings shows active profile, endpoint, URL scheme, connection state, client version, server version, and last error in one diagnostics panel
-- 🔲 **MSP.7 Settings polish pass** — Android Settings organized into Connection, Models, Notifications, Appearance, Diagnostics, and Actions with consistent section chrome
-
-**MSP.2 audit outcome:**
-- **Connection:** Android has endpoint, profiles, connected state, disconnect, and forget active server; still needs scheme, profile metadata, client/server version, last error, and diagnostics grouping.
-- **Models:** Android already receives model options and source metadata; Settings still needs active backend/source/default model context.
-- **Notifications:** approval notifications exist; Settings still needs permission state and a route to platform notification settings.
-- **Appearance:** Android follows system theme; defer an in-app override until the desktop theme override is ready to mirror.
-- **Diagnostics:** repository state already includes last WebSocket error and connected server version payload; Settings should expose these in MSP.6.
-
-**MSP.3–MSP.7 are pending.** Android Settings currently shows only Connection (server URL, connection status) and Actions (Disconnect, Forget server). The sections for Models, Notifications, Appearance, Diagnostics, and the associated ViewModel logic have not been implemented yet.
+- ✅ **MSP.3 Model backend diagnostics** — Settings Models section shows source title, backend detail, available model preview with count, and empty-backend guidance via `modelSourceTitle`/`modelSourceDetail`/`emptyModelListDetail`
+- ✅ **MSP.4 Notification controls** — Settings Notifications section shows approval readiness, runtime permission state, app notification state, Tool Approvals channel state, Refresh, and Open Android settings
+- ✅ **MSP.5 Appearance controls** — Settings Appearance section has a persisted System/Light/Dark theme override via `ThemePreference`
+- ✅ **MSP.6 Connection diagnostics** — Settings Diagnostics section shows active profile, endpoint, URL scheme, connection state, client version, server version, and last error
+- ✅ **MSP.7 Settings polish pass** — Settings organized into Connection, Models, Notifications, Appearance, Updates, Diagnostics, and Actions sections with consistent `SettingsSectionHeader` chrome
 
 ---
 
@@ -262,11 +253,11 @@ Goal: replace split CLI/provider model pickers with one grouped model picker tha
 
 | Area | Requirement | Status |
 |---|---|---|
-| Packaging | Windows installer, macOS DMG, Linux packages, and auto-update path | 🔲 |
-| Reliability | Crash reporting or equivalent telemetry, opt-in where appropriate | 🔲 |
+| Packaging | Windows installer, macOS DMG, Linux packages; auto-update via GitHub Releases (`electron-builder.yml` publish provider set to `github/Jhubkonto/nexy`) | ✅ |
+| Reliability | Local crash log via `electron-log`; `uncaughtException`/`unhandledRejection` handlers write to `{userData}/logs/main.log` | ✅ |
 | Accessibility | WCAG 2.1 AA audit and keyboard/navigation fixes | 🔲 |
 | Performance | Baseline and p95 targets for chat composer interaction | 🔲 |
-| Security | IPC surface review and CSP hardening pass | 🔲 |
+| Security | CSP hardened (production: no unsafe-eval, strict origins); all 6 window-control IPC handlers now call `validateSender()` | ✅ |
 | Documentation | Public docs, privacy policy, and terms | 🔲 |
 
 ---
