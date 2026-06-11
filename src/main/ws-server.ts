@@ -1,9 +1,10 @@
-import { createServer, type Server as HttpServer } from 'http'
+import { createServer as createHttpsServer, type Server as HttpsServer } from 'https'
 import { networkInterfaces } from 'os'
-import { randomBytes } from 'crypto'
+import { randomBytes, X509Certificate } from 'crypto'
 import { WebSocketServer, WebSocket } from 'ws'
 import type { AddressInfo } from 'net'
 import QRCode from 'qrcode'
+import selfsigned from 'selfsigned'
 import { getDatabase } from './database'
 import { isFeedRunning, getFeedLanUrl } from './local-feed-server'
 
@@ -22,9 +23,10 @@ export type WsReply = (event: WsPushEvent) => void
 type CommandHandler = (command: string, data: Record<string, unknown>, reply: WsReply) => void
 
 let wss: WebSocketServer | null = null
-let httpServer: HttpServer | null = null
+let httpServer: HttpsServer | null = null
 let currentPort: number | null = null
 let currentToken: string | null = null
+let currentCertFingerprint: string | null = null
 const connectedClients = new Set<WebSocket>()
 let commandHandler: CommandHandler | null = null
 const EXTERNAL_WSS_URL_SETTING = 'ws_external_url'
@@ -58,6 +60,24 @@ function getOrCreateToken(): string {
   return token
 }
 
+async function getOrCreateTlsCert(): Promise<{ cert: string; key: string }> {
+  const db = getDatabase()
+  const certRow = db.prepare("SELECT value FROM settings WHERE key = 'ws_tls_cert'").get() as { value: string } | undefined
+  const keyRow  = db.prepare("SELECT value FROM settings WHERE key = 'ws_tls_key'").get()  as { value: string } | undefined
+  if (certRow?.value && keyRow?.value) return { cert: certRow.value, key: keyRow.value }
+  const notAfterDate = new Date(Date.now() + 10 * 365.25 * 24 * 3600 * 1000)
+  const pems = await selfsigned.generate([{ name: 'commonName', value: 'nexy-mobile' }], {
+    notAfterDate, keySize: 2048, algorithm: 'sha256',
+  })
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ws_tls_cert', ?)").run(pems.cert)
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ws_tls_key', ?)") .run(pems.private)
+  return { cert: pems.cert, key: pems.private }
+}
+
+function computeFingerprint(certPem: string): string {
+  return new X509Certificate(certPem).fingerprint256.replace(/:/g, '').toLowerCase()
+}
+
 export function broadcastToMobile(event: WsPushEvent): void {
   if (!wss || connectedClients.size === 0) return
   const msg = JSON.stringify(event)
@@ -76,6 +96,7 @@ export function getWsStatus() {
     pairingUrl,
     externalUrl: getExternalWssUrl(),
     secure: pairingUrl?.startsWith('wss://') ?? false,
+    certFingerprint: currentCertFingerprint,
     connectedClients: connectedClients.size,
   }
 }
@@ -103,7 +124,10 @@ function getExternalWssUrl(): string | null {
 
 function getPairingUrl(): string | null {
   if (!currentPort || !currentToken) return null
-  return normalizeExternalWssUrl(getExternalWssUrl(), currentToken) ?? `ws://${getLocalIp()}:${currentPort}?token=${currentToken}`
+  const external = normalizeExternalWssUrl(getExternalWssUrl(), currentToken)
+  if (external) return external
+  const fp = currentCertFingerprint ? `&certFP=${currentCertFingerprint}` : ''
+  return `wss://${getLocalIp()}:${currentPort}?token=${currentToken}${fp}`
 }
 
 export async function getQrDataUrl(): Promise<string | null> {
@@ -116,50 +140,49 @@ export function setWsCommandHandler(handler: CommandHandler): void {
   commandHandler = handler
 }
 
-export function startWsServer(): Promise<{ port: number; token: string }> {
-  return new Promise((resolve, reject) => {
-    if (wss) {
-      resolve({ port: currentPort!, token: currentToken! })
+export async function startWsServer(): Promise<{ port: number; token: string }> {
+  if (wss) return { port: currentPort!, token: currentToken! }
+
+  currentToken = getOrCreateToken()
+  const { cert, key } = await getOrCreateTlsCert()
+  currentCertFingerprint = computeFingerprint(cert)
+  httpServer = createHttpsServer({ key, cert })
+  wss = new WebSocketServer({ server: httpServer })
+
+  wss.on('connection', (ws, req) => {
+    const url = new URL(req.url ?? '/', 'http://localhost')
+    if (url.searchParams.get('token') !== currentToken) {
+      ws.close(4001, 'Unauthorized')
       return
     }
 
-    currentToken = getOrCreateToken()
-    httpServer = createServer()
-    wss = new WebSocketServer({ server: httpServer })
+    connectedClients.add(ws)
+    const feedUrl = isFeedRunning() ? getFeedLanUrl(getLocalIp()) : null
+    ws.send(JSON.stringify({ event: 'connected', data: { version: '0.9.0', feedUrl } }))
 
-    wss.on('connection', (ws, req) => {
-      const url = new URL(req.url ?? '/', 'http://localhost')
-      if (url.searchParams.get('token') !== currentToken) {
-        ws.close(4001, 'Unauthorized')
-        return
-      }
-
-      connectedClients.add(ws)
-      const feedUrl = isFeedRunning() ? getFeedLanUrl(getLocalIp()) : null
-      ws.send(JSON.stringify({ event: 'connected', data: { version: '0.9.0', feedUrl } }))
-
-      ws.on('message', (raw) => {
-        try {
-          const msg = JSON.parse(String(raw)) as WsCommand
-          if (msg.token !== currentToken) { ws.close(4001, 'Unauthorized'); return }
-          commandHandler?.(msg.command, msg.data ?? {}, (event) => {
-            if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(event))
-          })
-        } catch { /* ignore malformed */ }
-      })
-
-      ws.on('close', () => connectedClients.delete(ws))
-      ws.on('error', () => connectedClients.delete(ws))
+    ws.on('message', (raw) => {
+      try {
+        const msg = JSON.parse(String(raw)) as WsCommand
+        if (msg.token !== currentToken) { ws.close(4001, 'Unauthorized'); return }
+        commandHandler?.(msg.command, msg.data ?? {}, (event) => {
+          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(event))
+        })
+      } catch { /* ignore malformed */ }
     })
 
-    httpServer.listen(0, '0.0.0.0', () => {
+    ws.on('close', () => connectedClients.delete(ws))
+    ws.on('error', () => connectedClients.delete(ws))
+  })
+
+  return new Promise((resolve, reject) => {
+    httpServer!.listen(0, '0.0.0.0', () => {
       currentPort = (httpServer!.address() as AddressInfo).port
       const db = getDatabase()
       db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ws_port', ?)").run(String(currentPort))
       resolve({ port: currentPort, token: currentToken! })
     })
 
-    httpServer.on('error', (err) => {
+    httpServer!.on('error', (err) => {
       wss = null
       httpServer = null
       reject(err)
@@ -175,6 +198,7 @@ export function stopWsServer(): void {
   wss = null
   httpServer = null
   currentPort = null
+  currentCertFingerprint = null
 }
 
 export function regenerateToken(): string {
