@@ -11,11 +11,11 @@ class ApprovalActionReceiver : BroadcastReceiver() {
         val requestId = intent.getStringExtra(ApprovalNotificationManager.EXTRA_REQUEST_ID) ?: return
         when (intent.action) {
             ApprovalNotificationManager.ACTION_APPROVE -> {
-                WsRepository.send("tool:approve", mapOf("requestId" to requestId))
+                WsRepository.sendOrQueue("tool:approve", mapOf("requestId" to requestId))
                 ApprovalNotificationManager.vibrateDecision(context, approved = true)
             }
             ApprovalNotificationManager.ACTION_REJECT -> {
-                WsRepository.send("tool:reject", mapOf("requestId" to requestId))
+                WsRepository.sendOrQueue("tool:reject", mapOf("requestId" to requestId))
                 ApprovalNotificationManager.vibrateDecision(context, approved = false)
             }
         }

@@ -88,6 +88,23 @@ object WsRepository : WsClient {
     private var app: Application? = null
     private var pairedServerStore: PairedServerStore? = null
 
+    private val pendingCommands = mutableListOf<Pair<String, Map<String, Any>>>()
+
+    fun sendOrQueue(command: String, data: Map<String, Any>) {
+        if (connectionState.value == ConnectionState.CONNECTED) {
+            send(command, data)
+        } else {
+            synchronized(pendingCommands) { pendingCommands.add(command to data) }
+            if (connectionState.value == ConnectionState.DISCONNECTED) {
+                connectFromStore()
+            }
+        }
+    }
+
+    fun connectFromStore() {
+        pairedServerStore?.load()?.let { connect(it) }
+    }
+
     fun init(application: Application) {
         app = application
         pairedServerStore = runCatching { PairedServerStore(application) }
@@ -159,6 +176,10 @@ object WsRepository : WsClient {
                 if (!endpoint.isNullOrBlank() && !token.isNullOrBlank()) {
                     pairedServerStore?.save(PairedServerConfig(endpoint, token))
                     refreshProfiles()
+                }
+                synchronized(pendingCommands) {
+                    pendingCommands.forEach { (cmd, data) -> send(cmd, data) }
+                    pendingCommands.clear()
                 }
             }
 
