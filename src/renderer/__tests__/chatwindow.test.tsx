@@ -470,7 +470,7 @@ describe("ChatWindow — Slash Commands", () => {
     const textarea = screen.getByRole("textbox", { name: /message input/i });
     await user.type(textarea, "/h");
 
-    expect(screen.getByRole("button", { name: /\/help/i })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /\/help/i })).toBeInTheDocument();
     await user.type(textarea, "{Enter}");
 
     expect(textarea).toHaveValue("/help ");

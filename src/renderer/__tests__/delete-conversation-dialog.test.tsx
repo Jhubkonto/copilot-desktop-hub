@@ -78,7 +78,7 @@ describe('DeleteConversationDialog', () => {
         onCancel={onCancel}
       />
     )
-    const backdrop = screen.getByRole('dialog')
+    const backdrop = screen.getByTestId('modal-backdrop')
     await userEvent.click(backdrop)
     expect(onCancel).toHaveBeenCalledTimes(1)
   })
