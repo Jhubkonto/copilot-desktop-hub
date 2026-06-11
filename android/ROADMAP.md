@@ -1,6 +1,6 @@
 # Nexy — Active Roadmap
 
-Last updated: 2026-06-11 (v0.14 complete; WSS.6 native TLS complete)
+Last updated: 2026-06-11 (v0.14 complete; WSS.6 native TLS complete; image thumbnails complete)
 
 ---
 
@@ -133,7 +133,7 @@ Critical bugs identified during live testing:
 
 ---
 
-## v0.13 — Secure WebSocket Connections 🔶
+## v0.13 — Secure WebSocket Connections ✅
 
 - ✅ **WSS.1 Android URL parsing** — Android accepts `wss://...?...token=...` pairing URLs and stores them as secure server profiles
 - ✅ **WSS.2 Desktop secure pairing URL** — desktop Mobile settings can store an optional external `wss://` URL and use it for QR pairing
@@ -181,7 +181,6 @@ Critical bugs identified during live testing:
 
 ## Backlog (larger scope)
 
-- **Persisted mobile image thumbnails** — optional thumbnail cache for history reloads if attachment-name chips are not enough
 - **Push notifications** — replace heads-up notification with proper FCM push for when phone is truly backgrounded / screen off
 - **Android in-app theme override** — Android currently follows the system theme; add a persisted in-app System/Light/Dark override (desktop already has this)
 
