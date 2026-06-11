@@ -1,12 +1,55 @@
 import {
   forwardRef,
+  useEffect,
+  useRef,
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
+  type RefObject,
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from 'react'
 import { X } from 'lucide-react'
+
+const FOCUSABLE_SELECTOR =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+function useFocusTrap(ref: RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const container = ref.current
+    if (!container) return
+
+    const previouslyFocused = document.activeElement as HTMLElement | null
+
+    const focusable = () => Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
+    focusable()[0]?.focus()
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key !== 'Tab') return
+      const items = focusable()
+      if (items.length === 0) return
+      const first = items[0]
+      const last = items[items.length - 1]
+      if (event.shiftKey) {
+        if (document.activeElement === first) {
+          event.preventDefault()
+          last.focus()
+        }
+      } else {
+        if (document.activeElement === last) {
+          event.preventDefault()
+          first.focus()
+        }
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      previouslyFocused?.focus()
+    }
+  }, [ref])
+}
 
 function cx(...classes: Array<string | false | null | undefined>): string {
   return classes.filter(Boolean).join(' ')
@@ -39,15 +82,20 @@ export function ModalShell({
   footer,
   onClose,
 }: ModalShellProps) {
+  const panelRef = useRef<HTMLDivElement>(null)
+  useFocusTrap(panelRef)
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-label={ariaLabel ?? title}
+      data-testid="modal-backdrop"
       onClick={onClose}
     >
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={ariaLabel ?? title}
         className={cx(
           'w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-800 flex flex-col',
           maxWidth,
@@ -237,11 +285,14 @@ export function SegmentedTabs<T extends string>({
   onChange: (value: T) => void
 }) {
   return (
-    <div className="flex gap-1 p-2 border-b border-gray-100 dark:border-gray-700">
+    <div role="tablist" className="flex gap-1 p-2 border-b border-gray-100 dark:border-gray-700">
       {items.map((item) => (
         <button
           key={item.id}
+          id={`tab-${item.id}`}
           type="button"
+          role="tab"
+          aria-selected={value === item.id}
           onClick={() => onChange(item.id)}
           className={cx(
             'flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors',
