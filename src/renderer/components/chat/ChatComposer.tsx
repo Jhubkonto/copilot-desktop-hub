@@ -225,6 +225,13 @@ export function ChatComposer({
               rows={1}
               disabled={!isOnline || !authenticated || rateLimitRemainingSec > 0}
               aria-label="Message input"
+              aria-expanded={showSlashMenu || showAtMenu || undefined}
+              aria-controls={showSlashMenu ? 'slash-command-menu' : showAtMenu ? 'at-context-menu' : undefined}
+              aria-activedescendant={
+                showSlashMenu ? `slash-opt-${selectedSlashIndex}` :
+                showAtMenu ? `at-opt-${selectedAtIndex}` :
+                undefined
+              }
               className="chat-input w-full resize-none bg-transparent px-4 pt-3 pb-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed overflow-y-auto"
             />
             <div className="flex items-center justify-between px-2 pb-2">

@@ -38,11 +38,19 @@ export function AtContextMenu({
   }
 
   return (
-    <div className="mb-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden">
+    <div
+      id="at-context-menu"
+      role="listbox"
+      aria-label="Context options"
+      className="mb-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden"
+    >
       {visibleOptions.map((option, index) => (
         <button
           key={option.token}
+          id={`at-opt-${index}`}
           type="button"
+          role="option"
+          aria-selected={index === selectedIndex}
           onClick={() => onSelect(option)}
           className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between ${
             index === selectedIndex
