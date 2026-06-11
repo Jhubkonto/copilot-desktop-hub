@@ -43,6 +43,15 @@
             </intent-filter>
         </service>
 
+        <!-- Disable FCM auto-init so a placeholder google-services.json doesn't cause startup errors.
+             FCM initializes on demand when the app connects to the desktop and receives a real token. -->
+        <meta-data
+            android:name="firebase_messaging_auto_init_enabled"
+            android:value="false" />
+        <meta-data
+            android:name="firebase_analytics_collection_enabled"
+            android:value="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

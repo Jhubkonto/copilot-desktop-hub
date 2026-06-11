@@ -22,3 +22,7 @@ app/build/
 # Keystore (never commit signing keys)
 *.keystore
 *.jks
+
+# Firebase — a placeholder google-services.json is committed so the build works without Firebase setup.
+# To enable FCM push notifications: replace app/google-services.json with the real file from
+# your Firebase console (Project settings → General → Your apps → google-services.json).
