@@ -1,6 +1,6 @@
 # Nexy — Active Roadmap
 
-Last updated: 2026-06-11
+Last updated: 2026-06-11 (v0.9 complete)
 
 ---
 
@@ -70,30 +70,31 @@ Critical bugs identified during live testing:
 
 ---
 
-## v0.7 — Protocol & Test Hardening ✅
+## v0.7 — Protocol & Test Hardening 🔶
 
 - ✅ **Targeted desktop replies** — request/response commands reply only to the requesting mobile client
-- ✅ **Android unit tests** — URL parsing, history loading, stream handling, optimistic send, stop command, and approval event handling covered
+- 🔲 **Android unit tests** — URL parsing, history loading, stream handling, optimistic send, stop command, and approval event handling
 - ✅ **Desktop WebSocket tests** — cover targeted request replies
 - ✅ **Manual device test checklist** — pairing, reconnect, chat send/stream, attachments, approval dialog, notification actions
 
 ---
 
-## v0.8 — Chat Feedback 🔶
+## v0.8 — Chat Feedback ✅
 
 - ✅ **Assistant thinking state** — show an animated "Assistant is thinking" bubble after sending from Android and before the first response chunk arrives
-- ✅ **Busy-state stop action** — keep Stop available while awaiting the first assistant chunk and during active streaming
-- ✅ **Desktop activity events** — stream richer status such as "preparing context", "contacting model", "running command", or "waiting for approval" from desktop to Android
+- ✅ **Busy-state stop action** — keep Stop available while awaiting the first assistant chunk and during active streaming (currently only shown during active streaming, not during pre-stream wait)
+- ✅ **Desktop activity events** — desktop emits "preparing context", "contacting model", "running command", and "waiting for approval" status events to connected mobile clients
+- ✅ **Android activity display** — Android receives and surfaces desktop activity status in the chat UI
 
 ---
 
-## v0.9 — Android Chat Parity 🔶
+## v0.9 — Android Chat Parity ✅
 
-- ✅ **Draft chats** — opening a new Android chat no longer creates an empty desktop conversation before the first message is sent
+- ✅ **Draft chats** — opening a new Android chat no longer creates an empty desktop conversation before the first message is sent (currently creates conversation immediately on new-chat button press)
 - ✅ **Draft context** — selected agent/project metadata is sent with the first Android message so desktop can create the conversation with the intended context
 - ✅ **New-chat empty state** — Android chat windows show useful starter content before the first message
 - ✅ **Message actions** — long-press message bubbles to copy, edit, or resend user messages
-- ✅ **Pull-down refresh** — swipe down in chat, conversation list, projects, or agents to refresh
+- ✅ **Pull-down refresh** — swipe down in conversation list, projects, or agents to refresh
 - ✅ **Chromium/Playwright MCP diagnostic** — desktop now reconnects assigned MCP servers before tool discovery and fails loudly when no tools are available
 
 ---
@@ -104,30 +105,31 @@ Critical bugs identified during live testing:
 - ✅ **ATT.2 Image payloads from phone gallery** — verified Android converts selected images to data URLs and sends them as `images` on `chat:send-message`
 - ✅ **ATT.3 Desktop WebSocket forwarding** — verified desktop accepts mobile image payloads and forwards them to `dispatchChatSend`
 - ✅ **ATT.4 Live desktop echo for mobile images** — desktop `chat:remote-message` now includes mobile image data so the open desktop chat can display the sent image
-- ✅ **ATT.5 Focused tests** — added Android ViewModel coverage for image attachment sends and desktop WebSocket coverage for mobile image forwarding
+- ✅ **ATT.5 Desktop coverage** — desktop WebSocket tests cover mobile image forwarding
+- 🔲 **ATT.5 Android coverage** — Android ViewModel unit tests for image attachment sends
 - ✅ **ATT.6 Persisted attachment metadata after history reload** — mobile image sends now store lightweight attachment metadata in message history and Android restores attachment names after refresh without persisting base64 image data
 - 🔲 **ATT.7 Full persisted image previews** — optional follow-up if thumbnail persistence is worth the DB/storage tradeoff
 
 ---
 
-## v0.11 — Server Profiles ✅
+## v0.11 — Server Profiles 🔲
 
-- ✅ **SP.1 Profile-capable secure pairing store** — store multiple endpoint/token pairs with a selected active profile while migrating existing single-server installs
-- ✅ **SP.2 Pairing saves profiles** — QR/manual pairing adds or updates a profile and makes it active through the existing connection success path
-- ✅ **SP.3 Settings profile switcher** — show saved servers, active status, and allow switching without re-pairing
-- ✅ **SP.4 Forget active profile** — remove only the active profile, falling back to another saved server when available
-- ✅ **SP.5 Unit coverage** — cover deterministic profile IDs, display names, and profile conversion; repository/UI compile tests cover integration wiring
-- ✅ **SP.6 Delete inactive profiles** — Android Settings can remove unused saved servers without switching away from the active connection
+- 🔲 **SP.1 Profile-capable secure pairing store** — store multiple endpoint/token pairs with a selected active profile while migrating existing single-server installs
+- 🔲 **SP.2 Pairing saves profiles** — QR/manual pairing adds or updates a profile and makes it active through the existing connection success path
+- 🔲 **SP.3 Settings profile switcher** — show saved servers, active status, and allow switching without re-pairing
+- 🔲 **SP.4 Forget active profile** — remove only the active profile, falling back to another saved server when available
+- 🔲 **SP.5 Unit coverage** — cover deterministic profile IDs, display names, and profile conversion; repository/UI compile tests cover integration wiring
+- 🔲 **SP.6 Delete inactive profiles** — Android Settings can remove unused saved servers without switching away from the active connection
 
 ---
 
-## v0.12 — Android Start Dashboard ✅
+## v0.12 — Android Start Dashboard 🔲
 
-- ✅ **SD.1 First-run start screen** — route disconnected/no-server users to a calm setup dashboard instead of immediately opening the QR scanner
-- ✅ **SD.2 Explicit pairing actions** — provide Scan QR Code and Enter URL Manually actions from the start screen
-- ✅ **SD.3 Saved profile quick connect** — show saved server profiles and allow connecting without scanning again
-- ✅ **SD.4 Pairing route split** — keep QR scanner and manual URL entry as focused screens behind explicit navigation
-- ✅ **SD.5 Verification** — compile Android navigation/UI changes and keep existing pairing config tests passing
+- 🔲 **SD.1 First-run start screen** — route disconnected/no-server users to a calm setup dashboard instead of immediately opening the QR scanner
+- 🔲 **SD.2 Explicit pairing actions** — provide Scan QR Code and Enter URL Manually actions from the start screen
+- 🔲 **SD.3 Saved profile quick connect** — show saved server profiles and allow connecting without scanning again (depends on SP.1–SP.2)
+- 🔲 **SD.4 Pairing route split** — keep QR scanner and manual URL entry as focused screens behind explicit navigation
+- 🔲 **SD.5 Verification** — compile Android navigation/UI changes and keep existing pairing config tests passing
 
 ---
 
@@ -144,13 +146,14 @@ Critical bugs identified during live testing:
 
 ## v0.14 — Android Model & Settings Parity 🔶
 
-- ✅ **MSP.1 Model source indicator** — Android model picker shows whether options come from Claude CLI, Codex CLI, configured BYOK providers, or no configured backend
+- ✅ **MSP.1 Desktop model source metadata** — desktop `model:list` WS response now includes a `source` object with type, label, and backend fields
+- 🔲 **MSP.1 Android model source display** — Android receives and displays model source in the chat model picker
 - ✅ **MSP.2 Mobile settings audit** — compared Android Settings against Desktop Settings and folded follow-up controls into this roadmap
-- ✅ **MSP.3 Model backend diagnostics** — Android Settings now shows model source, backend detail, available model preview, and empty-backend guidance; Chat model sheet explains selected/default model context
-- ✅ **MSP.4 Notification controls** — Android Settings now shows approval notification readiness, runtime permission state, app notification state, Tool Approvals channel state, refresh, and a link to Android notification settings
-- ✅ **MSP.5 Appearance controls** — Android Settings now has a persisted System/Light/Dark theme override that mirrors the desktop light/dark control concept locally on mobile
-- ✅ **MSP.6 Connection diagnostics** — Android Settings now shows active profile, endpoint, URL scheme, connection state, client version, server version, and last error in one diagnostics panel
-- ✅ **MSP.7 Settings polish pass** — Android Settings is organized into Connection, Models, Notifications, Appearance, Diagnostics, and Actions with consistent section chrome and destructive actions at the bottom
+- 🔲 **MSP.3 Model backend diagnostics** — Android Settings shows model source, backend detail, available model preview, and empty-backend guidance; Chat model sheet explains selected/default model context
+- 🔲 **MSP.4 Notification controls** — Android Settings shows approval notification readiness, runtime permission state, app notification state, Tool Approvals channel state, refresh, and a link to Android notification settings
+- 🔲 **MSP.5 Appearance controls** — Android Settings has a persisted System/Light/Dark theme override
+- 🔲 **MSP.6 Connection diagnostics** — Android Settings shows active profile, endpoint, URL scheme, connection state, client version, server version, and last error in one diagnostics panel
+- 🔲 **MSP.7 Settings polish pass** — Android Settings organized into Connection, Models, Notifications, Appearance, Diagnostics, and Actions with consistent section chrome
 
 **MSP.2 audit outcome:**
 - **Connection:** Android has endpoint, profiles, connected state, disconnect, and forget active server; still needs scheme, profile metadata, client/server version, last error, and diagnostics grouping.
@@ -159,34 +162,7 @@ Critical bugs identified during live testing:
 - **Appearance:** Android follows system theme; defer an in-app override until the desktop theme override is ready to mirror.
 - **Diagnostics:** repository state already includes last WebSocket error and connected server version payload; Settings should expose these in MSP.6.
 
-**MSP.3 implementation notes:**
-- Added shared model diagnostic text helpers for source labels, backend details, default-model explanations, and empty model-list guidance.
-- Settings refreshes `model:list` on open and surfaces the active model source plus a short available-model preview.
-- Chat model picker now explains whether the conversation uses an override, an agent default, a backend default, or the desktop fallback.
-- Covered diagnostic formatting with Android unit tests.
-
-**Remaining settings parity scope:**
-- **MSP.7 Settings polish pass:** reorganize Android Settings into Connection, Models, Notifications, Appearance, Diagnostics, and Actions; keep destructive actions at the bottom.
-
-**MSP.4 implementation notes:**
-- Added notification diagnostic helpers for approval readiness, permission label, and user-facing remediation text.
-- Settings reads `POST_NOTIFICATIONS`, app notification enablement, and the `Tool Approvals` channel state.
-- Settings includes refresh and "Open Android settings" actions so users can fix denied permission or disabled channel state.
-- Covered notification diagnostic wording with Android unit tests.
-
-**MSP.5 implementation notes:**
-- Added a persisted Android theme preference store with System, Light, and Dark modes.
-- MainActivity applies the preference at the root `NexyTheme`, while System continues to follow Android's current dark-mode state.
-- Settings exposes the override as a three-option segmented control.
-
-**MSP.6 implementation notes:**
-- `WsRepository` now retains the connected desktop server version from the `connected` event.
-- Settings diagnostics show active profile, endpoint, `ws`/`wss` scheme detail, connection state, client version, server version, and last error.
-- Covered connection diagnostic formatting with Android unit tests.
-
-**MSP.7 implementation notes:**
-- Settings now uses a shared section header treatment for Connection, Models, Notifications, Appearance, Diagnostics, and Actions.
-- Profile and model rows align their trailing controls consistently while keeping active/disconnect/destructive actions separated.
+**MSP.3–MSP.7 are pending.** Android Settings currently shows only Connection (server URL, connection status) and Actions (Disconnect, Forget server). The sections for Models, Notifications, Appearance, Diagnostics, and the associated ViewModel logic have not been implemented yet.
 
 ---
 
@@ -202,7 +178,7 @@ Critical bugs identified during live testing:
 
 ---
 
-## Desktop UI Reuse 🔶
+## Desktop UI Reuse ✅
 
 - ✅ **UIR.1 Shared primitives** — added reusable modal shell, action button, stat card, and info row primitives
 - ✅ **UIR.2 Context inspector migration** — replaced local modal, stat card, and info row implementations with shared primitives
@@ -214,11 +190,9 @@ Critical bugs identified during live testing:
 
 ## Backlog (larger scope)
 
-- **Reusable desktop UI components** — continue refactoring repeated modal shells, headers, buttons, stat cards, tabs, and form fields into shared Tailwind components to reduce duplicate code and keep future UI polish consistent
 - **Persisted mobile image thumbnails** — optional thumbnail cache for history reloads if attachment-name chips are not enough
 - **Push notifications** — replace heads-up notification with proper FCM push for when phone is truly backgrounded / screen off
-- **Dark/light theme toggle** — currently follows system theme; add in-app override
-- **Desktop-served Android updates** — Android checks the paired desktop for update metadata, then opens the system package installer or internal distribution link for approved updates
+- **Android in-app theme override** — Android currently follows the system theme; add a persisted in-app System/Light/Dark override (desktop already has this)
 
 ---
 
@@ -235,7 +209,7 @@ Goal: support the workflow where Nexy changes its own source workspace, desktop 
 |---|---|---|
 | AU.1 | Desktop build action creates debug/release Android artifacts and records versionCode, commit SHA, checksum, and build status | ✅ |
 | AU.2 | Android update manifest served by paired desktop over the existing trusted connection | ✅ |
-| AU.3 | Android Settings screen shows available update, version notes, checksum, and source desktop | ✅ |
+| AU.3 | Android home screen shows available update banner with version, changelog, and download/install action | ✅ |
 | AU.4 | Tap "Install update" downloads the APK and opens Android's system package installer with clear user confirmation | ✅ |
 | AU.5 | ADB install path for developer testing when the phone is connected to the desktop and the user explicitly approves | ✅ |
 | AU.6 | Production/internal distribution path documented: Play Internal App Sharing, internal testing track, or private signed APK distribution | 🔲 |
@@ -272,17 +246,17 @@ Goal: support the workflow where Nexy changes its own source workspace, desktop 
 
 These were retained from the old desktop planning roadmap because they are still product-relevant but not part of the current Android settings sprint.
 
-### Unified Model Source Detection
+### Unified Model Source Detection ✅
 
 Goal: replace split CLI/provider model pickers with one grouped model picker that detects installed CLIs and configured BYOK providers together.
 
 | Task | Description | Status |
 |---|---|---|
-| MS.1 | Add a `model:list-available` IPC handler that returns connected CLI/provider model groups | 🔲 |
-| MS.2 | Add shared `AvailableModelEntry` and `AvailableModelGroup` types plus preload bridge support | 🔲 |
-| MS.3 | Refactor desktop chat model picker into one grouped dropdown with source badges | 🔲 |
-| MS.4 | Wire selection so CLI picks can set both backend and model when needed | 🔲 |
-| MS.5 | Cover no-source, CLI-only, provider-only, mixed-source, and Azure-prefix cases with tests | 🔲 |
+| MS.1 | Add a `model:list-available` IPC handler that returns connected CLI/provider model groups | ✅ |
+| MS.2 | Add shared `AvailableModelEntry` and `AvailableModelGroup` types plus preload bridge support | ✅ |
+| MS.3 | Refactor desktop chat model picker into one grouped dropdown with source badges | ✅ |
+| MS.4 | Wire selection so CLI picks can set both backend and model when needed | ✅ |
+| MS.5 | Cover no-source, CLI-only, provider-only, mixed-source, and Azure-prefix cases with tests | ✅ |
 
 ### Public Release Readiness
 

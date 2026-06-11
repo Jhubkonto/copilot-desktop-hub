@@ -1,6 +1,6 @@
 # Nexy
 
-A provider-agnostic native AI workspace — locally-first, with custom agents, multi-provider LLM support (BYOK or Claude CLI), MCP server integration, built-in tools, and project-scoped workspaces.
+A provider-agnostic native AI workspace — locally-first, with custom agents, multi-provider LLM support (BYOK or CLI), MCP server integration, built-in tools, and project-scoped workspaces.
 
 <!-- TODO: add screenshot -->
 
@@ -8,23 +8,25 @@ A provider-agnostic native AI workspace — locally-first, with custom agents, m
 
 - Native Electron desktop shell with React 19 + TypeScript UI
 - Multi-conversation chat with streaming responses and per-conversation abort
-- GitHub Device Code OAuth with OS keychain-backed token storage
-- Multi-provider LLM support: GitHub Copilot, OpenAI, Anthropic, Azure OpenAI
+- **No account required** — connect your own API keys (OpenAI, Anthropic, Azure, Gemini, Mistral, Groq, xAI) or point at a local CLI (Claude CLI, Codex CLI)
 - Custom agent builder: system prompt, model, temperature, tools, memory, context rules, and custom slash commands
 - Agent knowledge files with always/on-demand injection and inline editing
 - Multi-agent orchestration: leader delegates sub-tasks to specialist team agents
 - MCP (Model Context Protocol) server management and tool discovery
-- Built-in tools: file editing, terminal, and web fetch — with per-tool approval controls
-- Slash commands for chat management, model switching, sharing, context, and code-oriented prompts
-- @-context references for injecting files and directories into prompts
-- Project workspaces with organization, pinning, per-project agent config, and orchestration settings
-- Title bar agent badge, quick edit action, and directory breadcrumb picker
-- Working directory management with recent directory history
-- Embedded xterm.js terminal panel
+- Built-in tools: file editing and web fetch — with per-tool approval controls
+- Slash commands and @-context references for chat management, model switching, and context injection
+- Project workspaces with per-project agent config, orchestration settings, and a project wiki
+- Project wiki: manual and AI-extracted knowledge entries, `@wiki` context refs, model-queryable via `search_project_wiki` tool
+- Prompt library with versioning, variable substitution, and per-version rollback
+- Conversation portability: export/import, fork to another provider, and context compression for long sessions
+- Screen capture overlay with rubber-band region selection and clipboard image injection
+- Android companion app (Kotlin + Jetpack Compose): approves tool calls, monitors live output, and receives OTA updates from the desktop
+- Desktop build pipeline: typecheck, test, package, and publish releases to a local update feed from inside the app
+- Android build pipeline: Gradle commands, APK signing config, ADB device install, and Android update feed
 - SQLite-backed persistence for all settings, conversations, agents, projects, and tool overrides
 - Versioned database migrations (no data loss on upgrades)
 - Theming, zoom, global hotkey, auto-start, toast notifications, and auto-updates
-- 600+ Vitest tests across main-process and renderer
+- 690+ Vitest tests across main-process and renderer
 
 ## Tech Stack
 
@@ -36,7 +38,6 @@ A provider-agnostic native AI workspace — locally-first, with custom agents, m
 | State     | Zustand 5 + Immer                              |
 | Database  | better-sqlite3 (SQLite, WAL mode)              |
 | Markdown  | react-markdown + rehype-highlight + remark-gfm |
-| Terminal  | xterm.js (@xterm/xterm)                        |
 | MCP       | @modelcontextprotocol/sdk                      |
 | Build     | electron-vite, Vite 6                          |
 | Packaging | electron-builder                               |
@@ -47,7 +48,6 @@ A provider-agnostic native AI workspace — locally-first, with custom agents, m
 - **Node.js 18+** (LTS recommended)
 - **npm 9+**
 - **Windows 10/11** or **macOS 12+**
-- A GitHub account (required for Copilot authentication)
 - Python and a C++ compiler may be needed to build the `better-sqlite3` native module on some platforms (usually pre-built binaries are available)
 
 ## Installation
@@ -66,7 +66,7 @@ npm install
 npm run dev
 ```
 
-This starts the Electron app with Vite HMR for the renderer. On first launch you will be prompted to authenticate with GitHub via the Device Code flow.
+This starts the Electron app with Vite HMR for the renderer. On first launch, the onboarding screen will guide you through connecting a backend: BYOK API key, Claude CLI, or Codex CLI.
 
 ## Building for Production
 
