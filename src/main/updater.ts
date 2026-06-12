@@ -1,6 +1,6 @@
 import pkg from 'electron-updater'
 const { autoUpdater } = pkg
-import { BrowserWindow } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import { safeHandle } from './safe-handle'
 import { getFeedUrl, isFeedRunning } from './local-feed-server'
 import { log } from './logger'
@@ -81,8 +81,8 @@ export function registerUpdaterHandlers(): void {
 }
 
 export function checkForUpdatesOnStartup(): void {
-  // Delay initial check by 10 seconds to let the app settle
+  if (!app.isPackaged) return
   setTimeout(() => {
-    autoUpdater.checkForUpdates().catch(() => {})
+    setImmediate(() => autoUpdater.checkForUpdates().catch(() => {}))
   }, 10_000)
 }
