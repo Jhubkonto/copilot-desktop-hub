@@ -17,7 +17,10 @@ This is a large, multi-phase feature. Each phase is independently shippable and 
 - **Git child process pattern**: `build-handlers.ts` uses `execSync` for git queries and `spawn` for commands — the same pattern can run `git add`, `git commit`, `git push`.
 - **WebSocket server**: `src/main/ws-server.ts` + `ws-handlers.ts` — already broadcasts typed events to Android. New self-healing events follow the same broadcast pattern.
 - **File read IPC**: `context:read-file` channel and `fs:list-directory` exist — use these to show changed files in-app.
-- **Chat/LLM dispatch**: `src/main/chat-provider-dispatch.ts` + `src/main/providers.ts` — use `sendOpenAIMessage` / `sendAnthropicMessage` etc. directly to invoke the investigation agent without going through conversation history.
+- **Chat/LLM dispatch**: `src/main/chat-provider-dispatch.ts` + `src/main/providers.ts` — use `sendOpenAIMessage` / `sendAnthropicMessage` etc. directly, or route through the tool loop (see Phase 3).
+- **Tool loop**: `src/main/tool-loop.ts` — `runProviderMcpToolLoop(caller, messages, toolDefs, toolMap, agentId, webContents, onChunk, ...)` handles the full tool-call/response cycle. Can be called headlessly with a stub `webContents`.
+- **MCP tool discovery**: `src/main/mcp.ts` — `getAvailableMcpTools(serverIds?)` returns connected MCP tools; `ensureMcpServersReady(serverIds)` connects them first; `getMcpServerConfigsForCli(serverIds)` returns CLI-friendly configs for the subprocess path. `callMcpTool()` executes a tool — needs an `autoApprove` flag added for the investigator.
+- **CLI adapters**: `src/main/cli-adapters/claude.ts` — `adapter.send(window, req, onChunk, onEvent)` spawns the Claude CLI with MCP server configs and streams output. `isAvailable()` checks if CLI is installed.
 - **safeHandle pattern**: always register new IPC with `safeHandle` from `src/main/safe-handle.ts`.
 - **IPC type registration**: add channel + return type to `IpcReturnMap`/`IpcChannels` in `src/shared/types.ts`, typedInvoke/typedOn wrapper in `src/preload/index.ts`.
 
@@ -98,37 +101,63 @@ Add a "Report Bug" item to the Android settings screen (in `ActionsSection` or a
 
 ## Phase 3 — LLM investigation agent
 
-**Goal:** Given a bug report, an agent reads relevant source files and produces a structured investigation report (Markdown).
+**Goal:** Given a bug report, an agentic LLM investigates the codebase using tools and produces a structured report (Markdown). The investigator can read files, search for patterns, and navigate the source — not just receive a static prompt.
 
 ### 3A — Investigation runner (main process)
 
 **New file:** `src/main/self-heal/investigator.ts`
 
-`runInvestigation(report: ErrorReport, providerKey: string, model: string): AsyncGenerator<string>`:
+`runInvestigation(report: ErrorReport, config: InvestigationConfig): AsyncGenerator<string>`:
 
-1. Build a system prompt describing the app architecture (from CLAUDE.md content + key file list)
-2. Build user prompt: error title, stack trace, log entries, screenshot (as base64 image content part if model supports vision)
-3. Select model: if screenshot present and model supports vision → use vision-capable model; else use text model. Model selection logic: prefer whatever BYOK key the user has configured, same priority as `chat-provider-dispatch.ts`.
-4. Stream the LLM response via `sendOpenAIMessage` / `sendAnthropicMessage`
-5. Write response to `{userData}/self-heal/reports/{reportId}.md`
-6. Returns streamed tokens so UI can show real-time output
+**Backend selection** (configurable in Self-Heal settings, not per-report):
+- `BYOK (tool loop)` — default. Calls `ensureMcpServersReady()` → `getAvailableMcpTools()` → builds `toolDefs`/`toolMap` (same assembly pattern as `chat-handlers.ts` lines 560–584) → calls `runProviderMcpToolLoop` with a stub `webContents` (`{ send: () => {}, isDestroyed: () => false }`). Tool call activity events are re-emitted as `self-heal:token` chunks for the streaming panel.
+- `Claude CLI` — calls `getMcpServerConfigsForCli()` → `adapter.send(window, req, onChunk, onEvent)` via the existing `src/main/cli-adapters/claude.ts` adapter. Falls back to this if BYOK is also selected but no API key is configured.
 
-IPC: `safeHandle('self-heal:run-investigation', { reportId })` — streams tokens via `win.webContents.send('self-heal:token', chunk)`, ends with `win.webContents.send('self-heal:investigation-done', { reportId, reportPath })`.
+**Investigation model**: a dedicated selector in Self-Heal settings (added in Phase 8C). Stored as `{ provider, model }` in the `settings` table. Defaults to whatever provider is active in chat. If a screenshot is attached, filters to vision-capable models only.
 
-DB: update `error_reports.status = 'investigating'`, then `'investigated'` on completion; store `report_md_path`.
+**MCP tool access** (per-report toggle in the report form, defaults on):
+- **On**: investigator gets all connected MCP servers (via `getAvailableMcpTools()`). All tool calls are auto-approved — add `autoApprove?: boolean` parameter to `callMcpTool()` in `src/main/mcp.ts` which bypasses the `always-ask` gate. Pass this flag through `runProviderMcpToolLoop`.
+- **Off**: investigator gets only three fixed inline handlers (no external MCP server required) implemented as inline handlers in the `inlineHandlers` map passed to `runProviderMcpToolLoop`:
+  - `read_file(path)` — reads a workspace file
+  - `list_directory(path)` — lists directory entries
+  - `grep_pattern(pattern, path?)` — regex search across source files
+
+**Context**: fresh only. System prompt = CLAUDE.md content + key file tree. User prompt = error title, stack trace, log entries, screenshot. No chat history, no wiki injection.
+
+**Output format**: the investigation Markdown must begin with a structured YAML front-matter block:
+```yaml
+---
+confidence: high | medium | low
+affected_files:
+  - src/main/foo.ts
+  - src/renderer/bar.tsx
+root_cause: one-line plain English summary
+---
+```
+This is enforced via a prompt instruction. The UI uses `confidence` and `root_cause` on the report card before the user reads the full report.
+
+**Rate-limit guard**: if an `error_reports` row is `status = 'investigating'` and `created_at > now - 5min`, block a new investigation from starting and show "Heal in progress" instead.
+
+5. Write streamed response to `{userData}/self-heal/reports/{reportId}.md`
+
+IPC: `safeHandle('self-heal:run-investigation', { reportId })` — streams tokens via `win.webContents.send('self-heal:token', chunk)`, activity events (tool calls) via `win.webContents.send('self-heal:activity', event)`, ends with `win.webContents.send('self-heal:investigation-done', { reportId, reportPath })`.
+
+DB: update `error_reports.status = 'investigating'` → `'investigated'` on completion; store `report_md_path`, `investigation_model TEXT` (which model/backend was used), `investigation_rounds INTEGER` (how many tool-call rounds it took).
 
 ### 3B — Report viewer (desktop)
 
-In DeveloperTab (or a new "Self-Heal" tab within Settings), add a report list and viewer:
+In the Self-Heal inner tab (Phase 9I), add a report list and viewer:
 
-- Report list: title, status chip, timestamp
-- Click report → opens Markdown rendered view (use existing Markdown renderer in the codebase, or react-markdown)
-- Shows investigation report inline
-- "Accept Plan" / "Reject" / "Edit Plan" buttons at the bottom
+- Report list: title, **confidence badge** (from front-matter), status chip, timestamp
+- Click report → opens Markdown rendered view inline
+- Below the front-matter: full investigation body
+- **Streaming panel**: while investigation is running, the tab shows live streamed output with tool-call activity cards (file reads, searches) — same visual pattern as the chat tool-call display
+- "Accept Plan" / "Reject" / "**Revise Plan**" buttons at the bottom
+  - **Revise**: opens a text area for the user to annotate the plan, sends `'self-heal:revise-plan'` → LLM produces a revised investigation with the feedback appended to context → user accepts the revision (loop max 3 rounds to prevent runaway spend)
 
 ### 3C — Report viewer (Android)
 
-New WS event `'self-heal:report-ready'` broadcast when investigation completes, containing `{ reportId, title, markdownSummary (first 500 chars) }`. Android shows a notification-style card; tap opens a scrollable Markdown view with Accept/Reject/Edit actions that send `'self-heal:plan-decision'` back.
+New WS event `'self-heal:report-ready'` broadcast when investigation completes, containing `{ reportId, title, confidence, rootCause, markdownSummary (first 500 chars) }`. Android shows a notification-style card with the confidence badge and root cause line. Tap opens a scrollable Markdown view with Accept/Reject/Revise actions that send `'self-heal:plan-decision'` back. Activity events during streaming broadcast as `'self-heal:activity'` so Android can show a live "Investigating…" indicator with the current tool name.
 
 ---
 
@@ -142,21 +171,23 @@ New WS event `'self-heal:report-ready'` broadcast when investigation completes, 
 
 `runFix(report: ErrorReport, plan: string, providerKey: string, model: string): AsyncGenerator<FixEvent>`:
 
-1. Parse the investigation Markdown to extract: affected files, proposed change description
-2. For each affected file: read current content, pass to LLM with instruction "apply the fix described in the plan to this file; output the complete new file content only"
-3. Write the new content to a staging directory `{userData}/self-heal/staging/{reportId}/`
-4. Emit `FixEvent` per file: `{ file, status: 'patched' | 'error', diff? }`
-5. After all files patched: copy staging files to workspace (with backup of originals to `{userData}/self-heal/backups/{reportId}/`)
+1. Parse the investigation Markdown front-matter to extract `affected_files`; use those as the file list (no guessing)
+2. **Context window guard**: for each affected file, check token count before sending. Files over ~6000 tokens get truncated with a `[... truncated ...]` marker and a prompt note — same approach as `conversation-compression.ts`.
+3. For each affected file: read current content, pass to LLM with instruction "apply the fix described in the plan to this file; output the complete new file content only"
+4. Write the new content to a staging directory `{userData}/self-heal/staging/{reportId}/`
+5. Emit `FixEvent` per file: `{ file, status: 'patched' | 'error', diff? }`
+6. **Dry-run by default**: patched files remain in staging only. Workspace is NOT touched yet. The diff viewer (4B) shows the proposed changes and the user explicitly clicks **"Apply to workspace"** to copy staging → workspace (with backup of originals to `{userData}/self-heal/backups/{reportId}/`).
 
-IPC: `safeHandle('self-heal:apply-fix', { reportId, approvedPlan })` — streams `win.webContents.send('self-heal:fix-event', event)`.
+IPC: `safeHandle('self-heal:apply-fix', { reportId, approvedPlan })` — streams `win.webContents.send('self-heal:fix-event', event)`. Separate `safeHandle('self-heal:commit-to-workspace', { reportId })` performs the actual staging→workspace copy.
 
-DB: `error_reports.status = 'fixing'` → `'fix-applied'`; store `{ patchedFiles, backupPaths }` in a JSON column.
+DB: `error_reports.status = 'fixing'` → `'fix-staged'` (staging only) → `'fix-applied'` (after workspace copy); store `{ patchedFiles, backupPaths }` in a JSON column.
 
 ### 4B — File diff viewer (desktop)
 
-After fix application, show a diff view per changed file in the Self-Heal tab:
+After staging, show a diff view per changed file in the Self-Heal tab:
 - Lightweight in-app diff (split before/after) — highlight added/removed lines in a `<pre>` block. No full Monaco diff required.
-- "Revert this file" button per file (copies backup back).
+- "Revert this file" button per file (removes staging copy for that file only).
+- **"Apply to workspace"** button at the bottom — copies all staged files. Disabled until user has reviewed all diffs.
 
 Ask the user: "Would you like to refactor any of the changed files?" — if yes, opens the relevant file path in the chat composer with the file pre-attached as context.
 
@@ -180,14 +211,15 @@ Reuse the existing `build:start-command` spawn pattern for:
 1. `typecheck` — `npx tsc --noEmit -p tsconfig.typecheck.json`
 2. `lint` — `npx eslint src/ --max-warnings 0` (new command, not currently in build-handlers)
 3. `build` — `npm run build`
+4. `tests` — `npm test` (already wired in `build-handlers.ts`)
 
 Stream logs back via `win.webContents.send('self-heal:verify-log', chunk)`.
 
-If all pass → `status: 'verified'`. If any fail → `status: 'verify-failed'` with which step failed and the relevant log lines. On failure: offer the user "retry investigation with these errors added to context" — loops back to Phase 3 with compiler errors appended to the report.
+If all pass → `status: 'verified'`. If any fail → `status: 'verify-failed'` with which step failed and the relevant log lines. On failure: offer the user "retry investigation with these errors added to context" — loops back to Phase 3 with the compiler/test errors appended to the report. **Retry cap: max 2 re-investigation rounds** to prevent runaway LLM spend. After 2 failed verifications, the UI shows "Auto-fix limit reached — manual intervention required" and exposes the raw error log.
 
 ### 5B — Verification UI
 
-In the Self-Heal tab: three status rows (Typecheck / Lint / Build) each with a spinner → green check → red X. Expandable log per step. CTA buttons at the bottom only enabled when all three are green.
+In the Self-Heal tab: four status rows (Typecheck / Lint / Build / Tests) each with a spinner → green check → red X. Expandable log per step. CTA buttons at the bottom only enabled when all four are green.
 
 ---
 
@@ -201,21 +233,23 @@ In the Self-Heal tab: three status rows (Typecheck / Lint / Build) each with a s
 
 Reuse `execSync`/`spawn` pattern from `build-handlers.ts`:
 
+- `gitBranch(name: string, cwd: string)` — `git checkout -b <name>` (optional, see below)
 - `gitStage(files: string[], cwd: string)` — `git add <files>`
 - `gitCommit(message: string, cwd: string)` — `git commit -m <message>`
 - `gitPush(cwd: string)` — `git push`
 - `gitStatus(cwd: string)` — `git status --short`
 
-IPC channels: `safeHandle('self-heal:git-stage', ...)`, `safeHandle('self-heal:git-commit', ...)`, `safeHandle('self-heal:git-push', ...)`.
+IPC channels: `safeHandle('self-heal:git-branch', ...)`, `safeHandle('self-heal:git-stage', ...)`, `safeHandle('self-heal:git-commit', ...)`, `safeHandle('self-heal:git-push', ...)`.
 
-The LLM suggests a short commit message (derived from the fix plan title); user can edit it in the UI before confirming. The handler **strips any line matching `/co.author/i`** before executing the commit — commit messages must be short, concise, and attribution-free.
+The LLM suggests a short commit message (derived from the fix plan title + `root_cause` front-matter field); user can edit it in the UI before confirming. The handler **strips any line matching `/co.author/i`** before executing the commit — commit messages must be short, concise, and attribution-free.
 
 ### 6B — Git step UI
 
 Sequential prompt cards shown after verification passes:
 
-1. **"Commit changes?"** — shows staged files, editable commit message field. Confirm → calls `self-heal:git-stage` + `self-heal:git-commit`.
-2. **"Push to remote?"** — Confirm → calls `self-heal:git-push`. Skip button available.
+1. **"Create branch?"** — pre-fills `self-heal/{reportId-short}`. Skip button available (commits to current branch). Confirm → calls `self-heal:git-branch`.
+2. **"Commit changes?"** — shows staged files, editable commit message field. Confirm → calls `self-heal:git-stage` + `self-heal:git-commit`.
+3. **"Push to remote?"** — Confirm → calls `self-heal:git-push`. Skip button available.
 
 Each card collapses with a success/skip indicator before the next appears.
 
@@ -289,11 +323,21 @@ New screen accessible from Android settings: "Self-Heal". Shows:
 - Active pipeline step with progress
 - Confirm/skip actions for each step
 
-### 8C — Model selection for investigation
+### 8C — Investigation settings panel
 
-In Self-Heal settings: let user pick which model/provider handles investigations. Default: the same provider used for regular chat. If a screenshot is attached, filter to only models with vision capability (check `CatalogModel.capabilities.vision`).
+A dedicated settings section within the Self-Heal tab:
 
-### 8D — Notifications
+- **Investigation backend** — `BYOK (tool loop)` | `Claude CLI`. BYOK is default. CLI option only shown if `isAvailable()` returns true for the Claude CLI adapter.
+- **Investigation model** — a `SelectField` showing configured providers + their available models. Filtered to vision-capable models when a screenshot is attached (`CatalogModel.capabilities.vision`). Defaults to the active chat provider. Stored as `investigation_provider` + `investigation_model` in the `settings` table.
+- **Max re-investigation rounds** — numeric input, default 2, max 5. Controls the Phase 5 retry cap.
+
+### 8D — Audit trail
+
+Add `self_heal_history` DB table (migration): `id, report_id, status, investigation_model, investigation_backend, investigation_rounds, fix_applied_at, verification_passed, committed, pushed, reloaded, rolled_back, created_at`. This mirrors the `build_records` table pattern.
+
+The Self-Heal tab history list (Phase 9I bottom section) reads from this table. Rollback entries are included — you can see what was fixed, which model investigated it, how many rounds it took, and whether it was eventually rolled back.
+
+### 8E — Notifications
 
 When investigation completes or a verification step fails, send:
 - Desktop: system notification via `Notification` API
@@ -307,12 +351,12 @@ When investigation completes or a verification step fails, send:
 |---|---|---|
 | 1 | `src/main/error-log-handlers.ts` | `src/main/index.ts`, `src/main/ipc-handlers.ts`, `src/main/database-migrations.ts`, `src/renderer/components/settings/DeveloperTab.tsx`, `src/shared/types.ts`, `src/preload/index.ts` |
 | 2 | `src/main/error-report-handlers.ts`, `src/renderer/components/ErrorBoundary.tsx` | `src/renderer/App.tsx`, `src/renderer/components/settings/DeveloperTab.tsx`, `src/shared/types.ts`, `src/preload/index.ts`, Android `SettingsScreen.kt` |
-| 3 | `src/main/self-heal/investigator.ts` | `src/shared/types.ts`, `src/preload/index.ts`, `src/main/ipc-handlers.ts`, `src/renderer/components/settings/DeveloperTab.tsx` (or new SelfHealTab), Android `SettingsScreen.kt` |
+| 3 | `src/main/self-heal/investigator.ts` | `src/main/mcp.ts` (add `autoApprove` param to `callMcpTool`), `src/main/tool-loop.ts` (thread `autoApprove`), `src/shared/types.ts`, `src/preload/index.ts`, `src/main/ipc-handlers.ts`, `src/renderer/components/settings/DeveloperTab.tsx` (or new SelfHealTab), Android `SettingsScreen.kt` |
 | 4 | `src/main/self-heal/fix-agent.ts` | Same as Phase 3 UI files |
 | 5 | `src/main/self-heal/verifier.ts` | `src/main/build-handlers.ts` (extract shared spawn util), UI files |
 | 6 | `src/main/self-heal/git-ops.ts` | `src/shared/types.ts`, `src/preload/index.ts`, UI, Android WS handlers |
 | 7 | `resources/failsafe.html`, `src/main/self-heal/rollback.ts` | `src/main/index.ts`, `src/main/build-handlers.ts`, Android `WsRepository.kt`, Android `SettingsScreen.kt` |
-| 8 | `src/renderer/components/settings/SelfHealTab.tsx`, Android `SelfHealScreen.kt` | `src/renderer/components/SettingsPanel.tsx`, Android `SettingsScreen.kt` |
+| 8 | `src/renderer/components/settings/SelfHealTab.tsx`, Android `SelfHealScreen.kt` | `src/renderer/components/SettingsPanel.tsx`, Android `SettingsScreen.kt`, `src/main/database-migrations.ts` (self_heal_history table) |
 
 ---
 
@@ -322,12 +366,12 @@ Each phase: `npm run typecheck && npm test` must stay green before moving on.
 
 - **Phase 1**: trigger a renderer `console.error`, see it in the panel; trigger main-process throw, see it.
 - **Phase 2**: click Report Bug, check DB row created, screenshot saved.
-- **Phase 3**: submit report, watch investigation stream in UI, check `{userData}/self-heal/reports/{id}.md` written.
+- **Phase 3**: submit report with MCP toggle on, watch streaming panel show tool-call activity (file reads, searches), confirm report MD written with YAML front-matter including `confidence` and `root_cause`. Test revise loop: annotate and re-submit, confirm revised report replaces the first. Test rate-limit: submit a second report while one is investigating, confirm it's blocked.
 - **Phase 4**: accept plan, confirm files patched, diff shown, backup written.
 - **Phase 5**: verify typecheck/lint/build all show correct pass/fail in UI.
 - **Phase 6**: commit a test fix, confirm commit message has no co-author lines; push, confirm remote updated.
 - **Phase 7**: trigger reload, confirm app restarts; inject a bad patch, confirm rollback executes and failsafe appears if needed; confirm Android reconnects.
-- **Phase 8**: full end-to-end run from error capture to reloaded app, controlled entirely from the Android companion.
+- **Phase 8**: full end-to-end run from error capture to reloaded app, controlled entirely from the Android companion. Confirm `self_heal_history` row written with correct model/backend/rounds. Confirm investigation settings save and reload correctly. Test CLI backend path if Claude CLI is installed.
 
 ---
 
