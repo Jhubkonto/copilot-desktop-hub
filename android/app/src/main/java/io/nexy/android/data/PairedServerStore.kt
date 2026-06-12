@@ -3,7 +3,9 @@ package io.nexy.android.data
 import android.content.Context
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import java.net.URI
 import java.security.MessageDigest
+
 data class PairedServerConfig(
     val endpoint: String,
     val token: String,
