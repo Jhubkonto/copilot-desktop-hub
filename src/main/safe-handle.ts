@@ -4,7 +4,7 @@ import type { IpcChannels } from '../shared/types'
 /**
  * Validates that an IPC invocation originates from a trusted frame.
  * In production: only `file://` origins are permitted.
- * In development (Vite dev server): `http://localhost` is also permitted.
+ * In development (Vite dev server): `http://localhost` and `http://127.0.0.1` are also permitted.
  * Returns `true` when `senderFrame` is absent — this covers test/CI contexts
  * where the frame URL is not available.
  */
@@ -12,7 +12,7 @@ export function validateSender(event: Electron.IpcMainInvokeEvent): boolean {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const url: string | undefined = (event as any).senderFrame?.url
   if (!url) return true
-  return url.startsWith('file://') || url.startsWith('http://localhost')
+  return url.startsWith('file://') || url.startsWith('http://localhost') || url.startsWith('http://127.0.0.1')
 }
 
 /**

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Sun, Moon, Plug, Settings, Cpu, Shield, Smartphone, RefreshCw, Terminal, BookOpen, Plus, Trash2, Wrench, CheckCircle, AlertTriangle, XCircle } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import { getAvailableModelIds, getModelLabel } from '../../shared/models'
@@ -79,6 +79,7 @@ export function SettingsPanel() {
   const [autoStart, setAutoStart] = useState(false)
   const [autoClipboard, setAutoClipboard] = useState(false)
   const [providers, setProviders] = useState<ProviderInfo[]>([])
+  const [availableModelGroups, setAvailableModelGroups] = useState<import('@shared/types').AvailableModelGroup[]>([])
   const [editingProvider, setEditingProvider] = useState<string | null>(null)
   const [apiKeyInput, setApiKeyInput] = useState('')
   const [azureEndpoint, setAzureEndpoint] = useState('')
@@ -86,6 +87,11 @@ export function SettingsPanel() {
   const [testing, setTesting] = useState(false)
   const [cliRefreshing, setCliRefreshing] = useState(false)
   const [defaultModel, setDefaultModel] = useState('gpt-5-mini')
+  const [defaultModelSearch, setDefaultModelSearch] = useState('')
+  const [showDefaultModelMenu, setShowDefaultModelMenu] = useState(false)
+  const [defaultModelMenuRect, setDefaultModelMenuRect] = useState<DOMRect | null>(null)
+  const defaultModelMenuRef = useRef<HTMLDivElement | null>(null)
+  const defaultModelButtonRef = useRef<HTMLButtonElement | null>(null)
   const [temperature, setTemperature] = useState(0.7)
   const [maxTokens, setMaxTokens] = useState(4096)
 
@@ -174,10 +180,22 @@ export function SettingsPanel() {
       setMobileExternalUrl(settings['ws_external_url'] || '')
     })
     window.api.listProviders().then(setProviders)
+    window.api.listAvailableModels().then(setAvailableModelGroups).catch(() => {})
     window.api.getAzureEndpoint().then((ep: string | null) => {
       if (ep) setAzureEndpoint(ep)
     })
   }, [visible])
+
+  useEffect(() => {
+    if (!showDefaultModelMenu) { setDefaultModelSearch(''); return }
+    const handleClickOutside = (e: MouseEvent) => {
+      if (defaultModelMenuRef.current && !defaultModelMenuRef.current.contains(e.target as Node)) {
+        setShowDefaultModelMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showDefaultModelMenu])
 
   const refreshMobileStatus = useCallback(async () => {
     const status = await window.api.wsStatus()
@@ -663,6 +681,7 @@ export function SettingsPanel() {
       setApiKeyInput('')
       setTestResult(null)
       window.api.listProviders().then(setProviders)
+      window.api.listAvailableModels().then(setAvailableModelGroups).catch(() => {})
       addToast('API key saved', 'success')
     } catch {
       addToast('Failed to save API key', 'error')
@@ -682,6 +701,7 @@ export function SettingsPanel() {
     try {
       await window.api.removeProviderKey(provider)
       window.api.listProviders().then(setProviders)
+      window.api.listAvailableModels().then(setAvailableModelGroups).catch(() => {})
       addToast('API key removed', 'success')
     } catch {
       addToast('Failed to remove API key', 'error')
@@ -864,28 +884,76 @@ export function SettingsPanel() {
                     <p className="text-xs text-gray-400 dark:text-gray-500 mb-1.5">
                       Fallback used when no agent or project default is set
                     </p>
-                    <select
-                      value={defaultModel}
-                      onChange={(e) => setDefaultModel(e.target.value)}
-                      className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      {providers.filter((p) => p.configured && p.name !== 'copilot').map((p) => (
-                        <optgroup key={p.name} label={p.label}>
-                          {p.models.map((modelId) => (
-                            <option key={modelId} value={modelId}>
-                              {getModelLabel(modelId, catalogModels)}
-                            </option>
-                          ))}
-                        </optgroup>
-                      ))}
-                      {providers.filter((p) => p.configured && p.name !== 'copilot').length === 0 && (
-                        modelIds.map((modelId) => (
-                          <option key={modelId} value={modelId}>
-                            {getModelLabel(modelId, catalogModels)}
-                          </option>
-                        ))
+                    <div className="relative" ref={defaultModelMenuRef}>
+                      <button
+                        ref={defaultModelButtonRef}
+                        type="button"
+                        onClick={() => {
+                          if (defaultModelButtonRef.current) {
+                            setDefaultModelMenuRect(defaultModelButtonRef.current.getBoundingClientRect())
+                          }
+                          setShowDefaultModelMenu((prev) => !prev)
+                        }}
+                        className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 flex items-center justify-between gap-2"
+                      >
+                        <span className="truncate">
+                          {(() => {
+                            for (const g of availableModelGroups) {
+                              const m = g.models.find((m) => m.id === defaultModel)
+                              if (m) return getModelLabel(m.id, catalogModels) !== m.id ? getModelLabel(m.id, catalogModels) : m.label
+                            }
+                            return getModelLabel(defaultModel, catalogModels)
+                          })()}
+                        </span>
+                        <svg className="w-4 h-4 shrink-0 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                      </button>
+                      {showDefaultModelMenu && defaultModelMenuRect && (
+                        <div
+                          className="fixed z-50 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg flex flex-col"
+                          style={{ top: defaultModelMenuRect.bottom + 4, left: defaultModelMenuRect.left, width: defaultModelMenuRect.width }}
+                        >
+                          <div className="p-1.5 border-b border-gray-100 dark:border-gray-700">
+                            <input
+                              autoFocus
+                              type="text"
+                              placeholder="Search models..."
+                              value={defaultModelSearch}
+                              onChange={(e) => setDefaultModelSearch(e.target.value)}
+                              className="w-full px-2 py-1 text-xs rounded border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                            />
+                          </div>
+                          <div className="overflow-auto max-h-56 p-1">
+                            {(availableModelGroups.length > 0 ? availableModelGroups : [{ sourceKey: 'catalog', sourceLabel: 'Models', sourceType: 'provider' as const, models: modelIds.map((id) => ({ id, label: getModelLabel(id, catalogModels) })) }]).map((group) => {
+                              const q = defaultModelSearch.toLowerCase()
+                              const filtered = q
+                                ? group.models.filter((m) => m.id.toLowerCase().includes(q) || m.label.toLowerCase().includes(q))
+                                : group.models
+                              if (filtered.length === 0) return null
+                              return (
+                                <div key={group.sourceKey}>
+                                  <div className="px-2 pt-2 pb-1 text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500 border-t border-gray-100 dark:border-gray-700 mt-0.5 first:border-t-0 first:mt-0">
+                                    {group.sourceLabel}
+                                  </div>
+                                  {filtered.map((model) => (
+                                    <button
+                                      key={model.id}
+                                      type="button"
+                                      className={`w-full text-left px-2 py-1.5 rounded text-xs transition-colors ${model.id === defaultModel ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                                      onClick={() => { setDefaultModel(model.id); setShowDefaultModelMenu(false) }}
+                                    >
+                                      {getModelLabel(model.id, catalogModels) !== model.id ? getModelLabel(model.id, catalogModels) : model.label}
+                                    </button>
+                                  ))}
+                                </div>
+                              )
+                            })}
+                            {defaultModelSearch && (availableModelGroups.length > 0 ? availableModelGroups : []).every((g) => !g.models.some((m) => m.id.toLowerCase().includes(defaultModelSearch.toLowerCase()) || m.label.toLowerCase().includes(defaultModelSearch.toLowerCase()))) && (
+                              <p className="px-2 py-2 text-xs text-gray-400 dark:text-gray-500">No models match "{defaultModelSearch}"</p>
+                            )}
+                          </div>
+                        </div>
                       )}
-                    </select>
+                    </div>
                   </div>
 
                   <div>

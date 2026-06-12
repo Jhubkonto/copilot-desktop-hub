@@ -301,8 +301,9 @@ export async function dispatchChatSend(
     ? (agentCfg2.mcpServers as string[])
     : []
   const agentHasAssignedMcpServers = assignedAgentMcpServerIds.length > 0
+  const byokKeyForModel = getApiKey(providerName)
   const fallbackCliBackend =
-    retrieveAuthMode() === 'none'
+    retrieveAuthMode() === 'none' && !byokKeyForModel
       ? ClaudeAdapter.isAvailable()
         ? 'claude-cli'
         : CodexAdapter.isAvailable()
@@ -490,7 +491,7 @@ export async function dispatchChatSend(
   }
 
   // ── BYOK provider dispatch ─────────────────────────────────────────────────
-  const byokKey = getApiKey(providerName)
+  const byokKey = byokKeyForModel
 
   const historyRows = db
     .prepare('SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC')

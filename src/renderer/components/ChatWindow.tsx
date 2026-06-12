@@ -750,7 +750,8 @@ export function ChatWindow() {
     if (agentBackend === 'claude-cli' && cliInstalled) {
       return { label: 'Claude CLI', cls: 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-700 text-purple-700 dark:text-purple-300' }
     }
-    if (!agentBackend && authMode === 'none' && cliInstalled) {
+    const hasByok = availableGroups.some((g) => g.sourceType === 'provider')
+    if (!agentBackend && authMode === 'none' && cliInstalled && !hasByok) {
       return installedClis.codex && !installedClis.claude
         ? { label: 'Codex CLI', cls: 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300' }
         : { label: 'Claude CLI', cls: 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-700 text-purple-700 dark:text-purple-300' }
@@ -763,7 +764,7 @@ export function ChatWindow() {
       return { label: 'Azure', cls: 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-300' }
     }
     return { label: 'OpenAI', cls: 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-700 text-green-700 dark:text-green-300' }
-  }, [chatAgent?.backend, authMode, cliInstalled, installedClis.claude, installedClis.codex, effectiveModel])
+  }, [chatAgent?.backend, authMode, cliInstalled, installedClis.claude, installedClis.codex, effectiveModel, availableGroups])
 
   const contextBar = (
     <div

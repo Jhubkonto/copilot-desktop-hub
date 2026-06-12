@@ -34,6 +34,10 @@ export default defineConfig({
     }
   },
   renderer: {
+    server: {
+      host: '127.0.0.1',
+      port: 5100,
+    },
     plugins: [react()],
     root: resolve(__dirname, 'src/renderer'),
     build: {

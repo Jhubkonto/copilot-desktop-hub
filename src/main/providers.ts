@@ -123,7 +123,7 @@ function storeApiKey(provider: string, key: string): void {
   }
 }
 
-function retrieveApiKey(provider: string): string | null {
+export function retrieveApiKey(provider: string): string | null {
   const db = getDatabase()
   const settingKey = `byok_${provider}_key`
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(settingKey) as { value: string } | undefined
@@ -994,6 +994,11 @@ export function getProviderForAgent(agentModel: string): { provider: ProviderNam
 
   if (normalizedModel.startsWith('claude')) {
     return { provider: 'anthropic', model: normalizedModel }
+  }
+
+  const orModels = getOpenRouterModels()
+  if (orModels.includes(normalizedModel)) {
+    return { provider: 'openrouter', model: normalizedModel }
   }
 
   return { provider: 'openai', model: normalizedModel }

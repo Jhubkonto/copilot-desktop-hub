@@ -1,7 +1,7 @@
 import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
 import { getCliModels } from './cli-detection'
-import { PROVIDERS, isProviderConfigured, getOpenRouterModels } from './providers'
+import { PROVIDERS, isProviderConfigured, getOpenRouterModels, fetchAndCacheOpenRouterModels, retrieveApiKey } from './providers'
 import { safeHandle } from './safe-handle'
 import type { AvailableModelGroup } from '../shared/types'
 
@@ -39,4 +39,10 @@ export function getAvailableModelGroups(): AvailableModelGroup[] {
 
 export function registerModelAvailabilityHandlers(): void {
   safeHandle('model:list-available', () => getAvailableModelGroups())
+
+  // Backfill OpenRouter model cache if key exists but cache is empty (e.g. key was set before cache was introduced)
+  if (isProviderConfigured('openrouter') && getOpenRouterModels().length === 0) {
+    const key = retrieveApiKey('openrouter')
+    if (key) fetchAndCacheOpenRouterModels(key).catch(() => {})
+  }
 }

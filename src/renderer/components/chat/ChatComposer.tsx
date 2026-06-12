@@ -126,8 +126,9 @@ export function ChatComposer({
 
   const [showModelMenu, setShowModelMenu] = useState(false)
   const [modelMenuAbove, setModelMenuAbove] = useState(false)
+  const [modelSearch, setModelSearch] = useState('')
   useEffect(() => {
-    if (!showModelMenu) return
+    if (!showModelMenu) { setModelSearch(''); return }
     const handleClickOutside = (e: MouseEvent) => {
       if (modelMenuRef.current && !modelMenuRef.current.contains(e.target as Node)) {
         setShowModelMenu(false)
@@ -338,59 +339,83 @@ export function ChatComposer({
                       <ChevronDown className="w-3 h-3 shrink-0 opacity-60" />
                     </button>
                     {showModelMenu && (
-                      <div className={`absolute right-0 z-30 w-64 max-h-72 overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg p-1 ${modelMenuAbove ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
-                        {agentNeedsTools && (
-                          <div className="px-2 py-1.5 mb-0.5 text-[10px] text-amber-600 dark:text-amber-400 border-b border-gray-100 dark:border-gray-700 flex items-center gap-1">
-                            <span>⚙</span>
-                            <span>Showing models that support tool calling</span>
-                          </div>
-                        )}
-                        <button
-                          type="button"
-                          className={`w-full text-left px-2 py-1.5 rounded text-xs transition-colors ${'default' === effectiveModel ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
-                          onClick={() => {
-                            setShowModelMenu(false)
-                            if (conversationId) {
-                              void onSetConversationModel('default')
-                            } else {
-                              onSetPendingModel(null)
-                            }
-                          }}
-                        >
-                          {globalDefaultModel && globalDefaultModel !== 'default'
-                            ? `Global default (${getModelLabel(globalDefaultModel, catalogModels)})`
-                            : 'Global default'}
-                        </button>
-                        {availableGroups.length === 0 && (
-                          <p className="px-2 py-2 text-xs text-gray-400 dark:text-gray-500">No models configured</p>
-                        )}
-                        {availableGroups.map((group) => (
-                          <div key={group.sourceKey}>
-                            <div className="px-2 pt-2 pb-1 text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500 border-t border-gray-100 dark:border-gray-700 mt-0.5">
-                              {group.sourceLabel}
+                      <div className={`absolute right-0 z-30 w-72 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg flex flex-col ${modelMenuAbove ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
+                        <div className="p-1.5 border-b border-gray-100 dark:border-gray-700">
+                          <input
+                            autoFocus
+                            type="text"
+                            placeholder="Search models..."
+                            value={modelSearch}
+                            onChange={(e) => setModelSearch(e.target.value)}
+                            className="w-full px-2 py-1 text-xs rounded border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                          />
+                        </div>
+                        <div className="overflow-auto max-h-64 p-1">
+                          {agentNeedsTools && (
+                            <div className="px-2 py-1.5 mb-0.5 text-[10px] text-amber-600 dark:text-amber-400 border-b border-gray-100 dark:border-gray-700 flex items-center gap-1">
+                              <span>⚙</span>
+                              <span>Showing models that support tool calling</span>
                             </div>
-                            {group.models.map((model) => (
-                              <button
-                                key={model.id}
-                                type="button"
-                                className={`w-full text-left px-2 py-1.5 rounded text-xs flex items-center justify-between gap-2 transition-colors ${
-                                  model.id === effectiveModel
-                                    ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100'
-                                    : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
-                                }`}
-                                onClick={() => {
-                                  setShowModelMenu(false)
-                                  onSelectAvailableModel(group, model)
-                                }}
-                              >
-                                <span>{getModelLabel(model.id, catalogModels) !== model.id ? getModelLabel(model.id, catalogModels) : model.label}</span>
-                                {availableGroups.length > 1 && (
-                                  <span className="text-[9px] text-gray-400 dark:text-gray-500 shrink-0">{group.sourceLabel}</span>
-                                )}
-                              </button>
-                            ))}
-                          </div>
-                        ))}
+                          )}
+                          {!modelSearch && (
+                            <button
+                              type="button"
+                              className={`w-full text-left px-2 py-1.5 rounded text-xs transition-colors ${'default' === effectiveModel ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                              onClick={() => {
+                                setShowModelMenu(false)
+                                if (conversationId) {
+                                  void onSetConversationModel('default')
+                                } else {
+                                  onSetPendingModel(null)
+                                }
+                              }}
+                            >
+                              {globalDefaultModel && globalDefaultModel !== 'default'
+                                ? `Global default (${getModelLabel(globalDefaultModel, catalogModels)})`
+                                : 'Global default'}
+                            </button>
+                          )}
+                          {availableGroups.length === 0 && (
+                            <p className="px-2 py-2 text-xs text-gray-400 dark:text-gray-500">No models configured</p>
+                          )}
+                          {availableGroups.map((group) => {
+                            const q = modelSearch.toLowerCase()
+                            const filteredModels = q
+                              ? group.models.filter((m) => m.id.toLowerCase().includes(q) || m.label.toLowerCase().includes(q))
+                              : group.models
+                            if (filteredModels.length === 0) return null
+                            return (
+                              <div key={group.sourceKey}>
+                                <div className="px-2 pt-2 pb-1 text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500 border-t border-gray-100 dark:border-gray-700 mt-0.5">
+                                  {group.sourceLabel}
+                                </div>
+                                {filteredModels.map((model) => (
+                                  <button
+                                    key={model.id}
+                                    type="button"
+                                    className={`w-full text-left px-2 py-1.5 rounded text-xs flex items-center justify-between gap-2 transition-colors ${
+                                      model.id === effectiveModel
+                                        ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100'
+                                        : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
+                                    }`}
+                                    onClick={() => {
+                                      setShowModelMenu(false)
+                                      onSelectAvailableModel(group, model)
+                                    }}
+                                  >
+                                    <span>{getModelLabel(model.id, catalogModels) !== model.id ? getModelLabel(model.id, catalogModels) : model.label}</span>
+                                    {availableGroups.length > 1 && (
+                                      <span className="text-[9px] text-gray-400 dark:text-gray-500 shrink-0">{group.sourceLabel}</span>
+                                    )}
+                                  </button>
+                                ))}
+                              </div>
+                            )
+                          })}
+                          {modelSearch && availableGroups.every((g) => !g.models.some((m) => m.id.toLowerCase().includes(modelSearch.toLowerCase()) || m.label.toLowerCase().includes(modelSearch.toLowerCase()))) && (
+                            <p className="px-2 py-2 text-xs text-gray-400 dark:text-gray-500">No models match "{modelSearch}"</p>
+                          )}
+                        </div>
                       </div>
                     )}
                   </>
