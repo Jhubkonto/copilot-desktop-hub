@@ -328,3 +328,133 @@ Each phase: `npm run typecheck && npm test` must stay green before moving on.
 - **Phase 6**: commit a test fix, confirm commit message has no co-author lines; push, confirm remote updated.
 - **Phase 7**: trigger reload, confirm app restarts; inject a bad patch, confirm rollback executes and failsafe appears if needed; confirm Android reconnects.
 - **Phase 8**: full end-to-end run from error capture to reloaded app, controlled entirely from the Android companion.
+
+---
+
+## Phase 9 — Developer UI redesign
+
+**Goal:** Transform the Developer tab from a long, dense, vertical scroll into a structured, navigable workspace. The self-heal pipeline from Phases 1–8 should feel like a first-class citizen alongside the existing build tools.
+
+### Problems with the current UI
+
+- **Single infinite scroll**: all 9 sections (desktop + Android) live on one vertical axis, ~590 lines of TSX, no internal navigation. Finding anything requires scrolling past unrelated sections.
+- **Plain `<pre>` logs**: no ANSI colour stripping, no copy-line, no auto-scroll toggle, no timestamps.
+- **`<details>` collapsibles** used for FCM, Distribution Options, and Published History — inconsistent with the rest of the settings modal which uses no `<details>` elements. Closed state hides important status info.
+- **Android build is co-located with desktop build**: different concerns, different workflows, same panel. Mentally heavy.
+- **Build history is list-only**: no way to see a previous log, no expand-on-click.
+- **Preflight checks fire in isolation**: the "Run checks" button has no relationship to the build flow. Results disappear on re-render.
+- **Status text is transient**: "✓ Completed successfully" vanishes on next refresh; there is no persistent visual state.
+- **No pipeline sense**: the workflow is Preflight → Build → Publish → Launch, but the UI presents them as four unrelated sections.
+
+### 9A — Internal tab bar within Developer
+
+Replace the single-scroll layout with a horizontal segmented tab bar at the top of DeveloperTab, using the existing `SegmentedTabs` primitive from `src/renderer/components/ui/primitives.tsx`.
+
+**Tabs:**
+
+| Tab | Contents |
+|---|---|
+| **Desktop** | Workspace, Build commands, Preflight, Log, History, Feed, Launch |
+| **Android** | Android workspace, Build commands, Log, History, Signing, ADB, Feed, FCM |
+| **Self-Heal** | Error reports list, active pipeline steps (Phases 1–8 UI surfaces here) |
+| **Console** | In-app error/log console (Phase 1B) |
+
+The `category` state in `DeveloperTab.tsx` drives which panel is rendered. Only the active panel is mounted (no `hidden` div trick — actual conditional render to avoid rendering all four simultaneously).
+
+### 9B — Desktop build tab: pipeline layout
+
+The four steps (Preflight → Build → Publish → Launch) are now presented as a **vertical pipeline** within the Desktop tab:
+
+```
+[ Step 1: Preflight    ] [Run] → status indicators inline
+[ Step 2: Build        ] [typecheck] [test] [build] [package]
+[ Step 3: Publish feed ] [Publish] → version badge + server URL
+[ Step 4: Launch       ] [Launch dev] (only enabled after successful build)
+```
+
+Each step is a card. Cards have a left-edge colour bar: gray (idle) → blue (running) → green (done) → red (failed). Cards collapse to a single summary line when done and not active, showing the outcome badge.
+
+Workspace info (branch, commit, dirty, version) moves into a compact header strip above the pipeline, always visible.
+
+### 9C — Build log upgrade
+
+Replace the plain `<pre>` block with a proper terminal-style component `src/renderer/components/BuildLog.tsx`:
+
+- **ANSI escape code stripping** — remove `\x1b[...m` sequences so colour codes from tsc/eslint/npm don't appear as raw characters (or optionally render them as actual colours — basic 16-colour ANSI map)
+- **Timestamps** — prepend each line with a faint `HH:MM:SS` stamp
+- **Auto-scroll with override** — scrolls to bottom automatically; if the user scrolls up, auto-scroll pauses and a "↓ Jump to bottom" button appears at the bottom-right
+- **Copy-all button** — copies raw log text to clipboard
+- **Line count** — shows `N lines` in the header bar
+- **Resizable height** — use the existing `ResizeHandle` pattern (pointer-capture, same as other resizable panels) to let the user drag the log panel taller
+
+The `BuildLog` component is reused identically in both Desktop and Android tabs and in the Self-Heal verification step (Phase 5).
+
+### 9D — Build history: expandable rows
+
+Clicking a history row expands it inline to show:
+- The stored `log_tail` (last 4096 chars) in the same `BuildLog` component (read-only, no timestamps, no resize)
+- Artifact paths (for Android records) as copyable monospace links
+- A "Re-run" button that starts the same command again
+
+Collapsed row keeps the current single-line layout. Only one row can be expanded at a time.
+
+### 9E — Preflight: persistent results + auto-run
+
+Preflight results are persisted in component state (not cleared on re-render). A subtle badge next to the "Desktop" tab label shows the worst preflight status (green dot / yellow dot / red dot) at all times so the user can see problems without navigating in.
+
+Optionally: run preflight automatically when the tab is first opened (debounced, not on every render) and surface any failures as a banner above the pipeline.
+
+### 9F — Android tab: signing config as a modal
+
+Move the signing config inputs (keystore path, passwords, key alias) out of the inline tab flow and into a small modal opened by a "Configure signing…" button. The inline Android tab shows only the signing status (✓ Configured / ✗ Not configured) with the button to edit.
+
+This removes ~25 lines of inputs from the main scroll and keeps the Android tab focused on the build/deploy workflow.
+
+### 9G — Feed & Published History: unified version shelf
+
+Replace the `<details>` collapsibles for Published History (both desktop and Android) with a persistent "Version shelf" — a compact scrollable list always visible at the bottom of the Feed section. Each row: version badge + date + status (current / backup) + Reinstall/Restore button. The shelf has a fixed max-height (4 rows visible, scrollable).
+
+This makes previously published versions immediately visible without an extra click to expand.
+
+### 9H — FCM config: move to Mobile tab
+
+The FCM service account JSON textarea has no relationship to the Android build workflow — it is a connection/notification setting. Move it to `MobileTab.tsx` alongside the WebSocket server config. Remove it from DeveloperTab entirely.
+
+### 9I — Self-Heal tab (inside Developer)
+
+The "Self-Heal" inner tab is where the Phase 1–8 pipeline surfaces. Layout:
+
+**Top section — Active pipeline** (only visible when a heal is in progress):
+- Horizontal step indicator: Error Captured → Investigating → Plan Accepted → Fixing → Verified → Committed → Reloaded
+- Current step highlighted; completed steps show a green tick; failed steps show a red X
+- Below the step indicator: the current step's detail card (e.g. streaming investigation output, diff view, git commit form, verification rows)
+
+**Bottom section — Report history**:
+- Same list-style as build history: title, status chip, date, "Resume" button (if in-progress), "View report" button (if investigated)
+- Clicking "View report" opens the Markdown investigation report inline (same `BuildLog`-style scrollable area, rendered as Markdown)
+
+### 9J — Console tab (inside Developer)
+
+The in-app console from Phase 1B gets its own inner tab rather than a collapsible section. Layout:
+
+- Level filter pill row at the top (All / Error / Warn / Info)
+- Log list: each entry is a single row — timestamp (monospace, faint), level badge (coloured pill), message, expandable stack trace (click to expand)
+- "Clear" button top-right, "Copy all" button
+- Unread error count badge on the "Console" tab label (resets to zero when tab is visited)
+
+### Critical files
+
+- `src/renderer/components/settings/DeveloperTab.tsx` — structural rewrite into tabbed layout; existing logic stays, layout refactored
+- `src/renderer/components/BuildLog.tsx` — new reusable terminal-style log component
+- `src/renderer/components/settings/MobileTab.tsx` — receives FCM config section moved from DeveloperTab
+- `src/renderer/components/ui/primitives.tsx` — `SegmentedTabs` already exists; verify it supports icon badges for unread counts (extend if needed)
+
+### Verification
+
+- All four inner tabs render without errors; `npm run typecheck` clean
+- Build log: run a typecheck, confirm ANSI codes are stripped, timestamps appear, auto-scroll works, resize handle works
+- History: click a row, confirm it expands and shows log_tail
+- Signing config modal: opens and saves correctly
+- FCM config: confirm it still saves from MobileTab
+- Self-Heal tab: visible and matches Phase 8 pipeline
+- Console tab: unread badge increments on new error, clears on tab visit
