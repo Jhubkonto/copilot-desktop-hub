@@ -11,8 +11,17 @@ import {
   type ProviderMessage,
 } from './providers'
 import { runProviderMcpToolLoop } from './tool-loop'
-import type { ToolDefinition } from './provider-types'
+import type { ToolDefinition, ToolChoice, ProviderNonStreamResult } from './provider-types'
 import type { InlineHandler, MobileChatActivity } from './chat-context-builder'
+import type { MessageContentPart } from './provider-core-types'
+
+function stripImageParts(msgs: ProviderMessage[]): ProviderMessage[] {
+  return msgs.map((msg) => {
+    if (msg.role === 'tool' || !Array.isArray(msg.content)) return msg
+    const textOnly = (msg.content as MessageContentPart[]).filter((p) => p.type !== 'image_url')
+    return { ...msg, content: textOnly.length > 0 ? textOnly : '' } as ProviderMessage
+  })
+}
 
 export type ProviderDispatchOptions = {
   providerName: string
@@ -128,9 +137,27 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
     const providerCfg = PROVIDERS.find((p) => p.name === providerName)
     const baseUrl = providerCfg?.baseUrl
     if (hasToolLoop) {
+      // Some OpenRouter models don't support tool use or image input. If the
+      // first call fails with those specific errors, retry gracefully so the
+      // user gets a response instead of a hard failure.
+      const caller = async (msgs: ProviderMessage[], tools: ToolDefinition[] | undefined, choice: ToolChoice): Promise<ProviderNonStreamResult> => {
+        try {
+          return await sendOpenAIWithTools(byokKey, providerModel, msgs, tools ?? [], choice, generationOptions, baseUrl)
+        } catch (err) {
+          if (!(err instanceof Error)) throw err
+          if (err.message.includes('No endpoints found that support tool use')) {
+            const text = await sendOpenAIMessage(conversationId, byokKey, providerModel, msgs, sendChunk, generationOptions, baseUrl)
+            return { content: text, toolCalls: [] }
+          }
+          if (err.message.includes('No endpoints found that support image input')) {
+            const text = await sendOpenAIMessage(conversationId, byokKey, providerModel, stripImageParts(msgs), sendChunk, generationOptions, baseUrl)
+            return { content: text, toolCalls: [] }
+          }
+          throw err
+        }
+      }
       return runProviderMcpToolLoop(
-        (msgs, tools, choice) =>
-          sendOpenAIWithTools(byokKey, providerModel, msgs, tools ?? [], choice, generationOptions, baseUrl),
+        caller,
         chatMessages,
         toolDefs,
         toolMap,
@@ -145,15 +172,14 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
       )
     }
     sendActivity({ state: 'thinking', label: 'Generating response' })
-    return sendOpenAIMessage(
-      conversationId,
-      byokKey,
-      providerModel,
-      chatMessages,
-      sendChunk,
-      generationOptions,
-      baseUrl,
-    )
+    try {
+      return await sendOpenAIMessage(conversationId, byokKey, providerModel, chatMessages, sendChunk, generationOptions, baseUrl)
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('No endpoints found that support image input')) {
+        return sendOpenAIMessage(conversationId, byokKey, providerModel, stripImageParts(chatMessages), sendChunk, generationOptions, baseUrl)
+      }
+      throw err
+    }
   }
 
   // Azure
