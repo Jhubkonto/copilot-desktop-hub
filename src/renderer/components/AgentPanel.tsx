@@ -89,7 +89,6 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
     if (tab !== 'skills') return
     window.api.listMcpServers().then((servers) => setGlobalMcpServers(servers as McpServerInfo[]))
     window.api.listMcpTools(config.mcpServers).then((tools) => setAgentMcpTools(tools as McpTool[]))
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, config.mcpServers])
 
   const updateField = <K extends keyof AgentConfig>(key: K, value: AgentConfig[K]) =>

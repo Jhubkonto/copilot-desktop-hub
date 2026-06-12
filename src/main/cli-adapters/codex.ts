@@ -104,7 +104,7 @@ function extractError(line: string): string | null {
     if (obj.type === 'error' && typeof obj.message === 'string') {
       return normalizeErrorMessage(obj.message)
     }
-  } catch {}
+  } catch { /* non-JSON line — skip */ }
   return null
 }
 
@@ -114,7 +114,7 @@ function normalizeErrorMessage(message: string): string {
     const nestedError = parsed.error as Record<string, unknown> | undefined
     if (typeof nestedError?.message === 'string') return nestedError.message
     if (typeof parsed.message === 'string') return parsed.message
-  } catch {}
+  } catch { /* not nested JSON */ }
   return message
 }
 
@@ -140,7 +140,7 @@ function extractCost(line: string): { inputTokens: number; outputTokens: number 
         }
       }
     }
-  } catch {}
+  } catch { /* non-JSON line — skip */ }
   return null
 }
 
@@ -326,7 +326,7 @@ export const CodexAdapter: CliAgentAdapter = {
 
       const cleanup = () => {
         for (const f of tempFiles) {
-          try { unlinkSync(f) } catch {}
+          try { unlinkSync(f) } catch { /* best-effort cleanup */ }
         }
       }
 

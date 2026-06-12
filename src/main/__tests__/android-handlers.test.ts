@@ -146,6 +146,7 @@ describe('getAndroidWorkspaceInfo', () => {
 
 describe('registerAndroidHandlers — android:set-workspace-path', () => {
   let db: Database.Database
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
   let handlers: Map<string, Function>
 
   beforeEach(async () => {
@@ -196,6 +197,7 @@ describe('registerAndroidHandlers — android:set-workspace-path', () => {
 
 describe('registerAndroidHandlers — android:start-command', () => {
   let db: Database.Database
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
   let handlers: Map<string, Function>
 
   beforeEach(async () => {
@@ -369,6 +371,7 @@ describe('registerAndroidHandlers — android:start-command', () => {
 
 describe('registerAndroidHandlers — android:get-records', () => {
   let db: Database.Database
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
   let handlers: Map<string, Function>
 
   beforeEach(async () => {
@@ -422,6 +425,7 @@ describe('registerAndroidHandlers — android:get-records', () => {
 
 describe('registerAndroidHandlers — signing config', () => {
   let db: Database.Database
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
   let handlers: Map<string, Function>
 
   beforeEach(async () => {
@@ -464,6 +468,7 @@ describe('registerAndroidHandlers — signing config', () => {
 
 describe('registerAndroidHandlers — android:list-adb-devices', () => {
   let db: Database.Database
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
   let handlers: Map<string, Function>
 
   beforeEach(async () => {
@@ -510,6 +515,7 @@ describe('registerAndroidHandlers — android:list-adb-devices', () => {
 
 describe('registerAndroidHandlers — android:install-apk', () => {
   let db: Database.Database
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
   let handlers: Map<string, Function>
 
   beforeEach(async () => {
@@ -612,6 +618,7 @@ describe('registerAndroidHandlers — android:install-apk', () => {
 
 describe('registerAndroidHandlers — android:publish-update', () => {
   let db: Database.Database
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
   let handlers: Map<string, Function>
 
   beforeEach(async () => {

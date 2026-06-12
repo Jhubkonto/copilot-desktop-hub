@@ -137,7 +137,7 @@ export function useChat({
                       toolSuccess: typeof parsed.toolSuccess === 'boolean' ? parsed.toolSuccess : true,
                     }
                   }
-                } catch {}
+                } catch { /* malformed tool-call JSON — skip */ }
               }
               return base
             })
