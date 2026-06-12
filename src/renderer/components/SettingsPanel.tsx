@@ -1,17 +1,17 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { Sun, Moon, Plug, Settings, Cpu, Shield, Smartphone, RefreshCw, Terminal, BookOpen, Plus, Trash2, Wrench, CheckCircle, AlertTriangle, XCircle } from 'lucide-react'
+import { Settings, Shield, Terminal, BookOpen, Smartphone, Wrench } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
-import { getAvailableModelIds, getModelLabel } from '../../shared/models'
+import { getAvailableModelIds } from '../../shared/models'
 import type { AdbDevice, AndroidBuildCommandName, AndroidSigningConfig, AndroidUpdateManifest, AndroidWorkspaceInfo, BuildCommandName, BuildRecord, BuildStatus, LocalUpdateFeed, PreflightCheck, PromptLibraryEntry, PromptLibraryInput, PromptLibraryVersion, PublishedEntry, WorkspaceInfo } from '../../shared/types'
 import { extractPromptVariables } from '../../shared/prompt-variables'
-import { ModalShell, SelectField, TextareaField, TextField } from './ui/primitives'
-
-interface ProviderInfo {
-  name: string
-  label: string
-  models: string[]
-  configured: boolean
-}
+import { ModalShell } from './ui/primitives'
+import { GeneralTab } from './settings/GeneralTab'
+import { ProvidersTab } from './settings/ProvidersTab'
+import { CliTab } from './settings/CliTab'
+import { PromptsTab } from './settings/PromptsTab'
+import { MobileTab } from './settings/MobileTab'
+import { DeveloperTab } from './settings/DeveloperTab'
+import type { ProviderInfo } from './settings/types'
 
 type SettingsCategory = 'general' | 'providers' | 'cli' | 'mobile' | 'prompts' | 'developer'
 
@@ -39,10 +39,7 @@ function tagsToInput(tags: string[] | undefined): string {
 }
 
 function inputToTags(value: string): string[] {
-  return value
-    .split(',')
-    .map((tag) => tag.trim())
-    .filter(Boolean)
+  return value.split(',').map((tag) => tag.trim()).filter(Boolean)
 }
 
 export function SettingsPanel() {
@@ -76,6 +73,7 @@ export function SettingsPanel() {
       setSettingsInitialTab(null)
     }
   }, [visible, settingsInitialTab, setSettingsInitialTab])
+
   const [autoStart, setAutoStart] = useState(false)
   const [autoClipboard, setAutoClipboard] = useState(false)
   const [providers, setProviders] = useState<ProviderInfo[]>([])
@@ -298,7 +296,6 @@ export function SettingsPanel() {
       addToast('Select a project before saving a project prompt', 'error')
       return
     }
-
     try {
       const saved = selectedPromptId
         ? await window.api.updatePrompt(selectedPromptId, payload)
@@ -722,6 +719,9 @@ export function SettingsPanel() {
     }
   }
 
+  // suppress unused variable warning — activeAgent is computed for potential future use
+  void activeAgent
+
   if (!visible) return null
 
   return (
@@ -732,1309 +732,206 @@ export function SettingsPanel() {
       bodyClassName="flex flex-1 overflow-hidden"
       onClose={onClose}
     >
+      {/* Left navigation */}
+      <nav className="w-44 shrink-0 border-r border-gray-200 dark:border-gray-700 py-2 flex flex-col gap-0.5 px-2" aria-label="Settings navigation">
+        {NAV_ITEMS.map((item) => (
+          <button
+            key={item.id}
+            onClick={() => setCategory(item.id)}
+            className={`flex items-center gap-2 w-full text-left px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+              category === item.id
+                ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+            }`}
+            aria-current={category === item.id ? 'page' : undefined}
+          >
+            {item.icon}
+            {item.label}
+          </button>
+        ))}
+      </nav>
 
-          {/* Left navigation */}
-          <nav className="w-44 shrink-0 border-r border-gray-200 dark:border-gray-700 py-2 flex flex-col gap-0.5 px-2" aria-label="Settings navigation">
-            {NAV_ITEMS.map((item) => (
-              <button
-                key={item.id}
-                onClick={() => setCategory(item.id)}
-                className={`flex items-center gap-2 w-full text-left px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
-                  category === item.id
-                    ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
-                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                }`}
-                aria-current={category === item.id ? 'page' : undefined}
-              >
-                {item.icon}
-                {item.label}
-              </button>
-            ))}
-          </nav>
+      {/* Right content */}
+      <div className="flex-1 overflow-y-auto p-5 space-y-4">
+        {category === 'general' && (
+          <GeneralTab
+            theme={theme}
+            toggleTheme={toggleTheme}
+            effectiveModel={effectiveModel}
+            effectiveProvider={effectiveProvider}
+            autoStart={autoStart}
+            autoClipboard={autoClipboard}
+            defaultModel={defaultModel}
+            defaultModelSearch={defaultModelSearch}
+            showDefaultModelMenu={showDefaultModelMenu}
+            defaultModelMenuRect={defaultModelMenuRect}
+            availableModelGroups={availableModelGroups}
+            modelIds={modelIds}
+            temperature={temperature}
+            maxTokens={maxTokens}
+            catalogModels={catalogModels}
+            onToggleAutoStart={() => void handleAutoStartToggle()}
+            onToggleAutoClipboard={() => void handleAutoClipboardToggle()}
+            onSetDefaultModel={setDefaultModel}
+            onSetDefaultModelSearch={setDefaultModelSearch}
+            onSetShowDefaultModelMenu={setShowDefaultModelMenu}
+            onSetDefaultModelMenuRect={setDefaultModelMenuRect}
+            onSetTemperature={setTemperature}
+            onSetMaxTokens={setMaxTokens}
+            onSaveAdvanced={() => void handleSaveAdvanced()}
+            onOpenMcp={onOpenMcp}
+            defaultModelMenuRef={defaultModelMenuRef}
+            defaultModelButtonRef={defaultModelButtonRef}
+          />
+        )}
 
-          {/* Right content */}
-          <div className="flex-1 overflow-y-auto p-5 space-y-4">
-            {category === 'general' && (
-              <>
-                {/* Theme */}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Theme</p>
-                    <p className="text-xs text-gray-500">Switch between light and dark mode</p>
-                  </div>
-                  <button
-                    onClick={toggleTheme}
-                    className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
-                  >
-                    <span className="flex items-center gap-1.5">
-                      {theme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
-                      {theme === 'dark' ? 'Light' : 'Dark'}
-                    </span>
-                  </button>
-                </div>
+        {category === 'providers' && (
+          <ProvidersTab
+            authMode={authMode}
+            providers={providers}
+            editingProvider={editingProvider}
+            apiKeyInput={apiKeyInput}
+            azureEndpoint={azureEndpoint}
+            testResult={testResult}
+            testing={testing}
+            onSetEditingProvider={setEditingProvider}
+            onSetApiKeyInput={setApiKeyInput}
+            onSetAzureEndpoint={setAzureEndpoint}
+            onSetTestResult={setTestResult}
+            onSaveKey={() => void handleSaveKey()}
+            onTestKey={() => void handleTestKey()}
+            onRemoveKey={(p) => void handleRemoveKey(p)}
+          />
+        )}
 
-                {/* Active model */}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Active model</p>
-                    <p className="text-xs text-gray-500">Current chat model and provider</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs font-medium text-gray-700 dark:text-gray-200">
-                      {getModelLabel(effectiveModel, catalogModels)}
-                    </p>
-                    <p className="text-[11px] text-gray-500">{effectiveProvider}</p>
-                  </div>
-                </div>
+        {category === 'cli' && (
+          <CliTab
+            installedClis={installedClis}
+            cliRefreshing={cliRefreshing}
+            onRefresh={async () => {
+              setCliRefreshing(true)
+              await checkAuth()
+              setCliRefreshing(false)
+              addToast('CLI status refreshed', 'success')
+            }}
+          />
+        )}
 
-                {/* Auto-start */}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-800 dark:text-gray-100">
-                      Start on login
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      Automatically launch when you log in
-                    </p>
-                  </div>
-                  <button
-                    onClick={handleAutoStartToggle}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                      autoStart ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                        autoStart ? 'translate-x-6' : 'translate-x-1'
-                      }`}
-                    />
-                  </button>
-                </div>
+        {category === 'prompts' && (
+          <PromptsTab
+            prompts={prompts}
+            promptsLoading={promptsLoading}
+            selectedPromptId={selectedPromptId}
+            promptDraft={promptDraft}
+            promptTagInput={promptTagInput}
+            promptVersions={promptVersions}
+            versionsLoading={versionsLoading}
+            promptsByCategory={promptsByCategory}
+            promptVariables={promptVariables}
+            projectId={projectId}
+            activeProject={activeProject}
+            onSetPromptDraft={(updater) => setPromptDraft((d) => updater(d))}
+            onSetPromptTagInput={setPromptTagInput}
+            onNewPrompt={handleNewPrompt}
+            onSelectPrompt={handleSelectPrompt}
+            onSavePrompt={() => void handleSavePrompt()}
+            onDeletePrompt={() => void handleDeletePrompt()}
+            onRollbackPrompt={handleRollbackPrompt}
+          />
+        )}
 
-                {/* Auto clipboard on focus */}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-800 dark:text-gray-100">
-                      Auto-read clipboard on focus
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      Automatically paste clipboard text when app gains focus
-                    </p>
-                  </div>
-                  <button
-                    onClick={handleAutoClipboardToggle}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                      autoClipboard ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                        autoClipboard ? 'translate-x-6' : 'translate-x-1'
-                      }`}
-                    />
-                  </button>
-                </div>
+        {category === 'mobile' && (
+          <MobileTab
+            mobileEnabled={mobileEnabled}
+            mobileQr={mobileQr}
+            mobileClients={mobileClients}
+            mobileLoading={mobileLoading}
+            mobileLocalIp={mobileLocalIp}
+            mobilePairingUrl={mobilePairingUrl}
+            mobileExternalUrl={mobileExternalUrl}
+            onSetMobileExternalUrl={setMobileExternalUrl}
+            onToggle={() => void handleMobileToggle()}
+            onRegenerateToken={() => void handleRegenerateToken()}
+            onSaveExternalUrl={() => void handleSaveMobileExternalUrl()}
+            onRefreshStatus={() => void refreshMobileStatus()}
+          />
+        )}
 
-                {/* Global Hotkey */}
-                <div>
-                  <p className="text-sm font-medium text-gray-800 dark:text-gray-100">
-                    Global Hotkey
-                  </p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    <kbd className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-xs font-mono">
-                      {window.api.platform === 'darwin' ? 'Cmd+Shift+H' : 'Ctrl+Shift+H'}
-                    </kbd>{' '}
-                    to show/hide the app
-                  </p>
-                </div>
-
-                {/* MCP Servers */}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-800 dark:text-gray-100">
-                      MCP Servers
-                    </p>
-                    <p className="text-xs text-gray-500">Manage Model Context Protocol servers</p>
-                  </div>
-                  <button
-                    onClick={onOpenMcp}
-                    className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
-                  >
-                    <span className="flex items-center gap-1.5">
-                      <Plug className="w-3.5 h-3.5" />
-                      Configure
-                    </span>
-                  </button>
-                </div>
-
-                {/* Advanced generation settings */}
-                <div className="p-3 rounded-lg border border-gray-200 dark:border-gray-700 space-y-3">
-                  <div>
-                    <p className="text-sm font-medium text-gray-800 dark:text-gray-100 flex items-center gap-1.5">
-                      <Cpu className="w-3.5 h-3.5 text-gray-400" />
-                      Advanced
-                    </p>
-                    <p className="text-xs text-gray-500">Default model and generation parameters</p>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                      Default model
-                    </label>
-                    <p className="text-xs text-gray-400 dark:text-gray-500 mb-1.5">
-                      Fallback used when no agent or project default is set
-                    </p>
-                    <div className="relative" ref={defaultModelMenuRef}>
-                      <button
-                        ref={defaultModelButtonRef}
-                        type="button"
-                        onClick={() => {
-                          if (defaultModelButtonRef.current) {
-                            setDefaultModelMenuRect(defaultModelButtonRef.current.getBoundingClientRect())
-                          }
-                          setShowDefaultModelMenu((prev) => !prev)
-                        }}
-                        className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 flex items-center justify-between gap-2"
-                      >
-                        <span className="truncate">
-                          {(() => {
-                            for (const g of availableModelGroups) {
-                              const m = g.models.find((m) => m.id === defaultModel)
-                              if (m) return getModelLabel(m.id, catalogModels) !== m.id ? getModelLabel(m.id, catalogModels) : m.label
-                            }
-                            return getModelLabel(defaultModel, catalogModels)
-                          })()}
-                        </span>
-                        <svg className="w-4 h-4 shrink-0 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                      </button>
-                      {showDefaultModelMenu && defaultModelMenuRect && (
-                        <div
-                          className="fixed z-50 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg flex flex-col"
-                          style={{ top: defaultModelMenuRect.bottom + 4, left: defaultModelMenuRect.left, width: defaultModelMenuRect.width }}
-                        >
-                          <div className="p-1.5 border-b border-gray-100 dark:border-gray-700">
-                            <input
-                              autoFocus
-                              type="text"
-                              placeholder="Search models..."
-                              value={defaultModelSearch}
-                              onChange={(e) => setDefaultModelSearch(e.target.value)}
-                              className="w-full px-2 py-1 text-xs rounded border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
-                            />
-                          </div>
-                          <div className="overflow-auto max-h-56 p-1">
-                            {(availableModelGroups.length > 0 ? availableModelGroups : [{ sourceKey: 'catalog', sourceLabel: 'Models', sourceType: 'provider' as const, models: modelIds.map((id) => ({ id, label: getModelLabel(id, catalogModels) })) }]).map((group) => {
-                              const q = defaultModelSearch.toLowerCase()
-                              const filtered = q
-                                ? group.models.filter((m) => m.id.toLowerCase().includes(q) || m.label.toLowerCase().includes(q))
-                                : group.models
-                              if (filtered.length === 0) return null
-                              return (
-                                <div key={group.sourceKey}>
-                                  <div className="px-2 pt-2 pb-1 text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500 border-t border-gray-100 dark:border-gray-700 mt-0.5 first:border-t-0 first:mt-0">
-                                    {group.sourceLabel}
-                                  </div>
-                                  {filtered.map((model) => (
-                                    <button
-                                      key={model.id}
-                                      type="button"
-                                      className={`w-full text-left px-2 py-1.5 rounded text-xs transition-colors ${model.id === defaultModel ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
-                                      onClick={() => { setDefaultModel(model.id); setShowDefaultModelMenu(false) }}
-                                    >
-                                      {getModelLabel(model.id, catalogModels) !== model.id ? getModelLabel(model.id, catalogModels) : model.label}
-                                    </button>
-                                  ))}
-                                </div>
-                              )
-                            })}
-                            {defaultModelSearch && (availableModelGroups.length > 0 ? availableModelGroups : []).every((g) => !g.models.some((m) => m.id.toLowerCase().includes(defaultModelSearch.toLowerCase()) || m.label.toLowerCase().includes(defaultModelSearch.toLowerCase()))) && (
-                              <p className="px-2 py-2 text-xs text-gray-400 dark:text-gray-500">No models match "{defaultModelSearch}"</p>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                      Temperature: {temperature.toFixed(1)}
-                    </label>
-                    <input
-                      type="range"
-                      min="0"
-                      max="2"
-                      step="0.1"
-                      value={temperature}
-                      onChange={(e) => setTemperature(Number.parseFloat(e.target.value))}
-                      className="w-full accent-blue-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                      Max tokens
-                    </label>
-                    <input
-                      type="number"
-                      min={256}
-                      max={16384}
-                      step={256}
-                      value={maxTokens}
-                      onChange={(e) => setMaxTokens(Number.parseInt(e.target.value, 10) || 4096)}
-                      className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-
-                  <button
-                    onClick={handleSaveAdvanced}
-                    className="text-xs px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 font-medium"
-                  >
-                    Save advanced settings
-                  </button>
-                </div>
-              </>
-            )}
-            {category === 'providers' && (
-              <>
-                {authMode === 'byok' && providers.every((p) => !p.configured) && (
-                  <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 mb-1">
-                    <span className="text-blue-500 shrink-0 mt-0.5">🔑</span>
-                    <p className="text-xs text-blue-700 dark:text-blue-300">
-                      You're in API key mode — configure at least one provider below to start chatting.
-                    </p>
-                  </div>
-                )}
-                {providers.map((provider) => (
-                  <div
-                    key={provider.name}
-                    className="p-3 rounded-lg border border-gray-200 dark:border-gray-700"
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-gray-800 dark:text-gray-100">
-                          {provider.label}
-                        </span>
-                        {provider.name === 'copilot' ? (
-                          <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
-                            Default
-                          </span>
-                        ) : provider.configured ? (
-                          <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
-                            ✓ Configured
-                          </span>
-                        ) : (
-                          <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-500">
-                            Not configured
-                          </span>
-                        )}
-                      </div>
-                      {provider.name !== 'copilot' && (
-                        <div className="flex gap-1">
-                          <button
-                            onClick={() => {
-                              setEditingProvider(
-                                editingProvider === provider.name ? null : provider.name
-                              )
-                              setApiKeyInput('')
-                              setTestResult(null)
-                            }}
-                            className="text-xs px-2 py-1 rounded text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
-                          >
-                            {editingProvider === provider.name ? 'Cancel' : 'Set Key'}
-                          </button>
-                          {provider.configured && (
-                            <button
-                              onClick={() => handleRemoveKey(provider.name)}
-                              className="text-xs px-2 py-1 rounded text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30"
-                            >
-                              Remove
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      Models: {provider.models.join(', ')}
-                    </p>
-
-                    {editingProvider === provider.name && (
-                      <div className="mt-3 space-y-2">
-                        {provider.name === 'azure' && (
-                          <input
-                            type="text"
-                            value={azureEndpoint}
-                            onChange={(e) => setAzureEndpoint(e.target.value)}
-                            placeholder="Azure endpoint (e.g. https://myresource.openai.azure.com)"
-                            className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                        )}
-                        <input
-                          type="password"
-                          value={apiKeyInput}
-                          onChange={(e) => setApiKeyInput(e.target.value)}
-                          placeholder={`Enter ${provider.label} API key...`}
-                          className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                        {testResult && (
-                          <p
-                            className={`text-xs ${testResult.valid ? 'text-green-500' : 'text-red-500'}`}
-                          >
-                            {testResult.valid
-                              ? '✓ API key is valid'
-                              : `✗ ${testResult.error || 'Invalid key'}`}
-                          </p>
-                        )}
-                        <div className="flex gap-2">
-                          <button
-                            onClick={handleTestKey}
-                            disabled={!apiKeyInput.trim() || testing}
-                            className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
-                          >
-                            {testing ? 'Testing...' : 'Test'}
-                          </button>
-                          <button
-                            onClick={handleSaveKey}
-                            disabled={!apiKeyInput.trim()}
-                            className="text-xs px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 disabled:opacity-50 font-medium"
-                          >
-                            Save Key
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-
-                <p className="text-xs text-gray-400 dark:text-gray-500">
-                  API keys are stored securely using OS-level encryption. Select a provider model
-                  in chat, project, or agent settings to use it.
-                </p>
-              </>
-            )}
-
-            {category === 'cli' && (
-              <>
-                <div>
-                  <p className="text-sm font-medium text-gray-800 dark:text-gray-100">CLI Tools</p>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    Install CLI tools to chat without an API key. Each tool authenticates with its own provider.
-                  </p>
-                </div>
-
-                {/* Claude CLI */}
-                <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-gray-800 dark:text-gray-100">Claude CLI</span>
-                      <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
-                        installedClis.claude
-                          ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300'
-                          : 'bg-gray-100 dark:bg-gray-700 text-gray-500'
-                      }`}>
-                        {installedClis.claude ? '✓ Installed' : 'Not installed'}
-                      </span>
-                    </div>
-                    <button
-                      disabled={cliRefreshing}
-                      onClick={async () => {
-                        setCliRefreshing(true)
-                        await checkAuth()
-                        setCliRefreshing(false)
-                        addToast('CLI status refreshed', 'success')
-                      }}
-                      className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex items-center gap-1 disabled:opacity-50"
-                    >
-                      <RefreshCw className={`w-3 h-3 ${cliRefreshing ? 'animate-spin' : ''}`} />
-                      Refresh
-                    </button>
-                  </div>
-                  <div className="space-y-1.5">
-                    <p className="text-xs text-gray-500">Install</p>
-                    <pre className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded px-3 py-2 font-mono overflow-x-auto select-all">npm install -g @anthropic-ai/claude-code</pre>
-                  </div>
-                  <div className="space-y-1.5">
-                    <p className="text-xs text-gray-500">Authenticate (run once)</p>
-                    <pre className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded px-3 py-2 font-mono overflow-x-auto select-all">claude</pre>
-                  </div>
-                </div>
-
-                {/* Codex CLI */}
-                <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-gray-800 dark:text-gray-100">Codex CLI</span>
-                      <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
-                        installedClis.codex
-                          ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'
-                          : 'bg-gray-100 dark:bg-gray-700 text-gray-500'
-                      }`}>
-                        {installedClis.codex ? '✓ Installed' : 'Not installed'}
-                      </span>
-                    </div>
-                    <button
-                      disabled={cliRefreshing}
-                      onClick={async () => {
-                        setCliRefreshing(true)
-                        await checkAuth()
-                        setCliRefreshing(false)
-                        addToast('CLI status refreshed', 'success')
-                      }}
-                      className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex items-center gap-1 disabled:opacity-50"
-                    >
-                      <RefreshCw className={`w-3 h-3 ${cliRefreshing ? 'animate-spin' : ''}`} />
-                      Refresh
-                    </button>
-                  </div>
-                  <div className="space-y-1.5">
-                    <p className="text-xs text-gray-500">Install</p>
-                    <pre className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded px-3 py-2 font-mono overflow-x-auto select-all">npm install -g @openai/codex</pre>
-                  </div>
-                  <div className="space-y-1.5">
-                    <p className="text-xs text-gray-500">Authenticate (run once)</p>
-                    <pre className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded px-3 py-2 font-mono overflow-x-auto select-all">codex login</pre>
-                  </div>
-                </div>
-              </>
-            )}
-
-            {category === 'prompts' && (
-              <div className="h-full min-h-[520px] flex flex-col gap-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Prompt library</p>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      Save reusable prompts by category. Project prompts are shown with global prompts when a project is active.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleNewPrompt}
-                    className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 font-medium"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    New
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-[280px_minmax(0,1fr)] gap-4 min-h-0 flex-1">
-                  <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-y-auto">
-                    {promptsLoading && (
-                      <p className="text-xs text-gray-400 p-3">Loading prompts...</p>
-                    )}
-                    {!promptsLoading && prompts.length === 0 && (
-                      <p className="text-xs text-gray-400 p-3">No prompts yet.</p>
-                    )}
-                    {!promptsLoading && Object.entries(promptsByCategory).map(([categoryName, entries]) => (
-                      <div key={categoryName} className="border-b border-gray-100 dark:border-gray-700 last:border-b-0">
-                        <div className="px-3 py-2 bg-gray-50 dark:bg-gray-900/40 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                          {categoryName}
-                        </div>
-                        <div className="p-1">
-                          {entries.map((prompt) => (
-                            <button
-                              key={prompt.id}
-                              type="button"
-                              onClick={() => handleSelectPrompt(prompt)}
-                              className={`w-full text-left px-2.5 py-2 rounded-md transition-colors ${
-                                selectedPromptId === prompt.id
-                                  ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
-                                  : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200'
-                              }`}
-                            >
-                              <span className="block text-xs font-medium whitespace-normal break-words leading-4">{prompt.title}</span>
-                              <span className="block text-[11px] text-gray-400 whitespace-normal break-words mt-0.5">
-                                {prompt.scope === 'project' ? `Project: ${activeProject?.name ?? 'selected project'}` : 'Available everywhere'}
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 overflow-y-auto space-y-3">
-                    <div className="grid grid-cols-2 gap-3">
-                      <TextField
-                          label="Title"
-                          value={promptDraft.title}
-                          onChange={(e) => setPromptDraft((draft) => ({ ...draft, title: e.target.value }))}
-                          placeholder="Code review checklist"
-                        />
-                      <TextField
-                          label="Category"
-                          value={promptDraft.category ?? ''}
-                          onChange={(e) => setPromptDraft((draft) => ({ ...draft, category: e.target.value }))}
-                          placeholder="Coding"
-                        />
-                    </div>
-
-                    <TextField
-                        label="Description"
-                        value={promptDraft.description ?? ''}
-                        onChange={(e) => setPromptDraft((draft) => ({ ...draft, description: e.target.value }))}
-                        placeholder="Short note about when to use this prompt"
-                      />
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <SelectField
-                          label="Scope"
-                          value={promptDraft.scope ?? 'global'}
-                          onChange={(e) => setPromptDraft((draft) => ({
-                            ...draft,
-                            scope: e.target.value === 'project' ? 'project' : 'global',
-                            project_id: e.target.value === 'project' ? (projectId ?? null) : null,
-                          }))}
-                        >
-                          <option value="global">Available everywhere</option>
-                          <option value="project" disabled={!projectId}>{activeProject?.name ? `Project: ${activeProject.name}` : 'Project prompt'}</option>
-                        </SelectField>
-                      <TextField
-                          label="Tags"
-                          value={promptTagInput}
-                          onChange={(e) => setPromptTagInput(e.target.value)}
-                          placeholder="review, typescript"
-                        />
-                    </div>
-
-                    <TextareaField
-                        label="Prompt"
-                        value={promptDraft.body}
-                        onChange={(e) => setPromptDraft((draft) => ({ ...draft, body: e.target.value }))}
-                        className="min-h-[300px]"
-                        placeholder="Write the reusable prompt..."
-                      />
-                      {promptVariables.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {promptVariables.map((variable) => (
-                            <span
-                              key={variable}
-                              className="px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-700 text-[11px] font-mono text-gray-600 dark:text-gray-300"
-                            >
-                              {'{{'}{variable}{'}}'}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-
-                    <div className="flex items-center justify-between pt-1">
-                      <button
-                        type="button"
-                        onClick={handleDeletePrompt}
-                        disabled={!selectedPromptId}
-                        className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 disabled:opacity-40 disabled:hover:bg-transparent"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        Delete
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleSavePrompt}
-                        className="text-xs px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 font-medium"
-                      >
-                        Save prompt
-                      </button>
-                    </div>
-
-                    {selectedPromptId && (
-                      <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="text-xs font-medium text-gray-600 dark:text-gray-300">Version history</p>
-                          {versionsLoading && <span className="text-[11px] text-gray-400">Loading...</span>}
-                        </div>
-                        {!versionsLoading && promptVersions.length === 0 && (
-                          <p className="text-xs text-gray-400">No versions recorded yet.</p>
-                        )}
-                        <div className="space-y-2">
-                          {promptVersions.map((version) => {
-                            const changedFields = [
-                              version.diff.titleChanged ? 'title' : null,
-                              version.diff.descriptionChanged ? 'description' : null,
-                              version.diff.categoryChanged ? 'category' : null,
-                              version.diff.tagsChanged ? 'tags' : null,
-                              version.diff.scopeChanged ? 'scope' : null,
-                            ].filter(Boolean)
-                            return (
-                              <details
-                                key={version.id}
-                                className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40"
-                              >
-                                <summary className="cursor-pointer px-3 py-2 text-xs text-gray-700 dark:text-gray-200 flex items-center justify-between gap-3">
-                                  <span>
-                                    v{version.version} · {new Date(version.created_at).toLocaleString()} · {version.source}
-                                  </span>
-                                  <span className="text-[11px] text-gray-400">
-                                    {version.diff.addedLines.length} added / {version.diff.removedLines.length} removed
-                                  </span>
-                                </summary>
-                                <div className="px-3 pb-3 space-y-2">
-                                  {changedFields.length > 0 && (
-                                    <div className="flex flex-wrap gap-1">
-                                      {changedFields.map((field) => (
-                                        <span key={field} className="px-2 py-0.5 rounded bg-gray-200 dark:bg-gray-700 text-[11px] text-gray-600 dark:text-gray-300">
-                                          {field}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  )}
-                                  <div className="rounded-md overflow-hidden border border-gray-200 dark:border-gray-700">
-                                    {version.diff.removedLines.slice(0, 8).map((line, index) => (
-                                      <div key={`removed-${index}`} className="px-2 py-1 text-[11px] font-mono bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300">
-                                        - {line}
-                                      </div>
-                                    ))}
-                                    {version.diff.addedLines.slice(0, 8).map((line, index) => (
-                                      <div key={`added-${index}`} className="px-2 py-1 text-[11px] font-mono bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300">
-                                        + {line}
-                                      </div>
-                                    ))}
-                                    {version.diff.addedLines.length === 0 && version.diff.removedLines.length === 0 && (
-                                      <div className="px-2 py-1 text-[11px] text-gray-400">No body line changes</div>
-                                    )}
-                                  </div>
-                                  {version.version !== promptVersions[0]?.version && (
-                                    <div className="flex justify-end">
-                                      <button
-                                        type="button"
-                                        onClick={() => void handleRollbackPrompt(version)}
-                                        className="text-[11px] px-2.5 py-1 rounded-md border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-                                      >
-                                        Roll back to v{version.version}
-                                      </button>
-                                    </div>
-                                  )}
-                                </div>
-                              </details>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {category === 'mobile' && (
-              <>
-                <div>
-                  <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Android companion app</p>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    Let your phone approve tool calls and monitor agent output over local WiFi.
-                  </p>
-                </div>
-
-                {/* Enable toggle */}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Enable mobile server</p>
-                    <p className="text-xs text-gray-500">Starts a local WebSocket server on your network</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => void handleMobileToggle()}
-                    disabled={mobileLoading}
-                    className="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-50"
-                    style={{ backgroundColor: mobileEnabled ? '#3b82f6' : '#d1d5db' }}
-                    aria-checked={mobileEnabled}
-                    role="switch"
-                  >
-                    <span
-                      className="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200"
-                      style={{ transform: mobileEnabled ? 'translateX(16px)' : 'translateX(0)' }}
-                    />
-                  </button>
-                </div>
-
-                {mobileEnabled && (
-                  <>
-                    {/* Status */}
-                    <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 px-4 py-3 text-xs space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-gray-500">Local IP</span>
-                        <span className="font-mono text-gray-800 dark:text-gray-200">{mobileLocalIp}</span>
-                      </div>
-                      <div className="flex items-start justify-between gap-3">
-                        <span className="text-gray-500">Pairing URL</span>
-                        <span className="font-mono text-right text-gray-800 dark:text-gray-200 break-all">
-                          {mobilePairingUrl ?? 'Not available'}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-gray-500">Connected devices</span>
-                        <span className="font-mono text-gray-800 dark:text-gray-200">{mobileClients}</span>
-                      </div>
-                    </div>
-
-                    <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/40 px-4 py-3 space-y-2">
-                      <div>
-                        <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Secure external URL</p>
-                        <p className="text-xs text-gray-500">
-                          Optional. Use a public TLS endpoint such as Tailscale Funnel or a reverse proxy that forwards to this mobile server.
-                        </p>
-                      </div>
-                      <input
-                        value={mobileExternalUrl}
-                        onChange={(event) => setMobileExternalUrl(event.target.value)}
-                        placeholder="wss://your-host.example/mobile"
-                        className="w-full px-3 py-2 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-800 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
-                      />
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-xs text-gray-500">
-                          Leave blank for local LAN pairing over ws://.
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => void handleSaveMobileExternalUrl()}
-                          disabled={mobileLoading}
-                          className="px-3 py-1.5 rounded-md text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50"
-                        >
-                          Save URL
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* QR code */}
-                    {mobileQr ? (
-                      <div className="flex flex-col items-center gap-3">
-                        <p className="text-xs text-gray-500 text-center">
-                          Scan with the Nexy Android app to pair
-                        </p>
-                        <img
-                          src={mobileQr}
-                          alt="Pairing QR code"
-                          className="rounded-lg border border-gray-200 dark:border-gray-700"
-                          style={{ width: 200, height: 200 }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => void handleRegenerateToken()}
-                          disabled={mobileLoading}
-                          className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 disabled:opacity-50"
-                        >
-                          <RefreshCw className="w-3 h-3" />
-                          Regenerate pairing code
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex justify-center">
-                        <div className="w-[200px] h-[200px] rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 animate-pulse" />
-                      </div>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={() => void refreshMobileStatus()}
-                      className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                    >
-                      Refresh status
-                    </button>
-                  </>
-                )}
-              </>
-            )}
-
-            {category === 'developer' && (
-              <>
-                <div>
-                  <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Developer</p>
-                  <p className="text-xs text-gray-500 mt-0.5">Build, test, and package the app from within Nexy.</p>
-                </div>
-
-                {/* Workspace */}
-                <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Workspace</p>
-                    <button
-                      onClick={() => void refreshWorkspaceInfo()}
-                      className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex items-center gap-1"
-                    >
-                      <RefreshCw className="w-3 h-3" />
-                      Refresh
-                    </button>
-                  </div>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={workspacePathInput}
-                      onChange={(e) => setWorkspacePathInput(e.target.value)}
-                      className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <button
-                      onClick={() => void handleSaveWorkspacePath()}
-                      className="text-xs px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 font-medium"
-                    >
-                      Save
-                    </button>
-                  </div>
-                  {workspaceInfo && (
-                    <div className="flex flex-wrap gap-1.5 text-xs">
-                      {workspaceInfo.isGitRepo ? (
-                        <>
-                          <span className="px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-mono">
-                            {workspaceInfo.branch ?? '(detached)'}
-                          </span>
-                          <span className="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 font-mono">
-                            {workspaceInfo.commitSha ?? '—'}
-                          </span>
-                          {workspaceInfo.dirty && (
-                            <span className="px-2 py-0.5 rounded-full bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300">
-                              dirty
-                            </span>
-                          )}
-                        </>
-                      ) : (
-                        <span className="text-gray-400">Not a git repo</span>
-                      )}
-                      {workspaceInfo.version && (
-                        <span className="px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300">
-                          v{workspaceInfo.version}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Build actions */}
-                <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3">
-                  <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Build commands</p>
-                  <div className="flex flex-wrap gap-2">
-                    {(['typecheck', 'test', 'build', 'package'] as const).map((cmd) => (
-                      <button
-                        key={cmd}
-                        onClick={() => activeBuildId ? handleCancelBuild() : void handleRunBuildCommand(cmd)}
-                        disabled={!!activeBuildId && activeBuildCommand !== cmd}
-                        className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors disabled:opacity-40 ${
-                          activeBuildCommand === cmd
-                            ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-700'
-                            : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                        }`}
-                      >
-                        {activeBuildCommand === cmd ? `Cancel ${cmd}` : cmd}
-                      </button>
-                    ))}
-                  </div>
-                  {lastBuildStatus && !activeBuildId && (
-                    <p className={`text-xs ${lastBuildStatus === 'success' ? 'text-green-600 dark:text-green-400' : lastBuildStatus === 'cancelled' ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}`}>
-                      {lastBuildStatus === 'success' ? '✓ Completed successfully' : lastBuildStatus === 'cancelled' ? '⊘ Cancelled' : '✗ Failed'}
-                    </p>
-                  )}
-                </div>
-
-                {/* Live log */}
-                {buildLogLines.length > 0 && (
-                  <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-                    <div className="px-3 py-1.5 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
-                      <p className="text-xs font-medium text-gray-500">Output {activeBuildId && <span className="text-blue-500 animate-pulse">● running</span>}</p>
-                    </div>
-                    <pre className="p-3 text-xs font-mono text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900/50 overflow-y-auto max-h-48 whitespace-pre-wrap break-words">
-                      {buildLogLines.join('\n')}
-                    </pre>
-                  </div>
-                )}
-
-                {/* Build history */}
-                {buildRecords.length > 0 && (
-                  <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-                    <div className="px-3 py-1.5 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
-                      <p className="text-xs font-medium text-gray-500">Recent builds</p>
-                    </div>
-                    <div className="divide-y divide-gray-100 dark:divide-gray-700">
-                      {buildRecords.map((rec) => (
-                        <div key={rec.id} className="flex items-center gap-3 px-3 py-2 text-xs">
-                          <span className={`font-mono w-16 shrink-0 ${rec.status === 'success' ? 'text-green-600 dark:text-green-400' : rec.status === 'running' ? 'text-blue-500' : rec.status === 'cancelled' ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-500'}`}>
-                            {rec.status}
-                          </span>
-                          <span className="font-mono text-gray-700 dark:text-gray-300 w-20 shrink-0">{rec.command}</span>
-                          <span className="text-gray-400 font-mono truncate">{rec.branch ?? '—'}</span>
-                          {rec.finishedAt && (
-                            <span className="text-gray-400 ml-auto shrink-0">{Math.round((rec.finishedAt - rec.startedAt) / 1000)}s</span>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Preflight */}
-                <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Preflight checks</p>
-                    <button
-                      onClick={() => void handleRunPreflight()}
-                      disabled={preflightRunning}
-                      className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50"
-                    >
-                      {preflightRunning ? 'Running...' : 'Run checks'}
-                    </button>
-                  </div>
-                  {preflightChecks && (
-                    <div className="space-y-1.5">
-                      {preflightChecks.map((check) => (
-                        <div key={check.label} className="flex items-start gap-2 text-xs">
-                          {check.status === 'ok' && <CheckCircle className="w-3.5 h-3.5 text-green-500 shrink-0 mt-px" />}
-                          {check.status === 'warn' && <AlertTriangle className="w-3.5 h-3.5 text-yellow-500 shrink-0 mt-px" />}
-                          {check.status === 'fail' && <XCircle className="w-3.5 h-3.5 text-red-500 shrink-0 mt-px" />}
-                          <div>
-                            <span className="font-medium text-gray-700 dark:text-gray-300">{check.label}</span>
-                            <span className="text-gray-400 ml-1.5">{check.detail}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Local update feed */}
-                <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3">
-                  <div>
-                    <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Local update feed</p>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      Serve signed installers from a local directory. The app's "Check for updates" points here when the server is running.
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={feedPathInput}
-                      onChange={(e) => setFeedPathInput(e.target.value)}
-                      placeholder="/path/to/feed-directory"
-                      className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <button
-                      onClick={() => void handleSaveFeedPath()}
-                      className="text-xs px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 font-medium"
-                    >
-                      Set
-                    </button>
-                  </div>
-                  {feedInfo && (
-                    <div className="flex items-center gap-2 text-xs">
-                      <span className={`w-2 h-2 rounded-full shrink-0 ${feedInfo.running ? 'bg-green-500' : 'bg-gray-400'}`} />
-                      <span className="text-gray-500 font-mono">
-                        {feedInfo.running ? feedInfo.feedUrl : 'Server not running'}
-                      </span>
-                    </div>
-                  )}
-                  {feedInfo?.feedPath && (
-                    <button
-                      onClick={() => void handlePublishUpdate()}
-                      disabled={publishing}
-                      className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 font-medium disabled:opacity-50"
-                    >
-                      {publishing ? 'Publishing…' : 'Publish latest build to feed'}
-                    </button>
-                  )}
-                  {publishResult && (
-                    <p className="text-xs text-gray-500">{publishResult}</p>
-                  )}
-                  {publishedEntries.length > 0 && (
-                    <div className="space-y-1.5">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Published versions</p>
-                      {publishedEntries.map((entry) => (
-                        <div key={`${entry.version}-${String(entry.isBackup)}`} className="flex items-center gap-2 text-xs">
-                          <span className={`font-mono ${entry.isBackup ? 'text-gray-400' : 'text-gray-700 dark:text-gray-300'}`}>
-                            v{entry.version}
-                          </span>
-                          {entry.isBackup && <span className="text-[11px] text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">backup</span>}
-                          <span className="text-gray-400 ml-auto text-[11px]">
-                            {new Date(entry.publishedAt).toLocaleDateString()}
-                          </span>
-                          {entry.isBackup && (
-                            <button
-                              onClick={() => void handleRollback(entry.version)}
-                              className="text-[11px] px-2 py-0.5 rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-                            >
-                              Reinstall
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Launch dev build */}
-                {lastBuildStatus === 'success' && (
-                  <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-2">
-                    <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Launch dev build</p>
-                    <p className="text-xs text-gray-500">Open the just-built app as a separate Electron process for smoke testing.</p>
-                    <button
-                      onClick={() => void handleLaunchDev()}
-                      className="text-xs px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 font-medium"
-                    >
-                      Launch
-                    </button>
-                    {launchDevError && (
-                      <p className="text-xs text-red-500">{launchDevError}</p>
-                    )}
-                  </div>
-                )}
-
-                {/* Android Build */}
-                <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-4">
-                  <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Android Build</p>
-
-                  {/* Workspace */}
-                  <div className="space-y-2">
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={androidWorkspacePathInput}
-                        onChange={(e) => setAndroidWorkspacePathInput(e.target.value)}
-                        placeholder="/path/to/nexy-android"
-                        className="flex-1 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 font-mono"
-                      />
-                      <button onClick={() => void handleSaveAndroidWorkspacePath()} className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Save</button>
-                      <button onClick={() => void handleRefreshAndroidWorkspace()} className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"><RefreshCw className="w-3.5 h-3.5" /></button>
-                    </div>
-                    {androidWorkspaceInfo && (
-                      <div className="flex flex-wrap gap-1.5">
-                        {androidWorkspaceInfo.branch && <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-mono">{androidWorkspaceInfo.branch}</span>}
-                        {androidWorkspaceInfo.commitSha && <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 font-mono">{androidWorkspaceInfo.commitSha}</span>}
-                        {androidWorkspaceInfo.dirty && <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300">dirty</span>}
-                        {androidWorkspaceInfo.versionCode != null && <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300">build {androidWorkspaceInfo.versionCode}</span>}
-                        {androidWorkspaceInfo.versionName && <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300">v{androidWorkspaceInfo.versionName}</span>}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Build commands */}
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap gap-1.5">
-                      {(['test', 'assembleDebug', 'assembleRelease', 'bundleRelease'] as AndroidBuildCommandName[]).map((cmd) => (
-                        <button
-                          key={cmd}
-                          onClick={() => void handleAndroidStartCommand(cmd)}
-                          disabled={activeAndroidBuildId !== null}
-                          className="text-xs px-2.5 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 font-mono"
-                        >
-                          {cmd}
-                        </button>
-                      ))}
-                      {activeAndroidBuildId && (
-                        <button onClick={() => void handleAndroidCancelCommand()} className="text-xs px-2.5 py-1 rounded bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-700">
-                          Cancel {activeAndroidCommand}
-                        </button>
-                      )}
-                    </div>
-                    {androidLastBuildStatus && !activeAndroidBuildId && (
-                      <p className={`text-xs ${androidLastBuildStatus === 'success' ? 'text-green-600 dark:text-green-400' : 'text-red-500'}`}>
-                        {androidLastBuildStatus === 'success' ? '✓ Build succeeded' : `✗ Build ${androidLastBuildStatus}`}
-                      </p>
-                    )}
-                    {androidLogLines.length > 0 && (
-                      <pre className="text-[10px] font-mono bg-gray-950 text-gray-200 rounded-lg p-2 max-h-48 overflow-y-auto whitespace-pre-wrap break-all">
-                        {androidLogLines.join('\n')}
-                      </pre>
-                    )}
-                  </div>
-
-                  {/* Build history */}
-                  {androidBuildRecords.length > 0 && (
-                    <div className="space-y-1">
-                      <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Recent builds</p>
-                      <div className="space-y-1">
-                        {androidBuildRecords.slice(0, 5).map((r) => (
-                          <div key={r.id} className="space-y-0.5 text-[11px]">
-                            <div className="flex items-center gap-2">
-                              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${r.status === 'success' ? 'bg-green-500' : r.status === 'running' ? 'bg-blue-500 animate-pulse' : 'bg-red-400'}`} />
-                              <span className="font-mono text-gray-600 dark:text-gray-300 w-32 truncate">{r.command}</span>
-                              <span className="text-gray-400">{r.branch ?? '—'}</span>
-                              {r.versionCode != null && <span className="text-gray-400">build {r.versionCode}</span>}
-                              <span className="text-gray-400 ml-auto">{r.finishedAt ? `${Math.round((r.finishedAt - r.startedAt) / 1000)}s` : '…'}</span>
-                            </div>
-                            {r.artifactPaths.length > 0 && (
-                              <div className="pl-3.5 text-[10px] text-gray-400 font-mono truncate">
-                                {r.artifactPaths.map((artifactPath) => {
-                                  const checksum = r.artifactChecksums[artifactPath]
-                                  return checksum ? `${artifactPath} · sha256 ${checksum.slice(0, 12)}` : artifactPath
-                                }).join(', ')}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Signing config */}
-                  <div className="space-y-2 border-t border-gray-100 dark:border-gray-700 pt-3">
-                    <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Signing config</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      <input type="text" value={signingDraft.keystorePath} onChange={(e) => setSigningDraft((d) => ({ ...d, keystorePath: e.target.value }))} placeholder="Keystore path" className="col-span-2 text-xs px-2.5 py-1.5 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 font-mono" />
-                      <input type="password" value={signingDraft.keystorePassword} onChange={(e) => setSigningDraft((d) => ({ ...d, keystorePassword: e.target.value }))} placeholder="Keystore password" className="text-xs px-2.5 py-1.5 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200" />
-                      <input type="text" value={signingDraft.keyAlias} onChange={(e) => setSigningDraft((d) => ({ ...d, keyAlias: e.target.value }))} placeholder="Key alias" className="text-xs px-2.5 py-1.5 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200" />
-                      <input type="password" value={signingDraft.keyPassword} onChange={(e) => setSigningDraft((d) => ({ ...d, keyPassword: e.target.value }))} placeholder="Key password" className="text-xs px-2.5 py-1.5 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200" />
-                    </div>
-                    <div className="flex gap-2">
-                      <button onClick={() => void handleSaveSigningConfig()} className="text-xs px-2.5 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Save</button>
-                      <button onClick={() => void handleValidateSigningConfig()} className="text-xs px-2.5 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Validate</button>
-                    </div>
-                    {signingValidation && (
-                      <div className="space-y-1">
-                        {signingValidation.map((c) => (
-                          <div key={c.label} className="flex items-center gap-1.5 text-[11px]">
-                            {c.status === 'ok' ? <CheckCircle className="w-3 h-3 text-green-500 shrink-0" /> : c.status === 'warn' ? <AlertTriangle className="w-3 h-3 text-yellow-500 shrink-0" /> : <XCircle className="w-3 h-3 text-red-500 shrink-0" />}
-                            <span className="text-gray-700 dark:text-gray-300">{c.label}</span>
-                            <span className="text-gray-400 ml-auto">{c.detail}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* ADB Install */}
-                  <div className="space-y-2 border-t border-gray-100 dark:border-gray-700 pt-3">
-                    <div className="flex items-center justify-between">
-                      <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">ADB Install</p>
-                      <button onClick={() => void handleRefreshAdbDevices()} className="text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex items-center gap-1"><RefreshCw className="w-3 h-3" /> Refresh</button>
-                    </div>
-                    {latestAdbInstallRecord && latestAdbInstallApk ? (
-                      <p className="text-[11px] text-gray-500">
-                        Ready to install {latestAdbInstallRecord.command} artifact: <span className="font-mono">{latestAdbInstallApk.split(/[\\/]/).pop()}</span>
-                      </p>
-                    ) : (
-                      <p className="text-[11px] text-gray-400">Run assembleDebug or assembleRelease successfully before installing over ADB.</p>
-                    )}
-                    {adbDevices.length === 0 ? (
-                      <p className="text-[11px] text-gray-400">No devices connected. Connect via USB and enable USB debugging.</p>
-                    ) : (
-                      <div className="space-y-1">
-                        {adbDevices.map((d) => (
-                          <div key={d.serial} className="flex items-center gap-2 text-[11px]">
-                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${d.state === 'device' ? 'bg-green-500' : 'bg-gray-400'}`} />
-                            <span className="font-mono text-gray-600 dark:text-gray-300">{d.model ?? d.serial}</span>
-                            <span className="text-gray-400 text-[10px]">{d.state}</span>
-                            <button
-                              onClick={() => void handleAndroidInstallApk(d.serial)}
-                              disabled={adbInstalling || d.state !== 'device' || !latestAdbInstallApk}
-                              className="ml-auto text-[10px] px-2 py-0.5 rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40"
-                            >
-                              Install APK
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* AU.6 — Distribution options guide */}
-                  <details className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 border-t border-gray-100 dark:border-gray-700 mt-3">
-                    <summary className="cursor-pointer px-3 py-2 text-[10px] font-medium text-gray-500 uppercase tracking-wide select-none">
-                      Distribution Options
-                    </summary>
-                    <div className="px-3 pb-3 space-y-3 text-[11px] text-gray-600 dark:text-gray-400">
-                      <div>
-                        <p className="font-semibold text-gray-700 dark:text-gray-300 mb-0.5">LAN Feed (default)</p>
-                        <p>Run <code className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">assembleRelease</code>, then click Publish below. The Android app's Settings → Updates section detects the new version automatically when on the same network.</p>
-                      </div>
-                      <div>
-                        <p className="font-semibold text-gray-700 dark:text-gray-300 mb-0.5">Play Internal App Sharing</p>
-                        <p>Run <code className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">bundleRelease</code> to produce an <code className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">.aab</code> artifact. In the Google Play Console, open your app → Internal App Sharing → Upload bundle. Share the generated link with testers — no store review required.</p>
-                      </div>
-                      <div>
-                        <p className="font-semibold text-gray-700 dark:text-gray-300 mb-0.5">Private APK Distribution</p>
-                        <p>Share the signed <code className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">assembleRelease</code> APK directly (email, cloud storage, etc.) or host it on any HTTPS server. For OTA delivery through the companion app, serve the APK at a stable URL and publish a matching <code className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">android-update.json</code> manifest with the same schema.</p>
-                      </div>
-                    </div>
-                  </details>
-
-                  {/* Android update feed */}
-                  <div className="space-y-2 border-t border-gray-100 dark:border-gray-700 pt-3">
-                    <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Android Update Feed</p>
-                    <button
-                      onClick={() => void handleAndroidPublishUpdate()}
-                      className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-                    >
-                      Publish release APK to feed
-                    </button>
-                    {androidPublishResult && (
-                      <p className="text-[11px] text-gray-500">{androidPublishResult}</p>
-                    )}
-                    {androidUpdateManifest && (
-                      <div className="flex flex-wrap gap-1.5">
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300">build {androidUpdateManifest.versionCode}</span>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300">v{androidUpdateManifest.versionName}</span>
-                        {androidUpdateManifest.commitSha && <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 font-mono">{androidUpdateManifest.commitSha}</span>}
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-500">{new Date(androidUpdateManifest.publishedAt).toLocaleDateString()}</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* AU.7 — Published history + rollback */}
-                  {androidPublishHistory.length > 0 && (
-                    <details className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 border-t border-gray-100 dark:border-gray-700 mt-1">
-                      <summary className="cursor-pointer px-3 py-2 text-[10px] font-medium text-gray-500 uppercase tracking-wide select-none">
-                        Published History ({androidPublishHistory.length})
-                      </summary>
-                      <div className="px-3 pb-3 space-y-2">
-                        {androidPublishHistory.map((entry) => (
-                          <div key={entry.versionCode} className="flex items-center justify-between gap-2 text-[11px] py-1 border-b border-gray-100 dark:border-gray-700 last:border-0">
-                            <div className="flex flex-wrap gap-1 items-center min-w-0">
-                              <span className="font-mono text-gray-700 dark:text-gray-300">v{entry.versionName}</span>
-                              <span className="text-gray-400">(build {entry.versionCode})</span>
-                              <span className="text-gray-400">{new Date(entry.publishedAt).toLocaleDateString()}</span>
-                              {entry.commitSha && <span className="font-mono text-gray-400 text-[10px]">{entry.commitSha}</span>}
-                              <span className="font-mono text-gray-400 text-[10px]">{entry.checksum.slice(0, 12)}…</span>
-                            </div>
-                            <button
-                              onClick={() => void handleAndroidRestoreVersion(entry.versionCode)}
-                              disabled={androidRestoring === entry.versionCode}
-                              className="shrink-0 text-[11px] px-2 py-0.5 rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
-                            >
-                              {androidRestoring === entry.versionCode ? 'Restoring…' : 'Restore to feed'}
-                            </button>
-                          </div>
-                        ))}
-                        <p className="text-[10px] text-gray-400 italic mt-1">To install a previous version on device, uninstall the current app first, then tap Install update in the Android app after restoring.</p>
-                      </div>
-                    </details>
-                  )}
-
-                  {/* PN — FCM Push Notifications */}
-                  <details className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 border-t border-gray-100 dark:border-gray-700 mt-1">
-                    <summary className="cursor-pointer px-3 py-2 text-[10px] font-medium text-gray-500 uppercase tracking-wide select-none">
-                      FCM Push Notifications
-                      {fcmStatus && (
-                        <span className={`ml-2 normal-case font-normal ${fcmStatus.configured ? 'text-green-600 dark:text-green-400' : 'text-gray-400'}`}>
-                          — {fcmStatus.configured ? `configured (project: ${fcmStatus.projectId})` : 'not configured'}
-                        </span>
-                      )}
-                    </summary>
-                    <div className="px-3 pb-3 space-y-2 text-[11px] text-gray-600 dark:text-gray-400">
-                      <p>Sends push notifications to offline devices when tool approvals are requested. Paste your Firebase service account JSON key below. Get it from Firebase Console → Project Settings → Service accounts → Generate new private key.</p>
-                      <textarea
-                        value={fcmJsonDraft}
-                        onChange={(e) => setFcmJsonDraft(e.target.value)}
-                        placeholder={'{\n  "type": "service_account",\n  "project_id": "my-project",\n  ...\n}'}
-                        rows={4}
-                        className="w-full font-mono text-[10px] p-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 resize-none"
-                      />
-                      <button
-                        onClick={() => {
-                          setFcmSaving(true)
-                          void window.api.androidSaveFcmServiceAccount(fcmJsonDraft)
-                            .then((result) => {
-                              if (result.saved) {
-                                void window.api.androidGetFcmConfigStatus().then(setFcmStatus)
-                                setFcmJsonDraft('')
-                              }
-                            })
-                            .finally(() => setFcmSaving(false))
-                        }}
-                        disabled={fcmSaving || !fcmJsonDraft.trim()}
-                        className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40"
-                      >
-                        {fcmSaving ? 'Saving…' : 'Save configuration'}
-                      </button>
-                    </div>
-                  </details>
-                </div>
-              </>
-            )}
-          </div>
+        {category === 'developer' && (
+          <DeveloperTab
+            workspaceInfo={workspaceInfo}
+            workspacePathInput={workspacePathInput}
+            onSetWorkspacePathInput={setWorkspacePathInput}
+            onRefreshWorkspace={() => void refreshWorkspaceInfo()}
+            onSaveWorkspacePath={() => void handleSaveWorkspacePath()}
+            buildRecords={buildRecords}
+            activeBuildId={activeBuildId}
+            activeBuildCommand={activeBuildCommand}
+            buildLogLines={buildLogLines}
+            lastBuildStatus={lastBuildStatus}
+            onRunBuildCommand={(cmd) => void handleRunBuildCommand(cmd)}
+            onCancelBuild={() => void handleCancelBuild()}
+            preflightChecks={preflightChecks}
+            preflightRunning={preflightRunning}
+            onRunPreflight={() => void handleRunPreflight()}
+            feedInfo={feedInfo}
+            feedPathInput={feedPathInput}
+            publishedEntries={publishedEntries}
+            publishing={publishing}
+            publishResult={publishResult}
+            onSetFeedPathInput={setFeedPathInput}
+            onSaveFeedPath={() => void handleSaveFeedPath()}
+            onPublishUpdate={() => void handlePublishUpdate()}
+            onRollback={(v) => void handleRollback(v)}
+            launchDevError={launchDevError}
+            onLaunchDev={() => void handleLaunchDev()}
+            androidWorkspaceInfo={androidWorkspaceInfo}
+            androidWorkspacePathInput={androidWorkspacePathInput}
+            onSetAndroidWorkspacePathInput={setAndroidWorkspacePathInput}
+            onSaveAndroidWorkspacePath={() => void handleSaveAndroidWorkspacePath()}
+            onRefreshAndroidWorkspace={() => void handleRefreshAndroidWorkspace()}
+            androidBuildRecords={androidBuildRecords}
+            activeAndroidBuildId={activeAndroidBuildId}
+            activeAndroidCommand={activeAndroidCommand}
+            androidLogLines={androidLogLines}
+            androidLastBuildStatus={androidLastBuildStatus}
+            onAndroidStartCommand={(cmd) => void handleAndroidStartCommand(cmd)}
+            onAndroidCancelCommand={() => void handleAndroidCancelCommand()}
+            signingDraft={signingDraft}
+            signingValidation={signingValidation}
+            onSetSigningDraft={setSigningDraft}
+            onSaveSigningConfig={() => void handleSaveSigningConfig()}
+            onValidateSigningConfig={() => void handleValidateSigningConfig()}
+            adbDevices={adbDevices}
+            adbInstalling={adbInstalling}
+            latestAdbInstallRecord={latestAdbInstallRecord}
+            latestAdbInstallApk={latestAdbInstallApk}
+            onRefreshAdbDevices={() => void handleRefreshAdbDevices()}
+            onAndroidInstallApk={(serial) => void handleAndroidInstallApk(serial)}
+            androidPublishResult={androidPublishResult}
+            androidUpdateManifest={androidUpdateManifest}
+            androidPublishHistory={androidPublishHistory}
+            androidRestoring={androidRestoring}
+            onAndroidPublishUpdate={() => void handleAndroidPublishUpdate()}
+            onAndroidRestoreVersion={(vc) => void handleAndroidRestoreVersion(vc)}
+            fcmStatus={fcmStatus}
+            fcmJsonDraft={fcmJsonDraft}
+            fcmSaving={fcmSaving}
+            onSetFcmJsonDraft={setFcmJsonDraft}
+            onSaveFcmServiceAccount={() => {
+              setFcmSaving(true)
+              void window.api.androidSaveFcmServiceAccount(fcmJsonDraft)
+                .then((result) => {
+                  if (result.saved) {
+                    void window.api.androidGetFcmConfigStatus().then(setFcmStatus)
+                    setFcmJsonDraft('')
+                  }
+                })
+                .finally(() => setFcmSaving(false))
+            }}
+          />
+        )}
+      </div>
     </ModalShell>
   )
 }
