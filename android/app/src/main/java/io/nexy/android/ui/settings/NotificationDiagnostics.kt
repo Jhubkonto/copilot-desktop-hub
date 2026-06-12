@@ -1,5 +1,35 @@
 package io.nexy.android.ui.settings
 
+import android.Manifest
+import android.app.Application
+import android.app.NotificationManager
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
+import io.nexy.android.NexyApp
+
+internal fun readNotificationDiagnostics(app: Application): NotificationDiagnostics {
+    val permissionRequired = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+    val permissionGranted = !permissionRequired ||
+        ContextCompat.checkSelfPermission(app, Manifest.permission.POST_NOTIFICATIONS) ==
+        PackageManager.PERMISSION_GRANTED
+    val appNotificationsEnabled = NotificationManagerCompat.from(app).areNotificationsEnabled()
+    val notificationManager = app.getSystemService(NotificationManager::class.java)
+    val approvalChannelEnabled = notificationManager
+        ?.getNotificationChannel(NexyApp.APPROVAL_CHANNEL_ID)
+        ?.importance
+        ?.let { it != NotificationManager.IMPORTANCE_NONE }
+        ?: true
+
+    return NotificationDiagnostics(
+        permissionRequired = permissionRequired,
+        permissionGranted = permissionGranted,
+        appNotificationsEnabled = appNotificationsEnabled,
+        approvalChannelEnabled = approvalChannelEnabled,
+    )
+}
+
 data class NotificationDiagnostics(
     val permissionRequired: Boolean,
     val permissionGranted: Boolean,

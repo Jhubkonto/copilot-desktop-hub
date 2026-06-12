@@ -3,11 +3,7 @@ package io.nexy.android.data
 import android.content.Context
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
-import java.net.URI
 import java.security.MessageDigest
-import org.json.JSONArray
-import org.json.JSONObject
-
 data class PairedServerConfig(
     val endpoint: String,
     val token: String,
@@ -39,23 +35,7 @@ data class PairedServerConfig(
             return "$host$port"
         }
 
-        fun fromUrl(rawValue: String): PairedServerConfig? {
-            val uri = runCatching { URI(rawValue.trim()) }.getOrNull() ?: return null
-            val scheme = uri.scheme ?: return null
-            val host = uri.host ?: return null
-            val params = uri.rawQuery
-                ?.split("&")
-                ?.mapNotNull {
-                    val parts = it.split("=", limit = 2)
-                    if (parts.size == 2) parts[0] to parts[1] else null
-                }
-                ?.toMap().orEmpty()
-            val token = params["token"]?.takeIf { it.isNotBlank() } ?: return null
-            val certFP = params["certFP"]?.takeIf { it.isNotBlank() }
-            val port = if (uri.port >= 0) ":${uri.port}" else ""
-            val path = uri.rawPath?.takeIf { it.isNotBlank() && it != "/" } ?: ""
-            return PairedServerConfig(endpoint = "$scheme://$host$port$path", token = token, certFingerprint = certFP)
-        }
+        fun fromUrl(rawValue: String): PairedServerConfig? = parsePairedServerConfig(rawValue)
     }
 }
 
@@ -213,39 +193,6 @@ class PairedServerStore(context: Context) {
             .putString(KEY_ACTIVE_PROFILE_ID, migrated.id)
             .apply()
         return listOf(migrated)
-    }
-
-    private fun profilesToJson(profiles: List<PairedServerProfile>): String {
-        val array = JSONArray()
-        profiles.forEach { profile ->
-            array.put(
-                JSONObject()
-                    .put("id", profile.id)
-                    .put("endpoint", profile.endpoint)
-                    .put("token", profile.token)
-                    .put("name", profile.name)
-                    .put("lastUsedAt", profile.lastUsedAt)
-                    .put("certFingerprint", profile.certFingerprint),
-            )
-        }
-        return array.toString()
-    }
-
-    private fun profilesFromJson(raw: String): List<PairedServerProfile> {
-        val array = JSONArray(raw)
-        return (0 until array.length()).mapNotNull { index ->
-            val obj = array.optJSONObject(index) ?: return@mapNotNull null
-            val endpoint = obj.optString("endpoint").takeIf { it.isNotBlank() } ?: return@mapNotNull null
-            val token = obj.optString("token").takeIf { it.isNotBlank() } ?: return@mapNotNull null
-            PairedServerProfile(
-                id = obj.optString("id").takeIf { it.isNotBlank() } ?: PairedServerConfig.profileIdForEndpoint(endpoint),
-                endpoint = endpoint,
-                token = token,
-                name = obj.optString("name").takeIf { it.isNotBlank() } ?: PairedServerConfig.displayNameForEndpoint(endpoint),
-                lastUsedAt = obj.optLong("lastUsedAt", 0L),
-                certFingerprint = obj.optString("certFingerprint").takeIf { it.isNotBlank() },
-            )
-        }.sortedByDescending { it.lastUsedAt }
     }
 
     companion object {
