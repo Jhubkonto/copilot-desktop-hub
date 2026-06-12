@@ -54,8 +54,8 @@ A provider-agnostic native AI workspace — locally-first, with custom agents, m
 ## Installation
 
 ```bash
-git clone https://github.com/Jhubkonto/copilot-desktop-hub.git
-cd copilot-desktop-hub
+git clone https://github.com/Jhubkonto/nexy.git
+cd nexy
 npm install
 ```
 

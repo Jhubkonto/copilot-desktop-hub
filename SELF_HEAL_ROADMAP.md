@@ -1,5 +1,69 @@
 # Roadmap: Self-Healing App Feature
 
+---
+
+## Phase 0 — Debug Logging Toggle
+
+**Goal:** A first-class debug mode that can be toggled by a human in Developer settings or programmatically by the self-heal agent. Controls verbose/timing logs across terminal, electron-log file, and (via push event) the in-app console panel planned in Phase 1B.
+
+### Log level strategy
+
+- **`warn` / `error`** — always on, unaffected by toggle
+- **`debug`** — key non-error events (chat dispatch, MCP tool calls, slow IPC handlers)
+- **`verbose`** — timing/diagnostic instrumentation (`[build]`, `[android]`, `[cli]`, etc.)
+
+Toggle off = only problems. Toggle on = full picture.
+
+### Implementation
+
+**`src/main/debug-mode.ts`** — new file, module-level state:
+```ts
+let _enabled = false
+let _win: BrowserWindow | null = null
+
+export function initDebugMode(win: BrowserWindow): void { _win = win }
+export function isDebugEnabled(): boolean { return _enabled }
+export function setDebugEnabled(enabled: boolean): void {
+  _enabled = enabled
+  log.transports.file.level = enabled ? 'debug' : 'warn'
+}
+export function debugLog(prefix: string, ...args: unknown[]): void {
+  if (!_enabled) return
+  const msg = `[${prefix}] ${args.map(String).join(' ')}`
+  console.log(msg)
+  log.debug(msg)
+  _win?.webContents.send('debug:log', { message: msg, timestamp: Date.now() })
+}
+```
+
+**`src/main/settings-handlers.ts`** — on startup read `'debug_logging'` from DB and call `setDebugEnabled`; add `safeHandle('debug:set-enabled', ...)` as the agent-callable channel.
+
+**`src/main/index.ts`** — call `initDebugMode(mainWindow)` alongside `initAutoUpdater`.
+
+**`src/shared/types.ts`** — add `'debug:set-enabled'` to `IpcChannels` + `IpcReturnMap`.
+
+**`src/preload/index.ts`** — add `typedInvoke` for `debug:set-enabled`; `typedOn` for `debug:log` push event.
+
+**`src/renderer/store/slices/uiSlice.ts`** — add `debugLogging: boolean` + `setDebugLogging(enabled)` setter (dual-dispatch: Zustand state + `window.api.setSetting('debug_logging', ...)` + `window.api.setDebugEnabled(...)`).
+
+**`src/renderer/store/app-store.ts`** — hydrate `debugLogging` from DB in `hydrate()`.
+
+**`src/renderer/components/settings/DeveloperTab.tsx`** — add "Debug logging" toggle row at top (mirrors `autoStart` toggle in `GeneralTab.tsx`); wire `typedOn('debug:log', ...)` listener stub for Phase 1B console panel.
+
+**`src/renderer/components/SettingsPanel.tsx`** — pass `debugLogging` + `onToggleDebugLogging` props from `useAppStore`.
+
+**Convert existing timing logs** — replace all `console.time`/`console.timeEnd`/`console.log` added during diagnosis in `cli-adapters/utils.ts`, `build-handlers.ts`, `android-handlers.ts`, `model-availability.ts` with `debugLog('cli'|'build'|'android'|'model', ...)`.
+
+### Verification
+
+1. `npm run typecheck && npm test` — green
+2. Toggle debug ON in Developer settings → timing logs appear in terminal on next Developer tab open
+3. Toggle OFF → no timing logs
+4. Restart app → toggle state preserved
+5. Agent path: `window.api.setDebugEnabled(true)` from devtools console fires same logs without touching UI
+
+---
+
 ## Context
 
 The goal is to build an in-app, end-to-end self-healing pipeline: errors are captured inside the app (not just in the terminal), the user can report them, an LLM investigates and drafts a fix plan, the user approves, the fix is applied, verified (lint/typecheck/build), committed, pushed, and the app reloads — all from both the desktop and Android companion. A safe rollback path exists if the reload fails.
