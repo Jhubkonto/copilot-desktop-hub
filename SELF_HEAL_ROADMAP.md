@@ -502,3 +502,190 @@ The in-app console from Phase 1B gets its own inner tab rather than a collapsibl
 - FCM config: confirm it still saves from MobileTab
 - Self-Heal tab: visible and matches Phase 8 pipeline
 - Console tab: unread badge increments on new error, clears on tab visit
+
+---
+
+## Phase 10 — Project Generator
+
+**Goal:** An AI-assisted wizard that walks the user through creating a fully configured project — instructions, scope, milestones, variables — and automatically assembles a specialist agent team with the most capable agent set as orchestrator leader. The entire flow is available on both desktop and Android.
+
+### Feasibility
+
+Fully feasible with existing infrastructure. The complete IPC chain already exists:
+- `project:create(name, color)` → `ProjectRow`
+- `agent:create(config)` × N → `AgentConfig` with generated ID
+- `project:add-agent(projectId, agentId)` × N
+- `project:set-primary-agent(projectId, leaderAgentId)`
+- `project:update-config(projectId, partialConfig)` — covers instructions, variables, scope rules, milestones, orchestrationEnabled
+
+No new backend IPC handlers are required for the core creation flow. The main new backend work is the AI generation logic itself.
+
+---
+
+### 10A — Entry point: replace New Project button
+
+The existing "New Project" button in `src/renderer/components/section-pane/ProjectsPane.tsx` is replaced with a click that opens the Project Generator wizard modal. No quick-create shortcut is retained — the wizard is the only path.
+
+The modal is a full-screen overlay (same visual weight as the existing `ProjectSettingsPanel` modal) with a **two-column layout**:
+- **Left column** (40%): live draft preview — project name, colour swatch, instructions excerpt, scope rule count, milestone count, agent team list with role badges. Updates in real time as the AI fills in values.
+- **Right column** (60%): the chat conversation panel.
+
+Nothing is written to the database until the user confirms at the final step. All generated state is held in a local `draftProject` + `draftAgents[]` object in component state. If the modal is closed at any point before confirmation, everything is discarded.
+
+---
+
+### 10B — Wizard conversation flow (main process)
+
+**New file:** `src/main/project-generator.ts`
+
+`runProjectGeneration(conversationHistory: ProviderMessage[], existingAgents: AgentConfig[], onChunk: (chunk: string) => void): Promise<ProjectGeneratorOutput>`
+
+The AI is given a structured system prompt that:
+1. Describes its role: a project setup assistant that produces a structured JSON output
+2. Lists all of the user's **existing agents** (id, name, icon, systemPrompt excerpt) so it can match roles to real agents
+3. Describes every field in `ProjectConfig` it can populate (instructions, variables, inScope/outOfScope, milestones)
+4. Instructs it to respond conversationally until it has enough information, then emit a final `<project-spec>` JSON block
+
+The conversation loop:
+1. First turn: AI asks what the project is about and what kind of work it involves (2–3 open questions max)
+2. Subsequent turns: AI follows up on specifics (root directory? milestones? tools needed? any scope restrictions?)
+3. Final turn: when confident it has enough context, AI emits a structured `<project-spec>` block alongside a plain-text summary
+
+The `<project-spec>` JSON shape:
+```typescript
+{
+  name: string
+  color: string   // one of the 8 allowed colours
+  instructions: string
+  variables: { key: string; value: string }[]
+  inScope: { description: string; pathGlob?: string }[]
+  outOfScope: { description: string; pathGlob?: string }[]
+  milestones: { title: string; description?: string; status: 'active' | 'upcoming' }[]
+  orchestrationEnabled: boolean
+  defaultModel?: string
+  agents: {
+    role: string          // e.g. "Lead Architect", "Code Reviewer", "Test Engineer"
+    description: string   // what this specialist does in the project
+    existingAgentId?: string  // set if an existing agent is a good match
+    newAgent?: {          // set if a new agent should be created
+      name: string
+      icon: string        // emoji
+      systemPrompt: string
+      temperature: number
+      responseFormat: 'default' | 'concise' | 'detailed' | 'code-only'
+    }
+    isLeader: boolean     // exactly one agent has this true
+  }[]
+}
+```
+
+**Matching logic**: for each role the AI identifies, it checks existing agents by comparing the role description against agent `systemPrompt` and `name`. Cosine similarity is overkill — a simple keyword/semantic prompt comparison via the same LLM pass works (the AI is already reasoning about the project and has all agent summaries in context).
+
+IPC: `safeHandle('project-generator:chat', { messages: ProviderMessage[] })` — streams tokens via `win.webContents.send('project-generator:token', chunk)`, ends with `win.webContents.send('project-generator:spec-ready', projectSpec)` when the `<project-spec>` block is detected in the stream.
+
+Uses the active chat provider + model. No separate model setting — this is a one-shot generation, not a long-running investigation.
+
+---
+
+### 10C — Live draft preview (desktop)
+
+As the conversation progresses, the left-column draft preview updates in real time:
+
+- **Before `<project-spec>`**: the AI's conversational responses are shown in the chat panel; the draft preview shows only what's been confirmed so far (name from first mention, colour guessed from domain, etc.). Fields not yet determined show greyed placeholder text.
+- **When `<project-spec>` arrives**: the draft preview fully populates. The chat panel shows the AI's summary text. A **"Looks good — Create project"** button and an **"Edit before creating"** button appear at the bottom.
+
+**"Looks good — Create project"**: executes the IPC chain (10E) and transitions to the project.
+
+**"Edit before creating"**: switches the modal to a standard form view (same fields as the existing `ProjectSettingsPanel` tabs but pre-populated from the spec). User can tweak anything before confirming. Editing agents shows a list with name/icon/role/prompt fields, a "Remove" button per agent, and an "Add another" button.
+
+---
+
+### 10D — Agent team preview
+
+The draft preview's agent section shows each identified role as a card:
+- Role badge (e.g. "Lead Architect ★" for the leader)
+- Agent name + icon
+- "New" chip if the AI is proposing to create a new agent, or the agent's existing icon if reusing
+- System prompt excerpt (first 80 chars)
+
+The leader is visually distinguished with a crown/star indicator — same visual language as the existing `TeamTab` primary agent display.
+
+---
+
+### 10E — Confirmation & creation chain
+
+On confirm, a loading overlay runs the following sequence, showing progress per step:
+
+```
+1. Creating project…          → project:create(name, color)
+2. Updating project config…   → project:update-config(id, { instructions, variables, ... })
+3. Creating agent: [name]…    → agent:create(config)  [repeated for each new agent]
+4. Adding agents to project…  → project:add-agent(projectId, agentId)  [×N]
+5. Setting lead agent…        → project:set-primary-agent(projectId, leaderId)
+6. Enabling orchestration…    → project:update-config(id, { orchestrationEnabled: true })
+```
+
+If any step fails, the entire creation is rolled back:
+- If `project:create` succeeded but a later step fails: call `project:delete(id)` to clean up
+- Agent records created before the failure are deleted via `agent:delete(id)` (add this handler if it doesn't exist — check first)
+- The modal stays open and shows the error with a "Try again" button
+
+On success: modal closes, the new project is selected in `useAppStore`, a new conversation is opened immediately (same flow as clicking "New Chat" in a project context).
+
+---
+
+### 10F — Android: project generator via WebSocket
+
+The Android companion gets a "Generate Project" screen accessible from the main menu or the projects list empty state.
+
+**WS event flow:**
+
+1. Android sends `'project-generator:start'` — desktop opens a headless generation session (no modal, generation runs server-side)
+2. Desktop relays AI tokens back via `'project-generator:token'` WS broadcasts — Android shows the streaming conversation
+3. Android sends `'project-generator:message'` with the user's reply text — desktop appends to conversation history and continues
+4. When `<project-spec>` is detected, desktop broadcasts `'project-generator:spec-ready'` with the full spec — Android shows the draft summary (name, agent list, milestone count)
+5. Android sends `'project-generator:confirm'` or `'project-generator:cancel'`
+6. On confirm: desktop runs the creation chain (10E) and broadcasts `'project-generator:created'` with `{ projectId, name }` — Android navigates to the project's chat screen
+
+The Android UI is a chat-style screen with the AI conversation in the message list and a text input at the bottom — the same `ChatScreen` layout repurposed as a wizard session.
+
+---
+
+### 10G — Suggested agent roles by domain
+
+The system prompt for the generator includes a soft catalogue of common specialist archetypes keyed by domain, to help the LLM make sensible suggestions even when the user's description is vague:
+
+| Domain | Typical specialist roles |
+|---|---|
+| Software project | Lead Architect, Code Reviewer, Test Engineer, Documentation Writer |
+| Research project | Research Lead, Literature Reviewer, Data Analyst, Report Writer |
+| Content / writing | Editor-in-Chief, Content Writer, SEO Specialist, Proofreader |
+| Data pipeline | Pipeline Architect, Data Engineer, Quality Checker, Reporting Analyst |
+| Generic | Project Manager (leader), General Specialist × 2 |
+
+These are prompt hints only — the LLM adapts based on the user's actual description.
+
+---
+
+### Critical files
+
+| Layer | New files | Modified files |
+|---|---|---|
+| Main | `src/main/project-generator.ts` | `src/main/ipc-handlers.ts`, `src/shared/types.ts`, `src/preload/index.ts`, `src/main/project-handlers.ts` (add `project:delete` if missing) |
+| Renderer | `src/renderer/components/ProjectGeneratorModal.tsx`, `src/renderer/components/project-generator/DraftPreview.tsx`, `src/renderer/components/project-generator/AgentCard.tsx` | `src/renderer/components/section-pane/ProjectsPane.tsx` (replace New Project button) |
+| Android | `android/.../ui/screens/ProjectGeneratorScreen.kt` | Android `WsRepository.kt` (handle new WS events), Android `HomeScreen.kt` (add entry point) |
+
+---
+
+### Verification
+
+- Open app, click "New Project" — wizard modal opens
+- Have a conversation describing a software project — confirm draft preview updates in real time as AI fills in fields
+- Confirm `<project-spec>` block is detected and edit view populates correctly
+- Click "Create project" — confirm all 6 creation steps complete, no orphaned records
+- Cancel mid-conversation — confirm no DB records were created
+- Abandon after `<project-spec>` shown but before confirm — confirm no DB records created
+- Check created project in settings: instructions, scope, milestones, agent team all match the generated spec
+- Check agent team tab: leader has `is_primary = 1`, orchestration is enabled
+- Start a chat in the new project — confirm orchestration routes to leader agent
+- Android: start generator from companion, complete conversation, confirm project appears on both desktop and Android
