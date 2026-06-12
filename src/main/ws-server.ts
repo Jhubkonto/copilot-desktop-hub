@@ -178,10 +178,12 @@ export async function startWsServer(): Promise<{ port: number; token: string }> 
     ws.on('error', () => connectedClients.delete(ws))
   })
 
+  const db = getDatabase()
+  const FIXED_PORT = 16717
+
   return new Promise((resolve, reject) => {
-    httpServer!.listen(0, '0.0.0.0', () => {
+    httpServer!.listen(FIXED_PORT, '0.0.0.0', () => {
       currentPort = (httpServer!.address() as AddressInfo).port
-      const db = getDatabase()
       db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ws_port', ?)").run(String(currentPort))
       resolve({ port: currentPort, token: currentToken! })
     })
