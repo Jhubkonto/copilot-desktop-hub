@@ -739,6 +739,8 @@ export function ChatWindow() {
     window.addEventListener('pointerup', onUp)
   }, [])
 
+  const hasByok = availableGroups.some((g) => g.sourceType === 'provider')
+
   const backendChip = useMemo(() => {
     const agentBackend = chatAgent?.backend
     if (agentBackend === 'gh-copilot') {
@@ -750,21 +752,35 @@ export function ChatWindow() {
     if (agentBackend === 'claude-cli' && cliInstalled) {
       return { label: 'Claude CLI', cls: 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-700 text-purple-700 dark:text-purple-300' }
     }
-    const hasByok = availableGroups.some((g) => g.sourceType === 'provider')
     if (!agentBackend && authMode === 'none' && cliInstalled && !hasByok) {
       return installedClis.codex && !installedClis.claude
         ? { label: 'Codex CLI', cls: 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300' }
         : { label: 'Claude CLI', cls: 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-700 text-purple-700 dark:text-purple-300' }
     }
-    const model = effectiveModel === 'default' ? 'gpt-5-mini' : effectiveModel
-    if (model.startsWith('claude')) {
-      return { label: 'Anthropic', cls: 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-700 text-orange-700 dark:text-orange-300' }
+    const byokGroup = availableGroups.find((g) => {
+      if (g.sourceType !== 'provider') return false
+      if (effectiveModel === 'default') return true
+      return g.models.some((m) => m.id === effectiveModel)
+    })
+    if (byokGroup) {
+      const providerColorMap: Record<string, string> = {
+        openrouter: 'bg-violet-50 dark:bg-violet-900/20 border-violet-200 dark:border-violet-700 text-violet-700 dark:text-violet-300',
+        anthropic: 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-700 text-orange-700 dark:text-orange-300',
+        azure: 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-300',
+      }
+      const cls = providerColorMap[byokGroup.sourceKey] ?? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-700 text-green-700 dark:text-green-300'
+      return { label: byokGroup.sourceLabel, cls }
     }
-    if (model.startsWith('azure:')) {
-      return { label: 'Azure', cls: 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-300' }
+    const cliGroup = availableGroups.find(
+      (g) => g.sourceType === 'cli' && g.models.some((m) => m.id === effectiveModel),
+    )
+    if (cliGroup) {
+      return cliGroup.sourceKey === 'codex-cli'
+        ? { label: 'Codex CLI', cls: 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300' }
+        : { label: 'Claude CLI', cls: 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-700 text-purple-700 dark:text-purple-300' }
     }
-    return { label: 'OpenAI', cls: 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-700 text-green-700 dark:text-green-300' }
-  }, [chatAgent?.backend, authMode, cliInstalled, installedClis.claude, installedClis.codex, effectiveModel, availableGroups])
+    return { label: 'No provider', cls: 'bg-gray-100 dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400' }
+  }, [chatAgent?.backend, authMode, cliInstalled, installedClis.claude, installedClis.codex, effectiveModel, availableGroups, hasByok])
 
   const contextBar = (
     <div
@@ -837,7 +853,6 @@ export function ChatWindow() {
       conversationId={conversationId}
       effectiveModel={effectiveModel}
       modelSourceLabel={modelSourceLabel}
-      agentNeedsTools={agentNeedsTools}
       pendingAttachments={fileInput.pendingAttachments}
       pendingImages={fileInput.pendingImages}
       showContextInspector={showContextInspector}
@@ -917,14 +932,14 @@ export function ChatWindow() {
               {chatAgent ? `${chatAgent.icon} ${chatAgent.name}` : 'Nexy'}
             </h2>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-              {chatAgent ? `Start a conversation with ${chatAgent.name}` : cliInstalled ? 'Chat directly or select an agent' : 'Add an API key in Settings to start chatting'}
+              {chatAgent ? `Start a conversation with ${chatAgent.name}` : (cliInstalled || hasByok) ? 'Chat directly or select an agent' : 'Add an API key in Settings to start chatting'}
             </p>
             {authMode === 'none' && !cliInstalled && (
               <div className="mb-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
                 No provider configured. Add an API key in Settings.
               </div>
             )}
-            {authMode === 'none' && cliInstalled && (() => {
+            {authMode === 'none' && cliInstalled && !hasByok && (() => {
               const both = installedClis.claude && installedClis.codex
               const label = both
                 ? 'Claude CLI + Codex CLI ready — start typing'

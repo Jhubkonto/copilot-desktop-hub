@@ -23,7 +23,6 @@ interface ChatComposerProps {
   conversationId: string | null
   effectiveModel: string
   modelSourceLabel?: string
-  agentNeedsTools?: boolean
   pendingAttachments: LocalAttachment[]
   pendingImages: PastedImage[]
   showContextInspector: boolean
@@ -77,7 +76,6 @@ export function ChatComposer({
   conversationId,
   effectiveModel,
   modelSourceLabel,
-  agentNeedsTools,
   pendingAttachments,
   pendingImages,
   showContextInspector,
@@ -351,12 +349,6 @@ export function ChatComposer({
                           />
                         </div>
                         <div className="overflow-auto max-h-64 p-1">
-                          {agentNeedsTools && (
-                            <div className="px-2 py-1.5 mb-0.5 text-[10px] text-amber-600 dark:text-amber-400 border-b border-gray-100 dark:border-gray-700 flex items-center gap-1">
-                              <span>⚙</span>
-                              <span>Showing models that support tool calling</span>
-                            </div>
-                          )}
                           {!modelSearch && (
                             <button
                               type="button"
