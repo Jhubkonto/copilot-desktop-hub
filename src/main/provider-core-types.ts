@@ -1,0 +1,18 @@
+export type ProviderName = 'openai' | 'anthropic' | 'azure' | 'gemini' | 'mistral' | 'groq' | 'xai' | 'openrouter'
+
+export type MessageContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } }
+
+export type MessageContent = string | MessageContentPart[]
+
+export interface ToolCallMessage {
+  id: string
+  type: 'function'
+  function: { name: string; arguments: string }
+}
+
+export type ProviderMessage =
+  | { role: 'system' | 'user'; content: MessageContent }
+  | { role: 'assistant'; content: MessageContent | null; tool_calls?: ToolCallMessage[] }
+  | { role: 'tool'; tool_call_id: string; content: string; images?: { dataUrl: string }[] }
