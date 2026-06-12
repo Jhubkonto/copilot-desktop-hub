@@ -202,8 +202,7 @@ export function SettingsPanel() {
     setMobileClients(status.connectedClients)
     setMobileLocalIp(status.localIp)
     setMobilePairingUrl(status.pairingUrl ?? null)
-    setMobileExternalUrl(status.externalUrl ?? mobileExternalUrl)
-  }, [mobileExternalUrl])
+  }, [])
 
   const loadPrompts = useCallback(async () => {
     setPromptsLoading(true)
@@ -368,24 +367,26 @@ export function SettingsPanel() {
 
   useEffect(() => {
     if (!visible || category !== 'developer') return
-    void refreshWorkspaceInfo()
-    window.api.buildGetRecords(5).then(setBuildRecords).catch(() => {})
-    window.api.buildGetFeedInfo().then((info) => {
-      setFeedInfo(info)
-      setFeedPathInput(info?.feedPath ?? '')
-    }).catch(() => {})
-    window.api.buildListPublished().then(setPublishedEntries).catch(() => {})
-    window.api.androidGetWorkspaceInfo().then((info) => {
-      setAndroidWorkspaceInfo(info)
-      setAndroidWorkspacePathInput(info.path)
-    }).catch(() => {})
-    window.api.androidGetRecords(10).then(setAndroidBuildRecords).catch(() => {})
-    window.api.androidGetSigningConfig().then((config) => {
-      if (config) setSigningDraft(config)
-    }).catch(() => {})
-    window.api.androidGetUpdateManifest().then(setAndroidUpdateManifest).catch(() => {})
-    window.api.androidGetPublishHistory().then(setAndroidPublishHistory).catch(() => {})
-    window.api.androidGetFcmConfigStatus().then(setFcmStatus).catch(() => {})
+    void Promise.all([
+      refreshWorkspaceInfo(),
+      window.api.buildGetRecords(5).then(setBuildRecords).catch(() => {}),
+      window.api.buildGetFeedInfo().then((info) => {
+        setFeedInfo(info)
+        setFeedPathInput(info?.feedPath ?? '')
+      }).catch(() => {}),
+      window.api.buildListPublished().then(setPublishedEntries).catch(() => {}),
+      window.api.androidGetWorkspaceInfo().then((info) => {
+        setAndroidWorkspaceInfo(info)
+        setAndroidWorkspacePathInput(info.path)
+      }).catch(() => {}),
+      window.api.androidGetRecords(10).then(setAndroidBuildRecords).catch(() => {}),
+      window.api.androidGetSigningConfig().then((config) => {
+        if (config) setSigningDraft(config)
+      }).catch(() => {}),
+      window.api.androidGetUpdateManifest().then(setAndroidUpdateManifest).catch(() => {}),
+      window.api.androidGetPublishHistory().then(setAndroidPublishHistory).catch(() => {}),
+      window.api.androidGetFcmConfigStatus().then(setFcmStatus).catch(() => {}),
+    ])
   }, [visible, category, refreshWorkspaceInfo])
 
   useEffect(() => {
@@ -857,7 +858,7 @@ export function SettingsPanel() {
           />
         )}
 
-        {category === 'developer' && (
+        <div className={category !== 'developer' ? 'hidden' : undefined}>
           <DeveloperTab
             workspaceInfo={workspaceInfo}
             workspacePathInput={workspacePathInput}
@@ -930,7 +931,7 @@ export function SettingsPanel() {
                 .finally(() => setFcmSaving(false))
             }}
           />
-        )}
+        </div>
       </div>
     </ModalShell>
   )

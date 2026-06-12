@@ -1,5 +1,8 @@
 import { randomUUID, createHash } from 'crypto'
-import { execSync, spawn } from 'child_process'
+import { execSync, spawn, execFile } from 'child_process'
+import { promisify } from 'util'
+
+const execFileAsync = promisify(execFile)
 import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'fs'
 import path from 'path'
 import { networkInterfaces } from 'os'
@@ -36,7 +39,7 @@ function getAndroidWorkspacePath(db: Database.Database): string | null {
   return row?.value ?? null
 }
 
-export function getAndroidWorkspaceInfo(db: Database.Database): AndroidWorkspaceInfo {
+export async function getAndroidWorkspaceInfo(db: Database.Database): Promise<AndroidWorkspaceInfo> {
   const workspacePath = getAndroidWorkspacePath(db) ?? ''
   const info: AndroidWorkspaceInfo = {
     path: workspacePath,
@@ -51,26 +54,27 @@ export function getAndroidWorkspaceInfo(db: Database.Database): AndroidWorkspace
   if (!workspacePath) return info
 
   try {
-    execSync('git rev-parse HEAD', { cwd: workspacePath, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] })
+    const [, statusOut] = await Promise.all([
+      execFileAsync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: workspacePath, timeout: 5000 })
+        .then(({ stdout }) => { info.branch = stdout.trim() }),
+      execFileAsync('git', ['status', '--porcelain'], { cwd: workspacePath, timeout: 5000 }),
+      execFileAsync('git', ['rev-parse', '--short', 'HEAD'], { cwd: workspacePath, timeout: 5000 })
+        .then(({ stdout }) => { info.commitSha = stdout.trim() }),
+    ])
     info.isGitRepo = true
-    info.branch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: workspacePath, encoding: 'utf8' }).trim()
-    info.commitSha = execSync('git rev-parse --short HEAD', { cwd: workspacePath, encoding: 'utf8' }).trim()
-    const statusOut = execSync('git status --porcelain', { cwd: workspacePath, encoding: 'utf8' }).trim()
-    info.dirty = statusOut.length > 0
+    info.dirty = statusOut.stdout.trim().length > 0
   } catch {
     // not a git repo
   }
 
   try {
     const gradlew = getGradlew()
-    const output = execSync(`${gradlew} properties -q --no-daemon`, {
+    const { stdout } = await execFileAsync(gradlew, ['properties', '-q', '--no-daemon'], {
       cwd: workspacePath,
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 30000,
+      timeout: 8000,
     })
-    const vcMatch = /^versionCode:\s*(\d+)/m.exec(output)
-    const vnMatch = /^versionName:\s*(.+)/m.exec(output)
+    const vcMatch = /^versionCode:\s*(\d+)/m.exec(stdout)
+    const vnMatch = /^versionName:\s*(.+)/m.exec(stdout)
     if (vcMatch) info.versionCode = parseInt(vcMatch[1], 10)
     if (vnMatch) info.versionName = vnMatch[1].trim()
   } catch {
@@ -220,19 +224,24 @@ function isInsideDirectory(candidatePath: string, directoryPath: string): boolea
 export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
   const db = getDatabase()
 
-  safeHandle('android:get-workspace-info', () => getAndroidWorkspaceInfo(db))
+  safeHandle('android:get-workspace-info', async () => {
+    console.time('[DEV-TAB] android:get-workspace-info')
+    const r = await getAndroidWorkspaceInfo(db)
+    console.timeEnd('[DEV-TAB] android:get-workspace-info')
+    return r
+  })
 
-  safeHandle('android:set-workspace-path', (_event, workspacePath: string) => {
+  safeHandle('android:set-workspace-path', async (_event, workspacePath: string) => {
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('android_workspace_path', ?)").run(workspacePath)
     return getAndroidWorkspaceInfo(db)
   })
 
-  safeHandle('android:start-command', (_event, command: AndroidBuildCommandName) => {
+  safeHandle('android:start-command', async (_event, command: AndroidBuildCommandName) => {
     const buildId = randomUUID()
     const workspacePath = getAndroidWorkspacePath(db)
     if (!workspacePath) return { buildId, error: 'Android workspace path not configured' }
 
-    const wsInfo = getAndroidWorkspaceInfo(db)
+    const wsInfo = await getAndroidWorkspaceInfo(db)
     const now = Date.now()
 
     db.prepare(
@@ -324,13 +333,21 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
   })
 
   safeHandle('android:get-records', (_event, limit?: number) => {
+    console.time('[DEV-TAB] android:get-records')
     const rows = db.prepare(
       `SELECT * FROM build_records WHERE platform = 'android' ORDER BY started_at DESC LIMIT ?`
     ).all(limit ?? 20) as Record<string, unknown>[]
-    return rows.map(rowToRecord)
+    const r = rows.map(rowToRecord)
+    console.timeEnd('[DEV-TAB] android:get-records')
+    return r
   })
 
-  safeHandle('android:get-signing-config', () => getSigningConfig(db))
+  safeHandle('android:get-signing-config', () => {
+    console.time('[DEV-TAB] android:get-signing-config')
+    const r = getSigningConfig(db)
+    console.timeEnd('[DEV-TAB] android:get-signing-config')
+    return r
+  })
 
   safeHandle('android:set-signing-config', (_event, config: AndroidSigningConfig) => {
     if (!config.keystorePath || !config.keyAlias || !config.keystorePassword || !config.keyPassword) {
@@ -478,7 +495,7 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
     copyFileSync(apkSrc, destApk)
 
     const checksum = await computeSha256(destApk)
-    const wsInfo = getAndroidWorkspaceInfo(db)
+    const wsInfo = await getAndroidWorkspaceInfo(db)
     const lanIp = getLocalIp()
 
     // Restart feed server bound to all interfaces so Android can reach it over LAN
@@ -504,7 +521,10 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
   })
 
   safeHandle('android:get-update-manifest', () => {
-    return getAndroidUpdateManifest(db)
+    console.time('[DEV-TAB] android:get-update-manifest')
+    const r = getAndroidUpdateManifest(db)
+    console.timeEnd('[DEV-TAB] android:get-update-manifest')
+    return r
   })
 
   safeHandle('android:save-fcm-service-account', (_event, json: string) => {
@@ -517,13 +537,18 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
   })
 
   safeHandle('android:get-fcm-config-status', () => {
-    return getFcmConfigStatus(db)
+    console.time('[DEV-TAB] android:get-fcm-config-status')
+    const r = getFcmConfigStatus(db)
+    console.timeEnd('[DEV-TAB] android:get-fcm-config-status')
+    return r
   })
 
   safeHandle('android:get-publish-history', () => {
+    console.time('[DEV-TAB] android:get-publish-history')
     const androidFeedDir = getAndroidFeedDir(db)
-    if (!androidFeedDir) return []
-    return readPublishHistory(androidFeedDir)
+    const r = androidFeedDir ? readPublishHistory(androidFeedDir) : []
+    console.timeEnd('[DEV-TAB] android:get-publish-history')
+    return r
   })
 
   safeHandle('android:restore-version', async (_event, versionCode: number) => {

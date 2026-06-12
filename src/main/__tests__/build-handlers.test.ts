@@ -83,7 +83,7 @@ describe('getWorkspaceInfo', () => {
 
     try {
       const { getWorkspaceInfo } = await import('../build-handlers')
-      const info = getWorkspaceInfo(db)
+      const info = await getWorkspaceInfo(db)
 
       expect(info.isGitRepo).toBe(true)
       expect(info.path).toBe(repoDir)
@@ -101,7 +101,7 @@ describe('getWorkspaceInfo', () => {
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('build_workspace_path', ?)").run(tmpDir)
 
     const { getWorkspaceInfo } = await import('../build-handlers')
-    const info = getWorkspaceInfo(db)
+    const info = await getWorkspaceInfo(db)
 
     expect(info.isGitRepo).toBe(false)
     expect(info.branch).toBeNull()
@@ -114,14 +114,14 @@ describe('getWorkspaceInfo', () => {
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('build_workspace_path', ?)").run(tmpDir)
 
     const { getWorkspaceInfo } = await import('../build-handlers')
-    const info = getWorkspaceInfo(db)
+    const info = await getWorkspaceInfo(db)
 
     expect(info.path).toBe(tmpDir)
   })
 
   it('falls back to process.cwd() when no setting is stored', async () => {
     const { getWorkspaceInfo } = await import('../build-handlers')
-    const info = getWorkspaceInfo(db)
+    const info = await getWorkspaceInfo(db)
 
     expect(info.path).toBe(process.cwd())
   })

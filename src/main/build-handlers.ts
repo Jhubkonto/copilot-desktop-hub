@@ -1,5 +1,8 @@
 import { randomUUID } from 'crypto'
-import { execSync, spawn } from 'child_process'
+import { execSync, spawn, execFile } from 'child_process'
+import { promisify } from 'util'
+
+const execFileAsync = promisify(execFile)
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'fs'
 import path from 'path'
 import { app, BrowserWindow } from 'electron'
@@ -25,7 +28,7 @@ function getWorkspacePath(db: Database.Database): string {
   return row?.value ?? process.cwd()
 }
 
-export function getWorkspaceInfo(db: Database.Database): WorkspaceInfo {
+export async function getWorkspaceInfo(db: Database.Database): Promise<WorkspaceInfo> {
   const workspacePath = getWorkspacePath(db)
   const info: WorkspaceInfo = {
     path: workspacePath,
@@ -37,12 +40,16 @@ export function getWorkspaceInfo(db: Database.Database): WorkspaceInfo {
   }
 
   try {
-    execSync('git rev-parse HEAD', { cwd: workspacePath, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] })
+    const [logOut, statusOut] = await Promise.all([
+      execFileAsync('git', ['log', '-1', '--format=%D\n%h', '--decorate=short'], { cwd: workspacePath, timeout: 5000 }),
+      execFileAsync('git', ['status', '--porcelain'], { cwd: workspacePath, timeout: 5000 }),
+      execFileAsync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: workspacePath, timeout: 5000 })
+        .then(({ stdout }) => { info.branch = stdout.trim() }),
+    ])
     info.isGitRepo = true
-    info.branch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: workspacePath, encoding: 'utf8' }).trim()
-    info.commitSha = execSync('git rev-parse --short HEAD', { cwd: workspacePath, encoding: 'utf8' }).trim()
-    const statusOut = execSync('git status --porcelain', { cwd: workspacePath, encoding: 'utf8' }).trim()
-    info.dirty = statusOut.length > 0
+    const logLines = logOut.stdout.trim().split('\n')
+    info.commitSha = logLines[1]?.trim() || null
+    info.dirty = statusOut.stdout.trim().length > 0
   } catch {
     // Not a git repo or git not available
   }
@@ -50,7 +57,7 @@ export function getWorkspaceInfo(db: Database.Database): WorkspaceInfo {
   try {
     const pkgPath = path.join(workspacePath, 'package.json')
     if (existsSync(pkgPath)) {
-      const pkg = JSON.parse(require('fs').readFileSync(pkgPath, 'utf8')) as { version?: string }
+      const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: string }
       info.version = pkg.version ?? null
     }
   } catch {
@@ -146,17 +153,22 @@ function scanArtifacts(releaseDir: string, beforeMtime: number): string[] {
 export function registerBuildHandlers(mainWindow?: BrowserWindow): void {
   const db = getDatabase()
 
-  safeHandle('build:get-workspace-info', () => getWorkspaceInfo(db))
+  safeHandle('build:get-workspace-info', async () => {
+    console.time('[DEV-TAB] build:get-workspace-info')
+    const r = await getWorkspaceInfo(db)
+    console.timeEnd('[DEV-TAB] build:get-workspace-info')
+    return r
+  })
 
-  safeHandle('build:set-workspace-path', (_event, workspacePath: string) => {
+  safeHandle('build:set-workspace-path', async (_event, workspacePath: string) => {
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('build_workspace_path', ?)").run(workspacePath)
     return getWorkspaceInfo(db)
   })
 
-  safeHandle('build:start-command', (_event, command: BuildCommandName) => {
+  safeHandle('build:start-command', async (_event, command: BuildCommandName) => {
     const buildId = randomUUID()
     const workspacePath = getWorkspacePath(db)
-    const wsInfo = getWorkspaceInfo(db)
+    const wsInfo = await getWorkspaceInfo(db)
     const now = Date.now()
 
     db.prepare(
@@ -227,10 +239,13 @@ export function registerBuildHandlers(mainWindow?: BrowserWindow): void {
   })
 
   safeHandle('build:get-records', (_event, limit?: number) => {
+    console.time('[DEV-TAB] build:get-records')
     const rows = db.prepare(
       `SELECT * FROM build_records ORDER BY started_at DESC LIMIT ?`
     ).all(limit ?? 20) as Record<string, unknown>[]
-    return rows.map(rowToRecord)
+    const r = rows.map(rowToRecord)
+    console.timeEnd('[DEV-TAB] build:get-records')
+    return r
   })
 
   safeHandle('build:run-preflight', () => {
@@ -309,9 +324,11 @@ export function registerBuildHandlers(mainWindow?: BrowserWindow): void {
   // ---------------------------------------------------------------------------
 
   safeHandle('build:get-feed-info', () => {
+    console.time('[DEV-TAB] build:get-feed-info')
     const feedPath = getLocalFeedPath(db)
-    if (!feedPath) return null
-    return buildFeedInfo(feedPath)
+    const r = feedPath ? buildFeedInfo(feedPath) : null
+    console.timeEnd('[DEV-TAB] build:get-feed-info')
+    return r
   })
 
   safeHandle('build:set-feed-path', async (_event, newFeedPath: string) => {
@@ -389,8 +406,9 @@ export function registerBuildHandlers(mainWindow?: BrowserWindow): void {
   })
 
   safeHandle('build:list-published', () => {
+    console.time('[DEV-TAB] build:list-published')
     const feedPath = getLocalFeedPath(db)
-    if (!feedPath || !existsSync(feedPath)) return []
+    if (!feedPath || !existsSync(feedPath)) { console.timeEnd('[DEV-TAB] build:list-published'); return [] }
 
     const entries: PublishedEntry[] = []
     const ymlName = getYmlName()
@@ -426,7 +444,9 @@ export function registerBuildHandlers(mainWindow?: BrowserWindow): void {
       }
     }
 
-    return entries.sort((a, b) => b.publishedAt - a.publishedAt)
+    const result = entries.sort((a, b) => b.publishedAt - a.publishedAt)
+    console.timeEnd('[DEV-TAB] build:list-published')
+    return result
   })
 
   safeHandle('build:rollback-update', (_event, version: string) => {

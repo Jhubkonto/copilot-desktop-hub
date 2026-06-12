@@ -38,7 +38,12 @@ export function getAvailableModelGroups(): AvailableModelGroup[] {
 }
 
 export function registerModelAvailabilityHandlers(): void {
-  safeHandle('model:list-available', () => getAvailableModelGroups())
+  safeHandle('model:list-available', () => {
+    console.time('[DEV-TAB] model:list-available')
+    const r = getAvailableModelGroups()
+    console.timeEnd('[DEV-TAB] model:list-available')
+    return r
+  })
 
   // Backfill OpenRouter model cache if key exists but cache is empty (e.g. key was set before cache was introduced)
   if (isProviderConfigured('openrouter') && getOpenRouterModels().length === 0) {
