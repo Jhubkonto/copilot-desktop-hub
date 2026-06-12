@@ -165,6 +165,7 @@ describe('Providers — IPC Handlers', () => {
         'mistral',
         'groq',
         'xai',
+        'openrouter',
       ])
 
       const openai = result.find((p: { name: string }) => p.name === 'openai')

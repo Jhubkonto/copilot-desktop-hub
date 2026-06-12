@@ -6,7 +6,7 @@ import http from 'http'
 import { parseSseStream, httpsRequestWithResponse } from './http-client'
 import type { ProviderNonStreamResult, ToolCallResult, ToolChoice, ToolDefinition } from './provider-types'
 
-export type ProviderName = 'openai' | 'anthropic' | 'azure' | 'gemini' | 'mistral' | 'groq' | 'xai'
+export type ProviderName = 'openai' | 'anthropic' | 'azure' | 'gemini' | 'mistral' | 'groq' | 'xai' | 'openrouter'
 
 export const DEFAULT_PROVIDER_MODEL = 'gpt-5-mini'
 export const NO_PROVIDER_CONFIGURED_MESSAGE = 'No provider configured. Add an API key in Settings.'
@@ -100,6 +100,13 @@ export const PROVIDERS: ProviderConfig[] = [
     apiKeySettingKey: 'byok_xai_key',
     baseUrl: 'https://api.x.ai/v1',
     models: ['grok-3', 'grok-3-mini', 'grok-2-1212']
+  },
+  {
+    name: 'openrouter',
+    label: 'OpenRouter',
+    apiKeySettingKey: 'byok_openrouter_key',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    models: []
   }
 ]
 
@@ -127,6 +134,30 @@ function retrieveApiKey(provider: string): string | null {
     return safeStorage.decryptString(Buffer.from(row.value, 'base64'))
   }
   return row.value
+}
+
+export async function fetchAndCacheOpenRouterModels(apiKey: string): Promise<void> {
+  try {
+    const result = await httpsRequest(
+      'https://openrouter.ai/api/v1/models',
+      { method: 'GET', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Length': '0' } },
+      ''
+    )
+    if (result.status !== 200) return
+    const parsed = JSON.parse(result.data)
+    const ids: string[] = (parsed.data ?? []).map((m: { id: string }) => m.id).filter(Boolean)
+    const db = getDatabase()
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('openrouter_models_cache', JSON.stringify(ids))
+  } catch { /* fail silently — stale cache is acceptable */ }
+}
+
+export function getOpenRouterModels(): string[] {
+  try {
+    const db = getDatabase()
+    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('openrouter_models_cache') as { value: string } | undefined
+    if (!row) return []
+    return JSON.parse(row.value) as string[]
+  } catch { return [] }
 }
 
 function removeApiKey(provider: string): void {
@@ -828,7 +859,8 @@ export async function sendOpenAIWithTools(
   messages: ProviderMessage[],
   tools: ToolDefinition[],
   toolChoice: ToolChoice,
-  options: { maxTokens?: number; temperature?: number } = {}
+  options: { maxTokens?: number; temperature?: number } = {},
+  baseUrl?: string
 ): Promise<ProviderNonStreamResult> {
   const bodyObj: Record<string, unknown> = {
     model,
@@ -842,8 +874,9 @@ export async function sendOpenAIWithTools(
     bodyObj.tool_choice = toolChoice
   }
   const body = JSON.stringify(bodyObj)
+  const url = baseUrl ? `${baseUrl}/chat/completions` : 'https://api.openai.com/v1/chat/completions'
   const { status, data } = await httpsRequest(
-    'https://api.openai.com/v1/chat/completions',
+    url,
     {
       method: 'POST',
       headers: {
@@ -982,8 +1015,11 @@ export function registerProviderHandlers(): void {
     }))
   })
 
-  safeHandle('provider:set-key', (_event, provider: string, key: string) => {
+  safeHandle('provider:set-key', async (_event, provider: string, key: string) => {
     storeApiKey(provider, key)
+    if (provider === 'openrouter') {
+      await fetchAndCacheOpenRouterModels(key)
+    }
     return true
   })
 
@@ -1055,6 +1091,9 @@ export function registerProviderHandlers(): void {
           },
           ''
         )
+        if (result.status === 200 && provider === 'openrouter') {
+          await fetchAndCacheOpenRouterModels(key)
+        }
         return { valid: result.status === 200 }
       }
       return { valid: false, error: 'Unknown provider' }

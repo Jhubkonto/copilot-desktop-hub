@@ -1,7 +1,7 @@
 import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
 import { getCliModels } from './cli-detection'
-import { PROVIDERS, isProviderConfigured } from './providers'
+import { PROVIDERS, isProviderConfigured, getOpenRouterModels } from './providers'
 import { safeHandle } from './safe-handle'
 import type { AvailableModelGroup } from '../shared/types'
 
@@ -24,7 +24,8 @@ export function getAvailableModelGroups(): AvailableModelGroup[] {
 
   for (const provider of PROVIDERS) {
     if (!isProviderConfigured(provider.name)) continue
-    const models = provider.models.map((id) => ({
+    const rawModels = provider.name === 'openrouter' ? getOpenRouterModels() : provider.models
+    const models = rawModels.map((id) => ({
       id: provider.name === 'azure' ? `azure:${id}` : id,
       label: id,
     }))
