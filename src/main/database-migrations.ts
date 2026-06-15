@@ -364,6 +364,29 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
         ON self_heal_history(report_id);
     `,
   },
+  {
+    version: 32,
+    sql: `
+      CREATE TABLE IF NOT EXISTS feature_generator_runs (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'drafting',
+        spec_json TEXT,
+        team_json TEXT,
+        plan_markdown TEXT,
+        staged_files_json TEXT,
+        applied_files_json TEXT,
+        verification_json TEXT,
+        commit_sha TEXT,
+        reloaded INTEGER NOT NULL DEFAULT 0,
+        rolled_back INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_feature_generator_runs_created
+        ON feature_generator_runs(created_at DESC);
+    `,
+  },
 ];
 
 

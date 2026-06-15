@@ -504,6 +504,53 @@ export interface ProjectGeneratorMessage {
 }
 
 // ---------------------------------------------------------------------------
+// Feature Generator
+// ---------------------------------------------------------------------------
+
+export interface FeatureSpec {
+  title: string
+  type: 'feature' | 'bugfix' | 'refactor' | 'ui' | 'integration' | 'docs' | 'tooling'
+  targetAreas: ('desktop-main' | 'desktop-renderer' | 'android' | 'shared' | 'database' | 'build' | 'docs')[]
+  userStory: string
+  acceptanceCriteria: string[]
+  constraints: string[]
+  outOfScope: string[]
+  risks: string[]
+  likelyAffectedFiles: string[]
+  verificationPlan: string[]
+  autonomy: 'plan-only' | 'staged-diffs' | 'apply-verify-commit-reload'
+}
+
+export interface FeatureSpecialist {
+  role: string
+  description: string
+  systemPrompt: string
+  isTemporary: boolean
+}
+
+export interface FeatureGeneratorRun {
+  id: string
+  title: string
+  status: string
+  specJson: string | null
+  teamJson: string | null
+  planMarkdown: string | null
+  stagedFilesJson: string | null
+  appliedFilesJson: string | null
+  verificationJson: string | null
+  commitSha: string | null
+  reloaded: boolean
+  rolledBack: boolean
+  createdAt: number
+  updatedAt: number
+}
+
+export interface FeatureGeneratorMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+// ---------------------------------------------------------------------------
 // Auth
 // ---------------------------------------------------------------------------
 
@@ -1315,6 +1362,16 @@ export type IpcReturnMap = {
   'project-generator:chat': { started: boolean }
   'project-generator:token': void
   'project-generator:spec-ready': void
+  // Feature generator
+  'feature-generator:chat': { started: boolean }
+  'feature-generator:generate-plan': { plan: string }
+  'feature-generator:start-implementation': { started: boolean }
+  'feature-generator:get-runs': FeatureGeneratorRun[]
+  'feature-generator:get-run': FeatureGeneratorRun | null
+  'feature-generator:token': void
+  'feature-generator:spec-ready': void
+  'feature-generator:fix-event': void
+  'feature-generator:specialist-token': void
   // Updater (push-only)
   'updater:download-progress': void
   'updater:error': void
@@ -1570,3 +1627,12 @@ export type IpcChannels =
   | 'project-generator:chat'
   | 'project-generator:token'
   | 'project-generator:spec-ready'
+  | 'feature-generator:chat'
+  | 'feature-generator:generate-plan'
+  | 'feature-generator:start-implementation'
+  | 'feature-generator:get-runs'
+  | 'feature-generator:get-run'
+  | 'feature-generator:token'
+  | 'feature-generator:spec-ready'
+  | 'feature-generator:fix-event'
+  | 'feature-generator:specialist-token'

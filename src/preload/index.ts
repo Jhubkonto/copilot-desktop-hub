@@ -28,6 +28,9 @@ import type {
   PublishedEntry,
   ProjectGeneratorMessage,
   ProjectGeneratorSpec,
+  FeatureGeneratorMessage,
+  FeatureSpec,
+  FeatureGeneratorRun,
 } from '../shared/types'
 
 // ---------------------------------------------------------------------------
@@ -594,6 +597,38 @@ const api = {
     const handler = (_event: Electron.IpcRendererEvent, spec: ProjectGeneratorSpec) => callback(spec)
     typedOn('project-generator:spec-ready', handler)
     return () => typedOff('project-generator:spec-ready', handler)
+  },
+
+  // Feature generator
+  featureGeneratorChat: (messages: FeatureGeneratorMessage[]) =>
+    typedInvoke('feature-generator:chat', messages),
+  featureGeneratorGeneratePlan: (runId: string, spec: FeatureSpec) =>
+    typedInvoke('feature-generator:generate-plan', runId, spec),
+  featureGeneratorStartImplementation: (runId: string, spec: FeatureSpec, plan: string) =>
+    typedInvoke('feature-generator:start-implementation', runId, spec, plan),
+  featureGeneratorGetRuns: () =>
+    typedInvoke('feature-generator:get-runs'),
+  featureGeneratorGetRun: (id: string) =>
+    typedInvoke('feature-generator:get-run', id),
+  onFeatureGeneratorToken: (callback: (chunk: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, chunk: string) => callback(chunk)
+    typedOn('feature-generator:token', handler)
+    return () => typedOff('feature-generator:token', handler)
+  },
+  onFeatureGeneratorSpecReady: (callback: (spec: FeatureSpec) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, spec: FeatureSpec) => callback(spec)
+    typedOn('feature-generator:spec-ready', handler)
+    return () => typedOff('feature-generator:spec-ready', handler)
+  },
+  onFeatureGeneratorFixEvent: (callback: (event: { runId: string; file: string; status: string; diff?: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: { runId: string; file: string; status: string; diff?: string }) => callback(payload)
+    typedOn('feature-generator:fix-event', handler)
+    return () => typedOff('feature-generator:fix-event', handler)
+  },
+  onFeatureGeneratorSpecialistToken: (callback: (payload: { runId: string; specialistIndex: number; chunk: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: { runId: string; specialistIndex: number; chunk: string }) => callback(payload)
+    typedOn('feature-generator:specialist-token', handler)
+    return () => typedOff('feature-generator:specialist-token', handler)
   },
 }
 
