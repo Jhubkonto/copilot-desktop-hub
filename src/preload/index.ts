@@ -13,6 +13,12 @@ import type {
   SelfHealInvestigationChunk,
   SelfHealInvestigationResult,
   SelfHealInvestigationSettings,
+  SelfHealVerificationDone,
+  SelfHealVerificationEvent,
+  SelfHealGitEvent,
+  SelfHealRecoveryEvent,
+  SelfHealFixEvent,
+  SelfHealFixDone,
   ErrorLogEntry,
   IpcChannels,
   IpcReturn,
@@ -90,6 +96,55 @@ const api = {
     const handler = (_event: Electron.IpcRendererEvent, result: SelfHealInvestigationResult) => callback(result)
     typedOn('self-heal:investigation-done', handler)
     return () => typedOff('self-heal:investigation-done', handler)
+  },
+  startFix: (reportId: string) => typedInvoke('self-heal:start-fix', reportId),
+  commitFixToWorkspace: (reportId: string) => typedInvoke('self-heal:commit-to-workspace', reportId),
+  revertStagedFile: (reportId: string, relativePath: string) =>
+    typedInvoke('self-heal:revert-staged-file', reportId, relativePath),
+  getStagedDiff: (reportId: string, relativePath: string) =>
+    typedInvoke('self-heal:get-staged-diff', reportId, relativePath),
+  onFixEvent: (callback: (event: SelfHealFixEvent) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: SelfHealFixEvent) => callback(data)
+    typedOn('self-heal:fix-event', handler)
+    return () => typedOff('self-heal:fix-event', handler)
+  },
+  onFixDone: (callback: (result: SelfHealFixDone) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: SelfHealFixDone) => callback(data)
+    typedOn('self-heal:fix-done', handler)
+    return () => typedOff('self-heal:fix-done', handler)
+  },
+  startVerification: (reportId: string) => typedInvoke('self-heal:start-verification', reportId),
+  getVerificationRuns: (reportId: string) => typedInvoke('self-heal:get-verification-runs', reportId),
+  onVerificationEvent: (callback: (event: SelfHealVerificationEvent) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: SelfHealVerificationEvent) => callback(data)
+    typedOn('self-heal:verification-event', handler)
+    return () => typedOff('self-heal:verification-event', handler)
+  },
+  onVerificationDone: (callback: (result: SelfHealVerificationDone) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: SelfHealVerificationDone) => callback(data)
+    typedOn('self-heal:verification-done', handler)
+    return () => typedOff('self-heal:verification-done', handler)
+  },
+  getSelfHealGitStatus: (reportId?: string) => typedInvoke('self-heal:git-status', reportId),
+  prepareSelfHealCommit: (reportId: string) => typedInvoke('self-heal:git-prepare-commit', reportId),
+  commitSelfHealFix: (reportId: string, message: string) => typedInvoke('self-heal:git-commit', reportId, message),
+  pushSelfHealFix: (reportId: string) => typedInvoke('self-heal:git-push', reportId),
+  onSelfHealGitEvent: (callback: (event: SelfHealGitEvent) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: SelfHealGitEvent) => callback(data)
+    typedOn('self-heal:git-event', handler)
+    return () => typedOff('self-heal:git-event', handler)
+  },
+  prepareSelfHealReload: (reportId: string) => typedInvoke('self-heal:prepare-reload', reportId),
+  getSelfHealRecoveryRuns: (reportId: string) => typedInvoke('self-heal:get-recovery-runs', reportId),
+  startSelfHealReload: (recoveryId: string) => typedInvoke('self-heal:start-reload', recoveryId),
+  approveSelfHealRelaunch: (recoveryId: string) => typedInvoke('self-heal:approve-relaunch', recoveryId),
+  confirmSelfHealStartup: () => typedInvoke('self-heal:confirm-startup'),
+  rollbackSelfHeal: (recoveryId: string) => typedInvoke('self-heal:rollback', recoveryId),
+  getSelfHealHistory: () => typedInvoke('self-heal:get-history'),
+  onSelfHealRecoveryEvent: (callback: (event: SelfHealRecoveryEvent) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: SelfHealRecoveryEvent) => callback(data)
+    typedOn('self-heal:recovery-event', handler)
+    return () => typedOff('self-heal:recovery-event', handler)
   },
   onErrorLogEntry: (callback: (entry: ErrorLogEntry) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, entry: ErrorLogEntry) => callback(entry)
@@ -529,4 +584,3 @@ const api = {
 contextBridge.exposeInMainWorld('api', api)
 
 export type ElectronAPI = typeof api
-

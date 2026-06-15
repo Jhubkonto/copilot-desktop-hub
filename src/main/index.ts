@@ -10,6 +10,8 @@ import { initLogger } from './logger'
 import { validateSender } from './safe-handle'
 import { initDebugMode } from './debug-mode'
 import { initErrorLogCapture } from './error-log-handlers'
+import { confirmStartupAfterRelaunch, rollbackHeal } from './self-heal/recovery'
+import { broadcastToMobile } from './ws-server'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -261,6 +263,49 @@ app.whenReady().then(() => {
     initErrorLogCapture(mainWindow)
     initAutoUpdater(mainWindow)
     checkForUpdatesOnStartup()
+
+    // Confirm startup after a self-heal reload (no-op if no pending recovery)
+    confirmStartupAfterRelaunch((event) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('self-heal:recovery-event', event)
+      }
+      broadcastToMobile({ event: 'self-heal:recovery-event', data: event })
+    })
+
+    // Open failsafe window if renderer fails to load during a self-heal recovery
+    mainWindow.webContents.on('did-fail-load', () => {
+      const db = getDatabase()
+      const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('self_heal_pending_recovery_id') as { value: string } | undefined
+      if (!row?.value) return
+      const failsafeWin = new BrowserWindow({
+        width: 500,
+        height: 280,
+        title: 'Nexy Recovery',
+        resizable: false,
+        webPreferences: {
+          preload: join(__dirname, '../preload/failsafe-preload.cjs'),
+          contextIsolation: true,
+          nodeIntegration: false,
+        },
+      })
+      void failsafeWin.loadFile(join(app.getAppPath(), 'resources', 'failsafe.html'))
+      broadcastToMobile({ event: 'self-heal:failsafe-active', data: {} })
+    })
+
+    // Failsafe IPC handlers (only meaningful during a self-heal recovery)
+    ipcMain.handle('failsafe:rollback', async () => {
+      const db = getDatabase()
+      const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('self_heal_pending_recovery_id') as { value: string } | undefined
+      if (row?.value) {
+        await rollbackHeal(row.value, (event) => broadcastToMobile({ event: 'self-heal:recovery-event', data: event }))
+        db.prepare('DELETE FROM settings WHERE key = ?').run('self_heal_pending_recovery_id')
+      }
+      app.relaunch()
+      app.exit(0)
+    })
+    ipcMain.handle('failsafe:dismiss', () => {
+      getDatabase().prepare('DELETE FROM settings WHERE key = ?').run('self_heal_pending_recovery_id')
+    })
   }
 
   // Apply auto-start setting

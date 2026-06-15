@@ -23,6 +23,8 @@ import { cacheExternalWindowLabel, consumeSuppressFocusEvent } from './screen-ca
 import { registerErrorLogHandlers } from './error-log-handlers'
 import { registerErrorReportHandlers } from './error-report-handlers'
 import { registerSelfHealHandlers } from './self-heal-handlers'
+import { registerSelfHealGitHandlers } from './self-heal/git-ops'
+import { registerSelfHealRecoveryHandlers } from './self-heal/recovery'
 
 export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerSettingsHandlers()
@@ -48,6 +50,8 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerErrorLogHandlers()
   registerErrorReportHandlers()
   registerSelfHealHandlers(mainWindow)
+  registerSelfHealGitHandlers(mainWindow)
+  registerSelfHealRecoveryHandlers(mainWindow)
   registerSystemHandlers()
   registerBuildHandlers(mainWindow)
   registerAndroidHandlers(mainWindow)

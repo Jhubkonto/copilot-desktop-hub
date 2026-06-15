@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nexy Recovery</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      padding: 24px;
+    }
+    .card {
+      max-width: 420px;
+      width: 100%;
+      text-align: center;
+    }
+    .icon {
+      font-size: 40px;
+      margin-bottom: 16px;
+    }
+    h1 {
+      font-size: 18px;
+      font-weight: 600;
+      color: #f1f5f9;
+      margin-bottom: 10px;
+    }
+    p {
+      font-size: 13px;
+      color: #94a3b8;
+      line-height: 1.6;
+      margin-bottom: 28px;
+    }
+    .actions {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+    }
+    button {
+      font-size: 13px;
+      padding: 8px 18px;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+      font-weight: 500;
+      transition: opacity 0.15s;
+    }
+    button:hover { opacity: 0.85; }
+    button:disabled { opacity: 0.4; cursor: default; }
+    .btn-primary {
+      background: #ef4444;
+      color: #fff;
+    }
+    .btn-secondary {
+      background: #1e293b;
+      color: #94a3b8;
+      border: 1px solid #334155;
+    }
+    .status {
+      margin-top: 18px;
+      font-size: 12px;
+      color: #64748b;
+      min-height: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">&#9888;&#65039;</div>
+    <h1>Nexy — Startup Recovery</h1>
+    <p>The app failed to load after a self-heal update.<br>Roll back to restore the previous version.</p>
+    <div class="actions">
+      <button class="btn-primary" id="rollbackBtn" onclick="doRollback()">Roll back &amp; restart</button>
+      <button class="btn-secondary" id="dismissBtn" onclick="doDismiss()">Dismiss</button>
+    </div>
+    <div class="status" id="status"></div>
+  </div>
+  <script>
+    function setStatus(msg) {
+      document.getElementById('status').textContent = msg;
+    }
+    function setBusy(busy) {
+      document.getElementById('rollbackBtn').disabled = busy;
+      document.getElementById('dismissBtn').disabled = busy;
+    }
+    function doRollback() {
+      setBusy(true);
+      setStatus('Rolling back...');
+      window.api.rollback().catch(function(err) {
+        setStatus('Error: ' + err.message);
+        setBusy(false);
+      });
+    }
+    function doDismiss() {
+      window.api.dismiss();
+      window.close();
+    }
+  </script>
+</body>
+</html>

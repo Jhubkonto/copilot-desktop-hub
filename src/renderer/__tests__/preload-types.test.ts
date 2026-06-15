@@ -34,6 +34,20 @@ import type {
   SelfHealInvestigationChunk,
   SelfHealInvestigationResult,
   SelfHealInvestigationSettings,
+  SelfHealVerificationDone,
+  SelfHealVerificationEvent,
+  SelfHealVerificationRun,
+  SelfHealGitCommitResult,
+  SelfHealGitEvent,
+  SelfHealGitPrepareResult,
+  SelfHealGitPushResult,
+  SelfHealGitStatus,
+  SelfHealRecoveryEvent,
+  SelfHealRelaunchResult,
+  SelfHealRecoveryRun,
+  SelfHealReloadStartResult,
+  SelfHealReloadPrepareResult,
+  SelfHealStartupConfirmationResult,
   WikiEntry,
   WikiExtractionResult,
 } from '../../shared/types'
@@ -119,6 +133,30 @@ describe('preload IPC return types', () => {
     expectTypeOf<Parameters<ElectronAPI['onInvestigationActivity']>[0]>().toEqualTypeOf<(activity: SelfHealInvestigationActivity) => void>()
     expectTypeOf<Parameters<ElectronAPI['onInvestigationChunk']>[0]>().toEqualTypeOf<(chunk: SelfHealInvestigationChunk) => void>()
     expectTypeOf<Parameters<ElectronAPI['onInvestigationDone']>[0]>().toEqualTypeOf<(result: SelfHealInvestigationResult) => void>()
+  })
+
+  it('self-heal verification APIs are typed', () => {
+    expectTypeOf<ReturnType<ElectronAPI['startVerification']>>().toEqualTypeOf<Promise<{ reportId: string; runId: string }>>()
+    expectTypeOf<ReturnType<ElectronAPI['getVerificationRuns']>>().toEqualTypeOf<Promise<SelfHealVerificationRun[]>>()
+    expectTypeOf<Parameters<ElectronAPI['onVerificationEvent']>[0]>().toEqualTypeOf<(event: SelfHealVerificationEvent) => void>()
+    expectTypeOf<Parameters<ElectronAPI['onVerificationDone']>[0]>().toEqualTypeOf<(result: SelfHealVerificationDone) => void>()
+  })
+
+  it('self-heal git APIs are typed', () => {
+    expectTypeOf<ReturnType<ElectronAPI['getSelfHealGitStatus']>>().toEqualTypeOf<Promise<SelfHealGitStatus>>()
+    expectTypeOf<ReturnType<ElectronAPI['prepareSelfHealCommit']>>().toEqualTypeOf<Promise<SelfHealGitPrepareResult>>()
+    expectTypeOf<ReturnType<ElectronAPI['commitSelfHealFix']>>().toEqualTypeOf<Promise<SelfHealGitCommitResult>>()
+    expectTypeOf<ReturnType<ElectronAPI['pushSelfHealFix']>>().toEqualTypeOf<Promise<SelfHealGitPushResult>>()
+    expectTypeOf<Parameters<ElectronAPI['onSelfHealGitEvent']>[0]>().toEqualTypeOf<(event: SelfHealGitEvent) => void>()
+  })
+
+  it('self-heal recovery APIs are typed', () => {
+    expectTypeOf<ReturnType<ElectronAPI['prepareSelfHealReload']>>().toEqualTypeOf<Promise<SelfHealReloadPrepareResult>>()
+    expectTypeOf<ReturnType<ElectronAPI['getSelfHealRecoveryRuns']>>().toEqualTypeOf<Promise<SelfHealRecoveryRun[]>>()
+    expectTypeOf<ReturnType<ElectronAPI['startSelfHealReload']>>().toEqualTypeOf<Promise<SelfHealReloadStartResult>>()
+    expectTypeOf<ReturnType<ElectronAPI['approveSelfHealRelaunch']>>().toEqualTypeOf<Promise<SelfHealRelaunchResult>>()
+    expectTypeOf<ReturnType<ElectronAPI['confirmSelfHealStartup']>>().toEqualTypeOf<Promise<SelfHealStartupConfirmationResult>>()
+    expectTypeOf<Parameters<ElectronAPI['onSelfHealRecoveryEvent']>[0]>().toEqualTypeOf<(event: SelfHealRecoveryEvent) => void>()
   })
 
   it('does not expose terminal methods (removed in RF.13)', () => {
