@@ -30,6 +30,35 @@ sealed class WsEvent {
     data class SelfHealInvestigationActivity(val reportId: String, val label: String, val type: String) : WsEvent()
     data class SelfHealInvestigationChunk(val reportId: String, val chunk: String) : WsEvent()
     data class SelfHealInvestigationDone(val reportId: String, val status: String, val error: String?) : WsEvent()
+    data class SelfHealVerificationEvent(
+        val reportId: String,
+        val runId: String,
+        val command: String?,
+        val status: String,
+        val label: String,
+        val line: String?,
+    ) : WsEvent()
+    data class SelfHealVerificationDone(
+        val reportId: String,
+        val runId: String,
+        val status: String,
+        val error: String?,
+    ) : WsEvent()
+    data class SelfHealGitEvent(
+        val reportId: String,
+        val type: String,
+        val label: String,
+        val commitSha: String?,
+        val error: String?,
+    ) : WsEvent()
+    data class SelfHealRecoveryEvent(
+        val reportId: String,
+        val recoveryId: String?,
+        val type: String,
+        val label: String,
+        val status: String?,
+        val error: String?,
+    ) : WsEvent()
     data class ConversationModelUpdated(val conversationId: String, val model: String?) : WsEvent()
     data class ConversationCreated(
         val id: String,

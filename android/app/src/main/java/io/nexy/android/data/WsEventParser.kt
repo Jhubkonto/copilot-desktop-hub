@@ -171,6 +171,39 @@ fun parseWsEvent(
                 error = data?.nullableString("error"),
             )
 
+            "self-heal:verification-event" -> WsEvent.SelfHealVerificationEvent(
+                reportId = data?.optString("reportId") ?: "",
+                runId = data?.optString("runId") ?: "",
+                command = data?.nullableString("command"),
+                status = data?.optString("status") ?: "",
+                label = data?.optString("label") ?: "",
+                line = data?.nullableString("line"),
+            )
+
+            "self-heal:verification-done" -> WsEvent.SelfHealVerificationDone(
+                reportId = data?.optString("reportId") ?: "",
+                runId = data?.optString("runId") ?: "",
+                status = data?.optString("status") ?: "",
+                error = data?.nullableString("error"),
+            )
+
+            "self-heal:git-event" -> WsEvent.SelfHealGitEvent(
+                reportId = data?.optString("reportId") ?: "",
+                type = data?.optString("type") ?: "",
+                label = data?.optString("label") ?: "",
+                commitSha = data?.nullableString("commitSha"),
+                error = data?.nullableString("error"),
+            )
+
+            "self-heal:recovery-event" -> WsEvent.SelfHealRecoveryEvent(
+                reportId = data?.optString("reportId") ?: "",
+                recoveryId = data?.nullableString("recoveryId"),
+                type = data?.optString("type") ?: "",
+                label = data?.optString("label") ?: "",
+                status = data?.nullableString("status"),
+                error = data?.nullableString("error"),
+            )
+
             "conversation:model-updated" -> {
                 val conversationId = data?.optString("conversationId") ?: ""
                 val model = data?.nullableString("model")

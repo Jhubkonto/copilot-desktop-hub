@@ -9,6 +9,15 @@ import { getCachedCatalog } from './model-catalog'
 import { retrieveAuthMode } from './auth'
 import { getAndroidUpdateManifest } from './android-handlers'
 import { createErrorReport } from './error-report-handlers'
+import { listHistory } from './self-heal/history'
+import {
+  emitInvestigationEvent,
+  runInvestigation,
+} from './self-heal/investigator'
+import { runFix, emitFixEvent } from './self-heal/fix-agent'
+import { emitVerificationEvent, runVerification } from './self-heal/verifier'
+import { commitSelfHealFix, prepareSelfHealCommit, pushSelfHealFix } from './self-heal/git-ops'
+import { approveRelaunch, getRecoveryRuns, prepareReload, rollbackHeal, startReload } from './self-heal/recovery'
 import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
 import {
@@ -18,6 +27,7 @@ import {
   getQrDataUrl,
   regenerateToken,
   setWsCommandHandler,
+  broadcastToMobile,
 } from './ws-server'
 
 // Filled in by tools.ts after registration to avoid a circular import
@@ -69,6 +79,178 @@ export function registerWsHandlers(): void {
           data: { message: error instanceof Error ? error.message : String(error) },
         })
       }
+      return
+    }
+
+    if (command === 'self-heal:get-history') {
+      reply({ event: 'self-heal:history', data: { entries: listHistory() } })
+      return
+    }
+
+    if (command === 'self-heal:get-reports') {
+      const rows = getDatabase()
+        .prepare('SELECT * FROM error_reports ORDER BY created_at DESC LIMIT 50')
+        .all()
+      reply({ event: 'self-heal:reports', data: { reports: rows } })
+      return
+    }
+
+    if (command === 'self-heal:start-investigation') {
+      const reportId = typeof data.reportId === 'string' ? data.reportId : ''
+      if (!reportId) return
+      const win = BrowserWindow.getAllWindows()[0]
+      if (!win) return
+      void runInvestigation(win, reportId, {
+        onChunk: (chunk) => {
+          broadcastToMobile({ event: 'self-heal:investigation-chunk', data: { reportId, chunk } })
+          emitInvestigationEvent(win, 'self-heal:investigation-chunk', { reportId, chunk })
+        },
+        onActivity: (activity) => {
+          broadcastToMobile({ event: 'self-heal:investigation-activity', data: activity })
+          emitInvestigationEvent(win, 'self-heal:investigation-activity', activity)
+        },
+      }).then((result) => {
+        broadcastToMobile({ event: 'self-heal:investigation-done', data: result })
+        emitInvestigationEvent(win, 'self-heal:investigation-done', result)
+      })
+      return
+    }
+
+    if (command === 'self-heal:start-fix') {
+      const reportId = typeof data.reportId === 'string' ? data.reportId : ''
+      if (!reportId) return
+      const win = BrowserWindow.getAllWindows()[0]
+      if (!win) return
+      void runFix(win, reportId, {
+        onEvent: (event) => {
+          broadcastToMobile({ event: 'self-heal:fix-event', data: event })
+          emitFixEvent(win, 'self-heal:fix-event', event)
+        },
+      }).then((result) => {
+        broadcastToMobile({ event: 'self-heal:fix-done', data: result })
+        emitFixEvent(win, 'self-heal:fix-done', result)
+      })
+      return
+    }
+
+    if (command === 'self-heal:start-verification') {
+      const reportId = typeof data.reportId === 'string' ? data.reportId : ''
+      if (!reportId) return
+      const win = BrowserWindow.getAllWindows()[0]
+      if (!win) return
+      const runId = `${reportId}-${Date.now()}`
+      void runVerification(reportId, (event) => {
+        broadcastToMobile({ event: 'self-heal:verification-event', data: event })
+        emitVerificationEvent(win, 'self-heal:verification-event', event)
+      }, runId).then((result) => {
+        broadcastToMobile({ event: 'self-heal:verification-done', data: result })
+        emitVerificationEvent(win, 'self-heal:verification-done', result)
+      })
+      return
+    }
+
+    if (command === 'self-heal:get-staged-diff') {
+      const reportId = typeof data.reportId === 'string' ? data.reportId : ''
+      const relativePath = typeof data.relativePath === 'string' ? data.relativePath : ''
+      if (!reportId || !relativePath) return
+      const row = getDatabase()
+        .prepare('SELECT diff_json FROM self_heal_diffs WHERE report_id = ? AND relative_path = ?')
+        .get(reportId, relativePath) as { diff_json: string } | undefined
+      if (!row) {
+        reply({ event: 'self-heal:staged-diff', data: { reportId, relativePath, hunks: null } })
+        return
+      }
+      reply({
+        event: 'self-heal:staged-diff',
+        data: { reportId, relativePath, ...(JSON.parse(row.diff_json) as object) },
+      })
+      return
+    }
+
+    if (command === 'self-heal:list-staged-files') {
+      const reportId = typeof data.reportId === 'string' ? data.reportId : ''
+      if (!reportId) return
+      const row = getDatabase()
+        .prepare('SELECT fix_staged_files, fix_status FROM error_reports WHERE id = ?')
+        .get(reportId) as { fix_staged_files: string; fix_status: string } | undefined
+      if (!row) return
+      reply({
+        event: 'self-heal:staged-files',
+        data: {
+          reportId,
+          fixStatus: row.fix_status,
+          stagedFiles: JSON.parse(row.fix_staged_files || '[]'),
+        },
+      })
+      return
+    }
+
+    if (command === 'self-heal:git-prepare-commit') {
+      const reportId = typeof data.reportId === 'string' ? data.reportId : ''
+      if (!reportId) return
+      void prepareSelfHealCommit(reportId).then((result) => {
+        reply({ event: 'self-heal:git-prepare-result', data: result })
+      })
+      return
+    }
+
+    if (command === 'self-heal:git-commit') {
+      const reportId = typeof data.reportId === 'string' ? data.reportId : ''
+      const message = typeof data.message === 'string' ? data.message : ''
+      if (!reportId) return
+      void commitSelfHealFix(reportId, message).then((result) => {
+        reply({ event: 'self-heal:git-commit-result', data: result })
+      })
+      return
+    }
+
+    if (command === 'self-heal:git-push') {
+      const reportId = typeof data.reportId === 'string' ? data.reportId : ''
+      if (!reportId) return
+      void pushSelfHealFix(reportId).then((result) => {
+        reply({ event: 'self-heal:git-push-result', data: result })
+      })
+      return
+    }
+
+    if (command === 'self-heal:prepare-reload') {
+      const reportId = typeof data.reportId === 'string' ? data.reportId : ''
+      if (!reportId) return
+      void prepareReload(reportId).then((result) => {
+        reply({ event: 'self-heal:reload-prepare-result', data: result })
+      })
+      return
+    }
+
+    if (command === 'self-heal:get-recovery-runs') {
+      const reportId = typeof data.reportId === 'string' ? data.reportId : ''
+      if (!reportId) return
+      reply({ event: 'self-heal:recovery-runs', data: { reportId, runs: getRecoveryRuns(reportId) } })
+      return
+    }
+
+    if (command === 'self-heal:start-reload') {
+      const recoveryId = typeof data.recoveryId === 'string' ? data.recoveryId : ''
+      if (!recoveryId) return
+      void startReload(recoveryId).then((result) => {
+        reply({ event: 'self-heal:reload-start-result', data: result })
+      })
+      return
+    }
+
+    if (command === 'self-heal:approve-relaunch') {
+      const recoveryId = typeof data.recoveryId === 'string' ? data.recoveryId : ''
+      if (!recoveryId) return
+      reply({ event: 'self-heal:relaunch-result', data: approveRelaunch(recoveryId) })
+      return
+    }
+
+    if (command === 'self-heal:request-rollback') {
+      const recoveryId = typeof data.recoveryId === 'string' ? data.recoveryId : ''
+      if (!recoveryId) return
+      void rollbackHeal(recoveryId, (event) => {
+        broadcastToMobile({ event: 'self-heal:recovery-event', data: event })
+      })
       return
     }
 

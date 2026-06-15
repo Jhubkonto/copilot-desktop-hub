@@ -66,6 +66,8 @@ export default function App() {
   // Hydrate store on mount
   useEffect(() => {
     hydrate()
+      .then(() => window.api.confirmSelfHealStartup?.())
+      .catch(() => {})
   }, [hydrate])
 
   // Listen for tool approval requests
