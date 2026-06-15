@@ -218,6 +218,230 @@ export interface SelfHealInvestigationResult {
   completedAt: number
 }
 
+export type SelfHealFixStatus = 'none' | 'staging' | 'staged' | 'applying' | 'applied' | 'failed'
+
+export interface SelfHealStagedFileEntry {
+  relativePath: string
+  stagingPath: string
+  backupPath: string | null
+  diffLineCount: number
+  reviewed: boolean
+}
+
+export interface DiffLine {
+  type: 'context' | 'added' | 'removed'
+  lineNumber: { before: number | null; after: number | null }
+  content: string
+}
+
+export interface DiffHunk {
+  header: string
+  lines: DiffLine[]
+}
+
+export interface SelfHealStagedFileDiff {
+  relativePath: string
+  hunks: DiffHunk[]
+}
+
+export interface SelfHealFixEvent {
+  reportId: string
+  type: 'file-patched' | 'file-error' | 'status'
+  relativePath?: string
+  error?: string
+  label: string
+}
+
+export interface SelfHealFixDone {
+  reportId: string
+  status: 'done' | 'error'
+  stagedFiles: SelfHealStagedFileEntry[]
+  error?: string
+  completedAt: number
+}
+
+export type SelfHealVerificationCommand = 'typecheck' | 'lint' | 'test' | 'build'
+export type SelfHealVerificationStepStatus = 'pending' | 'running' | 'success' | 'failed' | 'skipped'
+
+export interface SelfHealVerificationStep {
+  command: SelfHealVerificationCommand
+  status: SelfHealVerificationStepStatus
+  exitCode: number | null
+  log: string
+  startedAt: number | null
+  completedAt: number | null
+}
+
+export interface SelfHealVerificationRun {
+  id: string
+  reportId: string
+  status: 'running' | 'success' | 'failed'
+  steps: SelfHealVerificationStep[]
+  startedAt: number
+  completedAt: number | null
+  retryCount: number
+  error?: string
+}
+
+export interface SelfHealVerificationEvent {
+  reportId: string
+  runId: string
+  command?: SelfHealVerificationCommand
+  status: SelfHealVerificationStepStatus | 'running' | 'success' | 'failed'
+  line?: string
+  exitCode?: number | null
+  label: string
+}
+
+export interface SelfHealVerificationDone {
+  reportId: string
+  runId: string
+  status: 'success' | 'failed'
+  steps: SelfHealVerificationStep[]
+  retryCount: number
+  error?: string
+  completedAt: number
+}
+
+export type SelfHealGitFileStatus = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'unknown'
+
+export interface SelfHealGitFile {
+  path: string
+  indexStatus: string
+  worktreeStatus: string
+  status: SelfHealGitFileStatus
+}
+
+export interface SelfHealGitStatus {
+  reportId?: string
+  isRepo: boolean
+  branch: string | null
+  commitSha: string | null
+  dirty: boolean
+  ahead: number
+  behind: number
+  files: SelfHealGitFile[]
+  error?: string
+}
+
+export interface SelfHealGitPrepareResult {
+  reportId: string
+  status: SelfHealGitStatus
+  suggestedMessage: string
+  files: string[]
+  canCommit: boolean
+  reason?: string
+}
+
+export interface SelfHealGitCommitResult {
+  reportId: string
+  committed: boolean
+  commitSha: string | null
+  status: SelfHealGitStatus
+  error?: string
+}
+
+export interface SelfHealGitPushResult {
+  reportId: string
+  pushed: boolean
+  status: SelfHealGitStatus
+  error?: string
+}
+
+export interface SelfHealGitEvent {
+  reportId: string
+  type: 'status' | 'prepare' | 'commit' | 'push'
+  label: string
+  status?: SelfHealGitStatus
+  commitSha?: string | null
+  error?: string
+}
+
+export interface SelfHealRecoveryBackupFile {
+  relativePath: string
+  backupPath: string | null
+}
+
+export interface SelfHealRecoveryPreReloadState {
+  branch: string | null
+  commitSha: string | null
+  dirty: boolean
+  version: string | null
+}
+
+export interface SelfHealRecoveryRun {
+  id: string
+  reportId: string
+  status: 'prepared' | 'reloading' | 'confirmed' | 'rollback-required' | 'rolled-back' | 'failed'
+  targetCommitSha: string | null
+  targetVersion: string | null
+  backupManifest: SelfHealRecoveryBackupFile[]
+  preReloadState: SelfHealRecoveryPreReloadState
+  createdAt: number
+  updatedAt: number
+  confirmedAt: number | null
+  rollbackAt: number | null
+  error?: string
+}
+
+export interface SelfHealReloadPrepareResult {
+  reportId: string
+  recovery: SelfHealRecoveryRun | null
+  canReload: boolean
+  reason?: string
+}
+
+export interface SelfHealRecoveryEvent {
+  reportId: string
+  recoveryId?: string
+  type: 'prepare' | 'reload' | 'confirm' | 'rollback'
+  label: string
+  status?: SelfHealRecoveryRun['status']
+  error?: string
+}
+
+export interface SelfHealReloadStartResult {
+  reportId: string
+  recoveryId: string
+  started: boolean
+  buildId: string | null
+  recovery: SelfHealRecoveryRun | null
+  error?: string
+}
+
+export interface SelfHealRelaunchResult {
+  reportId: string
+  recoveryId: string
+  scheduled: boolean
+  error?: string
+}
+
+export interface SelfHealStartupConfirmationResult {
+  confirmed: boolean
+  recovery: SelfHealRecoveryRun | null
+  error?: string
+}
+
+export interface SelfHealHistoryEntry {
+  id: string
+  reportId: string
+  reportTitle: string
+  investigationModel: string | null
+  investigationBackend: string | null
+  investigationRounds: number
+  fixAppliedAt: number | null
+  verificationPassed: boolean
+  verificationFailedStep: string | null
+  committed: boolean
+  commitSha: string | null
+  pushed: boolean
+  reloaded: boolean
+  rolledBack: boolean
+  status: string
+  createdAt: number
+  updatedAt: number
+}
+
 export interface ErrorReportEntry {
   id: string
   title: string
@@ -234,6 +458,11 @@ export interface ErrorReportEntry {
   investigation_affected_files: string
   investigation_started_at: number | null
   investigation_completed_at: number | null
+  fix_status: SelfHealFixStatus
+  fix_staged_files: string
+  fix_started_at: number | null
+  fix_completed_at: number | null
+  fix_error: string | null
   created_at: number
   updated_at: number
 }
@@ -897,6 +1126,33 @@ export type IpcReturnMap = {
   'self-heal:investigation-activity': void
   'self-heal:investigation-chunk': void
   'self-heal:investigation-done': void
+  // Self-heal fix staging
+  'self-heal:start-fix': { reportId: string }
+  'self-heal:commit-to-workspace': { appliedFiles: string[]; backupPaths: string[] } | null
+  'self-heal:revert-staged-file': boolean
+  'self-heal:get-staged-diff': SelfHealStagedFileDiff | null
+  'self-heal:fix-event': void
+  'self-heal:fix-done': void
+  // Self-heal verification
+  'self-heal:start-verification': { reportId: string; runId: string }
+  'self-heal:get-verification-runs': SelfHealVerificationRun[]
+  'self-heal:verification-event': void
+  'self-heal:verification-done': void
+  // Self-heal git flow
+  'self-heal:git-status': SelfHealGitStatus
+  'self-heal:git-prepare-commit': SelfHealGitPrepareResult
+  'self-heal:git-commit': SelfHealGitCommitResult
+  'self-heal:git-push': SelfHealGitPushResult
+  'self-heal:git-event': void
+  // Self-heal recovery/reload
+  'self-heal:prepare-reload': SelfHealReloadPrepareResult
+  'self-heal:get-recovery-runs': SelfHealRecoveryRun[]
+  'self-heal:start-reload': SelfHealReloadStartResult
+  'self-heal:approve-relaunch': SelfHealRelaunchResult
+  'self-heal:confirm-startup': SelfHealStartupConfirmationResult
+  'self-heal:rollback': { rolledBack: boolean; error?: string }
+  'self-heal:recovery-event': void
+  'self-heal:get-history': SelfHealHistoryEntry[]
   // Deeplink (push-only)
   'deeplink:open-agent': void
   'deeplink:open-chat': void
@@ -1132,6 +1388,29 @@ export type IpcChannels =
   | 'self-heal:investigation-activity'
   | 'self-heal:investigation-chunk'
   | 'self-heal:investigation-done'
+  | 'self-heal:start-fix'
+  | 'self-heal:commit-to-workspace'
+  | 'self-heal:revert-staged-file'
+  | 'self-heal:get-staged-diff'
+  | 'self-heal:fix-event'
+  | 'self-heal:fix-done'
+  | 'self-heal:start-verification'
+  | 'self-heal:get-verification-runs'
+  | 'self-heal:verification-event'
+  | 'self-heal:verification-done'
+  | 'self-heal:git-status'
+  | 'self-heal:git-prepare-commit'
+  | 'self-heal:git-commit'
+  | 'self-heal:git-push'
+  | 'self-heal:git-event'
+  | 'self-heal:prepare-reload'
+  | 'self-heal:get-recovery-runs'
+  | 'self-heal:start-reload'
+  | 'self-heal:approve-relaunch'
+  | 'self-heal:confirm-startup'
+  | 'self-heal:rollback'
+  | 'self-heal:recovery-event'
+  | 'self-heal:get-history'
   | 'deeplink:open-agent'
   | 'deeplink:open-chat'
   | 'file:add-recent-dir'
