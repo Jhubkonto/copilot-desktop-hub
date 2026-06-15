@@ -2,6 +2,161 @@
 
 ---
 
+## Implementation checklist
+
+Use this as the canonical tick-off list. The detailed phase notes below explain the design, affected files, and verification for each item.
+
+### Milestone A — Observability foundation
+
+- [x] **A0.1 Debug mode state** — add `src/main/debug-mode.ts` with `initDebugMode`, `isDebugEnabled`, `setDebugEnabled`, and `debugLog`.
+- [x] **A0.2 Debug setting persistence** — store and hydrate `debug_logging` through settings handlers and app store hydration.
+- [x] **A0.3 Debug IPC/preload bridge** — add typed `debug:set-enabled` invoke and `debug:log` push event.
+- [x] **A0.4 Developer toggle** — expose a Debug logging toggle in Developer settings.
+- [x] **A0.5 Convert noisy diagnostic logs** — move existing timing/debug `console.*` calls behind `debugLog`.
+- [x] **A0.6 Verify debug mode** — typecheck/test, toggle on/off, restart persistence, and devtools API path.
+
+### Milestone B — Error capture and console
+
+- [x] **B1.1 Error log DB schema** — add `error_log` migration with source, level, message, stack, timestamp.
+- [x] **B1.2 Main log IPC** — add `errors:get-log-path`, `errors:get-recent`, and `errors:clear`.
+- [x] **B1.3 Renderer console capture** — capture BrowserWindow console messages into the ring buffer and DB.
+- [x] **B1.4 Live error events** — push new entries to renderer with `errors:new`.
+- [x] **B1.5 Console UI** — add Developer Console panel/tab with level filters, clear, copy, stack expansion, and auto-scroll.
+- [x] **B1.6 Verify console** — trigger renderer and main-process errors and confirm they appear without terminal access.
+
+### Milestone C — Bug report capture
+
+- [x] **C2.1 Error reports DB schema** — add `error_reports` table with report metadata, status, paths, and timestamps.
+- [x] **C2.2 Renderer ErrorBoundary** — wrap the app and provide a minimal report-bug fallback UI.
+- [x] **C2.3 Report capture IPC** — implement `error-report:capture` with optional screenshot and log snapshot.
+- [x] **C2.4 Report Bug UI** — add report form with title, description, screenshot/log toggles, preview, and submit state.
+- [x] **C2.5 Android report trigger** — add Android settings action and WS command for desktop-side report capture.
+- [x] **C2.6 Verify reports** — confirm reports persist, include selected context, and can be reopened.
+
+### Milestone D — Investigation agent
+
+- [x] **D3.1 Investigation settings** — add backend/model selection and retry limits to settings storage/UI.
+- [x] **D3.2 MCP auto-approve path** — thread an `autoApprove` option through MCP calls and tool loop for investigator-only use.
+- [x] **D3.3 Inline workspace tools** — implement read file, list directory, and grep handlers for no-MCP investigation mode.
+- [x] **D3.4 Investigation runner** — add `src/main/self-heal/investigator.ts` with BYOK tool-loop and Claude CLI paths.
+- [x] **D3.5 Structured report output** — enforce YAML front matter with confidence, affected files, and root cause.
+- [x] **D3.6 Streaming IPC/events** — stream tokens, activity events, and completion events to desktop and Android.
+- [x] **D3.7 Report viewer** — show report history, live investigation output, tool activity, and Accept/Reject/Revise actions.
+- [x] **D3.8 Verify investigation** — run against a synthetic report and confirm tool use, status transitions, and saved Markdown.
+
+### Milestone E — Fix staging and review
+
+- [ ] **E4.1 Fix staging schema** — store patched files, backups, and fix status on the report/history records.
+- [ ] **E4.2 Fix agent** — add `src/main/self-heal/fix-agent.ts` to generate complete patched files into staging only.
+- [ ] **E4.3 Context guard** — truncate or summarize oversized affected files before sending to the model.
+- [ ] **E4.4 Diff generation** — produce before/after diffs for every staged file.
+- [ ] **E4.5 Desktop diff UI** — show reviewable diffs with per-file revert and reviewed state.
+- [ ] **E4.6 Apply to workspace** — copy staged files into the workspace only after explicit approval, with backups.
+- [ ] **E4.7 Android fix status** — broadcast patched file list and provide read-only diff retrieval.
+- [ ] **E4.8 Verify staging** — confirm dry-run staging never touches workspace until approved.
+
+### Milestone F — Verification pipeline
+
+- [ ] **F5.1 Verification runner** — add `src/main/self-heal/verifier.ts` for typecheck, lint, build, and tests.
+- [ ] **F5.2 Lint command support** — add a lint verification command if build handlers do not already expose it.
+- [ ] **F5.3 Verification streaming** — stream logs and step statuses to desktop and Android.
+- [ ] **F5.4 Failure retry loop** — allow up to the configured number of re-investigation rounds with compiler/test errors appended.
+- [ ] **F5.5 Verification UI** — show four status rows with expandable logs and next actions only after all pass.
+- [ ] **F5.6 Verify pipeline** — test one passing fix and one failing fix with retry behavior.
+
+### Milestone G — Git, reload, and rollback
+
+- [ ] **G6.1 Git IPC handlers** — add branch, stage, commit, push, and status handlers under `src/main/self-heal/git-ops.ts`.
+- [ ] **G6.2 Git UI flow** — add branch/commit/push prompt cards with editable commit message and skip options.
+- [ ] **G6.3 Android git relay** — mirror git prompts and decisions over WebSocket.
+- [ ] **G7.1 Reload preparation** — record last-heal metadata, target version, backup path, and pre-reload state.
+- [ ] **G7.2 App reload flow** — rebuild/package as needed and relaunch into the fixed version after user approval.
+- [ ] **G7.3 Startup confirmation** — mark heal confirmed only after the app loads and reports healthy startup.
+- [ ] **G7.4 Rollback path** — restore backup if startup fails or the user rejects the healed version.
+- [ ] **G7.5 Failsafe window** — provide minimal rollback UI if the normal renderer cannot load.
+- [ ] **G7.6 Android reload UX** — broadcast reloading/failsafe events and reconnect guidance.
+- [ ] **G7.7 Verify recovery** — test successful reload and intentionally bad reload rollback.
+
+### Milestone H — Self-heal product integration
+
+- [ ] **H8.1 Self-heal dashboard** — add active pipeline and report history surfaces.
+- [ ] **H8.2 Self-heal history table** — persist model/backend, rounds, statuses, verification, git, reload, and rollback metadata.
+- [ ] **H8.3 Notifications** — send desktop notifications for investigation complete, verification failure, and approval-required steps.
+- [ ] **H8.4 Android end-to-end control** — allow Android to follow and control the full healing workflow.
+- [ ] **H8.5 End-to-end verification** — run from captured error to reloaded app using desktop and Android paths.
+
+### Milestone I — Developer UI redesign
+
+- [ ] **I9.1 Developer inner tabs** — split Developer into Desktop, Android, Self-Heal, and Console tabs.
+- [ ] **I9.2 Desktop pipeline layout** — present Preflight, Build, Publish, and Launch as a clear pipeline.
+- [ ] **I9.3 Reusable BuildLog** — add ANSI-stripping, timestamps, auto-scroll, copy, line count, and resize support.
+- [ ] **I9.4 Expandable build history** — show stored log tails and rerun actions inline.
+- [ ] **I9.5 Persistent preflight status** — keep results visible and badge the tab with worst status.
+- [ ] **I9.6 Android signing modal** — move signing inputs into a modal and keep inline status compact.
+- [ ] **I9.7 Version shelf** — replace feed/history `<details>` with persistent version shelves.
+- [ ] **I9.8 Move FCM config** — move FCM service account config to Mobile settings.
+- [ ] **I9.9 Self-Heal tab UI** — integrate active healing pipeline and report viewer.
+- [ ] **I9.10 Console tab UI** — move console into its own tab with unread error count.
+- [ ] **I9.11 Verify UI redesign** — typecheck and manually exercise all four tabs.
+
+### Milestone J — Project generator
+
+- [ ] **J10.1 Replace New Project entry** — open the generator wizard from the existing New Project button.
+- [ ] **J10.2 Desktop wizard modal** — build two-column chat plus live draft preview layout.
+- [ ] **J10.3 Project generator backend** — add `src/main/project-generator.ts` and `project-generator:chat`.
+- [ ] **J10.4 Structured `<project-spec>` parsing** — detect and validate generated project specs.
+- [ ] **J10.5 Agent matching/creation plan** — reuse existing agents when suitable and propose new specialist agents when needed.
+- [ ] **J10.6 Edit-before-create flow** — allow users to adjust project fields and proposed agents before commit.
+- [ ] **J10.7 Creation chain** — run project create, config update, agent create, team assignment, primary agent, and orchestration enablement.
+- [ ] **J10.8 Rollback on failure** — delete created project/agents if any creation step fails.
+- [ ] **J10.9 Android generator flow** — add WS-backed generator conversation, spec preview, confirm, and created events.
+- [ ] **J10.10 Verify generator** — test cancel, edit, successful create, rollback, orchestration, and Android creation.
+
+### Milestone K — Feature generator
+
+- [ ] **K11.1 Developer sub-tab** — add a dedicated Feature Generator tab under Developer options.
+- [ ] **K11.2 Guided discovery chat** — ask the developer what they want to add/change, target surfaces, constraints, risk tolerance, and acceptance criteria.
+- [ ] **K11.3 Structured feature spec** — emit and validate a `<feature-spec>` block with scope, user story, acceptance criteria, risks, affected areas, and verification plan.
+- [ ] **K11.4 Approval before implementation** — require explicit developer approval of the generated spec and implementation plan before any code path starts.
+- [ ] **K11.5 Specialist team proposal** — propose a lead plus specialists matched to the feature type and app surface.
+- [ ] **K11.6 Temporary specialist sessions** — use temporary per-feature specialists by default, with an option to promote useful specialists into persistent agents after the run.
+- [ ] **K11.7 Specialist work panel** — show a live panel of specialist activity; each specialist can be expanded to inspect reasoning, files reviewed, proposed tasks, and current output.
+- [ ] **K11.8 Implementation runner** — after approval, hand the approved plan to the same staged file-edit workflow used by self-heal.
+- [ ] **K11.9 Staged diff review** — require review and approval of generated diffs before applying changes to the workspace.
+- [ ] **K11.10 Verify/apply/commit/reload flow** — support the full Plan + apply + verify + commit + reload path through existing self-heal pipeline pieces.
+- [ ] **K11.11 Artifact workspace mode** — design the feature generator so it can later target user-selected workspaces, not only the Nexy repo.
+- [ ] **K11.12 Run history** — store feature generator runs, specs, specialist team, changed files, verification results, commit SHA, and reload status.
+- [ ] **K11.13 Verify feature generator** — test plan-only, approved implementation, failed verification, commit skip, reload success, and rollback paths.
+
+### Milestone L — Artifact generator
+
+- [ ] **L12.1 Artifact definition** — define artifacts as global-or-project-scoped, versioned deliverables with one or more generated files.
+- [ ] **L12.2 Artifact storage root** — add a configurable global artifact storage location, with project-scoped subfolders when applicable.
+- [ ] **L12.3 Artifact DB schema** — add artifact, artifact version, artifact file, and chat reference records.
+- [ ] **L12.4 Project Artifacts tab** — add an Artifacts tab in each project for browsing, opening, exporting, and version history.
+- [ ] **L12.5 Chat artifact references** — when an artifact is generated from a project chat, insert a chat-visible reference card/link to the artifact and version.
+- [ ] **L12.6 Guided artifact generator** — ask what deliverable to create, audience, format, constraints, target project/global scope, files, and export needs.
+- [ ] **L12.7 Project team generation** — use the project's existing agent team to plan and generate artifacts.
+- [ ] **L12.8 Artifact spec approval** — require approval of a structured `<artifact-spec>` before generating files.
+- [ ] **L12.9 Workspace file writing** — generate and save artifact files to the configured storage/workspace location.
+- [ ] **L12.10 Artifact versioning** — save every revision as a new version with file manifest, notes, and source conversation/run metadata.
+- [ ] **L12.11 Export support** — export artifacts to formats such as Markdown, PDF, HTML, JSON, ZIP, or raw file bundle where applicable.
+- [ ] **L12.12 Global artifact library** — provide a global view for artifacts not attached to a project.
+- [ ] **L12.13 Verify artifact generator** — test global artifacts, project artifacts, chat references, version creation, file storage, and exports.
+
+### Cross-cutting acceptance gates
+
+- [ ] Every new IPC/WS channel is typed in `src/shared/types.ts`, exposed through preload where needed, and registered with `safeHandle`.
+- [ ] Every DB change has a migration and backwards-compatible read path.
+- [ ] Every workspace write path validates that target paths stay inside the configured workspace.
+- [ ] Every LLM-generated file edit is staged and diff-reviewed before touching the workspace.
+- [ ] Every potentially destructive action has an explicit user approval step.
+- [ ] Desktop typecheck and relevant tests pass for each milestone before marking it complete.
+- [ ] Android unit tests or manual device checklist entries are updated for every Android-facing milestone.
+- [ ] Roadmap checkboxes are updated in the same PR/session that completes each item.
+
+---
+
 ## Phase 0 — Debug Logging Toggle
 
 **Goal:** A first-class debug mode that can be toggled by a human in Developer settings or programmatically by the self-heal agent. Controls verbose/timing logs across terminal, electron-log file, and (via push event) the in-app console panel planned in Phase 1B.
@@ -753,3 +908,450 @@ These are prompt hints only — the LLM adapts based on the user's actual descri
 - Check agent team tab: leader has `is_primary = 1`, orchestration is enabled
 - Start a chat in the new project — confirm orchestration routes to leader agent
 - Android: start generator from companion, complete conversation, confirm project appears on both desktop and Android
+
+---
+
+## Phase 11 — Feature Generator
+
+**Goal:** Let a developer evolve Nexy through the app interface itself. The feature starts from a guided prompt flow, turns the request into an approved implementation plan, creates a task-specific specialist team, then uses the same staged diff, verification, commit, and reload pipeline planned for self-heal.
+
+Unlike self-heal, this flow is not error-driven. It is developer-intent-driven: "add this feature", "change this behavior", "refactor this area", or "build this artifact".
+
+### 11A — Developer entry point
+
+Add a dedicated **Feature Generator** inner tab under Developer options, separate from Self-Heal and Project Generator.
+
+Initial layout:
+
+- Left: feature run history and current run status
+- Center: guided prompt conversation
+- Right: live spec preview and specialist team panel
+
+The tab should make the autonomy level explicit. The target end state is **Plan + apply + verify + commit + reload**, but each major step requires approval:
+
+1. Approve generated feature spec
+2. Approve implementation plan
+3. Approve staged diffs before workspace writes
+4. Approve commit
+5. Approve reload
+
+### 11B — Guided discovery prompt
+
+The first pass is a structured conversation. The assistant asks targeted questions before generating a plan:
+
+- What should be added or changed?
+- Is this a feature, bug fix, refactor, UI change, integration, documentation task, or developer tooling task?
+- Which surfaces are involved: desktop main process, renderer UI, Android, shared protocol, database, build/release tooling, docs, or settings?
+- What should remain out of scope?
+- What are the acceptance criteria?
+- Are DB migrations, Android changes, dependency changes, or public API/protocol changes allowed?
+- Should the result be implemented now, or should this run only create a spec/roadmap item?
+- Does this target the Nexy repo, or a user-selected workspace/artifact project?
+
+The conversation should prefer asking a small number of high-signal questions per turn. It should not generate a plan until the requested change, target surfaces, constraints, and acceptance criteria are clear enough for review.
+
+### 11C — Structured feature spec
+
+The model emits a final `<feature-spec>` JSON block:
+
+```ts
+{
+  title: string
+  type: 'feature' | 'bugfix' | 'refactor' | 'ui' | 'integration' | 'docs' | 'tooling'
+  targetWorkspace: {
+    kind: 'nexy-repo' | 'user-workspace'
+    path?: string
+  }
+  targetAreas: ('desktop-main' | 'desktop-renderer' | 'android' | 'shared' | 'database' | 'build' | 'docs')[]
+  userStory: string
+  acceptanceCriteria: string[]
+  constraints: string[]
+  outOfScope: string[]
+  risks: string[]
+  likelyAffectedFiles: string[]
+  verificationPlan: string[]
+  autonomy: 'plan-only' | 'staged-diffs' | 'apply-verify-commit-reload'
+}
+```
+
+The UI validates the spec before showing approval actions. Invalid specs stay in draft mode and ask the model to repair the JSON.
+
+### 11D — Specialist team generation
+
+After the spec is approved, the system proposes a task-specific team:
+
+- **Lead implementer** — owns the implementation plan and final integration
+- **Domain specialist(s)** — selected based on target areas, such as Renderer UI, Android, IPC/Protocol, Database, Build/Release, or Testing
+- **Reviewer** — checks regressions, scope control, and missing tests
+- **Verifier** — owns typecheck/test/build interpretation and retry recommendations
+
+Specialists should be **temporary per feature run by default**. This avoids polluting the user's persistent agent list with one-off roles. At the end of a successful run, the UI can offer **Promote to persistent agent** for any specialist whose instructions are broadly useful.
+
+Existing agents can still be reused when a strong match exists. The team proposal should show whether each specialist is temporary or mapped to an existing agent.
+
+### 11E — Specialist activity panel
+
+The Feature Generator tab includes a specialist work panel:
+
+- Compact card per specialist: role, status, current task, files inspected, and last activity
+- Click to expand: streaming output, tool calls, reviewed files, proposed changes, concerns, and handoff notes
+- Lead view: combined plan, dependency ordering, and current pipeline step
+
+This keeps multi-agent work inspectable without forcing all specialist output into one chat transcript.
+
+### 11F — Implementation plan approval
+
+The lead agent converts the approved feature spec into an implementation plan:
+
+- Files likely to change
+- Ordered implementation steps
+- DB migrations, IPC/WS channels, preload changes, and Android protocol changes if needed
+- Test and verification commands
+- Rollback considerations
+- User-visible behavior changes
+
+The developer must approve this plan before any code-generation or file-edit staging begins.
+
+### 11G — Code application through staged diffs
+
+Once approved, the Feature Generator uses the same staged diff workflow as self-heal:
+
+1. Read affected files and gather context
+2. Generate patched complete-file content into a staging directory
+3. Produce diffs
+4. Let the developer inspect and approve diffs
+5. Apply approved diffs to the workspace with backups
+6. Run verification
+
+No generated code is written directly to the workspace before explicit diff approval.
+
+### 11H — Verification, commit, and reload
+
+After workspace application, the flow reuses the self-heal pipeline:
+
+- Typecheck
+- Lint
+- Build
+- Tests
+- Optional Android verification when Android files changed
+- Commit with editable generated commit message
+- Optional push
+- Reload app after explicit approval
+- Rollback if startup fails
+
+The target autonomy is **Plan + apply + verify + commit + reload**, but every irreversible step remains gated.
+
+### 11I — Artifact workspace mode
+
+Design the feature generator so it can later target user-selected workspaces. This enables a future mode where users can create and evolve their own artifacts, apps, docs, or project outputs through the same guided interface.
+
+Initial implementation can restrict writes to the Nexy repo. The data model and spec should still include `targetWorkspace` so the workflow does not need to be redesigned later.
+
+### 11J — Persistence
+
+Add a feature-run history table, or generalize the self-heal history table if that proves cleaner:
+
+```sql
+feature_generator_runs(
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  status TEXT NOT NULL,
+  target_workspace_kind TEXT NOT NULL,
+  target_workspace_path TEXT,
+  spec_json TEXT NOT NULL,
+  team_json TEXT,
+  plan_markdown_path TEXT,
+  staged_files_json TEXT,
+  applied_files_json TEXT,
+  verification_json TEXT,
+  commit_sha TEXT,
+  reloaded INTEGER DEFAULT 0,
+  rolled_back INTEGER DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+)
+```
+
+Run statuses should include: `drafting`, `spec-ready`, `plan-ready`, `staging`, `diff-ready`, `applied`, `verifying`, `verified`, `committed`, `reloaded`, `failed`, `rolled-back`, `cancelled`.
+
+### 11K — Critical files
+
+| Layer | New files | Modified files |
+|---|---|---|
+| Main | `src/main/feature-generator.ts`, `src/main/feature-generator/team.ts`, `src/main/feature-generator/spec.ts` | `src/main/ipc-handlers.ts`, `src/main/database-migrations.ts`, `src/shared/types.ts`, `src/preload/index.ts` |
+| Renderer | `src/renderer/components/settings/FeatureGeneratorTab.tsx`, `src/renderer/components/feature-generator/SpecPreview.tsx`, `src/renderer/components/feature-generator/SpecialistPanel.tsx`, `src/renderer/components/feature-generator/RunHistory.tsx` | `src/renderer/components/settings/DeveloperTab.tsx` |
+| Shared pipeline | none initially | self-heal staging, verification, git, and reload modules should expose reusable functions rather than UI-only handlers |
+
+### Verification
+
+- Open Developer options and confirm Feature Generator is its own tab
+- Start a run and confirm the assistant asks clarifying questions before producing a spec
+- Confirm invalid `<feature-spec>` JSON is rejected and repaired
+- Approve a spec and confirm a specialist team is proposed
+- Expand specialist cards and confirm individual activity streams are visible
+- Approve an implementation plan and confirm code is staged, not written directly
+- Review diffs and apply to workspace only after approval
+- Run verification and confirm failures can loop back into planning
+- Commit with editable message and skip/push options
+- Reload app after approval and confirm rollback path still works
+- Confirm run history stores spec, team, plan, changed files, verification result, commit SHA, and reload status
+
+---
+
+## Phase 12 — Artifact Generator
+
+**Goal:** Let users generate any kind of deliverable through Nexy: documents, code files, UI assets, reports, prompt packs, agent configs, project plans, data files, or small app/workspace outputs. Artifacts can be global or attached to a project, are saved to a defined storage location, are versioned, and can be exported.
+
+Working definition:
+
+> An artifact is a global-or-project-scoped, versioned deliverable made of one or more files plus metadata, generated through a guided prompt and review flow, saved to a configured workspace/storage location, and optionally referenced from the chat where it was created.
+
+### 12A — Scope and ownership model
+
+Artifacts support two scopes:
+
+- **Project artifact** — belongs to a project, appears in that project's Artifacts tab, and can be referenced in project chats.
+- **Global artifact** — not tied to a project, stored in the global artifact library and available from a global Artifacts view.
+
+Project artifacts generated from a chat should also insert a chat-visible reference card so the conversation retains context:
+
+- Artifact title
+- Artifact kind
+- Version number
+- Primary file path or preview
+- Open artifact action
+- Export action
+
+### 12B — Artifact kinds
+
+Artifacts are intentionally broad. Initial kinds:
+
+- `document` — PRDs, briefs, reports, plans, articles, specs
+- `code` — scripts, components, config files, small libraries
+- `ui` — page mockups, screen specs, component sets, HTML/CSS prototypes
+- `data` — JSON, CSV, transformed datasets, analysis outputs
+- `prompt` — prompt packs, system prompts, agent instructions
+- `agent-config` — generated agent/team configuration files
+- `plan` — milestone plans, test plans, launch plans
+- `bundle` — multi-file deliverables that do not fit one category
+- `other` — fallback for user-defined deliverables
+
+The generator should not assume artifacts are documents. It asks for the desired format and file outputs before generation.
+
+### 12C — Storage location
+
+Add a configurable artifact storage root in settings. Default options:
+
+- App-managed user data path, for users who do not care where files live
+- User-selected global folder, for users who want direct filesystem access
+- Project workspace subfolder, for project-scoped artifacts when the project has a workspace path
+
+Suggested folder layout:
+
+```text
+artifacts/
+  global/
+    {artifactSlug}/
+      v001/
+      v002/
+  projects/
+    {projectId}/
+      {artifactSlug}/
+        v001/
+        v002/
+```
+
+Every version writes a manifest file next to the generated files:
+
+```json
+{
+  "artifactId": "string",
+  "versionId": "string",
+  "version": 1,
+  "title": "string",
+  "kind": "document",
+  "createdAt": 0,
+  "sourceConversationId": "optional",
+  "files": [
+    {
+      "path": "relative/path.md",
+      "mediaType": "text/markdown",
+      "role": "primary"
+    }
+  ]
+}
+```
+
+### 12D — Database model
+
+Add artifact persistence with enough structure to browse without reading the filesystem on every render:
+
+```sql
+artifacts(
+  id TEXT PRIMARY KEY,
+  project_id TEXT,
+  title TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  description TEXT,
+  storage_root TEXT NOT NULL,
+  current_version_id TEXT,
+  status TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+)
+
+artifact_versions(
+  id TEXT PRIMARY KEY,
+  artifact_id TEXT NOT NULL,
+  version_number INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  notes TEXT,
+  spec_json TEXT,
+  manifest_json TEXT NOT NULL,
+  source_conversation_id TEXT,
+  source_message_id TEXT,
+  created_by_agent_ids TEXT,
+  created_at INTEGER NOT NULL
+)
+
+artifact_files(
+  id TEXT PRIMARY KEY,
+  version_id TEXT NOT NULL,
+  relative_path TEXT NOT NULL,
+  absolute_path TEXT NOT NULL,
+  media_type TEXT NOT NULL,
+  role TEXT NOT NULL,
+  size_bytes INTEGER,
+  checksum TEXT
+)
+
+artifact_chat_refs(
+  id TEXT PRIMARY KEY,
+  artifact_id TEXT NOT NULL,
+  version_id TEXT NOT NULL,
+  project_id TEXT,
+  conversation_id TEXT NOT NULL,
+  message_id TEXT,
+  created_at INTEGER NOT NULL
+)
+```
+
+Artifact statuses should include: `draft`, `generating`, `ready`, `exported`, `archived`, `failed`.
+
+### 12E — Guided generation flow
+
+The artifact generator asks:
+
+- What deliverable do you want to create?
+- Should it be global or attached to the current project?
+- What format and files should be produced?
+- Who is the audience?
+- What constraints, style, or source material should it follow?
+- Should existing project wiki/context/chat history be used?
+- What export formats should be prepared?
+- What should count as done?
+
+The model emits an approved `<artifact-spec>` before writing files:
+
+```ts
+{
+  title: string
+  kind: 'document' | 'code' | 'ui' | 'data' | 'prompt' | 'agent-config' | 'plan' | 'bundle' | 'other'
+  scope: {
+    type: 'global' | 'project'
+    projectId?: string
+  }
+  intendedUse: string
+  audience?: string
+  outputFiles: {
+    path: string
+    mediaType: string
+    role: 'primary' | 'supporting' | 'preview' | 'source'
+    description?: string
+  }[]
+  sourceContext: {
+    useProjectInstructions: boolean
+    useProjectWiki: boolean
+    useConversationContext: boolean
+    referencedFiles: string[]
+  }
+  acceptanceCriteria: string[]
+  exportFormats: ('markdown' | 'pdf' | 'html' | 'json' | 'zip' | 'raw-files')[]
+}
+```
+
+The user approves the spec before generation starts.
+
+### 12F — Agent/team usage
+
+Project artifacts use the project's existing agent team. The primary/project lead agent coordinates the generation, and specialist agents contribute according to their configured roles.
+
+Global artifacts can use:
+
+- The currently selected/default agent
+- A user-selected agent
+- A temporary small team proposed by the generator if no project team exists
+
+The first implementation should prioritize project artifacts using existing project teams, because that matches the current project model and avoids inventing a second team system too early.
+
+### 12G — Project Artifacts tab
+
+Add an **Artifacts** tab to project settings or the project workspace surface. It should support:
+
+- List artifacts by title, kind, status, updated date, and current version
+- Filter by kind/status
+- Open current version
+- Browse version history
+- Show generated file manifest
+- Reveal/copy file path
+- Export current version
+- Archive artifact
+
+The chat window should render artifact reference cards inline when a generation run completes from a project chat.
+
+### 12H — Versioning
+
+Every generation or revision creates a new immutable version. Version metadata includes:
+
+- Version number
+- Source prompt/spec
+- Source conversation/message, if any
+- Agent IDs involved
+- File manifest
+- Revision notes
+- Checksums
+
+The artifact's `current_version_id` points to the latest accepted version. Older versions remain available for export and comparison.
+
+### 12I — Export
+
+Export should operate on a specific artifact version:
+
+- `raw-files` — copies the version folder or selected files
+- `zip` — packages the version folder
+- `markdown` — exports primary Markdown-compatible files
+- `html` — renders document/UI artifacts where applicable
+- `json` — exports manifest and structured outputs
+- `pdf` — renders supported document/HTML artifacts to PDF
+
+Not every artifact kind supports every export format. The UI should show only valid exports based on files/media types.
+
+### 12J — Critical files
+
+| Layer | New files | Modified files |
+|---|---|---|
+| Main | `src/main/artifacts.ts`, `src/main/artifact-generator.ts`, `src/main/artifact-export.ts` | `src/main/ipc-handlers.ts`, `src/main/database-migrations.ts`, `src/shared/types.ts`, `src/preload/index.ts`, `src/main/project-handlers.ts` |
+| Renderer | `src/renderer/components/ArtifactGeneratorModal.tsx`, `src/renderer/components/artifacts/ArtifactList.tsx`, `src/renderer/components/artifacts/ArtifactCard.tsx`, `src/renderer/components/artifacts/ArtifactVersionHistory.tsx`, `src/renderer/components/artifacts/ArtifactReferenceCard.tsx` | `src/renderer/components/ProjectSettingsPanel.tsx`, project chat rendering components, project section panes |
+| Android | TBD after desktop MVP | Android project detail/chat screens can later show artifact reference cards and artifact lists |
+
+### Verification
+
+- Create a global artifact and confirm files are written under the configured global storage root
+- Create a project artifact and confirm it appears in the project's Artifacts tab
+- Generate an artifact from project chat and confirm a chat reference card is inserted
+- Revise an artifact and confirm a new immutable version is created
+- Confirm older versions remain readable/exportable
+- Export supported formats and confirm files are valid
+- Confirm unsupported export formats are hidden or disabled
+- Confirm project agent team is used for project artifacts
+- Confirm storage paths are validated and cannot escape the configured artifact root/workspace
