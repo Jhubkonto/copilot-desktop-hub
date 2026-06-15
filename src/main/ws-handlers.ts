@@ -18,6 +18,8 @@ import { runFix, emitFixEvent } from './self-heal/fix-agent'
 import { emitVerificationEvent, runVerification } from './self-heal/verifier'
 import { commitSelfHealFix, prepareSelfHealCommit, pushSelfHealFix } from './self-heal/git-ops'
 import { approveRelaunch, getRecoveryRuns, prepareReload, rollbackHeal, startReload } from './self-heal/recovery'
+import { runProjectGeneratorChatForAndroid, createProjectFromSpec } from './project-generator'
+import type { ProjectGeneratorSpec } from '../shared/types'
 import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
 import {
@@ -419,6 +421,30 @@ export function registerWsHandlers(): void {
         `INSERT INTO conversations (id, agent_id, project_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
       ).run(id, agentId, projectId, title, now, now)
       reply({ event: 'conversation:created', data: { id, agentId, projectId, title } })
+      return
+    }
+
+    if (command === 'project-generator:start' || command === 'project-generator:message') {
+      const messages = Array.isArray(data.messages) ? data.messages : []
+      const existingAgents = Array.isArray(data.existingAgents) ? data.existingAgents : []
+      void runProjectGeneratorChatForAndroid(messages, existingAgents)
+      return
+    }
+
+    if (command === 'project-generator:confirm') {
+      const spec = data.spec as ProjectGeneratorSpec
+      createProjectFromSpec(spec)
+        .then((result) => {
+          broadcastToMobile({ event: 'project-generator:created', data: result })
+        })
+        .catch((err: unknown) => {
+          broadcastToMobile({ event: 'project-generator:error', data: { message: String(err) } })
+        })
+      return
+    }
+
+    if (command === 'project-generator:cancel') {
+      broadcastToMobile({ event: 'project-generator:cancelled', data: {} })
       return
     }
   })
