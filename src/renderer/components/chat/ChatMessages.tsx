@@ -6,6 +6,7 @@ import { MarkdownRenderer } from '../MarkdownRenderer'
 import { MessageBubble } from '../MessageBubble'
 import { TeamActivityBlock } from '../TeamActivityBlock'
 import { ToolCallBlock } from './ToolCallBlock'
+import { ArtifactCard } from '../artifacts/ArtifactCard'
 import type { ActivityEvent, ChatMessage, CliCostSummary, TeamActivityStep } from '../../hooks/chat-types'
 
 interface ChatMessagesProps {
@@ -106,6 +107,19 @@ export function ChatMessagesBase({
                 <TeamActivityBlock steps={steps} isLive={false} />
               </div>
             )
+          }
+
+          if (message.content.startsWith('__artifact-ref:')) {
+            try {
+              const ref = JSON.parse(message.content.slice('__artifact-ref:'.length)) as { artifactId: string; versionId?: string }
+              return (
+                <div key={message.id} className="max-w-3xl mx-auto px-4 pb-2">
+                  <ArtifactCard artifactId={ref.artifactId} versionId={ref.versionId} />
+                </div>
+              )
+            } catch {
+              // malformed ref — fall through to normal render
+            }
           }
 
           if (message.role === 'tool-call') {

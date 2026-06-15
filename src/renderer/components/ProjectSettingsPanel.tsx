@@ -7,8 +7,9 @@ import { ScopeTab } from './project-settings/ScopeTab'
 import { MilestonesTab } from './project-settings/MilestonesTab'
 import { TeamTab } from './project-settings/TeamTab'
 import { WikiTab } from './project-settings/WikiTab'
+import { ArtifactsTab } from './project-settings/ArtifactsTab'
 
-type TabId = 'general' | 'scope' | 'milestones' | 'team' | 'wiki'
+type TabId = 'general' | 'scope' | 'milestones' | 'team' | 'wiki' | 'artifacts'
 
 interface EditProps {
   projectId: string
@@ -318,7 +319,7 @@ export function ProjectSettingsPanel(props: Props) {
 
       {/* Tab bar */}
       <div className="flex gap-0.5 px-3 pt-2 pb-0 flex-wrap" role="tablist">
-        {(['general', 'scope', 'milestones', ...(!isDraft ? ['team', 'wiki'] : [])] as TabId[]).map((tab) => (
+        {(['general', 'scope', 'milestones', ...(!isDraft ? ['team', 'wiki', 'artifacts'] : [])] as TabId[]).map((tab) => (
           <button
             key={tab}
             type="button"
@@ -341,7 +342,9 @@ export function ProjectSettingsPanel(props: Props) {
                   ? 'Team'
                   : tab === 'wiki'
                     ? 'Wiki'
-                    : `Milestones${activeMilestone ? ' 🎯' : ''}`}
+                    : tab === 'artifacts'
+                      ? 'Artifacts'
+                      : `Milestones${activeMilestone ? ' 🎯' : ''}`}
           </button>
         ))}
       </div>
@@ -402,6 +405,10 @@ export function ProjectSettingsPanel(props: Props) {
 
         {activeTab === 'wiki' && !isDraft && projectId && (
           <WikiTab projectId={projectId} />
+        )}
+
+        {activeTab === 'artifacts' && !isDraft && projectId && (
+          <ArtifactsTab projectId={projectId} />
         )}
 
         {activeTab === 'team' && !isDraft && projectId && (
