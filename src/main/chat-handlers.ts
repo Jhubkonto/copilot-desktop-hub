@@ -303,7 +303,7 @@ export async function dispatchChatSend(
   const agentHasAssignedMcpServers = assignedAgentMcpServerIds.length > 0
   const byokKeyForModel = getApiKey(providerName)
   const fallbackCliBackend =
-    retrieveAuthMode() === 'none' && !byokKeyForModel
+    retrieveAuthMode() === 'none'
       ? ClaudeAdapter.isAvailable()
         ? 'claude-cli'
         : CodexAdapter.isAvailable()

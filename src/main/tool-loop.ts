@@ -47,6 +47,7 @@ export async function runProviderMcpToolLoop(
   inlineHandlers?: Map<string, (args: Record<string, unknown>) => Promise<{ success: boolean; result?: string; error?: string }>>,
   toolDirective?: string,
   onActivity?: (event: { type: 'thinking' } | { type: 'tool'; name: string; server: string }) => void,
+  autoApproveTools?: boolean,
 ): Promise<string> {
   const toolNames = [...new Set(toolDefs.map((t) => t.function.name.split('__').pop()))].join(', ')
   const directive = toolDirective ??
@@ -173,14 +174,16 @@ export async function runProviderMcpToolLoop(
         const serverInstance = servers.get(mcpResolved.serverId)
         const serverName = serverInstance?.config.name ?? mcpResolved.serverId
         sendActivity({ type: 'tool', name: toolShortName, server: serverName })
-        const toolResult = await callMcpTool(
+        const mcpArgs: Parameters<typeof callMcpTool> = [
           mcpResolved.serverId,
           mcpResolved.toolName,
           call.arguments as Record<string, unknown>,
           agentId,
           webContents,
-          agenticMode
-        )
+          agenticMode,
+        ]
+        if (autoApproveTools !== undefined) mcpArgs.push(autoApproveTools)
+        const toolResult = await callMcpTool(...mcpArgs)
         toolResultContent = toolResult.success
           ? (toolResult.result ?? '(no output)')
           : `Error: ${toolResult.error ?? 'Tool execution failed'}`

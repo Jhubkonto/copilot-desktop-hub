@@ -244,7 +244,8 @@ export async function callMcpTool(
   args: Record<string, unknown>,
   agentId?: string,
   webContents?: WebContents,
-  agenticMode?: boolean
+  agenticMode?: boolean,
+  autoApprove?: boolean
 ): Promise<{ success: boolean; result?: string; images?: { dataUrl: string; mimeType: string }[]; error?: string }> {
   // Resolve approval policy; default to 'always-ask' when no override exists.
   // Track whether the policy came from an explicit per-tool override so that
@@ -273,7 +274,7 @@ export async function callMcpTool(
 
   // Agentic mode auto-approves tools that have no explicit override. Tools the
   // user has explicitly set to 'always-ask' or 'disabled' are always honoured.
-  const bypassApproval = agenticMode && !hasExplicitOverride
+  const bypassApproval = autoApprove || (agenticMode && !hasExplicitOverride)
 
   if (approval === 'always-ask' && !bypassApproval) {
     if (!webContents || webContents.isDestroyed()) {
