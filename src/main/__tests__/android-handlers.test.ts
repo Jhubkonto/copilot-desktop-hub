@@ -330,13 +330,20 @@ describe('registerAndroidHandlers — android:start-command', () => {
     mkdirSync(artifactDir, { recursive: true })
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('android_workspace_path', ?)").run(wsDir)
 
-    execSyncMock.mockImplementation((command: string) => {
-      if (command.includes('rev-parse --abbrev-ref')) return 'main\n'
-      if (command.includes('rev-parse --short')) return 'abc123\n'
-      if (command.includes('status --porcelain')) return ''
-      if (command.includes('properties')) return 'versionCode: 42\nversionName: 1.2.3\n'
-      if (command.includes('rev-parse HEAD')) return 'abc123def456\n'
-      throw new Error(`unexpected command ${command}`)
+    execFileMock.mockImplementation((command: string, args: string[]) => {
+      if (command === 'git' && args.includes('--abbrev-ref')) {
+        return Promise.resolve({ stdout: 'main\n', stderr: '' })
+      }
+      if (command === 'git' && args.includes('--porcelain')) {
+        return Promise.resolve({ stdout: '', stderr: '' })
+      }
+      if (command === 'git' && args.includes('--short')) {
+        return Promise.resolve({ stdout: 'abc123\n', stderr: '' })
+      }
+      if (args.includes('properties')) {
+        return Promise.resolve({ stdout: 'versionCode: 42\nversionName: 1.2.3\n', stderr: '' })
+      }
+      return Promise.reject(new Error(`unexpected command ${command} ${args.join(' ')}`))
     })
     spawnMock.mockReturnValue({
       stdout: { on: vi.fn() },

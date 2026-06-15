@@ -48,7 +48,7 @@ describe('database migrations', () => {
     initializeBaseSchema(db)
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(23)
+    expect(db.pragma('user_version', { simple: true })).toBe(26)
     expect(getColumnNames(db, 'projects')).toEqual(
       expect.arrayContaining(['default_model', 'config_json'])
     )
@@ -64,6 +64,15 @@ describe('database migrations', () => {
     )
     expect(getColumnNames(db, 'conversation_summaries')).toEqual(
       expect.arrayContaining(['conversation_id', 'summary', 'summary_json', 'source_message_count', 'retained_message_count'])
+    )
+    expect(getColumnNames(db, 'error_log')).toEqual(
+      expect.arrayContaining(['source', 'level', 'message', 'stack', 'timestamp'])
+    )
+    expect(getColumnNames(db, 'error_reports')).toEqual(
+      expect.arrayContaining(['title', 'description', 'screenshot_path', 'log_snapshot', 'status', 'created_at', 'updated_at'])
+    )
+    expect(getColumnNames(db, 'error_reports')).toEqual(
+      expect.arrayContaining(['investigation_markdown', 'investigation_confidence', 'investigation_root_cause', 'investigation_affected_files'])
     )
   })
 
@@ -86,7 +95,7 @@ describe('database migrations', () => {
       runMigrations(db)
       runMigrations(db)
     }).not.toThrow()
-    expect(db.pragma('user_version', { simple: true })).toBe(23)
+    expect(db.pragma('user_version', { simple: true })).toBe(26)
   })
 
   it('only runs pending migrations for a partial upgrade', () => {
@@ -140,7 +149,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(23)
+    expect(db.pragma('user_version', { simple: true })).toBe(26)
     expect(getColumnNames(db, 'messages')).toEqual(
       expect.arrayContaining(['is_edited', 'previous_content', 'context_snapshot'])
     )
@@ -194,7 +203,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(23)
+    expect(db.pragma('user_version', { simple: true })).toBe(26)
     expect(() => insertMessageWithRole(db, 'tool-call')).not.toThrow()
     expect(
       db.prepare("SELECT COUNT(*) AS count FROM messages WHERE role = ?").get('assistant')

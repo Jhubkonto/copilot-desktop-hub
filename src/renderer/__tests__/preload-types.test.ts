@@ -26,7 +26,14 @@ import type {
   ProjectAgent,
   DeleteAgentPreflight,
   DeleteAgentResult,
+  ErrorReportCaptureResult,
+  ErrorReportEntry,
+  ErrorLogEntry,
   IpcReturn,
+  SelfHealInvestigationActivity,
+  SelfHealInvestigationChunk,
+  SelfHealInvestigationResult,
+  SelfHealInvestigationSettings,
   WikiEntry,
   WikiExtractionResult,
 } from '../../shared/types'
@@ -89,6 +96,29 @@ describe('preload IPC return types', () => {
   it('screen capture and auto-clipboard APIs are typed', () => {
     expectTypeOf<ReturnType<ElectronAPI['captureScreen']>>().toEqualTypeOf<Promise<IpcReturn<'screen:capture'>>>()
     expectTypeOf<ReturnType<ElectronAPI['onAutoClipboardFocus']>>().toEqualTypeOf<() => void>()
+  })
+
+  it('error log APIs are typed', () => {
+    expectTypeOf<ReturnType<ElectronAPI['getRecentErrors']>>().toEqualTypeOf<Promise<ErrorLogEntry[]>>()
+    expectTypeOf<ReturnType<ElectronAPI['getErrorLogPath']>>().toEqualTypeOf<Promise<string | null>>()
+    expectTypeOf<ReturnType<ElectronAPI['clearErrors']>>().toEqualTypeOf<Promise<boolean>>()
+    expectTypeOf<ReturnType<ElectronAPI['onErrorLogEntry']>>().toEqualTypeOf<() => void>()
+  })
+
+  it('error report APIs are typed', () => {
+    expectTypeOf<ReturnType<ElectronAPI['captureErrorReport']>>().toEqualTypeOf<Promise<ErrorReportCaptureResult>>()
+    expectTypeOf<ReturnType<ElectronAPI['getErrorReport']>>().toEqualTypeOf<Promise<ErrorReportEntry | null>>()
+    expectTypeOf<ReturnType<ElectronAPI['listErrorReports']>>().toEqualTypeOf<Promise<ErrorReportEntry[]>>()
+  })
+
+  it('self-heal investigation APIs are typed', () => {
+    expectTypeOf<ReturnType<ElectronAPI['getInvestigationSettings']>>().toEqualTypeOf<Promise<SelfHealInvestigationSettings>>()
+    expectTypeOf<ReturnType<ElectronAPI['setInvestigationSettings']>>().toEqualTypeOf<Promise<SelfHealInvestigationSettings>>()
+    expectTypeOf<ReturnType<ElectronAPI['setSelfHealReportStatus']>>().toEqualTypeOf<Promise<ErrorReportEntry | null>>()
+    expectTypeOf<ReturnType<ElectronAPI['startInvestigation']>>().toEqualTypeOf<Promise<{ reportId: string }>>()
+    expectTypeOf<Parameters<ElectronAPI['onInvestigationActivity']>[0]>().toEqualTypeOf<(activity: SelfHealInvestigationActivity) => void>()
+    expectTypeOf<Parameters<ElectronAPI['onInvestigationChunk']>[0]>().toEqualTypeOf<(chunk: SelfHealInvestigationChunk) => void>()
+    expectTypeOf<Parameters<ElectronAPI['onInvestigationDone']>[0]>().toEqualTypeOf<(result: SelfHealInvestigationResult) => void>()
   })
 
   it('does not expose terminal methods (removed in RF.13)', () => {

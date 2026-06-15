@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 /* ── Hoisted mocks ─────────────────────────────────────────── */
-const { mockIpcMain, mockDb, mockBrowserWindow, mockExistsSync, mockReadFileSync, mockWriteFileSync, mockExec } = vi.hoisted(() => {
+const { mockIpcMain, mockDb, mockBrowserWindow, mockExistsSync, mockReadFileSync, mockWriteFileSync, mockExec, mockExecFile } = vi.hoisted(() => {
   const store = new Map<string, string>()
   const handlers = new Map<string, (...args: unknown[]) => unknown>()
 
@@ -59,7 +59,8 @@ const { mockIpcMain, mockDb, mockBrowserWindow, mockExistsSync, mockReadFileSync
     mockExistsSync: vi.fn(),
     mockReadFileSync: vi.fn(),
     mockWriteFileSync: vi.fn(),
-    mockExec: vi.fn()
+    mockExec: vi.fn(),
+    mockExecFile: vi.fn()
   }
 })
 
@@ -79,7 +80,8 @@ vi.mock('fs', () => ({
 }))
 
 vi.mock('child_process', () => ({
-  exec: mockExec
+  exec: mockExec,
+  execFile: mockExecFile
 }))
 
 /* ── Helpers ─────────────────────────────────────────── */

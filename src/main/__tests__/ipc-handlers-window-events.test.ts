@@ -40,8 +40,17 @@ vi.mock('../wiki-handlers', () => ({ registerWikiHandlers: vi.fn() }))
 vi.mock('../prompt-handlers', () => ({ registerPromptHandlers: vi.fn() }))
 vi.mock('../tools', () => ({ registerToolHandlers: vi.fn() }))
 vi.mock('../mcp', () => ({ registerMcpHandlers: vi.fn() }))
-vi.mock('../providers', () => ({ registerProviderHandlers: vi.fn() }))
+vi.mock('../providers', () => ({
+  registerProviderHandlers: vi.fn(),
+  PROVIDERS: [],
+  isProviderConfigured: vi.fn(() => false),
+  getOpenRouterModels: vi.fn(() => []),
+  fetchAndCacheOpenRouterModels: vi.fn(),
+  retrieveApiKey: vi.fn(() => null),
+}))
 vi.mock('../screen-capture-handlers', () => ({ registerScreenCaptureHandlers: vi.fn() }))
+vi.mock('../error-report-handlers', () => ({ registerErrorReportHandlers: vi.fn() }))
+vi.mock('../self-heal-handlers', () => ({ registerSelfHealHandlers: vi.fn() }))
 vi.mock('../screen-capture', () => ({
   cacheExternalWindowLabel: mockCacheExternalWindowLabel,
   consumeSuppressFocusEvent: mockConsumeSuppressFocusEvent,

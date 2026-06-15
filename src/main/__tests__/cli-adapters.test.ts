@@ -16,10 +16,12 @@ vi.mock('child_process', () => ({
 import { ClaudeAdapter } from '../cli-adapters/claude'
 import { CodexAdapter } from '../cli-adapters/codex'
 import { GhCopilotAdapter } from '../cli-adapters/gh-copilot'
+import { clearCliPathCache } from '../cli-adapters/utils'
 
 describe('CLI adapters', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    clearCliPathCache()
     // resolveCliPath calls execSync('where.exe <name>') — return a dummy path by default
     mockExecSync.mockImplementation((cmd: string) => {
       if (String(cmd).includes('where') || String(cmd).includes('which')) {
@@ -224,6 +226,7 @@ describe('CLI adapters', () => {
   it('ClaudeAdapter reports availability from execSync', () => {
     mockExecSync.mockReturnValue('C:\\claude.exe\n')
     expect(ClaudeAdapter.isAvailable()).toBe(true)
+    clearCliPathCache()
     mockExecSync.mockImplementation(() => { throw new Error('missing') })
     expect(ClaudeAdapter.isAvailable()).toBe(false)
   })
