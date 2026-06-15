@@ -130,19 +130,19 @@ Use this as the canonical tick-off list. The detailed phase notes below explain 
 
 ### Milestone L — Artifact generator
 
-- [ ] **L12.1 Artifact definition** — define artifacts as global-or-project-scoped, versioned deliverables with one or more generated files.
-- [ ] **L12.2 Artifact storage root** — add a configurable global artifact storage location, with project-scoped subfolders when applicable.
-- [ ] **L12.3 Artifact DB schema** — add artifact, artifact version, artifact file, and chat reference records.
-- [ ] **L12.4 Project Artifacts tab** — add an Artifacts tab in each project for browsing, opening, exporting, and version history.
-- [ ] **L12.5 Chat artifact references** — when an artifact is generated from a project chat, insert a chat-visible reference card/link to the artifact and version.
-- [ ] **L12.6 Guided artifact generator** — ask what deliverable to create, audience, format, constraints, target project/global scope, files, and export needs.
-- [ ] **L12.7 Project team generation** — use the project's existing agent team to plan and generate artifacts.
-- [ ] **L12.8 Artifact spec approval** — require approval of a structured `<artifact-spec>` before generating files.
-- [ ] **L12.9 Workspace file writing** — generate and save artifact files to the configured storage/workspace location.
-- [ ] **L12.10 Artifact versioning** — save every revision as a new version with file manifest, notes, and source conversation/run metadata.
-- [ ] **L12.11 Export support** — export artifacts to formats such as Markdown, PDF, HTML, JSON, ZIP, or raw file bundle where applicable.
-- [ ] **L12.12 Global artifact library** — provide a global view for artifacts not attached to a project.
-- [ ] **L12.13 Verify artifact generator** — test global artifacts, project artifacts, chat references, version creation, file storage, and exports.
+- [x] **L12.1 Artifact definition** — define artifacts as global-or-project-scoped, versioned deliverables with one or more generated files.
+- [x] **L12.2 Artifact storage root** — add a configurable global artifact storage location, with project-scoped subfolders when applicable.
+- [x] **L12.3 Artifact DB schema** — add artifact, artifact version, artifact file, and chat reference records.
+- [x] **L12.4 Project Artifacts tab** — add an Artifacts tab in each project for browsing, opening, exporting, and version history.
+- [x] **L12.5 Chat artifact references** — when an artifact is generated from a project chat, insert a chat-visible reference card/link to the artifact and version.
+- [x] **L12.6 Guided artifact generator** — ask what deliverable to create, audience, format, constraints, target project/global scope, files, and export needs.
+- [x] **L12.7 Project team generation** — use the project's existing agent team to plan and generate artifacts.
+- [x] **L12.8 Artifact spec approval** — require approval of a structured `<artifact-spec>` before generating files.
+- [x] **L12.9 Workspace file writing** — generate and save artifact files to the configured storage/workspace location.
+- [x] **L12.10 Artifact versioning** — save every revision as a new version with file manifest, notes, and source conversation/run metadata.
+- [x] **L12.11 Export support** — export artifacts to formats such as Markdown, PDF, HTML, JSON, ZIP, or raw file bundle where applicable.
+- [x] **L12.12 Global artifact library** — provide a global view for artifacts not attached to a project.
+- [x] **L12.13 Verify artifact generator** — test global artifacts, project artifacts, chat references, version creation, file storage, and exports.
 
 ### Cross-cutting acceptance gates
 
