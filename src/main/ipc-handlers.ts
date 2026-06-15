@@ -26,6 +26,7 @@ import { registerSelfHealHandlers } from './self-heal-handlers'
 import { registerSelfHealGitHandlers } from './self-heal/git-ops'
 import { registerSelfHealRecoveryHandlers } from './self-heal/recovery'
 import { registerProjectGeneratorHandlers } from './project-generator'
+import { registerFeatureGeneratorHandlers } from './feature-generator'
 
 export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerSettingsHandlers()
@@ -57,6 +58,7 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerBuildHandlers(mainWindow)
   registerAndroidHandlers(mainWindow)
   registerProjectGeneratorHandlers(mainWindow)
+  registerFeatureGeneratorHandlers(mainWindow)
 
   if (mainWindow) {
     mainWindow.on('blur', () => {
