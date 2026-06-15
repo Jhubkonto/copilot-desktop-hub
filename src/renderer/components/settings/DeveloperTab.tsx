@@ -468,6 +468,97 @@ function SelfHealDiffViewer({
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
+// Android Signing Modal
+// ---------------------------------------------------------------------------
+
+interface AndroidSigningModalProps {
+  signingDraft: AndroidSigningConfig
+  signingValidation: PreflightCheck[] | null
+  onSetSigningDraft: (updater: (d: AndroidSigningConfig) => AndroidSigningConfig) => void
+  onSaveSigningConfig: () => void
+  onValidateSigningConfig: () => void
+  onClose: () => void
+}
+
+function AndroidSigningModal({
+  signingDraft, signingValidation, onSetSigningDraft, onSaveSigningConfig, onValidateSigningConfig, onClose,
+}: AndroidSigningModalProps) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="w-[440px] rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-xl flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-700">
+          <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">Android Signing Config</p>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-lg leading-none">&times;</button>
+        </div>
+
+        {/* Body */}
+        <div className="p-4 space-y-3 overflow-y-auto">
+          <div className="grid grid-cols-2 gap-2">
+            <input
+              type="text"
+              value={signingDraft.keystorePath}
+              onChange={(e) => onSetSigningDraft((d) => ({ ...d, keystorePath: e.target.value }))}
+              placeholder="Keystore path"
+              className="col-span-2 text-xs px-2.5 py-1.5 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 font-mono"
+            />
+            <input
+              type="password"
+              value={signingDraft.keystorePassword}
+              onChange={(e) => onSetSigningDraft((d) => ({ ...d, keystorePassword: e.target.value }))}
+              placeholder="Keystore password"
+              className="text-xs px-2.5 py-1.5 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200"
+            />
+            <input
+              type="text"
+              value={signingDraft.keyAlias}
+              onChange={(e) => onSetSigningDraft((d) => ({ ...d, keyAlias: e.target.value }))}
+              placeholder="Key alias"
+              className="text-xs px-2.5 py-1.5 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200"
+            />
+            <input
+              type="password"
+              value={signingDraft.keyPassword}
+              onChange={(e) => onSetSigningDraft((d) => ({ ...d, keyPassword: e.target.value }))}
+              placeholder="Key password"
+              className="col-span-2 text-xs px-2.5 py-1.5 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200"
+            />
+          </div>
+
+          {signingValidation && (
+            <div className="space-y-1 rounded border border-gray-100 dark:border-gray-700 p-2">
+              {signingValidation.map((c) => (
+                <div key={c.label} className="flex items-center gap-1.5 text-[11px]">
+                  {c.status === 'ok'
+                    ? <CheckCircle className="w-3 h-3 text-green-500 shrink-0" />
+                    : c.status === 'warn'
+                    ? <AlertTriangle className="w-3 h-3 text-yellow-500 shrink-0" />
+                    : <XCircle className="w-3 h-3 text-red-500 shrink-0" />}
+                  <span className="text-gray-700 dark:text-gray-300">{c.label}</span>
+                  <span className="text-gray-400 ml-auto">{c.detail}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-gray-100 dark:border-gray-700">
+          <button onClick={onValidateSigningConfig} className="text-xs px-2.5 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Validate</button>
+          <button onClick={onClose} className="text-xs px-2.5 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700">Cancel</button>
+          <button
+            onClick={() => { onSaveSigningConfig(); onClose() }}
+            className="text-xs px-2.5 py-1 rounded bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 
 type DeveloperInnerTab = 'desktop' | 'android' | 'self-heal' | 'console'
 
@@ -531,6 +622,9 @@ export function DeveloperTab({
   // Build history expand
   const [expandedDesktopHistoryId, setExpandedDesktopHistoryId] = useState<string | null>(null)
   const [expandedAndroidHistoryId, setExpandedAndroidHistoryId] = useState<string | null>(null)
+
+  // Signing modal
+  const [signingModalOpen, setSigningModalOpen] = useState(false)
 
   // Preflight worst status for tab badge
   const preflightWorst = preflightChecks?.some((c) => c.status === 'fail') ? 'fail'
@@ -1373,30 +1467,37 @@ export function DeveloperTab({
           )}
 
           {/* Signing config */}
-          <div className="space-y-2 border-t border-gray-100 dark:border-gray-700 pt-3">
-            <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Signing config</p>
-            <div className="grid grid-cols-2 gap-2">
-              <input type="text" value={signingDraft.keystorePath} onChange={(e) => onSetSigningDraft((d) => ({ ...d, keystorePath: e.target.value }))} placeholder="Keystore path" className="col-span-2 text-xs px-2.5 py-1.5 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 font-mono" />
-              <input type="password" value={signingDraft.keystorePassword} onChange={(e) => onSetSigningDraft((d) => ({ ...d, keystorePassword: e.target.value }))} placeholder="Keystore password" className="text-xs px-2.5 py-1.5 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200" />
-              <input type="text" value={signingDraft.keyAlias} onChange={(e) => onSetSigningDraft((d) => ({ ...d, keyAlias: e.target.value }))} placeholder="Key alias" className="text-xs px-2.5 py-1.5 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200" />
-              <input type="password" value={signingDraft.keyPassword} onChange={(e) => onSetSigningDraft((d) => ({ ...d, keyPassword: e.target.value }))} placeholder="Key password" className="text-xs px-2.5 py-1.5 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200" />
+          <div className="flex items-center justify-between border-t border-gray-100 dark:border-gray-700 pt-3">
+            <div className="flex items-center gap-2">
+              <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Signing</p>
+              {signingDraft.keystorePath ? (
+                <span className="flex items-center gap-1 text-[10px] text-green-600 dark:text-green-400">
+                  <CheckCircle className="w-3 h-3" /> Configured
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 text-[10px] text-gray-400">
+                  <XCircle className="w-3 h-3" /> Not configured
+                </span>
+              )}
             </div>
-            <div className="flex gap-2">
-              <button onClick={onSaveSigningConfig} className="text-xs px-2.5 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Save</button>
-              <button onClick={onValidateSigningConfig} className="text-xs px-2.5 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Validate</button>
-            </div>
-            {signingValidation && (
-              <div className="space-y-1">
-                {signingValidation.map((c) => (
-                  <div key={c.label} className="flex items-center gap-1.5 text-[11px]">
-                    {c.status === 'ok' ? <CheckCircle className="w-3 h-3 text-green-500 shrink-0" /> : c.status === 'warn' ? <AlertTriangle className="w-3 h-3 text-yellow-500 shrink-0" /> : <XCircle className="w-3 h-3 text-red-500 shrink-0" />}
-                    <span className="text-gray-700 dark:text-gray-300">{c.label}</span>
-                    <span className="text-gray-400 ml-auto">{c.detail}</span>
-                  </div>
-                ))}
-              </div>
-            )}
+            <button
+              onClick={() => setSigningModalOpen(true)}
+              className="text-xs px-2.5 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+            >
+              Configure signing…
+            </button>
           </div>
+
+          {signingModalOpen && (
+            <AndroidSigningModal
+              signingDraft={signingDraft}
+              signingValidation={signingValidation}
+              onSetSigningDraft={onSetSigningDraft}
+              onSaveSigningConfig={onSaveSigningConfig}
+              onValidateSigningConfig={onValidateSigningConfig}
+              onClose={() => setSigningModalOpen(false)}
+            />
+          )}
 
           {/* ADB Install */}
           <div className="space-y-2 border-t border-gray-100 dark:border-gray-700 pt-3">
