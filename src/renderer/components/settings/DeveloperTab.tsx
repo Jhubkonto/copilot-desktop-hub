@@ -33,6 +33,7 @@ import type {
 } from '@shared/types'
 import { SegmentedTabs } from '../ui/primitives'
 import { BuildLog } from '../BuildLog'
+import { FeatureGeneratorTab } from './FeatureGeneratorTab'
 
 interface Props {
   // Desktop workspace
@@ -560,7 +561,7 @@ function AndroidSigningModal({
 
 // ---------------------------------------------------------------------------
 
-type DeveloperInnerTab = 'desktop' | 'android' | 'self-heal' | 'console'
+type DeveloperInnerTab = 'desktop' | 'android' | 'self-heal' | 'feature-generator' | 'console'
 
 export function DeveloperTab({
   workspaceInfo, workspacePathInput, onSetWorkspacePathInput, onRefreshWorkspace, onSaveWorkspacePath,
@@ -1093,6 +1094,7 @@ export function DeveloperTab({
           { id: 'desktop', label: desktopTabLabel },
           { id: 'android', label: 'Android' },
           { id: 'self-heal', label: 'Self-Heal' },
+          { id: 'feature-generator', label: 'Feature Gen' },
           { id: 'console', label: 'Console', badge: unreadErrorCount },
         ]}
         onChange={setDeveloperTab}
@@ -1911,6 +1913,15 @@ export function DeveloperTab({
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ================================================================
+          FEATURE GENERATOR TAB
+      ================================================================ */}
+      {developerTab === 'feature-generator' && (
+        <div className="space-y-4">
+          <FeatureGeneratorTab />
         </div>
       )}
 
