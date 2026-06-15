@@ -13,12 +13,19 @@ interface Props {
   onRegenerateToken: () => void
   onSaveExternalUrl: () => void
   onRefreshStatus: () => void
+  // FCM (moved from DeveloperTab)
+  fcmStatus: { configured: boolean; projectId?: string } | null
+  fcmJsonDraft: string
+  fcmSaving: boolean
+  onSetFcmJsonDraft: (v: string) => void
+  onSaveFcmServiceAccount: () => void
 }
 
 export function MobileTab({
   mobileEnabled, mobileQr, mobileClients, mobileLoading,
   mobileLocalIp, mobilePairingUrl, mobileExternalUrl,
   onSetMobileExternalUrl, onToggle, onRegenerateToken, onSaveExternalUrl, onRefreshStatus,
+  fcmStatus, fcmJsonDraft, fcmSaving, onSetFcmJsonDraft, onSaveFcmServiceAccount,
 }: Props) {
   return (
     <>
@@ -129,6 +136,37 @@ export function MobileTab({
           </button>
         </>
       )}
+
+      {/* FCM Push Notifications */}
+      <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3">
+        <div>
+          <p className="text-sm font-medium text-gray-800 dark:text-gray-100">
+            FCM Push Notifications
+            {fcmStatus && (
+              <span className={`ml-2 text-xs font-normal ${fcmStatus.configured ? 'text-green-600 dark:text-green-400' : 'text-gray-400'}`}>
+                — {fcmStatus.configured ? `configured (project: ${fcmStatus.projectId})` : 'not configured'}
+              </span>
+            )}
+          </p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Sends push notifications to offline devices when tool approvals are requested. Paste your Firebase service account JSON key below. Get it from Firebase Console → Project Settings → Service accounts → Generate new private key.
+          </p>
+        </div>
+        <textarea
+          value={fcmJsonDraft}
+          onChange={(e) => onSetFcmJsonDraft(e.target.value)}
+          placeholder={'{\n  "type": "service_account",\n  "project_id": "my-project",\n  ...\n}'}
+          rows={4}
+          className="w-full font-mono text-[10px] p-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 resize-none"
+        />
+        <button
+          onClick={onSaveFcmServiceAccount}
+          disabled={fcmSaving || !fcmJsonDraft.trim()}
+          className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40"
+        >
+          {fcmSaving ? 'Saving…' : 'Save configuration'}
+        </button>
+      </div>
     </>
   )
 }

@@ -857,6 +857,21 @@ export function SettingsPanel() {
             onRegenerateToken={() => void handleRegenerateToken()}
             onSaveExternalUrl={() => void handleSaveMobileExternalUrl()}
             onRefreshStatus={() => void refreshMobileStatus()}
+            fcmStatus={fcmStatus}
+            fcmJsonDraft={fcmJsonDraft}
+            fcmSaving={fcmSaving}
+            onSetFcmJsonDraft={setFcmJsonDraft}
+            onSaveFcmServiceAccount={() => {
+              setFcmSaving(true)
+              void window.api.androidSaveFcmServiceAccount(fcmJsonDraft)
+                .then((result) => {
+                  if (result.saved) {
+                    void window.api.androidGetFcmConfigStatus().then(setFcmStatus)
+                    setFcmJsonDraft('')
+                  }
+                })
+                .finally(() => setFcmSaving(false))
+            }}
           />
         )}
 
@@ -917,23 +932,8 @@ export function SettingsPanel() {
             androidRestoring={androidRestoring}
             onAndroidPublishUpdate={() => void handleAndroidPublishUpdate()}
             onAndroidRestoreVersion={(vc) => void handleAndroidRestoreVersion(vc)}
-            fcmStatus={fcmStatus}
-            fcmJsonDraft={fcmJsonDraft}
-            fcmSaving={fcmSaving}
-            onSetFcmJsonDraft={setFcmJsonDraft}
             debugLogging={debugLogging}
             onToggleDebugLogging={() => setDebugLogging(!debugLogging)}
-            onSaveFcmServiceAccount={() => {
-              setFcmSaving(true)
-              void window.api.androidSaveFcmServiceAccount(fcmJsonDraft)
-                .then((result) => {
-                  if (result.saved) {
-                    void window.api.androidGetFcmConfigStatus().then(setFcmStatus)
-                    setFcmJsonDraft('')
-                  }
-                })
-                .finally(() => setFcmSaving(false))
-            }}
           />
         </div>
       </div>

@@ -281,7 +281,7 @@ export function SegmentedTabs<T extends string>({
   onChange,
 }: {
   value: T
-  items: Array<{ id: T; label: string }>
+  items: Array<{ id: T; label: React.ReactNode; badge?: number }>
   onChange: (value: T) => void
 }) {
   return (
@@ -295,13 +295,18 @@ export function SegmentedTabs<T extends string>({
           aria-selected={value === item.id}
           onClick={() => onChange(item.id)}
           className={cx(
-            'flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors',
+            'flex-1 inline-flex items-center justify-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors',
             value === item.id
               ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900'
               : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700',
           )}
         >
           {item.label}
+          {item.badge ? (
+            <span className="min-w-[16px] h-4 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center px-1">
+              {item.badge > 99 ? '99+' : item.badge}
+            </span>
+          ) : null}
         </button>
       ))}
     </div>
