@@ -334,6 +334,8 @@ fun UpdatesSection(
 fun DiagnosticsSection(
     connectionDiagnostics: ConnectionDiagnostics,
     clientVersion: String,
+    bugReportState: BugReportRequestState,
+    onRequestBugReport: () -> Unit,
 ) {
     SettingsSectionHeader("Diagnostics")
 
@@ -349,6 +351,20 @@ fun DiagnosticsSection(
             SettingsInfoRow("Client version", clientVersion)
             SettingsInfoRow("Server version", connectionDiagnostics.serverVersion ?: "Unknown")
             SettingsInfoRow("Last error", connectionDiagnostics.lastError ?: "None")
+            OutlinedButton(
+                onClick = onRequestBugReport,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = connectionDiagnostics.connectionState == ConnectionState.CONNECTED && !bugReportState.requesting,
+                shape = MaterialTheme.shapes.small,
+            ) {
+                Text(if (bugReportState.requesting) "Requesting report..." else "Report bug to desktop")
+            }
+            bugReportState.message?.let { message ->
+                Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+            }
+            bugReportState.error?.let { error ->
+                Text(error, style = MaterialTheme.typography.bodySmall, color = Color(0xFFEF4444))
+            }
         }
     }
 

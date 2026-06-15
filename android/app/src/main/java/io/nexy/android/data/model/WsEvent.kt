@@ -25,6 +25,11 @@ sealed class WsEvent {
     data class ProjectList(val projects: List<Project>) : WsEvent()
     data class ModelList(val models: List<ModelOption>, val source: ModelListSource?) : WsEvent()
     data class AndroidUpdateManifestResult(val manifest: AndroidUpdateManifest?) : WsEvent()
+    data class ErrorReportCaptured(val reportId: String) : WsEvent()
+    data class ErrorReportError(val message: String) : WsEvent()
+    data class SelfHealInvestigationActivity(val reportId: String, val label: String, val type: String) : WsEvent()
+    data class SelfHealInvestigationChunk(val reportId: String, val chunk: String) : WsEvent()
+    data class SelfHealInvestigationDone(val reportId: String, val status: String, val error: String?) : WsEvent()
     data class ConversationModelUpdated(val conversationId: String, val model: String?) : WsEvent()
     data class ConversationCreated(
         val id: String,

@@ -146,6 +146,31 @@ fun parseWsEvent(
                 WsEvent.AndroidUpdateManifestResult(manifest)
             }
 
+            "error-report:captured" -> WsEvent.ErrorReportCaptured(
+                reportId = data?.optString("reportId") ?: "",
+            )
+
+            "error-report:error" -> WsEvent.ErrorReportError(
+                message = data?.optString("message") ?: "Unable to capture report",
+            )
+
+            "self-heal:investigation-activity" -> WsEvent.SelfHealInvestigationActivity(
+                reportId = data?.optString("reportId") ?: "",
+                label = data?.optString("label") ?: "",
+                type = data?.optString("type") ?: "status",
+            )
+
+            "self-heal:investigation-chunk" -> WsEvent.SelfHealInvestigationChunk(
+                reportId = data?.optString("reportId") ?: "",
+                chunk = data?.optString("chunk") ?: "",
+            )
+
+            "self-heal:investigation-done" -> WsEvent.SelfHealInvestigationDone(
+                reportId = data?.optString("reportId") ?: "",
+                status = data?.optString("status") ?: "",
+                error = data?.nullableString("error"),
+            )
+
             "conversation:model-updated" -> {
                 val conversationId = data?.optString("conversationId") ?: ""
                 val model = data?.nullableString("model")

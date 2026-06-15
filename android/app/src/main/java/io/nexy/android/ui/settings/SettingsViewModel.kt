@@ -12,6 +12,7 @@ import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.AndroidUpdateManifest
 import io.nexy.android.data.model.ModelListSource
 import io.nexy.android.data.model.ModelOption
+import io.nexy.android.data.model.WsEvent
 import io.nexy.android.ui.theme.ThemePreference
 import io.nexy.android.ui.theme.ThemePreferenceStore
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,6 +24,12 @@ import okhttp3.OkHttpClient
 
 data class UpdateInstallState(
     val installing: Boolean = false,
+    val message: String? = null,
+    val error: String? = null,
+)
+
+data class BugReportRequestState(
+    val requesting: Boolean = false,
     val message: String? = null,
     val error: String? = null,
 )
@@ -42,7 +49,27 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     val notificationDiagnostics: StateFlow<NotificationDiagnostics> = _notificationDiagnostics
     private val _updateInstallState = MutableStateFlow(UpdateInstallState())
     val updateInstallState: StateFlow<UpdateInstallState> = _updateInstallState
+    private val _bugReportState = MutableStateFlow(BugReportRequestState())
+    val bugReportState: StateFlow<BugReportRequestState> = _bugReportState
     private val updateHttpClient = OkHttpClient()
+
+    init {
+        viewModelScope.launch {
+            WsRepository.events.collect { event ->
+                when (event) {
+                    is WsEvent.ErrorReportCaptured -> {
+                        _bugReportState.value = BugReportRequestState(
+                            message = "Report captured: ${event.reportId.take(8)}",
+                        )
+                    }
+                    is WsEvent.ErrorReportError -> {
+                        _bugReportState.value = BugReportRequestState(error = event.message)
+                    }
+                    else -> Unit
+                }
+            }
+        }
+    }
 
     val savedEndpoint: String?
         get() = WsRepository.pairedServer()?.endpoint
@@ -85,6 +112,19 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refreshUpdateManifest() {
         WsRepository.send("android:update-manifest", emptyMap())
+    }
+
+    fun requestBugReport() {
+        if (_bugReportState.value.requesting) return
+        _bugReportState.value = BugReportRequestState(requesting = true, message = "Requesting desktop report...")
+        WsRepository.sendOrQueue(
+            "error-report:request-capture",
+            mapOf(
+                "title" to "Android bug report",
+                "description" to "Requested from Android settings.",
+                "includeLog" to true,
+            ),
+        )
     }
 
     fun installUpdate(manifest: AndroidUpdateManifest) {

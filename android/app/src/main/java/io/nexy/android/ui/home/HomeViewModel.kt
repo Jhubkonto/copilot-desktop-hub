@@ -39,6 +39,9 @@ class HomeViewModel(
     private val _isRefreshingProjects = MutableStateFlow(false)
     val isRefreshingProjects: StateFlow<Boolean> = _isRefreshingProjects
 
+    private val _newConversationId = MutableStateFlow<String?>(null)
+    val newConversationId: StateFlow<String?> = _newConversationId
+
     init {
         viewModelScope.launch {
             wsClient.events.collect { event ->
@@ -50,6 +53,7 @@ class HomeViewModel(
                     is WsEvent.ConversationList -> _isRefreshingConversations.value = false
                     is WsEvent.AgentList -> _isRefreshingAgents.value = false
                     is WsEvent.ProjectList -> _isRefreshingProjects.value = false
+                    is WsEvent.ConversationCreated -> _newConversationId.value = event.id
                     else -> {}
                 }
             }
@@ -84,6 +88,10 @@ class HomeViewModel(
         approvalEffects.vibrateDecision(approved = false)
         _pendingApproval.value = null
         approvalEffects.cancelApproval()
+    }
+
+    fun clearNewConversation() {
+        _newConversationId.value = null
     }
 
     fun disconnect() {

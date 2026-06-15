@@ -38,6 +38,7 @@ fun SettingsScreen(
     val themePreference by vm.themePreference.collectAsState()
     val androidUpdateManifest by vm.androidUpdateManifest.collectAsState()
     val updateInstallState by vm.updateInstallState.collectAsState()
+    val bugReportState by vm.bugReportState.collectAsState()
     val serverVersion by vm.serverVersion.collectAsState()
     val lastError by vm.lastError.collectAsState()
     val activeProfile = profiles.firstOrNull { it.id == activeProfileId }
@@ -115,6 +116,8 @@ fun SettingsScreen(
             DiagnosticsSection(
                 connectionDiagnostics = connectionDiagnostics,
                 clientVersion = vm.clientVersion,
+                bugReportState = bugReportState,
+                onRequestBugReport = { vm.requestBugReport() },
             )
 
             ActionsSection(
