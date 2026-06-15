@@ -276,6 +276,94 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
       ALTER TABLE error_reports ADD COLUMN investigation_completed_at INTEGER;
     `,
   },
+  {
+    version: 27,
+    sql: `
+      ALTER TABLE error_reports ADD COLUMN fix_status TEXT NOT NULL DEFAULT 'none';
+      ALTER TABLE error_reports ADD COLUMN fix_staged_files TEXT NOT NULL DEFAULT '[]';
+      ALTER TABLE error_reports ADD COLUMN fix_started_at INTEGER;
+      ALTER TABLE error_reports ADD COLUMN fix_completed_at INTEGER;
+      ALTER TABLE error_reports ADD COLUMN fix_error TEXT;
+    `,
+  },
+  {
+    version: 28,
+    sql: `
+      CREATE TABLE IF NOT EXISTS self_heal_diffs (
+        report_id     TEXT NOT NULL,
+        relative_path TEXT NOT NULL,
+        diff_json     TEXT NOT NULL,
+        created_at    INTEGER NOT NULL,
+        PRIMARY KEY (report_id, relative_path)
+      );
+    `,
+  },
+  {
+    version: 29,
+    sql: `
+      CREATE TABLE IF NOT EXISTS self_heal_verification_runs (
+        id TEXT PRIMARY KEY,
+        report_id TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('running', 'success', 'failed')),
+        steps_json TEXT NOT NULL DEFAULT '[]',
+        started_at INTEGER NOT NULL,
+        completed_at INTEGER,
+        retry_count INTEGER NOT NULL DEFAULT 0,
+        error TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_self_heal_verification_report
+        ON self_heal_verification_runs(report_id, started_at);
+    `,
+  },
+  {
+    version: 30,
+    sql: `
+      CREATE TABLE IF NOT EXISTS self_heal_recovery_runs (
+        id TEXT PRIMARY KEY,
+        report_id TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('prepared', 'reloading', 'confirmed', 'rollback-required', 'rolled-back', 'failed')),
+        target_commit_sha TEXT,
+        target_version TEXT,
+        backup_manifest_json TEXT NOT NULL DEFAULT '[]',
+        pre_reload_state_json TEXT NOT NULL DEFAULT '{}',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        confirmed_at INTEGER,
+        rollback_at INTEGER,
+        error TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_self_heal_recovery_report
+        ON self_heal_recovery_runs(report_id, created_at);
+    `,
+  },
+  {
+    version: 31,
+    sql: `
+      CREATE TABLE IF NOT EXISTS self_heal_history (
+        id TEXT PRIMARY KEY,
+        report_id TEXT NOT NULL,
+        report_title TEXT NOT NULL DEFAULT '',
+        investigation_model TEXT,
+        investigation_backend TEXT,
+        investigation_rounds INTEGER NOT NULL DEFAULT 0,
+        fix_applied_at INTEGER,
+        verification_passed INTEGER NOT NULL DEFAULT 0,
+        verification_failed_step TEXT,
+        committed INTEGER NOT NULL DEFAULT 0,
+        commit_sha TEXT,
+        pushed INTEGER NOT NULL DEFAULT 0,
+        reloaded INTEGER NOT NULL DEFAULT 0,
+        rolled_back INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'investigating',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_self_heal_history_created
+        ON self_heal_history(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_self_heal_history_report
+        ON self_heal_history(report_id);
+    `,
+  },
 ];
 
 
@@ -348,12 +436,57 @@ export function initializeBaseSchema(db: Database.Database): void {
       investigation_affected_files TEXT NOT NULL DEFAULT '[]',
       investigation_started_at INTEGER,
       investigation_completed_at INTEGER,
+      fix_status TEXT NOT NULL DEFAULT 'none',
+      fix_staged_files TEXT NOT NULL DEFAULT '[]',
+      fix_started_at INTEGER,
+      fix_completed_at INTEGER,
+      fix_error TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
 
     CREATE INDEX IF NOT EXISTS idx_error_reports_status_created
       ON error_reports(status, created_at);
+
+    CREATE TABLE IF NOT EXISTS self_heal_diffs (
+      report_id     TEXT NOT NULL,
+      relative_path TEXT NOT NULL,
+      diff_json     TEXT NOT NULL,
+      created_at    INTEGER NOT NULL,
+      PRIMARY KEY (report_id, relative_path)
+    );
+
+    CREATE TABLE IF NOT EXISTS self_heal_verification_runs (
+      id TEXT PRIMARY KEY,
+      report_id TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('running', 'success', 'failed')),
+      steps_json TEXT NOT NULL DEFAULT '[]',
+      started_at INTEGER NOT NULL,
+      completed_at INTEGER,
+      retry_count INTEGER NOT NULL DEFAULT 0,
+      error TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_self_heal_verification_report
+      ON self_heal_verification_runs(report_id, started_at);
+
+    CREATE TABLE IF NOT EXISTS self_heal_recovery_runs (
+      id TEXT PRIMARY KEY,
+      report_id TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('prepared', 'reloading', 'confirmed', 'rollback-required', 'rolled-back', 'failed')),
+      target_commit_sha TEXT,
+      target_version TEXT,
+      backup_manifest_json TEXT NOT NULL DEFAULT '[]',
+      pre_reload_state_json TEXT NOT NULL DEFAULT '{}',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      confirmed_at INTEGER,
+      rollback_at INTEGER,
+      error TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_self_heal_recovery_report
+      ON self_heal_recovery_runs(report_id, created_at);
 
     CREATE TABLE IF NOT EXISTS agents (
       id TEXT PRIMARY KEY,

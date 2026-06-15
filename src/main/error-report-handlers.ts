@@ -38,6 +38,11 @@ function rowToErrorReport(row: Record<string, unknown>): ErrorReportEntry {
     investigation_affected_files: typeof row.investigation_affected_files === 'string' ? row.investigation_affected_files : '[]',
     investigation_started_at: typeof row.investigation_started_at === 'number' ? row.investigation_started_at : null,
     investigation_completed_at: typeof row.investigation_completed_at === 'number' ? row.investigation_completed_at : null,
+    fix_status: (typeof row.fix_status === 'string' ? row.fix_status : 'none') as ErrorReportEntry['fix_status'],
+    fix_staged_files: typeof row.fix_staged_files === 'string' ? row.fix_staged_files : '[]',
+    fix_started_at: typeof row.fix_started_at === 'number' ? row.fix_started_at : null,
+    fix_completed_at: typeof row.fix_completed_at === 'number' ? row.fix_completed_at : null,
+    fix_error: typeof row.fix_error === 'string' ? row.fix_error : null,
     created_at: Number(row.created_at),
     updated_at: Number(row.updated_at),
   }

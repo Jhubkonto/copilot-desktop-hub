@@ -26,14 +26,14 @@ interface InvestigationCallbacks {
   onActivity: (activity: SelfHealInvestigationActivity) => void
 }
 
-function getWorkspacePath(): string {
+export function getWorkspacePath(): string {
   const row = getDatabase()
     .prepare("SELECT value FROM settings WHERE key = 'build_workspace_path'")
     .get() as { value: string } | undefined
   return row?.value || process.cwd()
 }
 
-function resolveInsideWorkspace(workspacePath: string, requestedPath: unknown): string {
+export function resolveInsideWorkspace(workspacePath: string, requestedPath: unknown): string {
   const relative = typeof requestedPath === 'string' ? requestedPath : ''
   const resolved = path.resolve(workspacePath, relative)
   const root = path.resolve(workspacePath)

@@ -48,7 +48,7 @@ describe('database migrations', () => {
     initializeBaseSchema(db)
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(26)
+    expect(db.pragma('user_version', { simple: true })).toBe(31)
     expect(getColumnNames(db, 'projects')).toEqual(
       expect.arrayContaining(['default_model', 'config_json'])
     )
@@ -74,6 +74,12 @@ describe('database migrations', () => {
     expect(getColumnNames(db, 'error_reports')).toEqual(
       expect.arrayContaining(['investigation_markdown', 'investigation_confidence', 'investigation_root_cause', 'investigation_affected_files'])
     )
+    expect(getColumnNames(db, 'self_heal_verification_runs')).toEqual(
+      expect.arrayContaining(['report_id', 'status', 'steps_json', 'retry_count', 'error'])
+    )
+    expect(getColumnNames(db, 'self_heal_recovery_runs')).toEqual(
+      expect.arrayContaining(['report_id', 'status', 'target_commit_sha', 'backup_manifest_json', 'pre_reload_state_json'])
+    )
   })
 
   it('allows persisted tool call messages on a fresh DB', () => {
@@ -95,7 +101,7 @@ describe('database migrations', () => {
       runMigrations(db)
       runMigrations(db)
     }).not.toThrow()
-    expect(db.pragma('user_version', { simple: true })).toBe(26)
+    expect(db.pragma('user_version', { simple: true })).toBe(31)
   })
 
   it('only runs pending migrations for a partial upgrade', () => {
@@ -149,7 +155,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(26)
+    expect(db.pragma('user_version', { simple: true })).toBe(31)
     expect(getColumnNames(db, 'messages')).toEqual(
       expect.arrayContaining(['is_edited', 'previous_content', 'context_snapshot'])
     )
@@ -166,6 +172,12 @@ describe('database migrations', () => {
         .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?")
         .get('idx_conversations_project')
     ).toBeTruthy()
+    expect(getColumnNames(db, 'self_heal_verification_runs')).toEqual(
+      expect.arrayContaining(['report_id', 'status', 'steps_json'])
+    )
+    expect(getColumnNames(db, 'self_heal_recovery_runs')).toEqual(
+      expect.arrayContaining(['report_id', 'status', 'backup_manifest_json'])
+    )
   })
 
   it('upgrades a v15 messages table to allow persisted tool call messages', () => {
@@ -203,7 +215,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(26)
+    expect(db.pragma('user_version', { simple: true })).toBe(31)
     expect(() => insertMessageWithRole(db, 'tool-call')).not.toThrow()
     expect(
       db.prepare("SELECT COUNT(*) AS count FROM messages WHERE role = ?").get('assistant')
