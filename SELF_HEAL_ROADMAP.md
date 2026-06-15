@@ -92,7 +92,7 @@ Use this as the canonical tick-off list. The detailed phase notes below explain 
 - [x] **I9.3 Reusable BuildLog** — add ANSI-stripping, timestamps, auto-scroll, copy, line count, and resize support.
 - [x] **I9.4 Expandable build history** — show stored log tails and rerun actions inline.
 - [x] **I9.5 Persistent preflight status** — keep results visible and badge the tab with worst status.
-- [ ] **I9.6 Android signing modal** — move signing inputs into a modal and keep inline status compact.
+- [x] **I9.6 Android signing modal** — move signing inputs into a modal and keep inline status compact.
 - [x] **I9.7 Version shelf** — replace feed/history `<details>` with persistent version shelves.
 - [x] **I9.8 Move FCM config** — move FCM service account config to Mobile settings.
 - [x] **I9.9 Self-Heal tab UI** — integrate active healing pipeline and report viewer.
@@ -101,16 +101,16 @@ Use this as the canonical tick-off list. The detailed phase notes below explain 
 
 ### Milestone J — Project generator
 
-- [ ] **J10.1 Replace New Project entry** — open the generator wizard from the existing New Project button.
-- [ ] **J10.2 Desktop wizard modal** — build two-column chat plus live draft preview layout.
-- [ ] **J10.3 Project generator backend** — add `src/main/project-generator.ts` and `project-generator:chat`.
-- [ ] **J10.4 Structured `<project-spec>` parsing** — detect and validate generated project specs.
-- [ ] **J10.5 Agent matching/creation plan** — reuse existing agents when suitable and propose new specialist agents when needed.
-- [ ] **J10.6 Edit-before-create flow** — allow users to adjust project fields and proposed agents before commit.
-- [ ] **J10.7 Creation chain** — run project create, config update, agent create, team assignment, primary agent, and orchestration enablement.
-- [ ] **J10.8 Rollback on failure** — delete created project/agents if any creation step fails.
-- [ ] **J10.9 Android generator flow** — add WS-backed generator conversation, spec preview, confirm, and created events.
-- [ ] **J10.10 Verify generator** — test cancel, edit, successful create, rollback, orchestration, and Android creation.
+- [x] **J10.1 Replace New Project entry** — open the generator wizard from the existing New Project button.
+- [x] **J10.2 Desktop wizard modal** — build two-column chat plus live draft preview layout.
+- [x] **J10.3 Project generator backend** — add `src/main/project-generator.ts` and `project-generator:chat`.
+- [x] **J10.4 Structured `<project-spec>` parsing** — detect and validate generated project specs.
+- [x] **J10.5 Agent matching/creation plan** — reuse existing agents when suitable and propose new specialist agents when needed.
+- [x] **J10.6 Edit-before-create flow** — allow users to adjust project fields and proposed agents before commit.
+- [x] **J10.7 Creation chain** — run project create, config update, agent create, team assignment, primary agent, and orchestration enablement.
+- [x] **J10.8 Rollback on failure** — delete created project/agents if any creation step fails.
+- [x] **J10.9 Android generator flow** — add WS-backed generator conversation, spec preview, confirm, and created events.
+- [x] **J10.10 Verify generator** — test cancel, edit, successful create, rollback, orchestration, and Android creation.
 
 ### Milestone K — Feature generator
 
