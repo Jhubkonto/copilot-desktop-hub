@@ -31,6 +31,11 @@ import type {
   FeatureGeneratorMessage,
   FeatureSpec,
   FeatureGeneratorRun,
+  ArtifactGeneratorMessage,
+  ArtifactSpec,
+  ArtifactRow,
+  ArtifactVersion,
+  ArtifactGeneratorRun,
 } from '../shared/types'
 
 // ---------------------------------------------------------------------------
@@ -629,6 +634,47 @@ const api = {
     const handler = (_event: Electron.IpcRendererEvent, payload: { runId: string; specialistIndex: number; chunk: string }) => callback(payload)
     typedOn('feature-generator:specialist-token', handler)
     return () => typedOff('feature-generator:specialist-token', handler)
+  },
+
+  // Artifact CRUD
+  artifactList: (projectId?: string) =>
+    typedInvoke('artifact:list', projectId),
+  artifactGet: (id: string) =>
+    typedInvoke('artifact:get', id),
+  artifactListVersions: (artifactId: string) =>
+    typedInvoke('artifact:list-versions', artifactId),
+  artifactGetVersion: (versionId: string) =>
+    typedInvoke('artifact:get-version', versionId),
+  artifactDelete: (id: string) =>
+    typedInvoke('artifact:delete', id),
+  artifactExport: (versionId: string, format: string) =>
+    typedInvoke('artifact:export', versionId, format),
+
+  // Artifact generator
+  artifactGeneratorChat: (messages: ArtifactGeneratorMessage[], projectId?: string) =>
+    typedInvoke('artifact-generator:chat', messages, projectId),
+  artifactGeneratorGenerate: (runId: string, spec: ArtifactSpec, projectId?: string) =>
+    typedInvoke('artifact-generator:generate', runId, spec, projectId),
+  artifactGeneratorGetRuns: () =>
+    typedInvoke('artifact-generator:get-runs'),
+  artifactGeneratorGetStorageRoot: () =>
+    typedInvoke('artifact-generator:get-storage-root'),
+  artifactGeneratorSetStorageRoot: (path: string) =>
+    typedInvoke('artifact-generator:set-storage-root', path),
+  onArtifactGeneratorToken: (callback: (chunk: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, chunk: string) => callback(chunk)
+    typedOn('artifact-generator:token', handler)
+    return () => typedOff('artifact-generator:token', handler)
+  },
+  onArtifactGeneratorSpecReady: (callback: (spec: ArtifactSpec) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, spec: ArtifactSpec) => callback(spec)
+    typedOn('artifact-generator:spec-ready', handler)
+    return () => typedOff('artifact-generator:spec-ready', handler)
+  },
+  onArtifactGeneratorFileEvent: (callback: (event: { file: string; status: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, e: { file: string; status: string }) => callback(e)
+    typedOn('artifact-generator:file-event', handler)
+    return () => typedOff('artifact-generator:file-event', handler)
   },
 }
 

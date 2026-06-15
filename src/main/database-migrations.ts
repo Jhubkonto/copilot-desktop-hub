@@ -387,6 +387,72 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
         ON feature_generator_runs(created_at DESC);
     `,
   },
+  {
+    version: 33,
+    sql: `
+      CREATE TABLE IF NOT EXISTS artifacts (
+        id TEXT PRIMARY KEY,
+        project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        description TEXT,
+        storage_root TEXT NOT NULL,
+        current_version_id TEXT,
+        status TEXT NOT NULL DEFAULT 'draft',
+        created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+      );
+      CREATE INDEX IF NOT EXISTS idx_artifacts_project
+        ON artifacts(project_id, updated_at DESC);
+
+      CREATE TABLE IF NOT EXISTS artifact_versions (
+        id TEXT PRIMARY KEY,
+        artifact_id TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
+        version_number INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        notes TEXT,
+        spec_json TEXT,
+        manifest_json TEXT NOT NULL,
+        source_conversation_id TEXT,
+        source_message_id TEXT,
+        created_by_agent_ids TEXT,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+      );
+      CREATE INDEX IF NOT EXISTS idx_artifact_versions_artifact
+        ON artifact_versions(artifact_id, version_number DESC);
+
+      CREATE TABLE IF NOT EXISTS artifact_files (
+        id TEXT PRIMARY KEY,
+        version_id TEXT NOT NULL REFERENCES artifact_versions(id) ON DELETE CASCADE,
+        relative_path TEXT NOT NULL,
+        absolute_path TEXT NOT NULL,
+        media_type TEXT NOT NULL,
+        role TEXT NOT NULL,
+        size_bytes INTEGER,
+        checksum TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS artifact_chat_refs (
+        id TEXT PRIMARY KEY,
+        artifact_id TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
+        version_id TEXT NOT NULL REFERENCES artifact_versions(id) ON DELETE CASCADE,
+        project_id TEXT,
+        conversation_id TEXT NOT NULL,
+        message_id TEXT,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+      );
+
+      CREATE TABLE IF NOT EXISTS artifact_generator_runs (
+        id TEXT PRIMARY KEY,
+        artifact_id TEXT REFERENCES artifacts(id) ON DELETE SET NULL,
+        title TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'chatting',
+        spec_json TEXT,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+      );
+    `,
+  },
 ];
 
 

@@ -550,6 +550,91 @@ export interface FeatureGeneratorMessage {
   content: string
 }
 
+export type ArtifactKind =
+  | 'document' | 'code' | 'ui' | 'data'
+  | 'prompt' | 'agent-config' | 'plan' | 'bundle' | 'other'
+
+export type ArtifactStatus = 'draft' | 'generating' | 'ready' | 'exported' | 'archived' | 'failed'
+
+export type ArtifactExportFormat = 'markdown' | 'html' | 'json' | 'zip' | 'raw-files'
+
+export interface ArtifactSpec {
+  title: string
+  kind: ArtifactKind
+  scope: { type: 'global' | 'project'; projectId?: string }
+  intendedUse: string
+  audience?: string
+  outputFiles: {
+    path: string
+    mediaType: string
+    role: 'primary' | 'supporting' | 'preview' | 'source'
+    description?: string
+  }[]
+  sourceContext: {
+    useProjectInstructions: boolean
+    useProjectWiki: boolean
+    useConversationContext: boolean
+    referencedFiles: string[]
+  }
+  acceptanceCriteria: string[]
+  exportFormats: ArtifactExportFormat[]
+}
+
+export interface ArtifactFile {
+  id: string
+  versionId: string
+  relativePath: string
+  absolutePath: string
+  mediaType: string
+  role: string
+  sizeBytes: number | null
+  checksum: string | null
+}
+
+export interface ArtifactVersion {
+  id: string
+  artifactId: string
+  versionNumber: number
+  title: string
+  notes: string | null
+  specJson: string | null
+  manifestJson: string
+  sourceConversationId: string | null
+  sourceMessageId: string | null
+  createdByAgentIds: string | null
+  createdAt: number
+  files?: ArtifactFile[]
+}
+
+export interface ArtifactRow {
+  id: string
+  projectId: string | null
+  title: string
+  kind: ArtifactKind
+  description: string | null
+  storageRoot: string
+  currentVersionId: string | null
+  status: ArtifactStatus
+  createdAt: number
+  updatedAt: number
+  currentVersion?: ArtifactVersion
+}
+
+export interface ArtifactGeneratorMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface ArtifactGeneratorRun {
+  id: string
+  artifactId: string | null
+  title: string
+  status: string
+  specJson: string | null
+  createdAt: number
+  updatedAt: number
+}
+
 // ---------------------------------------------------------------------------
 // Auth
 // ---------------------------------------------------------------------------
@@ -1372,6 +1457,21 @@ export type IpcReturnMap = {
   'feature-generator:spec-ready': void
   'feature-generator:fix-event': void
   'feature-generator:specialist-token': void
+  // Artifact
+  'artifact:list': ArtifactRow[]
+  'artifact:get': ArtifactRow | null
+  'artifact:list-versions': ArtifactVersion[]
+  'artifact:get-version': ArtifactVersion | null
+  'artifact:delete': { deleted: boolean }
+  'artifact:export': { exportPath: string }
+  'artifact-generator:chat': { started: boolean }
+  'artifact-generator:generate': { started: boolean }
+  'artifact-generator:get-runs': ArtifactGeneratorRun[]
+  'artifact-generator:get-storage-root': { path: string }
+  'artifact-generator:set-storage-root': { ok: boolean }
+  'artifact-generator:token': void
+  'artifact-generator:spec-ready': void
+  'artifact-generator:file-event': void
   // Updater (push-only)
   'updater:download-progress': void
   'updater:error': void
@@ -1636,3 +1736,17 @@ export type IpcChannels =
   | 'feature-generator:spec-ready'
   | 'feature-generator:fix-event'
   | 'feature-generator:specialist-token'
+  | 'artifact:list'
+  | 'artifact:get'
+  | 'artifact:list-versions'
+  | 'artifact:get-version'
+  | 'artifact:delete'
+  | 'artifact:export'
+  | 'artifact-generator:chat'
+  | 'artifact-generator:generate'
+  | 'artifact-generator:get-runs'
+  | 'artifact-generator:get-storage-root'
+  | 'artifact-generator:set-storage-root'
+  | 'artifact-generator:token'
+  | 'artifact-generator:spec-ready'
+  | 'artifact-generator:file-event'
