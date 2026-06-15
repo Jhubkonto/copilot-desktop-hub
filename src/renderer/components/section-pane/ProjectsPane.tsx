@@ -18,6 +18,7 @@ export function ProjectsPane() {
   const loadProjectConfig = useAppStore((s) => s.loadProjectConfig)
   const clearPendingSettingsProject = useAppStore((s) => s.clearPendingSettingsProject)
   const setShowNewProjectForm = useAppStore((s) => s.setShowNewProjectForm)
+  const setShowProjectGenerator = useAppStore((s) => s.setShowProjectGenerator)
   const openEditProject = useAppStore((s) => s.openEditProject)
   const addAgentToProject = useAppStore((s) => s.addAgentToProject)
   const setProjectPrimaryAgent = useAppStore((s) => s.setProjectPrimaryAgent)
@@ -58,7 +59,7 @@ export function ProjectsPane() {
           {projects.length} project{projects.length !== 1 ? 's' : ''}
         </span>
         <button
-          onClick={() => setShowNewProjectForm(true)}
+          onClick={() => setShowProjectGenerator(true)}
           className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 px-2 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
           aria-label="Create new project"
         >

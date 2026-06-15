@@ -15,6 +15,8 @@ export interface ProjectSlice {
   historyProjectId: string | null
   pendingSettingsProjectId: string | null
   showNewProjectForm: boolean
+  showProjectGenerator: boolean
+  setShowProjectGenerator: (show: boolean) => void
   editingProjectId: string | null
   newlyCreatedProjectId: string | null
   projectsLoading: boolean
@@ -66,6 +68,7 @@ export const createProjectSlice: StateCreator<
   historyProjectId: null,
   pendingSettingsProjectId: null,
   showNewProjectForm: false,
+  showProjectGenerator: false,
   editingProjectId: null,
   newlyCreatedProjectId: null,
   projectsLoading: false,
@@ -229,6 +232,12 @@ export const createProjectSlice: StateCreator<
   setShowNewProjectForm: (show) => {
     set((s) => {
       s.showNewProjectForm = show
+    })
+  },
+
+  setShowProjectGenerator: (show) => {
+    set((s) => {
+      s.showProjectGenerator = show
     })
   },
 

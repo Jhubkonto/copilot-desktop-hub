@@ -104,6 +104,7 @@ export function Sidebar() {
   const setHistoryProjectId = useAppStore((s) => s.setHistoryProjectId)
   const historyProjectId = useAppStore((s) => s.historyProjectId)
   const setShowNewProjectForm = useAppStore((s) => s.setShowNewProjectForm)
+  const setShowProjectGenerator = useAppStore((s) => s.setShowProjectGenerator)
   const unreadConversationIds = useAppStore((s) => s.unreadConversationIds)
   const catalogModels = useAppStore((s) => s.catalogModels)
 
@@ -391,7 +392,7 @@ export function Sidebar() {
               </button>
             </div>
             <button
-              onClick={() => setShowNewProjectForm(true)}
+              onClick={() => setShowProjectGenerator(true)}
               className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-0.5 rounded"
               title="New project"
               aria-label="Create new project"

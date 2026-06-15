@@ -25,6 +25,9 @@ const OnboardingModal = lazy(() =>
 const ProjectPanel = lazy(() =>
   import('./components/ProjectPanel').then((m) => ({ default: m.ProjectPanel }))
 )
+const ProjectGeneratorModal = lazy(() =>
+  import('./components/ProjectGeneratorModal').then((m) => ({ default: m.ProjectGeneratorModal }))
+)
 
 export default function App() {
   const theme = useAppStore((s) => s.theme)
@@ -38,6 +41,8 @@ export default function App() {
   const toasts = useAppStore((s) => s.toasts)
 
   const showNewProjectForm = useAppStore((s) => s.showNewProjectForm)
+  const showProjectGenerator = useAppStore((s) => s.showProjectGenerator)
+  const setShowProjectGenerator = useAppStore((s) => s.setShowProjectGenerator)
   const editingProjectId = useAppStore((s) => s.editingProjectId)
   const pendingDeleteAgent = useAppStore((s) => s.pendingDeleteAgent)
   const confirmDeleteAgent = useAppStore((s) => s.confirmDeleteAgent)
@@ -197,6 +202,10 @@ export default function App() {
         )}
 
         {(showNewProjectForm || editingProjectId) && <ProjectPanel />}
+
+        {showProjectGenerator && (
+          <ProjectGeneratorModal onClose={() => setShowProjectGenerator(false)} />
+        )}
 
         <McpServerPanel />
 
