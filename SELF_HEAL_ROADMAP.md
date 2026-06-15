@@ -114,19 +114,19 @@ Use this as the canonical tick-off list. The detailed phase notes below explain 
 
 ### Milestone K — Feature generator
 
-- [ ] **K11.1 Developer sub-tab** — add a dedicated Feature Generator tab under Developer options.
-- [ ] **K11.2 Guided discovery chat** — ask the developer what they want to add/change, target surfaces, constraints, risk tolerance, and acceptance criteria.
-- [ ] **K11.3 Structured feature spec** — emit and validate a `<feature-spec>` block with scope, user story, acceptance criteria, risks, affected areas, and verification plan.
-- [ ] **K11.4 Approval before implementation** — require explicit developer approval of the generated spec and implementation plan before any code path starts.
-- [ ] **K11.5 Specialist team proposal** — propose a lead plus specialists matched to the feature type and app surface.
-- [ ] **K11.6 Temporary specialist sessions** — use temporary per-feature specialists by default, with an option to promote useful specialists into persistent agents after the run.
-- [ ] **K11.7 Specialist work panel** — show a live panel of specialist activity; each specialist can be expanded to inspect reasoning, files reviewed, proposed tasks, and current output.
-- [ ] **K11.8 Implementation runner** — after approval, hand the approved plan to the same staged file-edit workflow used by self-heal.
-- [ ] **K11.9 Staged diff review** — require review and approval of generated diffs before applying changes to the workspace.
-- [ ] **K11.10 Verify/apply/commit/reload flow** — support the full Plan + apply + verify + commit + reload path through existing self-heal pipeline pieces.
-- [ ] **K11.11 Artifact workspace mode** — design the feature generator so it can later target user-selected workspaces, not only the Nexy repo.
-- [ ] **K11.12 Run history** — store feature generator runs, specs, specialist team, changed files, verification results, commit SHA, and reload status.
-- [ ] **K11.13 Verify feature generator** — test plan-only, approved implementation, failed verification, commit skip, reload success, and rollback paths.
+- [x] **K11.1 Developer sub-tab** — add a dedicated Feature Generator tab under Developer options.
+- [x] **K11.2 Guided discovery chat** — ask the developer what they want to add/change, target surfaces, constraints, risk tolerance, and acceptance criteria.
+- [x] **K11.3 Structured feature spec** — emit and validate a `<feature-spec>` block with scope, user story, acceptance criteria, risks, affected areas, and verification plan.
+- [x] **K11.4 Approval before implementation** — require explicit developer approval of the generated spec and implementation plan before any code path starts.
+- [x] **K11.5 Specialist team proposal** — propose a lead plus specialists matched to the feature type and app surface.
+- [x] **K11.6 Temporary specialist sessions** — use temporary per-feature specialists by default, with an option to promote useful specialists into persistent agents after the run.
+- [x] **K11.7 Specialist work panel** — show a live panel of specialist activity; each specialist can be expanded to inspect reasoning, files reviewed, proposed tasks, and current output.
+- [x] **K11.8 Implementation runner** — after approval, hand the approved plan to the same staged file-edit workflow used by self-heal.
+- [x] **K11.9 Staged diff review** — require review and approval of generated diffs before applying changes to the workspace.
+- [x] **K11.10 Verify/apply/commit/reload flow** — support the full Plan + apply + verify + commit + reload path through existing self-heal pipeline pieces.
+- [x] **K11.11 Artifact workspace mode** — design the feature generator so it can later target user-selected workspaces, not only the Nexy repo.
+- [x] **K11.12 Run history** — store feature generator runs, specs, specialist team, changed files, verification results, commit SHA, and reload status.
+- [x] **K11.13 Verify feature generator** — test plan-only, approved implementation, failed verification, commit skip, reload success, and rollback paths.
 
 ### Milestone L — Artifact generator
 
