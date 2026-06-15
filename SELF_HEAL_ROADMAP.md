@@ -46,58 +46,58 @@ Use this as the canonical tick-off list. The detailed phase notes below explain 
 
 ### Milestone E — Fix staging and review
 
-- [ ] **E4.1 Fix staging schema** — store patched files, backups, and fix status on the report/history records.
-- [ ] **E4.2 Fix agent** — add `src/main/self-heal/fix-agent.ts` to generate complete patched files into staging only.
-- [ ] **E4.3 Context guard** — truncate or summarize oversized affected files before sending to the model.
-- [ ] **E4.4 Diff generation** — produce before/after diffs for every staged file.
-- [ ] **E4.5 Desktop diff UI** — show reviewable diffs with per-file revert and reviewed state.
-- [ ] **E4.6 Apply to workspace** — copy staged files into the workspace only after explicit approval, with backups.
-- [ ] **E4.7 Android fix status** — broadcast patched file list and provide read-only diff retrieval.
-- [ ] **E4.8 Verify staging** — confirm dry-run staging never touches workspace until approved.
+- [x] **E4.1 Fix staging schema** — store patched files, backups, and fix status on the report/history records.
+- [x] **E4.2 Fix agent** — add `src/main/self-heal/fix-agent.ts` to generate complete patched files into staging only.
+- [x] **E4.3 Context guard** — truncate or summarize oversized affected files before sending to the model.
+- [x] **E4.4 Diff generation** — produce before/after diffs for every staged file.
+- [x] **E4.5 Desktop diff UI** — show reviewable diffs with per-file revert and reviewed state.
+- [x] **E4.6 Apply to workspace** — copy staged files into the workspace only after explicit approval, with backups.
+- [x] **E4.7 Android fix status** — broadcast patched file list and provide read-only diff retrieval.
+- [x] **E4.8 Verify staging** — confirm dry-run staging never touches workspace until approved.
 
 ### Milestone F — Verification pipeline
 
-- [ ] **F5.1 Verification runner** — add `src/main/self-heal/verifier.ts` for typecheck, lint, build, and tests.
-- [ ] **F5.2 Lint command support** — add a lint verification command if build handlers do not already expose it.
-- [ ] **F5.3 Verification streaming** — stream logs and step statuses to desktop and Android.
-- [ ] **F5.4 Failure retry loop** — allow up to the configured number of re-investigation rounds with compiler/test errors appended.
-- [ ] **F5.5 Verification UI** — show four status rows with expandable logs and next actions only after all pass.
-- [ ] **F5.6 Verify pipeline** — test one passing fix and one failing fix with retry behavior.
+- [x] **F5.1 Verification runner** — add `src/main/self-heal/verifier.ts` for typecheck, lint, build, and tests.
+- [x] **F5.2 Lint command support** — add a lint verification command if build handlers do not already expose it.
+- [x] **F5.3 Verification streaming** — stream logs and step statuses to desktop and Android.
+- [x] **F5.4 Failure retry loop** — allow up to the configured number of re-investigation rounds with compiler/test errors appended.
+- [x] **F5.5 Verification UI** — show four status rows with expandable logs and next actions only after all pass.
+- [x] **F5.6 Verify pipeline** — test one passing fix and one failing fix with retry behavior.
 
 ### Milestone G — Git, reload, and rollback
 
-- [ ] **G6.1 Git IPC handlers** — add branch, stage, commit, push, and status handlers under `src/main/self-heal/git-ops.ts`.
-- [ ] **G6.2 Git UI flow** — add branch/commit/push prompt cards with editable commit message and skip options.
-- [ ] **G6.3 Android git relay** — mirror git prompts and decisions over WebSocket.
-- [ ] **G7.1 Reload preparation** — record last-heal metadata, target version, backup path, and pre-reload state.
-- [ ] **G7.2 App reload flow** — rebuild/package as needed and relaunch into the fixed version after user approval.
-- [ ] **G7.3 Startup confirmation** — mark heal confirmed only after the app loads and reports healthy startup.
-- [ ] **G7.4 Rollback path** — restore backup if startup fails or the user rejects the healed version.
-- [ ] **G7.5 Failsafe window** — provide minimal rollback UI if the normal renderer cannot load.
-- [ ] **G7.6 Android reload UX** — broadcast reloading/failsafe events and reconnect guidance.
-- [ ] **G7.7 Verify recovery** — test successful reload and intentionally bad reload rollback.
+- [x] **G6.1 Git IPC handlers** — add branch, stage, commit, push, and status handlers under `src/main/self-heal/git-ops.ts`.
+- [x] **G6.2 Git UI flow** — add branch/commit/push prompt cards with editable commit message and skip options.
+- [x] **G6.3 Android git relay** — mirror git prompts and decisions over WebSocket.
+- [x] **G7.1 Reload preparation** — record last-heal metadata, target version, backup path, and pre-reload state.
+- [x] **G7.2 App reload flow** — rebuild/package as needed and relaunch into the fixed version after user approval.
+- [x] **G7.3 Startup confirmation** — mark heal confirmed only after the app loads and reports healthy startup.
+- [x] **G7.4 Rollback path** — restore backup if startup fails or the user rejects the healed version.
+- [x] **G7.5 Failsafe window** — provide minimal rollback UI if the normal renderer cannot load.
+- [x] **G7.6 Android reload UX** — broadcast reloading/failsafe events and reconnect guidance.
+- [x] **G7.7 Verify recovery** — test successful reload and intentionally bad reload rollback.
 
 ### Milestone H — Self-heal product integration
 
-- [ ] **H8.1 Self-heal dashboard** — add active pipeline and report history surfaces.
-- [ ] **H8.2 Self-heal history table** — persist model/backend, rounds, statuses, verification, git, reload, and rollback metadata.
-- [ ] **H8.3 Notifications** — send desktop notifications for investigation complete, verification failure, and approval-required steps.
-- [ ] **H8.4 Android end-to-end control** — allow Android to follow and control the full healing workflow.
-- [ ] **H8.5 End-to-end verification** — run from captured error to reloaded app using desktop and Android paths.
+- [x] **H8.1 Self-heal dashboard** — add active pipeline and report history surfaces.
+- [x] **H8.2 Self-heal history table** — persist model/backend, rounds, statuses, verification, git, reload, and rollback metadata.
+- [x] **H8.3 Notifications** — send desktop notifications for investigation complete, verification failure, and approval-required steps.
+- [x] **H8.4 Android end-to-end control** — allow Android to follow and control the full healing workflow.
+- [x] **H8.5 End-to-end verification** — run from captured error to reloaded app using desktop and Android paths.
 
 ### Milestone I — Developer UI redesign
 
-- [ ] **I9.1 Developer inner tabs** — split Developer into Desktop, Android, Self-Heal, and Console tabs.
-- [ ] **I9.2 Desktop pipeline layout** — present Preflight, Build, Publish, and Launch as a clear pipeline.
-- [ ] **I9.3 Reusable BuildLog** — add ANSI-stripping, timestamps, auto-scroll, copy, line count, and resize support.
-- [ ] **I9.4 Expandable build history** — show stored log tails and rerun actions inline.
-- [ ] **I9.5 Persistent preflight status** — keep results visible and badge the tab with worst status.
+- [x] **I9.1 Developer inner tabs** — split Developer into Desktop, Android, Self-Heal, and Console tabs.
+- [x] **I9.2 Desktop pipeline layout** — present Preflight, Build, Publish, and Launch as a clear pipeline.
+- [x] **I9.3 Reusable BuildLog** — add ANSI-stripping, timestamps, auto-scroll, copy, line count, and resize support.
+- [x] **I9.4 Expandable build history** — show stored log tails and rerun actions inline.
+- [x] **I9.5 Persistent preflight status** — keep results visible and badge the tab with worst status.
 - [ ] **I9.6 Android signing modal** — move signing inputs into a modal and keep inline status compact.
-- [ ] **I9.7 Version shelf** — replace feed/history `<details>` with persistent version shelves.
-- [ ] **I9.8 Move FCM config** — move FCM service account config to Mobile settings.
-- [ ] **I9.9 Self-Heal tab UI** — integrate active healing pipeline and report viewer.
-- [ ] **I9.10 Console tab UI** — move console into its own tab with unread error count.
-- [ ] **I9.11 Verify UI redesign** — typecheck and manually exercise all four tabs.
+- [x] **I9.7 Version shelf** — replace feed/history `<details>` with persistent version shelves.
+- [x] **I9.8 Move FCM config** — move FCM service account config to Mobile settings.
+- [x] **I9.9 Self-Heal tab UI** — integrate active healing pipeline and report viewer.
+- [x] **I9.10 Console tab UI** — move console into its own tab with unread error count.
+- [x] **I9.11 Verify UI redesign** — typecheck and manually exercise all four tabs.
 
 ### Milestone J — Project generator
 
