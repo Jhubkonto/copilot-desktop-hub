@@ -468,6 +468,42 @@ export interface ErrorReportEntry {
 }
 
 // ---------------------------------------------------------------------------
+// Project Generator
+// ---------------------------------------------------------------------------
+
+export interface ProjectGeneratorAgentSpec {
+  role: string
+  description: string
+  existingAgentId?: string
+  newAgent?: {
+    name: string
+    icon: string
+    systemPrompt: string
+    temperature: number
+    responseFormat: 'default' | 'concise' | 'detailed' | 'code-only'
+  }
+  isLeader: boolean
+}
+
+export interface ProjectGeneratorSpec {
+  name: string
+  color: string
+  instructions: string
+  variables: { key: string; value: string }[]
+  inScope: { description: string; pathGlob?: string }[]
+  outOfScope: { description: string; pathGlob?: string }[]
+  milestones: { title: string; description?: string; status: 'active' | 'upcoming' }[]
+  orchestrationEnabled: boolean
+  defaultModel?: string
+  agents: ProjectGeneratorAgentSpec[]
+}
+
+export interface ProjectGeneratorMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+// ---------------------------------------------------------------------------
 // Auth
 // ---------------------------------------------------------------------------
 
@@ -1275,6 +1311,10 @@ export type IpcReturnMap = {
   'tool:list': BuiltinToolDefinition[]
   'tool:request-approval': void
   'tool:set-preference': boolean
+  // Project generator
+  'project-generator:chat': { started: boolean }
+  'project-generator:token': void
+  'project-generator:spec-ready': void
   // Updater (push-only)
   'updater:download-progress': void
   'updater:error': void
@@ -1527,3 +1567,6 @@ export type IpcChannels =
   | 'ws:stop'
   | 'ws:status'
   | 'ws:regenerate-token'
+  | 'project-generator:chat'
+  | 'project-generator:token'
+  | 'project-generator:spec-ready'

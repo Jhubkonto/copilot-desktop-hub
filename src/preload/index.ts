@@ -26,6 +26,8 @@ import type {
   PromptLibraryUpdate,
   AvailableModelGroup,
   PublishedEntry,
+  ProjectGeneratorMessage,
+  ProjectGeneratorSpec,
 } from '../shared/types'
 
 // ---------------------------------------------------------------------------
@@ -578,6 +580,20 @@ const api = {
     const handler = (_event: Electron.IpcRendererEvent, data: { buildId: string; status: BuildStatus; exitCode: number }) => callback(data)
     typedOn('android:command-done', handler)
     return () => typedOff('android:command-done', handler)
+  },
+
+  // Project generator
+  projectGeneratorChat: (messages: ProjectGeneratorMessage[], existingAgents: { id: string; name: string; icon: string; systemPrompt: string }[]) =>
+    typedInvoke('project-generator:chat', messages, existingAgents),
+  onProjectGeneratorToken: (callback: (chunk: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, chunk: string) => callback(chunk)
+    typedOn('project-generator:token', handler)
+    return () => typedOff('project-generator:token', handler)
+  },
+  onProjectGeneratorSpecReady: (callback: (spec: ProjectGeneratorSpec) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, spec: ProjectGeneratorSpec) => callback(spec)
+    typedOn('project-generator:spec-ready', handler)
+    return () => typedOff('project-generator:spec-ready', handler)
   },
 }
 
