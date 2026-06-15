@@ -11,6 +11,7 @@ import type Database from 'better-sqlite3'
 import { safeHandle } from './safe-handle'
 import { getDatabase } from './database'
 import { startFeedServer, isFeedRunning, getFeedLanUrl } from './local-feed-server'
+import { debugTime, debugTimeEnd } from './debug-mode'
 import type {
   AndroidBuildCommandName,
   AndroidWorkspaceInfo,
@@ -225,9 +226,9 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
   const db = getDatabase()
 
   safeHandle('android:get-workspace-info', async () => {
-    console.time('[DEV-TAB] android:get-workspace-info')
+    debugTime('android:get-workspace-info')
     const r = await getAndroidWorkspaceInfo(db)
-    console.timeEnd('[DEV-TAB] android:get-workspace-info')
+    debugTimeEnd('android:get-workspace-info')
     return r
   })
 
@@ -333,19 +334,19 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
   })
 
   safeHandle('android:get-records', (_event, limit?: number) => {
-    console.time('[DEV-TAB] android:get-records')
+    debugTime('android:get-records')
     const rows = db.prepare(
       `SELECT * FROM build_records WHERE platform = 'android' ORDER BY started_at DESC LIMIT ?`
     ).all(limit ?? 20) as Record<string, unknown>[]
     const r = rows.map(rowToRecord)
-    console.timeEnd('[DEV-TAB] android:get-records')
+    debugTimeEnd('android:get-records')
     return r
   })
 
   safeHandle('android:get-signing-config', () => {
-    console.time('[DEV-TAB] android:get-signing-config')
+    debugTime('android:get-signing-config')
     const r = getSigningConfig(db)
-    console.timeEnd('[DEV-TAB] android:get-signing-config')
+    debugTimeEnd('android:get-signing-config')
     return r
   })
 
@@ -521,9 +522,9 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
   })
 
   safeHandle('android:get-update-manifest', () => {
-    console.time('[DEV-TAB] android:get-update-manifest')
+    debugTime('android:get-update-manifest')
     const r = getAndroidUpdateManifest(db)
-    console.timeEnd('[DEV-TAB] android:get-update-manifest')
+    debugTimeEnd('android:get-update-manifest')
     return r
   })
 
@@ -537,17 +538,17 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
   })
 
   safeHandle('android:get-fcm-config-status', () => {
-    console.time('[DEV-TAB] android:get-fcm-config-status')
+    debugTime('android:get-fcm-config-status')
     const r = getFcmConfigStatus(db)
-    console.timeEnd('[DEV-TAB] android:get-fcm-config-status')
+    debugTimeEnd('android:get-fcm-config-status')
     return r
   })
 
   safeHandle('android:get-publish-history', () => {
-    console.time('[DEV-TAB] android:get-publish-history')
+    debugTime('android:get-publish-history')
     const androidFeedDir = getAndroidFeedDir(db)
     const r = androidFeedDir ? readPublishHistory(androidFeedDir) : []
-    console.timeEnd('[DEV-TAB] android:get-publish-history')
+    debugTimeEnd('android:get-publish-history')
     return r
   })
 

@@ -3,6 +3,7 @@ import { CodexAdapter } from './cli-adapters/codex'
 import { getCliModels } from './cli-detection'
 import { PROVIDERS, isProviderConfigured, getOpenRouterModels, fetchAndCacheOpenRouterModels, retrieveApiKey } from './providers'
 import { safeHandle } from './safe-handle'
+import { debugTime, debugTimeEnd } from './debug-mode'
 import type { AvailableModelGroup } from '../shared/types'
 
 export function getAvailableModelGroups(): AvailableModelGroup[] {
@@ -39,9 +40,9 @@ export function getAvailableModelGroups(): AvailableModelGroup[] {
 
 export function registerModelAvailabilityHandlers(): void {
   safeHandle('model:list-available', () => {
-    console.time('[DEV-TAB] model:list-available')
+    debugTime('model:list-available')
     const r = getAvailableModelGroups()
-    console.timeEnd('[DEV-TAB] model:list-available')
+    debugTimeEnd('model:list-available')
     return r
   })
 

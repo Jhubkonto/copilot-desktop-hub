@@ -10,6 +10,7 @@ import type Database from 'better-sqlite3'
 import { safeHandle } from './safe-handle'
 import { getDatabase } from './database'
 import { startFeedServer, isFeedRunning, getFeedUrl, getFeedPort } from './local-feed-server'
+import { debugTime, debugTimeEnd } from './debug-mode'
 import type { BuildCommandName, BuildRecord, BuildStatus, LocalUpdateFeed, PreflightCheck, PublishedEntry, WorkspaceInfo } from '../shared/types'
 
 // ---------------------------------------------------------------------------
@@ -154,9 +155,9 @@ export function registerBuildHandlers(mainWindow?: BrowserWindow): void {
   const db = getDatabase()
 
   safeHandle('build:get-workspace-info', async () => {
-    console.time('[DEV-TAB] build:get-workspace-info')
+    debugTime('build:get-workspace-info')
     const r = await getWorkspaceInfo(db)
-    console.timeEnd('[DEV-TAB] build:get-workspace-info')
+    debugTimeEnd('build:get-workspace-info')
     return r
   })
 
@@ -239,12 +240,12 @@ export function registerBuildHandlers(mainWindow?: BrowserWindow): void {
   })
 
   safeHandle('build:get-records', (_event, limit?: number) => {
-    console.time('[DEV-TAB] build:get-records')
+    debugTime('build:get-records')
     const rows = db.prepare(
       `SELECT * FROM build_records ORDER BY started_at DESC LIMIT ?`
     ).all(limit ?? 20) as Record<string, unknown>[]
     const r = rows.map(rowToRecord)
-    console.timeEnd('[DEV-TAB] build:get-records')
+    debugTimeEnd('build:get-records')
     return r
   })
 
@@ -324,10 +325,10 @@ export function registerBuildHandlers(mainWindow?: BrowserWindow): void {
   // ---------------------------------------------------------------------------
 
   safeHandle('build:get-feed-info', () => {
-    console.time('[DEV-TAB] build:get-feed-info')
+    debugTime('build:get-feed-info')
     const feedPath = getLocalFeedPath(db)
     const r = feedPath ? buildFeedInfo(feedPath) : null
-    console.timeEnd('[DEV-TAB] build:get-feed-info')
+    debugTimeEnd('build:get-feed-info')
     return r
   })
 
@@ -406,9 +407,9 @@ export function registerBuildHandlers(mainWindow?: BrowserWindow): void {
   })
 
   safeHandle('build:list-published', () => {
-    console.time('[DEV-TAB] build:list-published')
+    debugTime('build:list-published')
     const feedPath = getLocalFeedPath(db)
-    if (!feedPath || !existsSync(feedPath)) { console.timeEnd('[DEV-TAB] build:list-published'); return [] }
+    if (!feedPath || !existsSync(feedPath)) { debugTimeEnd('build:list-published'); return [] }
 
     const entries: PublishedEntry[] = []
     const ymlName = getYmlName()
@@ -445,7 +446,7 @@ export function registerBuildHandlers(mainWindow?: BrowserWindow): void {
     }
 
     const result = entries.sort((a, b) => b.publishedAt - a.publishedAt)
-    console.timeEnd('[DEV-TAB] build:list-published')
+    debugTimeEnd('build:list-published')
     return result
   })
 
