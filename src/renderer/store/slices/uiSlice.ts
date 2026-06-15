@@ -22,7 +22,9 @@ export interface UiSlice {
   unreadConversationIds: string[]
   catalogModels: CatalogModel[]
   globalDefaultModel: string
+  debugLogging: boolean
   setTheme: (theme: Theme) => void
+  setDebugLogging: (enabled: boolean) => void
   toggleTheme: () => void
   toggleSidebar: () => void
   toggleAgentPanel: () => void
@@ -69,12 +71,21 @@ export const createUiSlice: StateCreator<
   unreadConversationIds: [],
   catalogModels: [],
   globalDefaultModel: 'default',
+  debugLogging: false,
 
   setTheme: (theme) => {
     set((s) => {
       s.theme = theme
     })
     document.documentElement.classList.toggle('dark', theme === 'dark')
+  },
+
+  setDebugLogging: (enabled) => {
+    set((s) => {
+      s.debugLogging = enabled
+    })
+    void window.api.setSetting('debug_logging', String(enabled)).catch(() => {})
+    void window.api.setDebugEnabled(enabled).catch(() => {})
   },
 
   toggleTheme: () => {

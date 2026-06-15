@@ -107,6 +107,14 @@ export const useAppStore = create<AppState>()(
               get().setGlobalDefaultModel(val)
             }
           })
+          .catch(() => {}),
+        window.api
+          .getSetting('debug_logging')
+          .then((val) => {
+            set((s) => {
+              s.debugLogging = val === 'true'
+            })
+          })
           .catch(() => {})
       ])
     }

@@ -8,6 +8,12 @@ import type {
   BuildStatus,
   CatalogModel,
   ConversationCompressionSaveInput,
+  ErrorReportCaptureInput,
+  SelfHealInvestigationActivity,
+  SelfHealInvestigationChunk,
+  SelfHealInvestigationResult,
+  SelfHealInvestigationSettings,
+  ErrorLogEntry,
   IpcChannels,
   IpcReturn,
   PromptLibraryInput,
@@ -49,6 +55,47 @@ const api = {
   getTheme: () => typedInvoke('app:get-theme'),
   setTheme: (theme: 'light' | 'dark') => typedInvoke('app:set-theme', theme),
   getVersion: () => typedInvoke('app:get-version'),
+  setDebugEnabled: (enabled: boolean) => typedInvoke('debug:set-enabled', enabled),
+  onDebugLog: (callback: (entry: { prefix: string; message: string; timestamp: number }) => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      entry: { prefix: string; message: string; timestamp: number }
+    ) => callback(entry)
+    typedOn('debug:log', handler)
+    return () => typedOff('debug:log', handler)
+  },
+  getErrorLogPath: () => typedInvoke('errors:get-log-path'),
+  getRecentErrors: (limit?: number) => typedInvoke('errors:get-recent', limit),
+  getRendererConsoleErrors: () => typedInvoke('errors:get-renderer-console'),
+  clearErrors: () => typedInvoke('errors:clear'),
+  captureErrorReport: (input: ErrorReportCaptureInput) => typedInvoke('error-report:capture', input),
+  getErrorReport: (id: string) => typedInvoke('error-report:get', id),
+  listErrorReports: (limit?: number) => typedInvoke('error-report:list', limit),
+  getInvestigationSettings: () => typedInvoke('self-heal:get-investigation-settings'),
+  setInvestigationSettings: (input: SelfHealInvestigationSettings) => typedInvoke('self-heal:set-investigation-settings', input),
+  setSelfHealReportStatus: (reportId: string, status: 'open' | 'investigating' | 'investigated' | 'fixed' | 'rejected') =>
+    typedInvoke('self-heal:set-report-status', reportId, status),
+  startInvestigation: (reportId: string) => typedInvoke('self-heal:start-investigation', reportId),
+  onInvestigationActivity: (callback: (activity: SelfHealInvestigationActivity) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, activity: SelfHealInvestigationActivity) => callback(activity)
+    typedOn('self-heal:investigation-activity', handler)
+    return () => typedOff('self-heal:investigation-activity', handler)
+  },
+  onInvestigationChunk: (callback: (chunk: SelfHealInvestigationChunk) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, chunk: SelfHealInvestigationChunk) => callback(chunk)
+    typedOn('self-heal:investigation-chunk', handler)
+    return () => typedOff('self-heal:investigation-chunk', handler)
+  },
+  onInvestigationDone: (callback: (result: SelfHealInvestigationResult) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, result: SelfHealInvestigationResult) => callback(result)
+    typedOn('self-heal:investigation-done', handler)
+    return () => typedOff('self-heal:investigation-done', handler)
+  },
+  onErrorLogEntry: (callback: (entry: ErrorLogEntry) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, entry: ErrorLogEntry) => callback(entry)
+    typedOn('errors:new', handler)
+    return () => typedOff('errors:new', handler)
+  },
 
   // Auth
   authStatus: () => typedInvoke('auth:status'),

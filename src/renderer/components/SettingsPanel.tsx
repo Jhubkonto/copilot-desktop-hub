@@ -55,6 +55,8 @@ export function SettingsPanel() {
   const addToast = useAppStore((s) => s.addToast)
   const setGlobalDefaultModel = useAppStore((s) => s.setGlobalDefaultModel)
   const catalogModels = useAppStore((s) => s.catalogModels)
+  const debugLogging = useAppStore((s) => s.debugLogging)
+  const setDebugLogging = useAppStore((s) => s.setDebugLogging)
 
   const authMode = useAppStore((s) => s.authState.mode)
   const installedClis = useAppStore((s) => s.authState.clis ?? { claude: s.authState.cliInstalled, codex: false })
@@ -919,6 +921,8 @@ export function SettingsPanel() {
             fcmJsonDraft={fcmJsonDraft}
             fcmSaving={fcmSaving}
             onSetFcmJsonDraft={setFcmJsonDraft}
+            debugLogging={debugLogging}
+            onToggleDebugLogging={() => setDebugLogging(!debugLogging)}
             onSaveFcmServiceAccount={() => {
               setFcmSaving(true)
               void window.api.androidSaveFcmServiceAccount(fcmJsonDraft)

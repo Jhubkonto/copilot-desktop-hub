@@ -157,6 +157,87 @@ export interface ToolApprovalRequest {
   description: string
 }
 
+export type ErrorLogSource = 'main' | 'renderer' | 'unhandled'
+export type ErrorLogLevel = 'error' | 'warn' | 'info' | 'debug'
+
+export interface ErrorLogEntry {
+  id: string
+  source: ErrorLogSource
+  level: ErrorLogLevel
+  message: string
+  stack: string | null
+  timestamp: number
+}
+
+export type ErrorReportStatus = 'open' | 'investigating' | 'investigated' | 'fixed' | 'rejected'
+
+export interface ErrorReportCaptureInput {
+  title: string
+  description?: string
+  includeScreenshot?: boolean
+  includeLog?: boolean
+  screenshotDataUrl?: string | null
+}
+
+export interface ErrorReportCaptureResult {
+  reportId: string
+  screenshotPath: string | null
+  createdAt: number
+}
+
+export type SelfHealBackend = 'byok' | 'claude-cli'
+export type InvestigationStatus = 'idle' | 'running' | 'done' | 'error'
+
+export interface SelfHealInvestigationSettings {
+  backend: SelfHealBackend
+  model: string
+  retryLimit: number
+  autoApproveTools: boolean
+}
+
+export interface SelfHealInvestigationActivity {
+  reportId: string
+  type: 'thinking' | 'tool' | 'status'
+  label: string
+  toolName?: string
+}
+
+export interface SelfHealInvestigationChunk {
+  reportId: string
+  chunk: string
+}
+
+export interface SelfHealInvestigationResult {
+  reportId: string
+  status: 'done' | 'error'
+  markdown: string
+  confidence: string
+  rootCause: string
+  affectedFiles: string[]
+  error?: string
+  completedAt: number
+}
+
+export interface ErrorReportEntry {
+  id: string
+  title: string
+  description: string
+  screenshot_path: string | null
+  log_snapshot: string | null
+  status: ErrorReportStatus
+  app_version: string | null
+  platform: string | null
+  os_version: string | null
+  investigation_markdown: string | null
+  investigation_confidence: string | null
+  investigation_root_cause: string | null
+  investigation_affected_files: string
+  investigation_started_at: number | null
+  investigation_completed_at: number | null
+  created_at: number
+  updated_at: number
+}
+
 // ---------------------------------------------------------------------------
 // Auth
 // ---------------------------------------------------------------------------
@@ -795,6 +876,27 @@ export type IpcReturnMap = {
   'conversation:set-model': boolean
   'conversation:set-pinned': boolean
   'conversation:update-context': boolean
+  // Debug
+  'debug:set-enabled': boolean
+  'debug:log': void
+  // Errors
+  'errors:clear': boolean
+  'errors:get-log-path': string | null
+  'errors:get-recent': ErrorLogEntry[]
+  'errors:get-renderer-console': ErrorLogEntry[]
+  'errors:new': void
+  // Error reports
+  'error-report:capture': ErrorReportCaptureResult
+  'error-report:get': ErrorReportEntry | null
+  'error-report:list': ErrorReportEntry[]
+  // Self-heal investigation
+  'self-heal:get-investigation-settings': SelfHealInvestigationSettings
+  'self-heal:set-report-status': ErrorReportEntry | null
+  'self-heal:set-investigation-settings': SelfHealInvestigationSettings
+  'self-heal:start-investigation': { reportId: string }
+  'self-heal:investigation-activity': void
+  'self-heal:investigation-chunk': void
+  'self-heal:investigation-done': void
   // Deeplink (push-only)
   'deeplink:open-agent': void
   'deeplink:open-chat': void
@@ -1013,6 +1115,23 @@ export type IpcChannels =
   | 'conversation:set-model'
   | 'conversation:set-pinned'
   | 'conversation:update-context'
+  | 'debug:set-enabled'
+  | 'debug:log'
+  | 'errors:clear'
+  | 'errors:get-log-path'
+  | 'errors:get-recent'
+  | 'errors:get-renderer-console'
+  | 'errors:new'
+  | 'error-report:capture'
+  | 'error-report:get'
+  | 'error-report:list'
+  | 'self-heal:get-investigation-settings'
+  | 'self-heal:set-report-status'
+  | 'self-heal:set-investigation-settings'
+  | 'self-heal:start-investigation'
+  | 'self-heal:investigation-activity'
+  | 'self-heal:investigation-chunk'
+  | 'self-heal:investigation-done'
   | 'deeplink:open-agent'
   | 'deeplink:open-chat'
   | 'file:add-recent-dir'

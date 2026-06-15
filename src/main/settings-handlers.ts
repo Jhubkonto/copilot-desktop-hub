@@ -1,8 +1,13 @@
 import { getDatabase } from "./database";
+import { setDebugEnabled } from "./debug-mode";
 import { safeHandle } from "./safe-handle";
 
 export function registerSettingsHandlers(): void {
   const db = getDatabase();
+  const debugRow = db
+    .prepare("SELECT value FROM settings WHERE key = 'debug_logging'")
+    .get() as { value: string } | undefined;
+  setDebugEnabled(debugRow?.value === "true");
 
   safeHandle("app:get-settings", () => {
     const rows = db.prepare("SELECT key, value FROM settings").all() as {
@@ -31,7 +36,17 @@ export function registerSettingsHandlers(): void {
     db.prepare(
       "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
     ).run(key, value);
+    if (key === "debug_logging") {
+      setDebugEnabled(value === "true");
+    }
     return true;
+  });
+
+  safeHandle("debug:set-enabled", (_event, enabled: boolean) => {
+    db.prepare(
+      "INSERT OR REPLACE INTO settings (key, value) VALUES ('debug_logging', ?)",
+    ).run(String(enabled));
+    return setDebugEnabled(enabled);
   });
 
   safeHandle("app:get-theme", () => {

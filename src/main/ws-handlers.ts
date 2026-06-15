@@ -8,6 +8,7 @@ import { getCliModels } from './cli-detection'
 import { getCachedCatalog } from './model-catalog'
 import { retrieveAuthMode } from './auth'
 import { getAndroidUpdateManifest } from './android-handlers'
+import { createErrorReport } from './error-report-handlers'
 import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
 import {
@@ -50,6 +51,24 @@ export function registerWsHandlers(): void {
     if (command === 'agent:stop') {
       const conversationId = typeof data.conversationId === 'string' ? data.conversationId : undefined
       abortActiveStream(conversationId)
+      return
+    }
+
+    if (command === 'error-report:request-capture') {
+      try {
+        const result = createErrorReport({
+          title: typeof data.title === 'string' ? data.title : 'Android bug report',
+          description: typeof data.description === 'string' ? data.description : 'Requested from Android companion.',
+          includeLog: data.includeLog !== false,
+          includeScreenshot: false,
+        })
+        reply({ event: 'error-report:captured', data: result })
+      } catch (error) {
+        reply({
+          event: 'error-report:error',
+          data: { message: error instanceof Error ? error.message : String(error) },
+        })
+      }
       return
     }
 

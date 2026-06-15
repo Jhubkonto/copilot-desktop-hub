@@ -8,6 +8,8 @@ import { initAutoUpdater, registerUpdaterHandlers, checkForUpdatesOnStartup } fr
 import { loadModelCatalog } from './model-catalog'
 import { initLogger } from './logger'
 import { validateSender } from './safe-handle'
+import { initDebugMode } from './debug-mode'
+import { initErrorLogCapture } from './error-log-handlers'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -255,6 +257,8 @@ app.whenReady().then(() => {
 
   // Initialize auto-updater
   if (mainWindow) {
+    initDebugMode(mainWindow)
+    initErrorLogCapture(mainWindow)
     initAutoUpdater(mainWindow)
     checkForUpdatesOnStartup()
   }

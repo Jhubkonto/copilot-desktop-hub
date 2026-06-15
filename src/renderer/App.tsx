@@ -6,6 +6,8 @@ import { TitleBar } from './components/TitleBar'
 import { ToolApproval } from './components/ToolApproval'
 import { ToastContainer } from './components/Toast'
 import { DeleteAgentDialog } from './components/DeleteAgentDialog'
+import { BugReportModal } from './components/BugReportModal'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { useAppStore } from './store/app-store'
 
 const AgentPanel = lazy(() =>
@@ -51,6 +53,8 @@ export default function App() {
   const hydrate = useAppStore((s) => s.hydrate)
 
   const [agentPanelWidth, setAgentPanelWidth] = useState(440)
+  const [bugReportDraft, setBugReportDraft] = useState<{ title?: string; description?: string } | null>(null)
+  const [pendingErrorCount, setPendingErrorCount] = useState(0)
 
   const handleAgentPanelResize = useCallback(
     (size: number) => {
@@ -95,6 +99,14 @@ export default function App() {
     return () => { unsubscribe() }
   }, [setCatalogModels, addToast])
 
+  useEffect(() => {
+    if (typeof window.api.onErrorLogEntry !== 'function') return
+    const unsubscribe = window.api.onErrorLogEntry((entry) => {
+      if (entry.level === 'error') setPendingErrorCount((count) => Math.min(count + 1, 99))
+    })
+    return () => { unsubscribe() }
+  }, [])
+
   // Zoom: Ctrl+scroll and Ctrl+Plus/Minus/0
   useEffect(() => {
     let lastZoom = 0
@@ -125,7 +137,16 @@ export default function App() {
     }
   }, [])
 
+  const openBugReport = (draft?: { title?: string; description?: string }) => {
+    setPendingErrorCount(0)
+    setBugReportDraft(draft ?? {
+      title: 'Bug report',
+      description: pendingErrorCount > 0 ? `${pendingErrorCount} recent app error(s) were detected.` : '',
+    })
+  }
+
   return (
+    <ErrorBoundary onReportBug={openBugReport}>
     <div className={`flex flex-col h-full w-full overflow-hidden ${theme === 'dark' ? 'dark' : ''}`} role="application">
       {/* Custom frameless titlebar */}
       <TitleBar />
@@ -199,7 +220,29 @@ export default function App() {
         />
       )}
 
+      {pendingErrorCount > 0 && !bugReportDraft && (
+        <button
+          type="button"
+          className="fixed bottom-4 left-4 z-40 rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-medium text-red-700 shadow-lg hover:bg-red-50 dark:border-red-900/60 dark:bg-gray-800 dark:text-red-300 dark:hover:bg-red-950/30"
+          onClick={() => openBugReport()}
+        >
+          Report bug ({pendingErrorCount})
+        </button>
+      )}
+
+      {bugReportDraft && (
+        <BugReportModal
+          draft={bugReportDraft}
+          onClose={() => setBugReportDraft(null)}
+          onSubmitted={(reportId) => {
+            setBugReportDraft(null)
+            addToast(`Bug report captured (${reportId.slice(0, 8)})`, 'success')
+          }}
+        />
+      )}
+
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
+    </ErrorBoundary>
   )
 }

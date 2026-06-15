@@ -20,6 +20,9 @@ import { registerBuildHandlers } from './build-handlers'
 import { registerAndroidHandlers } from './android-handlers'
 import { registerModelAvailabilityHandlers } from './model-availability'
 import { cacheExternalWindowLabel, consumeSuppressFocusEvent } from './screen-capture'
+import { registerErrorLogHandlers } from './error-log-handlers'
+import { registerErrorReportHandlers } from './error-report-handlers'
+import { registerSelfHealHandlers } from './self-heal-handlers'
 
 export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerSettingsHandlers()
@@ -42,6 +45,9 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerScreenCaptureHandlers()
   registerModelCatalogHandlers()
   registerModelAvailabilityHandlers()
+  registerErrorLogHandlers()
+  registerErrorReportHandlers()
+  registerSelfHealHandlers(mainWindow)
   registerSystemHandlers()
   registerBuildHandlers(mainWindow)
   registerAndroidHandlers(mainWindow)

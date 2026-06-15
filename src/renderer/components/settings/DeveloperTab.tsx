@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from 'react'
 import { RefreshCw, CheckCircle, AlertTriangle, XCircle } from 'lucide-react'
 import type {
   AdbDevice,
@@ -8,9 +9,13 @@ import type {
   BuildCommandName,
   BuildRecord,
   BuildStatus,
+  ErrorReportEntry,
+  ErrorLogEntry,
   LocalUpdateFeed,
   PreflightCheck,
   PublishedEntry,
+  SelfHealInvestigationActivity,
+  SelfHealInvestigationSettings,
   WorkspaceInfo,
 } from '@shared/types'
 
@@ -85,6 +90,8 @@ interface Props {
   fcmJsonDraft: string
   fcmSaving: boolean
   onSetFcmJsonDraft: (v: string) => void
+  debugLogging: boolean
+  onToggleDebugLogging: () => void
   onSaveFcmServiceAccount: () => void
 }
 
@@ -105,13 +112,392 @@ export function DeveloperTab({
   onRefreshAdbDevices, onAndroidInstallApk,
   androidPublishResult, androidUpdateManifest, androidPublishHistory, androidRestoring,
   onAndroidPublishUpdate, onAndroidRestoreVersion,
-  fcmStatus, fcmJsonDraft, fcmSaving, onSetFcmJsonDraft, onSaveFcmServiceAccount,
+  fcmStatus, fcmJsonDraft, fcmSaving, onSetFcmJsonDraft,
+  debugLogging, onToggleDebugLogging, onSaveFcmServiceAccount,
 }: Props) {
+  const [consoleEntries, setConsoleEntries] = useState<ErrorLogEntry[]>([])
+  const [consoleLevel, setConsoleLevel] = useState<'all' | 'error' | 'warn' | 'info'>('all')
+  const [consoleStatus, setConsoleStatus] = useState<string | null>(null)
+  const [reports, setReports] = useState<ErrorReportEntry[]>([])
+  const [selectedReportId, setSelectedReportId] = useState<string | null>(null)
+  const [investigationSettings, setInvestigationSettings] = useState<SelfHealInvestigationSettings>({
+    backend: 'byok',
+    model: 'gpt-5-mini',
+    retryLimit: 1,
+    autoApproveTools: true,
+  })
+  const [investigationOutput, setInvestigationOutput] = useState<Record<string, string>>({})
+  const [investigationActivity, setInvestigationActivity] = useState<Record<string, SelfHealInvestigationActivity[]>>({})
+  const [runningReportId, setRunningReportId] = useState<string | null>(null)
+  const [investigationStatus, setInvestigationStatus] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (
+      typeof window.api.getRecentErrors !== 'function' ||
+      typeof window.api.onErrorLogEntry !== 'function'
+    ) {
+      return
+    }
+    let cancelled = false
+    window.api.getRecentErrors(100)
+      .then((entries) => {
+        if (!cancelled) setConsoleEntries(entries)
+      })
+      .catch(() => {
+        if (!cancelled) setConsoleStatus('Failed to load error log')
+      })
+    const off = window.api.onErrorLogEntry((entry) => {
+      setConsoleEntries((prev) => [...prev.slice(-199), entry])
+    })
+    return () => {
+      cancelled = true
+      off()
+    }
+  }, [])
+
+  const filteredConsoleEntries = useMemo(
+    () => consoleEntries.filter((entry) => consoleLevel === 'all' || entry.level === consoleLevel),
+    [consoleEntries, consoleLevel],
+  )
+  const selectedReport = reports.find((report) => report.id === selectedReportId) ?? reports[0] ?? null
+
+  const loadReports = async () => {
+    if (typeof window.api.listErrorReports !== 'function') return
+    const nextReports = await window.api.listErrorReports(25)
+    setReports(nextReports)
+    if (!selectedReportId && nextReports[0]) setSelectedReportId(nextReports[0].id)
+  }
+
+  useEffect(() => {
+    if (
+      typeof window.api.listErrorReports !== 'function' ||
+      typeof window.api.getInvestigationSettings !== 'function'
+    ) {
+      return
+    }
+    void loadReports()
+    window.api.getInvestigationSettings().then(setInvestigationSettings).catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    if (
+      typeof window.api.onInvestigationActivity !== 'function' ||
+      typeof window.api.onInvestigationChunk !== 'function' ||
+      typeof window.api.onInvestigationDone !== 'function'
+    ) {
+      return
+    }
+    const offActivity = window.api.onInvestigationActivity((activity) => {
+      setInvestigationActivity((prev) => ({
+        ...prev,
+        [activity.reportId]: [...(prev[activity.reportId] ?? []).slice(-49), activity],
+      }))
+    })
+    const offChunk = window.api.onInvestigationChunk(({ reportId, chunk }) => {
+      setInvestigationOutput((prev) => ({
+        ...prev,
+        [reportId]: `${prev[reportId] ?? ''}${chunk}`,
+      }))
+    })
+    const offDone = window.api.onInvestigationDone((result) => {
+      setRunningReportId(null)
+      setInvestigationStatus(result.status === 'done' ? 'Investigation complete' : result.error ?? 'Investigation failed')
+      setInvestigationOutput((prev) => ({ ...prev, [result.reportId]: result.markdown }))
+      void loadReports()
+    })
+    return () => {
+      offActivity()
+      offChunk()
+      offDone()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const handleClearConsole = async () => {
+    await window.api.clearErrors()
+    setConsoleEntries([])
+    setConsoleStatus('Console cleared')
+  }
+
+  const handleCopyConsole = async () => {
+    const text = filteredConsoleEntries
+      .map((entry) => {
+        const line = `${new Date(entry.timestamp).toLocaleTimeString()} [${entry.level}] [${entry.source}] ${entry.message}`
+        return entry.stack ? `${line}\n${entry.stack}` : line
+      })
+      .join('\n')
+    await navigator.clipboard.writeText(text)
+    setConsoleStatus('Copied visible entries')
+  }
+
+  const handleSaveInvestigationSettings = async () => {
+    const saved = await window.api.setInvestigationSettings(investigationSettings)
+    setInvestigationSettings(saved)
+    setInvestigationStatus('Investigation settings saved')
+  }
+
+  const handleStartInvestigation = async (reportId: string) => {
+    setRunningReportId(reportId)
+    setInvestigationStatus('Investigation started')
+    setInvestigationOutput((prev) => ({ ...prev, [reportId]: '' }))
+    await window.api.startInvestigation(reportId)
+  }
+
+  const handleReviewInvestigation = async (reportId: string, status: 'investigated' | 'rejected') => {
+    await window.api.setSelfHealReportStatus(reportId, status)
+    setInvestigationStatus(status === 'investigated' ? 'Investigation accepted' : 'Investigation rejected')
+    await loadReports()
+  }
+
   return (
     <>
       <div>
         <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Developer</p>
         <p className="text-xs text-gray-500 mt-0.5">Build, test, and package the app from within Nexy.</p>
+      </div>
+
+      {/* Debug logging */}
+      <div className="flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+        <div>
+          <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Debug logging</p>
+          <p className="text-xs text-gray-500 mt-0.5">Enable verbose developer diagnostics in terminal, log file, and future console panel.</p>
+        </div>
+        <button
+          onClick={onToggleDebugLogging}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${debugLogging ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'}`}
+          aria-pressed={debugLogging}
+          aria-label="Toggle debug logging"
+        >
+          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${debugLogging ? 'translate-x-6' : 'translate-x-1'}`} />
+        </button>
+      </div>
+
+      {/* Console */}
+      <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
+          <div>
+            <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Console</p>
+            <p className="text-[11px] text-gray-500">Recent app errors and warnings captured inside Nexy.</p>
+          </div>
+          <div className="flex items-center gap-1.5">
+            {(['all', 'error', 'warn', 'info'] as const).map((level) => (
+              <button
+                key={level}
+                onClick={() => setConsoleLevel(level)}
+                className={`text-[11px] px-2 py-1 rounded-md capitalize ${
+                  consoleLevel === level
+                    ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900'
+                    : 'bg-white dark:bg-gray-900 text-gray-500 border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`}
+              >
+                {level}
+              </button>
+            ))}
+            <button
+              onClick={() => void handleCopyConsole()}
+              disabled={filteredConsoleEntries.length === 0}
+              className="text-[11px] px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 disabled:opacity-40 hover:bg-gray-100 dark:hover:bg-gray-700"
+            >
+              Copy
+            </button>
+            <button
+              onClick={() => void handleClearConsole()}
+              disabled={consoleEntries.length === 0}
+              className="text-[11px] px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 disabled:opacity-40 hover:bg-gray-100 dark:hover:bg-gray-700"
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+        <div className="max-h-56 overflow-y-auto bg-white dark:bg-gray-900">
+          {filteredConsoleEntries.length === 0 ? (
+            <p className="px-3 py-4 text-xs text-gray-400">
+              {consoleEntries.length === 0 ? 'No errors captured.' : 'No entries match this filter.'}
+            </p>
+          ) : (
+            <div className="divide-y divide-gray-100 dark:divide-gray-800">
+              {filteredConsoleEntries.map((entry) => (
+                <details key={entry.id} className="group">
+                  <summary className="flex cursor-pointer items-start gap-2 px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-800/60">
+                    <span className="shrink-0 font-mono text-[11px] text-gray-400">
+                      {new Date(entry.timestamp).toLocaleTimeString()}
+                    </span>
+                    <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase ${
+                      entry.level === 'error'
+                        ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+                        : entry.level === 'warn'
+                          ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300'
+                          : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300'
+                    }`}>
+                      {entry.level}
+                    </span>
+                    <span className="shrink-0 text-[11px] text-gray-400">{entry.source}</span>
+                    <span className="min-w-0 flex-1 break-words text-gray-700 dark:text-gray-300">{entry.message}</span>
+                  </summary>
+                  {entry.stack && (
+                    <pre className="mx-3 mb-2 overflow-x-auto whitespace-pre-wrap rounded bg-gray-50 p-2 text-[11px] text-gray-500 dark:bg-gray-950 dark:text-gray-400">
+                      {entry.stack}
+                    </pre>
+                  )}
+                </details>
+              ))}
+            </div>
+          )}
+        </div>
+        {consoleStatus && (
+          <p className="border-t border-gray-100 px-3 py-1.5 text-[11px] text-gray-400 dark:border-gray-800">
+            {consoleStatus}
+          </p>
+        )}
+      </div>
+
+      {/* Self-heal investigation */}
+      <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
+          <div>
+            <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Self-heal investigations</p>
+            <p className="text-[11px] text-gray-500">Review bug reports and generate root-cause investigation notes.</p>
+          </div>
+          <button
+            onClick={() => void loadReports()}
+            className="text-[11px] px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+          >
+            Refresh
+          </button>
+        </div>
+        <div className="grid gap-0 md:grid-cols-[260px_1fr]">
+          <div className="border-b md:border-b-0 md:border-r border-gray-200 dark:border-gray-700">
+            <div className="p-3 space-y-2 border-b border-gray-100 dark:border-gray-800">
+              <div className="grid grid-cols-2 gap-2">
+                <label className="text-[11px] text-gray-500">
+                  Backend
+                  <select
+                    value={investigationSettings.backend}
+                    onChange={(event) => setInvestigationSettings((s) => ({ ...s, backend: event.target.value === 'claude-cli' ? 'claude-cli' : 'byok' }))}
+                    className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                  >
+                    <option value="byok">BYOK</option>
+                    <option value="claude-cli">Claude CLI</option>
+                  </select>
+                </label>
+                <label className="text-[11px] text-gray-500">
+                  Retries
+                  <input
+                    type="number"
+                    min={0}
+                    max={5}
+                    value={investigationSettings.retryLimit}
+                    onChange={(event) => setInvestigationSettings((s) => ({ ...s, retryLimit: Number(event.target.value) }))}
+                    className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                  />
+                </label>
+              </div>
+              <label className="text-[11px] text-gray-500">
+                Model
+                <input
+                  value={investigationSettings.model}
+                  onChange={(event) => setInvestigationSettings((s) => ({ ...s, model: event.target.value }))}
+                  className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs font-mono dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                />
+              </label>
+              <label className="flex items-center gap-2 text-[11px] text-gray-500">
+                <input
+                  type="checkbox"
+                  checked={investigationSettings.autoApproveTools}
+                  onChange={(event) => setInvestigationSettings((s) => ({ ...s, autoApproveTools: event.target.checked }))}
+                />
+                Auto-approve investigator tools
+              </label>
+              <button
+                onClick={() => void handleSaveInvestigationSettings()}
+                className="text-[11px] px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+              >
+                Save settings
+              </button>
+            </div>
+            <div className="max-h-72 overflow-y-auto">
+              {reports.length === 0 ? (
+                <p className="p-3 text-xs text-gray-400">No bug reports captured.</p>
+              ) : (
+                reports.map((report) => (
+                  <button
+                    key={report.id}
+                    onClick={() => setSelectedReportId(report.id)}
+                    className={`block w-full border-b border-gray-100 px-3 py-2 text-left text-xs dark:border-gray-800 ${
+                      selectedReport?.id === report.id ? 'bg-blue-50 dark:bg-blue-950/30' : 'hover:bg-gray-50 dark:hover:bg-gray-800/60'
+                    }`}
+                  >
+                    <span className="block truncate font-medium text-gray-700 dark:text-gray-200">{report.title}</span>
+                    <span className="mt-0.5 block text-[11px] text-gray-400">
+                      {report.status} · {new Date(report.created_at).toLocaleString()}
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+          <div className="min-h-72 p-3">
+            {selectedReport ? (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-gray-800 dark:text-gray-100">{selectedReport.title}</p>
+                    <p className="mt-1 text-xs text-gray-500 break-words">{selectedReport.description || 'No description.'}</p>
+                  </div>
+                  <button
+                    onClick={() => void handleStartInvestigation(selectedReport.id)}
+                    disabled={runningReportId !== null}
+                    className="text-xs px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 font-medium disabled:opacity-50"
+                  >
+                    {runningReportId === selectedReport.id ? 'Investigating...' : 'Investigate'}
+                  </button>
+                </div>
+                {selectedReport.investigation_markdown && (
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => void handleReviewInvestigation(selectedReport.id, 'investigated')}
+                      className="text-[11px] px-2 py-1 rounded-md border border-green-300 text-green-700 hover:bg-green-50 dark:border-green-800 dark:text-green-300 dark:hover:bg-green-950/30"
+                    >
+                      Accept
+                    </button>
+                    <button
+                      onClick={() => void handleReviewInvestigation(selectedReport.id, 'rejected')}
+                      className="text-[11px] px-2 py-1 rounded-md border border-red-300 text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950/30"
+                    >
+                      Reject
+                    </button>
+                    <button
+                      onClick={() => void handleStartInvestigation(selectedReport.id)}
+                      disabled={runningReportId !== null}
+                      className="text-[11px] px-2 py-1 rounded-md border border-gray-300 text-gray-600 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700 disabled:opacity-50"
+                    >
+                      Revise
+                    </button>
+                  </div>
+                )}
+                {(investigationActivity[selectedReport.id]?.length ?? 0) > 0 && (
+                  <div className="rounded border border-gray-200 p-2 dark:border-gray-700">
+                    <p className="text-[11px] font-medium text-gray-500">Activity</p>
+                    <div className="mt-1 space-y-1">
+                      {investigationActivity[selectedReport.id].slice(-6).map((activity, index) => (
+                        <p key={`${activity.label}-${index}`} className="text-[11px] text-gray-500">
+                          {activity.type === 'thinking' ? 'Thinking' : activity.label}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-gray-50 p-3 text-xs text-gray-700 dark:bg-gray-950/50 dark:text-gray-300">
+                  {investigationOutput[selectedReport.id] || selectedReport.investigation_markdown || 'No investigation has been generated yet.'}
+                </pre>
+                {investigationStatus && <p className="text-[11px] text-gray-400">{investigationStatus}</p>}
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400">Select a bug report to investigate.</p>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Workspace */}

@@ -231,6 +231,51 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
       );
     `,
   },
+  {
+    version: 24,
+    sql: `
+      CREATE TABLE IF NOT EXISTS error_log (
+        id TEXT PRIMARY KEY,
+        source TEXT NOT NULL CHECK (source IN ('main', 'renderer', 'unhandled')),
+        level TEXT NOT NULL CHECK (level IN ('error', 'warn', 'info', 'debug')),
+        message TEXT NOT NULL,
+        stack TEXT,
+        timestamp INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_error_log_timestamp ON error_log(timestamp);
+    `,
+  },
+  {
+    version: 25,
+    sql: `
+      CREATE TABLE IF NOT EXISTS error_reports (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        screenshot_path TEXT,
+        log_snapshot TEXT,
+        status TEXT NOT NULL CHECK (status IN ('open', 'investigating', 'investigated', 'fixed', 'rejected')) DEFAULT 'open',
+        app_version TEXT,
+        platform TEXT,
+        os_version TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_error_reports_status_created
+        ON error_reports(status, created_at);
+    `,
+  },
+  {
+    version: 26,
+    sql: `
+      ALTER TABLE error_reports ADD COLUMN investigation_markdown TEXT;
+      ALTER TABLE error_reports ADD COLUMN investigation_confidence TEXT;
+      ALTER TABLE error_reports ADD COLUMN investigation_root_cause TEXT;
+      ALTER TABLE error_reports ADD COLUMN investigation_affected_files TEXT NOT NULL DEFAULT '[]';
+      ALTER TABLE error_reports ADD COLUMN investigation_started_at INTEGER;
+      ALTER TABLE error_reports ADD COLUMN investigation_completed_at INTEGER;
+    `,
+  },
 ];
 
 
@@ -274,6 +319,41 @@ export function initializeBaseSchema(db: Database.Database): void {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS error_log (
+      id TEXT PRIMARY KEY,
+      source TEXT NOT NULL CHECK (source IN ('main', 'renderer', 'unhandled')),
+      level TEXT NOT NULL CHECK (level IN ('error', 'warn', 'info', 'debug')),
+      message TEXT NOT NULL,
+      stack TEXT,
+      timestamp INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_error_log_timestamp
+      ON error_log(timestamp);
+
+    CREATE TABLE IF NOT EXISTS error_reports (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      screenshot_path TEXT,
+      log_snapshot TEXT,
+      status TEXT NOT NULL CHECK (status IN ('open', 'investigating', 'investigated', 'fixed', 'rejected')) DEFAULT 'open',
+      app_version TEXT,
+      platform TEXT,
+      os_version TEXT,
+      investigation_markdown TEXT,
+      investigation_confidence TEXT,
+      investigation_root_cause TEXT,
+      investigation_affected_files TEXT NOT NULL DEFAULT '[]',
+      investigation_started_at INTEGER,
+      investigation_completed_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_error_reports_status_created
+      ON error_reports(status, created_at);
 
     CREATE TABLE IF NOT EXISTS agents (
       id TEXT PRIMARY KEY,

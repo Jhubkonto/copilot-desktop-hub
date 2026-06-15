@@ -1,0 +1,120 @@
+import { randomUUID } from 'crypto'
+import { writeFileSync } from 'fs'
+import type { BrowserWindow } from 'electron'
+import log from 'electron-log/main'
+import { getDatabase } from './database'
+import { safeHandle } from './safe-handle'
+import type { ErrorLogEntry, ErrorLogLevel, ErrorLogSource } from '../shared/types'
+
+const rendererConsoleBuffer: ErrorLogEntry[] = []
+const MAX_RENDERER_BUFFER = 200
+let mainWindow: BrowserWindow | null = null
+
+function normalizeLevel(level: unknown): ErrorLogLevel {
+  if (level === 'error' || level === 3) return 'error'
+  if (level === 'warn' || level === 'warning' || level === 2) return 'warn'
+  if (level === 'debug') return 'debug'
+  return 'info'
+}
+
+function rowToEntry(row: Record<string, unknown>): ErrorLogEntry {
+  return {
+    id: String(row.id),
+    source: row.source as ErrorLogSource,
+    level: row.level as ErrorLogLevel,
+    message: String(row.message),
+    stack: typeof row.stack === 'string' ? row.stack : null,
+    timestamp: Number(row.timestamp),
+  }
+}
+
+function getLogFilePath(): string | null {
+  try {
+    return log.transports.file.getFile().path
+  } catch {
+    return null
+  }
+}
+
+export function recordErrorLogEntry(input: {
+  source: ErrorLogSource
+  level: ErrorLogLevel
+  message: string
+  stack?: string | null
+  timestamp?: number
+}): ErrorLogEntry {
+  const entry: ErrorLogEntry = {
+    id: randomUUID(),
+    source: input.source,
+    level: input.level,
+    message: input.message,
+    stack: input.stack ?? null,
+    timestamp: input.timestamp ?? Date.now(),
+  }
+
+  try {
+    const db = getDatabase()
+    db.prepare(
+      `INSERT INTO error_log (id, source, level, message, stack, timestamp)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(entry.id, entry.source, entry.level, entry.message, entry.stack, entry.timestamp)
+  } catch {
+    // Error capture must never become the source of an app crash.
+  }
+
+  if (entry.source === 'renderer') {
+    rendererConsoleBuffer.push(entry)
+    if (rendererConsoleBuffer.length > MAX_RENDERER_BUFFER) {
+      rendererConsoleBuffer.splice(0, rendererConsoleBuffer.length - MAX_RENDERER_BUFFER)
+    }
+  }
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('errors:new', entry)
+  }
+
+  return entry
+}
+
+export function initErrorLogCapture(win: BrowserWindow): void {
+  mainWindow = win
+  win.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    const levelName = normalizeLevel(level)
+    if (levelName !== 'error' && levelName !== 'warn') return
+    const location = sourceId ? `${String(sourceId)}:${String(line ?? '')}` : null
+    recordErrorLogEntry({
+      source: 'renderer',
+      level: levelName,
+      message: String(message ?? ''),
+      stack: location,
+    })
+  })
+}
+
+export function registerErrorLogHandlers(): void {
+  safeHandle('errors:get-log-path', () => getLogFilePath())
+
+  safeHandle('errors:get-recent', (_event, limit?: number) => {
+    const safeLimit = Math.max(1, Math.min(Number(limit) || 100, 500))
+    const rows = getDatabase()
+      .prepare('SELECT * FROM error_log ORDER BY timestamp DESC LIMIT ?')
+      .all(safeLimit) as Record<string, unknown>[]
+    return rows.map(rowToEntry).reverse()
+  })
+
+  safeHandle('errors:get-renderer-console', () => [...rendererConsoleBuffer])
+
+  safeHandle('errors:clear', () => {
+    getDatabase().prepare('DELETE FROM error_log').run()
+    rendererConsoleBuffer.length = 0
+    const path = getLogFilePath()
+    if (path) {
+      try {
+        writeFileSync(path, '', 'utf8')
+      } catch {
+        // DB clear still succeeded; log-file truncation is best effort.
+      }
+    }
+    return true
+  })
+}

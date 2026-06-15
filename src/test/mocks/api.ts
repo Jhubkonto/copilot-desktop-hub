@@ -17,6 +17,32 @@ export function createMockApi() {
     getTheme: vi.fn().mockResolvedValue('dark'),
     setTheme: vi.fn().mockResolvedValue(undefined),
     getVersion: vi.fn().mockResolvedValue('0.1.0'),
+    setDebugEnabled: vi.fn().mockResolvedValue(true),
+    onDebugLog: vi.fn().mockReturnValue(() => {}),
+    getErrorLogPath: vi.fn().mockResolvedValue(null),
+    getRecentErrors: vi.fn().mockResolvedValue([]),
+    getRendererConsoleErrors: vi.fn().mockResolvedValue([]),
+    clearErrors: vi.fn().mockResolvedValue(true),
+    captureErrorReport: vi.fn().mockResolvedValue({
+      reportId: 'report-1',
+      screenshotPath: null,
+      createdAt: 1000,
+    }),
+    getErrorReport: vi.fn().mockResolvedValue(null),
+    listErrorReports: vi.fn().mockResolvedValue([]),
+    getInvestigationSettings: vi.fn().mockResolvedValue({
+      backend: 'byok',
+      model: 'gpt-5-mini',
+      retryLimit: 1,
+      autoApproveTools: true,
+    }),
+    setInvestigationSettings: vi.fn().mockImplementation(async (input) => input),
+    setSelfHealReportStatus: vi.fn().mockResolvedValue(null),
+    startInvestigation: vi.fn().mockResolvedValue({ reportId: 'report-1' }),
+    onInvestigationActivity: vi.fn().mockReturnValue(() => {}),
+    onInvestigationChunk: vi.fn().mockReturnValue(() => {}),
+    onInvestigationDone: vi.fn().mockReturnValue(() => {}),
+    onErrorLogEntry: vi.fn().mockReturnValue(() => {}),
 
     // Auth
     authStatus: vi.fn().mockResolvedValue({
