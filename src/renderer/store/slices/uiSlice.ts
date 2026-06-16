@@ -8,12 +8,23 @@ import type {
 } from '../types'
 import type { CatalogModel } from '../../../shared/types'
 
+export interface BugReportDraft {
+  title?: string
+  description?: string
+}
+
 export interface UiSlice {
   theme: Theme
   showSidebar: boolean
   showMcpPanel: boolean
   showSettings: boolean
   showOnboarding: boolean
+  showSelfHealPanel: boolean
+  showFeatureGeneratorPanel: boolean
+  showArtifactsPanel: boolean
+  pendingArtifactAttach: { artifactId: string; versionId?: string } | null
+  bugReportDraft: BugReportDraft | null
+  pendingErrorCount: number
   updateAvailable: { version: string } | null
   updateDownloaded: boolean
   activeSectionPane: ActiveSectionPane
@@ -30,6 +41,14 @@ export interface UiSlice {
   toggleAgentPanel: () => void
   setShowMcpPanel: (show: boolean) => void
   setShowSettings: (show: boolean) => void
+  setShowSelfHealPanel: (show: boolean) => void
+  setShowFeatureGeneratorPanel: (show: boolean) => void
+  setShowArtifactsPanel: (show: boolean) => void
+  requestArtifactAttach: (artifactId: string, versionId?: string) => void
+  clearPendingArtifactAttach: () => void
+  openBugReport: (draft?: BugReportDraft) => void
+  closeBugReport: () => void
+  incrementPendingErrorCount: () => void
   settingsInitialTab: string | null
   setSettingsInitialTab: (tab: string | null) => void
   setShowOnboarding: (show: boolean) => void
@@ -37,7 +56,7 @@ export interface UiSlice {
   setUpdateDownloaded: (downloaded: boolean) => void
   setSectionPane: (section: ActiveSectionPane) => void
   openSectionPane: (section: Exclude<ActiveSectionPane, null>) => void
-  addToast: (message: string, type?: Toast['type']) => void
+  addToast: (message: string, type?: Toast['type'], action?: Toast['action']) => void
   dismissToast: (id: string) => void
   setCatalogModels: (models: CatalogModel[]) => void
   setGlobalDefaultModel: (model: string) => void
@@ -63,6 +82,12 @@ export const createUiSlice: StateCreator<
   showSettings: false,
   settingsInitialTab: null,
   showOnboarding: false,
+  showSelfHealPanel: false,
+  showFeatureGeneratorPanel: false,
+  showArtifactsPanel: false,
+  pendingArtifactAttach: null,
+  bugReportDraft: null,
+  pendingErrorCount: 0,
   updateAvailable: null,
   updateDownloaded: false,
   activeSectionPane: null,
@@ -118,6 +143,59 @@ export const createUiSlice: StateCreator<
     })
   },
 
+  setShowSelfHealPanel: (show) => {
+    set((s) => {
+      s.showSelfHealPanel = show
+    })
+  },
+
+  setShowFeatureGeneratorPanel: (show) => {
+    set((s) => {
+      s.showFeatureGeneratorPanel = show
+    })
+  },
+
+  setShowArtifactsPanel: (show) => {
+    set((s) => {
+      s.showArtifactsPanel = show
+    })
+  },
+
+  requestArtifactAttach: (artifactId, versionId) => {
+    set((s) => {
+      s.pendingArtifactAttach = { artifactId, versionId }
+    })
+  },
+
+  clearPendingArtifactAttach: () => {
+    set((s) => {
+      s.pendingArtifactAttach = null
+    })
+  },
+
+  openBugReport: (draft) => {
+    set((s) => {
+      const pendingErrorCount = s.pendingErrorCount
+      s.pendingErrorCount = 0
+      s.bugReportDraft = draft ?? {
+        title: 'Bug report',
+        description: pendingErrorCount > 0 ? `${pendingErrorCount} recent app error(s) were detected.` : '',
+      }
+    })
+  },
+
+  closeBugReport: () => {
+    set((s) => {
+      s.bugReportDraft = null
+    })
+  },
+
+  incrementPendingErrorCount: () => {
+    set((s) => {
+      s.pendingErrorCount = Math.min(s.pendingErrorCount + 1, 99)
+    })
+  },
+
   setSettingsInitialTab: (tab) => {
     set((s) => {
       s.settingsInitialTab = tab
@@ -154,10 +232,10 @@ export const createUiSlice: StateCreator<
     })
   },
 
-  addToast: (message, type = 'info') => {
+  addToast: (message, type = 'info', action) => {
     const id = crypto.randomUUID()
     set((s) => {
-      s.toasts.push({ id, message, type })
+      s.toasts.push({ id, message, type, action })
     })
   },
 

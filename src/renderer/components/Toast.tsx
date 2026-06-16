@@ -5,6 +5,7 @@ export interface Toast {
   id: string
   message: string
   type: 'success' | 'error' | 'info'
+  action?: { label: string; onClick: () => void }
 }
 
 interface ToastContainerProps {
@@ -47,6 +48,14 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
     >
       <IconComponent className="w-4 h-4 shrink-0" />
       <span>{toast.message}</span>
+      {toast.action && (
+        <button
+          onClick={() => { toast.action!.onClick(); onDismiss(toast.id) }}
+          className="ml-1 font-medium underline text-white dark:text-gray-900 hover:no-underline"
+        >
+          {toast.action.label}
+        </button>
+      )}
       <button
         onClick={() => onDismiss(toast.id)}
         className="ml-2 text-white/70 dark:text-gray-900/50 hover:text-white dark:hover:text-gray-900"

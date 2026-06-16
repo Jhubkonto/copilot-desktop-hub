@@ -28,6 +28,15 @@ const ProjectPanel = lazy(() =>
 const ProjectGeneratorModal = lazy(() =>
   import('./components/ProjectGeneratorModal').then((m) => ({ default: m.ProjectGeneratorModal }))
 )
+const SelfHealPanel = lazy(() =>
+  import('./components/SelfHealPanel').then((m) => ({ default: m.SelfHealPanel }))
+)
+const FeatureGeneratorPanel = lazy(() =>
+  import('./components/FeatureGeneratorPanel').then((m) => ({ default: m.FeatureGeneratorPanel }))
+)
+const ArtifactsPanel = lazy(() =>
+  import('./components/ArtifactsPanel').then((m) => ({ default: m.ArtifactsPanel }))
+)
 
 export default function App() {
   const theme = useAppStore((s) => s.theme)
@@ -54,12 +63,15 @@ export default function App() {
   const setShowOnboarding = useAppStore((s) => s.setShowOnboarding)
   const addToast = useAppStore((s) => s.addToast)
   const setCatalogModels = useAppStore((s) => s.setCatalogModels)
+  const bugReportDraft = useAppStore((s) => s.bugReportDraft)
+  const pendingErrorCount = useAppStore((s) => s.pendingErrorCount)
+  const openBugReport = useAppStore((s) => s.openBugReport)
+  const closeBugReport = useAppStore((s) => s.closeBugReport)
+  const incrementPendingErrorCount = useAppStore((s) => s.incrementPendingErrorCount)
 
   const hydrate = useAppStore((s) => s.hydrate)
 
   const [agentPanelWidth, setAgentPanelWidth] = useState(440)
-  const [bugReportDraft, setBugReportDraft] = useState<{ title?: string; description?: string } | null>(null)
-  const [pendingErrorCount, setPendingErrorCount] = useState(0)
 
   const handleAgentPanelResize = useCallback(
     (size: number) => {
@@ -109,10 +121,10 @@ export default function App() {
   useEffect(() => {
     if (typeof window.api.onErrorLogEntry !== 'function') return
     const unsubscribe = window.api.onErrorLogEntry((entry) => {
-      if (entry.level === 'error') setPendingErrorCount((count) => Math.min(count + 1, 99))
+      if (entry.level === 'error') incrementPendingErrorCount()
     })
     return () => { unsubscribe() }
-  }, [])
+  }, [incrementPendingErrorCount])
 
   // Zoom: Ctrl+scroll and Ctrl+Plus/Minus/0
   useEffect(() => {
@@ -143,14 +155,6 @@ export default function App() {
       window.removeEventListener('keydown', onKeyDown)
     }
   }, [])
-
-  const openBugReport = (draft?: { title?: string; description?: string }) => {
-    setPendingErrorCount(0)
-    setBugReportDraft(draft ?? {
-      title: 'Bug report',
-      description: pendingErrorCount > 0 ? `${pendingErrorCount} recent app error(s) were detected.` : '',
-    })
-  }
 
   return (
     <ErrorBoundary onReportBug={openBugReport}>
@@ -211,6 +215,12 @@ export default function App() {
 
         <SettingsPanel />
 
+        <SelfHealPanel />
+
+        <FeatureGeneratorPanel />
+
+        <ArtifactsPanel />
+
         {showOnboarding && (
           <OnboardingModal
             onComplete={() => {
@@ -244,9 +254,9 @@ export default function App() {
       {bugReportDraft && (
         <BugReportModal
           draft={bugReportDraft}
-          onClose={() => setBugReportDraft(null)}
+          onClose={closeBugReport}
           onSubmitted={(reportId) => {
-            setBugReportDraft(null)
+            closeBugReport()
             addToast(`Bug report captured (${reportId.slice(0, 8)})`, 'success')
           }}
         />

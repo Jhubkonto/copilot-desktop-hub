@@ -3,7 +3,7 @@ import { X } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import type { ProjectConfig } from '../store/types'
 import { ResizeHandle } from './ResizeHandle'
-import { ProjectSettingsPanel } from './ProjectSettingsPanel'
+import { ProjectSettingsPanel, type DraftTeamSelection } from './ProjectSettingsPanel'
 import { DeleteProjectDialog } from './DeleteProjectDialog'
 
 const PANEL_MIN = 360
@@ -19,6 +19,8 @@ export function ProjectPanel() {
   const projects = useAppStore((s) => s.projects)
   const createProject = useAppStore((s) => s.createProject)
   const updateProjectConfig = useAppStore((s) => s.updateProjectConfig)
+  const addAgentToProject = useAppStore((s) => s.addAgentToProject)
+  const setProjectPrimaryAgent = useAppStore((s) => s.setProjectPrimaryAgent)
   const deleteProject = useAppStore((s) => s.deleteProject)
   const duplicateProject = useAppStore((s) => s.duplicateProject)
   const exportProject = useAppStore((s) => s.exportProject)
@@ -40,12 +42,20 @@ export function ProjectPanel() {
     }
   }
 
-  const handleConfirm = async (name: string, color: string, config: Partial<ProjectConfig>) => {
+  const handleConfirm = async (name: string, color: string, config: Partial<ProjectConfig>, team: DraftTeamSelection) => {
     try {
       await createProject(name, color)
       const newProject = useAppStore.getState().projects.find((p) => p.name === name)
       if (newProject && Object.keys(config).some((k) => config[k as keyof typeof config] !== undefined)) {
         await updateProjectConfig(newProject.id, config)
+      }
+      if (newProject) {
+        for (const agentId of team.agentIds) {
+          await addAgentToProject(newProject.id, agentId)
+        }
+        if (team.primaryAgentId) {
+          await setProjectPrimaryAgent(newProject.id, team.primaryAgentId)
+        }
       }
       setShowNewProjectForm(false)
     } catch {

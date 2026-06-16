@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Sparkles, CheckCircle, MessageSquare, Bot, Plug, Wrench, Key, Terminal, RefreshCw } from 'lucide-react'
+import { Sparkles, CheckCircle, MessageSquare, Bot, Plug, Wrench, Key, Terminal, RefreshCw, ShieldCheck, Package } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 
 interface OnboardingProps {
@@ -212,6 +212,9 @@ export function OnboardingModal({ onComplete }: OnboardingProps) {
                   <li className="flex items-center gap-2"><Bot className="w-3.5 h-3.5 text-gray-400 shrink-0" /> Create custom agents with unique personalities</li>
                   <li className="flex items-center gap-2"><Plug className="w-3.5 h-3.5 text-gray-400 shrink-0" /> Connect MCP servers for extended capabilities</li>
                   <li className="flex items-center gap-2"><Wrench className="w-3.5 h-3.5 text-gray-400 shrink-0" /> Use built-in tools (file editing, terminal, web fetch)</li>
+                  <li className="flex items-center gap-2"><ShieldCheck className="w-3.5 h-3.5 text-gray-400 shrink-0" /> Self-Heal: investigate, fix, and verify app errors automatically (sidebar)</li>
+                  <li className="flex items-center gap-2"><Sparkles className="w-3.5 h-3.5 text-gray-400 shrink-0" /> Feature Generator: spec, plan, and build new features end to end (sidebar)</li>
+                  <li className="flex items-center gap-2"><Package className="w-3.5 h-3.5 text-gray-400 shrink-0" /> Artifacts: browse and export generated docs, code, and plans (sidebar)</li>
                   <li className="flex items-center gap-2"><span className="w-3.5 text-center text-gray-400 shrink-0 text-xs">⌨</span> Press <kbd className="px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-xs font-mono">
                     {window.api.platform === 'darwin' ? 'Cmd' : 'Ctrl'}+Shift+H
                   </kbd> to toggle the app</li>

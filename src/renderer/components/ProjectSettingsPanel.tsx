@@ -6,8 +6,10 @@ import { GeneralTab } from './project-settings/GeneralTab'
 import { ScopeTab } from './project-settings/ScopeTab'
 import { MilestonesTab } from './project-settings/MilestonesTab'
 import { TeamTab } from './project-settings/TeamTab'
+import { DraftTeamPicker } from './project-settings/DraftTeamPicker'
 import { WikiTab } from './project-settings/WikiTab'
-import { ArtifactsTab } from './project-settings/ArtifactsTab'
+import { ArtifactsBrowser } from './artifacts/ArtifactsBrowser'
+import { SaveStatus, type SaveState } from './ui/primitives'
 
 type TabId = 'general' | 'scope' | 'milestones' | 'team' | 'wiki' | 'artifacts'
 
@@ -21,11 +23,16 @@ interface EditProps {
   flashTeam?: boolean
 }
 
+export interface DraftTeamSelection {
+  agentIds: string[]
+  primaryAgentId: string | null
+}
+
 interface DraftProps {
   projectId?: null
   draft: true
   onClose: () => void
-  onConfirm: (name: string, color: string, config: Partial<ProjectConfig>) => Promise<void>
+  onConfirm: (name: string, color: string, config: Partial<ProjectConfig>, team: DraftTeamSelection) => Promise<void>
   initialTab?: TabId
 }
 
@@ -71,6 +78,8 @@ export function ProjectSettingsPanel(props: Props) {
   const [inScope, setInScope] = useState<ScopeRule[]>(cfg?.inScope ?? [])
   const [outOfScope, setOutOfScope] = useState<ScopeRule[]>(cfg?.outOfScope ?? [])
   const [milestones, setMilestones] = useState<Milestone[]>(cfg?.milestones ?? [])
+  const [draftAgentIds, setDraftAgentIds] = useState<string[]>([])
+  const [draftPrimaryAgentId, setDraftPrimaryAgentId] = useState<string | null>(null)
   const [agentPickerQuery, setAgentPickerQuery] = useState('')
   const [showAgentPicker, setShowAgentPicker] = useState(false)
   const [teamDraggingId, setTeamDraggingId] = useState<string | null>(null)
@@ -94,6 +103,8 @@ export function ProjectSettingsPanel(props: Props) {
   }, [flashTeam])
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [saveState, setSaveState] = useState<SaveState>('idle')
+  const saveStateResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     onMount?.()
@@ -124,9 +135,24 @@ export function ProjectSettingsPanel(props: Props) {
   const debounceSave = useCallback((partial: Partial<ProjectConfig>) => {
     if (isDraft || !projectId) return
     if (saveTimer.current) clearTimeout(saveTimer.current)
+    if (saveStateResetTimer.current) clearTimeout(saveStateResetTimer.current)
+    setSaveState('saving')
     saveTimer.current = setTimeout(() => {
-      updateProjectConfig(projectId, partial)
+      void updateProjectConfig(projectId, partial).finally(() => {
+        setSaveState('saved')
+        saveStateResetTimer.current = setTimeout(() => setSaveState('idle'), 2000)
+      })
     }, 500)
+  }, [isDraft, projectId, updateProjectConfig])
+
+  const immediateSave = useCallback((partial: Partial<ProjectConfig>) => {
+    if (isDraft || !projectId) return
+    if (saveStateResetTimer.current) clearTimeout(saveStateResetTimer.current)
+    setSaveState('saving')
+    void updateProjectConfig(projectId, partial).finally(() => {
+      setSaveState('saved')
+      saveStateResetTimer.current = setTimeout(() => setSaveState('idle'), 2000)
+    })
   }, [isDraft, projectId, updateProjectConfig])
 
   // ── General tab handlers ──────────────────────────────────────────────────
@@ -152,34 +178,34 @@ export function ProjectSettingsPanel(props: Props) {
   const handleModeChange = (mode: ProjectConfig['instructionMode']) => {
     setInstructionMode(mode)
     setShowModeDropdown(false)
-    if (!isDraft && projectId) updateProjectConfig(projectId, { instructionMode: mode })
+    immediateSave({ instructionMode: mode })
   }
 
   const handleEnabledToggle = () => {
     const next = !instructionsEnabled
     setInstructionsEnabled(next)
-    if (!isDraft && projectId) updateProjectConfig(projectId, { instructionsEnabled: next })
+    immediateSave({ instructionsEnabled: next })
   }
 
   const handleBrowseDir = async () => {
     const result = await window.api.openDirectoryDialog()
     if (result && result.length > 0) {
       setRootDirectory(result[0])
-      if (!isDraft && projectId) updateProjectConfig(projectId, { rootDirectory: result[0] })
+      immediateSave({ rootDirectory: result[0] })
     }
   }
 
   const handleAddVariable = () => {
     const next = [...variables, { key: '', value: '' }]
     setVariables(next)
-    if (!isDraft && projectId) updateProjectConfig(projectId, { variables: next })
+    immediateSave({ variables: next })
   }
 
   const handleRemoveVariable = (idx: number) => {
     const next = variables.filter((_, i) => i !== idx)
     setVariables(next)
     setVarErrors((prev) => { const e = { ...prev }; delete e[idx]; return e })
-    if (!isDraft && projectId) updateProjectConfig(projectId, { variables: next })
+    immediateSave({ variables: next })
   }
 
   const handleVarChange = (idx: number, field: 'key' | 'value', val: string) => {
@@ -284,6 +310,21 @@ export function ProjectSettingsPanel(props: Props) {
     if (agent) addToast(`🤖 ${agent.name} added to project`, 'success')
   }
 
+  // ── Draft team handlers ───────────────────────────────────────────────────
+
+  const handleToggleDraftAgent = (agentId: string) => {
+    setDraftAgentIds((prev) => {
+      if (prev.includes(agentId)) {
+        const next = prev.filter((id) => id !== agentId)
+        if (draftPrimaryAgentId === agentId) setDraftPrimaryAgentId(next[0] ?? null)
+        return next
+      }
+      const next = [...prev, agentId]
+      if (draftPrimaryAgentId === null) setDraftPrimaryAgentId(agentId)
+      return next
+    })
+  }
+
   // ── Draft confirm ─────────────────────────────────────────────────────────
 
   const handleConfirm = async () => {
@@ -301,7 +342,7 @@ export function ProjectSettingsPanel(props: Props) {
         inScope,
         outOfScope,
         milestones,
-      })
+      }, { agentIds: draftAgentIds, primaryAgentId: draftPrimaryAgentId })
     } finally {
       setIsSubmitting(false)
     }
@@ -318,8 +359,8 @@ export function ProjectSettingsPanel(props: Props) {
     <div className="h-full flex flex-col bg-gray-50 dark:bg-gray-800/50 rounded-b-xl border-t border-gray-200 dark:border-gray-700">
 
       {/* Tab bar */}
-      <div className="flex gap-0.5 px-3 pt-2 pb-0 flex-wrap" role="tablist">
-        {(['general', 'scope', 'milestones', ...(!isDraft ? ['team', 'wiki', 'artifacts'] : [])] as TabId[]).map((tab) => (
+      <div className="flex items-center gap-0.5 px-3 pt-2 pb-0 flex-wrap" role="tablist">
+        {(['general', 'scope', 'milestones', 'team', ...(!isDraft ? ['wiki', 'artifacts'] : [])] as TabId[]).map((tab) => (
           <button
             key={tab}
             type="button"
@@ -347,6 +388,9 @@ export function ProjectSettingsPanel(props: Props) {
                       : `Milestones${activeMilestone ? ' 🎯' : ''}`}
           </button>
         ))}
+        {!isDraft && ['general', 'scope', 'milestones'].includes(activeTab) && (
+          <span className="ml-auto pr-1"><SaveStatus state={saveState} /></span>
+        )}
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 pt-2 space-y-4">
@@ -408,7 +452,17 @@ export function ProjectSettingsPanel(props: Props) {
         )}
 
         {activeTab === 'artifacts' && !isDraft && projectId && (
-          <ArtifactsTab projectId={projectId} />
+          <ArtifactsBrowser fixedProjectId={projectId} />
+        )}
+
+        {activeTab === 'team' && isDraft && (
+          <DraftTeamPicker
+            agents={agents}
+            selectedAgentIds={draftAgentIds}
+            primaryAgentId={draftPrimaryAgentId}
+            onToggleAgent={handleToggleDraftAgent}
+            onSetPrimaryAgent={setDraftPrimaryAgentId}
+          />
         )}
 
         {activeTab === 'team' && !isDraft && projectId && (

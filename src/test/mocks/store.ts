@@ -112,7 +112,7 @@ export function createMockAppStore(overrides: Record<string, unknown> = {}) {
     reorderProjectAgents: vi.fn(),
     loadProjectConfig: vi.fn(),
     updateProjectOrchestration: vi.fn(),
-    updateProjectConfig: vi.fn(),
+    updateProjectConfig: vi.fn().mockResolvedValue(undefined),
     clearPendingSettingsProject: vi.fn(),
     setShowNewProjectForm: vi.fn(),
     openEditProject: vi.fn(),

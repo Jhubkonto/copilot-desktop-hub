@@ -284,7 +284,8 @@ describe('ProjectSettingsPanel — draft mode with new fields', () => {
         inScope: expect.arrayContaining([expect.objectContaining({ description: 'TypeScript only' })]),
         outOfScope: [],
         milestones: [],
-      })
+      }),
+      expect.objectContaining({ agentIds: [], primaryAgentId: null })
     )
   })
 })

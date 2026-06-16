@@ -1,13 +1,17 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { CheckCircle, ChevronDown, ChevronRight, Package, Sparkles, Copy, Settings } from 'lucide-react'
 import type { ArtifactRow, ArtifactVersion, ArtifactSpec, ArtifactGeneratorMessage } from '@shared/types'
 import { BuildLog } from '../BuildLog'
+import { useAppStore } from '../../store/app-store'
+import { Button, PhaseBar, TextField, type PhaseBarStep } from '../ui/primitives'
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 type Phase = 'idle' | 'chatting' | 'spec-ready' | 'generating' | 'ready' | 'failed'
+
+export type ArtifactScope = 'global' | 'project' | 'all'
 
 interface ChatMsg {
   role: 'user' | 'assistant'
@@ -29,45 +33,19 @@ function KindBadge({ kind }: { kind: string }) {
   )
 }
 
-function PhaseBar({ phase }: { phase: Phase }) {
-  const steps: { id: Phase; label: string }[] = [
-    { id: 'chatting', label: 'Discovery' },
-    { id: 'spec-ready', label: 'Spec' },
-    { id: 'generating', label: 'Generate' },
-    { id: 'ready', label: 'Done' },
-  ]
-  const ORDER: Phase[] = ['idle', 'chatting', 'spec-ready', 'generating', 'ready']
-  const currentIndex = ORDER.indexOf(phase)
-
-  return (
-    <div className="flex items-center gap-1 mb-3">
-      {steps.map((step, i) => {
-        const stepIndex = ORDER.indexOf(step.id)
-        const done = currentIndex > stepIndex
-        const active = currentIndex === stepIndex
-        return (
-          <div key={step.id} className="flex items-center gap-1">
-            {i > 0 && <div className={`h-px w-4 ${done ? 'bg-green-400' : 'bg-gray-200 dark:bg-gray-700'}`} />}
-            <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${
-              done ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-              : active ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-              : 'bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-600'
-            }`}>
-              {done && <CheckCircle className="w-2.5 h-2.5" />}
-              {step.label}
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
+const PHASE_BAR_STEPS: PhaseBarStep[] = [
+  { id: 'chatting', label: 'Discovery' },
+  { id: 'spec-ready', label: 'Spec' },
+  { id: 'generating', label: 'Generate' },
+  { id: 'ready', label: 'Done' },
+]
+const PHASE_ORDER: Phase[] = ['idle', 'chatting', 'spec-ready', 'generating', 'ready']
 
 // ---------------------------------------------------------------------------
 // Artifact row
 // ---------------------------------------------------------------------------
 
-function ArtifactRowItem({ artifact }: { artifact: ArtifactRow }) {
+function ArtifactRowItem({ artifact, onRevise, onUseInChat }: { artifact: ArtifactRow; onRevise?: () => void; onUseInChat?: (artifactId: string, versionId?: string) => void }) {
   const [expanded, setExpanded] = useState(false)
   const [versions, setVersions] = useState<ArtifactVersion[]>([])
   const [loadingVersions, setLoadingVersions] = useState(false)
@@ -120,6 +98,9 @@ function ArtifactRowItem({ artifact }: { artifact: ArtifactRow }) {
         {expanded ? <ChevronDown className="w-3.5 h-3.5 text-gray-400 shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 text-gray-400 shrink-0" />}
         <KindBadge kind={artifact.kind} />
         <span className="text-xs font-medium text-gray-800 dark:text-gray-200 flex-1 truncate">{artifact.title}</span>
+        {!artifact.projectId && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 font-medium">Global</span>
+        )}
         <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
           artifact.status === 'ready' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
           : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'
@@ -181,13 +162,33 @@ function ArtifactRowItem({ artifact }: { artifact: ArtifactRow }) {
 
           {exportMsg && <p className="text-[10px] font-mono text-gray-500 truncate">{exportMsg}</p>}
 
-          <button
-            type="button"
-            onClick={handleDelete}
-            className="text-[11px] px-2 py-1 rounded bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
-          >
-            Delete
-          </button>
+          <div className="flex gap-2 pt-1">
+            {onRevise && (
+              <button
+                type="button"
+                onClick={onRevise}
+                className="text-[11px] px-2 py-1 rounded bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+              >
+                Generate new version
+              </button>
+            )}
+            {onUseInChat && currentVersion && (
+              <Button
+                variant="secondary"
+                onClick={() => onUseInChat(artifact.id, currentVersion.id)}
+                className="text-[11px] px-2 py-1"
+              >
+                Use in chat
+              </Button>
+            )}
+            <button
+              type="button"
+              onClick={handleDelete}
+              className="text-[11px] px-2 py-1 rounded bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+            >
+              Delete
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -195,10 +196,30 @@ function ArtifactRowItem({ artifact }: { artifact: ArtifactRow }) {
 }
 
 // ---------------------------------------------------------------------------
-// Main ArtifactLibraryTab
+// Main ArtifactsBrowser
 // ---------------------------------------------------------------------------
 
-export function ArtifactLibraryTab() {
+interface ArtifactsBrowserProps {
+  /** Locks the browser to a single project and hides the scope picker. */
+  fixedProjectId?: string
+}
+
+export function ArtifactsBrowser({ fixedProjectId }: ArtifactsBrowserProps) {
+  const projects = useAppStore((s) => s.projects)
+  const currentConversationId = useAppStore((s) => s.currentConversationId)
+  const requestArtifactAttach = useAppStore((s) => s.requestArtifactAttach)
+  const setShowArtifactsPanel = useAppStore((s) => s.setShowArtifactsPanel)
+  const addToast = useAppStore((s) => s.addToast)
+
+  const handleUseInChat = (artifactId: string, versionId?: string) => {
+    requestArtifactAttach(artifactId, versionId)
+    setShowArtifactsPanel(false)
+    addToast('Artifact attached to conversation', 'success')
+  }
+
+  const [scope, setScope] = useState<ArtifactScope>(fixedProjectId ? 'project' : 'global')
+  const [scopeProjectId, setScopeProjectId] = useState(fixedProjectId ?? projects[0]?.id ?? '')
+
   const [artifacts, setArtifacts] = useState<ArtifactRow[]>([])
   const [loading, setLoading] = useState(true)
   const [storageRoot, setStorageRoot] = useState('')
@@ -212,24 +233,35 @@ export function ArtifactLibraryTab() {
   const [streamBuf, setStreamBuf] = useState('')
   const [pendingSpec, setPendingSpec] = useState<ArtifactSpec | null>(null)
   const [fileEvents, setFileEvents] = useState<{ file: string; status: string }[]>([])
+  const [reviseTitle, setReviseTitle] = useState<string | null>(null)
 
   const unsubTokenRef = useRef<(() => void) | null>(null)
   const unsubSpecRef = useRef<(() => void) | null>(null)
   const unsubFileRef = useRef<(() => void) | null>(null)
 
+  const effectiveProjectId = fixedProjectId ?? (scope === 'project' ? scopeProjectId : undefined)
+
   const loadAll = useCallback(async () => {
     setLoading(true)
     try {
-      const [list, root] = await Promise.all([
-        window.api.artifactList(),
-        window.api.artifactGeneratorGetStorageRoot(),
-      ])
-      setArtifacts(list)
-      setStorageRoot(root.path)
+      if (scope === 'all' && !fixedProjectId) {
+        const [global, project] = await Promise.all([
+          window.api.artifactList(),
+          scopeProjectId ? window.api.artifactList(scopeProjectId) : Promise.resolve([]),
+        ])
+        setArtifacts([...global, ...project])
+      } else {
+        const list = await window.api.artifactList(effectiveProjectId)
+        setArtifacts(list)
+      }
+      if (!fixedProjectId && scope === 'global') {
+        const root = await window.api.artifactGeneratorGetStorageRoot()
+        setStorageRoot(root.path)
+      }
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [scope, scopeProjectId, effectiveProjectId, fixedProjectId])
 
   useEffect(() => {
     void loadAll()
@@ -259,6 +291,8 @@ export function ArtifactLibraryTab() {
     setEditingRoot(false)
   }
 
+  const generatorProjectId = fixedProjectId ?? (scope === 'project' ? scopeProjectId : undefined)
+
   const handleSend = async () => {
     if (!input.trim() || sending) return
     const userMsg: ChatMsg = { role: 'user', content: input.trim() }
@@ -270,7 +304,7 @@ export function ArtifactLibraryTab() {
     setPhase('chatting')
 
     try {
-      await window.api.artifactGeneratorChat(newMessages as ArtifactGeneratorMessage[])
+      await window.api.artifactGeneratorChat(newMessages as ArtifactGeneratorMessage[], generatorProjectId)
       setMessages((prev) => [...prev, { role: 'assistant', content: streamBuf || '…' }])
     } catch (e) {
       setMessages((prev) => [...prev, { role: 'assistant', content: `Error: ${String(e)}` }])
@@ -286,7 +320,7 @@ export function ArtifactLibraryTab() {
     setFileEvents([])
     const runId = crypto.randomUUID()
     try {
-      await window.api.artifactGeneratorGenerate(runId, pendingSpec)
+      await window.api.artifactGeneratorGenerate(runId, pendingSpec, generatorProjectId)
       setPhase('ready')
       await loadAll()
     } catch {
@@ -301,74 +335,127 @@ export function ArtifactLibraryTab() {
     setStreamBuf('')
     setPendingSpec(null)
     setFileEvents([])
+    setReviseTitle(null)
     setShowGenerator(false)
   }
 
+  const handleRevise = (title: string) => {
+    setReviseTitle(title)
+    setShowGenerator(true)
+    setPhase('chatting')
+    setMessages([{ role: 'user', content: `I want to generate a new version of "${title}"` }])
+  }
+
+  const emptyMessage = useMemo(() => {
+    if (scope === 'global') return 'No global artifacts yet. Generate one above.'
+    if (scope === 'all') return 'No artifacts yet. Generate one above.'
+    return 'No artifacts yet for this project. Generate one above.'
+  }, [scope])
+
   return (
     <div className="space-y-4">
-      {/* Storage root config */}
-      <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-3 space-y-2">
-        <div className="flex items-center gap-2">
-          <Settings className="w-3.5 h-3.5 text-gray-400" />
-          <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Artifact storage root</p>
-          <button
-            type="button"
-            onClick={() => { setEditingRoot(true); setRootInput(storageRoot) }}
-            className="ml-auto text-[10px] text-blue-500 hover:text-blue-600"
-          >
-            Change
-          </button>
-        </div>
-        {editingRoot ? (
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={rootInput}
-              onChange={(e) => setRootInput(e.target.value)}
-              className="flex-1 text-[11px] font-mono px-2 py-1 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
+      {/* Scope picker */}
+      {!fixedProjectId && (
+        <div className="flex items-center gap-2 flex-wrap">
+          {(['global', 'project', 'all'] as ArtifactScope[]).map((s) => (
             <button
+              key={s}
               type="button"
-              onClick={handleSaveRoot}
-              className="text-[10px] px-2 py-1 rounded bg-blue-500 text-white hover:bg-blue-600 transition-colors"
+              onClick={() => setScope(s)}
+              className={`text-[11px] px-2.5 py-1 rounded-full font-medium transition-colors ${
+                scope === s
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+              }`}
             >
-              Save
+              {s === 'global' ? 'Global' : s === 'project' ? 'This Project' : 'All'}
             </button>
+          ))}
+          {(scope === 'project' || scope === 'all') && (
+            <select
+              value={scopeProjectId}
+              onChange={(e) => setScopeProjectId(e.target.value)}
+              className="text-[11px] px-2 py-1 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              <option value="">Select project…</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
+
+      {/* Storage root config (global scope only) */}
+      {!fixedProjectId && scope === 'global' && (
+        <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <Settings className="w-3.5 h-3.5 text-gray-400" />
+            <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Artifact storage root</p>
             <button
               type="button"
-              onClick={() => setEditingRoot(false)}
-              className="text-[10px] px-2 py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+              onClick={() => { setEditingRoot(true); setRootInput(storageRoot) }}
+              className="ml-auto text-[10px] text-blue-500 hover:text-blue-600"
             >
-              Cancel
+              Change
             </button>
           </div>
-        ) : (
-          <p className="text-[11px] font-mono text-gray-500 dark:text-gray-400 truncate">{storageRoot || '—'}</p>
-        )}
-      </div>
+          {editingRoot ? (
+            <div className="flex gap-2">
+              <TextField
+                type="text"
+                value={rootInput}
+                onChange={(e) => setRootInput(e.target.value)}
+                className="flex-1 text-[11px] font-mono px-2 py-1"
+              />
+              <Button
+                variant="primary"
+                onClick={handleSaveRoot}
+                className="text-[10px] px-2 py-1"
+              >
+                Save
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => setEditingRoot(false)}
+                className="text-[10px] px-2 py-1"
+              >
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <p className="text-[11px] font-mono text-gray-500 dark:text-gray-400 truncate">{storageRoot || '—'}</p>
+          )}
+        </div>
+      )}
 
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Package className="w-4 h-4 text-purple-500" />
-          <p className="text-xs font-semibold text-gray-700 dark:text-gray-300">Global Artifacts</p>
+          <Package className="w-4 h-4 text-blue-500" />
+          <p className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+            {fixedProjectId ? 'Project Artifacts' : scope === 'global' ? 'Global Artifacts' : scope === 'all' ? 'All Artifacts' : 'Project Artifacts'}
+          </p>
         </div>
         {!showGenerator && (
-          <button
-            type="button"
+          <Button
+            variant="primary"
             onClick={() => { setShowGenerator(true); setPhase('chatting') }}
-            className="flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded-lg bg-purple-500 text-white hover:bg-purple-600 transition-colors"
+            disabled={scope === 'all'}
+            title={scope === 'all' ? 'Pick "Global" or "This Project" to generate' : undefined}
           >
             <Sparkles className="w-3 h-3" />
             Generate artifact
-          </button>
+          </Button>
         )}
       </div>
 
       {/* Inline generator */}
       {showGenerator && (
-        <div className="border border-purple-200 dark:border-purple-800 rounded-lg p-3 space-y-3 bg-purple-50/30 dark:bg-purple-900/5">
-          <PhaseBar phase={phase} />
+        <div className="border border-blue-200 dark:border-blue-800 rounded-lg p-3 space-y-3 bg-blue-50/30 dark:bg-blue-900/5">
+          <div className="mb-3">
+            <PhaseBar steps={PHASE_BAR_STEPS} currentIndex={PHASE_ORDER.indexOf(phase)} />
+          </div>
 
           <div className="space-y-2 max-h-48 overflow-y-auto">
             {messages.map((m, i) => (
@@ -390,10 +477,10 @@ export function ArtifactLibraryTab() {
           </div>
 
           {pendingSpec && phase === 'spec-ready' && (
-            <div className="rounded-lg border border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-900/10 p-3 space-y-1.5">
+            <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/10 p-3 space-y-1.5">
               <div className="flex items-center gap-2">
                 <KindBadge kind={pendingSpec.kind} />
-                <p className="text-xs font-semibold text-purple-800 dark:text-purple-300">{pendingSpec.title}</p>
+                <p className="text-xs font-semibold text-blue-800 dark:text-blue-300">{pendingSpec.title}</p>
               </div>
               <p className="text-[11px] text-gray-600 dark:text-gray-400">{pendingSpec.intendedUse}</p>
               {pendingSpec.outputFiles.length > 0 && (
@@ -405,16 +492,16 @@ export function ArtifactLibraryTab() {
                 </div>
               )}
               <div className="flex gap-2 pt-1">
-                <button
-                  type="button"
+                <Button
+                  variant="primary"
                   onClick={handleApproveSpec}
-                  className="text-[11px] px-3 py-1 rounded bg-purple-500 text-white hover:bg-purple-600 transition-colors"
+                  className="text-[11px] px-3 py-1"
                 >
                   Approve and generate
-                </button>
-                <button type="button" onClick={() => setPendingSpec(null)} className="text-[11px] px-2 py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
+                </Button>
+                <Button variant="secondary" onClick={() => setPendingSpec(null)} className="text-[11px] px-2 py-1">
                   Revise
-                </button>
+                </Button>
               </div>
             </div>
           )}
@@ -435,23 +522,23 @@ export function ArtifactLibraryTab() {
 
           {(phase === 'chatting' || phase === 'idle') && (
             <div className="flex gap-2">
-              <input
+              <TextField
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void handleSend() } }}
-                placeholder="Describe the artifact you want to create…"
-                className="flex-1 text-xs px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                placeholder={reviseTitle ? `Tell me what to change in "${reviseTitle}"…` : 'Describe the artifact you want to create…'}
+                className="flex-1 text-xs px-3 py-2"
                 disabled={sending}
               />
-              <button
-                type="button"
+              <Button
+                variant="primary"
                 onClick={handleSend}
                 disabled={sending || !input.trim()}
-                className="text-[11px] px-3 py-1.5 rounded-lg bg-purple-500 text-white hover:bg-purple-600 disabled:opacity-50 transition-colors"
+                className="text-[11px] px-3 py-1.5"
               >
                 {sending ? '…' : 'Send'}
-              </button>
+              </Button>
             </div>
           )}
 
@@ -467,11 +554,16 @@ export function ArtifactLibraryTab() {
       {loading ? (
         <p className="text-[11px] text-gray-400">Loading artifacts…</p>
       ) : artifacts.length === 0 ? (
-        <p className="text-[11px] text-gray-400">No global artifacts yet. Generate one above.</p>
+        <p className="text-[11px] text-gray-400">{emptyMessage}</p>
       ) : (
         <div className="space-y-2">
           {artifacts.map((a) => (
-            <ArtifactRowItem key={a.id} artifact={a} />
+            <ArtifactRowItem
+              key={a.id}
+              artifact={a}
+              onRevise={a.projectId || fixedProjectId ? () => handleRevise(a.title) : undefined}
+              onUseInChat={currentConversationId ? handleUseInChat : undefined}
+            />
           ))}
         </div>
       )}
