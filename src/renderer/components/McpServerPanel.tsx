@@ -137,6 +137,19 @@ export function McpServerPanel() {
     if (visible) loadServers()
   }, [visible, loadServers])
 
+  useEffect(() => {
+    if (!visible) return
+    return window.api.onMcpServerStatusChanged((server) => {
+      setServers((prev) => {
+        const idx = prev.findIndex((s) => s.id === server.id)
+        if (idx === -1) return prev
+        const next = [...prev]
+        next[idx] = server
+        return next
+      })
+    })
+  }, [visible])
+
   const handleNew = () => {
     setEditingServer({
       id: '',
@@ -187,14 +200,7 @@ export function McpServerPanel() {
   const handleRestart = async (id: string) => {
     try {
       await window.api.restartMcpServer(id)
-      // Poll for updated status instead of arbitrary timeout
-      let retries = 5
-      const poll = () => {
-        retries--
-        loadServers()
-        if (retries > 0) setTimeout(poll, 1000)
-      }
-      setTimeout(poll, 500)
+      // Status updates arrive via the mcp:server-status-changed push event.
     } catch {
       addToast('Failed to restart server', 'error')
     }

@@ -45,6 +45,7 @@ export function ChatWindow() {
   const loadConversations = useAppStore((state) => state.loadConversations)
   const loadAgents = useAppStore((state) => state.loadAgents)
   const newChat = useAppStore((state) => state.newChat)
+  const setShowArtifactsPanel = useAppStore((state) => state.setShowArtifactsPanel)
   const selectConversation = useAppStore((state) => state.selectConversation)
   const setTheme = useAppStore((state) => state.setTheme)
   const logout = useAppStore((state) => state.logout)
@@ -354,6 +355,15 @@ export function ChatWindow() {
     })
     return unsubscribe
   }, [chat.setMessages])
+
+  const pendingArtifactAttach = useAppStore((state) => state.pendingArtifactAttach)
+  const clearPendingArtifactAttach = useAppStore((state) => state.clearPendingArtifactAttach)
+  useEffect(() => {
+    if (!pendingArtifactAttach || !conversationId) return
+    const { artifactId, versionId } = pendingArtifactAttach
+    clearPendingArtifactAttach()
+    void chat.attachArtifact(artifactId, versionId)
+  }, [pendingArtifactAttach, conversationId, clearPendingArtifactAttach, chat.attachArtifact])
 
   const scrollToBottom = useCallback(() => {
     const el = scrollContainerRef.current
@@ -874,6 +884,7 @@ export function ChatWindow() {
       onCaptureScreen={handleCaptureScreen}
       onPasteClipboardImage={handlePasteClipboard}
       onOpenPromptLibrary={() => setShowPromptLibrary(true)}
+      onAttachArtifact={conversationId ? () => setShowArtifactsPanel(true) : undefined}
       onToggleContextInspector={() => setShowContextInspector((value) => !value)}
       onCloseContextInspector={() => setShowContextInspector(false)}
       onRemoveAttachment={fileInput.removeAttachment}
@@ -1081,7 +1092,7 @@ export function ChatWindow() {
                     <select
                       value={continueModel}
                       onChange={(event) => setContinueModel(event.target.value)}
-                      className="w-full rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1.5 text-xs text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 dark:focus:ring-gray-600"
+                      className="w-full rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1.5 text-xs text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:focus:ring-blue-500"
                     >
                       {continueModelOptions.map((model) => (
                         <option key={model.id} value={model.id}>

@@ -1267,6 +1267,7 @@ export type IpcReturnMap = {
   'conversation:fork': ConversationForkResult
   'conversation:import-json': ConversationImportResult | null
   'conversation:get-messages': MessageRow[]
+  'conversation:insert-message': MessageRow
   'conversation:list': ConversationRow[]
   'conversation:rename': boolean
   'conversation:search': ConversationRow[]
@@ -1344,6 +1345,7 @@ export type IpcReturnMap = {
   'mcp:list-tools-for-agent': McpTool[]
   'mcp:remove-server': boolean
   'mcp:restart-server': boolean
+  'mcp:server-status-changed': void
   'mcp:update-server': McpServerConfig | null
   // Model
   'model:list-catalog': CatalogModel[]
@@ -1562,6 +1564,7 @@ export type IpcChannels =
   | 'conversation:fork'
   | 'conversation:import-json'
   | 'conversation:get-messages'
+  | 'conversation:insert-message'
   | 'conversation:list'
   | 'conversation:rename'
   | 'conversation:search'
@@ -1627,6 +1630,7 @@ export type IpcChannels =
   | 'mcp:list-tools-for-agent'
   | 'mcp:remove-server'
   | 'mcp:restart-server'
+  | 'mcp:server-status-changed'
   | 'mcp:update-server'
   | 'model:list-catalog'
   | 'model:catalog-updated'

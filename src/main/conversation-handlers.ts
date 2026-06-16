@@ -118,6 +118,19 @@ export function registerConversationHandlers(): void {
       .all(conversationId);
   });
 
+  safeHandle(
+    "conversation:insert-message",
+    (_event, conversationId: string, role: string, content: string) => {
+      const id = randomUUID();
+      const now = Date.now();
+      db.prepare(
+        "INSERT INTO messages (id, conversation_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)",
+      ).run(id, conversationId, role, content, now);
+      db.prepare("UPDATE conversations SET updated_at = ? WHERE id = ?").run(now, conversationId);
+      return db.prepare("SELECT * FROM messages WHERE id = ?").get(id);
+    },
+  );
+
   safeHandle("conversation:search", (_event, query: string) => {
     if (!query.trim()) {
       return db

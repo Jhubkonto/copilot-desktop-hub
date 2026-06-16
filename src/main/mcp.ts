@@ -1,6 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
-import type { WebContents } from 'electron'
+import { BrowserWindow, type WebContents } from 'electron'
 import { getDatabase } from './database'
 import { randomUUID } from 'crypto'
 import { safeHandle } from './safe-handle'
@@ -47,6 +47,21 @@ export const servers = new Map<string, McpServerInstance>()
 const reconnectTimers = new Map<string, NodeJS.Timeout>()
 const intentionallyDisconnected = new Set<string>()
 const RECONNECT_DELAY_MS = 5000
+
+function broadcastServerStatus(id: string): void {
+  const config = loadServerConfigs().find((c) => c.id === id)
+  if (!config) return
+  const instance = servers.get(id)
+  const payload = {
+    ...config,
+    status: instance?.status ?? 'disconnected',
+    error: instance?.error,
+    toolCount: instance?.tools.length ?? 0,
+  }
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send('mcp:server-status-changed', payload)
+  }
+}
 
 function loadServerConfigs(): McpServerConfig[] {
   const db = getDatabase()
@@ -141,6 +156,7 @@ async function connectServer(config: McpServerConfig): Promise<void> {
         inst.status = 'disconnected'
         servers.delete(config.id)
         scheduleReconnect(config.id)
+        broadcastServerStatus(config.id)
       }
     }
 
@@ -162,6 +178,8 @@ async function connectServer(config: McpServerConfig): Promise<void> {
     instance.status = 'error'
     instance.error = (error as Error).message
   }
+
+  broadcastServerStatus(config.id)
 }
 
 export async function disconnectServer(id: string): Promise<void> {
@@ -182,6 +200,7 @@ export async function disconnectServer(id: string): Promise<void> {
     }
     instance.status = 'disconnected'
     servers.delete(id)
+    broadcastServerStatus(id)
   }
 }
 

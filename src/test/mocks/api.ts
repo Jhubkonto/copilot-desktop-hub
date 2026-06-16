@@ -244,6 +244,9 @@ export function createMockApi() {
       imported_into_existing: false,
     }),
     getMessages: vi.fn().mockResolvedValue([]),
+    insertConversationMessage: vi.fn().mockResolvedValue({
+      id: 'msg-artifact-ref', conversation_id: 'conv-1', role: 'system', content: '', model: null, is_edited: 0, previous_content: null, timestamp: Date.now(), tool_calls: null, attachments: null, context_snapshot: null,
+    }),
     searchConversations: vi.fn().mockResolvedValue([]),
     renameConversation: vi.fn().mockResolvedValue(undefined),
     setConversationModel: vi.fn().mockResolvedValue(true),
@@ -314,6 +317,7 @@ export function createMockApi() {
     setMcpToolOverride: vi.fn().mockResolvedValue(true),
     callMcpTool: vi.fn().mockResolvedValue(null),
     restartMcpServer: vi.fn().mockResolvedValue(true),
+    onMcpServerStatusChanged: vi.fn().mockReturnValue(() => {}),
 
     // Providers
     listProviders: vi.fn().mockResolvedValue([]),

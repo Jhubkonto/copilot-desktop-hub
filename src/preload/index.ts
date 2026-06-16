@@ -36,6 +36,7 @@ import type {
   ArtifactRow,
   ArtifactVersion,
   ArtifactGeneratorRun,
+  McpServerWithStatus,
 } from '../shared/types'
 
 // ---------------------------------------------------------------------------
@@ -253,6 +254,8 @@ const api = {
     typedInvoke('conversation:import-json', { targetConversationId: targetConversationId ?? null }),
   getMessages: (conversationId: string) =>
     typedInvoke('conversation:get-messages', conversationId),
+  insertConversationMessage: (conversationId: string, role: string, content: string) =>
+    typedInvoke('conversation:insert-message', conversationId, role, content),
   searchConversations: (query: string) =>
     typedInvoke('conversation:search', query),
   renameConversation: (id: string, title: string) =>
@@ -418,6 +421,11 @@ const api = {
   callMcpTool: (serverId: string, toolName: string, args: Record<string, unknown>, agentId?: string) =>
     typedInvoke('mcp:call-tool', serverId, toolName, args, agentId),
   restartMcpServer: (id: string) => typedInvoke('mcp:restart-server', id),
+  onMcpServerStatusChanged: (callback: (server: McpServerWithStatus) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, server: McpServerWithStatus) => callback(server)
+    typedOn('mcp:server-status-changed', handler)
+    return () => typedOff('mcp:server-status-changed', handler)
+  },
 
   // Providers (BYOK)
   listProviders: () => typedInvoke('provider:list'),

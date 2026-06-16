@@ -75,6 +75,24 @@ export function useChat({
     setMessages((prev) => [...prev, systemMessage])
   }, [])
 
+  const attachArtifact = useCallback(async (artifactId: string, versionId?: string) => {
+    const activeId = activeConversationRef.current
+    if (!activeId) return
+    const content = `__artifact-ref:${JSON.stringify({ artifactId, versionId })}`
+    const inserted = await window.api.insertConversationMessage(activeId, 'system', content)
+    if (hasIpcError(inserted)) {
+      addToastRef.current('Failed to attach artifact', 'error')
+      return
+    }
+    setMessages((prev) => [...prev, {
+      id: inserted.id,
+      role: inserted.role as ChatMessage['role'],
+      content: inserted.content,
+      timestamp: inserted.timestamp,
+      model: inserted.model ?? null,
+    }])
+  }, [])
+
   const buildConversationMarkdown = useCallback(() => {
     const lines: string[] = ['# Conversation Export', '']
     for (const message of messages) {
@@ -504,6 +522,7 @@ export function useChat({
     handleRegenerate,
     handleEdit,
     pushSystemMessage,
+    attachArtifact,
     buildConversationMarkdown,
   }
 }

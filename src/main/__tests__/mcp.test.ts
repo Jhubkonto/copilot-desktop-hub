@@ -76,7 +76,8 @@ vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
 }))
 
 vi.mock('electron', () => ({
-  ipcMain: mockIpcMain
+  ipcMain: mockIpcMain,
+  BrowserWindow: { getAllWindows: vi.fn(() => []) }
 }))
 
 vi.mock('../database', () => ({

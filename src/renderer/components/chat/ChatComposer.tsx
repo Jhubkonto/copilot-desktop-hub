@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, type ChangeEvent, type ClipboardEvent, type KeyboardEvent, type PointerEvent, type RefObject } from 'react'
-import { BookOpen, Camera, ChevronDown, ClipboardPaste, Eye, Paperclip, SendHorizontal, Square, X } from 'lucide-react'
+import { BookOpen, Camera, ChevronDown, ClipboardPaste, Eye, Package, Paperclip, SendHorizontal, Square, X } from 'lucide-react'
 import { getModelLabel } from '../../../shared/models'
 import { ContextInspector } from '../ContextInspector'
 import { AttachmentBar } from './AttachmentBar'
@@ -44,6 +44,7 @@ interface ChatComposerProps {
   onCaptureScreen?: () => void | Promise<void>
   onPasteClipboardImage?: () => void | Promise<void>
   onOpenPromptLibrary?: () => void
+  onAttachArtifact?: () => void
   onToggleContextInspector: () => void
   onCloseContextInspector: () => void
   onRemoveAttachment: (id: string) => void
@@ -97,6 +98,7 @@ export function ChatComposer({
   onCaptureScreen,
   onPasteClipboardImage,
   onOpenPromptLibrary,
+  onAttachArtifact,
   onToggleContextInspector,
   onCloseContextInspector,
   onRemoveAttachment,
@@ -279,6 +281,18 @@ export function ChatComposer({
                     aria-label="Insert prompt"
                   >
                     <BookOpen className="w-4 h-4" />
+                  </button>
+                )}
+                {onAttachArtifact && (
+                  <button
+                    type="button"
+                    onClick={onAttachArtifact}
+                    disabled={isGenerating}
+                    className="p-1.5 rounded-md text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    title="Attach artifact"
+                    aria-label="Attach artifact"
+                  >
+                    <Package className="w-4 h-4" />
                   </button>
                 )}
                 <button
