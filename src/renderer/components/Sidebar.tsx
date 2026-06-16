@@ -1,5 +1,5 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
-import { Plus, MessageSquare, Settings, X, Upload, Pin, FolderOpen, Folder, Cpu, ChevronDown, ChevronRight, Check } from 'lucide-react'
+import { useState, useCallback, useRef, useEffect, type ReactNode } from 'react'
+import { Plus, MessageSquare, Settings, X, Upload, Pin, FolderOpen, Folder, Cpu, ChevronDown, ChevronRight, Check, Wrench, Sparkles, Package, Bug, Pencil } from 'lucide-react'
 import { SearchBar } from './SearchBar'
 import { useAppStore } from '../store/app-store'
 import type { Conversation, Project } from '../store/types'
@@ -7,6 +7,38 @@ import { ResizeHandle } from './ResizeHandle'
 import { getModelLabel } from '../../shared/models'
 import { DeleteConversationDialog } from './DeleteConversationDialog'
 import { formatRelativeTime } from '../../shared/utils'
+import { Button } from './ui/primitives'
+
+function NavButton({
+  icon,
+  label,
+  onClick,
+  badgeCount,
+  ariaLabel,
+}: {
+  icon: ReactNode
+  label: string
+  onClick: () => void
+  badgeCount?: number
+  ariaLabel?: string
+}) {
+  return (
+    <Button
+      variant="ghost"
+      onClick={onClick}
+      className="w-full justify-start px-3 py-1.5"
+      aria-label={ariaLabel ?? label}
+    >
+      {icon}
+      <span className="flex-1 text-left">{label}</span>
+      {!!badgeCount && badgeCount > 0 && (
+        <span className="flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-semibold leading-none">
+          {badgeCount > 9 ? '9+' : badgeCount}
+        </span>
+      )}
+    </Button>
+  )
+}
 
 interface DateGroup {
   label: string
@@ -87,6 +119,10 @@ export function Sidebar() {
   const loadConversations = useAppStore((s) => s.loadConversations)
   const logout = useAppStore((s) => s.logout)
   const setShowSettings = useAppStore((s) => s.setShowSettings)
+  const setShowSelfHealPanel = useAppStore((s) => s.setShowSelfHealPanel)
+  const setShowFeatureGeneratorPanel = useAppStore((s) => s.setShowFeatureGeneratorPanel)
+  const setShowArtifactsPanel = useAppStore((s) => s.setShowArtifactsPanel)
+  const openBugReport = useAppStore((s) => s.openBugReport)
   const selectAgent = useAppStore((s) => s.selectAgent)
   const openEditAgent = useAppStore((s) => s.openEditAgent)
   const openCreateAgent = useAppStore((s) => s.openCreateAgent)
@@ -114,6 +150,7 @@ export function Sidebar() {
   const [editTitle, setEditTitle] = useState('')
   const [isImportingConversation, setIsImportingConversation] = useState(false)
   const [pendingDeleteConv, setPendingDeleteConv] = useState<{ id: string; title: string } | null>(null)
+  const [openReportCount, setOpenReportCount] = useState(0)
 
   // Conversation project picker state
   const [convProjectPickerId, setConvProjectPickerId] = useState<string | null>(null)
@@ -131,6 +168,20 @@ export function Sidebar() {
     return () => window.removeEventListener('mousedown', onPointerDown)
   }, [convProjectPickerId])
 
+  const showSelfHealPanel = useAppStore((s) => s.showSelfHealPanel)
+
+  useEffect(() => {
+    if (typeof window.api.listErrorReports !== 'function') return
+    const refresh = () => {
+      window.api.listErrorReports(25)
+        .then((reports) => setOpenReportCount(reports.filter((r) => r.status === 'open').length))
+        .catch(() => {})
+    }
+    refresh()
+    const interval = setInterval(refresh, 30000)
+    return () => clearInterval(interval)
+  }, [showSelfHealPanel])
+
   const handleSearch = useCallback(async (query: string) => {
     setSearchQuery(query)
     if (!query) {
@@ -146,9 +197,15 @@ export function Sidebar() {
   }, [])
 
   const handleRename = async () => {
-    if (editingId && editTitle.trim()) {
+    if (editingId) {
+      const trimmed = editTitle.trim()
+      if (!trimmed) {
+        addToast('Conversation name cannot be empty', 'error')
+        setEditingId(null)
+        return
+      }
       try {
-        await window.api.renameConversation(editingId, editTitle.trim())
+        await window.api.renameConversation(editingId, trimmed)
         loadConversations()
       } catch {
         addToast('Failed to rename conversation', 'error')
@@ -237,38 +294,59 @@ export function Sidebar() {
           )}
         </div>
         <div className="invisible group-hover:visible flex items-center gap-0.5">
+          {/* Rename button */}
+          <Button
+            variant="ghost"
+            onClick={(e) => {
+              e.stopPropagation()
+              setEditingId(conv.id)
+              setEditTitle(conv.title)
+            }}
+            className="p-0.5"
+            title="Rename conversation"
+            aria-label="Rename conversation"
+          >
+            <Pencil className="w-3 h-3" />
+          </Button>
           {/* Pin button */}
-          <button
+          <Button
+            variant="ghost"
             onClick={async (e) => {
               e.stopPropagation()
+              const nextPinned = !isPinned(conv)
               try {
-                await window.api.setConversationPinned(conv.id, !isPinned(conv))
+                await window.api.setConversationPinned(conv.id, nextPinned)
                 loadConversations()
+                addToast(nextPinned ? 'Conversation pinned' : 'Conversation unpinned', 'info', {
+                  label: 'Undo',
+                  onClick: () => {
+                    void window.api.setConversationPinned(conv.id, !nextPinned).then(() => loadConversations())
+                  },
+                })
               } catch {
                 addToast('Failed to update pin', 'error')
               }
             }}
-            className={`p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 ${
-              isPinned(conv) ? 'text-blue-500' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-200'
-            }`}
+            className={`p-0.5 ${isPinned(conv) ? 'text-blue-500' : ''}`}
             title={isPinned(conv) ? 'Unpin conversation' : 'Pin conversation'}
             aria-label={isPinned(conv) ? 'Unpin conversation' : 'Pin conversation'}
           >
             <Pin className="w-3 h-3" />
-          </button>
+          </Button>
           {/* Move to project button */}
           <div className="relative" ref={isPickingProject ? convProjectPickerRef : undefined}>
-            <button
+            <Button
+              variant="ghost"
               onClick={(e) => {
                 e.stopPropagation()
                 setConvProjectPickerId(isPickingProject ? null : conv.id)
               }}
-              className="p-0.5 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700"
+              className="p-0.5"
               title="Move to project"
               aria-label="Move to project"
             >
               <FolderOpen className="w-3 h-3" />
-            </button>
+            </Button>
             {isPickingProject && (
               <div className="absolute right-0 top-5 z-30 w-44 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xl py-1">
                 <div className="px-2 py-1 text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">
@@ -279,7 +357,13 @@ export function Sidebar() {
                   onClick={(e) => {
                     e.stopPropagation()
                     setConvProjectPickerId(null)
-                    setConversationProject(conv.id, null)
+                    const previousProjectId = conv.project_id ?? null
+                    void setConversationProject(conv.id, null).then(() => {
+                      addToast('Moved to No project', 'info', {
+                        label: 'Undo',
+                        onClick: () => { void setConversationProject(conv.id, previousProjectId) },
+                      })
+                    })
                   }}
                 >
                   <span className="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600 inline-block" />
@@ -295,7 +379,13 @@ export function Sidebar() {
                       onClick={(e) => {
                         e.stopPropagation()
                         setConvProjectPickerId(null)
-                        setConversationProject(conv.id, p.id)
+                        const previousProjectId = conv.project_id ?? null
+                        void setConversationProject(conv.id, p.id).then(() => {
+                          addToast(`Moved to ${p.name}`, 'info', {
+                            label: 'Undo',
+                            onClick: () => { void setConversationProject(conv.id, previousProjectId) },
+                          })
+                        })
                       }}
                     >
                       <span className={`w-2 h-2 rounded-full inline-block ${colors.dot}`} />
@@ -308,17 +398,18 @@ export function Sidebar() {
             )}
           </div>
           {/* Delete button */}
-          <button
+          <Button
+            variant="ghost"
             onClick={(e) => {
               e.stopPropagation()
               setPendingDeleteConv({ id: conv.id, title: conv.title })
             }}
-            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+            className="p-0.5"
             title="Delete conversation"
             aria-label="Delete conversation"
           >
             <X className="w-3 h-3" />
-          </button>
+          </Button>
         </div>
       </div>
     )
@@ -339,14 +430,40 @@ export function Sidebar() {
       </div>
 
       <div className="p-3 space-y-2">
-        <button
+        <Button
+          variant="primary"
           onClick={() => newChat()}
-          className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 transition-colors"
+          className="w-full justify-start px-3 py-2 text-sm"
         >
           <Plus className="w-4 h-4" />
           <span>New Chat</span>
-        </button>
+        </Button>
         <SearchBar onSearch={handleSearch} />
+        <NavButton
+          icon={<Wrench className="w-3.5 h-3.5" />}
+          label="Self-Heal"
+          onClick={() => setShowSelfHealPanel(true)}
+          badgeCount={openReportCount}
+          ariaLabel={`Open Self-Heal${openReportCount > 0 ? ` (${openReportCount} new report${openReportCount === 1 ? '' : 's'})` : ''}`}
+        />
+        <NavButton
+          icon={<Sparkles className="w-3.5 h-3.5" />}
+          label="Feature Generator"
+          onClick={() => setShowFeatureGeneratorPanel(true)}
+          ariaLabel="Open Feature Generator"
+        />
+        <NavButton
+          icon={<Package className="w-3.5 h-3.5" />}
+          label="Artifacts"
+          onClick={() => setShowArtifactsPanel(true)}
+          ariaLabel="Open Artifacts"
+        />
+        <NavButton
+          icon={<Bug className="w-3.5 h-3.5" />}
+          label="Report a bug"
+          onClick={() => openBugReport()}
+          ariaLabel="Report a bug"
+        />
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto mr-1.5 px-3 space-y-4">
@@ -368,14 +485,15 @@ export function Sidebar() {
         <div>
           <div className="flex items-center justify-between px-2 mb-1">
             <div className="flex items-center gap-1">
-              <button
+              <Button
+                variant="ghost"
                 onClick={() => setProjectsOpen((v) => !v)}
-                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 p-0.5 rounded"
+                className="p-0.5"
                 aria-expanded={projectsOpen}
                 aria-label={projectsOpen ? 'Collapse projects' : 'Expand projects'}
               >
                 {projectsOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-              </button>
+              </Button>
               <button
                 onClick={() => {
                   openSectionPane('projects')
@@ -391,14 +509,15 @@ export function Sidebar() {
                 Projects
               </button>
             </div>
-            <button
+            <Button
+              variant="ghost"
               onClick={() => setShowProjectGenerator(true)}
-              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-0.5 rounded"
+              className="p-0.5"
               title="New project"
               aria-label="Create new project"
             >
               <Plus className="w-3 h-3" />
-            </button>
+            </Button>
           </div>
 
           {projectsOpen && <div className="space-y-0.5">
@@ -454,17 +573,18 @@ export function Sidebar() {
                         <Cpu className="w-2.5 h-2.5" />
                       </span>
                     )}
-                    <button
+                    <Button
+                      variant="ghost"
                       onClick={(e) => {
                         e.stopPropagation()
                         openEditProject(project.id)
                       }}
-                      className="invisible group-hover:visible p-0.5 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                      className="invisible group-hover:visible p-0.5"
                       title="Project settings"
                       aria-label="Project settings"
                     >
                       <Settings className="w-3 h-3" />
-                    </button>
+                    </Button>
                   </div>
                 </div>
               )
@@ -498,14 +618,15 @@ export function Sidebar() {
         <div>
           <div className="flex items-center justify-between px-2 mb-2">
             <div className="flex items-center gap-1">
-              <button
+              <Button
+                variant="ghost"
                 onClick={() => setAgentsOpen((v) => !v)}
-                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 p-0.5 rounded"
+                className="p-0.5"
                 aria-expanded={agentsOpen}
                 aria-label={agentsOpen ? 'Collapse agents' : 'Expand agents'}
               >
                 {agentsOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-              </button>
+              </Button>
               <button
                 onClick={() => {
                   openSectionPane('agents')
@@ -521,14 +642,15 @@ export function Sidebar() {
                 Agents
               </button>
             </div>
-            <button
+            <Button
+              variant="ghost"
               onClick={() => openCreateAgent()}
-              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-0.5 rounded"
+              className="p-0.5"
               title="New agent"
               aria-label="Create new agent"
             >
               <Plus className="w-3 h-3" />
-            </button>
+            </Button>
           </div>
           {agentsOpen && (<>
             {agentsLoading ? (
@@ -562,17 +684,18 @@ export function Sidebar() {
                   <span className="text-xs font-medium truncate">
                     {agent.icon} {agent.name}
                   </span>
-                  <button
+                  <Button
+                    variant="ghost"
                     onClick={(e) => {
                       e.stopPropagation()
                       openEditAgent(agent.id)
                     }}
-                    className="invisible group-hover:visible text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 ml-1 p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+                    className="invisible group-hover:visible ml-1 p-0.5"
                     title="Edit agent"
                     aria-label="Edit agent"
                   >
                     <Settings className="w-3 h-3" />
-                  </button>
+                  </Button>
                 </div>
               ))}
               {agents.length > SIDEBAR_SECTION_LIMIT && (
@@ -607,14 +730,15 @@ export function Sidebar() {
         {/* ── Conversations ── */}
         <div>
           <div className="flex items-center gap-1 px-2 mb-2">
-            <button
+            <Button
+              variant="ghost"
               onClick={() => setChatsOpen((v) => !v)}
-              className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 p-0.5 rounded"
+              className="p-0.5"
               aria-expanded={chatsOpen}
               aria-label={chatsOpen ? 'Collapse chats' : 'Expand chats'}
             >
               {chatsOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-            </button>
+            </Button>
             <button
               onClick={() => setSectionPane('chats')}
               className={`text-xs font-medium uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300 ${

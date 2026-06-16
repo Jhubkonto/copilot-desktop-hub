@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import type { FeatureSpec, FeatureGeneratorRun, FeatureSpecialist, SelfHealStagedFileDiff, SelfHealVerificationEvent, SelfHealVerificationDone } from '@shared/types'
 import { BuildLog } from '../BuildLog'
+import { Button, PhaseBar, type PhaseBarStep } from '../ui/primitives'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -44,42 +45,25 @@ interface ChatMessage {
 // Inline components
 // ---------------------------------------------------------------------------
 
-function PhaseBar({ phase }: { phase: Phase }) {
-  const steps: { id: Phase; label: string }[] = [
-    { id: 'chatting', label: 'Discovery' },
-    { id: 'spec-ready', label: 'Spec' },
-    { id: 'plan-ready', label: 'Plan' },
-    { id: 'diff-ready', label: 'Diffs' },
-    { id: 'verifying', label: 'Verify' },
-    { id: 'committed', label: 'Commit' },
-    { id: 'done', label: 'Done' },
-  ]
+const PHASE_BAR_STEPS: PhaseBarStep[] = [
+  { id: 'chatting', label: 'Discovery' },
+  { id: 'spec-ready', label: 'Spec' },
+  { id: 'plan-ready', label: 'Plan' },
+  { id: 'diff-ready', label: 'Diffs' },
+  { id: 'verifying', label: 'Verify' },
+  { id: 'committed', label: 'Commit' },
+  { id: 'done', label: 'Done' },
+]
 
-  const ORDER: Phase[] = ['idle', 'chatting', 'spec-ready', 'approving-spec', 'planning', 'plan-ready', 'staging', 'diff-ready', 'applied', 'verifying', 'verified', 'committing', 'committed', 'done']
-  const currentIndex = ORDER.indexOf(phase)
+const PHASE_ORDER: Phase[] = ['idle', 'chatting', 'spec-ready', 'approving-spec', 'planning', 'plan-ready', 'staging', 'diff-ready', 'applied', 'verifying', 'verified', 'committing', 'committed', 'done']
 
-  return (
-    <div className="flex items-center gap-1 mb-4">
-      {steps.map((step, i) => {
-        const stepIndex = ORDER.indexOf(step.id)
-        const done = currentIndex > stepIndex
-        const active = currentIndex >= stepIndex && currentIndex <= stepIndex + 2
-        return (
-          <div key={step.id} className="flex items-center gap-1">
-            {i > 0 && <div className={`h-px w-4 ${done ? 'bg-green-400' : 'bg-gray-200 dark:bg-gray-700'}`} />}
-            <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${
-              done ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-              : active ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-              : 'bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-600'
-            }`}>
-              {done && <CheckCircle className="w-2.5 h-2.5" />}
-              {step.label}
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
+function getPhaseBarCurrentIndex(phase: Phase): number {
+  const currentIndex = PHASE_ORDER.indexOf(phase)
+  for (let i = PHASE_BAR_STEPS.length - 1; i >= 0; i--) {
+    const stepIndex = PHASE_ORDER.indexOf(PHASE_BAR_STEPS[i].id as Phase)
+    if (currentIndex >= stepIndex) return i
+  }
+  return -1
 }
 
 function SpecPreview({ spec }: { spec: FeatureSpec }) {
@@ -589,7 +573,11 @@ export function FeatureGeneratorTab() {
       </div>
 
       {/* Phase progress bar */}
-      {phase !== 'idle' && <PhaseBar phase={phase} />}
+      {phase !== 'idle' && (
+        <div className="mb-4">
+          <PhaseBar steps={PHASE_BAR_STEPS} currentIndex={getPhaseBarCurrentIndex(phase)} />
+        </div>
+      )}
 
       {/* Error banner */}
       {error && (
@@ -602,7 +590,7 @@ export function FeatureGeneratorTab() {
       {/* Idle start prompt */}
       {phase === 'idle' && (
         <div className="rounded-lg border border-dashed border-gray-200 dark:border-gray-700 p-6 text-center space-y-3">
-          <Sparkles className="w-8 h-8 text-purple-400 mx-auto" />
+          <Sparkles className="w-8 h-8 text-gray-400 mx-auto" />
           <div>
             <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Describe what you want to build</p>
             <p className="text-[11px] text-gray-500 mt-1">The assistant will ask clarifying questions, then produce a structured feature spec and implementation plan.</p>
@@ -613,16 +601,16 @@ export function FeatureGeneratorTab() {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
               placeholder="e.g. Add a search bar to the agents list"
-              className="flex-1 text-xs px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-purple-400"
+              className="flex-1 text-xs px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
               autoFocus
             />
-            <button
+            <Button
+              variant="primary"
               onClick={sendMessage}
               disabled={!input.trim()}
-              className="px-3 py-2 rounded-lg bg-purple-600 text-white text-xs font-medium hover:bg-purple-700 disabled:opacity-40"
             >
               Start
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -653,19 +641,19 @@ export function FeatureGeneratorTab() {
           {/* Actions */}
           {phase === 'spec-ready' && spec && (
             <div className="flex items-center gap-2">
-              <button
+              <Button
+                variant="primary"
                 onClick={handleApproveSpec}
                 disabled={planLoading}
-                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 font-medium"
               >
                 <CheckCircle className="w-3 h-3" /> Approve spec & generate plan
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="secondary"
                 onClick={() => { setSpec(null); setPhase('chatting') }}
-                className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
               >
                 Continue conversation
-              </button>
+              </Button>
             </div>
           )}
 
@@ -678,15 +666,15 @@ export function FeatureGeneratorTab() {
                 onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
                 disabled={streaming}
                 placeholder="Reply..."
-                className="flex-1 text-xs px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-purple-400 disabled:opacity-50"
+                className="flex-1 text-xs px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-50"
               />
-              <button
+              <Button
+                variant="primary"
                 onClick={sendMessage}
                 disabled={!input.trim() || streaming}
-                className="px-3 py-2 rounded-lg bg-purple-600 text-white text-xs font-medium hover:bg-purple-700 disabled:opacity-40"
               >
                 {streaming ? '...' : 'Send'}
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -696,7 +684,7 @@ export function FeatureGeneratorTab() {
       {(phase === 'approving-spec' || phase === 'planning') && (
         <div className="space-y-2">
           <div className="flex items-center gap-2 text-[11px] text-gray-500">
-            <div className="w-3 h-3 rounded-full border-2 border-purple-400 border-t-transparent animate-spin" />
+            <div className="w-3 h-3 rounded-full border-2 border-blue-400 border-t-transparent animate-spin" />
             Generating implementation plan…
           </div>
           {streamBuffer.length > 0 && (
@@ -725,19 +713,19 @@ export function FeatureGeneratorTab() {
           </div>
 
           <div className="flex items-center gap-2">
-            <button
+            <Button
+              variant="primary"
               onClick={handleApprovePlan}
               disabled={implementationRunning}
-              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 font-medium"
             >
               <Play className="w-3 h-3" /> Approve plan & stage changes
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="secondary"
               onClick={() => setPhase('spec-ready')}
-              className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-500"
             >
               Back to spec
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -746,7 +734,7 @@ export function FeatureGeneratorTab() {
       {(phase === 'staging') && (
         <div className="space-y-2">
           <div className="flex items-center gap-2 text-[11px] text-gray-500">
-            <div className="w-3 h-3 rounded-full border-2 border-purple-400 border-t-transparent animate-spin" />
+            <div className="w-3 h-3 rounded-full border-2 border-blue-400 border-t-transparent animate-spin" />
             Generating and staging file patches…
           </div>
           {fixEvents.length > 0 && <BuildLog lines={fixEvents} running resizable={false} maxHeightPx={160} />}
@@ -828,7 +816,7 @@ export function FeatureGeneratorTab() {
             value={gitMessage}
             onChange={(e) => setGitMessage(e.target.value)}
             placeholder="feat(…): describe the change"
-            className="w-full text-xs px-2.5 py-1.5 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-purple-400"
+            className="w-full text-xs px-2.5 py-1.5 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
           />
           <div className="flex items-center gap-2">
             <button
@@ -838,12 +826,12 @@ export function FeatureGeneratorTab() {
             >
               {gitRunning ? 'Committing…' : 'Commit'}
             </button>
-            <button
+            <Button
+              variant="secondary"
               onClick={() => setPhase('done')}
-              className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-500"
             >
               Skip commit
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -856,19 +844,19 @@ export function FeatureGeneratorTab() {
             {commitSha && <span className="font-mono text-gray-500 ml-1">{commitSha.slice(0, 8)}</span>}
           </div>
           <div className="flex items-center gap-2">
-            <button
+            <Button
+              variant="primary"
               onClick={handleGitPush}
               disabled={gitRunning}
-              className="text-xs px-3 py-1.5 rounded-lg bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 font-medium"
             >
               {gitRunning ? 'Pushing…' : 'Push to remote'}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="secondary"
               onClick={() => setPhase('done')}
-              className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-500"
             >
               Skip push
-            </button>
+            </Button>
           </div>
         </div>
       )}

@@ -9,7 +9,7 @@ import {
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from 'react'
-import { X } from 'lucide-react'
+import { CheckCircle, X } from 'lucide-react'
 
 const FOCUSABLE_SELECTOR =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -145,7 +145,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   ref,
 ) {
   const variantClass = {
-    primary: 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200',
+    primary: 'bg-blue-600 text-white hover:bg-blue-700',
     secondary: 'border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700',
     ghost: 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700',
     danger: 'text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30',
@@ -274,6 +274,94 @@ export const SelectField = forwardRef<HTMLSelectElement, SelectFieldProps>(funct
     </FieldFrame>
   )
 })
+
+interface ToggleSwitchProps {
+  checked: boolean
+  onChange: (checked: boolean) => void
+  disabled?: boolean
+  size?: 'sm' | 'md'
+  ariaLabel?: string
+}
+
+export function ToggleSwitch({ checked, onChange, disabled, size = 'md', ariaLabel }: ToggleSwitchProps) {
+  const track = size === 'sm' ? 'h-5 w-9' : 'h-6 w-11'
+  const thumb = size === 'sm' ? 'translate-x-4' : 'translate-x-6'
+  const thumbOff = size === 'sm' ? 'translate-x-0.5' : 'translate-x-1'
+
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={ariaLabel}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={cx(
+        'relative inline-flex shrink-0 items-center rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed',
+        track,
+        checked ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600',
+      )}
+    >
+      <span
+        className={cx(
+          'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
+          checked ? thumb : thumbOff,
+        )}
+      />
+    </button>
+  )
+}
+
+export type SaveState = 'idle' | 'saving' | 'saved' | 'error'
+
+export function SaveStatus({ state }: { state: SaveState }) {
+  if (state === 'idle') return null
+  const label = { saving: 'Saving…', saved: 'Saved', error: 'Failed to save' }[state]
+  const colorClass = {
+    saving: 'text-gray-400',
+    saved: 'text-green-600 dark:text-green-400',
+    error: 'text-red-500',
+  }[state]
+  return <span className={cx('text-[11px]', colorClass)}>{label}</span>
+}
+
+export interface PhaseBarStep {
+  id: string
+  label: string
+}
+
+interface PhaseBarProps {
+  steps: PhaseBarStep[]
+  currentIndex: number
+  failedId?: string
+}
+
+export function PhaseBar({ steps, currentIndex, failedId }: PhaseBarProps) {
+  return (
+    <div className="flex items-center gap-1 flex-wrap">
+      {steps.map((step, i) => {
+        const failed = failedId === step.id
+        const done = !failed && currentIndex > i
+        const active = !failed && currentIndex === i
+        return (
+          <div key={step.id} className="flex items-center gap-1">
+            {i > 0 && <div className={cx('h-px w-4', done ? 'bg-green-400' : 'bg-gray-200 dark:bg-gray-700')} />}
+            <div className={cx(
+              'flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium',
+              failed ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+              : done ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+              : active ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+              : 'bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-600',
+            )}>
+              {done && <CheckCircle className="w-2.5 h-2.5" />}
+              {step.label}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
 
 export function SegmentedTabs<T extends string>({
   value,

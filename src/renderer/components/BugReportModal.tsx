@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Bug, Image, ScrollText } from 'lucide-react'
-import { Button, ModalShell, TextareaField, TextField } from './ui/primitives'
+import { Button, ModalShell, TextareaField, TextField, ToggleSwitch } from './ui/primitives'
 
 interface BugReportDraft {
   title?: string
@@ -90,34 +90,34 @@ export function BugReportModal({ draft, onClose, onSubmitted }: BugReportModalPr
           placeholder="What were you doing, what happened, and what did you expect?"
         />
         <div className="grid gap-3 sm:grid-cols-2">
-          <label className="flex items-start gap-3 rounded-lg border border-gray-200 p-3 text-sm dark:border-gray-700">
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={includeScreenshot}
-              onChange={(event) => setIncludeScreenshot(event.target.checked)}
-            />
+          <div className="flex items-start justify-between gap-3 rounded-lg border border-gray-200 p-3 text-sm dark:border-gray-700">
             <span>
               <span className="flex items-center gap-1.5 font-medium text-gray-800 dark:text-gray-100">
                 <Image className="h-4 w-4" /> Screenshot
               </span>
               <span className="mt-1 block text-xs text-gray-500">Capture the current screen for context.</span>
             </span>
-          </label>
-          <label className="flex items-start gap-3 rounded-lg border border-gray-200 p-3 text-sm dark:border-gray-700">
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={includeLog}
-              onChange={(event) => setIncludeLog(event.target.checked)}
+            <ToggleSwitch
+              checked={includeScreenshot}
+              onChange={setIncludeScreenshot}
+              size="sm"
+              ariaLabel="Include screenshot"
             />
+          </div>
+          <div className="flex items-start justify-between gap-3 rounded-lg border border-gray-200 p-3 text-sm dark:border-gray-700">
             <span>
               <span className="flex items-center gap-1.5 font-medium text-gray-800 dark:text-gray-100">
                 <ScrollText className="h-4 w-4" /> Error log
               </span>
               <span className="mt-1 block text-xs text-gray-500">Attach the latest stored error entries.</span>
             </span>
-          </label>
+            <ToggleSwitch
+              checked={includeLog}
+              onChange={setIncludeLog}
+              size="sm"
+              ariaLabel="Include error log"
+            />
+          </div>
         </div>
         {includeScreenshot && (
           <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">

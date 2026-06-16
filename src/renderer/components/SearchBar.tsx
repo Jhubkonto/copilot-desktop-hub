@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Search, X } from 'lucide-react'
+import { TextField } from './ui/primitives'
 
 interface SearchBarProps {
   onSearch: (query: string) => void
@@ -18,14 +19,14 @@ export function SearchBar({ onSearch }: SearchBarProps) {
 
   return (
     <div className="relative">
-      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
-      <input
+      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none z-10" />
+      <TextField
         ref={inputRef}
         type="text"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Search conversations..."
-        className="w-full pl-8 pr-7 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        className="pl-8 pr-7 py-1.5"
       />
       {query && (
         <button
