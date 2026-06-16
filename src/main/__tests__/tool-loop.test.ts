@@ -88,6 +88,7 @@ describe('runProviderMcpToolLoop', () => {
       toolDefs,
       toolMap,
       'agent-1',
+      null,
       makeWebContents(),
       onChunk
     )
@@ -120,6 +121,7 @@ describe('runProviderMcpToolLoop', () => {
       toolDefs,
       toolMap,
       'agent-1',
+      null,
       makeWebContents(),
       vi.fn()
     )
@@ -149,6 +151,7 @@ describe('runProviderMcpToolLoop', () => {
       toolDefs,
       toolMap,
       'agent-1',
+      null,
       makeWebContents(),
       vi.fn()
     )
@@ -199,6 +202,7 @@ describe('runProviderMcpToolLoop', () => {
       toolDefs,
       toolMap,
       'agent-1',
+      null,
       makeWebContents(),
       vi.fn()
     )
@@ -226,6 +230,7 @@ describe('runProviderMcpToolLoop', () => {
       toolDefs,
       toolMap,
       'agent-1',
+      null,
       webContents,
       vi.fn()
     )
@@ -235,6 +240,56 @@ describe('runProviderMcpToolLoop', () => {
       toolName: 'tool',
       success: false,
       result: 'Error: Unknown tool "missing__tool"'
+    }))
+  })
+
+  it('forwards the conversationId passed in into the emitted chat:tool-call-event payload', async () => {
+    const caller: ModelToolCaller = vi.fn()
+      .mockResolvedValueOnce({
+        content: null,
+        toolCalls: [{ id: 'call-1', name: 'server-1__click', arguments: { target: 'submit' } }]
+      })
+      .mockResolvedValueOnce({ content: 'finished', toolCalls: [] })
+
+    const webContents = makeWebContents()
+    await runProviderMcpToolLoop(
+      caller,
+      [{ role: 'user', content: 'click submit' }],
+      toolDefs,
+      toolMap,
+      'agent-1',
+      'conversation-42',
+      webContents,
+      vi.fn()
+    )
+
+    expect(webContents.send).toHaveBeenCalledWith('chat:tool-call-event', expect.objectContaining({
+      conversationId: 'conversation-42'
+    }))
+  })
+
+  it('emits conversationId: null when called from a non-chat caller', async () => {
+    const caller: ModelToolCaller = vi.fn()
+      .mockResolvedValueOnce({
+        content: null,
+        toolCalls: [{ id: 'call-1', name: 'server-1__click', arguments: { target: 'submit' } }]
+      })
+      .mockResolvedValueOnce({ content: 'finished', toolCalls: [] })
+
+    const webContents = makeWebContents()
+    await runProviderMcpToolLoop(
+      caller,
+      [{ role: 'user', content: 'click submit' }],
+      toolDefs,
+      toolMap,
+      'agent-1',
+      null,
+      webContents,
+      vi.fn()
+    )
+
+    expect(webContents.send).toHaveBeenCalledWith('chat:tool-call-event', expect.objectContaining({
+      conversationId: null
     }))
   })
 
@@ -256,6 +311,7 @@ describe('runProviderMcpToolLoop', () => {
       toolDefs,
       toolMap,
       'agent-1',
+      null,
       makeWebContents(),
       vi.fn()
     )
@@ -281,6 +337,7 @@ describe('runProviderMcpToolLoop', () => {
       toolDefs,
       toolMap,
       'agent-1',
+      null,
       makeWebContents(),
       vi.fn()
     )
@@ -318,6 +375,7 @@ describe('runProviderMcpToolLoop', () => {
       toolDefsWithSnapshot,
       toolMapWithSnapshot,
       'agent-1',
+      null,
       makeWebContents(),
       onChunk
     )
@@ -351,6 +409,7 @@ describe('runProviderMcpToolLoop', () => {
       toolDefs,
       toolMap,
       'agent-1',
+      null,
       makeWebContents(),
       onChunk
     )
@@ -381,6 +440,7 @@ describe('runProviderMcpToolLoop', () => {
       toolDefsWithSnapshot,
       toolMapWithSnapshot,
       'agent-1',
+      null,
       makeWebContents(),
       onChunk
     )
@@ -418,6 +478,7 @@ describe('runProviderMcpToolLoop', () => {
       toolDefs,
       toolMap,
       'agent-1',
+      null,
       webContents,
       vi.fn()
     )

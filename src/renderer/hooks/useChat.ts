@@ -289,6 +289,7 @@ export function useChat({
     })
 
     const unsubscribeToolCall = window.api.onToolCallEvent((data: ToolCallEvent) => {
+      if (data.conversationId === null || data.conversationId !== activeConversationRef.current) return
       const toolCallMsg: ChatMessage = {
         id: crypto.randomUUID(),
         role: 'tool-call',

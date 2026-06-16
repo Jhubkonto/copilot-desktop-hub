@@ -40,6 +40,7 @@ export async function runProviderMcpToolLoop(
   toolDefs: ToolDefinition[],
   toolMap: Map<string, { serverId: string; toolName: string }>,
   agentId: string,
+  conversationId: string | null,
   webContents: Electron.WebContents,
   onChunk: (chunk: string) => void,
   onModel?: (model: string) => void,
@@ -150,7 +151,8 @@ export async function runProviderMcpToolLoop(
             serverName: call.name.split('__')[0] ?? '',
             args: call.arguments as Record<string, unknown>,
             result: toolResultContent,
-            success: false
+            success: false,
+            conversationId
           })
         }
       } else if (inlineHandler) {
@@ -165,7 +167,8 @@ export async function runProviderMcpToolLoop(
             serverName: 'Project Wiki',
             args: call.arguments as Record<string, unknown>,
             result: toolResultContent,
-            success: toolResult.success
+            success: toolResult.success,
+            conversationId
           })
         }
       } else {
@@ -197,6 +200,7 @@ export async function runProviderMcpToolLoop(
             args: call.arguments as Record<string, unknown>,
             result: toolResultContent,
             success: toolResult.success,
+            conversationId,
             ...(toolImages?.length && { resultImages: toolImages })
           })
         }

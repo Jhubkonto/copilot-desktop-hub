@@ -28,6 +28,57 @@ beforeEach(() => {
 })
 
 describe('useChat', () => {
+  it('ignores tool-call events from a different or background (null) conversationId', () => {
+    const addToast = vi.fn()
+    const loadConversations = vi.fn().mockResolvedValue(undefined)
+    const conversationCreated = vi.fn()
+    let toolCallCallback: ((data: {
+      toolName: string
+      serverName: string
+      args: Record<string, unknown>
+      result: string
+      success: boolean
+      conversationId: string | null
+    }) => void) | null = null
+    mockApi.onToolCallEvent.mockImplementation((cb: typeof toolCallCallback extends null ? never : NonNullable<typeof toolCallCallback>) => {
+      toolCallCallback = cb
+      return () => { toolCallCallback = null }
+    })
+
+    const { result } = renderHook(() =>
+      useChat({
+        conversationId: 'conv-1',
+        activeAgentId: null,
+        activeProjectId: null,
+        effectiveModel: 'default',
+        catalogModels: [],
+        addToast,
+        loadConversations,
+        conversationCreated,
+      }),
+    )
+
+    act(() => {
+      toolCallCallback?.({
+        toolName: 'read_file', serverName: 'Project Wiki', args: {}, result: 'leaked', success: true, conversationId: null,
+      })
+      toolCallCallback?.({
+        toolName: 'read_file', serverName: 'Project Wiki', args: {}, result: 'other chat', success: true, conversationId: 'conv-2',
+      })
+    })
+
+    expect(result.current.messages).toEqual([])
+
+    act(() => {
+      toolCallCallback?.({
+        toolName: 'read_file', serverName: 'Project Wiki', args: {}, result: 'real', success: true, conversationId: 'conv-1',
+      })
+    })
+
+    expect(result.current.messages).toHaveLength(1)
+    expect(result.current.messages[0]).toEqual(expect.objectContaining({ role: 'tool-call', toolResult: 'real' }))
+  })
+
   it('starts with empty messages and not generating', () => {
     const addToast = vi.fn()
     const loadConversations = vi.fn().mockResolvedValue(undefined)

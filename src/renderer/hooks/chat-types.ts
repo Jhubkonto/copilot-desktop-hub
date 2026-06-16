@@ -11,6 +11,7 @@ export interface ToolCallEvent {
   result: string
   success: boolean
   resultImages?: { dataUrl: string }[]
+  conversationId: string | null
 }
 
 export interface Attachment {

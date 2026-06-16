@@ -266,6 +266,7 @@ export async function runArtifactGeneratorChat(
     [],
     new Map(),
     sessionId,
+    null,
     win.webContents,
     (chunk) => {
       accumulated += chunk
@@ -332,6 +333,7 @@ export async function runArtifactGeneration(
     [],
     new Map(),
     `artifact-gen-files-${runId}`,
+    null,
     win.webContents,
     (chunk) => { accumulated += chunk },
     undefined,

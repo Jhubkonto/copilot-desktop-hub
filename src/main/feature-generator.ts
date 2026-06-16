@@ -432,6 +432,7 @@ export async function runFeatureGeneratorChat(
     [],
     new Map(),
     sessionId,
+    null,
     win.webContents,
     (chunk) => {
       accumulated += chunk
@@ -472,6 +473,7 @@ export async function runFeatureGeneratorChatForAndroid(
     [],
     new Map(),
     sessionId,
+    null,
     { send: () => {}, isDestroyed: () => false } as unknown as Electron.WebContents,
     (chunk) => {
       accumulated += chunk
@@ -512,6 +514,7 @@ export async function generateImplementationPlan(
     [],
     new Map(),
     `feature-gen-plan-${runId}`,
+    null,
     win.webContents,
     (chunk) => {
       accumulated += chunk
@@ -568,6 +571,7 @@ export async function runFeatureImplementation(
     [],
     new Map(),
     `feature-gen-impl-${runId}`,
+    null,
     win.webContents,
     (chunk) => { accumulated += chunk },
     undefined,
