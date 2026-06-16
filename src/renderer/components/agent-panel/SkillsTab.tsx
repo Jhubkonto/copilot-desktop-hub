@@ -142,19 +142,27 @@ export function SkillsTab({
 
                 {/* Trust tier */}
                 {isAssigned && isEditing && (
-                  <div className="px-3 pb-2 flex items-center gap-2 border-t border-gray-200 dark:border-gray-700 pt-2">
-                    <label className="text-xs text-gray-500 dark:text-gray-400 shrink-0">Trust</label>
-                    <select
-                      value={tier}
-                      onChange={(e) => void onSetServerTier(server.id, e.target.value as McpTrustTier)}
-                      aria-label={`Trust tier for ${server.name}`}
-                      className="flex-1 rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-                    >
-                      <option value="always-ask">Ask before running</option>
-                      <option value="auto">Run automatically</option>
-                      <option value="block">Block all tools</option>
-                      <option value="custom">Custom per-tool…</option>
-                    </select>
+                  <div className="px-3 pb-2 border-t border-gray-200 dark:border-gray-700 pt-2 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs text-gray-500 dark:text-gray-400 shrink-0">Trust</label>
+                      <select
+                        value={tier}
+                        onChange={(e) => void onSetServerTier(server.id, e.target.value as McpTrustTier)}
+                        aria-label={`Trust tier for ${server.name}`}
+                        className="flex-1 rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                      >
+                        <option value="always-ask">Ask before running</option>
+                        <option value="auto">Run automatically</option>
+                        <option value="block">Block all tools</option>
+                        <option value="custom">Custom per-tool…</option>
+                      </select>
+                    </div>
+                    <p className="text-[11px] text-gray-400 dark:text-gray-500">
+                      {tier === 'always-ask' && 'Every tool on this server prompts for approval before running.'}
+                      {tier === 'auto' && 'Every tool on this server runs without a prompt.'}
+                      {tier === 'block' && 'No tool on this server can run.'}
+                      {tier === 'custom' && 'Set approval and instructions per tool below — overrides this server’s default.'}
+                    </p>
                   </div>
                 )}
 
