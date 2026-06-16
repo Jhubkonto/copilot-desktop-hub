@@ -7,6 +7,10 @@ export function registerSystemHandlers(): void {
     return app.getVersion();
   });
 
+  safeHandle("app:get-runtime-info", () => {
+    return { isPackaged: app.isPackaged };
+  });
+
   safeHandle(
     "app:save-text-file",
     async (_event, defaultFileName: string, content: string) => {

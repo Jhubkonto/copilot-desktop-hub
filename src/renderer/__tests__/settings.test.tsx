@@ -67,4 +67,41 @@ describe('SettingsPanel', () => {
     expect(mockApi.setSetting).toHaveBeenCalledWith('temperature', '0.7')
     expect(mockApi.setSetting).toHaveBeenCalledWith('max_tokens', '4096')
   })
+
+  it('creates a self-heal report from a failed desktop build', async () => {
+    mockApi.buildGetRecords = vi.fn().mockResolvedValue([
+      {
+        id: 'build-failed-1',
+        workspacePath: 'C:\\project',
+        commitSha: 'abc1234',
+        branch: 'main',
+        version: '0.9.0',
+        versionCode: null,
+        platform: 'win32',
+        command: 'typecheck',
+        status: 'failed',
+        exitCode: 2,
+        artifactPaths: [],
+        artifactChecksums: {},
+        logTail: 'src/app.ts(1,1): error TS1005: expected',
+        startedAt: 1000,
+        finishedAt: 3000,
+      },
+    ])
+
+    render(<SettingsPanel />)
+    await user.click(screen.getByText('Developer'))
+    await user.click(await screen.findByText('Fix with Self-Heal'))
+
+    await waitFor(() => {
+      expect(mockApi.captureErrorReport).toHaveBeenCalledWith(expect.objectContaining({
+        title: 'Build failed: typecheck',
+        includeLog: true,
+        includeScreenshot: false,
+      }))
+    })
+    expect(mockStore.setPendingSelfHealReportId).toHaveBeenCalledWith('report-1')
+    expect(mockStore.setShowSettings).toHaveBeenCalledWith(false)
+    expect(mockStore.setShowSelfHealPanel).toHaveBeenCalledWith(true)
+  })
 })

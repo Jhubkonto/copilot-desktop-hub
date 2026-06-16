@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
+import { Check, Clipboard, XCircle } from 'lucide-react'
 import { ResizeHandle } from './ResizeHandle'
 
-const ANSI_RE = /\x1b\[[0-9;]*m/g
+const ANSI_RE = new RegExp(String.raw`\x1b\[[0-9;]*m`, 'g')
+type CopyState = 'idle' | 'copied' | 'failed'
 
 function stripAnsi(line: string): string {
   return line.replace(ANSI_RE, '')
@@ -22,6 +24,7 @@ export function BuildLog({ lines, running = false, maxHeightPx = 320, resizable 
   const containerRef = useRef<HTMLDivElement>(null)
   const [autoScroll, setAutoScroll] = useState(true)
   const [height, setHeight] = useState(maxHeightPx || 320)
+  const [copyState, setCopyState] = useState<CopyState>('idle')
 
   useEffect(() => {
     if (maxHeightPx !== 0) setHeight(maxHeightPx)
@@ -47,8 +50,19 @@ export function BuildLog({ lines, running = false, maxHeightPx = 320, resizable 
     setAutoScroll(true)
   }
 
-  const handleCopy = () => {
-    void navigator.clipboard.writeText(lines.join('\n'))
+  useEffect(() => {
+    if (copyState === 'idle') return
+    const timeout = window.setTimeout(() => setCopyState('idle'), 1600)
+    return () => window.clearTimeout(timeout)
+  }, [copyState])
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'))
+      setCopyState('copied')
+    } catch {
+      setCopyState('failed')
+    }
   }
 
   const styleHeight = maxHeightPx === 0 ? undefined : height
@@ -64,11 +78,18 @@ export function BuildLog({ lines, running = false, maxHeightPx = 320, resizable 
         <div className="flex items-center gap-2">
           <span className="text-[10px] text-gray-400">{lines.length} lines</span>
           <button
-            onClick={handleCopy}
+            onClick={() => void handleCopy()}
             disabled={lines.length === 0}
-            className="text-[11px] px-2 py-0.5 rounded border border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40"
+            className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded border transition-colors disabled:opacity-40 ${
+              copyState === 'copied'
+                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300'
+                : copyState === 'failed'
+                  ? 'border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-300'
+                  : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+            }`}
           >
-            Copy
+            {copyState === 'copied' ? <Check className="h-3 w-3" /> : copyState === 'failed' ? <XCircle className="h-3 w-3" /> : <Clipboard className="h-3 w-3" />}
+            {copyState === 'copied' ? 'Copied' : copyState === 'failed' ? 'Failed' : 'Copy'}
           </button>
         </div>
       </div>
@@ -77,7 +98,7 @@ export function BuildLog({ lines, running = false, maxHeightPx = 320, resizable 
       <pre
         ref={scrollRef}
         onScroll={handleScroll}
-        className="overflow-y-auto whitespace-pre-wrap break-words font-mono text-[10px] text-gray-700 dark:text-gray-300 bg-gray-950 dark:bg-gray-950 p-2.5"
+        className="overflow-y-auto whitespace-pre-wrap break-words font-mono text-[10px] leading-relaxed text-gray-100 bg-gray-950 p-2.5 selection:bg-blue-500/30"
         style={styleHeight ? { height: styleHeight - 34 } : { maxHeight: 'none' }}
       >
         {lines.length === 0 ? (

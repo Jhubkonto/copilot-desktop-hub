@@ -42,6 +42,44 @@ function inputToTags(value: string): string[] {
   return value.split(',').map((tag) => tag.trim()).filter(Boolean)
 }
 
+function formatBuildFailureReport(record: BuildRecord): { title: string; description: string } {
+  const duration = record.finishedAt
+    ? `${Math.round((record.finishedAt - record.startedAt) / 1000)}s`
+    : 'unknown'
+  const artifacts = record.artifactPaths.length > 0
+    ? record.artifactPaths.map((artifact) => `- ${artifact}`).join('\n')
+    : 'None'
+  const logTail = record.logTail?.trim() || 'No build output was captured.'
+
+  return {
+    title: `Build failed: ${record.command}`,
+    description: [
+      'A Developer build command failed and was sent to Self-Heal.',
+      '',
+      '## Build context',
+      `- Source: developer-build`,
+      `- Build record: ${record.id}`,
+      `- Command: ${record.command}`,
+      `- Status: ${record.status}`,
+      `- Exit code: ${record.exitCode ?? 'unknown'}`,
+      `- Duration: ${duration}`,
+      `- Workspace: ${record.workspacePath}`,
+      `- Branch: ${record.branch ?? 'unknown'}`,
+      `- Commit: ${record.commitSha ?? 'unknown'}`,
+      `- Version: ${record.version ?? 'unknown'}`,
+      `- Platform: ${record.platform}`,
+      '',
+      '## Artifacts',
+      artifacts,
+      '',
+      '## Build output tail',
+      '```text',
+      logTail,
+      '```',
+    ].join('\n'),
+  }
+}
+
 export function SettingsPanel() {
   const visible = useAppStore((s) => s.showSettings)
   const theme = useAppStore((s) => s.theme)
@@ -52,6 +90,8 @@ export function SettingsPanel() {
   const toggleTheme = useAppStore((s) => s.toggleTheme)
   const setShowSettings = useAppStore((s) => s.setShowSettings)
   const setShowMcpPanel = useAppStore((s) => s.setShowMcpPanel)
+  const setShowSelfHealPanel = useAppStore((s) => s.setShowSelfHealPanel)
+  const setPendingSelfHealReportId = useAppStore((s) => s.setPendingSelfHealReportId)
   const addToast = useAppStore((s) => s.addToast)
   const setGlobalDefaultModel = useAppStore((s) => s.setGlobalDefaultModel)
   const catalogModels = useAppStore((s) => s.catalogModels)
@@ -115,6 +155,8 @@ export function SettingsPanel() {
   const [preflightRunning, setPreflightRunning] = useState(false)
   const [lastBuildStatus, setLastBuildStatus] = useState<BuildStatus | null>(null)
   const [launchDevError, setLaunchDevError] = useState<string | null>(null)
+  const [selfHealReportingBuildId, setSelfHealReportingBuildId] = useState<string | null>(null)
+  const [runtimeInfo, setRuntimeInfo] = useState<{ isPackaged: boolean } | null>(null)
   // Local update feed state
   const [feedInfo, setFeedInfo] = useState<LocalUpdateFeed | null>(null)
   const [feedPathInput, setFeedPathInput] = useState('')
@@ -370,6 +412,7 @@ export function SettingsPanel() {
   useEffect(() => {
     if (!visible || category !== 'developer') return
     void Promise.all([
+      window.api.getRuntimeInfo().then(setRuntimeInfo).catch(() => {}),
       refreshWorkspaceInfo(),
       window.api.buildGetRecords(5).then(setBuildRecords).catch(() => {}),
       window.api.buildGetFeedInfo().then((info) => {
@@ -484,6 +527,10 @@ export function SettingsPanel() {
   }
 
   const handleRunBuildCommand = async (cmd: BuildCommandName) => {
+    if (cmd === 'package' && runtimeInfo?.isPackaged === false) {
+      addToast('Close the dev app and run npm run package from an external terminal.', 'info')
+      return
+    }
     setBuildLogLines([])
     setActiveBuildCommand(cmd)
     const { buildId } = await window.api.buildStartCommand(cmd)
@@ -496,6 +543,27 @@ export function SettingsPanel() {
     setActiveBuildId(null)
     setActiveBuildCommand(null)
     window.api.buildGetRecords(5).then(setBuildRecords).catch(() => {})
+  }
+
+  const handleFixBuildWithSelfHeal = async (record: BuildRecord) => {
+    setSelfHealReportingBuildId(record.id)
+    try {
+      const report = formatBuildFailureReport(record)
+      const result = await window.api.captureErrorReport({
+        title: report.title,
+        description: report.description,
+        includeLog: true,
+        includeScreenshot: false,
+      })
+      setPendingSelfHealReportId(result.reportId)
+      setShowSettings(false)
+      setShowSelfHealPanel(true)
+      addToast('Self-Heal report created from build failure', 'success')
+    } catch {
+      addToast('Failed to create Self-Heal report from build failure', 'error')
+    } finally {
+      setSelfHealReportingBuildId(null)
+    }
   }
 
   const handleRunPreflight = async () => {
@@ -875,7 +943,7 @@ export function SettingsPanel() {
           />
         )}
 
-        <div className={category !== 'developer' ? 'hidden' : undefined}>
+        {category === 'developer' && (
           <DeveloperTab
             workspaceInfo={workspaceInfo}
             workspacePathInput={workspacePathInput}
@@ -934,8 +1002,11 @@ export function SettingsPanel() {
             onAndroidRestoreVersion={(vc) => void handleAndroidRestoreVersion(vc)}
             debugLogging={debugLogging}
             onToggleDebugLogging={() => setDebugLogging(!debugLogging)}
+            selfHealReportingBuildId={selfHealReportingBuildId}
+            desktopPackagingBlocked={runtimeInfo?.isPackaged === false}
+            onFixBuildWithSelfHeal={(record) => void handleFixBuildWithSelfHeal(record)}
           />
-        </div>
+        )}
       </div>
     </ModalShell>
   )

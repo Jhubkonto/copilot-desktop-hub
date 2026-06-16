@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { RefreshCw, CheckCircle, AlertTriangle, XCircle, ChevronDown, ChevronRight } from 'lucide-react'
 import type {
   AdbDevice,
@@ -87,6 +87,9 @@ interface Props {
   // Debug
   debugLogging: boolean
   onToggleDebugLogging: () => void
+  selfHealReportingBuildId: string | null
+  desktopPackagingBlocked: boolean
+  onFixBuildWithSelfHeal: (record: BuildRecord) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -186,6 +189,94 @@ function AndroidSigningModal({
 
 type DeveloperInnerTab = 'desktop' | 'android' | 'console'
 
+const DESKTOP_COMMANDS: BuildCommandName[] = ['typecheck', 'test', 'build', 'package']
+
+function isDesktopCommand(command: BuildRecord['command']): command is BuildCommandName {
+  return DESKTOP_COMMANDS.includes(command as BuildCommandName)
+}
+
+function commandDisplayName(command: BuildCommandName): string {
+  switch (command) {
+    case 'typecheck':
+      return 'Typecheck'
+    case 'test':
+      return 'Tests'
+    case 'build':
+      return 'Build'
+    case 'package':
+      return 'Package'
+    default:
+      return command
+  }
+}
+
+function nextDesktopCommand(command: BuildCommandName): BuildCommandName | null {
+  switch (command) {
+    case 'typecheck':
+      return 'test'
+    case 'test':
+      return 'build'
+    case 'build':
+      return 'package'
+    default:
+      return null
+  }
+}
+
+function desktopOutcomeCopy(record: BuildRecord | undefined): { title: string; detail: string; action?: BuildCommandName } {
+  if (!record) {
+    return {
+      title: 'No desktop command has run yet',
+      detail: 'Start with typecheck, then run tests, build, and package when each step passes.',
+      action: 'typecheck',
+    }
+  }
+  if (!isDesktopCommand(record.command)) {
+    return {
+      title: 'No desktop command has run yet',
+      detail: 'Start with typecheck, then run tests, build, and package when each step passes.',
+      action: 'typecheck',
+    }
+  }
+
+  if (record.status === 'running') {
+    return {
+      title: `${commandDisplayName(record.command)} is running`,
+      detail: 'Watch the output below. You can cancel the running command from the command row.',
+    }
+  }
+
+  if (record.status === 'cancelled') {
+    return {
+      title: `${commandDisplayName(record.command)} was cancelled`,
+      detail: 'Re-run it when you are ready, or choose another command.',
+      action: record.command,
+    }
+  }
+
+  if (record.status === 'failed') {
+    return {
+      title: `${commandDisplayName(record.command)} failed`,
+      detail: 'Open the output, copy the log if needed, fix the reported issue, then re-run this same command.',
+      action: record.command,
+    }
+  }
+
+  const next = nextDesktopCommand(record.command)
+  if (next) {
+    return {
+      title: `${commandDisplayName(record.command)} passed`,
+      detail: `Next: run ${next} to continue the desktop release flow.`,
+      action: next,
+    }
+  }
+
+  return {
+    title: 'Package completed',
+    detail: 'Next: set a local update feed if needed, then publish the packaged installer for update testing.',
+  }
+}
+
 export function DeveloperTab({
   workspaceInfo, workspacePathInput, onSetWorkspacePathInput, onRefreshWorkspace, onSaveWorkspacePath,
   buildRecords, activeBuildId, activeBuildCommand, buildLogLines, lastBuildStatus,
@@ -204,12 +295,13 @@ export function DeveloperTab({
   androidPublishResult, androidUpdateManifest, androidPublishHistory, androidRestoring,
   onAndroidPublishUpdate, onAndroidRestoreVersion,
   debugLogging, onToggleDebugLogging,
+  selfHealReportingBuildId, desktopPackagingBlocked, onFixBuildWithSelfHeal,
 }: Props) {
   const [developerTab, setDeveloperTab] = useState<DeveloperInnerTab>('desktop')
 
   // Console state
   const [consoleEntries, setConsoleEntries] = useState<ErrorLogEntry[]>([])
-  const [consoleLevel, setConsoleLevel] = useState<'all' | 'error' | 'warn' | 'info'>('all')
+  const [consoleLevel, setConsoleLevel] = useState<'all' | ErrorLogEntry['level']>('all')
   const [consoleStatus, setConsoleStatus] = useState<string | null>(null)
   const [unreadErrorCount, setUnreadErrorCount] = useState(0)
 
@@ -220,20 +312,16 @@ export function DeveloperTab({
   // Signing modal
   const [signingModalOpen, setSigningModalOpen] = useState(false)
 
+  const latestDesktopBuild = buildRecords[0]
+  const latestDesktopOutcome = desktopOutcomeCopy(latestDesktopBuild)
+  const canPublishDesktopPackage = latestDesktopBuild && isDesktopCommand(latestDesktopBuild.command) && latestDesktopBuild.command === 'package' && latestDesktopBuild.status === 'success'
+  const canLaunchDevBuild = latestDesktopBuild && isDesktopCommand(latestDesktopBuild.command) && latestDesktopBuild.command === 'build' && latestDesktopBuild.status === 'success'
+
   // Preflight worst status for tab badge
   const preflightWorst = preflightChecks?.some((c) => c.status === 'fail') ? 'fail'
     : preflightChecks?.some((c) => c.status === 'warn') ? 'warn'
     : preflightChecks?.length ? 'pass'
     : null
-
-  // Auto-run preflight when Desktop tab is first opened
-  const preflightTriggeredRef = useRef(false)
-  useEffect(() => {
-    if (developerTab === 'desktop' && !preflightTriggeredRef.current && preflightChecks === null && !preflightRunning) {
-      preflightTriggeredRef.current = true
-      onRunPreflight()
-    }
-  }, [developerTab, preflightChecks, preflightRunning, onRunPreflight])
 
   // Reset unread count when Console tab becomes active
   useEffect(() => {
@@ -383,11 +471,12 @@ export function DeveloperTab({
           <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3">
             <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Build commands</p>
             <div className="flex flex-wrap gap-2">
-              {(['typecheck', 'test', 'build', 'package'] as const).map((cmd) => (
+              {DESKTOP_COMMANDS.map((cmd) => (
                 <button
                   key={cmd}
                   onClick={() => activeBuildId ? onCancelBuild() : onRunBuildCommand(cmd)}
-                  disabled={!!activeBuildId && activeBuildCommand !== cmd}
+                  disabled={(!!activeBuildId && activeBuildCommand !== cmd) || (cmd === 'package' && desktopPackagingBlocked)}
+                  title={cmd === 'package' && desktopPackagingBlocked ? 'Package from an external terminal after closing this dev app.' : undefined}
                   className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors disabled:opacity-40 ${
                     activeBuildCommand === cmd
                       ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-700'
@@ -398,11 +487,56 @@ export function DeveloperTab({
                 </button>
               ))}
             </div>
+            {desktopPackagingBlocked && (
+              <p className="text-[11px] text-yellow-700 dark:text-yellow-300">
+                Packaging is disabled while Nexy is running from this dev checkout. Close the dev app and run npm run package from an external terminal to avoid Windows locking native modules.
+              </p>
+            )}
             {lastBuildStatus && !activeBuildId && (
               <p className={`text-xs ${lastBuildStatus === 'success' ? 'text-green-600 dark:text-green-400' : lastBuildStatus === 'cancelled' ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}`}>
                 {lastBuildStatus === 'success' ? '✓ Completed successfully' : lastBuildStatus === 'cancelled' ? '⊘ Cancelled' : '✗ Failed'}
               </p>
             )}
+            <div className={`rounded-lg border px-3 py-2 text-xs ${
+              latestDesktopBuild?.status === 'success'
+                ? 'border-green-200 bg-green-50 text-green-800 dark:border-green-900/50 dark:bg-green-900/20 dark:text-green-200'
+                : latestDesktopBuild?.status === 'failed'
+                  ? 'border-red-200 bg-red-50 text-red-800 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-200'
+                  : latestDesktopBuild?.status === 'cancelled'
+                    ? 'border-yellow-200 bg-yellow-50 text-yellow-800 dark:border-yellow-900/50 dark:bg-yellow-900/20 dark:text-yellow-200'
+                    : 'border-gray-200 bg-gray-50 text-gray-600 dark:border-gray-700 dark:bg-gray-800/40 dark:text-gray-300'
+            }`}>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-semibold">{latestDesktopOutcome.title}</span>
+                {latestDesktopBuild?.finishedAt && (
+                  <span className="text-[10px] opacity-70">
+                    {Math.round((latestDesktopBuild.finishedAt - latestDesktopBuild.startedAt) / 1000)}s
+                  </span>
+                )}
+              </div>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <span className="text-[11px] opacity-85">{latestDesktopOutcome.detail}</span>
+                {latestDesktopOutcome.action && !activeBuildId && (
+                  <button
+                    type="button"
+                    onClick={() => onRunBuildCommand(latestDesktopOutcome.action as BuildCommandName)}
+                    className="rounded border border-current/25 px-2 py-0.5 text-[11px] font-medium hover:bg-white/40 dark:hover:bg-white/10"
+                  >
+                    Run {latestDesktopOutcome.action}
+                  </button>
+                )}
+                {latestDesktopBuild?.status === 'failed' && isDesktopCommand(latestDesktopBuild.command) && (
+                  <button
+                    type="button"
+                    onClick={() => onFixBuildWithSelfHeal(latestDesktopBuild)}
+                    disabled={selfHealReportingBuildId === latestDesktopBuild.id}
+                    className="rounded border border-current/25 px-2 py-0.5 text-[11px] font-medium hover:bg-white/40 disabled:opacity-50 dark:hover:bg-white/10"
+                  >
+                    {selfHealReportingBuildId === latestDesktopBuild.id ? 'Creating report...' : 'Fix with Self-Heal'}
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Live log */}
@@ -449,6 +583,15 @@ export function DeveloperTab({
                           >
                             Re-run {rec.command}
                           </button>
+                          {rec.status === 'failed' && isDesktopCommand(rec.command) && (
+                            <button
+                              onClick={() => onFixBuildWithSelfHeal(rec)}
+                              disabled={selfHealReportingBuildId === rec.id}
+                              className="text-[11px] px-2 py-1 rounded border border-blue-300 text-blue-700 hover:bg-blue-50 disabled:opacity-50 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-950/30"
+                            >
+                              {selfHealReportingBuildId === rec.id ? 'Creating report...' : 'Fix with Self-Heal'}
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -521,11 +664,14 @@ export function DeveloperTab({
             {feedInfo?.feedPath && (
               <button
                 onClick={onPublishUpdate}
-                disabled={publishing}
+                disabled={publishing || !canPublishDesktopPackage}
                 className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 font-medium disabled:opacity-50"
               >
                 {publishing ? 'Publishing…' : 'Publish latest build to feed'}
               </button>
+            )}
+            {feedInfo?.feedPath && !canPublishDesktopPackage && (
+              <p className="text-[11px] text-gray-400">Run package successfully before publishing an installer to the feed.</p>
             )}
             {publishResult && <p className="text-xs text-gray-500">{publishResult}</p>}
 
@@ -557,10 +703,10 @@ export function DeveloperTab({
           </div>
 
           {/* Launch dev build */}
-          {lastBuildStatus === 'success' && (
+          {canLaunchDevBuild && (
             <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-2">
               <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Launch dev build</p>
-              <p className="text-xs text-gray-500">Open the just-built app as a separate Electron process for smoke testing.</p>
+              <p className="text-xs text-gray-500">Open the built desktop app as a separate Electron process for smoke testing before packaging.</p>
               <button
                 onClick={onLaunchDev}
                 className="text-xs px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 font-medium"
@@ -837,10 +983,10 @@ export function DeveloperTab({
             <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
               <div>
                 <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Console</p>
-                <p className="text-[11px] text-gray-500">Recent app errors and warnings captured inside Nexy.</p>
+                <p className="text-[11px] text-gray-500">Recent app diagnostics captured inside Nexy.</p>
               </div>
               <div className="flex items-center gap-1.5">
-                {(['all', 'error', 'warn', 'info'] as const).map((level) => (
+                {(['all', 'error', 'warn', 'info', 'debug'] as const).map((level) => (
                   <button
                     key={level}
                     onClick={() => setConsoleLevel(level)}
@@ -872,7 +1018,7 @@ export function DeveloperTab({
             <div className="max-h-[480px] overflow-y-auto bg-white dark:bg-gray-900">
               {filteredConsoleEntries.length === 0 ? (
                 <p className="px-3 py-4 text-xs text-gray-400">
-                  {consoleEntries.length === 0 ? 'No errors captured.' : 'No entries match this filter.'}
+                  {consoleEntries.length === 0 ? 'No diagnostics captured.' : 'No entries match this filter.'}
                 </p>
               ) : (
                 <div className="divide-y divide-gray-100 dark:divide-gray-800">
