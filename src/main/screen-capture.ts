@@ -231,6 +231,29 @@ export async function captureWithRegionSelection(
   }
 }
 
+export async function captureWindowContent(
+  win: BrowserWindow,
+): Promise<{ dataUrl: string } | { error: string }> {
+  try {
+    const image = await win.webContents.capturePage()
+    let resized = image
+    const MAX_EDGE = 1568
+    const size = image.getSize()
+    const longest = Math.max(size.width, size.height)
+    if (longest > MAX_EDGE) {
+      const scale = MAX_EDGE / longest
+      resized = image.resize({
+        width: Math.round(size.width * scale),
+        height: Math.round(size.height * scale),
+        quality: 'better',
+      })
+    }
+    return { dataUrl: resized.toDataURL() }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Window capture failed' }
+  }
+}
+
 export function readClipboardImage(): { dataUrl: string } | null {
   const img = clipboard.readImage()
   if (img.isEmpty()) return null

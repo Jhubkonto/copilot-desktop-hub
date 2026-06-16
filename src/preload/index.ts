@@ -72,6 +72,7 @@ const api = {
   getTheme: () => typedInvoke('app:get-theme'),
   setTheme: (theme: 'light' | 'dark') => typedInvoke('app:set-theme', theme),
   getVersion: () => typedInvoke('app:get-version'),
+  getRuntimeInfo: () => typedInvoke('app:get-runtime-info'),
   setDebugEnabled: (enabled: boolean) => typedInvoke('debug:set-enabled', enabled),
   onDebugLog: (callback: (entry: { prefix: string; message: string; timestamp: number }) => void) => {
     const handler = (
@@ -86,6 +87,7 @@ const api = {
   getRendererConsoleErrors: () => typedInvoke('errors:get-renderer-console'),
   clearErrors: () => typedInvoke('errors:clear'),
   captureErrorReport: (input: ErrorReportCaptureInput) => typedInvoke('error-report:capture', input),
+  deleteErrorReport: (id: string) => typedInvoke('error-report:delete', id),
   getErrorReport: (id: string) => typedInvoke('error-report:get', id),
   listErrorReports: (limit?: number) => typedInvoke('error-report:list', limit),
   getInvestigationSettings: () => typedInvoke('self-heal:get-investigation-settings'),
@@ -201,8 +203,8 @@ const api = {
     typedOn('chat:stream-error', handler)
     return () => typedOff('chat:stream-error', handler)
   },
-  onToolCallEvent: (callback: (data: { toolName: string; serverName: string; args: Record<string, unknown>; result: string; success: boolean }) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: { toolName: string; serverName: string; args: Record<string, unknown>; result: string; success: boolean }) =>
+  onToolCallEvent: (callback: (data: { toolName: string; serverName: string; args: Record<string, unknown>; result: string; success: boolean; conversationId: string | null }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { toolName: string; serverName: string; args: Record<string, unknown>; result: string; success: boolean; conversationId: string | null }) =>
       callback(data)
     typedOn('chat:tool-call-event', handler)
     return () => typedOff('chat:tool-call-event', handler)
@@ -505,6 +507,7 @@ const api = {
     return () => typedOff('window:maximize-change', handler)
   },
   captureScreen: () => typedInvoke('screen:capture'),
+  captureWindowScreenshot: () => typedInvoke('screen:capture-window'),
   checkScreenPermission: () => typedInvoke('screen:check-permission'),
   ocrImage: (dataUrl: string) => typedInvoke('screen:ocr-image', dataUrl),
   readClipboardContent: (): Promise<IpcReturn<'clipboard:read-content'>> =>

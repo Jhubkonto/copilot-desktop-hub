@@ -185,7 +185,7 @@ export interface ErrorReportCaptureResult {
   createdAt: number
 }
 
-export type SelfHealBackend = 'byok' | 'claude-cli'
+export type SelfHealBackend = 'byok' | 'claude-cli' | 'codex-cli'
 export type InvestigationStatus = 'idle' | 'running' | 'done' | 'error'
 
 export interface SelfHealInvestigationSettings {
@@ -1220,6 +1220,7 @@ export type IpcReturnMap = {
   'app:get-setting': string | null
   'app:get-settings': Record<string, string>
   'app:get-theme': string
+  'app:get-runtime-info': { isPackaged: boolean }
   'app:get-version': string
   'app:install-update': void
   'app:save-text-file': string | null
@@ -1285,6 +1286,7 @@ export type IpcReturnMap = {
   'errors:new': void
   // Error reports
   'error-report:capture': ErrorReportCaptureResult
+  'error-report:delete': boolean
   'error-report:get': ErrorReportEntry | null
   'error-report:list': ErrorReportEntry[]
   // Self-heal investigation
@@ -1436,6 +1438,7 @@ export type IpcReturnMap = {
   'clipboard:read-image': { dataUrl: string } | null
   'overlay:get-screenshot': string
   'screen:capture': { dataUrl: string; windowLabel?: string } | { error: string }
+  'screen:capture-window': { dataUrl: string } | { error: string }
   'screen:check-permission': 'granted' | 'denied' | 'prompt'
   'screen:ocr-image': { text: string } | { error: string }
   // Tool
@@ -1519,6 +1522,7 @@ export type IpcChannels =
   | 'app:get-setting'
   | 'app:get-settings'
   | 'app:get-theme'
+  | 'app:get-runtime-info'
   | 'app:get-version'
   | 'app:install-update'
   | 'app:save-text-file'
@@ -1579,6 +1583,7 @@ export type IpcChannels =
   | 'errors:get-renderer-console'
   | 'errors:new'
   | 'error-report:capture'
+  | 'error-report:delete'
   | 'error-report:get'
   | 'error-report:list'
   | 'self-heal:get-investigation-settings'
@@ -1667,6 +1672,7 @@ export type IpcChannels =
   | 'provider:test-key'
   | 'overlay:get-screenshot'
   | 'screen:capture'
+  | 'screen:capture-window'
   | 'screen:check-permission'
   | 'screen:ocr-image'
   | 'tool:approval-response'

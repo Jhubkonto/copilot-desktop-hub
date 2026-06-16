@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Bug, Image, ScrollText } from 'lucide-react'
 import { Button, ModalShell, TextareaField, TextField, ToggleSwitch } from './ui/primitives'
+import type { ErrorLogEntry } from '../../shared/types'
 
 interface BugReportDraft {
   title?: string
@@ -21,12 +22,14 @@ export function BugReportModal({ draft, onClose, onSubmitted }: BugReportModalPr
   const [screenshotPreview, setScreenshotPreview] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [logPreview, setLogPreview] = useState<ErrorLogEntry[] | null>(null)
+  const [logPreviewLoading, setLogPreviewLoading] = useState(false)
 
   const canSubmit = useMemo(() => title.trim().length > 0 && !submitting, [title, submitting])
 
   async function capturePreview() {
     setError(null)
-    const result = await window.api.captureScreen()
+    const result = await window.api.captureWindowScreenshot()
     if ('dataUrl' in result) {
       setScreenshotPreview(result.dataUrl)
       return result.dataUrl
@@ -34,6 +37,15 @@ export function BugReportModal({ draft, onClose, onSubmitted }: BugReportModalPr
     setError(result.error || 'Screenshot capture failed')
     return null
   }
+
+  useEffect(() => {
+    if (!includeLog || logPreview !== null) return
+    setLogPreviewLoading(true)
+    window.api.getRecentErrors(20)
+      .then((entries) => setLogPreview(entries))
+      .catch(() => setLogPreview([]))
+      .finally(() => setLogPreviewLoading(false))
+  }, [includeLog, logPreview])
 
   async function submit() {
     if (!canSubmit) return
@@ -95,7 +107,7 @@ export function BugReportModal({ draft, onClose, onSubmitted }: BugReportModalPr
               <span className="flex items-center gap-1.5 font-medium text-gray-800 dark:text-gray-100">
                 <Image className="h-4 w-4" /> Screenshot
               </span>
-              <span className="mt-1 block text-xs text-gray-500">Capture the current screen for context.</span>
+              <span className="mt-1 block text-xs text-gray-500">Capture the current Nexy window for context.</span>
             </span>
             <ToggleSwitch
               checked={includeScreenshot}
@@ -134,6 +146,31 @@ export function BugReportModal({ draft, onClose, onSubmitted }: BugReportModalPr
             ) : (
               <p className="mt-3 text-xs text-gray-500">A screenshot will be captured when you submit.</p>
             )}
+          </div>
+        )}
+        {includeLog && (
+          <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs font-medium text-gray-700 dark:text-gray-200">Error log preview</p>
+              {logPreview && (
+                <span className="text-xs text-gray-500">Showing last {logPreview.length} (up to 100 attached)</span>
+              )}
+            </div>
+            <div className="mt-3 max-h-40 space-y-1 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50 p-2 text-xs dark:border-gray-700 dark:bg-gray-900/40">
+              {logPreviewLoading && <p className="text-gray-500">Loading...</p>}
+              {!logPreviewLoading && logPreview && logPreview.length === 0 && (
+                <p className="text-gray-500">No recent error log entries.</p>
+              )}
+              {!logPreviewLoading && logPreview?.map((entry) => (
+                <div key={entry.id} className="flex gap-2 font-mono">
+                  <span className="shrink-0 text-gray-400">{new Date(entry.timestamp).toLocaleTimeString()}</span>
+                  <span className={`shrink-0 uppercase ${entry.level === 'error' ? 'text-red-600 dark:text-red-400' : entry.level === 'warn' ? 'text-yellow-600 dark:text-yellow-400' : 'text-gray-500'}`}>
+                    {entry.level}
+                  </span>
+                  <span className="truncate text-gray-700 dark:text-gray-300">{entry.message}</span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
         {error && <p className="rounded-lg bg-red-50 p-3 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-300">{error}</p>}

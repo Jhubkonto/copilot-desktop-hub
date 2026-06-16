@@ -67,6 +67,8 @@ export default function App() {
   const pendingErrorCount = useAppStore((s) => s.pendingErrorCount)
   const openBugReport = useAppStore((s) => s.openBugReport)
   const closeBugReport = useAppStore((s) => s.closeBugReport)
+  const setShowSelfHealPanel = useAppStore((s) => s.setShowSelfHealPanel)
+  const setPendingSelfHealReportId = useAppStore((s) => s.setPendingSelfHealReportId)
   const incrementPendingErrorCount = useAppStore((s) => s.incrementPendingErrorCount)
 
   const hydrate = useAppStore((s) => s.hydrate)
@@ -125,6 +127,14 @@ export default function App() {
     })
     return () => { unsubscribe() }
   }, [incrementPendingErrorCount])
+
+  useEffect(() => {
+    if (typeof window.api.onDebugLog !== 'function') return
+    const unsubscribe = window.api.onDebugLog((entry) => {
+      console.debug(entry.message)
+    })
+    return () => { unsubscribe() }
+  }, [])
 
   // Zoom: Ctrl+scroll and Ctrl+Plus/Minus/0
   useEffect(() => {
@@ -257,7 +267,13 @@ export default function App() {
           onClose={closeBugReport}
           onSubmitted={(reportId) => {
             closeBugReport()
-            addToast(`Bug report captured (${reportId.slice(0, 8)})`, 'success')
+            addToast(`Bug report captured (${reportId.slice(0, 8)}) — now in Self-Heal`, 'success', {
+              label: 'View',
+              onClick: () => {
+                setPendingSelfHealReportId(reportId)
+                setShowSelfHealPanel(true)
+              },
+            })
           }}
         />
       )}

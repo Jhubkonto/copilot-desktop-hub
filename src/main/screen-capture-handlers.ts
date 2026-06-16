@@ -1,6 +1,6 @@
 import { BrowserWindow } from 'electron'
 import { safeHandle } from './safe-handle'
-import { captureWithRegionSelection, checkScreenPermission, readClipboardContent, readClipboardImage } from './screen-capture'
+import { captureWindowContent, captureWithRegionSelection, checkScreenPermission, readClipboardContent, readClipboardImage } from './screen-capture'
 import { recognizeText } from './ocr'
 
 export function registerScreenCaptureHandlers(): void {
@@ -8,6 +8,11 @@ export function registerScreenCaptureHandlers(): void {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return { error: 'No window found' }
     return captureWithRegionSelection(win)
+  })
+  safeHandle('screen:capture-window', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return { error: 'No window found' }
+    return captureWindowContent(win)
   })
   safeHandle('screen:check-permission', () => checkScreenPermission())
   safeHandle('clipboard:read-content', () => readClipboardContent())
