@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { execSync, spawn, execFile } from 'child_process'
+import { spawn, execFile } from 'child_process'
 import { promisify } from 'util'
 
 const execFileAsync = promisify(execFile)
@@ -27,6 +27,20 @@ const activeBuildProcesses = new Map<string, ChildProcess>()
 function getWorkspacePath(db: Database.Database): string {
   const row = db.prepare("SELECT value FROM settings WHERE key = 'build_workspace_path'").get() as { value: string } | undefined
   return row?.value ?? process.cwd()
+}
+
+type ExecFileFailure = Error & { stdout?: string | Buffer; stderr?: string | Buffer }
+
+function execOutput(err: unknown): string {
+  if (!err || typeof err !== 'object') return ''
+  const failure = err as ExecFileFailure
+  return [failure.stderr, failure.stdout]
+    .map((part) => part ? String(part) : '')
+    .find((part) => part.trim().length > 0) ?? ''
+}
+
+function npxCommand(): string {
+  return process.platform === 'win32' ? 'npx.cmd' : 'npx'
 }
 
 export async function getWorkspaceInfo(db: Database.Database): Promise<WorkspaceInfo> {
@@ -249,13 +263,18 @@ export function registerBuildHandlers(mainWindow?: BrowserWindow): void {
     return r
   })
 
-  safeHandle('build:run-preflight', () => {
+  safeHandle('build:run-preflight', async () => {
     const workspacePath = getWorkspacePath(db)
     const checks: PreflightCheck[] = []
 
     // 1. Git dirty
     try {
-      const statusOut = execSync('git status --porcelain', { cwd: workspacePath, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim()
+      const { stdout } = await execFileAsync('git', ['status', '--porcelain'], {
+        cwd: workspacePath,
+        timeout: 5000,
+        maxBuffer: 1024 * 1024,
+      })
+      const statusOut = stdout.trim()
       if (statusOut.length > 0) {
         const lineCount = statusOut.split('\n').length
         checks.push({ label: 'Git working tree', status: 'warn', detail: `${lineCount} modified or untracked file(s)` })
@@ -286,14 +305,14 @@ export function registerBuildHandlers(mainWindow?: BrowserWindow): void {
 
     // 4. TypeScript
     try {
-      execSync('npx tsc --noEmit -p tsconfig.typecheck.json', {
+      await execFileAsync(npxCommand(), ['tsc', '--noEmit', '-p', 'tsconfig.typecheck.json'], {
         cwd: workspacePath,
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 60000,
+        maxBuffer: 1024 * 1024,
       })
       checks.push({ label: 'TypeScript', status: 'ok', detail: 'No errors' })
     } catch (err) {
-      const output = err instanceof Error && 'stderr' in err ? String((err as NodeJS.ErrnoException & { stderr?: string }).stderr) : ''
+      const output = execOutput(err)
       const firstError = output.split('\n').find((l) => l.trim().length > 0) ?? 'Type errors found'
       checks.push({ label: 'TypeScript', status: 'fail', detail: firstError })
     }
