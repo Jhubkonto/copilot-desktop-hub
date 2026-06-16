@@ -1,9 +1,15 @@
 import type { BrowserWindow } from 'electron'
 import { safeHandle } from './safe-handle'
-import { getProviderForAgent, getApiKey, sendProviderWithTools } from './providers'
-import { runProviderMcpToolLoop } from './tool-loop'
+import {
+  DEFAULT_PROVIDER_MODEL,
+  PROVIDERS,
+  getOpenRouterModels,
+  getProviderForAgent,
+  getApiKey,
+  isProviderConfigured,
+} from './providers'
+import { dispatchToProvider } from './chat-provider-dispatch'
 import type { ProviderMessage } from './provider-core-types'
-import type { ToolDefinition, ToolChoice, ProviderNonStreamResult } from './provider-types'
 import type { ProjectGeneratorMessage, ProjectGeneratorSpec, AgentConfig } from '../shared/types'
 import { DEFAULT_PROJECT_CONFIG } from '../shared/types'
 import { randomUUID } from 'crypto'
@@ -129,6 +135,58 @@ function isAgentSpec(v: unknown): boolean {
   return typeof v === 'object' && v !== null && typeof (v as Record<string, unknown>).role === 'string'
 }
 
+function getProjectGeneratorModel(): string {
+  const db = getDatabase()
+  const row = db.prepare("SELECT value FROM settings WHERE key = 'default_model'").get() as { value: string } | undefined
+  const savedModel = row?.value && row.value !== 'default' ? row.value : DEFAULT_PROVIDER_MODEL
+  const savedProvider = getProviderForAgent(savedModel)
+  if (isProviderConfigured(savedProvider.provider)) {
+    return savedModel
+  }
+
+  const fallbackProvider = PROVIDERS.find((provider) => isProviderConfigured(provider.name) && provider.models.length > 0)
+  if (fallbackProvider?.models[0]) {
+    return fallbackProvider.name === 'openai'
+      ? fallbackProvider.models[0]
+      : `${fallbackProvider.name}:${fallbackProvider.models[0]}`
+  }
+  const openRouterModel = isProviderConfigured('openrouter') ? getOpenRouterModels()[0] : undefined
+  return openRouterModel ? `openrouter:${openRouterModel}` : savedModel
+}
+
+async function runProjectGeneratorProviderChat(
+  providerMessages: ProviderMessage[],
+  sessionId: string,
+  webContents: Electron.WebContents,
+  sendChunk: (chunk: string) => void,
+): Promise<string> {
+  const selectedModel = getProjectGeneratorModel()
+  const { provider, model } = getProviderForAgent(selectedModel)
+  const apiKey = getApiKey(provider)
+  const systemPrompt = typeof providerMessages[0]?.content === 'string'
+    ? providerMessages[0].content
+    : PROJECT_GENERATOR_SYSTEM_PROMPT
+
+  return dispatchToProvider({
+    providerName: provider,
+    providerModel: model,
+    byokKey: apiKey ?? '',
+    chatMessages: providerMessages,
+    toolDefs: [],
+    toolMap: new Map(),
+    effectiveAgentId: null,
+    agenticMode: false,
+    wikiInlineHandlers: new Map(),
+    toolDirective: '',
+    generationOptions: { maxTokens: 4096, temperature: 0.7 },
+    conversationId: sessionId,
+    webContents,
+    sendChunk,
+    sendActivity: () => {},
+    systemPrompt,
+  })
+}
+
 export async function runProjectGeneratorChat(
   win: BrowserWindow,
   messages: ProjectGeneratorMessage[],
@@ -141,31 +199,16 @@ export async function runProjectGeneratorChat(
     if (!win.isDestroyed()) win.webContents.send('project-generator:token', chunk)
   }
 
-  const { provider, model } = getProviderForAgent('')
-  const apiKey = getApiKey(provider)
-
   let accumulated = ''
 
-  const caller = (msgs: ProviderMessage[], tools: ToolDefinition[] | undefined, toolChoice: ToolChoice): Promise<ProviderNonStreamResult> =>
-    sendProviderWithTools(provider, apiKey, model, msgs, tools ?? [], toolChoice, { maxTokens: 4096, temperature: 0.7 })
-
-  const fullText = await runProviderMcpToolLoop(
-    caller,
+  const fullText = await runProjectGeneratorProviderChat(
     providerMessages,
-    [],
-    new Map(),
     sessionId,
     win.webContents,
     (chunk) => {
       accumulated += chunk
       sendChunk(chunk)
     },
-    undefined,
-    false,
-    new Map(),
-    undefined,
-    undefined,
-    false,
   )
 
   accumulated = fullText || accumulated
@@ -183,31 +226,16 @@ export async function runProjectGeneratorChatForAndroid(
   const providerMessages = buildProviderMessages(messages, existingAgents)
   const sessionId = `project-gen-android-${randomUUID()}`
 
-  const { provider, model } = getProviderForAgent('')
-  const apiKey = getApiKey(provider)
-
   let accumulated = ''
 
-  const caller = (msgs: ProviderMessage[], tools: ToolDefinition[] | undefined, toolChoice: ToolChoice): Promise<ProviderNonStreamResult> =>
-    sendProviderWithTools(provider, apiKey, model, msgs, tools ?? [], toolChoice, { maxTokens: 4096, temperature: 0.7 })
-
-  const fullText = await runProviderMcpToolLoop(
-    caller,
+  const fullText = await runProjectGeneratorProviderChat(
     providerMessages,
-    [],
-    new Map(),
     sessionId,
     { send: () => {}, isDestroyed: () => false } as unknown as Electron.WebContents,
     (chunk) => {
       accumulated += chunk
       broadcastToMobile({ event: 'project-generator:token', data: { chunk } })
     },
-    undefined,
-    false,
-    new Map(),
-    undefined,
-    undefined,
-    false,
   )
 
   accumulated = fullText || accumulated
@@ -302,10 +330,14 @@ export async function createProjectFromSpec(spec: ProjectGeneratorSpec): Promise
     return { projectId, name: safeName }
   } catch (err) {
     for (const id of createdAgentIds) {
-      try { db.prepare('DELETE FROM agents WHERE id = ?').run(id) } catch {}
+      try { db.prepare('DELETE FROM agents WHERE id = ?').run(id) } catch {
+        // Best-effort rollback; preserve the original creation error.
+      }
     }
     if (projectId) {
-      try { db.prepare('DELETE FROM projects WHERE id = ?').run(projectId) } catch {}
+      try { db.prepare('DELETE FROM projects WHERE id = ?').run(projectId) } catch {
+        // Best-effort rollback; preserve the original creation error.
+      }
     }
     throw err
   }
