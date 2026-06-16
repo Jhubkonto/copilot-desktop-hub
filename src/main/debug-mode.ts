@@ -1,5 +1,6 @@
 import type { BrowserWindow } from 'electron'
 import { log } from './logger'
+import { recordErrorLogEntry } from './error-log-handlers'
 
 let enabled = false
 let mainWindow: BrowserWindow | null = null
@@ -19,6 +20,11 @@ function emit(prefix: string, message: string): void {
   const formatted = `[${prefix}] ${message}`
   console.log(formatted)
   log.debug(formatted)
+  recordErrorLogEntry({
+    source: 'main',
+    level: 'debug',
+    message: formatted,
+  })
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('debug:log', {
       prefix,
