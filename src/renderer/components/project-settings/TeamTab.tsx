@@ -1,5 +1,6 @@
 import { Plus, X, Star, GripVertical } from 'lucide-react'
 import { DropdownPanel } from '../DropdownPanel'
+import { ToggleSwitch } from '../ui/primitives'
 import type { AgentConfig } from '../../../shared/types'
 import type { ProjectAgent, ProjectConfig } from '../../store/types'
 
@@ -92,15 +93,15 @@ export function TeamTab({
       {/* Orchestration toggle — shown when ≥2 agents */}
       {members.length >= 2 && (
         <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 px-3 py-2 space-y-2">
-          <label className="flex items-center justify-between cursor-pointer">
+          <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Multi-agent orchestration</span>
-            <input
-              type="checkbox"
+            <ToggleSwitch
               checked={projectConfig.orchestrationEnabled}
-              onChange={(e) => onUpdateOrchestration({ orchestrationEnabled: e.target.checked })}
-              className="w-3.5 h-3.5 rounded accent-blue-500"
+              onChange={(checked) => onUpdateOrchestration({ orchestrationEnabled: checked })}
+              size="sm"
+              ariaLabel="Multi-agent orchestration"
             />
-          </label>
+          </div>
           {projectConfig.orchestrationEnabled && (
             <div className="flex items-center gap-4 pl-0.5">
               <label className="flex items-center gap-1.5">

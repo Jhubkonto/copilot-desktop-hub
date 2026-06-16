@@ -1,6 +1,7 @@
 import { useRef } from 'react'
 import { Sun, Moon, Plug, Cpu } from 'lucide-react'
 import { getModelLabel } from '../../../shared/models'
+import { ToggleSwitch } from '../ui/primitives'
 import type { AvailableModelGroup } from '@shared/types'
 
 interface Props {
@@ -84,12 +85,7 @@ export function GeneralTab({
           <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Start on login</p>
           <p className="text-xs text-gray-500">Automatically launch when you log in</p>
         </div>
-        <button
-          onClick={onToggleAutoStart}
-          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${autoStart ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'}`}
-        >
-          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${autoStart ? 'translate-x-6' : 'translate-x-1'}`} />
-        </button>
+        <ToggleSwitch checked={autoStart} onChange={() => onToggleAutoStart()} ariaLabel="Start on login" />
       </div>
 
       {/* Auto clipboard on focus */}
@@ -98,12 +94,7 @@ export function GeneralTab({
           <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Auto-read clipboard on focus</p>
           <p className="text-xs text-gray-500">Automatically paste clipboard text when app gains focus</p>
         </div>
-        <button
-          onClick={onToggleAutoClipboard}
-          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${autoClipboard ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'}`}
-        >
-          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${autoClipboard ? 'translate-x-6' : 'translate-x-1'}`} />
-        </button>
+        <ToggleSwitch checked={autoClipboard} onChange={() => onToggleAutoClipboard()} ariaLabel="Auto-read clipboard on focus" />
       </div>
 
       {/* Global Hotkey */}
