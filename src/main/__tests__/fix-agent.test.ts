@@ -78,7 +78,7 @@ describe('self-heal fix staging', () => {
       'report-1',
       'Fix me',
       'Synthetic bug',
-      '---\nconfidence: high\nroot_cause: bad constant\naffected_files: ["src/example.ts"]\n---\nInvestigation',
+      '---\nconfidence: high\nroot_cause: bad constant\naffected_files:\n  - "src/example.ts"\n---\nInvestigation',
       '["src/example.ts"]',
     )
   })

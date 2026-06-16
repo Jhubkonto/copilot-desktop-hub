@@ -74,6 +74,27 @@ describe('self-heal handlers', () => {
     expect(loaded).toEqual(saved)
   })
 
+  it('persists codex-cli investigation settings', async () => {
+    const { registerSelfHealHandlers } = await import('../self-heal-handlers')
+    registerSelfHealHandlers()
+
+    const saved = invoke('self-heal:set-investigation-settings', {
+      backend: 'codex-cli',
+      model: 'gpt-5.5',
+      retryLimit: 2,
+      autoApproveTools: true,
+    })
+    const loaded = invoke('self-heal:get-investigation-settings')
+
+    expect(saved).toEqual({
+      backend: 'codex-cli',
+      model: 'gpt-5.5',
+      retryLimit: 2,
+      autoApproveTools: true,
+    })
+    expect(loaded).toEqual(saved)
+  })
+
   it('starts an investigation asynchronously and emits completion', async () => {
     mockRunInvestigation.mockResolvedValue({
       reportId: 'report-1',

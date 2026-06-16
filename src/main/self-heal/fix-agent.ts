@@ -8,6 +8,7 @@ import { getApiKey, getProviderForAgent, sendProviderWithTools } from '../provid
 import { runProviderMcpToolLoop } from '../tool-loop'
 import type { ToolDefinition, ToolChoice, ProviderNonStreamResult } from '../provider-types'
 import { ClaudeAdapter } from '../cli-adapters/claude'
+import { CodexAdapter } from '../cli-adapters/codex'
 import { broadcastToMobile } from '../ws-server'
 import type { ProviderMessage } from '../providers'
 import type {
@@ -18,6 +19,7 @@ import type {
   DiffHunk,
 } from '../../shared/types'
 import { getWorkspacePath, resolveInsideWorkspace, loadInvestigationSettings } from './investigator'
+import { parseAffectedFilesFromFrontMatter } from './yaml'
 
 const MAX_FILE_CHARS = 32000
 
@@ -231,14 +233,11 @@ export async function runFix(
   const row = db.prepare('SELECT * FROM error_reports WHERE id = ?').get(reportId) as Record<string, unknown> | undefined
   if (!row) throw new Error(`Report ${reportId} not found`)
 
-  // Parse affected_files from YAML front matter (same regex as investigator.ts)
+  // Parse affected_files from YAML front matter.
   const markdown = typeof row.investigation_markdown === 'string' ? row.investigation_markdown : ''
   const frontMatterMatch = /^---\n([\s\S]*?)\n---\n?/.exec(markdown)
   const frontMatter = frontMatterMatch?.[1] ?? ''
-  const affectedMatch = /affected_files:\s*\[([^\]]*)\]/i.exec(frontMatter)
-  const affectedFiles: string[] = affectedMatch
-    ? affectedMatch[1].split(',').map((s) => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean)
-    : []
+  const affectedFiles = parseAffectedFilesFromFrontMatter(frontMatter)
 
   if (affectedFiles.length === 0) {
     throw new Error('No affected files found in investigation report — accept the investigation first')
@@ -280,6 +279,20 @@ export async function runFix(
         () => { /* chunks not streamed for fix — delimiters only parse when complete */ },
         () => {},
       )
+    } else if (settings.backend === 'codex-cli') {
+      if (!CodexAdapter.isAvailable()) throw new Error('Codex CLI is not available')
+      rawOutput = await CodexAdapter.send(
+        win,
+        {
+          conversationId: `self-heal-fix-${reportId}`,
+          cwd: workspacePath,
+          model: settings.model,
+          messages,
+          systemPrompt: 'Return patched file blocks only using the specified delimiters. No prose.',
+        },
+        () => { /* chunks not streamed for fix — delimiters only parse when complete */ },
+        () => {},
+      )
     } else {
       const { provider, model } = getProviderForAgent(settings.model)
       const apiKey = getApiKey(provider)
@@ -298,6 +311,7 @@ export async function runFix(
         [],
         new Map(),
         `self-heal-fix-${randomUUID()}`,
+        null,
         win.webContents,
         () => {},
         undefined,
