@@ -9,6 +9,7 @@ import { getApiKey, getProviderForAgent, sendProviderWithTools, type ProviderMes
 import { runProviderMcpToolLoop } from '../tool-loop'
 import type { ToolDefinition, ToolChoice, ProviderNonStreamResult } from '../provider-types'
 import { ClaudeAdapter } from '../cli-adapters/claude'
+import { CodexAdapter } from '../cli-adapters/codex'
 import type {
   ErrorReportEntry,
   SelfHealInvestigationActivity,
@@ -16,6 +17,8 @@ import type {
   SelfHealInvestigationSettings,
 } from '../../shared/types'
 import { broadcastToMobile } from '../ws-server'
+import { parseAffectedFilesFromFrontMatter } from './yaml'
+import { createPromptedToolCaller, injectPromptedToolSystemPrompt } from './prompted-tool-caller'
 
 const execFileAsync = promisify(execFile)
 const MAX_FILE_CHARS = 32000
@@ -92,41 +95,68 @@ function buildToolDefinitions(): ToolDefinition[] {
   ]
 }
 
-function buildInlineHandlers(workspacePath: string) {
+function normalizeConfirmedPath(workspacePath: string, requestedPath: unknown): string {
+  const relative = typeof requestedPath === 'string' ? requestedPath : ''
+  return path.relative(workspacePath, path.resolve(workspacePath, relative)).split(path.sep).join('/')
+}
+
+export function buildInlineHandlers(workspacePath: string, confirmedPaths?: Set<string>) {
   return new Map<string, (args: Record<string, unknown>) => Promise<{ success: boolean; result?: string; error?: string }>>([
     ['read_file', async (args) => {
-      const filePath = resolveInsideWorkspace(workspacePath, args.path)
-      if (!existsSync(filePath) || !statSync(filePath).isFile()) return { success: false, error: 'File not found' }
-      const content = readFileSync(filePath, 'utf8')
-      return {
-        success: true,
-        result: content.length > MAX_FILE_CHARS
-          ? `${content.slice(0, MAX_FILE_CHARS)}\n...[file truncated]`
-          : content,
+      try {
+        const filePath = resolveInsideWorkspace(workspacePath, args.path)
+        if (!existsSync(filePath) || !statSync(filePath).isFile()) return { success: false, error: 'File not found' }
+        const content = readFileSync(filePath, 'utf8')
+        confirmedPaths?.add(normalizeConfirmedPath(workspacePath, args.path))
+        return {
+          success: true,
+          result: content.length > MAX_FILE_CHARS
+            ? `${content.slice(0, MAX_FILE_CHARS)}\n...[file truncated]`
+            : content,
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        return { success: false, error: `read_file failed: ${message}` }
       }
     }],
     ['list_directory', async (args) => {
-      const dirPath = resolveInsideWorkspace(workspacePath, args.path || '.')
-      if (!existsSync(dirPath) || !statSync(dirPath).isDirectory()) return { success: false, error: 'Directory not found' }
-      const rows = readdirSync(dirPath, { withFileTypes: true })
-        .slice(0, 200)
-        .map((entry) => `${entry.isDirectory() ? 'dir ' : 'file'} ${entry.name}`)
-      return { success: true, result: rows.join('\n') || '(empty)' }
+      try {
+        const dirPath = resolveInsideWorkspace(workspacePath, args.path || '.')
+        if (!existsSync(dirPath) || !statSync(dirPath).isDirectory()) return { success: false, error: 'Directory not found' }
+        const rows = readdirSync(dirPath, { withFileTypes: true })
+          .slice(0, 200)
+          .map((entry) => `${entry.isDirectory() ? 'dir ' : 'file'} ${entry.name}`)
+        return { success: true, result: rows.join('\n') || '(empty)' }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        return { success: false, error: `list_directory failed: ${message}` }
+      }
     }],
     ['grep', async (args) => {
       const query = typeof args.query === 'string' ? args.query : ''
       if (!query.trim()) return { success: false, error: 'query is required' }
       const searchPath = resolveInsideWorkspace(workspacePath, args.path || '.')
-      const { stdout } = await execFileAsync(
-        'rg',
-        ['--fixed-strings', '--line-number', '--max-count', String(MAX_GREP_RESULTS), query, searchPath],
-        { cwd: workspacePath, timeout: 10000, maxBuffer: 1024 * 1024 },
-      ).catch((error: unknown) => {
-        const err = error as { code?: number; stdout?: string; message?: string }
-        if (err.code === 1) return { stdout: '' }
-        throw new Error(err.message ?? 'grep failed')
-      })
-      return { success: true, result: stdout || '(no matches)' }
+      try {
+        const { stdout } = await execFileAsync(
+          'rg',
+          ['--fixed-strings', '--line-number', '--max-count', String(MAX_GREP_RESULTS), query, searchPath],
+          { cwd: workspacePath, timeout: 10000, maxBuffer: 1024 * 1024 },
+        ).catch((error: unknown) => {
+          const err = error as { code?: number; stdout?: string }
+          if (err.code === 1) return { stdout: '' }
+          throw error
+        })
+        if (stdout) {
+          for (const line of stdout.split('\n')) {
+            const match = /^(.+):\d+:/.exec(line)
+            if (match) confirmedPaths?.add(normalizeConfirmedPath(workspacePath, match[1]))
+          }
+        }
+        return { success: true, result: stdout || '(no matches)' }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        return { success: false, error: `grep failed: ${message}` }
+      }
     }],
   ])
 }
@@ -138,7 +168,18 @@ function buildPrompt(report: ErrorReportEntry, workspacePath: string): ProviderM
       role: 'system',
       content:
         'You are the Nexy self-heal investigator. Investigate the captured bug using only read-only tools. ' +
-        'Do not propose code changes yet. Return a concise Markdown investigation report with YAML front matter.',
+        'Do not propose code changes yet. Return a concise Markdown investigation report with YAML front matter. ' +
+        'Ground every claim in the original log snapshot you were given and in the actual results returned by your tool calls, including failed ones. ' +
+        'Never invent files, error messages, stack traces, or other evidence that does not appear in the log snapshot or in a tool result you actually received. ' +
+        'Every item in the Evidence section must include a short verbatim quote from the log snapshot or a tool result, copied exactly — if you cannot quote the exact source text an item is based on, do not include that item. ' +
+        'Do not report errors, timestamps, or symptoms from outside this specific bug report — for example, do not describe unrelated runtime/console errors unless they appear verbatim in this report\'s log snapshot or tool results. ' +
+        'If a tool fails or is unavailable, say so plainly in the report instead of fabricating a substitute explanation. ' +
+        'Never guess a file path for read_file. Use list_directory and/or grep first to locate the real file that is actually relevant to the log snapshot, and only call read_file on a path you have confirmed exists. ' +
+        'A "File not found" result is not evidence of anything about the bug — it only means your guessed path was wrong; do not cite it in the report or list that path under affected_files. ' +
+        'Only list a path under affected_files if a read_file or grep call on that exact path actually succeeded — never list a path solely because it seems plausible. ' +
+        'Your response must begin with exactly one YAML front matter block delimited by --- lines, appearing once, at the very start of the response, before any other text — do not duplicate it later and do not also restate it inside a fenced ```yaml block. ' +
+        'The front matter block must contain ONLY the three keys confidence, root_cause, and affected_files — nothing else. ' +
+        'Summary, Evidence, and Recommended Next Steps are Markdown sections that come AFTER the closing --- of the front matter, each as a "## Heading" followed by prose or a bullet list — never as additional YAML keys inside the front matter block.',
     },
     {
       role: 'user',
@@ -154,24 +195,69 @@ function buildPrompt(report: ErrorReportEntry, workspacePath: string): ProviderM
   ]
 }
 
-function ensureStructuredMarkdown(markdown: string): SelfHealInvestigationResult {
-  const frontMatterMatch = /^---\n([\s\S]*?)\n---\n?/.exec(markdown)
-  const frontMatter = frontMatterMatch?.[1] ?? ''
-  const confidence = /confidence:\s*(.+)/i.exec(frontMatter)?.[1]?.trim() || 'unknown'
-  const rootCause = /root_cause:\s*(.+)/i.exec(frontMatter)?.[1]?.trim() || 'unknown'
-  const affectedMatch = /affected_files:\s*\[([^\]]*)\]/i.exec(frontMatter)
-  const affectedFiles = affectedMatch
-    ? affectedMatch[1].split(',').map((item) => item.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean)
-    : []
+const DASH_BLOCK_RE = /^---\n([\s\S]*?)\n---\s*\n?/gm
+const YAML_FENCE_RE = /```ya?ml\s*\n([\s\S]*?)```/gi
 
-  if (frontMatterMatch) {
+interface FrontMatterCandidate {
+  index: number
+  confidence: string
+  rootCause: string
+  affectedFiles: string[]
+  score: number
+}
+
+function scoreBlock(confidence: string, rootCause: string, affectedFiles: string[]): number {
+  let score = 0
+  if (confidence && !['unknown', 'none'].includes(confidence.toLowerCase())) score += 1
+  if (rootCause && rootCause.toLowerCase() !== 'unknown' && rootCause.trim().length > 3) score += 1
+  if (affectedFiles.length > 0) score += 1
+  return score
+}
+
+function buildCandidate(index: number, body: string): FrontMatterCandidate {
+  const confidence = /confidence:\s*(.+)/i.exec(body)?.[1]?.trim() || 'unknown'
+  const rootCause = /root_cause:\s*(.+)/i.exec(body)?.[1]?.trim() || 'unknown'
+  const affectedFiles = parseAffectedFilesFromFrontMatter(body)
+  return { index, confidence, rootCause, affectedFiles, score: scoreBlock(confidence, rootCause, affectedFiles) }
+}
+
+function extractFrontMatterCandidates(markdown: string): FrontMatterCandidate[] {
+  const candidates: FrontMatterCandidate[] = []
+  for (const match of markdown.matchAll(DASH_BLOCK_RE)) {
+    candidates.push(buildCandidate(match.index ?? 0, match[1]))
+  }
+  for (const match of markdown.matchAll(YAML_FENCE_RE)) {
+    candidates.push(buildCandidate(match.index ?? 0, match[1]))
+  }
+  return candidates
+}
+
+function pickBestCandidate(candidates: FrontMatterCandidate[]): FrontMatterCandidate | undefined {
+  let best: FrontMatterCandidate | undefined
+  for (const candidate of candidates) {
+    if (!best || candidate.score > best.score || (candidate.score === best.score && candidate.index > best.index)) {
+      best = candidate
+    }
+  }
+  return best
+}
+
+function filterToConfirmedPaths(affectedFiles: string[], confirmedPaths?: Set<string>): string[] {
+  if (!confirmedPaths) return affectedFiles
+  return affectedFiles.filter((file) => confirmedPaths.has(file.split('\\').join('/').replace(/^\.?\//, '')))
+}
+
+function ensureStructuredMarkdown(markdown: string, confirmedPaths?: Set<string>): SelfHealInvestigationResult {
+  const best = pickBestCandidate(extractFrontMatterCandidates(markdown))
+
+  if (best) {
     return {
       reportId: '',
       status: 'done',
       markdown,
-      confidence,
-      rootCause,
-      affectedFiles,
+      confidence: best.confidence,
+      rootCause: best.rootCause,
+      affectedFiles: filterToConfirmedPaths(best.affectedFiles, confirmedPaths),
       completedAt: Date.now(),
     }
   }
@@ -264,8 +350,11 @@ export function loadInvestigationSettings(): SelfHealInvestigationSettings {
     .prepare("SELECT key, value FROM settings WHERE key IN ('self_heal_backend', 'self_heal_model', 'self_heal_retry_limit', 'self_heal_auto_approve_tools')")
     .all() as { key: string; value: string }[]
   const settings = Object.fromEntries(rows.map((row) => [row.key, row.value]))
+  const backend = settings.self_heal_backend === 'claude-cli' || settings.self_heal_backend === 'codex-cli'
+    ? settings.self_heal_backend
+    : 'byok'
   return {
-    backend: settings.self_heal_backend === 'claude-cli' ? 'claude-cli' : 'byok',
+    backend,
     model: settings.self_heal_model || 'gpt-5-mini',
     retryLimit: Math.max(0, Math.min(Number.parseInt(settings.self_heal_retry_limit || '1', 10) || 1, 5)),
     autoApproveTools: settings.self_heal_auto_approve_tools === 'true',
@@ -273,8 +362,11 @@ export function loadInvestigationSettings(): SelfHealInvestigationSettings {
 }
 
 export function saveInvestigationSettings(input: SelfHealInvestigationSettings): SelfHealInvestigationSettings {
+  const backend = input.backend === 'claude-cli' || input.backend === 'codex-cli'
+    ? input.backend
+    : 'byok'
   const settings: SelfHealInvestigationSettings = {
-    backend: input.backend === 'claude-cli' ? 'claude-cli' : 'byok',
+    backend,
     model: String(input.model || 'gpt-5-mini'),
     retryLimit: Math.max(0, Math.min(Number(input.retryLimit) || 0, 5)),
     autoApproveTools: !!input.autoApproveTools,
@@ -309,9 +401,28 @@ export async function runInvestigation(
     try {
       if (attempt > 0) activity(`Retrying investigation (${attempt}/${settings.retryLimit})`)
     let markdown = ''
+    let confirmedPaths: Set<string> | undefined
     if (settings.backend === 'claude-cli') {
       if (!ClaudeAdapter.isAvailable()) throw new Error('Claude CLI is not available')
       markdown = await ClaudeAdapter.send(
+        win,
+        {
+          conversationId: `self-heal-${reportId}`,
+          cwd: workspacePath,
+          model: settings.model,
+          messages: buildPrompt(report, workspacePath),
+          systemPrompt: 'Investigate only. Return YAML front matter followed by Markdown.',
+        },
+        (chunk) => {
+          callbacks.onChunk(chunk)
+        },
+        (event) => {
+          if (event.type === 'tool_start') activity(`Running ${event.name}`, event.name)
+        },
+      )
+    } else if (settings.backend === 'codex-cli') {
+      if (!CodexAdapter.isAvailable()) throw new Error('Codex CLI is not available')
+      markdown = await CodexAdapter.send(
         win,
         {
           conversationId: `self-heal-${reportId}`,
@@ -331,21 +442,37 @@ export async function runInvestigation(
       const { provider, model } = getProviderForAgent(settings.model)
       const apiKey = getApiKey(provider)
       const toolDefs = buildToolDefinitions()
-      const caller = (messages: ProviderMessage[], tools: ToolDefinition[] | undefined, toolChoice: ToolChoice): Promise<ProviderNonStreamResult> =>
-        sendProviderWithTools(provider, apiKey, model, messages, tools ?? [], toolChoice, { maxTokens: 4096, temperature: 0.2 })
+      confirmedPaths = new Set<string>()
+      const caller = async (messages: ProviderMessage[], tools: ToolDefinition[] | undefined, toolChoice: ToolChoice): Promise<ProviderNonStreamResult> => {
+        try {
+          return await sendProviderWithTools(provider, apiKey, model, messages, tools ?? [], toolChoice, { maxTokens: 4096, temperature: 0.2 })
+        } catch (err) {
+          if (err instanceof Error && err.message.includes('No endpoints found that support tool use')) {
+            try {
+              const promptedCaller = createPromptedToolCaller(provider, apiKey, model, { maxTokens: 4096, temperature: 0.2 })
+              const promptedMessages = toolChoice === 'none' ? messages : injectPromptedToolSystemPrompt(messages, tools ?? [])
+              return await promptedCaller(promptedMessages, tools, toolChoice)
+            } catch {
+              return sendProviderWithTools(provider, apiKey, model, messages, [], 'none', { maxTokens: 4096, temperature: 0.2 })
+            }
+          }
+          throw err
+        }
+      }
       markdown = await runProviderMcpToolLoop(
         caller,
         buildPrompt(report, workspacePath),
         toolDefs,
         new Map(),
         `self-heal-${randomUUID()}`,
+        null,
         win.webContents,
         (chunk) => {
           callbacks.onChunk(chunk)
         },
         undefined,
         true,
-        buildInlineHandlers(workspacePath),
+        buildInlineHandlers(workspacePath, confirmedPaths),
         'Use the read-only workspace tools when useful. Investigate root cause and evidence. Do not write files.',
         (event) => {
           if (event.type === 'thinking') callbacks.onActivity({ reportId, type: 'thinking', label: 'Thinking' })
@@ -354,7 +481,7 @@ export async function runInvestigation(
         settings.autoApproveTools,
       )
     }
-    const structured = ensureStructuredMarkdown(markdown)
+    const structured = ensureStructuredMarkdown(markdown, confirmedPaths)
     const result = persistResult(reportId, structured)
     callbacks.onActivity({ reportId, type: 'status', label: 'Investigation complete' })
     return result
