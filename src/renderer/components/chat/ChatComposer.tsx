@@ -1,10 +1,10 @@
-import { useState, useRef, useEffect, type ChangeEvent, type ClipboardEvent, type KeyboardEvent, type PointerEvent, type RefObject } from 'react'
-import { BookOpen, Camera, ChevronDown, ClipboardPaste, Eye, Package, Paperclip, SendHorizontal, Square, X } from 'lucide-react'
-import { getModelLabel } from '../../../shared/models'
+import { type ChangeEvent, type ClipboardEvent, type KeyboardEvent, type PointerEvent, type RefObject } from 'react'
+import { BookOpen, Camera, ClipboardPaste, Eye, Package, Paperclip, SendHorizontal, Square, X } from 'lucide-react'
 import { ContextInspector } from '../ContextInspector'
 import { AttachmentBar } from './AttachmentBar'
 import { AtContextMenu } from './AtContextMenu'
 import { SlashCommandMenu } from './SlashCommandMenu'
+import { ModelPicker } from './ModelPicker'
 import type { AgentConfig, AvailableModelEntry, AvailableModelGroup } from '../../../shared/types'
 import type { AtContextOption, ChatMessage, ContextRef, LocalAttachment, PastedImage } from '../../hooks/chat-types'
 import type { SlashCommandDef } from '../../slash-commands'
@@ -118,25 +118,10 @@ export function ChatComposer({
   onStop,
   onSend,
 }: ChatComposerProps) {
-  const modelMenuRef = useRef<HTMLDivElement | null>(null)
   const catalogModels = useAppStore((state) => state.catalogModels)
   const globalDefaultModel = useAppStore((state) => state.globalDefaultModel)
   const agentBackend = activeAgent?.backend
   const isGhCopilot = agentBackend === 'gh-copilot'
-
-  const [showModelMenu, setShowModelMenu] = useState(false)
-  const [modelMenuAbove, setModelMenuAbove] = useState(false)
-  const [modelSearch, setModelSearch] = useState('')
-  useEffect(() => {
-    if (!showModelMenu) { setModelSearch(''); return }
-    const handleClickOutside = (e: MouseEvent) => {
-      if (modelMenuRef.current && !modelMenuRef.current.contains(e.target as Node)) {
-        setShowModelMenu(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [showModelMenu])
 
   return (
     <div className="border-t border-gray-200 dark:border-gray-700/80 relative">
@@ -320,7 +305,7 @@ export function ChatComposer({
                   Cancel edit
                 </button>
               )}
-              <div className="relative flex items-center" ref={modelMenuRef}>
+              <div className="relative flex items-center">
                 {isGhCopilot ? (
                   <span
                     className="text-xs text-gray-500 dark:text-gray-400 px-2 py-1 rounded bg-gray-100 dark:bg-gray-800 cursor-default"
@@ -329,102 +314,22 @@ export function ChatComposer({
                     gh copilot
                   </span>
                 ) : (
-                  <>
-                    <button
-                      ref={modelPickerRef}
-                      type="button"
-                      aria-label="Conversation model"
-                      title={modelSourceLabel ? `${getModelLabel(effectiveModel, catalogModels)} · via ${modelSourceLabel}` : undefined}
-                      className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 px-1.5 py-1 rounded-md transition-colors max-w-[220px]"
-                      onClick={() => {
-                        if (!showModelMenu && modelPickerRef.current) {
-                          const rect = modelPickerRef.current.getBoundingClientRect()
-                          setModelMenuAbove(rect.bottom + 300 > window.innerHeight)
-                        }
-                        setShowModelMenu((prev) => !prev)
-                      }}
-                    >
-                      <span className="truncate">{getModelLabel(effectiveModel, catalogModels)}</span>
-                      {modelSourceLabel && (
-                        <span className="shrink-0 text-gray-400 dark:text-gray-500 opacity-80">· {modelSourceLabel}</span>
-                      )}
-                      <ChevronDown className="w-3 h-3 shrink-0 opacity-60" />
-                    </button>
-                    {showModelMenu && (
-                      <div className={`absolute right-0 z-30 w-72 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg flex flex-col ${modelMenuAbove ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
-                        <div className="p-1.5 border-b border-gray-100 dark:border-gray-700">
-                          <input
-                            autoFocus
-                            type="text"
-                            placeholder="Search models..."
-                            value={modelSearch}
-                            onChange={(e) => setModelSearch(e.target.value)}
-                            className="w-full px-2 py-1 text-xs rounded border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
-                          />
-                        </div>
-                        <div className="overflow-auto max-h-64 p-1">
-                          {!modelSearch && (
-                            <button
-                              type="button"
-                              className={`w-full text-left px-2 py-1.5 rounded text-xs transition-colors ${'default' === effectiveModel ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
-                              onClick={() => {
-                                setShowModelMenu(false)
-                                if (conversationId) {
-                                  void onSetConversationModel('default')
-                                } else {
-                                  onSetPendingModel(null)
-                                }
-                              }}
-                            >
-                              {globalDefaultModel && globalDefaultModel !== 'default'
-                                ? `Global default (${getModelLabel(globalDefaultModel, catalogModels)})`
-                                : 'Global default'}
-                            </button>
-                          )}
-                          {availableGroups.length === 0 && (
-                            <p className="px-2 py-2 text-xs text-gray-400 dark:text-gray-500">No models configured</p>
-                          )}
-                          {availableGroups.map((group) => {
-                            const q = modelSearch.toLowerCase()
-                            const filteredModels = q
-                              ? group.models.filter((m) => m.id.toLowerCase().includes(q) || m.label.toLowerCase().includes(q))
-                              : group.models
-                            if (filteredModels.length === 0) return null
-                            return (
-                              <div key={group.sourceKey}>
-                                <div className="px-2 pt-2 pb-1 text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500 border-t border-gray-100 dark:border-gray-700 mt-0.5">
-                                  {group.sourceLabel}
-                                </div>
-                                {filteredModels.map((model) => (
-                                  <button
-                                    key={model.id}
-                                    type="button"
-                                    className={`w-full text-left px-2 py-1.5 rounded text-xs flex items-center justify-between gap-2 transition-colors ${
-                                      model.id === effectiveModel
-                                        ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100'
-                                        : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
-                                    }`}
-                                    onClick={() => {
-                                      setShowModelMenu(false)
-                                      onSelectAvailableModel(group, model)
-                                    }}
-                                  >
-                                    <span>{getModelLabel(model.id, catalogModels) !== model.id ? getModelLabel(model.id, catalogModels) : model.label}</span>
-                                    {availableGroups.length > 1 && (
-                                      <span className="text-[9px] text-gray-400 dark:text-gray-500 shrink-0">{group.sourceLabel}</span>
-                                    )}
-                                  </button>
-                                ))}
-                              </div>
-                            )
-                          })}
-                          {modelSearch && availableGroups.every((g) => !g.models.some((m) => m.id.toLowerCase().includes(modelSearch.toLowerCase()) || m.label.toLowerCase().includes(modelSearch.toLowerCase()))) && (
-                            <p className="px-2 py-2 text-xs text-gray-400 dark:text-gray-500">No models match "{modelSearch}"</p>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </>
+                  <ModelPicker
+                    value={effectiveModel}
+                    sourceLabel={modelSourceLabel}
+                    availableGroups={availableGroups}
+                    catalogModels={catalogModels}
+                    globalDefaultModel={globalDefaultModel}
+                    buttonRef={modelPickerRef}
+                    onSelectDefault={() => {
+                      if (conversationId) {
+                        void onSetConversationModel('default')
+                      } else {
+                        onSetPendingModel(null)
+                      }
+                    }}
+                    onSelectAvailableModel={onSelectAvailableModel}
+                  />
                 )}
               </div>
                 {isGenerating ? (
