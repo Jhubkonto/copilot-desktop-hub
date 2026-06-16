@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Wrench } from 'lucide-react'
+import { Trash2, Wrench } from 'lucide-react'
 import type {
+  AvailableModelEntry,
+  AvailableModelGroup,
   ErrorReportEntry,
+  SelfHealBackend,
   SelfHealFixDone,
   SelfHealFixEvent,
   SelfHealGitEvent,
@@ -20,6 +23,8 @@ import type {
 } from '@shared/types'
 import { useAppStore } from '../store/app-store'
 import { Button, ModalShell, PhaseBar } from './ui/primitives'
+import { ModelPicker } from './chat/ModelPicker'
+import { DeleteSelfHealReportDialog } from './DeleteSelfHealReportDialog'
 
 // ---------------------------------------------------------------------------
 // Self-Heal Diff Viewer sub-component
@@ -474,8 +479,12 @@ function SelfHealPhaseBar({ phase }: { phase: SelfHealPhase }) {
 export function SelfHealPanel() {
   const visible = useAppStore((s) => s.showSelfHealPanel)
   const setShowSelfHealPanel = useAppStore((s) => s.setShowSelfHealPanel)
+  const pendingSelfHealReportId = useAppStore((s) => s.pendingSelfHealReportId)
+  const setPendingSelfHealReportId = useAppStore((s) => s.setPendingSelfHealReportId)
   const debugLogging = useAppStore((s) => s.debugLogging)
   const setDebugLogging = useAppStore((s) => s.setDebugLogging)
+  const catalogModels = useAppStore((s) => s.catalogModels)
+  const addToast = useAppStore((s) => s.addToast)
   const onClose = () => setShowSelfHealPanel(false)
   const onToggleDebugLogging = () => setDebugLogging(!debugLogging)
 
@@ -487,6 +496,7 @@ export function SelfHealPanel() {
     retryLimit: 1,
     autoApproveTools: true,
   })
+  const [availableModelGroups, setAvailableModelGroups] = useState<AvailableModelGroup[]>([])
   const [investigationOutput, setInvestigationOutput] = useState<Record<string, string>>({})
   const [investigationActivity, setInvestigationActivity] = useState<Record<string, SelfHealInvestigationActivity[]>>({})
   const [runningReportId, setRunningReportId] = useState<string | null>(null)
@@ -509,20 +519,113 @@ export function SelfHealPanel() {
   const [selfHealHistory, setSelfHealHistory] = useState<SelfHealHistoryEntry[]>([])
   const [investigationCollapsed, setInvestigationCollapsed] = useState(false)
   const [historyCollapsed, setHistoryCollapsed] = useState(true)
+  const [reportsRefreshing, setReportsRefreshing] = useState(false)
+  const [historyRefreshing, setHistoryRefreshing] = useState(false)
+  const [reviewAction, setReviewAction] = useState<'accept' | 'reject' | 'revise' | null>(null)
+  const [deletingReportId, setDeletingReportId] = useState<string | null>(null)
+  const [pendingDeleteReport, setPendingDeleteReport] = useState<ErrorReportEntry | null>(null)
 
   const selectedReport = reports.find((report) => report.id === selectedReportId) ?? reports[0] ?? null
+  const selfHealModelGroups = availableModelGroups.filter((group) => {
+    if (investigationSettings.backend === 'claude-cli') return group.sourceKey === 'claude-cli'
+    if (investigationSettings.backend === 'codex-cli') return group.sourceKey === 'codex-cli'
+    return group.sourceType === 'provider'
+  })
+  const selectedModelSourceLabel = selfHealModelGroups.find((group) =>
+    group.models.some((model) => model.id === investigationSettings.model)
+  )?.sourceLabel
+  const isReportBusy = (reportId: string): boolean => (
+    runningReportId === reportId ||
+    fixRunning === reportId ||
+    verificationRunning === reportId ||
+    recoveryRunning === reportId ||
+    deletingReportId === reportId ||
+    committingFix ||
+    gitRunning !== null ||
+    recoveryRuns[reportId]?.some((run) => run.id === reloadRunning) === true
+  )
 
-  const loadReports = async () => {
+  const hasBackendGroup = (backend: SelfHealBackend) => availableModelGroups.some((group) => group.sourceKey === backend)
+  const backendOptions: Array<{ value: SelfHealBackend; label: string }> = [
+    { value: 'byok', label: 'BYOK' },
+    ...(hasBackendGroup('claude-cli') || investigationSettings.backend === 'claude-cli'
+      ? [{ value: 'claude-cli' as const, label: 'Claude CLI' }]
+      : []),
+    ...(hasBackendGroup('codex-cli') || investigationSettings.backend === 'codex-cli'
+      ? [{ value: 'codex-cli' as const, label: 'Codex CLI' }]
+      : []),
+  ]
+
+  const loadReports = async (selectedIdOverride?: string | null) => {
     if (typeof window.api.listErrorReports !== 'function') return
     const nextReports = await window.api.listErrorReports(25)
     setReports(nextReports)
-    if (!selectedReportId && nextReports[0]) setSelectedReportId(nextReports[0].id)
+    if (pendingSelfHealReportId && nextReports.some((report) => report.id === pendingSelfHealReportId)) {
+      setSelectedReportId(pendingSelfHealReportId)
+      setPendingSelfHealReportId(null)
+    } else if (selectedIdOverride !== undefined) {
+      setSelectedReportId(selectedIdOverride ?? nextReports[0]?.id ?? null)
+    } else if (!selectedReportId && nextReports[0]) {
+      setSelectedReportId(nextReports[0].id)
+    }
   }
 
   const loadSelfHealHistory = async () => {
     if (typeof window.api.getSelfHealHistory !== 'function') return
     const entries = await window.api.getSelfHealHistory()
     setSelfHealHistory(entries)
+  }
+
+  const handleRefreshReports = async () => {
+    setReportsRefreshing(true)
+    setInvestigationStatus('Refreshing reports...')
+    try {
+      await loadReports()
+      setInvestigationStatus('Reports refreshed')
+    } catch (error) {
+      setInvestigationStatus(error instanceof Error ? error.message : String(error))
+    } finally {
+      setReportsRefreshing(false)
+    }
+  }
+
+  const handleRefreshHistory = async () => {
+    setHistoryRefreshing(true)
+    setInvestigationStatus('Refreshing history...')
+    try {
+      await loadSelfHealHistory()
+      setInvestigationStatus('History refreshed')
+    } catch (error) {
+      setInvestigationStatus(error instanceof Error ? error.message : String(error))
+    } finally {
+      setHistoryRefreshing(false)
+    }
+  }
+
+  const loadAvailableModels = async () => {
+    if (typeof window.api.listAvailableModels !== 'function') return
+    const groups = await window.api.listAvailableModels().catch(() => [])
+    setAvailableModelGroups(groups)
+  }
+
+  const handleSetBackend = (backend: SelfHealBackend) => {
+    setInvestigationSettings((settings) => {
+      const nextGroups = availableModelGroups.filter((group) => {
+        if (backend === 'claude-cli') return group.sourceKey === 'claude-cli'
+        if (backend === 'codex-cli') return group.sourceKey === 'codex-cli'
+        return group.sourceType === 'provider'
+      })
+      const modelStillAvailable = nextGroups.some((group) => group.models.some((model) => model.id === settings.model))
+      return {
+        ...settings,
+        backend,
+        model: modelStillAvailable ? settings.model : (nextGroups[0]?.models[0]?.id ?? settings.model),
+      }
+    })
+  }
+
+  const handleSelectSelfHealModel = (_group: AvailableModelGroup, model: AvailableModelEntry) => {
+    setInvestigationSettings((settings) => ({ ...settings, model: model.id }))
   }
 
   const loadVerificationRuns = async (reportId: string) => {
@@ -547,9 +650,10 @@ export function SelfHealPanel() {
     }
     void loadReports()
     void loadSelfHealHistory()
+    void loadAvailableModels()
     window.api.getInvestigationSettings().then(setInvestigationSettings).catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible])
+  }, [visible, pendingSelfHealReportId])
 
   useEffect(() => {
     if (
@@ -573,6 +677,7 @@ export function SelfHealPanel() {
     })
     const offDone = window.api.onInvestigationDone((result) => {
       setRunningReportId(null)
+      setReviewAction(null)
       setInvestigationStatus(result.status === 'done' ? 'Investigation complete' : result.error ?? 'Investigation failed')
       setInvestigationOutput((prev) => ({ ...prev, [result.reportId]: result.markdown }))
       void loadReports()
@@ -738,7 +843,13 @@ export function SelfHealPanel() {
     setStagedDiffs({})
     setReviewedFiles({})
     setExpandedDiffFile(null)
-    await window.api.startFix(reportId)
+    try {
+      await persistInvestigationSettings()
+      await window.api.startFix(reportId)
+    } catch (error) {
+      setFixRunning(null)
+      setFixStatus(error instanceof Error ? error.message : String(error))
+    }
   }
 
   const handleLoadDiff = async (reportId: string, relativePath: string) => {
@@ -771,7 +882,14 @@ export function SelfHealPanel() {
   const handleStartVerification = async (reportId: string) => {
     setVerificationRunning(reportId)
     setExpandedVerifyCommand(null)
-    const { runId } = await window.api.startVerification(reportId)
+    let runId: string
+    try {
+      await persistInvestigationSettings()
+      ;({ runId } = await window.api.startVerification(reportId))
+    } catch {
+      setVerificationRunning(null)
+      return
+    }
     setVerificationRuns((prev) => ({
       ...prev,
       [reportId]: [
@@ -862,28 +980,87 @@ export function SelfHealPanel() {
     void loadSelfHealHistory()
   }
 
-  const handleSaveInvestigationSettings = async () => {
+  const persistInvestigationSettings = async () => {
     const saved = await window.api.setInvestigationSettings(investigationSettings)
     setInvestigationSettings(saved)
+    return saved
+  }
+
+  const handleSaveInvestigationSettings = async () => {
+    await persistInvestigationSettings()
     setInvestigationStatus('Investigation settings saved')
   }
 
-  const handleStartInvestigation = async (reportId: string) => {
+  const handleStartInvestigation = async (reportId: string, action?: 'revise') => {
     setRunningReportId(reportId)
+    setReviewAction(action ?? null)
     setInvestigationStatus('Investigation started')
     setInvestigationOutput((prev) => ({ ...prev, [reportId]: '' }))
-    await window.api.startInvestigation(reportId)
+    try {
+      await persistInvestigationSettings()
+      await window.api.startInvestigation(reportId)
+    } catch (error) {
+      setRunningReportId(null)
+      setReviewAction(null)
+      setInvestigationStatus(error instanceof Error ? error.message : String(error))
+    }
   }
 
   const handleReviewInvestigation = async (reportId: string, status: 'investigated' | 'rejected') => {
-    await window.api.setSelfHealReportStatus(reportId, status)
-    setInvestigationStatus(status === 'investigated' ? 'Investigation accepted' : 'Investigation rejected')
-    await loadReports()
+    const action = status === 'investigated' ? 'accept' : 'reject'
+    setReviewAction(action)
+    setInvestigationStatus(status === 'investigated' ? 'Accepting investigation...' : 'Rejecting investigation...')
+    try {
+      await window.api.setSelfHealReportStatus(reportId, status)
+      const message = status === 'investigated' ? 'Investigation accepted' : 'Investigation rejected'
+      setInvestigationStatus(message)
+      addToast(message, 'success')
+      await loadReports()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setInvestigationStatus(message)
+      addToast(message, 'error')
+    } finally {
+      setReviewAction(null)
+    }
   }
+
+  const handleDeleteReport = async (reportId: string) => {
+    if (typeof window.api.deleteErrorReport !== 'function') return
+    setDeletingReportId(reportId)
+    setInvestigationStatus('Deleting report...')
+    try {
+      const deleted = await window.api.deleteErrorReport(reportId)
+      if (!deleted) {
+        setInvestigationStatus('Report was already deleted')
+        await loadReports(null)
+        return
+      }
+      setInvestigationOutput((prev) => { const next = { ...prev }; delete next[reportId]; return next })
+      setInvestigationActivity((prev) => { const next = { ...prev }; delete next[reportId]; return next })
+      setVerificationRuns((prev) => { const next = { ...prev }; delete next[reportId]; return next })
+      setRecoveryRuns((prev) => { const next = { ...prev }; delete next[reportId]; return next })
+      setGitPrepare((prev) => { const next = { ...prev }; delete next[reportId]; return next })
+      setGitMessage((prev) => { const next = { ...prev }; delete next[reportId]; return next })
+      setInvestigationStatus('Report deleted')
+      setPendingDeleteReport(null)
+      await loadReports(null)
+      await loadSelfHealHistory()
+    } catch (error) {
+      setInvestigationStatus(error instanceof Error ? error.message : String(error))
+    } finally {
+      setDeletingReportId(null)
+    }
+  }
+
+  const selectedReportBusy = Boolean(selectedReport && (
+    isReportBusy(selectedReport.id)
+  ))
 
   if (!visible) return null
 
   return (
+    <>
     <ModalShell
       title="Self-Heal"
       description="Investigate, fix, verify, and recover from captured bug reports."
@@ -914,13 +1091,17 @@ export function SelfHealPanel() {
             <div>
               <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Self-heal investigations</p>
               <p className="text-[11px] text-gray-500">Review bug reports and generate root-cause investigation notes.</p>
+              {investigationStatus && (
+                <p className="mt-1 text-[11px] text-blue-600 dark:text-blue-300">{investigationStatus}</p>
+              )}
             </div>
             <Button
               variant="secondary"
-              onClick={() => void loadReports()}
+              onClick={() => void handleRefreshReports()}
+              disabled={reportsRefreshing}
               className="text-[11px] px-2 py-1"
             >
-              Refresh
+              {reportsRefreshing ? 'Refreshing...' : 'Refresh'}
             </Button>
           </div>
           <div className="grid gap-0 md:grid-cols-[260px_1fr]">
@@ -931,11 +1112,12 @@ export function SelfHealPanel() {
                     Backend
                     <select
                       value={investigationSettings.backend}
-                      onChange={(event) => setInvestigationSettings((s) => ({ ...s, backend: event.target.value === 'claude-cli' ? 'claude-cli' : 'byok' }))}
+                      onChange={(event) => handleSetBackend(event.target.value as SelfHealBackend)}
                       className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                     >
-                      <option value="byok">BYOK</option>
-                      <option value="claude-cli">Claude CLI</option>
+                      {backendOptions.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
                     </select>
                   </label>
                   <label className="text-[11px] text-gray-500">
@@ -950,14 +1132,26 @@ export function SelfHealPanel() {
                     />
                   </label>
                 </div>
-                <label className="text-[11px] text-gray-500">
-                  Model
-                  <input
+                <div className="text-[11px] text-gray-500">
+                  <p>Model</p>
+                  <ModelPicker
                     value={investigationSettings.model}
-                    onChange={(event) => setInvestigationSettings((s) => ({ ...s, model: event.target.value }))}
-                    className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs font-mono dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                    sourceLabel={selectedModelSourceLabel}
+                    availableGroups={selfHealModelGroups}
+                    catalogModels={catalogModels}
+                    includeDefault={false}
+                    emptyLabel={
+                      investigationSettings.backend === 'codex-cli'
+                        ? 'Codex CLI is not available'
+                        : investigationSettings.backend === 'claude-cli'
+                          ? 'Claude CLI is not available'
+                          : 'No provider models configured'
+                    }
+                    buttonClassName="mt-1 flex w-full items-center justify-between gap-2 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-800 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                    menuClassName="left-0 right-auto"
+                    onSelectAvailableModel={handleSelectSelfHealModel}
                   />
-                </label>
+                </div>
                 <label className="flex items-center gap-2 text-[11px] text-gray-500">
                   <input
                     type="checkbox"
@@ -978,20 +1172,41 @@ export function SelfHealPanel() {
                 {reports.length === 0 ? (
                   <p className="p-3 text-xs text-gray-400">No bug reports captured.</p>
                 ) : (
-                  reports.map((report) => (
-                    <button
-                      key={report.id}
-                      onClick={() => setSelectedReportId(report.id)}
-                      className={`block w-full border-b border-gray-100 px-3 py-2 text-left text-xs dark:border-gray-800 ${
-                        selectedReport?.id === report.id ? 'bg-blue-50 dark:bg-blue-950/30' : 'hover:bg-gray-50 dark:hover:bg-gray-800/60'
-                      }`}
-                    >
-                      <span className="block truncate font-medium text-gray-700 dark:text-gray-200">{report.title}</span>
-                      <span className="mt-0.5 block text-[11px] text-gray-400">
-                        {report.status} · {new Date(report.created_at).toLocaleString()}
-                      </span>
-                    </button>
-                  ))
+                  reports.map((report) => {
+                    const reportBusy = isReportBusy(report.id)
+                    return (
+                      <div
+                        key={report.id}
+                        className={`group flex items-start gap-2 border-b border-gray-100 px-3 py-2 text-xs dark:border-gray-800 ${
+                          selectedReport?.id === report.id ? 'bg-blue-50 dark:bg-blue-950/30' : 'hover:bg-gray-50 dark:hover:bg-gray-800/60'
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setSelectedReportId(report.id)}
+                          className="min-w-0 flex-1 text-left"
+                        >
+                          <span className="block truncate font-medium text-gray-700 dark:text-gray-200">{report.title}</span>
+                          <span className="mt-0.5 block text-[11px] text-gray-400">
+                            {report.status} · {new Date(report.created_at).toLocaleString()}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            setPendingDeleteReport(report)
+                          }}
+                          disabled={reportBusy}
+                          className="invisible shrink-0 rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-40 group-hover:visible dark:hover:bg-red-900/20"
+                          title={reportBusy ? 'Wait for the current Self-Heal action to finish before deleting' : 'Delete report'}
+                          aria-label={`Delete ${report.title}`}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </div>
+                    )
+                  })
                 )}
               </div>
             </div>
@@ -1011,13 +1226,25 @@ export function SelfHealPanel() {
                       <p className="text-xs font-medium text-gray-800 dark:text-gray-100">{selectedReport.title}</p>
                       <p className="mt-1 text-xs text-gray-500 break-words">{selectedReport.description || 'No description.'}</p>
                     </div>
-                    <Button
-                      variant="primary"
-                      onClick={() => void handleStartInvestigation(selectedReport.id)}
-                      disabled={runningReportId !== null}
-                    >
-                      {runningReportId === selectedReport.id ? 'Investigating...' : 'Investigate'}
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="primary"
+                        onClick={() => void handleStartInvestigation(selectedReport.id)}
+                        disabled={runningReportId !== null}
+                      >
+                        {runningReportId === selectedReport.id && reviewAction !== 'revise' ? 'Investigating...' : 'Investigate'}
+                      </Button>
+                      <Button
+                        variant="danger"
+                        onClick={() => setPendingDeleteReport(selectedReport)}
+                        disabled={selectedReportBusy}
+                        className="px-2"
+                        title={selectedReportBusy ? 'Wait for the current Self-Heal action to finish before deleting' : 'Delete report'}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        {deletingReportId === selectedReport.id ? 'Deleting...' : 'Delete'}
+                      </Button>
+                    </div>
                   </div>
                   {(selectedReport.investigation_markdown || (investigationActivity[selectedReport.id]?.length ?? 0) > 0) && (
                     <Button
@@ -1030,30 +1257,35 @@ export function SelfHealPanel() {
                   )}
                   {!investigationCollapsed && (
                     <>
-                      {selectedReport.investigation_markdown && (
+                      {selectedReport.investigation_markdown && selectedReport.status === 'investigating' && (
                         <div className="flex flex-wrap gap-2">
                           <button
                             onClick={() => void handleReviewInvestigation(selectedReport.id, 'investigated')}
-                            className="text-[11px] px-2 py-1 rounded-md border border-green-300 text-green-700 hover:bg-green-50 dark:border-green-800 dark:text-green-300 dark:hover:bg-green-950/30"
+                            disabled={reviewAction !== null || runningReportId !== null}
+                            className="text-[11px] px-2 py-1 rounded-md border border-green-300 text-green-700 hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-green-800 dark:text-green-300 dark:hover:bg-green-950/30"
                           >
-                            Accept
+                            {reviewAction === 'accept' ? 'Accepting...' : 'Accept'}
                           </button>
                           <Button
                             variant="danger"
                             onClick={() => void handleReviewInvestigation(selectedReport.id, 'rejected')}
+                            disabled={reviewAction !== null || runningReportId !== null}
                             className="text-[11px] px-2 py-1"
                           >
-                            Reject
+                            {reviewAction === 'reject' ? 'Rejecting...' : 'Reject'}
                           </Button>
                           <Button
                             variant="secondary"
-                            onClick={() => void handleStartInvestigation(selectedReport.id)}
+                            onClick={() => void handleStartInvestigation(selectedReport.id, 'revise')}
                             disabled={runningReportId !== null}
                             className="text-[11px] px-2 py-1"
                           >
-                            Revise
+                            {reviewAction === 'revise' ? 'Revising...' : 'Revise'}
                           </Button>
                         </div>
+                      )}
+                      {selectedReport.investigation_markdown && selectedReport.status === 'rejected' && (
+                        <p className="text-[11px] font-medium text-red-600 dark:text-red-400">Investigation rejected.</p>
                       )}
                       {(investigationActivity[selectedReport.id]?.length ?? 0) > 0 && (
                         <div className="rounded border border-gray-200 p-2 dark:border-gray-700">
@@ -1132,22 +1364,24 @@ export function SelfHealPanel() {
 
         {/* Self-heal history */}
         <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <button
-            type="button"
-            onClick={() => setHistoryCollapsed((collapsed) => !collapsed)}
-            className="w-full flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700 text-left"
-          >
-            <div>
+          <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
+            <button
+              type="button"
+              onClick={() => setHistoryCollapsed((collapsed) => !collapsed)}
+              className="text-left"
+            >
               <p className="text-xs font-medium text-gray-700 dark:text-gray-300">{historyCollapsed ? '▸' : '▾'} Self-heal history</p>
               <p className="text-[11px] text-gray-500">Audit trail of all self-heal runs.</p>
-            </div>
-            <span
-              onClick={(event) => { event.stopPropagation(); void loadSelfHealHistory() }}
-              className="text-[11px] px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+            </button>
+            <Button
+              variant="secondary"
+              onClick={() => void handleRefreshHistory()}
+              disabled={historyRefreshing}
+              className="text-[11px] px-2 py-1"
             >
-              Refresh
-            </span>
-          </button>
+              {historyRefreshing ? 'Refreshing...' : 'Refresh'}
+            </Button>
+          </div>
           {!historyCollapsed && (
           <div className="max-h-52 overflow-y-auto">
             {selfHealHistory.length === 0 ? (
@@ -1203,5 +1437,14 @@ export function SelfHealPanel() {
         </div>
       </div>
     </ModalShell>
+    {pendingDeleteReport && (
+      <DeleteSelfHealReportDialog
+        reportTitle={pendingDeleteReport.title}
+        deleting={deletingReportId === pendingDeleteReport.id}
+        onConfirm={() => void handleDeleteReport(pendingDeleteReport.id)}
+        onCancel={() => setPendingDeleteReport(null)}
+      />
+    )}
+    </>
   )
 }

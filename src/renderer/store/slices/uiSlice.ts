@@ -20,6 +20,7 @@ export interface UiSlice {
   showSettings: boolean
   showOnboarding: boolean
   showSelfHealPanel: boolean
+  pendingSelfHealReportId: string | null
   showFeatureGeneratorPanel: boolean
   showArtifactsPanel: boolean
   pendingArtifactAttach: { artifactId: string; versionId?: string } | null
@@ -42,6 +43,7 @@ export interface UiSlice {
   setShowMcpPanel: (show: boolean) => void
   setShowSettings: (show: boolean) => void
   setShowSelfHealPanel: (show: boolean) => void
+  setPendingSelfHealReportId: (reportId: string | null) => void
   setShowFeatureGeneratorPanel: (show: boolean) => void
   setShowArtifactsPanel: (show: boolean) => void
   requestArtifactAttach: (artifactId: string, versionId?: string) => void
@@ -83,6 +85,7 @@ export const createUiSlice: StateCreator<
   settingsInitialTab: null,
   showOnboarding: false,
   showSelfHealPanel: false,
+  pendingSelfHealReportId: null,
   showFeatureGeneratorPanel: false,
   showArtifactsPanel: false,
   pendingArtifactAttach: null,
@@ -146,6 +149,12 @@ export const createUiSlice: StateCreator<
   setShowSelfHealPanel: (show) => {
     set((s) => {
       s.showSelfHealPanel = show
+    })
+  },
+
+  setPendingSelfHealReportId: (reportId) => {
+    set((s) => {
+      s.pendingSelfHealReportId = reportId
     })
   },
 

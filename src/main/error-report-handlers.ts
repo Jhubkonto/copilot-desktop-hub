@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { mkdirSync, writeFileSync } from 'fs'
+import { mkdirSync, rmSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
 import { app } from 'electron'
@@ -77,6 +77,14 @@ function writeScreenshot(reportId: string, dataUrl?: string | null): string | nu
   return screenshotPath
 }
 
+function removeUserDataChild(...segments: string[]): void {
+  const userData = path.resolve(app.getPath('userData'))
+  const target = path.resolve(userData, ...segments)
+  const relative = path.relative(userData, target)
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return
+  rmSync(target, { recursive: true, force: true })
+}
+
 export function createErrorReport(input: ErrorReportCaptureInput): ErrorReportCaptureResult {
   const id = randomUUID()
   const now = Date.now()
@@ -108,6 +116,41 @@ export function createErrorReport(input: ErrorReportCaptureInput): ErrorReportCa
   return { reportId: id, screenshotPath, createdAt: now }
 }
 
+export function deleteErrorReport(reportId: string): boolean {
+  if (!reportId) return false
+
+  const db = getDatabase()
+  const row = db
+    .prepare('SELECT id FROM error_reports WHERE id = ?')
+    .get(reportId) as { id: string } | undefined
+  if (!row) return false
+
+  const recoveryRows = db
+    .prepare('SELECT id FROM self_heal_recovery_runs WHERE report_id = ?')
+    .all(reportId) as Array<{ id: string }>
+  const recoveryIds = new Set(recoveryRows.map((recovery) => recovery.id))
+  const pendingRecovery = db
+    .prepare("SELECT value FROM settings WHERE key = 'self_heal_pending_recovery_id'")
+    .get() as { value: string } | undefined
+
+  db.transaction(() => {
+    db.prepare('DELETE FROM self_heal_diffs WHERE report_id = ?').run(reportId)
+    db.prepare('DELETE FROM self_heal_verification_runs WHERE report_id = ?').run(reportId)
+    db.prepare('DELETE FROM self_heal_recovery_runs WHERE report_id = ?').run(reportId)
+    db.prepare('DELETE FROM self_heal_history WHERE report_id = ?').run(reportId)
+    db.prepare('DELETE FROM error_reports WHERE id = ?').run(reportId)
+    if (pendingRecovery?.value && recoveryIds.has(pendingRecovery.value)) {
+      db.prepare("DELETE FROM settings WHERE key = 'self_heal_pending_recovery_id'").run()
+    }
+  })()
+
+  removeUserDataChild('error-reports', reportId)
+  removeUserDataChild('self-heal', 'staging', reportId)
+  removeUserDataChild('self-heal', 'backups', reportId)
+
+  return true
+}
+
 export function registerErrorReportHandlers(): void {
   safeHandle('error-report:capture', (_event, input: ErrorReportCaptureInput) => createErrorReport(input))
 
@@ -126,4 +169,6 @@ export function registerErrorReportHandlers(): void {
       .get(id) as Record<string, unknown> | undefined
     return row ? rowToErrorReport(row) : null
   })
+
+  safeHandle('error-report:delete', (_event, id: string) => deleteErrorReport(id))
 }
