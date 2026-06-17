@@ -66,7 +66,23 @@ sealed class WsEvent {
         val projectId: String?,
         val title: String,
     ) : WsEvent()
+    data class ConversationRenamed(val id: String, val title: String) : WsEvent()
+    data class ConversationDeleted(val id: String) : WsEvent()
+    data class ConversationSearchResults(val conversations: List<Conversation>) : WsEvent()
+    data class MessageDeleted(val id: String) : WsEvent()
+    data class SelfHealReports(val reports: List<ErrorReport>) : WsEvent()
 }
+
+data class ErrorReport(
+    val id: String,
+    val title: String,
+    val description: String,
+    val status: String,
+    val fixStatus: String,
+    val investigationRootCause: String?,
+    val investigationMarkdown: String?,
+    val createdAt: Long,
+)
 
 data class HistoryMessage(
     val id: String,

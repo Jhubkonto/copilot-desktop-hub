@@ -3,6 +3,7 @@ package io.nexy.android.data
 import io.nexy.android.data.model.Agent
 import io.nexy.android.data.model.AndroidUpdateManifest
 import io.nexy.android.data.model.Conversation
+import io.nexy.android.data.model.ErrorReport
 import io.nexy.android.data.model.HistoryMessage
 import io.nexy.android.data.model.ModelListSource
 import io.nexy.android.data.model.ModelOption
@@ -27,6 +28,7 @@ fun parseWsEvent(
     models: MutableStateFlow<List<ModelOption>>,
     modelSource: MutableStateFlow<ModelListSource?>,
     androidUpdateManifest: MutableStateFlow<AndroidUpdateManifest?>,
+    errorReports: MutableStateFlow<List<ErrorReport>>,
 ) {
     try {
         val obj = JSONObject(text)
@@ -69,22 +71,7 @@ fun parseWsEvent(
                     data != null && data.has("id") -> JSONArray().put(data)
                     else -> obj.optJSONArray("data") ?: JSONArray()
                 }
-                val list = (0 until rows.length()).map { i ->
-                    val row = rows.getJSONObject(i)
-                    Conversation(
-                        id = row.optString("id"),
-                        title = row.optString("title"),
-                        created_at = row.optString("created_at"),
-                        updated_at = row.optString("updated_at"),
-                        agent_id = row.nullableString("agent_id"),
-                        agent_name = row.nullableString("agent_name"),
-                        agent_icon = row.nullableString("agent_icon"),
-                        project_id = row.nullableString("project_id"),
-                        project_name = row.nullableString("project_name"),
-                        model = row.nullableString("model"),
-                        last_message = row.nullableString("last_message"),
-                    )
-                }
+                val list = parseConversationArray(rows)
                 conversations.value = list
                 WsEvent.ConversationList(list)
             }
@@ -252,8 +239,64 @@ fun parseWsEvent(
                 title = data?.optString("title") ?: "New Chat",
             )
 
+            "conversation:renamed" -> {
+                val id = data?.optString("id") ?: ""
+                val title = data?.optString("title") ?: ""
+                conversations.value = conversations.value.map { if (it.id == id) it.copy(title = title) else it }
+                WsEvent.ConversationRenamed(id, title)
+            }
+
+            "conversation:deleted" -> {
+                val id = data?.optString("id") ?: ""
+                conversations.value = conversations.value.filter { it.id != id }
+                WsEvent.ConversationDeleted(id)
+            }
+
+            "conversation:search-results" -> WsEvent.ConversationSearchResults(
+                conversations = parseConversationArray(data?.optJSONArray("conversations") ?: JSONArray())
+            )
+
+            "message:deleted" -> WsEvent.MessageDeleted(id = data?.optString("id") ?: "")
+
+            "self-heal:reports" -> {
+                val reportsArray = data?.optJSONArray("reports") ?: JSONArray()
+                val list = (0 until reportsArray.length()).map { i ->
+                    val r = reportsArray.getJSONObject(i)
+                    ErrorReport(
+                        id = r.optString("id"),
+                        title = r.optString("title"),
+                        description = r.optString("description"),
+                        status = r.optString("status", "open"),
+                        fixStatus = r.optString("fix_status", "none"),
+                        investigationRootCause = r.nullableString("investigation_root_cause"),
+                        investigationMarkdown = r.nullableString("investigation_markdown"),
+                        createdAt = r.optLong("created_at", 0L),
+                    )
+                }
+                errorReports.value = list
+                WsEvent.SelfHealReports(list)
+            }
+
             else -> return
         }
         scope.launch { events.emit(wsEvent) }
     } catch (_: Exception) {}
 }
+
+private fun parseConversationArray(arr: JSONArray): List<Conversation> =
+    (0 until arr.length()).map { i ->
+        val row = arr.getJSONObject(i)
+        Conversation(
+            id = row.optString("id"),
+            title = row.optString("title"),
+            created_at = row.optString("created_at"),
+            updated_at = row.optString("updated_at"),
+            agent_id = row.nullableString("agent_id"),
+            agent_name = row.nullableString("agent_name"),
+            agent_icon = row.nullableString("agent_icon"),
+            project_id = row.nullableString("project_id"),
+            project_name = row.nullableString("project_name"),
+            model = row.nullableString("model"),
+            last_message = row.nullableString("last_message"),
+        )
+    }

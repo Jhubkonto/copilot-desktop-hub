@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import io.nexy.android.data.model.Agent
 import io.nexy.android.data.model.AndroidUpdateManifest
 import io.nexy.android.data.model.Conversation
+import io.nexy.android.data.model.ErrorReport
 import io.nexy.android.data.model.ModelListSource
 import io.nexy.android.data.model.ModelOption
 import io.nexy.android.data.model.Project
@@ -67,6 +68,9 @@ object WsRepository : WsClient {
 
     private val _androidUpdateManifest = MutableStateFlow<AndroidUpdateManifest?>(null)
     val androidUpdateManifest: StateFlow<AndroidUpdateManifest?> = _androidUpdateManifest
+
+    private val _errorReports = MutableStateFlow<List<ErrorReport>>(emptyList())
+    val errorReports: StateFlow<List<ErrorReport>> = _errorReports
 
     private val _profiles = MutableStateFlow<List<PairedServerProfile>>(emptyList())
     val profiles: StateFlow<List<PairedServerProfile>> = _profiles
@@ -192,6 +196,7 @@ object WsRepository : WsClient {
                     models = _models,
                     modelSource = _modelSource,
                     androidUpdateManifest = _androidUpdateManifest,
+                    errorReports = _errorReports,
                 )
             }
 
@@ -236,6 +241,7 @@ object WsRepository : WsClient {
         _modelSource.value = null
         _androidUpdateManifest.value = null
         _serverVersion.value = null
+        _errorReports.value = emptyList()
     }
 
     fun forgetServer() {
@@ -280,6 +286,12 @@ object WsRepository : WsClient {
         obj.put("data", mapToJson(data))
         ws?.send(obj.toString())
     }
+
+    fun renameConversation(id: String, title: String) { send("conversation:rename", mapOf("id" to id, "title" to title)) }
+    fun deleteConversation(id: String) { send("conversation:delete", mapOf("id" to id)) }
+    fun searchConversations(query: String) { send("conversation:search", mapOf("query" to query)) }
+    fun deleteMessage(id: String) { send("message:delete", mapOf("id" to id)) }
+    fun refreshReports() { send("self-heal:get-reports", emptyMap()) }
 
     fun cancelApprovalNotification() {
         app?.getSystemService(NotificationManager::class.java)
