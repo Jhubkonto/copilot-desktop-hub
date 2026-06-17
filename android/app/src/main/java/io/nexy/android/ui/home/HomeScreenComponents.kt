@@ -58,7 +58,7 @@ fun ConversationRow(
         color = MaterialTheme.colorScheme.surface,
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -111,31 +111,30 @@ fun ConversationRow(
                     }
                 }
             }
-            Row(
-                modifier = Modifier.padding(top = 3.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                val contextParts = listOfNotNull(
-                    conv.agent_name?.takeIf { it.isNotBlank() }?.let { "Agent: $it" },
-                    conv.project_name?.takeIf { it.isNotBlank() }?.let { "Project: $it" },
-                )
+            val contextParts = listOfNotNull(
+                conv.agent_name?.takeIf { it.isNotBlank() }?.let { "Agent: $it" },
+                conv.project_name?.takeIf { it.isNotBlank() }?.let { "Project: $it" },
+            )
+            if (contextParts.isNotEmpty()) {
                 Text(
                     text = contextParts.joinToString(" · "),
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (contextParts.isNotEmpty()) MaterialTheme.colorScheme.primary else Color.Transparent,
+                    color = MaterialTheme.colorScheme.primary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp),
                 )
             }
-            Text(
-                text = preview,
-                style = MaterialTheme.typography.bodySmall,
-                color = if (preview.isNotEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else Color.Transparent,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 4.dp),
-            )
+            if (preview.isNotEmpty()) {
+                Text(
+                    text = preview,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
         }
     }
 }
