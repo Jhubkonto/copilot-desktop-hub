@@ -1,7 +1,7 @@
 package io.nexy.android.ui.chat
 
-import androidx.compose.ui.platform.ClipboardManager
-import androidx.compose.ui.text.AnnotatedString
+import android.content.ClipData
+import android.content.ClipboardManager
 
 fun decodeDataUrl(dataUrl: String): android.graphics.Bitmap? = runCatching {
     val bytes = android.util.Base64.decode(dataUrl.substringAfter(','), android.util.Base64.DEFAULT)
@@ -9,5 +9,5 @@ fun decodeDataUrl(dataUrl: String): android.graphics.Bitmap? = runCatching {
 }.getOrNull()
 
 fun copyMessage(clipboardManager: ClipboardManager, text: String) {
-    if (text.isNotBlank()) clipboardManager.setText(AnnotatedString(text))
+    if (text.isNotBlank()) clipboardManager.setPrimaryClip(ClipData.newPlainText("Nexy message", text))
 }

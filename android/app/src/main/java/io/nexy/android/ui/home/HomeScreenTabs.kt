@@ -22,9 +22,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -36,12 +40,9 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.material3.Surface
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -58,6 +59,8 @@ import androidx.compose.ui.unit.dp
 import io.nexy.android.data.model.Agent
 import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.Project
+import io.nexy.android.ui.components.NexyConfirmDialog
+import io.nexy.android.ui.components.NexyEmptyState
 import kotlinx.coroutines.launch
 
 private sealed class ChatFilter {
@@ -85,6 +88,7 @@ fun ChatsTab(
     var activeFilter by remember { mutableStateOf<ChatFilter>(ChatFilter.All) }
     var showFilterSheet by remember { mutableStateOf(false) }
     var renamingConversation by remember { mutableStateOf<Conversation?>(null) }
+    var deletingConversation by remember { mutableStateOf<Conversation?>(null) }
     var renameText by remember { mutableStateOf("") }
     val filterSheetState = rememberModalBottomSheetState()
     val scope = rememberCoroutineScope()
@@ -138,6 +142,20 @@ fun ChatsTab(
             dismissButton = {
                 TextButton(onClick = { renamingConversation = null }) { Text("Cancel") }
             },
+        )
+    }
+
+    deletingConversation?.let { conv ->
+        NexyConfirmDialog(
+            title = "Delete chat?",
+            message = "\"${conv.title.ifBlank { "Untitled" }}\" will be removed from the paired desktop.",
+            confirmLabel = "Delete",
+            destructive = true,
+            onConfirm = {
+                onDeleteConversation(conv.id)
+                deletingConversation = null
+            },
+            onDismiss = { deletingConversation = null },
         )
     }
 
@@ -204,13 +222,15 @@ fun ChatsTab(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                Text(
-                    "No conversations yet.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                NexyEmptyState(
+                    title = "No conversations yet.",
+                    action = {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            TextButton(onClick = onRefresh) { Text("Refresh") }
+                            TextButton(onClick = onDisconnect) { Text("Disconnect") }
+                        }
+                    },
                 )
-                TextButton(onClick = onRefresh) { Text("Refresh") }
-                TextButton(onClick = onDisconnect) { Text("Disconnect") }
             }
         } else {
             Column(modifier = Modifier.fillMaxSize()) {
@@ -292,36 +312,15 @@ fun ChatsTab(
                 } else {
                     LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
                         items(displayList, key = { it.id }) { conv ->
-                            val dismissState = rememberSwipeToDismissBoxState(
-                                confirmValueChange = { value ->
-                                    if (value == SwipeToDismissBoxValue.EndToStart) {
-                                        onDeleteConversation(conv.id)
-                                        true
-                                    } else false
-                                }
-                            )
-                            SwipeToDismissBox(
-                                state = dismissState,
-                                enableDismissFromStartToEnd = false,
-                                backgroundContent = {
-                                    Box(
-                                        modifier = Modifier.fillMaxSize().background(Color(0xFFB00020)).padding(end = 20.dp),
-                                        contentAlignment = Alignment.CenterEnd,
-                                    ) {
-                                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.White)
-                                    }
+                            ConversationRow(
+                                conv = conv,
+                                onOpenChat = onOpenChat,
+                                onRename = { _, _ ->
+                                    renameText = conv.title
+                                    renamingConversation = conv
                                 },
-                            ) {
-                                ConversationRow(
-                                    conv = conv,
-                                    onOpenChat = onOpenChat,
-                                    onRename = { id, _ ->
-                                        renameText = conv.title
-                                        renamingConversation = conv
-                                    },
-                                    onDelete = { id -> onDeleteConversation(id) },
-                                )
-                            }
+                                onDelete = { deletingConversation = conv },
+                            )
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         }
                     }
@@ -349,6 +348,7 @@ fun ProjectsTab(
     val sheetState = rememberModalBottomSheetState()
     val scope = rememberCoroutineScope()
     var renameTarget by remember { mutableStateOf<Project?>(null) }
+    var deleteTarget by remember { mutableStateOf<Project?>(null) }
     var renameText by remember { mutableStateOf("") }
 
     if (showCreateSheet) {
@@ -419,96 +419,112 @@ fun ProjectsTab(
         )
     }
 
+    deleteTarget?.let { target ->
+        NexyConfirmDialog(
+            title = "Delete project?",
+            message = "\"${target.name}\" and its project settings will be removed from the paired desktop.",
+            confirmLabel = "Delete",
+            destructive = true,
+            onConfirm = {
+                onDeleteProject(target.id)
+                deleteTarget = null
+            },
+            onDismiss = { deleteTarget = null },
+        )
+    }
+
     RefreshableContent(isRefreshing = isRefreshing, onRefresh = onRefresh) {
         if (projects.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    "No projects yet. Tap + to create one.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                NexyEmptyState(
+                    title = "No projects yet.",
+                    detail = "Tap + to create one.",
                 )
             }
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(projects, key = { it.id }) { project ->
                     val accentColor = projectColor(project.color)
-                    val dismissState = rememberSwipeToDismissBoxState(
-                        confirmValueChange = { value ->
-                            if (value == SwipeToDismissBoxValue.EndToStart) {
-                                onDeleteProject(project.id)
-                                true
-                            } else false
-                        }
-                    )
-                    SwipeToDismissBox(
-                        state = dismissState,
-                        enableDismissFromStartToEnd = false,
-                        backgroundContent = {
-                            Box(
-                                modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.error),
-                                contentAlignment = Alignment.CenterEnd,
-                            ) {
-                                Icon(
-                                    Icons.Default.Delete,
-                                    contentDescription = "Delete",
-                                    tint = MaterialTheme.colorScheme.onError,
-                                    modifier = Modifier.padding(end = 20.dp),
-                                )
-                            }
-                        },
+                    var menuExpanded by remember { mutableStateOf(false) }
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().combinedClickable(
+                            onClick = { onOpenProjectHistory(project.id) },
+                            onLongClick = {
+                                renameText = project.name
+                                renameTarget = project
+                            },
+                        ),
+                        color = MaterialTheme.colorScheme.surface,
                     ) {
-                        Surface(
-                            modifier = Modifier.fillMaxWidth().combinedClickable(
-                                onClick = { onOpenProjectHistory(project.id) },
-                                onLongClick = {
-                                    renameText = project.name
-                                    renameTarget = project
-                                },
-                            ),
-                            color = MaterialTheme.colorScheme.surface,
+                        Row(
+                            modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
-                                verticalAlignment = Alignment.CenterVertically,
+                            Box(modifier = Modifier.width(4.dp).fillMaxHeight().background(accentColor))
+                            Column(
+                                modifier = Modifier.weight(1f).padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(3.dp),
                             ) {
-                                Box(modifier = Modifier.width(4.dp).fillMaxHeight().background(accentColor))
-                                Column(
-                                    modifier = Modifier.weight(1f).padding(horizontal = 14.dp, vertical = 12.dp),
-                                    verticalArrangement = Arrangement.spacedBy(3.dp),
-                                ) {
-                                    Text(
-                                        text = project.name,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        fontWeight = FontWeight.Medium,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    val agentCount = project.agentIcons.size
-                                    val chatCount = project.chatCount
-                                    val subtitle = buildString {
-                                        append(if (agentCount == 0) "No agents" else "$agentCount agent${if (agentCount != 1) "s" else ""}")
-                                        append(" · ")
-                                        append(if (chatCount == 0) "No chats" else "$chatCount chat${if (chatCount != 1) "s" else ""}")
-                                    }
-                                    Text(
-                                        text = subtitle,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                    if (project.agentIcons.isNotEmpty()) {
-                                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            project.agentIcons.forEach { emoji ->
-                                                Text(text = emoji, style = MaterialTheme.typography.bodyMedium)
-                                            }
+                                Text(
+                                    text = project.name,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                val agentCount = project.agentIcons.size
+                                val chatCount = project.chatCount
+                                val subtitle = buildString {
+                                    append(if (agentCount == 0) "No agents" else "$agentCount agent${if (agentCount != 1) "s" else ""}")
+                                    append(" · ")
+                                    append(if (chatCount == 0) "No chats" else "$chatCount chat${if (chatCount != 1) "s" else ""}")
+                                }
+                                Text(
+                                    text = subtitle,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                if (project.agentIcons.isNotEmpty()) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        project.agentIcons.forEach { emoji ->
+                                            Text(text = emoji, style = MaterialTheme.typography.bodyMedium)
                                         }
                                     }
                                 }
-                                Text(
-                                    text = "View chats →",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(end = 16.dp),
-                                )
+                            }
+                            Text(
+                                text = "View chats →",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(end = 4.dp),
+                            )
+                            Box(modifier = Modifier.padding(end = 8.dp)) {
+                                IconButton(onClick = { menuExpanded = true }) {
+                                    Icon(
+                                        Icons.Default.MoreVert,
+                                        contentDescription = "Project actions",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                                    DropdownMenuItem(
+                                        text = { Text("Rename") },
+                                        leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            renameText = project.name
+                                            renameTarget = project
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Delete") },
+                                        leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            deleteTarget = project
+                                        },
+                                    )
+                                }
                             }
                         }
                     }
@@ -535,6 +551,7 @@ fun AgentsTab(
     val sheetState = rememberModalBottomSheetState()
     val scope = rememberCoroutineScope()
     var renameTarget by remember { mutableStateOf<Agent?>(null) }
+    var deleteTarget by remember { mutableStateOf<Agent?>(null) }
     var renameText by remember { mutableStateOf("") }
     var renameIcon by remember { mutableStateOf("") }
 
@@ -611,72 +628,89 @@ fun AgentsTab(
         )
     }
 
+    deleteTarget?.let { target ->
+        NexyConfirmDialog(
+            title = "Delete agent?",
+            message = "\"${target.name}\" will be removed from the paired desktop.",
+            confirmLabel = "Delete",
+            destructive = true,
+            onConfirm = {
+                onDeleteAgent(target.id)
+                deleteTarget = null
+            },
+            onDismiss = { deleteTarget = null },
+        )
+    }
+
     RefreshableContent(isRefreshing = isRefreshing, onRefresh = onRefresh) {
         if (agents.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    "No agents yet. Tap + to create one.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                NexyEmptyState(
+                    title = "No agents yet.",
+                    detail = "Tap + to create one.",
                 )
             }
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(agents, key = { it.id }) { agent ->
-                    val dismissState = rememberSwipeToDismissBoxState(
-                        confirmValueChange = { value ->
-                            if (value == SwipeToDismissBoxValue.EndToStart) {
-                                onDeleteAgent(agent.id)
-                                true
-                            } else false
-                        }
-                    )
-                    SwipeToDismissBox(
-                        state = dismissState,
-                        enableDismissFromStartToEnd = false,
-                        backgroundContent = {
-                            Box(
-                                modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.error),
-                                contentAlignment = Alignment.CenterEnd,
-                            ) {
-                                Icon(
-                                    Icons.Default.Delete,
-                                    contentDescription = "Delete",
-                                    tint = MaterialTheme.colorScheme.onError,
-                                    modifier = Modifier.padding(end = 20.dp),
-                                )
-                            }
-                        },
+                    var menuExpanded by remember { mutableStateOf(false) }
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().combinedClickable(
+                            onClick = { onOpenAgentHistory(agent.id) },
+                            onLongClick = {
+                                renameText = agent.name
+                                renameIcon = agent.icon
+                                renameTarget = agent
+                            },
+                        ),
+                        color = MaterialTheme.colorScheme.surface,
                     ) {
-                        Surface(
-                            modifier = Modifier.fillMaxWidth().combinedClickable(
-                                onClick = { onOpenAgentHistory(agent.id) },
-                                onLongClick = {
-                                    renameText = agent.name
-                                    renameIcon = agent.icon
-                                    renameTarget = agent
-                                },
-                            ),
-                            color = MaterialTheme.colorScheme.surface,
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                if (agent.icon.isNotBlank()) {
-                                    Text(text = agent.icon, style = MaterialTheme.typography.titleMedium)
+                            if (agent.icon.isNotBlank()) {
+                                Text(text = agent.icon, style = MaterialTheme.typography.titleMedium)
+                            }
+                            Text(
+                                text = agent.name,
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                text = "View chats →",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            Box {
+                                IconButton(onClick = { menuExpanded = true }) {
+                                    Icon(
+                                        Icons.Default.MoreVert,
+                                        contentDescription = "Agent actions",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
                                 }
-                                Text(
-                                    text = agent.name,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                Text(
-                                    text = "View chats →",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
+                                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                                    DropdownMenuItem(
+                                        text = { Text("Edit") },
+                                        leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            renameText = agent.name
+                                            renameIcon = agent.icon
+                                            renameTarget = agent
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Delete") },
+                                        leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            deleteTarget = agent
+                                        },
+                                    )
+                                }
                             }
                         }
                     }
