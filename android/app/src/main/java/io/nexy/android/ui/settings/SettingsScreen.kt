@@ -28,6 +28,10 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onForgetServer: () -> Unit,
     onOpenSelfHeal: () -> Unit = {},
+    onOpenProviders: () -> Unit = {},
+    onOpenFeatureGenerator: () -> Unit = {},
+    onOpenArtifacts: () -> Unit = {},
+    onOpenPromptLibrary: () -> Unit = {},
     vm: SettingsViewModel = viewModel(),
 ) {
     val connectionState by vm.connectionState.collectAsState()
@@ -120,6 +124,14 @@ fun SettingsScreen(
                 bugReportState = bugReportState,
                 onRequestBugReport = { vm.requestBugReport() },
             )
+
+            ProvidersSection(onOpenProviders = onOpenProviders)
+
+            FeatureGeneratorSection(onOpen = onOpenFeatureGenerator)
+
+            ArtifactsSection(onOpen = onOpenArtifacts)
+
+            PromptLibrarySection(onOpen = onOpenPromptLibrary)
 
             SelfHealSection(onOpenSelfHeal = onOpenSelfHeal)
 
