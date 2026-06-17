@@ -2,12 +2,24 @@ package io.nexy.android.data
 
 import io.nexy.android.data.model.Agent
 import io.nexy.android.data.model.AndroidUpdateManifest
+import io.nexy.android.data.model.ArtifactDetail2
+import io.nexy.android.data.model.ArtifactSummary
+import io.nexy.android.data.model.ArtifactVersionFile
+import io.nexy.android.data.model.ArtifactVersionSummary
+import io.nexy.android.data.model.CliInstallInfo
+import io.nexy.android.data.model.ConversationExportPackData
+import io.nexy.android.data.model.PromptEntry
+import io.nexy.android.data.model.WikiEntry
 import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.ErrorReport
+import io.nexy.android.data.model.FeatureGeneratorRun
+import io.nexy.android.data.model.FeatureSpec
 import io.nexy.android.data.model.HistoryMessage
+import io.nexy.android.data.model.McpServerInfo
 import io.nexy.android.data.model.ModelListSource
 import io.nexy.android.data.model.ModelOption
 import io.nexy.android.data.model.Project
+import io.nexy.android.data.model.ProviderInfo
 import io.nexy.android.data.model.WsEvent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -29,6 +41,12 @@ fun parseWsEvent(
     modelSource: MutableStateFlow<ModelListSource?>,
     androidUpdateManifest: MutableStateFlow<AndroidUpdateManifest?>,
     errorReports: MutableStateFlow<List<ErrorReport>>,
+    providers: MutableStateFlow<List<ProviderInfo>>,
+    mcpServers: MutableStateFlow<List<McpServerInfo>>,
+    featureGeneratorRuns: MutableStateFlow<List<FeatureGeneratorRun>>,
+    artifacts: MutableStateFlow<List<ArtifactSummary>>,
+    wikiEntries: MutableStateFlow<List<WikiEntry>>,
+    promptEntries: MutableStateFlow<List<PromptEntry>>,
 ) {
     try {
         val obj = JSONObject(text)
@@ -277,10 +295,419 @@ fun parseWsEvent(
                 WsEvent.SelfHealReports(list)
             }
 
+            "project:created" -> {
+                val p = data?.optJSONObject("project") ?: return
+                val project = Project(
+                    id = p.optString("id"),
+                    name = p.optString("name"),
+                    color = p.optString("color", "blue"),
+                    chatCount = 0,
+                    agentIcons = emptyList(),
+                )
+                projects.value = projects.value + project
+                WsEvent.ProjectCreated(project)
+            }
+
+            "project:renamed" -> {
+                val id = data?.optString("id") ?: ""
+                val name = data?.optString("name") ?: ""
+                projects.value = projects.value.map { if (it.id == id) it.copy(name = name) else it }
+                WsEvent.ProjectRenamed(id, name)
+            }
+
+            "project:deleted" -> {
+                val id = data?.optString("id") ?: ""
+                projects.value = projects.value.filter { it.id != id }
+                WsEvent.ProjectDeleted(id)
+            }
+
+            "agent:created" -> {
+                val a = data?.optJSONObject("agent") ?: return
+                val agent = Agent(
+                    id = a.optString("id"),
+                    name = a.optString("name"),
+                    icon = a.optString("icon", ""),
+                )
+                agents.value = agents.value + agent
+                WsEvent.AgentCreated(agent)
+            }
+
+            "agent:updated" -> {
+                val a = data?.optJSONObject("agent") ?: return
+                val id = a.optString("id")
+                val updated = Agent(id = id, name = a.optString("name"), icon = a.optString("icon", ""))
+                agents.value = agents.value.map { if (it.id == id) updated else it }
+                WsEvent.AgentUpdated(updated)
+            }
+
+            "agent:deleted" -> {
+                val id = data?.optString("id") ?: ""
+                agents.value = agents.value.filter { it.id != id }
+                WsEvent.AgentDeleted(id)
+            }
+
+            "provider:list" -> {
+                val arr = data?.optJSONArray("providers") ?: return
+                val list = (0 until arr.length()).map { i ->
+                    val p = arr.getJSONObject(i)
+                    ProviderInfo(
+                        id = p.optString("id"),
+                        label = p.optString("label"),
+                        configured = p.optBoolean("configured", false),
+                    )
+                }
+                providers.value = list
+                WsEvent.ProviderList(list)
+            }
+
+            "provider:key-set" -> {
+                val provider = data?.optString("provider") ?: ""
+                providers.value = providers.value.map {
+                    if (it.id == provider) it.copy(configured = true) else it
+                }
+                WsEvent.ProviderKeySet(provider)
+            }
+
+            "provider:key-removed" -> {
+                val provider = data?.optString("provider") ?: ""
+                providers.value = providers.value.map {
+                    if (it.id == provider) it.copy(configured = false) else it
+                }
+                WsEvent.ProviderKeyRemoved(provider)
+            }
+
+            "app:cli-status" -> {
+                val clisObj = data?.optJSONObject("clis") ?: return
+                val map = mutableMapOf<String, CliInstallInfo>()
+                clisObj.keys().forEach { key ->
+                    val c = clisObj.optJSONObject(key) ?: return@forEach
+                    map[key] = CliInstallInfo(
+                        installed = c.optBoolean("installed", false),
+                        version = c.nullableString("version"),
+                        path = c.nullableString("path"),
+                    )
+                }
+                WsEvent.CliStatus(map)
+            }
+
+            "app:setting-set" -> {
+                val key = data?.optString("key") ?: ""
+                val value = data?.optString("value") ?: ""
+                WsEvent.SettingSet(key, value)
+            }
+
+            "mcp:list" -> {
+                val arr = data?.optJSONArray("servers") ?: return
+                val list = (0 until arr.length()).map { i ->
+                    val s = arr.getJSONObject(i)
+                    McpServerInfo(
+                        id = s.optString("id"),
+                        name = s.optString("name"),
+                        command = s.optString("command"),
+                        enabled = s.optBoolean("enabled", false),
+                    )
+                }
+                mcpServers.value = list
+                WsEvent.McpList(list)
+            }
+
+            "feature-generator:run-created" -> {
+                val runId = data?.optString("runId") ?: ""
+                WsEvent.FeatureGeneratorRunCreated(runId)
+            }
+
+            "feature-generator:token" -> {
+                val chunk = data?.optString("chunk") ?: ""
+                WsEvent.FeatureGeneratorToken(chunk)
+            }
+
+            "feature-generator:spec-ready" -> {
+                val spec = parseFeatureSpec(data) ?: return
+                WsEvent.FeatureGeneratorSpecReady(spec)
+            }
+
+            "feature-generator:plan-ready" -> {
+                val runId = data?.optString("runId") ?: ""
+                val plan = data?.optString("plan") ?: ""
+                featureGeneratorRuns.value = featureGeneratorRuns.value.map {
+                    if (it.id == runId) it.copy(planMarkdown = plan, status = "plan-ready") else it
+                }
+                WsEvent.FeatureGeneratorPlanReady(runId, plan)
+            }
+
+            "feature-generator:diff-ready" -> {
+                val runId = data?.optString("runId") ?: ""
+                featureGeneratorRuns.value = featureGeneratorRuns.value.map {
+                    if (it.id == runId) it.copy(status = "diff-ready") else it
+                }
+                WsEvent.FeatureGeneratorDiffReady(runId)
+            }
+
+            "feature-generator:diff-list" -> {
+                val runId = data?.optString("runId") ?: ""
+                val filesArr = data?.optJSONArray("files") ?: return
+                val files = (0 until filesArr.length()).map { filesArr.getString(it) }
+                WsEvent.FeatureGeneratorDiffList(runId, files)
+            }
+
+            "feature-generator:applied" -> {
+                val runId = data?.optString("runId") ?: ""
+                val filesArr = data?.optJSONArray("appliedFiles") ?: return
+                val applied = (0 until filesArr.length()).map { filesArr.getString(it) }
+                featureGeneratorRuns.value = featureGeneratorRuns.value.map {
+                    if (it.id == runId) it.copy(status = "applied") else it
+                }
+                WsEvent.FeatureGeneratorApplied(runId, applied)
+            }
+
+            "feature-generator:committed" -> {
+                val runId = data?.optString("runId") ?: ""
+                val commitSha = data?.optString("commitSha") ?: ""
+                featureGeneratorRuns.value = featureGeneratorRuns.value.map {
+                    if (it.id == runId) it.copy(status = "committed", commitSha = commitSha) else it
+                }
+                WsEvent.FeatureGeneratorCommitted(runId, commitSha)
+            }
+
+            "feature-generator:runs" -> {
+                val arr = data?.optJSONArray("runs") ?: return
+                val runs = (0 until arr.length()).map { i ->
+                    val r = arr.getJSONObject(i)
+                    FeatureGeneratorRun(
+                        id = r.optString("id"),
+                        title = r.optString("title"),
+                        status = r.optString("status"),
+                        specJson = r.nullableString("specJson"),
+                        planMarkdown = r.nullableString("planMarkdown"),
+                        stagedFilesJson = r.nullableString("stagedFilesJson"),
+                        appliedFilesJson = r.nullableString("appliedFilesJson"),
+                        commitSha = r.nullableString("commitSha"),
+                        createdAt = r.optLong("createdAt", 0L),
+                        updatedAt = r.optLong("updatedAt", 0L),
+                    )
+                }
+                featureGeneratorRuns.value = runs
+                WsEvent.FeatureGeneratorRuns(runs)
+            }
+
+            "feature-generator:error" -> {
+                val runId = data?.nullableString("runId")
+                val message = data?.optString("message") ?: "Unknown error"
+                WsEvent.FeatureGeneratorError(runId, message)
+            }
+
+            "artifact:list" -> {
+                val arr = data?.optJSONArray("artifacts") ?: return
+                val list = (0 until arr.length()).map { i ->
+                    val a = arr.getJSONObject(i)
+                    ArtifactSummary(
+                        id = a.optString("id"),
+                        projectId = a.nullableString("projectId"),
+                        title = a.optString("title"),
+                        kind = a.optString("kind"),
+                        description = a.nullableString("description"),
+                        status = a.optString("status"),
+                        currentVersionId = a.nullableString("currentVersionId"),
+                        createdAt = a.optLong("createdAt", 0L),
+                        updatedAt = a.optLong("updatedAt", 0L),
+                    )
+                }
+                artifacts.value = list
+                WsEvent.ArtifactList(list)
+            }
+
+            "artifact:detail" -> {
+                val a = data?.optJSONObject("artifact")
+                if (a == null) {
+                    WsEvent.ArtifactDetail(null)
+                } else {
+                    val cvObj = a.optJSONObject("currentVersion")
+                    val currentVersion = cvObj?.let {
+                        val filesArr = it.optJSONArray("files") ?: org.json.JSONArray()
+                        ArtifactVersionSummary(
+                            id = it.optString("id"),
+                            artifactId = it.optString("artifactId"),
+                            versionNumber = it.optInt("versionNumber", 1),
+                            title = it.optString("title"),
+                            notes = it.nullableString("notes"),
+                            createdAt = it.optLong("createdAt", 0L),
+                            files = (0 until filesArr.length()).map { fi ->
+                                val f = filesArr.getJSONObject(fi)
+                                ArtifactVersionFile(
+                                    id = f.optString("id"),
+                                    relativePath = f.optString("relativePath"),
+                                    mediaType = f.optString("mediaType"),
+                                    role = f.optString("role"),
+                                )
+                            },
+                        )
+                    }
+                    WsEvent.ArtifactDetail(
+                        ArtifactDetail2(
+                            id = a.optString("id"),
+                            projectId = a.nullableString("projectId"),
+                            title = a.optString("title"),
+                            kind = a.optString("kind"),
+                            description = a.nullableString("description"),
+                            status = a.optString("status"),
+                            currentVersionId = a.nullableString("currentVersionId"),
+                            createdAt = a.optLong("createdAt", 0L),
+                            updatedAt = a.optLong("updatedAt", 0L),
+                            currentVersion = currentVersion,
+                        )
+                    )
+                }
+            }
+
+            "wiki:list" -> {
+                val arr = data?.optJSONArray("entries") ?: return
+                val list = (0 until arr.length()).map { i -> parseWikiEntry(arr.getJSONObject(i)) }
+                wikiEntries.value = list
+                WsEvent.WikiList(list)
+            }
+
+            "wiki:entry-created" -> {
+                val entry = parseWikiEntry(data?.optJSONObject("entry") ?: return)
+                wikiEntries.value = wikiEntries.value + entry
+                WsEvent.WikiEntryCreated(entry)
+            }
+
+            "wiki:entry-updated" -> {
+                val entry = parseWikiEntry(data?.optJSONObject("entry") ?: return)
+                wikiEntries.value = wikiEntries.value.map { if (it.id == entry.id) entry else it }
+                WsEvent.WikiEntryUpdated(entry)
+            }
+
+            "wiki:entry-deleted" -> {
+                val id = data?.optString("id") ?: ""
+                wikiEntries.value = wikiEntries.value.filter { it.id != id }
+                WsEvent.WikiEntryDeleted(id)
+            }
+
+            "prompt:list" -> {
+                val arr = data?.optJSONArray("entries") ?: return
+                val list = (0 until arr.length()).map { i -> parsePromptEntry(arr.getJSONObject(i)) }
+                promptEntries.value = list
+                WsEvent.PromptList(list)
+            }
+
+            "prompt:entry-created" -> {
+                val entry = parsePromptEntry(data?.optJSONObject("entry") ?: return)
+                promptEntries.value = promptEntries.value + entry
+                WsEvent.PromptEntryCreated(entry)
+            }
+
+            "prompt:entry-updated" -> {
+                val entry = parsePromptEntry(data?.optJSONObject("entry") ?: return)
+                promptEntries.value = promptEntries.value.map { if (it.id == entry.id) entry else it }
+                WsEvent.PromptEntryUpdated(entry)
+            }
+
+            "prompt:entry-deleted" -> {
+                val id = data?.optString("id") ?: ""
+                promptEntries.value = promptEntries.value.filter { it.id != id }
+                WsEvent.PromptEntryDeleted(id)
+            }
+
+            "conversation:export-pack" -> {
+                val p = data?.optJSONObject("pack") ?: return
+                WsEvent.ConversationExportPackResult(
+                    ConversationExportPackData(
+                        format = p.optString("format"),
+                        conversationId = p.optString("conversation_id"),
+                        fileName = p.optString("file_name"),
+                        mimeType = p.optString("mime_type"),
+                        content = p.optString("content"),
+                    )
+                )
+            }
+
+            "conversation:export-error" -> WsEvent.ConversationExportError(
+                message = data?.optString("message") ?: "Export failed"
+            )
+
+            "conversation:forked" -> WsEvent.ConversationForked(
+                conversationId = data?.optString("conversationId") ?: "",
+                title = data?.optString("title") ?: "",
+                messageCount = data?.optInt("messageCount", 0) ?: 0,
+            )
+
+            "conversation:fork-error" -> WsEvent.ConversationForkError(
+                message = data?.optString("message") ?: "Fork failed"
+            )
+
+            "conversation:imported" -> WsEvent.ConversationImported(
+                conversationId = data?.optString("conversationId") ?: "",
+                title = data?.optString("title") ?: "",
+                messageCount = data?.optInt("messageCount", 0) ?: 0,
+            )
+
+            "conversation:import-error" -> WsEvent.ConversationImportError(
+                message = data?.optString("message") ?: "Import failed"
+            )
+
             else -> return
         }
         scope.launch { events.emit(wsEvent) }
     } catch (_: Exception) {}
+}
+
+private fun parseFeatureSpec(data: org.json.JSONObject?): FeatureSpec? {
+    val d = data ?: return null
+    val title = d.optString("title").takeIf { it.isNotBlank() } ?: return null
+    fun strList(key: String): List<String> {
+        val arr = d.optJSONArray(key) ?: return emptyList()
+        return (0 until arr.length()).map { arr.optString(it) }.filter { it.isNotBlank() }
+    }
+    return FeatureSpec(
+        title = title,
+        type = d.optString("type", "feature"),
+        userStory = d.optString("userStory"),
+        acceptanceCriteria = strList("acceptanceCriteria"),
+        constraints = strList("constraints"),
+        outOfScope = strList("outOfScope"),
+        risks = strList("risks"),
+        likelyAffectedFiles = strList("likelyAffectedFiles"),
+        verificationPlan = strList("verificationPlan"),
+        autonomy = d.optString("autonomy", "staged-diffs"),
+        targetAreas = strList("targetAreas"),
+    )
+}
+
+private fun parseWikiEntry(obj: JSONObject): WikiEntry {
+    fun strList(key: String): List<String> {
+        val arr = obj.optJSONArray(key) ?: return emptyList()
+        return (0 until arr.length()).map { arr.optString(it) }.filter { it.isNotBlank() }
+    }
+    return WikiEntry(
+        id = obj.optString("id"),
+        projectId = obj.optString("projectId"),
+        title = obj.optString("title"),
+        body = obj.optString("body"),
+        tags = strList("tags"),
+        sourceConversationId = obj.nullableString("sourceConversationId"),
+        createdAt = obj.optLong("createdAt", 0L),
+        updatedAt = obj.optLong("updatedAt", 0L),
+    )
+}
+
+private fun parsePromptEntry(obj: JSONObject): PromptEntry {
+    fun strList(key: String): List<String> {
+        val arr = obj.optJSONArray(key) ?: return emptyList()
+        return (0 until arr.length()).map { arr.optString(it) }.filter { it.isNotBlank() }
+    }
+    return PromptEntry(
+        id = obj.optString("id"),
+        title = obj.optString("title"),
+        body = obj.optString("body"),
+        description = obj.optString("description"),
+        category = obj.optString("category"),
+        tags = strList("tags"),
+        scope = obj.optString("scope", "global"),
+        projectId = obj.nullableString("projectId"),
+        createdAt = obj.optLong("createdAt", 0L),
+        updatedAt = obj.optLong("updatedAt", 0L),
+    )
 }
 
 private fun parseConversationArray(arr: JSONArray): List<Conversation> =

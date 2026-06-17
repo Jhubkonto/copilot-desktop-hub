@@ -71,6 +71,44 @@ sealed class WsEvent {
     data class ConversationSearchResults(val conversations: List<Conversation>) : WsEvent()
     data class MessageDeleted(val id: String) : WsEvent()
     data class SelfHealReports(val reports: List<ErrorReport>) : WsEvent()
+    data class ProjectCreated(val project: Project) : WsEvent()
+    data class ProjectRenamed(val id: String, val name: String) : WsEvent()
+    data class ProjectDeleted(val id: String) : WsEvent()
+    data class AgentCreated(val agent: Agent) : WsEvent()
+    data class AgentUpdated(val agent: Agent) : WsEvent()
+    data class AgentDeleted(val id: String) : WsEvent()
+    data class ProviderList(val providers: List<ProviderInfo>) : WsEvent()
+    data class ProviderKeySet(val provider: String) : WsEvent()
+    data class ProviderKeyRemoved(val provider: String) : WsEvent()
+    data class CliStatus(val clis: Map<String, CliInstallInfo>) : WsEvent()
+    data class SettingSet(val key: String, val value: String) : WsEvent()
+    data class McpList(val servers: List<McpServerInfo>) : WsEvent()
+    data class FeatureGeneratorRunCreated(val runId: String) : WsEvent()
+    data class FeatureGeneratorToken(val chunk: String) : WsEvent()
+    data class FeatureGeneratorSpecReady(val spec: FeatureSpec) : WsEvent()
+    data class FeatureGeneratorPlanReady(val runId: String, val plan: String) : WsEvent()
+    data class FeatureGeneratorDiffReady(val runId: String) : WsEvent()
+    data class FeatureGeneratorDiffList(val runId: String, val files: List<String>) : WsEvent()
+    data class FeatureGeneratorApplied(val runId: String, val appliedFiles: List<String>) : WsEvent()
+    data class FeatureGeneratorCommitted(val runId: String, val commitSha: String) : WsEvent()
+    data class FeatureGeneratorRuns(val runs: List<FeatureGeneratorRun>) : WsEvent()
+    data class FeatureGeneratorError(val runId: String?, val message: String) : WsEvent()
+    data class ArtifactList(val artifacts: List<ArtifactSummary>) : WsEvent()
+    data class ArtifactDetail(val artifact: ArtifactDetail2?) : WsEvent()
+    data class WikiList(val entries: List<WikiEntry>) : WsEvent()
+    data class WikiEntryCreated(val entry: WikiEntry) : WsEvent()
+    data class WikiEntryUpdated(val entry: WikiEntry) : WsEvent()
+    data class WikiEntryDeleted(val id: String) : WsEvent()
+    data class PromptList(val entries: List<PromptEntry>) : WsEvent()
+    data class PromptEntryCreated(val entry: PromptEntry) : WsEvent()
+    data class PromptEntryUpdated(val entry: PromptEntry) : WsEvent()
+    data class PromptEntryDeleted(val id: String) : WsEvent()
+    data class ConversationExportPackResult(val pack: ConversationExportPackData) : WsEvent()
+    data class ConversationExportError(val message: String) : WsEvent()
+    data class ConversationForked(val conversationId: String, val title: String, val messageCount: Int) : WsEvent()
+    data class ConversationForkError(val message: String) : WsEvent()
+    data class ConversationImported(val conversationId: String, val title: String, val messageCount: Int) : WsEvent()
+    data class ConversationImportError(val message: String) : WsEvent()
 }
 
 data class ErrorReport(
@@ -97,4 +135,124 @@ data class AttachmentMeta(
     val name: String,
     val type: String?,
     val thumbnailDataUrl: String?,
+)
+
+data class ProviderInfo(
+    val id: String,
+    val label: String,
+    val configured: Boolean,
+)
+
+data class CliInstallInfo(
+    val installed: Boolean,
+    val version: String?,
+    val path: String?,
+)
+
+data class McpServerInfo(
+    val id: String,
+    val name: String,
+    val command: String,
+    val enabled: Boolean,
+)
+
+data class FeatureSpec(
+    val title: String,
+    val type: String,
+    val userStory: String,
+    val acceptanceCriteria: List<String>,
+    val constraints: List<String>,
+    val outOfScope: List<String>,
+    val risks: List<String>,
+    val likelyAffectedFiles: List<String>,
+    val verificationPlan: List<String>,
+    val autonomy: String,
+    val targetAreas: List<String>,
+)
+
+data class FeatureGeneratorRun(
+    val id: String,
+    val title: String,
+    val status: String,
+    val specJson: String?,
+    val planMarkdown: String?,
+    val stagedFilesJson: String?,
+    val appliedFilesJson: String?,
+    val commitSha: String?,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
+data class ArtifactSummary(
+    val id: String,
+    val projectId: String?,
+    val title: String,
+    val kind: String,
+    val description: String?,
+    val status: String,
+    val currentVersionId: String?,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
+data class ArtifactVersionFile(
+    val id: String,
+    val relativePath: String,
+    val mediaType: String,
+    val role: String,
+)
+
+data class ArtifactVersionSummary(
+    val id: String,
+    val artifactId: String,
+    val versionNumber: Int,
+    val title: String,
+    val notes: String?,
+    val createdAt: Long,
+    val files: List<ArtifactVersionFile>,
+)
+
+data class ArtifactDetail2(
+    val id: String,
+    val projectId: String?,
+    val title: String,
+    val kind: String,
+    val description: String?,
+    val status: String,
+    val currentVersionId: String?,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val currentVersion: ArtifactVersionSummary?,
+)
+
+data class WikiEntry(
+    val id: String,
+    val projectId: String,
+    val title: String,
+    val body: String,
+    val tags: List<String>,
+    val sourceConversationId: String?,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
+data class PromptEntry(
+    val id: String,
+    val title: String,
+    val body: String,
+    val description: String,
+    val category: String,
+    val tags: List<String>,
+    val scope: String,
+    val projectId: String?,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
+data class ConversationExportPackData(
+    val format: String,
+    val conversationId: String,
+    val fileName: String,
+    val mimeType: String,
+    val content: String,
 )

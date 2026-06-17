@@ -4,11 +4,19 @@ import android.app.Application
 import android.app.NotificationManager
 import io.nexy.android.data.model.Agent
 import io.nexy.android.data.model.AndroidUpdateManifest
+import io.nexy.android.data.model.ArtifactSummary
+import io.nexy.android.data.model.CliInstallInfo
+import io.nexy.android.data.model.PromptEntry
+import io.nexy.android.data.model.WikiEntry
 import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.ErrorReport
+import io.nexy.android.data.model.FeatureGeneratorRun
+import io.nexy.android.data.model.FeatureSpec
+import io.nexy.android.data.model.McpServerInfo
 import io.nexy.android.data.model.ModelListSource
 import io.nexy.android.data.model.ModelOption
 import io.nexy.android.data.model.Project
+import io.nexy.android.data.model.ProviderInfo
 import io.nexy.android.data.model.WsEvent
 import io.nexy.android.notification.ApprovalNotificationManager
 import kotlinx.coroutines.CoroutineScope
@@ -71,6 +79,24 @@ object WsRepository : WsClient {
 
     private val _errorReports = MutableStateFlow<List<ErrorReport>>(emptyList())
     val errorReports: StateFlow<List<ErrorReport>> = _errorReports
+
+    private val _providers = MutableStateFlow<List<ProviderInfo>>(emptyList())
+    val providers: StateFlow<List<ProviderInfo>> = _providers
+
+    private val _mcpServers = MutableStateFlow<List<McpServerInfo>>(emptyList())
+    val mcpServers: StateFlow<List<McpServerInfo>> = _mcpServers
+
+    private val _featureGeneratorRuns = MutableStateFlow<List<FeatureGeneratorRun>>(emptyList())
+    val featureGeneratorRuns: StateFlow<List<FeatureGeneratorRun>> = _featureGeneratorRuns
+
+    private val _artifacts = MutableStateFlow<List<ArtifactSummary>>(emptyList())
+    val artifacts: StateFlow<List<ArtifactSummary>> = _artifacts
+
+    private val _wikiEntries = MutableStateFlow<List<WikiEntry>>(emptyList())
+    val wikiEntries: StateFlow<List<WikiEntry>> = _wikiEntries
+
+    private val _promptEntries = MutableStateFlow<List<PromptEntry>>(emptyList())
+    val promptEntries: StateFlow<List<PromptEntry>> = _promptEntries
 
     private val _profiles = MutableStateFlow<List<PairedServerProfile>>(emptyList())
     val profiles: StateFlow<List<PairedServerProfile>> = _profiles
@@ -197,6 +223,12 @@ object WsRepository : WsClient {
                     modelSource = _modelSource,
                     androidUpdateManifest = _androidUpdateManifest,
                     errorReports = _errorReports,
+                    providers = _providers,
+                    mcpServers = _mcpServers,
+                    featureGeneratorRuns = _featureGeneratorRuns,
+                    artifacts = _artifacts,
+                    wikiEntries = _wikiEntries,
+                    promptEntries = _promptEntries,
                 )
             }
 
@@ -242,6 +274,12 @@ object WsRepository : WsClient {
         _androidUpdateManifest.value = null
         _serverVersion.value = null
         _errorReports.value = emptyList()
+        _providers.value = emptyList()
+        _mcpServers.value = emptyList()
+        _featureGeneratorRuns.value = emptyList()
+        _artifacts.value = emptyList()
+        _wikiEntries.value = emptyList()
+        _promptEntries.value = emptyList()
     }
 
     fun forgetServer() {
@@ -292,6 +330,75 @@ object WsRepository : WsClient {
     fun searchConversations(query: String) { send("conversation:search", mapOf("query" to query)) }
     fun deleteMessage(id: String) { send("message:delete", mapOf("id" to id)) }
     fun refreshReports() { send("self-heal:get-reports", emptyMap()) }
+    fun createProject(name: String, color: String) { send("project:create", mapOf("name" to name, "color" to color)) }
+    fun renameProject(id: String, name: String) { send("project:rename", mapOf("id" to id, "name" to name)) }
+    fun deleteProject(id: String) { send("project:delete", mapOf("id" to id)) }
+    fun createAgent(name: String, icon: String) { send("agent:create", mapOf("name" to name, "icon" to icon)) }
+    fun updateAgent(id: String, name: String, icon: String) { send("agent:update", mapOf("id" to id, "name" to name, "icon" to icon)) }
+    fun deleteAgent(id: String) { send("agent:delete", mapOf("id" to id)) }
+    fun getProviders() { send("provider:get-configured", emptyMap()) }
+    fun setProviderKey(provider: String, key: String) { send("provider:set-key", mapOf("provider" to provider, "key" to key)) }
+    fun removeProviderKey(provider: String) { send("provider:remove-key", mapOf("provider" to provider)) }
+    fun getCliStatus() { send("app:cli-status", emptyMap()) }
+    fun setSetting(key: String, value: String) { send("app:set-setting", mapOf("key" to key, "value" to value)) }
+    fun getMcpServers() { send("mcp:list", emptyMap()) }
+    fun startFeatureGeneratorChat(messages: List<Map<String, String>>) { send("feature-generator:start", mapOf("messages" to messages)) }
+    fun sendFeatureGeneratorMessage(messages: List<Map<String, String>>) { send("feature-generator:message", mapOf("messages" to messages)) }
+    fun confirmFeatureSpec(runId: String, spec: FeatureSpec) {
+        send("feature-generator:confirm-spec", mapOf(
+            "runId" to runId,
+            "spec" to mapOf(
+                "title" to spec.title,
+                "type" to spec.type,
+                "userStory" to spec.userStory,
+                "acceptanceCriteria" to spec.acceptanceCriteria,
+                "constraints" to spec.constraints,
+                "outOfScope" to spec.outOfScope,
+                "risks" to spec.risks,
+                "likelyAffectedFiles" to spec.likelyAffectedFiles,
+                "verificationPlan" to spec.verificationPlan,
+                "autonomy" to spec.autonomy,
+                "targetAreas" to spec.targetAreas,
+            )
+        ))
+    }
+    fun startFeatureImplementation(runId: String) { send("feature-generator:start-implementation", mapOf("runId" to runId)) }
+    fun listFeatureDiffs(runId: String) { send("feature-generator:list-diffs", mapOf("runId" to runId)) }
+    fun applyAllFeatureDiffs(runId: String) { send("feature-generator:apply-all", mapOf("runId" to runId)) }
+    fun commitFeatureChanges(runId: String, message: String) { send("feature-generator:commit", mapOf("runId" to runId, "message" to message)) }
+    fun getFeatureGeneratorRuns() { send("feature-generator:get-runs", emptyMap()) }
+    fun listArtifacts(projectId: String? = null) {
+        send("artifact:list", if (projectId != null) mapOf("projectId" to projectId) else emptyMap())
+    }
+    fun getArtifact(id: String) { send("artifact:get", mapOf("id" to id)) }
+
+    fun listWikiEntries(projectId: String) { send("wiki:list", mapOf("projectId" to projectId)) }
+    fun createWikiEntry(projectId: String, title: String, body: String, tags: List<String>) {
+        send("wiki:create", mapOf("projectId" to projectId, "title" to title, "body" to body, "tags" to tags))
+    }
+    fun updateWikiEntry(id: String, title: String, body: String, tags: List<String>) {
+        send("wiki:update", mapOf("id" to id, "title" to title, "body" to body, "tags" to tags))
+    }
+    fun deleteWikiEntry(id: String) { send("wiki:delete", mapOf("id" to id)) }
+
+    fun listPrompts(projectId: String? = null) {
+        send("prompt:list", if (projectId != null) mapOf("projectId" to projectId) else emptyMap())
+    }
+    fun createPrompt(title: String, body: String, description: String, category: String, tags: List<String>, scope: String, projectId: String?) {
+        val data = mutableMapOf<String, Any>("title" to title, "body" to body, "description" to description, "category" to category, "tags" to tags, "scope" to scope)
+        if (projectId != null) data["projectId"] = projectId
+        send("prompt:create", data)
+    }
+    fun updatePrompt(id: String, title: String, body: String, description: String, category: String, tags: List<String>) {
+        send("prompt:update", mapOf("id" to id, "title" to title, "body" to body, "description" to description, "category" to category, "tags" to tags))
+    }
+    fun deletePrompt(id: String) { send("prompt:delete", mapOf("id" to id)) }
+
+    fun exportConversationPack(conversationId: String, format: String = "json") {
+        send("conversation:export-pack", mapOf("conversationId" to conversationId, "format" to format))
+    }
+    fun forkConversation(conversationId: String) { send("conversation:fork", mapOf("conversationId" to conversationId)) }
+    fun importConversationJson(json: String) { send("conversation:import-json", mapOf("json" to json)) }
 
     fun cancelApprovalNotification() {
         app?.getSystemService(NotificationManager::class.java)
