@@ -15,7 +15,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.Badge
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -23,12 +24,16 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
@@ -37,6 +42,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.model.ArtifactDetail2
 import io.nexy.android.data.model.ArtifactSummary
+import io.nexy.android.ui.components.NexyEmptyState
+import io.nexy.android.ui.components.NexySearchField
+import io.nexy.android.ui.components.NexyStatusBadge
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -47,6 +55,15 @@ fun ArtifactsScreen(
 ) {
     val artifacts by vm.artifacts.collectAsState()
     val selected by vm.selectedArtifact.collectAsState()
+    val isLoading by vm.isLoading.collectAsState()
+    var searchQuery by remember { mutableStateOf("") }
+    val filteredArtifacts = remember(artifacts, searchQuery) {
+        val query = searchQuery.trim()
+        if (query.isBlank()) artifacts else artifacts.filter { artifact ->
+            listOfNotNull(artifact.title, artifact.description, artifact.kind, artifact.status)
+                .any { it.contains(query, ignoreCase = true) }
+        }
+    }
 
     LaunchedEffect(Unit) { vm.refresh(projectId) }
 
@@ -67,6 +84,11 @@ fun ArtifactsScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
+                actions = {
+                    IconButton(onClick = { vm.refresh(projectId) }) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Refresh artifacts")
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                     titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -81,13 +103,40 @@ fun ArtifactsScreen(
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text("No artifacts yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (isLoading) {
+                    CircularProgressIndicator()
+                } else {
+                    NexyEmptyState(
+                        title = "No artifacts yet.",
+                        detail = "Generated project artifacts will appear here.",
+                        action = {
+                            TextButton(onClick = { vm.refresh(projectId) }) { Text("Refresh") }
+                        },
+                    )
+                }
             }
         } else {
-            LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
-                items(artifacts) { artifact ->
-                    ArtifactRow(artifact = artifact, onClick = { vm.selectArtifact(artifact.id) })
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+                NexySearchField(
+                    query = searchQuery,
+                    onQueryChange = { searchQuery = it },
+                    placeholder = "Search artifacts",
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                if (filteredArtifacts.isEmpty()) {
+                    NexyEmptyState(
+                        title = "No matching artifacts.",
+                        detail = "Try a different title, kind, or status.",
+                        modifier = Modifier.weight(1f),
+                        action = { TextButton(onClick = { searchQuery = "" }) { Text("Clear search") } },
+                    )
+                } else {
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        items(filteredArtifacts) { artifact ->
+                            ArtifactRow(artifact = artifact, onClick = { vm.selectArtifact(artifact.id) })
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        }
+                    }
                 }
             }
         }
@@ -107,25 +156,41 @@ private fun ArtifactRow(artifact: ArtifactSummary, onClick: () -> Unit) {
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(artifact.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                Badge(containerColor = MaterialTheme.colorScheme.secondaryContainer) {
-                    Text(artifact.kind, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
-                }
+                ArtifactKindBadge(artifact.kind)
             }
             if (!artifact.description.isNullOrBlank()) {
                 Spacer(Modifier.height(2.dp))
                 Text(artifact.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
             }
         }
-        Badge(
-            containerColor = when (artifact.status) {
-                "ready" -> MaterialTheme.colorScheme.primaryContainer
-                "generating" -> MaterialTheme.colorScheme.tertiaryContainer
-                else -> MaterialTheme.colorScheme.surfaceVariant
-            },
-        ) {
-            Text(artifact.status, style = MaterialTheme.typography.labelSmall)
-        }
+        ArtifactStatusBadge(artifact.status)
     }
+}
+
+@Composable
+private fun ArtifactKindBadge(kind: String) {
+    NexyStatusBadge(
+        label = kind,
+        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+    )
+}
+
+@Composable
+private fun ArtifactStatusBadge(status: String) {
+    NexyStatusBadge(
+        label = status,
+        containerColor = when (status) {
+            "ready" -> MaterialTheme.colorScheme.primaryContainer
+            "generating" -> MaterialTheme.colorScheme.tertiaryContainer
+            else -> MaterialTheme.colorScheme.surfaceVariant
+        },
+        contentColor = when (status) {
+            "ready" -> MaterialTheme.colorScheme.onPrimaryContainer
+            "generating" -> MaterialTheme.colorScheme.onTertiaryContainer
+            else -> MaterialTheme.colorScheme.onSurfaceVariant
+        },
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -156,21 +221,21 @@ private fun ArtifactDetailScreen(artifact: ArtifactDetail2, onBack: () -> Unit) 
                 .padding(16.dp),
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Badge(containerColor = MaterialTheme.colorScheme.secondaryContainer) {
-                    Text(artifact.kind, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
-                }
-                Badge(
-                    containerColor = when (artifact.status) {
-                        "ready" -> MaterialTheme.colorScheme.primaryContainer
-                        "generating" -> MaterialTheme.colorScheme.tertiaryContainer
-                        else -> MaterialTheme.colorScheme.surfaceVariant
-                    },
-                ) { Text(artifact.status, style = MaterialTheme.typography.labelSmall) }
+                ArtifactKindBadge(artifact.kind)
+                ArtifactStatusBadge(artifact.status)
             }
 
             if (!artifact.description.isNullOrBlank()) {
                 Spacer(Modifier.height(8.dp))
                 Text(artifact.description, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+
+            if (artifact.currentVersion == null) {
+                Spacer(Modifier.height(16.dp))
+                NexyEmptyState(
+                    title = "No version available yet.",
+                    detail = "Trigger artifact generation from the desktop to populate this artifact.",
+                )
             }
 
             artifact.currentVersion?.let { version ->

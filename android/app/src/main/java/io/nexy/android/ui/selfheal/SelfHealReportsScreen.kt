@@ -9,11 +9,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -28,6 +29,9 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -35,6 +39,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.model.ErrorReport
+import io.nexy.android.ui.components.NexyEmptyState
+import io.nexy.android.ui.components.NexySearchField
+import io.nexy.android.ui.components.NexyStatusBadge
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -47,6 +54,26 @@ fun SelfHealReportsScreen(
     vm: SelfHealViewModel = viewModel(),
 ) {
     val reports by vm.errorReports.collectAsState()
+    val isRefreshing by vm.isRefreshing.collectAsState()
+    var searchQuery by remember { mutableStateOf("") }
+    var statusFilter by remember { mutableStateOf<String?>(null) }
+    val statusValues = remember(reports) { reports.map { it.status }.distinct().sorted() }
+    val filteredReports = remember(reports, searchQuery, statusFilter) {
+        val query = searchQuery.trim()
+        reports
+            .let { list -> if (statusFilter != null) list.filter { it.status == statusFilter } else list }
+            .let { list ->
+                if (query.isBlank()) list else list.filter { report ->
+                    listOfNotNull(
+                        report.title,
+                        report.description,
+                        report.status,
+                        report.fixStatus,
+                        report.investigationRootCause,
+                    ).any { it.contains(query, ignoreCase = true) }
+                }
+            }
+    }
 
     Scaffold(
         topBar = {
@@ -65,26 +92,63 @@ fun SelfHealReportsScreen(
         }
     ) { padding ->
         PullToRefreshBox(
-            isRefreshing = false,
+            isRefreshing = isRefreshing,
             onRefresh = { vm.refresh() },
             modifier = Modifier.fillMaxSize().padding(padding),
         ) {
             if (reports.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            "No error reports yet.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        TextButton(onClick = { vm.refresh() }) { Text("Refresh") }
-                    }
+                    NexyEmptyState(
+                        title = "No error reports yet.",
+                        detail = "Self-Heal reports from the desktop will appear here.",
+                        action = {
+                            TextButton(onClick = { vm.refresh() }) { Text("Refresh") }
+                        },
+                    )
                 }
             } else {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(reports, key = { it.id }) { report ->
-                        ReportRow(report = report, onClick = { onOpenReport(report.id) })
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Column(modifier = Modifier.fillMaxSize()) {
+                    NexySearchField(
+                        query = searchQuery,
+                        onQueryChange = { searchQuery = it },
+                        placeholder = "Search reports",
+                    )
+                    if (statusValues.size > 1) {
+                        LazyRow(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            item {
+                                FilterChip(
+                                    selected = statusFilter == null,
+                                    onClick = { statusFilter = null },
+                                    label = { Text("All") },
+                                )
+                            }
+                            items(statusValues) { status ->
+                                FilterChip(
+                                    selected = statusFilter == status,
+                                    onClick = { statusFilter = if (statusFilter == status) null else status },
+                                    label = { Text(status.replaceFirstChar { it.uppercase() }) },
+                                )
+                            }
+                        }
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    if (filteredReports.isEmpty()) {
+                        NexyEmptyState(
+                            title = "No matching reports.",
+                            detail = "Try a different title, status, or root cause.",
+                            modifier = Modifier.weight(1f),
+                            action = { TextButton(onClick = { searchQuery = "" }) { Text("Clear search") } },
+                        )
+                    } else {
+                        LazyColumn(modifier = Modifier.fillMaxSize()) {
+                            items(filteredReports, key = { it.id }) { report ->
+                                ReportRow(report = report, onClick = { onOpenReport(report.id) })
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                            }
+                        }
                     }
                 }
             }
@@ -131,17 +195,11 @@ private fun StatusBadge(status: String) {
         "rejected" -> "Rejected" to Color(0xFF616161)
         else -> status.replaceFirstChar { it.uppercase() } to Color(0xFF616161)
     }
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = color.copy(alpha = 0.15f),
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = color,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-        )
-    }
+    NexyStatusBadge(
+        label = label,
+        containerColor = color.copy(alpha = 0.15f),
+        contentColor = color,
+    )
 }
 
 private fun formatTimestamp(ms: Long): String {

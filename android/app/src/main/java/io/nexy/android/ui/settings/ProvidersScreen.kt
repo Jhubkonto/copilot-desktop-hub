@@ -15,6 +15,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -23,6 +24,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -33,6 +36,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +45,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.model.ProviderInfo
+import io.nexy.android.ui.components.NexyConfirmDialog
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,8 +55,11 @@ fun ProvidersScreen(
     vm: ProvidersViewModel = viewModel(),
 ) {
     val providers by vm.providers.collectAsState()
+    val isLoading by vm.isLoading.collectAsState()
     var editingProvider by remember { mutableStateOf<ProviderInfo?>(null) }
     var confirmRemoveProvider by remember { mutableStateOf<ProviderInfo?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) { vm.refresh() }
 
@@ -61,31 +70,28 @@ fun ProvidersScreen(
             onConfirm = { key ->
                 vm.setKey(provider.id, key)
                 editingProvider = null
+                scope.launch { snackbarHostState.showSnackbar("${provider.label} key update sent to desktop.") }
             },
         )
     }
 
     confirmRemoveProvider?.let { provider ->
-        AlertDialog(
-            onDismissRequest = { confirmRemoveProvider = null },
-            title = { Text("Remove API key") },
-            text = { Text("Remove the ${provider.label} API key from this desktop? You will need to re-enter it to use this provider.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        vm.removeKey(provider.id)
-                        confirmRemoveProvider = null
-                    },
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                ) { Text("Remove") }
+        NexyConfirmDialog(
+            title = "Remove API key",
+            message = "Remove the ${provider.label} API key from this desktop? You will need to re-enter it to use this provider.",
+            confirmLabel = "Remove",
+            destructive = true,
+            onConfirm = {
+                vm.removeKey(provider.id)
+                confirmRemoveProvider = null
+                scope.launch { snackbarHostState.showSnackbar("${provider.label} key removal sent to desktop.") }
             },
-            dismissButton = {
-                TextButton(onClick = { confirmRemoveProvider = null }) { Text("Cancel") }
-            },
+            onDismiss = { confirmRemoveProvider = null },
         )
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("API Providers", style = MaterialTheme.typography.titleMedium) },
@@ -116,9 +122,11 @@ fun ProvidersScreen(
             )
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-            if (providers.isEmpty()) {
+            if (providers.isEmpty() && isLoading) {
+                CircularProgressIndicator(modifier = Modifier.padding(16.dp))
+            } else if (providers.isEmpty()) {
                 Text(
-                    "Loading providers…",
+                    "No providers found. Check desktop connection.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(16.dp),

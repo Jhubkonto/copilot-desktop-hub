@@ -20,7 +20,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -49,6 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.model.WikiEntry
+import io.nexy.android.ui.components.NexyConfirmDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -182,12 +182,13 @@ private fun WikiEntryScreen(
     var showDeleteDialog by remember { mutableStateOf(false) }
 
     if (showDeleteDialog) {
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            title = { Text("Delete entry?") },
-            text = { Text("\"${entry.title}\" will be permanently deleted.") },
-            confirmButton = { TextButton(onClick = { showDeleteDialog = false; onDelete() }) { Text("Delete") } },
-            dismissButton = { TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") } },
+        NexyConfirmDialog(
+            title = "Delete entry?",
+            message = "\"${entry.title}\" will be permanently deleted.",
+            confirmLabel = "Delete",
+            destructive = true,
+            onConfirm = { showDeleteDialog = false; onDelete() },
+            onDismiss = { showDeleteDialog = false },
         )
     }
 
