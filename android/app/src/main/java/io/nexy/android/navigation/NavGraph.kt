@@ -12,6 +12,7 @@ import androidx.navigation.navArgument
 import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
 import io.nexy.android.ui.chat.ChatScreen
+import io.nexy.android.ui.home.AgentConfigScreen
 import io.nexy.android.ui.home.HistoryScope
 import io.nexy.android.ui.home.HomeScreen
 import io.nexy.android.ui.home.ScopedChatHistoryScreen
@@ -21,6 +22,7 @@ import io.nexy.android.ui.selfheal.SelfHealReportDetailScreen
 import io.nexy.android.ui.selfheal.SelfHealReportsScreen
 import io.nexy.android.ui.artifacts.ArtifactsScreen
 import io.nexy.android.ui.featuregenerator.FeatureGeneratorScreen
+import io.nexy.android.ui.projectgenerator.ProjectGeneratorScreen
 import io.nexy.android.ui.prompts.PromptsScreen
 import io.nexy.android.ui.settings.ProvidersScreen
 import io.nexy.android.ui.settings.SettingsScreen
@@ -88,6 +90,9 @@ fun NavGraph() {
                 },
                 onOpenAgentHistory = { agentId ->
                     navController.navigate("history/agent/${Uri.encode(agentId)}")
+                },
+                onOpenAgentConfig = { agentId ->
+                    navController.navigate("agent-config/${Uri.encode(agentId)}")
                 },
                 onOpenProjectHistory = { projectId ->
                     navController.navigate("history/project/${Uri.encode(projectId)}")
@@ -166,6 +171,7 @@ fun NavGraph() {
                 onOpenSelfHeal = { navController.navigate("self-heal") },
                 onOpenProviders = { navController.navigate("providers") },
                 onOpenFeatureGenerator = { navController.navigate("feature-generator") },
+                onOpenProjectGenerator = { navController.navigate("project-generator") },
                 onOpenArtifacts = { navController.navigate("artifacts") },
                 onOpenPromptLibrary = { navController.navigate("prompts") },
             )
@@ -177,6 +183,10 @@ fun NavGraph() {
 
         composable("feature-generator") {
             FeatureGeneratorScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable("project-generator") {
+            ProjectGeneratorScreen(onBack = { navController.popBackStack() })
         }
 
         composable("artifacts") {
@@ -200,6 +210,14 @@ fun NavGraph() {
         ) { backStackEntry ->
             val reportId = backStackEntry.arguments?.getString("reportId") ?: return@composable
             SelfHealReportDetailScreen(reportId = reportId, onBack = { navController.popBackStack() })
+        }
+
+        composable(
+            route = "agent-config/{agentId}",
+            arguments = listOf(navArgument("agentId") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val agentId = backStackEntry.arguments?.getString("agentId") ?: return@composable
+            AgentConfigScreen(agentId = agentId, onBack = { navController.popBackStack() })
         }
     }
 }
