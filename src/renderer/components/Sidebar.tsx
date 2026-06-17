@@ -1,12 +1,7 @@
 import { useState, useCallback, useRef, useEffect, type ReactNode } from 'react'
-import { Plus, MessageSquare, Settings, X, Upload, Pin, FolderOpen, Folder, Cpu, ChevronDown, ChevronRight, Check, Wrench, Sparkles, Package, Bug, Pencil } from 'lucide-react'
-import { SearchBar } from './SearchBar'
+import { Plus, MessageSquare, Settings, FolderOpen, Bot, Wrench, Sparkles, Package, Bug, SquareArrowOutUpRight } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
-import type { Conversation, Project } from '../store/types'
 import { ResizeHandle } from './ResizeHandle'
-import { getModelLabel } from '../../shared/models'
-import { DeleteConversationDialog } from './DeleteConversationDialog'
-import { formatRelativeTime } from '../../shared/utils'
 import { Button } from './ui/primitives'
 
 function NavButton({
@@ -15,22 +10,29 @@ function NavButton({
   onClick,
   badgeCount,
   ariaLabel,
+  active,
+  modal,
 }: {
   icon: ReactNode
   label: string
   onClick: () => void
   badgeCount?: number
   ariaLabel?: string
+  active?: boolean
+  modal?: boolean
 }) {
   return (
     <Button
       variant="ghost"
       onClick={onClick}
-      className="w-full justify-start px-3 py-1.5"
+      className={`w-full justify-start px-3 py-1.5 ${active ? 'bg-gray-100 dark:bg-gray-800' : ''}`}
       aria-label={ariaLabel ?? label}
     >
       {icon}
       <span className="flex-1 text-left">{label}</span>
+      {modal && (
+        <SquareArrowOutUpRight className="w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0" />
+      )}
       {!!badgeCount && badgeCount > 0 && (
         <span className="flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-semibold leading-none">
           {badgeCount > 9 ? '9+' : badgeCount}
@@ -40,62 +42,12 @@ function NavButton({
   )
 }
 
-interface DateGroup {
-  label: string
-  conversations: Conversation[]
-}
-
-function groupByDate(conversations: Conversation[]): DateGroup[] {
-  const now = new Date()
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
-  const yesterdayStart = todayStart - 86400000
-  const weekStart = todayStart - 7 * 86400000
-
-  const groups: DateGroup[] = []
-
-  const today = conversations.filter((c) => c.updated_at >= todayStart)
-  const yesterday = conversations.filter(
-    (c) => c.updated_at >= yesterdayStart && c.updated_at < todayStart
-  )
-  const thisWeek = conversations.filter(
-    (c) => c.updated_at >= weekStart && c.updated_at < yesterdayStart
-  )
-  const older = conversations.filter((c) => c.updated_at < weekStart)
-
-  if (today.length) groups.push({ label: 'Today', conversations: today })
-  if (yesterday.length) groups.push({ label: 'Yesterday', conversations: yesterday })
-  if (thisWeek.length) groups.push({ label: 'This Week', conversations: thisWeek })
-  if (older.length) groups.push({ label: 'Older', conversations: older })
-
-  return groups
-}
-
-function isPinned(conversation: Conversation): boolean {
-  return conversation.pinned === 1
-}
-
-const PROJECT_COLOR_MAP: Record<string, { bg: string; dot: string; border: string }> = {
-  blue:   { bg: 'bg-blue-100 dark:bg-blue-900/40',     dot: 'bg-blue-500',   border: 'border-l-blue-500' },
-  green:  { bg: 'bg-green-100 dark:bg-green-900/40',   dot: 'bg-green-500',  border: 'border-l-green-500' },
-  red:    { bg: 'bg-red-100 dark:bg-red-900/40',       dot: 'bg-red-500',    border: 'border-l-red-500' },
-  purple: { bg: 'bg-purple-100 dark:bg-purple-900/40', dot: 'bg-purple-500', border: 'border-l-purple-500' },
-  orange: { bg: 'bg-orange-100 dark:bg-orange-900/40', dot: 'bg-orange-500', border: 'border-l-orange-500' },
-  pink:   { bg: 'bg-pink-100 dark:bg-pink-900/40',     dot: 'bg-pink-500',   border: 'border-l-pink-500' },
-  yellow: { bg: 'bg-yellow-100 dark:bg-yellow-900/40', dot: 'bg-yellow-500', border: 'border-l-yellow-500' },
-  gray:   { bg: 'bg-gray-100 dark:bg-gray-800',        dot: 'bg-gray-400',   border: 'border-l-gray-400' },
-}
-const COLOR_OPTIONS = Object.keys(PROJECT_COLOR_MAP)
-
 const SIDEBAR_MIN = 160
 const SIDEBAR_MAX = 480
-const SIDEBAR_SECTION_LIMIT = 5
 
 export function Sidebar() {
   const sidebarRef = useRef<HTMLElement>(null)
   const [width, setWidth] = useState(256)
-  const [projectsOpen, setProjectsOpen] = useState(true)
-  const [agentsOpen, setAgentsOpen] = useState(true)
-  const [chatsOpen, setChatsOpen] = useState(true)
 
   const getMaxSize = useCallback(() => Math.min(SIDEBAR_MAX, Math.floor(window.innerWidth * 0.32)), [])
 
@@ -103,72 +55,25 @@ export function Sidebar() {
     setWidth(Math.max(SIDEBAR_MIN, Math.min(getMaxSize(), size)))
   }, [getMaxSize])
 
-  const currentConversationId = useAppStore((s) => s.currentConversationId)
-  const conversations = useAppStore((s) => s.conversations)
   const authState = useAppStore((s) => s.authState)
-  const agents = useAppStore((s) => s.agents)
-  const activeAgentId = useAppStore((s) => s.activeAgentId)
-  const conversationsLoading = useAppStore((s) => s.conversationsLoading)
-  const agentsLoading = useAppStore((s) => s.agentsLoading)
-  const projects = useAppStore((s) => s.projects)
-  const activeProjectId = useAppStore((s) => s.activeProjectId)
 
-  const selectConversation = useAppStore((s) => s.selectConversation)
   const newChat = useAppStore((s) => s.newChat)
-  const deleteConversation = useAppStore((s) => s.deleteConversation)
-  const loadConversations = useAppStore((s) => s.loadConversations)
   const logout = useAppStore((s) => s.logout)
   const setShowSettings = useAppStore((s) => s.setShowSettings)
   const setShowSelfHealPanel = useAppStore((s) => s.setShowSelfHealPanel)
   const setShowFeatureGeneratorPanel = useAppStore((s) => s.setShowFeatureGeneratorPanel)
   const setShowArtifactsPanel = useAppStore((s) => s.setShowArtifactsPanel)
   const openBugReport = useAppStore((s) => s.openBugReport)
-  const selectAgent = useAppStore((s) => s.selectAgent)
-  const openEditAgent = useAppStore((s) => s.openEditAgent)
-  const openCreateAgent = useAppStore((s) => s.openCreateAgent)
-  const importAgent = useAppStore((s) => s.importAgent)
-  const addToast = useAppStore((s) => s.addToast)
-  const selectProject = useAppStore((s) => s.selectProject)
-  const openEditProject = useAppStore((s) => s.openEditProject)
-  const addAgentToProject = useAppStore((s) => s.addAgentToProject)
-  const projectAgents = useAppStore((s) => s.projectAgents)
-  const setHistoryAgentId = useAppStore((s) => s.setHistoryAgentId)
-  const setConversationProject = useAppStore((s) => s.setConversationProject)
   const activeSectionPane = useAppStore((s) => s.activeSectionPane)
-  const setSectionPane = useAppStore((s) => s.setSectionPane)
   const openSectionPane = useAppStore((s) => s.openSectionPane)
   const setHistoryProjectId = useAppStore((s) => s.setHistoryProjectId)
-  const historyProjectId = useAppStore((s) => s.historyProjectId)
-  const setShowNewProjectForm = useAppStore((s) => s.setShowNewProjectForm)
-  const setShowProjectGenerator = useAppStore((s) => s.setShowProjectGenerator)
-  const unreadConversationIds = useAppStore((s) => s.unreadConversationIds)
-  const catalogModels = useAppStore((s) => s.catalogModels)
+  const setHistoryAgentId = useAppStore((s) => s.setHistoryAgentId)
 
-  const [searchQuery, setSearchQuery] = useState('')
-  const [searchResults, setSearchResults] = useState<Conversation[] | null>(null)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [editTitle, setEditTitle] = useState('')
-  const [isImportingConversation, setIsImportingConversation] = useState(false)
-  const [pendingDeleteConv, setPendingDeleteConv] = useState<{ id: string; title: string } | null>(null)
   const [openReportCount, setOpenReportCount] = useState(0)
-
-  // Conversation project picker state
-  const [convProjectPickerId, setConvProjectPickerId] = useState<string | null>(null)
-  const convProjectPickerRef = useRef<HTMLDivElement>(null)
-  const [sidebarDragOverProjectId, setSidebarDragOverProjectId] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!convProjectPickerId) return
-    const onPointerDown = (e: MouseEvent) => {
-      if (convProjectPickerRef.current && !convProjectPickerRef.current.contains(e.target as Node)) {
-        setConvProjectPickerId(null)
-      }
-    }
-    window.addEventListener('mousedown', onPointerDown)
-    return () => window.removeEventListener('mousedown', onPointerDown)
-  }, [convProjectPickerId])
+  const [configuredProviderLabel, setConfiguredProviderLabel] = useState('')
 
   const showSelfHealPanel = useAppStore((s) => s.showSelfHealPanel)
+  const showSettings = useAppStore((s) => s.showSettings)
 
   useEffect(() => {
     if (typeof window.api.listErrorReports !== 'function') return
@@ -182,241 +87,16 @@ export function Sidebar() {
     return () => clearInterval(interval)
   }, [showSelfHealPanel])
 
-  const handleSearch = useCallback(async (query: string) => {
-    setSearchQuery(query)
-    if (!query) {
-      setSearchResults(null)
-      return
-    }
-    try {
-      const results = await window.api.searchConversations(query)
-      setSearchResults(results)
-    } catch {
-      setSearchResults(null)
-    }
-  }, [])
-
-  const handleRename = async () => {
-    if (editingId) {
-      const trimmed = editTitle.trim()
-      if (!trimmed) {
-        addToast('Conversation name cannot be empty', 'error')
-        setEditingId(null)
-        return
-      }
-      try {
-        await window.api.renameConversation(editingId, trimmed)
-        loadConversations()
-      } catch {
-        addToast('Failed to rename conversation', 'error')
-      }
-    }
-    setEditingId(null)
-  }
-
-  const handleImportConversation = useCallback(async () => {
-    setIsImportingConversation(true)
-    try {
-      const result = await window.api.importConversationJson(null)
-      if (result) {
-        await loadConversations()
-        selectConversation(result.conversation.id)
-        addToast(`Imported ${result.message_count} messages`, 'success')
-      }
-    } catch {
-      addToast('Failed to import conversation', 'error')
-    } finally {
-      setIsImportingConversation(false)
-    }
-  }, [addToast, loadConversations, selectConversation])
-
-
-  // When a project is selected
-  // Search results are also filtered by active project.
-  const baseConversations = searchResults ?? conversations
-  const filteredConversations = activeProjectId === '__none__'
-    ? baseConversations.filter((c) => !c.project_id)
-    : activeProjectId !== null
-      ? baseConversations.filter((c) => c.project_id === activeProjectId)
-      : baseConversations
-
-
-  // Limit sidebar conversation list to SIDEBAR_SECTION_LIMIT, pinned first
-  const visibleConversations = filteredConversations.slice(0, SIDEBAR_SECTION_LIMIT)
-  const visiblePinned = visibleConversations.filter(isPinned)
-  const visibleDateGroups = groupByDate(visibleConversations.filter((c) => !isPinned(c)))
-  const hiddenConvCount = Math.max(0, filteredConversations.length - SIDEBAR_SECTION_LIMIT)
-
-  const renderConversation = (conv: Conversation) => {
-    const agentForConv = agents.find((a) => a.id === conv.agent_id)
-    const isPickingProject = convProjectPickerId === conv.id
-    const isUnread = unreadConversationIds.includes(conv.id)
-    return (
-      <div
-        key={conv.id}
-        className={`group relative flex items-center justify-between px-2 py-1.5 rounded-lg cursor-pointer text-xs transition-colors ${
-          currentConversationId === conv.id
-            ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
-            : 'text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-        }`}
-        onClick={() => selectConversation(conv.id)}
-      >
-        <div className="flex-1 min-w-0 flex items-center gap-1.5">
-          {isUnread && (
-            <span className="flex-shrink-0 w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-          )}
-          {editingId === conv.id ? (
-            <input
-              value={editTitle}
-              onChange={(e) => setEditTitle(e.target.value)}
-              onBlur={handleRename}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleRename()
-                if (e.key === 'Escape') setEditingId(null)
-              }}
-              onClick={(e) => e.stopPropagation()}
-              autoFocus
-              className="w-full text-xs font-medium bg-white dark:bg-gray-700 border border-blue-400 rounded px-1 py-0.5 focus:outline-none"
-            />
-          ) : (
-            <div
-              className="truncate text-xs font-medium"
-              onDoubleClick={(e) => {
-                e.stopPropagation()
-                setEditingId(conv.id)
-                setEditTitle(conv.title)
-              }}
-              title="Double-click to rename"
-            >
-              {agentForConv && <span className="mr-1">{agentForConv.icon}</span>}
-              {conv.title}
-            </div>
-          )}
-        </div>
-        <div className="invisible group-hover:visible flex items-center gap-0.5">
-          {/* Rename button */}
-          <Button
-            variant="ghost"
-            onClick={(e) => {
-              e.stopPropagation()
-              setEditingId(conv.id)
-              setEditTitle(conv.title)
-            }}
-            className="p-0.5"
-            title="Rename conversation"
-            aria-label="Rename conversation"
-          >
-            <Pencil className="w-3 h-3" />
-          </Button>
-          {/* Pin button */}
-          <Button
-            variant="ghost"
-            onClick={async (e) => {
-              e.stopPropagation()
-              const nextPinned = !isPinned(conv)
-              try {
-                await window.api.setConversationPinned(conv.id, nextPinned)
-                loadConversations()
-                addToast(nextPinned ? 'Conversation pinned' : 'Conversation unpinned', 'info', {
-                  label: 'Undo',
-                  onClick: () => {
-                    void window.api.setConversationPinned(conv.id, !nextPinned).then(() => loadConversations())
-                  },
-                })
-              } catch {
-                addToast('Failed to update pin', 'error')
-              }
-            }}
-            className={`p-0.5 ${isPinned(conv) ? 'text-blue-500' : ''}`}
-            title={isPinned(conv) ? 'Unpin conversation' : 'Pin conversation'}
-            aria-label={isPinned(conv) ? 'Unpin conversation' : 'Pin conversation'}
-          >
-            <Pin className="w-3 h-3" />
-          </Button>
-          {/* Move to project button */}
-          <div className="relative" ref={isPickingProject ? convProjectPickerRef : undefined}>
-            <Button
-              variant="ghost"
-              onClick={(e) => {
-                e.stopPropagation()
-                setConvProjectPickerId(isPickingProject ? null : conv.id)
-              }}
-              className="p-0.5"
-              title="Move to project"
-              aria-label="Move to project"
-            >
-              <FolderOpen className="w-3 h-3" />
-            </Button>
-            {isPickingProject && (
-              <div className="absolute right-0 top-5 z-30 w-44 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xl py-1">
-                <div className="px-2 py-1 text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">
-                  Move to project
-                </div>
-                <button
-                  className="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setConvProjectPickerId(null)
-                    const previousProjectId = conv.project_id ?? null
-                    void setConversationProject(conv.id, null).then(() => {
-                      addToast('Moved to No project', 'info', {
-                        label: 'Undo',
-                        onClick: () => { void setConversationProject(conv.id, previousProjectId) },
-                      })
-                    })
-                  }}
-                >
-                  <span className="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600 inline-block" />
-                  No project
-                  {conv.project_id === null && <Check className="w-3 h-3 ml-auto text-blue-500" />}
-                </button>
-                {projects.map((p) => {
-                  const colors = PROJECT_COLOR_MAP[p.color] ?? PROJECT_COLOR_MAP.blue
-                  return (
-                    <button
-                      key={p.id}
-                      className="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setConvProjectPickerId(null)
-                        const previousProjectId = conv.project_id ?? null
-                        void setConversationProject(conv.id, p.id).then(() => {
-                          addToast(`Moved to ${p.name}`, 'info', {
-                            label: 'Undo',
-                            onClick: () => { void setConversationProject(conv.id, previousProjectId) },
-                          })
-                        })
-                      }}
-                    >
-                      <span className={`w-2 h-2 rounded-full inline-block ${colors.dot}`} />
-                      <span className="truncate">{p.name}</span>
-                      {conv.project_id === p.id && <Check className="w-3 h-3 ml-auto text-blue-500" />}
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-          {/* Delete button */}
-          <Button
-            variant="ghost"
-            onClick={(e) => {
-              e.stopPropagation()
-              setPendingDeleteConv({ id: conv.id, title: conv.title })
-            }}
-            className="p-0.5"
-            title="Delete conversation"
-            aria-label="Delete conversation"
-          >
-            <X className="w-3 h-3" />
-          </Button>
-        </div>
-      </div>
-    )
-  }
+  useEffect(() => {
+    window.api.listProviders()
+      .then((providers) => {
+        const labels = providers.filter((p) => p.configured).map((p) => p.label)
+        setConfiguredProviderLabel(labels.join(' · '))
+      })
+      .catch(() => {})
+  }, [showSettings])
 
   return (
-    <>
     <aside
       ref={sidebarRef}
       className="h-full flex flex-col shrink-0 bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700/80 relative"
@@ -438,403 +118,89 @@ export function Sidebar() {
           <Plus className="w-4 h-4" />
           <span>New Chat</span>
         </Button>
-        <SearchBar onSearch={handleSearch} />
+        <hr className="border-gray-200 dark:border-gray-700/80" />
         <NavButton
-          icon={<Wrench className="w-3.5 h-3.5" />}
-          label="Self-Heal"
-          onClick={() => setShowSelfHealPanel(true)}
-          badgeCount={openReportCount}
-          ariaLabel={`Open Self-Heal${openReportCount > 0 ? ` (${openReportCount} new report${openReportCount === 1 ? '' : 's'})` : ''}`}
+          icon={<MessageSquare className="w-3.5 h-3.5" />}
+          label="Chats"
+          onClick={() => openSectionPane('chats')}
+          active={activeSectionPane === 'chats'}
+          ariaLabel="Open chat history"
         />
+        <NavButton
+          icon={<FolderOpen className="w-3.5 h-3.5" />}
+          label="Projects"
+          onClick={() => { setHistoryProjectId(null); openSectionPane('projects') }}
+          active={activeSectionPane === 'projects'}
+          ariaLabel="Open projects"
+        />
+        <NavButton
+          icon={<Bot className="w-3.5 h-3.5" />}
+          label="Agents"
+          onClick={() => { setHistoryAgentId(null); openSectionPane('agents') }}
+          active={activeSectionPane === 'agents'}
+          ariaLabel="Open agents"
+        />
+        <hr className="border-gray-200 dark:border-gray-700/80" />
         <NavButton
           icon={<Sparkles className="w-3.5 h-3.5" />}
           label="Feature Generator"
           onClick={() => setShowFeatureGeneratorPanel(true)}
           ariaLabel="Open Feature Generator"
+          modal
         />
         <NavButton
           icon={<Package className="w-3.5 h-3.5" />}
           label="Artifacts"
           onClick={() => setShowArtifactsPanel(true)}
           ariaLabel="Open Artifacts"
+          modal
+        />
+        <hr className="border-gray-200 dark:border-gray-700/80" />
+        <NavButton
+          icon={<Wrench className="w-3.5 h-3.5" />}
+          label="Self-Heal"
+          onClick={() => setShowSelfHealPanel(true)}
+          badgeCount={openReportCount}
+          ariaLabel={`Open Self-Heal${openReportCount > 0 ? ` (${openReportCount} new report${openReportCount === 1 ? '' : 's'})` : ''}`}
+          modal
         />
         <NavButton
           icon={<Bug className="w-3.5 h-3.5" />}
           label="Report a bug"
           onClick={() => openBugReport()}
           ariaLabel="Report a bug"
+          modal
         />
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto mr-1.5 px-3 space-y-4">
-        {/* ── No project sentinel — always visible ── */}
-        <div
-          className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-xs font-medium transition-colors ${
-            activeProjectId === '__none__'
-              ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
-              : 'text-gray-500 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'
-          }`}
-          onClick={() => selectProject('__none__')}
-          aria-label="No project — unaffiliated chats"
-        >
-          <Folder className="w-3.5 h-3.5 shrink-0 text-gray-400" />
-          <span className="flex-1 truncate italic">No project</span>
-        </div>
-
-        {/* ── Projects ── */}
-        <div>
-          <div className="flex items-center justify-between px-2 mb-1">
-            <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                onClick={() => setProjectsOpen((v) => !v)}
-                className="p-0.5"
-                aria-expanded={projectsOpen}
-                aria-label={projectsOpen ? 'Collapse projects' : 'Expand projects'}
-              >
-                {projectsOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-              </Button>
-              <button
-                onClick={() => {
-                  openSectionPane('projects')
-                  setHistoryProjectId(null)
-                }}
-                className={`text-xs font-medium uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300 ${
-                  activeSectionPane === 'projects'
-                    ? 'text-blue-500 dark:text-blue-400'
-                    : 'text-gray-400 dark:text-gray-500'
-                }`}
-                aria-label="Open projects panel"
-              >
-                Projects
-              </button>
-            </div>
-            <Button
-              variant="ghost"
-              onClick={() => setShowProjectGenerator(true)}
-              className="p-0.5"
-              title="New project"
-              aria-label="Create new project"
-            >
-              <Plus className="w-3 h-3" />
-            </Button>
-          </div>
-
-          {projectsOpen && <div className="space-y-0.5">
-            {/* Project rows — capped at SIDEBAR_SECTION_LIMIT */}
-            {projects.slice(0, SIDEBAR_SECTION_LIMIT).map((project) => {
-              const colors = PROJECT_COLOR_MAP[project.color] ?? PROJECT_COLOR_MAP.blue
-              const isActive = activeProjectId === project.id
-              return (
-                <div key={project.id} className="relative group">
-                  <div
-                    className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-xs font-medium transition-colors border-l-[3px] ${colors.border} ${
-                      isActive
-                        ? `${colors.bg} text-gray-900 dark:text-gray-100`
-                        : sidebarDragOverProjectId === project.id
-                          ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 border border-dashed border-blue-400'
-                          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
-                    }`}
-                    onClick={() => selectProject(project.id)}
-                    onDragOver={(e) => {
-                      if (e.dataTransfer.types.includes('sidebar-agent-id')) {
-                        e.preventDefault()
-                        e.dataTransfer.dropEffect = 'copy'
-                        setSidebarDragOverProjectId(project.id)
-                      }
-                    }}
-                    onDragLeave={() => setSidebarDragOverProjectId(null)}
-                    onDrop={async (e) => {
-                      e.preventDefault()
-                      setSidebarDragOverProjectId(null)
-                      const agentId = e.dataTransfer.getData('sidebar-agent-id')
-                      if (!agentId) return
-                      const agent = agents.find((a) => a.id === agentId)
-                      if (!agent) return
-                      const alreadyMember = (projectAgents[project.id] ?? []).some((m) => m.agentId === agentId)
-                      if (alreadyMember) {
-                        addToast(`${agent.name} is already in ${project.name}`, 'info')
-                        return
-                      }
-                      await addAgentToProject(project.id, agentId)
-                      addToast(`🤖 ${agent.name} added to ${project.name}`, 'success')
-                    }}
-                  >
-                    {isActive
-                      ? <FolderOpen className="w-3.5 h-3.5 shrink-0" />
-                      : <Folder className="w-3.5 h-3.5 shrink-0" />
-                    }
-                    <span className="flex-1 truncate">{project.name}</span>
-                    {project.default_model && (
-                      <span
-                        className="flex items-center gap-0.5 text-[10px] text-gray-400 dark:text-gray-500 shrink-0"
-                        title={`Default model: ${getModelLabel(project.default_model, catalogModels)}`}
-                      >
-                        <Cpu className="w-2.5 h-2.5" />
-                      </span>
-                    )}
-                    <Button
-                      variant="ghost"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        openEditProject(project.id)
-                      }}
-                      className="invisible group-hover:visible p-0.5"
-                      title="Project settings"
-                      aria-label="Project settings"
-                    >
-                      <Settings className="w-3 h-3" />
-                    </Button>
-                  </div>
-                </div>
-              )
-            })}
-            {projects.length > SIDEBAR_SECTION_LIMIT && (
-              <button
-                onClick={() => { setSectionPane('projects'); setHistoryProjectId(null) }}
-                className="w-full text-left text-xs text-gray-400 dark:text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 px-2 py-1 transition-colors"
-              >
-                …and {projects.length - SIDEBAR_SECTION_LIMIT} more →
-              </button>
-            )}
-          </div>}
-        </div>
-
-        {/* ── No agent sentinel — always visible ── */}
-        <div
-          className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-xs font-medium transition-colors ${
-            activeAgentId === null
-              ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
-              : 'text-gray-500 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'
-          }`}
-          onClick={() => selectAgent(null)}
-          aria-label="No agent — no agent context"
-        >
-          <MessageSquare className="w-3.5 h-3.5 shrink-0 text-gray-400" />
-          <span className="flex-1 truncate italic">No agent</span>
-        </div>
-
-        {/* ── Agents ── */}
-        <div>
-          <div className="flex items-center justify-between px-2 mb-2">
-            <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                onClick={() => setAgentsOpen((v) => !v)}
-                className="p-0.5"
-                aria-expanded={agentsOpen}
-                aria-label={agentsOpen ? 'Collapse agents' : 'Expand agents'}
-              >
-                {agentsOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-              </Button>
-              <button
-                onClick={() => {
-                  openSectionPane('agents')
-                  setHistoryAgentId(null)
-                }}
-                className={`text-xs font-medium uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300 ${
-                  activeSectionPane === 'agents'
-                    ? 'text-blue-500 dark:text-blue-400'
-                    : 'text-gray-400 dark:text-gray-500'
-                }`}
-                aria-label="Open agents panel"
-              >
-                Agents
-              </button>
-            </div>
-            <Button
-              variant="ghost"
-              onClick={() => openCreateAgent()}
-              className="p-0.5"
-              title="New agent"
-              aria-label="Create new agent"
-            >
-              <Plus className="w-3 h-3" />
-            </Button>
-          </div>
-          {agentsOpen && (<>
-            {agentsLoading ? (
-            <div className="space-y-1 px-2" aria-label="Loading agents">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="h-7 bg-gray-200 dark:bg-gray-800 rounded-lg animate-pulse" />
-              ))}
-            </div>
-          ) : agents.length === 0 ? (
-            <div className="text-xs text-gray-400 dark:text-gray-500 px-2 italic">
-              No agents configured
-            </div>
-          ) : (
-          <div className="space-y-0.5">
-              {agents.slice(0, SIDEBAR_SECTION_LIMIT).map((agent) => (
-                <div
-                  key={agent.id}
-                  draggable
-                  onDragStart={(e) => {
-                    e.dataTransfer.setData('sidebar-agent-id', agent.id)
-                    e.dataTransfer.effectAllowed = 'copy'
-                  }}
-                  className={`group flex items-center justify-between px-2 py-1.5 rounded-lg cursor-grab active:cursor-grabbing text-sm transition-colors ${
-                    activeAgentId === agent.id
-                      ? 'bg-gray-200 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
-                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
-                  }`}
-                  onClick={() => setHistoryAgentId(agent.id)}
-                  title="Drag onto a project to add this agent to it"
-                >
-                  <span className="text-xs font-medium truncate">
-                    {agent.icon} {agent.name}
-                  </span>
-                  <Button
-                    variant="ghost"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      openEditAgent(agent.id)
-                    }}
-                    className="invisible group-hover:visible ml-1 p-0.5"
-                    title="Edit agent"
-                    aria-label="Edit agent"
-                  >
-                    <Settings className="w-3 h-3" />
-                  </Button>
-                </div>
-              ))}
-              {agents.length > SIDEBAR_SECTION_LIMIT && (
-                <button
-                  onClick={() => { setSectionPane('agents'); setHistoryAgentId(null) }}
-                  className="w-full text-left text-xs text-gray-400 dark:text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 px-2 py-1 transition-colors"
-                >
-                  …and {agents.length - SIDEBAR_SECTION_LIMIT} more →
-                </button>
-              )}
-            </div>
-          )}
-          <div className="flex gap-2 mt-2 px-2">
-            <button
-              onClick={openCreateAgent}
-              className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
-            >
-              <Plus className="w-3 h-3" />
-              New Agent
-            </button>
-            <button
-              onClick={importAgent}
-              className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
-            >
-              <Upload className="w-3 h-3" />
-              Import
-            </button>
-          </div>
-          </>)}
-        </div>
-
-        {/* ── Conversations ── */}
-        <div>
-          <div className="flex items-center gap-1 px-2 mb-2">
-            <Button
-              variant="ghost"
-              onClick={() => setChatsOpen((v) => !v)}
-              className="p-0.5"
-              aria-expanded={chatsOpen}
-              aria-label={chatsOpen ? 'Collapse chats' : 'Expand chats'}
-            >
-              {chatsOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-            </Button>
-            <button
-              onClick={() => setSectionPane('chats')}
-              className={`text-xs font-medium uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300 ${
-                activeSectionPane === 'chats'
-                  ? 'text-blue-500 dark:text-blue-400'
-                  : 'text-gray-400 dark:text-gray-500'
-              }`}
-              aria-label="Open chats panel"
-            >
-              {searchQuery
-                ? `Results for "${searchQuery}"`
-                : activeProjectId
-                  ? `${projects.find((p) => p.id === activeProjectId)?.name ?? 'Project'} Chats`
-                  : 'All Chats'}
-            </button>
-          </div>
-          {chatsOpen && (<>
-          <div className="px-2 mb-2">
-            <button
-              onClick={() => void handleImportConversation()}
-              disabled={isImportingConversation}
-              className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Upload className="w-3 h-3" />
-              {isImportingConversation ? 'Importing...' : 'Import Chat'}
-            </button>
-          </div>
-          {conversationsLoading && filteredConversations.length === 0 ? (
-            <div className="space-y-1 px-2" aria-label="Loading conversations">
-              {[1, 2, 3, 4, 5].map((i) => (
-                <div key={i} className="h-7 bg-gray-200 dark:bg-gray-800 rounded-lg animate-pulse" />
-              ))}
-            </div>
-          ) : filteredConversations.length === 0 ? (
-            <div className="text-xs text-gray-400 dark:text-gray-500 px-2 italic">
-              {searchQuery
-                ? 'No matching conversations'
-                : activeProjectId
-                  ? 'No chats in this project yet'
-                  : 'No conversations yet'}
-            </div>
-          ) : (
-          <div className="space-y-3">
-              {visiblePinned.length > 0 && (
-                <div>
-                  <div className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider px-2 mb-1">
-                    Pinned
-                  </div>
-                  <div className="space-y-0.5">
-                    {visiblePinned.map(renderConversation)}
-                  </div>
-                </div>
-              )}
-              {visibleDateGroups.map((group) => (
-                <div key={group.label}>
-                  <div className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider px-2 mb-1">
-                    {group.label}
-                  </div>
-                  <div className="space-y-0.5">
-                    {group.conversations.map(renderConversation)}
-                  </div>
-                </div>
-              ))}
-              {hiddenConvCount > 0 && (
-                <button
-                  onClick={() => setSectionPane('chats')}
-                  className="w-full text-left text-xs text-gray-400 dark:text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 px-2 py-1 transition-colors"
-                >
-                  …and {hiddenConvCount} more →
-                </button>
-              )}
-            </div>
-          )}
-          </>)}
-        </div>
-      </div>
+      <div className="flex-1 min-h-0" />
 
       <div className="p-3 border-t border-gray-200 dark:border-gray-700/80">
         <div className="flex items-center justify-between gap-2 px-2 py-1">
           <div className="min-w-0">
-            <div className="text-xs font-medium text-gray-700 dark:text-gray-200 truncate">
-              {authState.authenticated
-                ? 'API keys configured'
-                : authState.cliInstalled
-                  ? (authState.clis?.claude && authState.clis?.codex
-                      ? 'Claude CLI + Codex CLI'
-                      : authState.clis?.codex ? 'Codex CLI' : 'Claude CLI')
-                  : 'No provider configured'}
-            </div>
-            <div className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
-              {authState.authenticated
-                ? 'BYOK mode is active'
-                : authState.cliInstalled
-                  ? 'Ready to chat'
-                  : 'Add an API key in Settings'}
-            </div>
+            {(() => {
+              const cliLabel = authState.cliInstalled
+                ? (authState.clis?.claude && authState.clis?.codex ? 'Claude CLI + Codex CLI' : authState.clis?.codex ? 'Codex CLI' : 'Claude CLI')
+                : null
+              const hasAny = cliLabel || configuredProviderLabel
+              const subtitle = hasAny
+                ? (authState.cliInstalled ? 'Ready to chat' : 'BYOK mode is active')
+                : 'Add an API key in Settings'
+              return (
+                <>
+                  {cliLabel && (
+                    <div className="text-xs font-medium text-gray-700 dark:text-gray-200 truncate">{cliLabel}</div>
+                  )}
+                  {configuredProviderLabel && (
+                    <div className="text-xs font-medium text-gray-700 dark:text-gray-200 truncate" title={configuredProviderLabel}>{configuredProviderLabel}</div>
+                  )}
+                  {!hasAny && (
+                    <div className="text-xs font-medium text-gray-700 dark:text-gray-200 truncate">No provider configured</div>
+                  )}
+                  <div className="text-[11px] text-gray-500 dark:text-gray-400 truncate">{subtitle}</div>
+                </>
+              )
+            })()}
           </div>
           {authState.authenticated ? (
             <button
@@ -856,17 +222,5 @@ export function Sidebar() {
         </div>
       </div>
     </aside>
-
-    {pendingDeleteConv && (
-      <DeleteConversationDialog
-        conversationTitle={pendingDeleteConv.title}
-        onConfirm={() => {
-          deleteConversation(pendingDeleteConv.id)
-          setPendingDeleteConv(null)
-        }}
-        onCancel={() => setPendingDeleteConv(null)}
-      />
-    )}
-  </>
   )
 }

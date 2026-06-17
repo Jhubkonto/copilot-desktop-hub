@@ -115,9 +115,15 @@ export function ChatWindow() {
   const nonDefault = (v: string | null | undefined): string | null =>
     v && v !== 'default' ? v : null
 
+  const chatAgentBackend = chatAgent?.backend
+  const chatAgentCliModel = nonDefault(chatAgent?.cliModel ?? null)
+
   let effectiveModel: string
   let modelSourceLabel: string | undefined
-  if (nonDefault(pendingModel)) {
+  if (chatAgentBackend === 'claude-cli' || chatAgentBackend === 'codex-cli') {
+    // Per-conversation override wins; falls back to the agent's configured model.
+    effectiveModel = nonDefault(conversationModel) ?? chatAgentCliModel ?? 'default'
+  } else if (nonDefault(pendingModel)) {
     effectiveModel = pendingModel!
   } else if (nonDefault(conversationModel)) {
     effectiveModel = conversationModel!
@@ -679,8 +685,22 @@ export function ChatWindow() {
 
   const handleSelectAvailableModel = useCallback(
     (group: AvailableModelGroup, model: AvailableModelEntry) => {
+      if (chatAgentBackend === 'claude-cli' || chatAgentBackend === 'codex-cli') {
+        // For CLI-backed agents, only allow picking within the same backend.
+        // Store as a per-conversation override — does not mutate the agent config.
+        if (group.sourceKey !== chatAgentBackend) return
+        if (conversationId) {
+          void actions.handleSetConversationModel(model.id)
+        }
+        return
+      }
       if (group.sourceType === 'cli') {
         void actions.handleSetCliBackendAndModel(group.sourceKey as 'claude-cli' | 'codex-cli', model.id)
+        // Also update the UI immediately — handleSetCliBackendAndModel only persists to a ref
+        // when there's no agent and no conversation yet, so the picker would otherwise not update.
+        if (!chatAgent && !conversationId) {
+          setPendingModel(model.id)
+        }
       } else {
         if (conversationId) {
           void actions.handleSetConversationModel(model.id)
@@ -689,7 +709,7 @@ export function ChatWindow() {
         }
       }
     },
-    [actions, conversationId],
+    [actions, chatAgent, chatAgentBackend, conversationId],
   )
 
   const handlePickModel = useCallback(() => {
@@ -911,6 +931,16 @@ export function ChatWindow() {
       onCancelEdit={handleCancelEdit}
       onStop={actions.handleStop}
       onSend={actions.handleSend}
+      cliLockedModels={
+        chatAgentBackend === 'claude-cli' || chatAgentBackend === 'codex-cli'
+          ? (availableGroups.find((g) => g.sourceKey === chatAgentBackend)?.models ?? [])
+          : undefined
+      }
+      onSelectCliModel={
+        chatAgentBackend === 'claude-cli' || chatAgentBackend === 'codex-cli'
+          ? (modelId) => { if (conversationId) void actions.handleSetConversationModel(modelId) }
+          : undefined
+      }
     />
   )
 

@@ -17,20 +17,23 @@ beforeEach(() => {
 })
 
 describe('Sidebar loading states', () => {
-  it('shows conversation skeletons when loading', () => {
-    mockStore = createMockAppStore({ conversationsLoading: true, conversations: [] })
+  it('renders nav buttons for Projects, Agents, and Chats', () => {
+    mockStore = createMockAppStore({})
     setupStoreMock(useAppStore, mockStore)
 
     render(<Sidebar />)
-    expect(screen.getByLabelText('Loading conversations')).toBeInTheDocument()
+    expect(screen.getByLabelText('Open projects')).toBeInTheDocument()
+    expect(screen.getByLabelText('Open agents')).toBeInTheDocument()
+    expect(screen.getByLabelText('Open chat history')).toBeInTheDocument()
   })
 
-  it('shows empty state when there are no conversations', () => {
-    mockStore = createMockAppStore({ conversationsLoading: false, conversations: [] })
+  it('highlights the active section pane button', () => {
+    mockStore = createMockAppStore({ activeSectionPane: 'agents' })
     setupStoreMock(useAppStore, mockStore)
 
     render(<Sidebar />)
-    expect(screen.getByText('No conversations yet')).toBeInTheDocument()
+    const agentsBtn = screen.getByLabelText('Open agents')
+    expect(agentsBtn.className).toContain('bg-gray-100')
   })
 
   it('shows BYOK footer when no provider is configured', () => {
