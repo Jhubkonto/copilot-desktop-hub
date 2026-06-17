@@ -230,7 +230,7 @@ private fun ChatPhase(
             }
         }
 
-        if (uiState.isLoading && uiState.streamingText.isBlank()) {
+        if (uiState.isLoading) {
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         }
 

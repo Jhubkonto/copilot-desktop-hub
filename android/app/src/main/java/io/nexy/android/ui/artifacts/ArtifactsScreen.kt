@@ -54,6 +54,7 @@ fun ArtifactsScreen(
     val artifacts by vm.artifacts.collectAsState()
     val selected by vm.selectedArtifact.collectAsState()
     val isLoading by vm.isLoading.collectAsState()
+    val error by vm.error.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
     val filteredArtifacts = remember(artifacts, searchQuery) {
         val query = searchQuery.trim()
@@ -96,10 +97,10 @@ fun ArtifactsScreen(
                     CircularProgressIndicator()
                 } else {
                     NexyEmptyState(
-                        title = "No artifacts yet.",
-                        detail = "Generated project artifacts will appear here.",
+                        title = if (error != null) "Connection error" else "No artifacts yet.",
+                        detail = error ?: "Generated project artifacts will appear here.",
                         action = {
-                            TextButton(onClick = { vm.refresh(projectId) }) { Text("Refresh") }
+                            TextButton(onClick = { vm.refresh(projectId) }) { Text("Retry") }
                         },
                     )
                 }

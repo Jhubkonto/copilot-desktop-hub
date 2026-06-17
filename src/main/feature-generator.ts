@@ -492,6 +492,8 @@ export async function runFeatureGeneratorChatForAndroid(
   const spec = extractFeatureSpec(accumulated)
   if (spec) {
     broadcastToMobile({ event: 'feature-generator:spec-ready', data: spec })
+  } else {
+    broadcastToMobile({ event: 'feature-generator:chat-turn-done', data: {} })
   }
 }
 

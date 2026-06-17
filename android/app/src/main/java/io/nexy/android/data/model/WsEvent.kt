@@ -85,6 +85,7 @@ sealed class WsEvent {
     data class McpList(val servers: List<McpServerInfo>) : WsEvent()
     data class FeatureGeneratorRunCreated(val runId: String) : WsEvent()
     data class FeatureGeneratorToken(val chunk: String) : WsEvent()
+    class FeatureGeneratorChatTurnDone : WsEvent()
     data class FeatureGeneratorSpecReady(val spec: FeatureSpec) : WsEvent()
     data class FeatureGeneratorPlanReady(val runId: String, val plan: String) : WsEvent()
     data class FeatureGeneratorDiffReady(val runId: String) : WsEvent()
@@ -109,6 +110,11 @@ sealed class WsEvent {
     data class ConversationForkError(val message: String) : WsEvent()
     data class ConversationImported(val conversationId: String, val title: String, val messageCount: Int) : WsEvent()
     data class ConversationImportError(val message: String) : WsEvent()
+    data class ProjectGeneratorToken(val chunk: String) : WsEvent()
+    data class ProjectGeneratorSpecReady(val spec: ProjectGeneratorSpec) : WsEvent()
+    data class ProjectGeneratorCreated(val projectId: String, val name: String) : WsEvent()
+    data class ProjectGeneratorError(val message: String) : WsEvent()
+    class ProjectGeneratorCancelled : WsEvent()
 }
 
 data class ErrorReport(
@@ -247,6 +253,29 @@ data class PromptEntry(
     val projectId: String?,
     val createdAt: Long,
     val updatedAt: Long,
+)
+
+data class ProjectGeneratorSpec(
+    val name: String,
+    val color: String,
+    val instructions: String,
+    val variables: List<Map<String, String>>,
+    val inScope: List<Map<String, String>>,
+    val outOfScope: List<Map<String, String>>,
+    val milestones: List<Map<String, String>>,
+    val orchestrationEnabled: Boolean,
+    val defaultModel: String?,
+    val agents: List<ProjectGeneratorAgentSpec>,
+)
+
+data class ProjectGeneratorAgentSpec(
+    val role: String,
+    val description: String,
+    val existingAgentId: String?,
+    val isLeader: Boolean,
+    val newAgentName: String?,
+    val newAgentIcon: String?,
+    val newAgentSystemPrompt: String?,
 )
 
 data class ConversationExportPackData(

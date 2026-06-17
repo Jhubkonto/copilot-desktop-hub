@@ -48,6 +48,15 @@ class FeatureGeneratorViewModel(app: Application) : AndroidViewModel(app) {
                             streamingText = _uiState.value.streamingText + event.chunk
                         )
                     }
+                    is WsEvent.FeatureGeneratorChatTurnDone -> {
+                        val current = _uiState.value
+                        val assistantMsg = FeatureGeneratorMessage("assistant", current.streamingText)
+                        _uiState.value = current.copy(
+                            streamingText = "",
+                            messages = if (current.streamingText.isNotBlank()) current.messages + assistantMsg else current.messages,
+                            isLoading = false,
+                        )
+                    }
                     is WsEvent.FeatureGeneratorSpecReady -> {
                         val current = _uiState.value
                         val assistantMsg = FeatureGeneratorMessage("assistant", current.streamingText)
@@ -81,12 +90,16 @@ class FeatureGeneratorViewModel(app: Application) : AndroidViewModel(app) {
                         _uiState.value = _uiState.value.copy(stagedFiles = event.files)
                     }
                     is WsEvent.FeatureGeneratorApplied -> {
-                        _uiState.value = _uiState.value.copy(appliedFiles = event.appliedFiles)
+                        _uiState.value = _uiState.value.copy(
+                            appliedFiles = event.appliedFiles,
+                            isLoading = false,
+                        )
                     }
                     is WsEvent.FeatureGeneratorCommitted -> {
                         _uiState.value = _uiState.value.copy(
                             commitSha = event.commitSha,
                             phase = FeatureGenPhase.DONE,
+                            isLoading = false,
                         )
                     }
                     is WsEvent.FeatureGeneratorError -> {
@@ -129,11 +142,13 @@ class FeatureGeneratorViewModel(app: Application) : AndroidViewModel(app) {
 
     fun applyAll() {
         val runId = _uiState.value.currentRunId ?: return
+        _uiState.value = _uiState.value.copy(isLoading = true, error = null)
         WsRepository.applyAllFeatureDiffs(runId)
     }
 
     fun commit(message: String) {
         val runId = _uiState.value.currentRunId ?: return
+        _uiState.value = _uiState.value.copy(isLoading = true, error = null)
         WsRepository.commitFeatureChanges(runId, message)
     }
 

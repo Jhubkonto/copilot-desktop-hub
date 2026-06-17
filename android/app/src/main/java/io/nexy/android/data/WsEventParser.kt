@@ -3,6 +3,8 @@ package io.nexy.android.data
 import io.nexy.android.data.model.Agent
 import io.nexy.android.data.model.AndroidUpdateManifest
 import io.nexy.android.data.model.ArtifactDetail2
+import io.nexy.android.data.model.ProjectGeneratorSpec
+import io.nexy.android.data.model.ProjectGeneratorAgentSpec
 import io.nexy.android.data.model.ArtifactSummary
 import io.nexy.android.data.model.ArtifactVersionFile
 import io.nexy.android.data.model.ArtifactVersionSummary
@@ -47,6 +49,7 @@ fun parseWsEvent(
     artifacts: MutableStateFlow<List<ArtifactSummary>>,
     wikiEntries: MutableStateFlow<List<WikiEntry>>,
     promptEntries: MutableStateFlow<List<PromptEntry>>,
+    cliStatus: MutableStateFlow<Map<String, CliInstallInfo>>,
 ) {
     try {
         val obj = JSONObject(text)
@@ -387,6 +390,7 @@ fun parseWsEvent(
                         path = c.nullableString("path"),
                     )
                 }
+                cliStatus.value = map
                 WsEvent.CliStatus(map)
             }
 
@@ -420,6 +424,8 @@ fun parseWsEvent(
                 val chunk = data?.optString("chunk") ?: ""
                 WsEvent.FeatureGeneratorToken(chunk)
             }
+
+            "feature-generator:chat-turn-done" -> WsEvent.FeatureGeneratorChatTurnDone()
 
             "feature-generator:spec-ready" -> {
                 val spec = parseFeatureSpec(data) ?: return
@@ -646,6 +652,26 @@ fun parseWsEvent(
                 message = data?.optString("message") ?: "Import failed"
             )
 
+            "project-generator:token" -> WsEvent.ProjectGeneratorToken(
+                chunk = data?.optString("chunk") ?: "",
+            )
+
+            "project-generator:spec-ready" -> {
+                val spec = parseProjectGeneratorSpec(data) ?: return
+                WsEvent.ProjectGeneratorSpecReady(spec)
+            }
+
+            "project-generator:created" -> WsEvent.ProjectGeneratorCreated(
+                projectId = data?.optString("projectId") ?: "",
+                name = data?.optString("name") ?: "",
+            )
+
+            "project-generator:error" -> WsEvent.ProjectGeneratorError(
+                message = data?.optString("message") ?: "Unknown error",
+            )
+
+            "project-generator:cancelled" -> WsEvent.ProjectGeneratorCancelled()
+
             else -> return
         }
         scope.launch { events.emit(wsEvent) }
@@ -707,6 +733,45 @@ private fun parsePromptEntry(obj: JSONObject): PromptEntry {
         projectId = obj.nullableString("projectId"),
         createdAt = obj.optLong("createdAt", 0L),
         updatedAt = obj.optLong("updatedAt", 0L),
+    )
+}
+
+private fun parseProjectGeneratorSpec(data: org.json.JSONObject?): ProjectGeneratorSpec? {
+    val d = data ?: return null
+    fun strMap(obj: JSONObject): Map<String, String> {
+        val m = mutableMapOf<String, String>()
+        obj.keys().forEach { k -> m[k] = obj.optString(k) }
+        return m
+    }
+    fun objList(key: String): List<Map<String, String>> {
+        val arr = d.optJSONArray(key) ?: return emptyList()
+        return (0 until arr.length()).map { strMap(arr.optJSONObject(it) ?: JSONObject()) }
+    }
+    val agentsArr = d.optJSONArray("agents") ?: JSONArray()
+    val agents = (0 until agentsArr.length()).map { i ->
+        val a = agentsArr.getJSONObject(i)
+        val na = a.optJSONObject("newAgent")
+        ProjectGeneratorAgentSpec(
+            role = a.optString("role"),
+            description = a.optString("description"),
+            existingAgentId = a.nullableString("existingAgentId"),
+            isLeader = a.optBoolean("isLeader", false),
+            newAgentName = na?.nullableString("name"),
+            newAgentIcon = na?.nullableString("icon"),
+            newAgentSystemPrompt = na?.nullableString("systemPrompt"),
+        )
+    }
+    return ProjectGeneratorSpec(
+        name = d.optString("name", "New Project"),
+        color = d.optString("color", "blue"),
+        instructions = d.optString("instructions", ""),
+        variables = objList("variables"),
+        inScope = objList("inScope"),
+        outOfScope = objList("outOfScope"),
+        milestones = objList("milestones"),
+        orchestrationEnabled = d.optBoolean("orchestrationEnabled", true),
+        defaultModel = d.nullableString("defaultModel"),
+        agents = agents,
     )
 }
 

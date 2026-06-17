@@ -3,10 +3,13 @@ package io.nexy.android.ui.artifacts
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.ArtifactDetail2
 import io.nexy.android.data.model.ArtifactSummary
 import io.nexy.android.data.model.WsEvent
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,22 +25,55 @@ class ArtifactsViewModel(app: Application) : AndroidViewModel(app) {
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    private val _error = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = _error.asStateFlow()
+
+    private var timeoutJob: Job? = null
+    private var pendingProjectId: String? = null
+
     init {
         viewModelScope.launch {
             WsRepository.events.collect { event ->
                 when (event) {
-                    is WsEvent.ArtifactList -> _isLoading.value = false
+                    is WsEvent.ArtifactList -> {
+                        timeoutJob?.cancel()
+                        _isLoading.value = false
+                        _error.value = null
+                    }
                     is WsEvent.ArtifactDetail -> _selectedArtifact.value = event.artifact
                     else -> {}
                 }
             }
         }
+        // Retry when the connection is established
+        viewModelScope.launch {
+            WsRepository.connectionState.collect { state ->
+                if (state == ConnectionState.CONNECTED) refresh(pendingProjectId)
+            }
+        }
     }
 
     fun refresh(projectId: String? = null) {
+        pendingProjectId = projectId
+        if (WsRepository.connectionState.value != ConnectionState.CONNECTED) {
+            _isLoading.value = false
+            _error.value = "Not connected to desktop."
+            return
+        }
         _isLoading.value = true
+        _error.value = null
         WsRepository.listArtifacts(projectId)
+        timeoutJob?.cancel()
+        timeoutJob = viewModelScope.launch {
+            delay(10_000)
+            if (_isLoading.value) {
+                _isLoading.value = false
+                _error.value = "Request timed out. Check desktop connection."
+            }
+        }
     }
+
+    fun dismissError() { _error.value = null }
 
     fun selectArtifact(id: String) {
         WsRepository.getArtifact(id)

@@ -285,44 +285,80 @@ export function registerWsHandlers(): void {
       const byId = new Map<string, { id: string; label: string; vendor?: string }>()
       byId.set('default', { id: 'default', label: 'Default model' })
 
-      const fallbackBackend =
-        !backend && retrieveAuthMode() === 'none'
-          ? (
-              ClaudeAdapter.isAvailable()
-                ? 'claude-cli'
-                : (CodexAdapter.isAvailable() ? 'codex-cli' : undefined)
-            )
-          : undefined
-      const resolvedBackend = backend ?? fallbackBackend
       const catalogById = new Map(getCachedCatalog().map((model) => [model.id, model]))
       const configuredProviders = PROVIDERS.filter((provider) => isProviderConfigured(provider.name))
-      const source =
-        resolvedBackend === 'codex-cli'
-          ? { type: 'cli', label: 'Codex CLI models', backend: 'codex-cli' }
-          : resolvedBackend === 'claude-cli'
-            ? { type: 'cli', label: 'Claude CLI models', backend: 'claude-cli' }
-            : configuredProviders.length > 0
-              ? {
-                  type: 'provider',
-                  label: `Configured ${configuredProviders.map((provider) => provider.label).join(', ')} models`,
-                }
-              : { type: 'none', label: 'No configured model backend' }
 
-      const models =
-        resolvedBackend === 'codex-cli'
-          ? getCliModels('codex-cli').map((model) => ({ ...model, vendor: 'Codex CLI' }))
-          : resolvedBackend === 'claude-cli'
-            ? getCliModels('claude-cli').map((model) => ({ ...model, vendor: 'Claude CLI' }))
-            : configuredProviders
-                .flatMap((provider) => provider.models.map((model) => ({
-                  id: provider.name === 'azure' ? `azure:${model}` : model,
-                  label: catalogById.get(model)?.name ?? (provider.name === 'azure' ? `Azure ${model}` : model),
-                  vendor: provider.label,
-                })))
+      if (backend) {
+        // Explicit backend requested — return just that source (existing per-chat model picker behaviour)
+        const resolvedBackend = backend
+        const source =
+          resolvedBackend === 'codex-cli'
+            ? { type: 'cli', label: 'Codex CLI models', backend: 'codex-cli' }
+            : resolvedBackend === 'claude-cli'
+              ? { type: 'cli', label: 'Claude CLI models', backend: 'claude-cli' }
+              : configuredProviders.length > 0
+                ? {
+                    type: 'provider',
+                    label: `Configured ${configuredProviders.map((provider) => provider.label).join(', ')} models`,
+                  }
+                : { type: 'none', label: 'No configured model backend' }
 
-      for (const model of models) {
-        if (!byId.has(model.id)) byId.set(model.id, model)
+        const models =
+          resolvedBackend === 'codex-cli'
+            ? getCliModels('codex-cli').map((model) => ({ ...model, vendor: 'Codex CLI' }))
+            : resolvedBackend === 'claude-cli'
+              ? getCliModels('claude-cli').map((model) => ({ ...model, vendor: 'Claude CLI' }))
+              : configuredProviders
+                  .flatMap((provider) => provider.models.map((model) => ({
+                    id: provider.name === 'azure' ? `azure:${model}` : model,
+                    label: catalogById.get(model)?.name ?? (provider.name === 'azure' ? `Azure ${model}` : model),
+                    vendor: provider.label,
+                  })))
+
+        for (const model of models) {
+          if (!byId.has(model.id)) byId.set(model.id, model)
+        }
+        reply({ event: 'model:list', data: { models: [...byId.values()], source } })
+        return
       }
+
+      // No explicit backend — aggregate ALL available sources for the model picker
+      if (ClaudeAdapter.isAvailable()) {
+        for (const model of getCliModels('claude-cli')) {
+          if (!byId.has(model.id)) byId.set(model.id, { ...model, vendor: 'Claude CLI' })
+        }
+      }
+      if (CodexAdapter.isAvailable()) {
+        for (const model of getCliModels('codex-cli')) {
+          if (!byId.has(model.id)) byId.set(model.id, { ...model, vendor: 'Codex CLI' })
+        }
+      }
+      for (const provider of configuredProviders) {
+        for (const model of provider.models) {
+          const id = provider.name === 'azure' ? `azure:${model}` : model
+          if (!byId.has(id)) {
+            byId.set(id, {
+              id,
+              label: catalogById.get(model)?.name ?? (provider.name === 'azure' ? `Azure ${model}` : model),
+              vendor: provider.label,
+            })
+          }
+        }
+      }
+
+      const hasAnySources =
+        ClaudeAdapter.isAvailable() || CodexAdapter.isAvailable() || configuredProviders.length > 0
+      const sourceLabel = [
+        ClaudeAdapter.isAvailable() ? 'Claude CLI' : null,
+        CodexAdapter.isAvailable() ? 'Codex CLI' : null,
+        ...configuredProviders.map((p) => p.label),
+      ]
+        .filter(Boolean)
+        .join(', ')
+      const source = hasAnySources
+        ? { type: 'provider', label: sourceLabel }
+        : { type: 'none', label: 'No configured model backend' }
+
       reply({ event: 'model:list', data: { models: [...byId.values()], source } })
       return
     }
@@ -636,6 +672,11 @@ export function registerWsHandlers(): void {
     }
 
     if (command === 'feature-generator:start' || command === 'feature-generator:message') {
+      const workspaceSetting = (db.prepare("SELECT value FROM settings WHERE key = 'build_workspace_path'").get() as { value: string } | undefined)?.value
+      if (!workspaceSetting) {
+        broadcastToMobile({ event: 'feature-generator:error', data: { runId: null, message: 'Workspace path is not set. Open Settings → Self-Heal → set a workspace path before using Feature Generator.' } })
+        return
+      }
       const messages = Array.isArray(data.messages) ? (data.messages as FeatureGeneratorMessage[]) : []
       void runFeatureGeneratorChatForAndroid(messages)
       return
