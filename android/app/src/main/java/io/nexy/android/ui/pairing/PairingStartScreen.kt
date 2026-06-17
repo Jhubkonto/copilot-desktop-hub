@@ -19,8 +19,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
+import io.nexy.android.ui.components.NexyTopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -49,12 +48,8 @@ fun PairingStartScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Connect to Nexy Desktop", style = MaterialTheme.typography.titleMedium) },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface,
-                ),
+            NexyTopAppBar(
+                titleContent = { Text("Connect to Nexy Desktop", style = MaterialTheme.typography.titleMedium) },
             )
         },
     ) { padding ->
