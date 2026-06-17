@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -60,6 +61,7 @@ fun ChatScreen(
     agentId: String? = null,
     projectId: String? = null,
     onBack: () -> Unit,
+    onOpenFork: ((String) -> Unit)? = null,
     vm: ChatViewModel = viewModel(factory = object : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>) =
@@ -88,6 +90,7 @@ fun ChatScreen(
     val context = LocalContext.current
     var showModelSheet by remember { mutableStateOf(false) }
     val modelSheetState = rememberModalBottomSheetState()
+    var showActionsSheet by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
@@ -198,6 +201,16 @@ fun ChatScreen(
         }
     }
 
+    if (showActionsSheet) {
+        ConversationActionsSheet(
+            conversationId = conversationId,
+            onDismiss = { showActionsSheet = false },
+            onForkNavigate = { forkedId ->
+                onOpenFork?.invoke(forkedId)
+            },
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -247,6 +260,9 @@ fun ChatScreen(
                         IconButton(onClick = { vm.stopStream() }) {
                             Icon(Icons.Default.Stop, contentDescription = "Stop")
                         }
+                    }
+                    IconButton(onClick = { showActionsSheet = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "More actions")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
