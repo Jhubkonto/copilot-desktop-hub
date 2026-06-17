@@ -17,6 +17,8 @@ import io.nexy.android.ui.home.HomeScreen
 import io.nexy.android.ui.home.ScopedChatHistoryScreen
 import io.nexy.android.ui.pairing.PairingScreen
 import io.nexy.android.ui.pairing.PairingStartScreen
+import io.nexy.android.ui.selfheal.SelfHealReportDetailScreen
+import io.nexy.android.ui.selfheal.SelfHealReportsScreen
 import io.nexy.android.ui.settings.SettingsScreen
 import io.nexy.android.ui.splash.SplashScreen
 
@@ -152,7 +154,23 @@ fun NavGraph() {
                         popUpTo(0) { inclusive = true }
                     }
                 },
+                onOpenSelfHeal = { navController.navigate("self-heal") },
             )
+        }
+
+        composable("self-heal") {
+            SelfHealReportsScreen(
+                onBack = { navController.popBackStack() },
+                onOpenReport = { id -> navController.navigate("self-heal/$id") },
+            )
+        }
+
+        composable(
+            route = "self-heal/{reportId}",
+            arguments = listOf(navArgument("reportId") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val reportId = backStackEntry.arguments?.getString("reportId") ?: return@composable
+            SelfHealReportDetailScreen(reportId = reportId, onBack = { navController.popBackStack() })
         }
     }
 }

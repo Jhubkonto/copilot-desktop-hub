@@ -27,6 +27,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 fun SettingsScreen(
     onBack: () -> Unit,
     onForgetServer: () -> Unit,
+    onOpenSelfHeal: () -> Unit = {},
     vm: SettingsViewModel = viewModel(),
 ) {
     val connectionState by vm.connectionState.collectAsState()
@@ -119,6 +120,8 @@ fun SettingsScreen(
                 bugReportState = bugReportState,
                 onRequestBugReport = { vm.requestBugReport() },
             )
+
+            SelfHealSection(onOpenSelfHeal = onOpenSelfHeal)
 
             ActionsSection(
                 connectionState = connectionState,
