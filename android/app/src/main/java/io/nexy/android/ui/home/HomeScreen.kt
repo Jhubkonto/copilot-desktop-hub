@@ -17,6 +17,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
@@ -57,6 +59,7 @@ fun HomeScreen(
     onOpenChat: (String) -> Unit,
     onOpenDraftChat: (String, String?, String?) -> Unit,
     onOpenAgentHistory: (String) -> Unit,
+    onOpenAgentConfig: (String) -> Unit,
     onOpenProjectHistory: (String) -> Unit,
     onDisconnected: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -78,6 +81,20 @@ fun HomeScreen(
     var showCreateAgentSheet by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState()
     val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(Unit) {
+        vm.projectCreated.collect { name ->
+            showCreateProjectSheet = false
+            snackbarHostState.showSnackbar("Project \"$name\" created.")
+        }
+    }
+    LaunchedEffect(Unit) {
+        vm.agentCreated.collect { name ->
+            showCreateAgentSheet = false
+            snackbarHostState.showSnackbar("Agent \"$name\" created.")
+        }
+    }
 
     LaunchedEffect(connectionState) {
         when (connectionState) {
@@ -163,6 +180,7 @@ fun HomeScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             NexyTopAppBar(
                 titleContent = {
@@ -251,6 +269,7 @@ fun HomeScreen(
                     projects = projects,
                     isRefreshing = isRefreshingProjects,
                     showCreateSheet = showCreateProjectSheet,
+                    connectionState = connectionState,
                     onDismissCreateSheet = { showCreateProjectSheet = false },
                     onRefresh = { vm.requestProjects() },
                     onOpenProjectHistory = onOpenProjectHistory,
@@ -262,9 +281,11 @@ fun HomeScreen(
                     agents = agents,
                     isRefreshing = isRefreshingAgents,
                     showCreateSheet = showCreateAgentSheet,
+                    connectionState = connectionState,
                     onDismissCreateSheet = { showCreateAgentSheet = false },
                     onRefresh = { vm.requestAgents() },
                     onOpenAgentHistory = onOpenAgentHistory,
+                    onOpenAgentConfig = onOpenAgentConfig,
                     onCreateAgent = { name, icon -> vm.createAgent(name, icon) },
                     onRenameAgent = { id, name, icon -> vm.updateAgent(id, name, icon) },
                     onDeleteAgent = { id -> vm.deleteAgent(id) },

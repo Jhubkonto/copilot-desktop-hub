@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
@@ -56,6 +57,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.model.Agent
 import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.Project
@@ -338,6 +340,7 @@ fun ProjectsTab(
     projects: List<Project>,
     isRefreshing: Boolean,
     showCreateSheet: Boolean,
+    connectionState: ConnectionState = ConnectionState.CONNECTED,
     onDismissCreateSheet: () -> Unit,
     onRefresh: () -> Unit,
     onOpenProjectHistory: (String) -> Unit,
@@ -352,27 +355,44 @@ fun ProjectsTab(
     var renameText by remember { mutableStateOf("") }
 
     if (showCreateSheet) {
+        val disconnected = connectionState != ConnectionState.CONNECTED
         var newName by remember { mutableStateOf("") }
         var newColor by remember { mutableStateOf("blue") }
+        var sending by remember { mutableStateOf(false) }
         ModalBottomSheet(
-            onDismissRequest = onDismissCreateSheet,
+            onDismissRequest = { if (!sending) onDismissCreateSheet() },
             sheetState = sheetState,
             containerColor = MaterialTheme.colorScheme.surface,
         ) {
             Column(modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text("New Project", style = MaterialTheme.typography.titleMedium)
+                if (disconnected) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        shape = RoundedCornerShape(8.dp),
+                    ) {
+                        Text(
+                            "Not connected to desktop. Connect before creating a project.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        )
+                    }
+                }
                 OutlinedTextField(
                     value = newName,
-                    onValueChange = { newName = it },
+                    onValueChange = { if (!sending && !disconnected) newName = it },
                     label = { Text("Name") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
+                    enabled = !disconnected && !sending,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     projectColors.forEach { color ->
                         FilterChip(
                             selected = newColor == color,
-                            onClick = { newColor = color },
+                            onClick = { if (!sending && !disconnected) newColor = color },
                             label = {},
                             leadingIcon = {
                                 Box(modifier = Modifier.size(16.dp).background(projectColor(color), RoundedCornerShape(4.dp)))
@@ -380,18 +400,19 @@ fun ProjectsTab(
                         )
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = {
-                        scope.launch { sheetState.hide() }.invokeOnCompletion { onDismissCreateSheet() }
-                    }) { Text("Cancel") }
+                        if (!sending) scope.launch { sheetState.hide() }.invokeOnCompletion { onDismissCreateSheet() }
+                    }, enabled = !sending) { Text("Cancel") }
                     TextButton(
                         onClick = {
-                            if (newName.isNotBlank()) {
+                            if (newName.isNotBlank() && !sending && !disconnected) {
+                                sending = true
                                 onCreateProject(newName.trim(), newColor)
-                                scope.launch { sheetState.hide() }.invokeOnCompletion { onDismissCreateSheet() }
                             }
                         },
-                    ) { Text("Create") }
+                        enabled = newName.isNotBlank() && !sending && !disconnected,
+                    ) { Text(if (sending) "Creating…" else "Create") }
                 }
             }
         }
@@ -541,9 +562,11 @@ fun AgentsTab(
     agents: List<Agent>,
     isRefreshing: Boolean,
     showCreateSheet: Boolean,
+    connectionState: ConnectionState = ConnectionState.CONNECTED,
     onDismissCreateSheet: () -> Unit,
     onRefresh: () -> Unit,
     onOpenAgentHistory: (String) -> Unit,
+    onOpenAgentConfig: (String) -> Unit = {},
     onCreateAgent: (name: String, icon: String) -> Unit,
     onRenameAgent: (id: String, name: String, icon: String) -> Unit,
     onDeleteAgent: (id: String) -> Unit,
@@ -556,41 +579,60 @@ fun AgentsTab(
     var renameIcon by remember { mutableStateOf("") }
 
     if (showCreateSheet) {
+        val disconnected = connectionState != ConnectionState.CONNECTED
         var newName by remember { mutableStateOf("") }
         var newIcon by remember { mutableStateOf("") }
+        var sending by remember { mutableStateOf(false) }
         ModalBottomSheet(
-            onDismissRequest = onDismissCreateSheet,
+            onDismissRequest = { if (!sending) onDismissCreateSheet() },
             sheetState = sheetState,
             containerColor = MaterialTheme.colorScheme.surface,
         ) {
             Column(modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text("New Agent", style = MaterialTheme.typography.titleMedium)
+                if (disconnected) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        shape = RoundedCornerShape(8.dp),
+                    ) {
+                        Text(
+                            "Not connected to desktop. Connect before creating an agent.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        )
+                    }
+                }
                 OutlinedTextField(
                     value = newName,
-                    onValueChange = { newName = it },
+                    onValueChange = { if (!sending && !disconnected) newName = it },
                     label = { Text("Name") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
+                    enabled = !disconnected && !sending,
                 )
                 OutlinedTextField(
                     value = newIcon,
-                    onValueChange = { newIcon = it },
+                    onValueChange = { if (!sending && !disconnected) newIcon = it },
                     label = { Text("Icon (emoji)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
+                    enabled = !disconnected && !sending,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = {
-                        scope.launch { sheetState.hide() }.invokeOnCompletion { onDismissCreateSheet() }
-                    }) { Text("Cancel") }
+                        if (!sending) scope.launch { sheetState.hide() }.invokeOnCompletion { onDismissCreateSheet() }
+                    }, enabled = !sending) { Text("Cancel") }
                     TextButton(
                         onClick = {
-                            if (newName.isNotBlank()) {
+                            if (newName.isNotBlank() && !sending && !disconnected) {
+                                sending = true
                                 onCreateAgent(newName.trim(), newIcon.trim())
-                                scope.launch { sheetState.hide() }.invokeOnCompletion { onDismissCreateSheet() }
                             }
                         },
-                    ) { Text("Create") }
+                        enabled = newName.isNotBlank() && !sending && !disconnected,
+                    ) { Text(if (sending) "Creating…" else "Create") }
                 }
             }
         }
@@ -693,7 +735,15 @@ fun AgentsTab(
                                 }
                                 DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                                     DropdownMenuItem(
-                                        text = { Text("Edit") },
+                                        text = { Text("Configure") },
+                                        leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            onOpenAgentConfig(agent.id)
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Edit name/icon") },
                                         leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
                                         onClick = {
                                             menuExpanded = false

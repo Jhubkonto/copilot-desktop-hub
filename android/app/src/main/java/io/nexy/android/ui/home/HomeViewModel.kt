@@ -11,7 +11,9 @@ import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.Project
 import io.nexy.android.data.model.WsEvent
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
@@ -49,6 +51,13 @@ class HomeViewModel(
     private val _searchResults = MutableStateFlow<List<Conversation>?>(null)
     val searchResults: StateFlow<List<Conversation>?> = _searchResults.asStateFlow()
 
+    // One-shot signals emitted when the desktop confirms creation
+    private val _projectCreated = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val projectCreated: SharedFlow<String> = _projectCreated
+
+    private val _agentCreated = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val agentCreated: SharedFlow<String> = _agentCreated
+
     init {
         viewModelScope.launch {
             wsClient.events.collect { event ->
@@ -62,6 +71,8 @@ class HomeViewModel(
                     is WsEvent.ProjectList -> _isRefreshingProjects.value = false
                     is WsEvent.ConversationCreated -> _newConversationId.value = event.id
                     is WsEvent.ConversationSearchResults -> _searchResults.value = event.conversations
+                    is WsEvent.ProjectCreated -> _projectCreated.tryEmit(event.project.name)
+                    is WsEvent.AgentCreated -> _agentCreated.tryEmit(event.agent.name)
                     else -> {}
                 }
             }
