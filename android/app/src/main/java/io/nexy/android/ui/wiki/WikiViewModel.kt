@@ -39,6 +39,7 @@ class WikiViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             WsRepository.events.collect { event ->
                 when (event) {
+                    is WsEvent.WikiList -> _state.value = _state.value.copy(isLoading = false)
                     is WsEvent.WikiEntryCreated -> _state.value = _state.value.copy(showCreateSheet = false, isLoading = false)
                     is WsEvent.WikiEntryUpdated -> _state.value = _state.value.copy(selectedEntry = null, isEditing = false, isLoading = false)
                     is WsEvent.WikiEntryDeleted -> _state.value = _state.value.copy(selectedEntry = null)
@@ -52,7 +53,6 @@ class WikiViewModel(app: Application) : AndroidViewModel(app) {
         currentProjectId = projectId
         _state.value = _state.value.copy(isLoading = true)
         WsRepository.listWikiEntries(projectId)
-        _state.value = _state.value.copy(isLoading = false)
     }
 
     fun selectEntry(entry: WikiEntry) {

@@ -43,6 +43,7 @@ class PromptsViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             WsRepository.events.collect { event ->
                 when (event) {
+                    is WsEvent.PromptList -> _state.value = _state.value.copy(isLoading = false)
                     is WsEvent.PromptEntryCreated -> _state.value = _state.value.copy(showCreateSheet = false, isLoading = false)
                     is WsEvent.PromptEntryUpdated -> _state.value = _state.value.copy(selectedEntry = null, isEditing = false, isLoading = false)
                     is WsEvent.PromptEntryDeleted -> _state.value = _state.value.copy(selectedEntry = null)
@@ -56,7 +57,6 @@ class PromptsViewModel(app: Application) : AndroidViewModel(app) {
         currentProjectId = projectId
         _state.value = _state.value.copy(isLoading = true)
         WsRepository.listPrompts(projectId)
-        _state.value = _state.value.copy(isLoading = false)
     }
 
     fun selectEntry(entry: PromptEntry) {

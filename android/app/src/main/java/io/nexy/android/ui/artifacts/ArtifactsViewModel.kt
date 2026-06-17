@@ -19,10 +19,14 @@ class ArtifactsViewModel(app: Application) : AndroidViewModel(app) {
     private val _selectedArtifact = MutableStateFlow<ArtifactDetail2?>(null)
     val selectedArtifact: StateFlow<ArtifactDetail2?> = _selectedArtifact.asStateFlow()
 
+    private val _isLoading = MutableStateFlow(false)
+    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+
     init {
         viewModelScope.launch {
             WsRepository.events.collect { event ->
                 when (event) {
+                    is WsEvent.ArtifactList -> _isLoading.value = false
                     is WsEvent.ArtifactDetail -> _selectedArtifact.value = event.artifact
                     else -> {}
                 }
@@ -31,6 +35,7 @@ class ArtifactsViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun refresh(projectId: String? = null) {
+        _isLoading.value = true
         WsRepository.listArtifacts(projectId)
     }
 
