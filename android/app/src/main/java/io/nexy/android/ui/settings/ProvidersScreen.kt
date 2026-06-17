@@ -51,6 +51,7 @@ fun ProvidersScreen(
 ) {
     val providers by vm.providers.collectAsState()
     val isLoading by vm.isLoading.collectAsState()
+    val error by vm.error.collectAsState()
     var editingProvider by remember { mutableStateOf<ProviderInfo?>(null) }
     var confirmRemoveProvider by remember { mutableStateOf<ProviderInfo?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -111,12 +112,14 @@ fun ProvidersScreen(
             if (providers.isEmpty() && isLoading) {
                 CircularProgressIndicator(modifier = Modifier.padding(16.dp))
             } else if (providers.isEmpty()) {
-                Text(
-                    "No providers found. Check desktop connection.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(16.dp),
-                )
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        error ?: "No providers found.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    TextButton(onClick = { vm.refresh() }) { Text("Retry") }
+                }
             } else {
                 providers.forEach { provider ->
                     ProviderRow(

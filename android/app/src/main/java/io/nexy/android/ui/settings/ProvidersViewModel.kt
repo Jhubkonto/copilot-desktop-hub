@@ -3,9 +3,12 @@ package io.nexy.android.ui.settings
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.ProviderInfo
 import io.nexy.android.data.model.WsEvent
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,21 +21,52 @@ class ProvidersViewModel(app: Application) : AndroidViewModel(app) {
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    private val _error = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = _error.asStateFlow()
+
+    private var timeoutJob: Job? = null
+
     init {
         viewModelScope.launch {
             WsRepository.events.collect { event ->
                 when (event) {
-                    is WsEvent.ProviderList -> _isLoading.value = false
+                    is WsEvent.ProviderList -> {
+                        timeoutJob?.cancel()
+                        _isLoading.value = false
+                        _error.value = null
+                    }
                     else -> {}
                 }
+            }
+        }
+        // Retry when the connection is established
+        viewModelScope.launch {
+            WsRepository.connectionState.collect { state ->
+                if (state == ConnectionState.CONNECTED) refresh()
             }
         }
     }
 
     fun refresh() {
+        if (WsRepository.connectionState.value != ConnectionState.CONNECTED) {
+            _isLoading.value = false
+            _error.value = "Not connected to desktop."
+            return
+        }
         _isLoading.value = true
+        _error.value = null
         WsRepository.getProviders()
+        timeoutJob?.cancel()
+        timeoutJob = viewModelScope.launch {
+            delay(10_000)
+            if (_isLoading.value) {
+                _isLoading.value = false
+                _error.value = "Request timed out. Check desktop connection."
+            }
+        }
     }
+
+    fun dismissError() { _error.value = null }
 
     fun setKey(provider: String, key: String) {
         WsRepository.setProviderKey(provider, key)

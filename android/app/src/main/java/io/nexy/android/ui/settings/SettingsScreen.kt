@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -15,6 +16,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -25,6 +27,7 @@ fun SettingsScreen(
     onOpenSelfHeal: () -> Unit = {},
     onOpenProviders: () -> Unit = {},
     onOpenFeatureGenerator: () -> Unit = {},
+    onOpenProjectGenerator: () -> Unit = {},
     onOpenArtifacts: () -> Unit = {},
     onOpenPromptLibrary: () -> Unit = {},
     vm: SettingsViewModel = viewModel(),
@@ -69,6 +72,14 @@ fun SettingsScreen(
                 .padding(padding)
                 .verticalScroll(rememberScrollState()),
         ) {
+            // — General —
+            SettingsSectionHeader("General")
+            AppearanceSection(
+                themePreference = themePreference,
+                onSetTheme = { vm.setThemePreference(it) },
+            )
+
+            // — Connection —
             ConnectionSection(
                 savedEndpoint = vm.savedEndpoint,
                 profiles = profiles,
@@ -79,23 +90,21 @@ fun SettingsScreen(
                 onForgetServer = onForgetServer,
             )
 
+            // — Models —
             ModelsSection(
                 models = models,
                 modelSource = modelSource,
                 onRefresh = { vm.refreshModels() },
             )
 
+            // — Notifications —
             NotificationsSection(
                 notificationDiagnostics = notificationDiagnostics,
                 onOpenNotificationSettings = { vm.openNotificationSettings() },
                 onRefresh = { vm.refreshNotificationDiagnostics() },
             )
 
-            AppearanceSection(
-                themePreference = themePreference,
-                onSetTheme = { vm.setThemePreference(it) },
-            )
-
+            // — Updates —
             UpdatesSection(
                 androidUpdateManifest = androidUpdateManifest,
                 clientVersionCode = vm.clientVersionCode,
@@ -104,26 +113,63 @@ fun SettingsScreen(
                 onInstallUpdate = { vm.installUpdate(it) },
             )
 
-            AdvancedToolsSection(
-                onOpenProviders = onOpenProviders,
-                onOpenFeatureGenerator = onOpenFeatureGenerator,
-                onOpenArtifacts = onOpenArtifacts,
-                onOpenPromptLibrary = onOpenPromptLibrary,
-                onOpenSelfHeal = onOpenSelfHeal,
+            // — Tools (nav rows) —
+            SettingsSectionHeader("Tools")
+            Text(
+                "Manage providers, prompts, artifacts, and automated workflows.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+            SettingsNavRow(
+                title = "API Providers",
+                detail = "Configure BYOK keys stored encrypted on the desktop",
+                onClick = onOpenProviders,
+            )
+            SettingsNavRow(
+                title = "Prompt Library",
+                detail = "Browse and manage reusable prompt templates",
+                onClick = onOpenPromptLibrary,
+            )
+            SettingsNavRow(
+                title = "Project Generator",
+                detail = "LLM-assisted project scaffolding with agents and milestones",
+                onClick = onOpenProjectGenerator,
+            )
+            SettingsNavRow(
+                title = "Feature Generator",
+                detail = "Plan, review, apply, and commit generated changes",
+                onClick = onOpenFeatureGenerator,
+            )
+            SettingsNavRow(
+                title = "Artifacts",
+                detail = "Browse generated project artifacts",
+                onClick = onOpenArtifacts,
+            )
+            SettingsNavRow(
+                title = "Self-Heal Reports",
+                detail = "Review investigation and fix reports",
+                onClick = onOpenSelfHeal,
             )
 
+            // — Developer —
+            SettingsSectionHeader("Developer")
             DiagnosticsSection(
                 connectionDiagnostics = connectionDiagnostics,
                 clientVersion = vm.clientVersion,
                 bugReportState = bugReportState,
                 onRequestBugReport = { vm.requestBugReport() },
             )
-
             ActionsSection(
                 connectionState = connectionState,
                 onDisconnect = { vm.disconnect() },
                 onForgetActiveServer = { vm.forgetServer() },
                 onForgetServer = onForgetServer,
+            )
+
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.outlineVariant,
+                modifier = Modifier.padding(bottom = 24.dp),
             )
         }
     }
