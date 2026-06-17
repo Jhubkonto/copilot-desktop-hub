@@ -75,6 +75,8 @@ fun HomeScreen(
     val searchResults by vm.searchResults.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
     var showNewChatSheet by remember { mutableStateOf(false) }
+    var showCreateProjectSheet by remember { mutableStateOf(false) }
+    var showCreateAgentSheet by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState()
     val scope = rememberCoroutineScope()
 
@@ -205,14 +207,23 @@ fun HomeScreen(
             )
         },
         floatingActionButton = {
-            if (selectedTab == 0) {
-                FloatingActionButton(
-                    onClick = { showNewChatSheet = true },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = "New Chat")
-                }
+            val fabLabel = when (selectedTab) {
+                0 -> "New Chat"
+                1 -> "New Project"
+                else -> "New Agent"
+            }
+            FloatingActionButton(
+                onClick = {
+                    when (selectedTab) {
+                        0 -> showNewChatSheet = true
+                        1 -> showCreateProjectSheet = true
+                        2 -> showCreateAgentSheet = true
+                    }
+                },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+            ) {
+                Icon(Icons.Default.Add, contentDescription = fabLabel)
             }
         },
     ) { padding ->
@@ -245,14 +256,24 @@ fun HomeScreen(
                 1 -> ProjectsTab(
                     projects = projects,
                     isRefreshing = isRefreshingProjects,
+                    showCreateSheet = showCreateProjectSheet,
+                    onDismissCreateSheet = { showCreateProjectSheet = false },
                     onRefresh = { vm.requestProjects() },
                     onOpenProjectHistory = onOpenProjectHistory,
+                    onCreateProject = { name, color -> vm.createProject(name, color) },
+                    onRenameProject = { id, name -> vm.renameProject(id, name) },
+                    onDeleteProject = { id -> vm.deleteProject(id) },
                 )
                 2 -> AgentsTab(
                     agents = agents,
                     isRefreshing = isRefreshingAgents,
+                    showCreateSheet = showCreateAgentSheet,
+                    onDismissCreateSheet = { showCreateAgentSheet = false },
                     onRefresh = { vm.requestAgents() },
                     onOpenAgentHistory = onOpenAgentHistory,
+                    onCreateAgent = { name, icon -> vm.createAgent(name, icon) },
+                    onRenameAgent = { id, name, icon -> vm.updateAgent(id, name, icon) },
+                    onDeleteAgent = { id -> vm.deleteAgent(id) },
                 )
             }
         }

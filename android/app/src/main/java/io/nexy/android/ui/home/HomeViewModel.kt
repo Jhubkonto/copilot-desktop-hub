@@ -115,6 +115,13 @@ class HomeViewModel(
 
     fun deleteConversation(id: String) = WsRepository.deleteConversation(id)
 
+    fun createProject(name: String, color: String) = WsRepository.createProject(name, color)
+    fun renameProject(id: String, name: String) = WsRepository.renameProject(id, name)
+    fun deleteProject(id: String) = WsRepository.deleteProject(id)
+    fun createAgent(name: String, icon: String) = WsRepository.createAgent(name, icon)
+    fun updateAgent(id: String, name: String, icon: String) = WsRepository.updateAgent(id, name, icon)
+    fun deleteAgent(id: String) = WsRepository.deleteAgent(id)
+
     fun disconnect() {
         WsRepository.disconnect()
     }
