@@ -16,7 +16,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -27,14 +26,11 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberModalBottomSheetState
+import io.nexy.android.ui.components.NexyTopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -49,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.model.WikiEntry
 import io.nexy.android.ui.components.NexyConfirmDialog
+import io.nexy.android.ui.components.NexyFormSheet
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -96,18 +93,9 @@ fun WikiScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Project Wiki", style = MaterialTheme.typography.titleMedium) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                ),
+            NexyTopAppBar(
+                titleContent = { Text("Project Wiki", style = MaterialTheme.typography.titleMedium) },
+                onBack = onBack,
             )
         },
         floatingActionButton = {
@@ -194,13 +182,9 @@ private fun WikiEntryScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(if (isEditing) "Edit Entry" else entry.title, style = MaterialTheme.typography.titleMedium) },
-                navigationIcon = {
-                    IconButton(onClick = if (isEditing) onCancelEdit else onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
+            NexyTopAppBar(
+                titleContent = { Text(if (isEditing) "Edit Entry" else entry.title, style = MaterialTheme.typography.titleMedium) },
+                onBack = if (isEditing) onCancelEdit else onBack,
                 actions = {
                     if (isEditing) {
                         TextButton(onClick = onSaveEdit) { Text("Save") }
@@ -209,11 +193,6 @@ private fun WikiEntryScreen(
                         IconButton(onClick = { showDeleteDialog = true }) { Icon(Icons.Default.Delete, contentDescription = "Delete") }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                ),
             )
         },
     ) { padding ->
@@ -277,41 +256,35 @@ private fun CreateWikiEntrySheet(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    NexyFormSheet(
+        title = "New Wiki Entry",
+        confirmLabel = "Create",
+        onConfirm = onConfirm,
+        onDismiss = onDismiss,
+        confirmEnabled = title.isNotBlank(),
     ) {
-        Column(modifier = Modifier.padding(horizontal = 24.dp).padding(bottom = 32.dp)) {
-            Text("New Wiki Entry", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
-            Spacer(Modifier.height(16.dp))
-            OutlinedTextField(
-                value = title,
-                onValueChange = onTitleChange,
-                label = { Text("Title") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-            )
-            Spacer(Modifier.height(12.dp))
-            OutlinedTextField(
-                value = body,
-                onValueChange = onBodyChange,
-                label = { Text("Body") },
-                modifier = Modifier.fillMaxWidth(),
-                minLines = 3,
-            )
-            Spacer(Modifier.height(12.dp))
-            OutlinedTextField(
-                value = tags,
-                onValueChange = onTagsChange,
-                label = { Text("Tags (comma-separated)") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-            )
-            Spacer(Modifier.height(16.dp))
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) { Text("Cancel") }
-                TextButton(onClick = onConfirm, enabled = title.isNotBlank()) { Text("Create") }
-            }
-        }
+        OutlinedTextField(
+            value = title,
+            onValueChange = onTitleChange,
+            label = { Text("Title") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+        )
+        Spacer(Modifier.height(12.dp))
+        OutlinedTextField(
+            value = body,
+            onValueChange = onBodyChange,
+            label = { Text("Body") },
+            modifier = Modifier.fillMaxWidth(),
+            minLines = 3,
+        )
+        Spacer(Modifier.height(12.dp))
+        OutlinedTextField(
+            value = tags,
+            onValueChange = onTagsChange,
+            label = { Text("Tags (comma-separated)") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+        )
     }
 }
