@@ -180,6 +180,7 @@ const api = {
       regenerate?: boolean
       agentId?: string
       model?: string
+      cliBackend?: 'claude-cli' | 'codex-cli'
       messageId?: string
       projectId?: string
       contextSnapshot?: string

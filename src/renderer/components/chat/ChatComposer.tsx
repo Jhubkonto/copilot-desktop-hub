@@ -5,6 +5,7 @@ import { AttachmentBar } from './AttachmentBar'
 import { AtContextMenu } from './AtContextMenu'
 import { SlashCommandMenu } from './SlashCommandMenu'
 import { ModelPicker } from './ModelPicker'
+import { CliLockedModelBadge } from './CliLockedModelBadge'
 import type { AgentConfig, AvailableModelEntry, AvailableModelGroup } from '../../../shared/types'
 import type { AtContextOption, ChatMessage, ContextRef, LocalAttachment, PastedImage } from '../../hooks/chat-types'
 import type { SlashCommandDef } from '../../slash-commands'
@@ -63,6 +64,8 @@ interface ChatComposerProps {
   onCancelEdit: () => void
   onStop: () => void | Promise<void>
   onSend: () => void | Promise<void>
+  cliLockedModels?: AvailableModelEntry[]
+  onSelectCliModel?: (modelId: string) => void
 }
 
 export function ChatComposer({
@@ -117,11 +120,14 @@ export function ChatComposer({
   onCancelEdit,
   onStop,
   onSend,
+  cliLockedModels,
+  onSelectCliModel,
 }: ChatComposerProps) {
   const catalogModels = useAppStore((state) => state.catalogModels)
   const globalDefaultModel = useAppStore((state) => state.globalDefaultModel)
   const agentBackend = activeAgent?.backend
   const isGhCopilot = agentBackend === 'gh-copilot'
+  const isCliLocked = agentBackend === 'claude-cli' || agentBackend === 'codex-cli'
 
   return (
     <div className="border-t border-gray-200 dark:border-gray-700/80 relative">
@@ -313,6 +319,14 @@ export function ChatComposer({
                   >
                     gh copilot
                   </span>
+                ) : isCliLocked ? (
+                  <CliLockedModelBadge
+                    backend={agentBackend as 'claude-cli' | 'codex-cli'}
+                    modelId={effectiveModel === 'default' ? null : effectiveModel}
+                    models={cliLockedModels ?? []}
+                    catalogModels={catalogModels}
+                    onSelectModel={onSelectCliModel ?? (() => {})}
+                  />
                 ) : (
                   <ModelPicker
                     value={effectiveModel}

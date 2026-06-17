@@ -148,8 +148,9 @@ export function useChatWindowActions({
   onAfterSend,
   onEditStateConsumed,
 }: UseChatWindowActionsParams) {
-  // Stores a CLI model chosen before the conversation row exists (new chat), applied on first send.
+  // Stores a CLI model and backend chosen before the conversation row exists (new chat), applied on first send.
   const pendingCliModelRef = useRef<string | null>(null)
+  const pendingCliBackendRef = useRef<'claude-cli' | 'codex-cli' | null>(null)
 
   const slashCommandCtx = useMemo<SlashCommandContext>(
     () => ({
@@ -393,11 +394,14 @@ export function useChatWindowActions({
       }
       const effectiveRequestModel = requestModel ?? pendingCliModelRef.current ?? undefined
       pendingCliModelRef.current = null
+      const effectiveRequestBackend = pendingCliBackendRef.current ?? undefined
+      pendingCliBackendRef.current = null
       const sendResult = await window.api.sendMessage(conversation, content, {
         attachments,
         images: visionImagesForSend,
         agentId: chatAgentId ?? undefined,
         model: effectiveRequestModel,
+        cliBackend: effectiveRequestBackend,
         messageId: userMessage.id,
         projectId: chatProjectId ?? undefined,
         contextSnapshot: contextSnapshotJson,
@@ -588,6 +592,7 @@ export function useChatWindowActions({
         return
       }
       pendingCliModelRef.current = modelId
+      pendingCliBackendRef.current = backend
     },
     [activeAgent, conversationId, loadConversations, loadAgents, addToast],
   )

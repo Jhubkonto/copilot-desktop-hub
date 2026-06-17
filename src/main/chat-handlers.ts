@@ -33,6 +33,7 @@ type ChatSendOptions = {
   regenerate?: boolean
   agentId?: string
   model?: string
+  cliBackend?: 'claude-cli' | 'codex-cli'
   messageId?: string
   projectId?: string
   contextSnapshot?: string
@@ -64,6 +65,7 @@ export async function dispatchChatSend(
   const regenerate = options?.regenerate === true
   const agentId = options?.agentId
   const modelOverride = options?.model
+  const cliBackend = options?.cliBackend
   const projectId = options?.projectId
   const contextSnapshot = options?.contextSnapshot ?? null
 
@@ -302,14 +304,24 @@ export async function dispatchChatSend(
     : []
   const agentHasAssignedMcpServers = assignedAgentMcpServerIds.length > 0
   const byokKeyForModel = getApiKey(providerName)
-  const fallbackCliBackend =
-    retrieveAuthMode() === 'none'
-      ? ClaudeAdapter.isAvailable()
-        ? 'claude-cli'
-        : CodexAdapter.isAvailable()
-          ? 'codex-cli'
-          : undefined
-      : undefined
+  let fallbackCliBackend: 'claude-cli' | 'codex-cli' | undefined
+  if (retrieveAuthMode() === 'none') {
+    switch (cliBackend) {
+      case 'codex-cli':
+        fallbackCliBackend = CodexAdapter.isAvailable() ? 'codex-cli' : undefined
+        break
+      case 'claude-cli':
+        fallbackCliBackend = ClaudeAdapter.isAvailable() ? 'claude-cli' : undefined
+        break
+      default:
+        // Only fall back to CLI when no BYOK key is available for the selected model.
+        // If the user has a key for an OpenRouter/BYOK model, let it route to BYOK instead.
+        if (!byokKeyForModel) {
+          if (ClaudeAdapter.isAvailable()) fallbackCliBackend = 'claude-cli'
+          else if (CodexAdapter.isAvailable()) fallbackCliBackend = 'codex-cli'
+        }
+    }
+  }
   const effectiveBackend = agentBackend ?? fallbackCliBackend
 
   if (effectiveBackend) {
@@ -359,13 +371,21 @@ export async function dispatchChatSend(
         cliUserContent = `[Prior conversation — for context only, do not repeat]\n${historyTurns.join('\n\n')}\n\n[Current message]\n${augmentedContent}`
       }
       const availableCodexModels = effectiveBackend === 'codex-cli' ? getCliModels('codex-cli') : []
-      const requestedCliModel = (agentCfg2?.cliModel || conversationModel || '') as string
-      const cliModelForRequest =
-        effectiveBackend === 'codex-cli'
-          ? requestedCliModel && availableCodexModels.some((model) => model.id === requestedCliModel)
-            ? requestedCliModel
-            : availableCodexModels[0]?.id ?? ''
-          : requestedCliModel
+      // Per-conversation override (conversationModel) takes priority over the agent's default
+      // cliModel so users can switch models within a backend for a single conversation.
+      const requestedCliModel = (modelOverride || conversationModel || agentCfg2?.cliModel || '') as string
+      let cliModelForRequest: string
+      if (effectiveBackend === 'codex-cli') {
+        if (!requestedCliModel) {
+          cliModelForRequest = availableCodexModels[0]?.id ?? ''
+        } else if (modelOverride || availableCodexModels.some((m) => m.id === requestedCliModel)) {
+          cliModelForRequest = requestedCliModel
+        } else {
+          cliModelForRequest = availableCodexModels[0]?.id ?? ''
+        }
+      } else {
+        cliModelForRequest = requestedCliModel
+      }
       const cliMcpServers =
         (effectiveBackend === 'claude-cli' || effectiveBackend === 'codex-cli') &&
         agentHasAssignedMcpServers

@@ -4,6 +4,7 @@ import { join } from 'path'
 import { homedir } from 'os'
 import type { CliInstallStatus } from '../shared/types'
 import { safeHandle } from './safe-handle'
+import { CODEX_DEFAULT_MODELS } from './cli-adapters/codex'
 
 type CliModelOption = { id: string; label: string }
 
@@ -11,12 +12,6 @@ const CLAUDE_DEFAULT_MODELS: CliModelOption[] = [
   { id: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
   { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
   { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
-]
-
-const CODEX_DEFAULT_MODELS: CliModelOption[] = [
-  { id: 'gpt-5.5', label: 'GPT-5.5' },
-  { id: 'gpt-5.4', label: 'GPT-5.4' },
-  { id: 'gpt-5.4-mini', label: 'GPT-5.4-Mini' },
 ]
 
 function readCodexConfigModel(): string | null {
