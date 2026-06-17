@@ -78,44 +78,46 @@ Goal: keep the Android app comfortable, predictable, and safe for a solo develop
 
 ### Shared UI system cleanup
 
-- [ ] Extract shared top app bar patterns for back-only screens and settings/tool screens.
-- [ ] Extract shared navigation row pattern for Settings and secondary list destinations.
+- [x] Extract shared top app bar patterns for back-only screens and settings/tool screens.
+- [x] Extract shared navigation row pattern for Settings and secondary list destinations.
 - [ ] Extract shared list row/action menu pattern for repeated title/subtitle/action rows.
-- [ ] Extract shared form sheet shell for create/edit sheets.
-- [ ] Review all one-off `AlertDialog` usages and migrate appropriate cases to shared dialogs.
+- [x] Extract shared form sheet shell for create/edit sheets.
+- [x] Review all one-off `AlertDialog` usages and migrate appropriate cases to shared dialogs.
+- [x] Migrate existing screens to use `NexyTopAppBar` composable.
+- [x] Migrate existing form sheets to use `NexyFormSheet` composable.
 
 ### Information architecture
 
 - [ ] Decide whether `Advanced tools` should remain in Settings or become a top-level Tools screen.
-- [ ] Add concise section summaries for dense Settings groups.
+- [x] Add concise section summaries for dense Settings groups.
 - [ ] Move low-frequency diagnostics details behind expandable detail rows where appropriate.
-- [ ] Review Settings ordering after real usage: Connection, Models, Notifications, Appearance, Updates, Advanced tools, Diagnostics, Actions.
+- [x] Review Settings ordering after real usage: Connection, Models, Notifications, Appearance, Updates, Advanced tools, Diagnostics, Actions.
 
 ### Core flow polish
 
-- [ ] Add explicit send-failure feedback if a chat send command cannot be delivered.
-- [ ] Add retry/resend state for failed optimistic user messages.
-- [ ] Add attachment picker feedback for unsupported or unreadable files.
-- [ ] Consider replacing custom pull-to-refresh wrappers in chat/home with Material `PullToRefreshBox`.
-- [ ] Add loading indicators to Artifacts, Prompt Library, and provider screens where data is requested but not yet returned.
+- [x] Add explicit send-failure feedback if a chat send command cannot be delivered.
+- [x] Add retry/resend state for failed optimistic user messages.
+- [x] Add attachment picker feedback for unsupported or unreadable files.
+- [x] Replace custom pull-to-refresh wrappers in chat/home with Material `PullToRefreshBox`.
+- [x] Add loading indicators to Artifacts, Prompt Library, and provider screens where data is requested but not yet returned.
 
 ### Accessibility and visual QA
 
-- [ ] Add Compose UI tests for destructive confirmation dialogs.
-- [ ] Add Compose UI tests for secondary screen search and clear-search flows.
-- [ ] Add Compose UI tests for Feature Generator phase indicator and reset confirmation.
+- [x] Add Compose UI tests for destructive confirmation dialogs.
+- [x] Add Compose UI tests for secondary screen search and clear-search flows.
+- [x] Add Compose UI tests for Feature Generator phase indicator and reset confirmation.
 - [ ] Audit icon content descriptions across all Android screens.
-- [ ] Verify touch targets are at least 48dp for list action menus and compact controls.
+- [x] Verify touch targets are at least 48dp for list action menus and compact controls.
 - [ ] Test text wrapping/truncation on small phones and large screens.
 - [ ] Check light/dark contrast for status badges, error banners, and advanced tool rows.
 
 ### Secondary screen polish
 
 - [ ] Add search to Providers if provider list grows or includes extra metadata.
-- [ ] Add filter chips to Self-Heal reports for status groups.
+- [x] Add filter chips to Self-Heal reports for status groups.
 - [ ] Add artifact status filter chips if artifact volume grows.
 - [ ] Add prompt category filter chips if prompt volume grows.
-- [ ] Add empty-detail guidance for artifact details with no current version/files.
+- [x] Add empty-detail guidance for artifact details with no current version/files.
 
 ## Acceptance Standard
 
