@@ -19,6 +19,10 @@ import io.nexy.android.ui.pairing.PairingScreen
 import io.nexy.android.ui.pairing.PairingStartScreen
 import io.nexy.android.ui.selfheal.SelfHealReportDetailScreen
 import io.nexy.android.ui.selfheal.SelfHealReportsScreen
+import io.nexy.android.ui.artifacts.ArtifactsScreen
+import io.nexy.android.ui.featuregenerator.FeatureGeneratorScreen
+import io.nexy.android.ui.prompts.PromptsScreen
+import io.nexy.android.ui.settings.ProvidersScreen
 import io.nexy.android.ui.settings.SettingsScreen
 import io.nexy.android.ui.splash.SplashScreen
 
@@ -143,6 +147,7 @@ fun NavGraph() {
                 agentId = agentId,
                 projectId = projectId,
                 onBack = { navController.popBackStack() },
+                onOpenFork = { forkedId -> navController.navigate("chat/$forkedId") },
             )
         }
 
@@ -155,7 +160,27 @@ fun NavGraph() {
                     }
                 },
                 onOpenSelfHeal = { navController.navigate("self-heal") },
+                onOpenProviders = { navController.navigate("providers") },
+                onOpenFeatureGenerator = { navController.navigate("feature-generator") },
+                onOpenArtifacts = { navController.navigate("artifacts") },
+                onOpenPromptLibrary = { navController.navigate("prompts") },
             )
+        }
+
+        composable("providers") {
+            ProvidersScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable("feature-generator") {
+            FeatureGeneratorScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable("artifacts") {
+            ArtifactsScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable("prompts") {
+            PromptsScreen(onBack = { navController.popBackStack() })
         }
 
         composable("self-heal") {
