@@ -1,12 +1,14 @@
 package io.nexy.android.ui.chat
 
 import android.provider.OpenableColumns
+import android.content.ClipboardManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -25,9 +27,12 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -40,14 +45,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
+import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.model.activeModelDetail
 import io.nexy.android.ui.model.activeModelLabel
 import io.nexy.android.ui.model.emptyModelListDetail
@@ -80,6 +86,8 @@ fun ChatScreen(
     val projects by WsRepository.projects.collectAsState()
     val models by WsRepository.models.collectAsState()
     val modelSource by WsRepository.modelSource.collectAsState()
+    val connectionState by WsRepository.connectionState.collectAsState()
+    val lastError by WsRepository.lastError.collectAsState()
     val conversation = conversations.find { it.id == conversationId }
     val title = conversation?.title?.ifBlank { null } ?: "Chat"
     val chatAgentId = conversation?.agent_id ?: agentId
@@ -92,6 +100,9 @@ fun ChatScreen(
     val modelSheetState = rememberModalBottomSheetState()
     var showActionsSheet by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val sendError by vm.sendError.collectAsState()
+    var deletingMessage by remember { mutableStateOf<ChatMessage?>(null) }
 
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         for (uri in uris) {
@@ -102,13 +113,33 @@ fun ChatScreen(
                 c.getString(idx)
             } ?: "attachment"
             val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
-            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: continue
-            if (bytes.size > 4 * 1024 * 1024) continue
+            val inputStream = context.contentResolver.openInputStream(uri)
+            if (inputStream == null) {
+                scope.launch { snackbarHostState.showSnackbar("$name could not be read.") }
+                continue
+            }
+            val bytes = inputStream.use { it.readBytes() }
+            if (bytes.size > 4 * 1024 * 1024) {
+                scope.launch {
+                    snackbarHostState.showSnackbar("$name is larger than 4 MB and was not attached.")
+                }
+                continue
+            }
             if (mimeType.startsWith("image/")) {
                 val b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
                 vm.addAttachment(name, mimeType, "data:$mimeType;base64,$b64", null)
             } else {
-                vm.addAttachment(name, mimeType, null, bytes.toString(Charsets.UTF_8))
+                val text = try {
+                    bytes.toString(Charsets.UTF_8).also {
+                        Charsets.UTF_8.newDecoder()
+                            .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                            .decode(java.nio.ByteBuffer.wrap(bytes))
+                    }
+                } catch (e: java.nio.charset.CharacterCodingException) {
+                    scope.launch { snackbarHostState.showSnackbar("$name is a binary file and cannot be attached as text.") }
+                    continue
+                }
+                vm.addAttachment(name, mimeType, null, text)
             }
         }
     }
@@ -136,8 +167,14 @@ fun ChatScreen(
         requestModelList()
     }
 
+    LaunchedEffect(sendError) {
+        val error = sendError ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(error)
+        vm.clearSendError()
+    }
+
     val assistantBusy = isStreaming || isAwaitingResponse
-    val canSend = (input.isNotBlank() || attachments.isNotEmpty()) && !assistantBusy
+    val canSend = (input.isNotBlank() || attachments.isNotEmpty()) && !assistantBusy && connectionState == ConnectionState.CONNECTED
     val draftAgent = agentId?.let { id -> agents.find { it.id == id } }
     val draftProject = projectId?.let { id -> projects.find { it.id == id } }
     val agentLabel = conversation?.agent_name?.let { name ->
@@ -150,7 +187,12 @@ fun ChatScreen(
     val activeModelId = selectedModel ?: "default"
     val activeModelLabel = activeModelLabel(selectedModel, models)
     val activeModelDetail = activeModelDetail(selectedModel, chatAgent, modelSource)
-    val clipboardManager = LocalClipboardManager.current
+    val clipboardManager = context.getSystemService(ClipboardManager::class.java)
+    val connectionBanner = when (connectionState) {
+        ConnectionState.CONNECTED -> null
+        ConnectionState.CONNECTING -> "Reconnecting to desktop..."
+        ConnectionState.DISCONNECTED -> lastError?.let { "Disconnected: $it" } ?: "Disconnected from desktop"
+    }
 
     if (showModelSheet) {
         ModalBottomSheet(
@@ -211,7 +253,22 @@ fun ChatScreen(
         )
     }
 
+    deletingMessage?.let { message ->
+        NexyConfirmDialog(
+            title = "Delete message?",
+            message = "This message will be removed from the paired desktop conversation.",
+            confirmLabel = "Delete",
+            destructive = true,
+            onConfirm = {
+                vm.deleteMessage(message.id)
+                deletingMessage = null
+            },
+            onDismiss = { deletingMessage = null },
+        )
+    }
+
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -290,34 +347,56 @@ fun ChatScreen(
             onRefresh = { vm.refreshMessages() },
             modifier = Modifier.fillMaxSize().padding(padding),
         ) {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(vertical = 8.dp),
-            ) {
-                if (messages.isEmpty() && !isAwaitingResponse) {
-                    item {
-                        EmptyChatContent(agentLabel = agentLabel, projectLabel = projectLabel)
-                    }
+            Column(modifier = Modifier.fillMaxSize()) {
+                if (connectionBanner != null) {
+                    ChatConnectionBanner(connectionBanner)
                 }
-                itemsIndexed(messages) { _, msg ->
-                    if (msg.isToolCall) {
-                        ToolCallBubble(msg)
-                    } else {
-                        MessageBubble(
-                            msg = msg,
-                            onCopy = { copyMessage(clipboardManager, msg.text) },
-                            onEdit = if (msg.isUser) { { input = msg.text } } else null,
-                            onResend = if (msg.isUser) { { vm.sendMessage(msg.text) } } else null,
-                            onDelete = { vm.deleteMessage(msg.id) },
-                        )
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(vertical = 8.dp),
+                ) {
+                    if (messages.isEmpty() && !isAwaitingResponse) {
+                        item {
+                            EmptyChatContent(agentLabel = agentLabel, projectLabel = projectLabel)
+                        }
                     }
-                }
-                if (isAwaitingResponse) {
-                    item { ThinkingBubble(activityLabel) }
+                    itemsIndexed(messages) { _, msg ->
+                        if (msg.isToolCall) {
+                            ToolCallBubble(msg)
+                        } else {
+                            MessageBubble(
+                                msg = msg,
+                                onCopy = { copyMessage(clipboardManager, msg.text) },
+                                onEdit = if (msg.isUser) { { input = msg.text } } else null,
+                                onResend = if (msg.isUser) { { vm.sendMessage(msg.text) } } else null,
+                                onDelete = if (msg.id.isNotBlank()) { { deletingMessage = msg } } else null,
+                            )
+                        }
+                    }
+                    if (isAwaitingResponse) {
+                        item { ThinkingBubble(activityLabel) }
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ChatConnectionBanner(message: String) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.errorContainer,
+    ) {
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onErrorContainer,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }

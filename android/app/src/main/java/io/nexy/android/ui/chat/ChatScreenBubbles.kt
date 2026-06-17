@@ -231,6 +231,24 @@ fun MessageBubble(
                         }
                     }
                 }
+                if (msg.sendFailed && isUser) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.Error,
+                            contentDescription = "Send failed",
+                            modifier = Modifier.size(12.dp),
+                            tint = MaterialTheme.colorScheme.error,
+                        )
+                        Text(
+                            "Not delivered · tap Resend",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
             }
         }
     }

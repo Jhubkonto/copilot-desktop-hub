@@ -2,6 +2,7 @@ package io.nexy.android.ui.chat
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsClient
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.AttachmentMeta
@@ -32,6 +33,7 @@ data class ChatMessage(
     val toolArgs: String? = null,
     val toolResult: String? = null,
     val toolSuccess: Boolean = true,
+    val sendFailed: Boolean = false,
 )
 
 class ChatViewModel(
@@ -61,6 +63,9 @@ class ChatViewModel(
 
     private val _selectedModel = MutableStateFlow<String?>(null)
     val selectedModel: StateFlow<String?> = _selectedModel
+
+    private val _sendError = MutableStateFlow<String?>(null)
+    val sendError: StateFlow<String?> = _sendError
 
     private var historyLoaded = false
 
@@ -164,14 +169,23 @@ class ChatViewModel(
             augmented = if (text.isBlank()) fileContext.trimEnd() else "$fileContext$text"
         }
 
-        _messages.value = _messages.value + ChatMessage(
+        val optimisticMessage = ChatMessage(
             text = if (augmented.isBlank() && imageAtts.isNotEmpty()) "" else augmented,
             isUser = true,
             isStreaming = false,
             attachments = imageAtts.map { AttachmentMeta(id = it.id, name = it.name, type = "image", thumbnailDataUrl = null) },
         )
+        _messages.value = _messages.value + optimisticMessage
         _isAwaitingResponse.value = true
         _activityLabel.value = "Assistant is thinking"
+
+        if (WsRepository.connectionState.value != ConnectionState.CONNECTED) {
+            val msgs = _messages.value
+            _messages.value = msgs.dropLast(1) + msgs.last().copy(sendFailed = true)
+            _isAwaitingResponse.value = false
+            _sendError.value = "Message could not be delivered — not connected to desktop."
+            return
+        }
 
         val data = buildMap<String, Any> {
             put("conversationId", conversationId)
@@ -192,6 +206,8 @@ class ChatViewModel(
         _activityLabel.value = "Assistant is thinking"
         _isStreaming.value = false
     }
+
+    fun clearSendError() { _sendError.value = null }
 
     fun deleteMessage(messageId: String) {
         _messages.value = _messages.value.filter { it.id != messageId }
