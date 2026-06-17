@@ -19,6 +19,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -29,6 +33,7 @@ import io.nexy.android.data.PairedServerProfile
 import io.nexy.android.data.model.AndroidUpdateManifest
 import io.nexy.android.data.model.ModelListSource
 import io.nexy.android.data.model.ModelOption
+import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.model.emptyModelListDetail
 import io.nexy.android.ui.model.modelSourceDetail
 import io.nexy.android.ui.model.modelSourceTitle
@@ -76,6 +81,23 @@ fun ConnectionSection(
     onForgetProfile: (String) -> Boolean,
     onForgetServer: () -> Unit,
 ) {
+    var profileToForget by remember { mutableStateOf<PairedServerProfile?>(null) }
+
+    profileToForget?.let { profile ->
+        NexyConfirmDialog(
+            title = "Delete saved server?",
+            message = "\"${profile.name}\" will be removed from this phone. You can pair it again later from Nexy Desktop.",
+            confirmLabel = "Delete",
+            destructive = true,
+            onConfirm = {
+                val hasRemaining = onForgetProfile(profile.id)
+                profileToForget = null
+                if (!hasRemaining) onForgetServer()
+            },
+            onDismiss = { profileToForget = null },
+        )
+    }
+
     SettingsSectionHeader("Connection")
 
     Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth()) {
@@ -110,10 +132,7 @@ fun ConnectionSection(
                             Row(modifier = Modifier.padding(start = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedButton(onClick = { onSwitchProfile(profile.id) }, shape = MaterialTheme.shapes.small) { Text("Use") }
                                 OutlinedButton(
-                                    onClick = {
-                                        val hasRemaining = onForgetProfile(profile.id)
-                                        if (!hasRemaining) onForgetServer()
-                                    },
+                                    onClick = { profileToForget = profile },
                                     shape = MaterialTheme.shapes.small,
                                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFEF4444)),
                                 ) { Text("Delete") }
@@ -381,6 +400,23 @@ fun ActionsSection(
     onForgetActiveServer: () -> Boolean,
     onForgetServer: () -> Unit,
 ) {
+    var confirmForgetActive by remember { mutableStateOf(false) }
+
+    if (confirmForgetActive) {
+        NexyConfirmDialog(
+            title = "Forget active server?",
+            message = "The active server profile will be removed from this phone. If no saved server remains, you will need to pair again.",
+            confirmLabel = "Forget",
+            destructive = true,
+            onConfirm = {
+                val hasRemaining = onForgetActiveServer()
+                confirmForgetActive = false
+                if (!hasRemaining) onForgetServer()
+            },
+            onDismiss = { confirmForgetActive = false },
+        )
+    }
+
     SettingsSectionHeader("Actions")
 
     Column(
@@ -399,10 +435,7 @@ fun ActionsSection(
         ) { Text("Disconnect") }
 
         OutlinedButton(
-            onClick = {
-                val hasRemaining = onForgetActiveServer()
-                if (!hasRemaining) onForgetServer()
-            },
+            onClick = { confirmForgetActive = true },
             modifier = Modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.small,
             colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFEF4444)),
@@ -411,12 +444,57 @@ fun ActionsSection(
 }
 
 @Composable
-fun ProvidersSection(onOpenProviders: () -> Unit) {
-    SettingsSectionHeader("API Providers")
+fun AdvancedToolsSection(
+    onOpenProviders: () -> Unit,
+    onOpenFeatureGenerator: () -> Unit,
+    onOpenArtifacts: () -> Unit,
+    onOpenPromptLibrary: () -> Unit,
+    onOpenSelfHeal: () -> Unit,
+) {
+    SettingsSectionHeader("Advanced tools")
+    Text(
+        "Manage providers, prompts, artifacts, and automated workflows.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp).padding(bottom = 4.dp),
+    )
+    SettingsNavRow(
+        title = "API providers",
+        detail = "Manage BYOK keys stored on the desktop",
+        onClick = onOpenProviders,
+    )
+    SettingsNavRow(
+        title = "Feature generator",
+        detail = "Plan, review, apply, and commit generated changes",
+        onClick = onOpenFeatureGenerator,
+    )
+    SettingsNavRow(
+        title = "Artifacts",
+        detail = "Browse generated project artifacts",
+        onClick = onOpenArtifacts,
+    )
+    SettingsNavRow(
+        title = "Prompt library",
+        detail = "Browse and manage reusable prompts",
+        onClick = onOpenPromptLibrary,
+    )
+    SettingsNavRow(
+        title = "Self-Heal reports",
+        detail = "Review investigation and fix reports",
+        onClick = onOpenSelfHeal,
+    )
+}
+
+@Composable
+internal fun SettingsNavRow(
+    title: String,
+    detail: String,
+    onClick: () -> Unit,
+) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onOpenProviders),
+            .clickable(onClick = onClick),
         color = MaterialTheme.colorScheme.surface,
     ) {
         Row(
@@ -424,13 +502,21 @@ fun ProvidersSection(onOpenProviders: () -> Unit) {
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(
-                "Manage API keys",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Medium,
+                )
+                Text(
+                    detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Icon(
                 Icons.AutoMirrored.Filled.KeyboardArrowRight,
                 contentDescription = null,
@@ -440,132 +526,54 @@ fun ProvidersSection(onOpenProviders: () -> Unit) {
         }
     }
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+}
+
+@Composable
+fun ProvidersSection(onOpenProviders: () -> Unit) {
+    SettingsSectionHeader("API Providers")
+    SettingsNavRow(
+        title = "Manage API keys",
+        detail = "Configure BYOK keys stored encrypted on the desktop",
+        onClick = onOpenProviders,
+    )
 }
 
 @Composable
 fun SelfHealSection(onOpenSelfHeal: () -> Unit) {
     SettingsSectionHeader("Self-Heal")
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onOpenSelfHeal),
-        color = MaterialTheme.colorScheme.surface,
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(
-                "Error Reports",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                modifier = Modifier.size(20.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+    SettingsNavRow(
+        title = "Error Reports",
+        detail = "Review investigation and fix reports from the desktop",
+        onClick = onOpenSelfHeal,
+    )
 }
 
 @Composable
 fun FeatureGeneratorSection(onOpen: () -> Unit) {
     SettingsSectionHeader("Feature Generator")
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onOpen),
-        color = MaterialTheme.colorScheme.surface,
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(
-                "Plan & implement features",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                modifier = Modifier.size(20.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+    SettingsNavRow(
+        title = "Plan & implement features",
+        detail = "Conversational spec, plan, diff review, and commit workflow",
+        onClick = onOpen,
+    )
 }
 
 @Composable
 fun ArtifactsSection(onOpen: () -> Unit) {
     SettingsSectionHeader("Artifacts")
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onOpen),
-        color = MaterialTheme.colorScheme.surface,
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(
-                "Browse artifacts",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                modifier = Modifier.size(20.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+    SettingsNavRow(
+        title = "Browse artifacts",
+        detail = "View generated project artifacts and their file versions",
+        onClick = onOpen,
+    )
 }
 
 @Composable
 fun PromptLibrarySection(onOpen: () -> Unit) {
     SettingsSectionHeader("Prompt Library")
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onOpen),
-        color = MaterialTheme.colorScheme.surface,
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(
-                "Browse prompts",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                modifier = Modifier.size(20.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+    SettingsNavRow(
+        title = "Browse prompts",
+        detail = "Manage and insert reusable prompt templates",
+        onClick = onOpen,
+    )
 }

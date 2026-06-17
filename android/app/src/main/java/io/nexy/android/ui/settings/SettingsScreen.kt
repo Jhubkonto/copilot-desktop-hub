@@ -118,22 +118,20 @@ fun SettingsScreen(
                 onInstallUpdate = { vm.installUpdate(it) },
             )
 
+            AdvancedToolsSection(
+                onOpenProviders = onOpenProviders,
+                onOpenFeatureGenerator = onOpenFeatureGenerator,
+                onOpenArtifacts = onOpenArtifacts,
+                onOpenPromptLibrary = onOpenPromptLibrary,
+                onOpenSelfHeal = onOpenSelfHeal,
+            )
+
             DiagnosticsSection(
                 connectionDiagnostics = connectionDiagnostics,
                 clientVersion = vm.clientVersion,
                 bugReportState = bugReportState,
                 onRequestBugReport = { vm.requestBugReport() },
             )
-
-            ProvidersSection(onOpenProviders = onOpenProviders)
-
-            FeatureGeneratorSection(onOpen = onOpenFeatureGenerator)
-
-            ArtifactsSection(onOpen = onOpenArtifacts)
-
-            PromptLibrarySection(onOpen = onOpenPromptLibrary)
-
-            SelfHealSection(onOpenSelfHeal = onOpenSelfHeal)
 
             ActionsSection(
                 connectionState = connectionState,
