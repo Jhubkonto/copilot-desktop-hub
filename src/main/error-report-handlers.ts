@@ -21,7 +21,7 @@ interface ErrorLogRow {
   timestamp: number
 }
 
-function rowToErrorReport(row: Record<string, unknown>): ErrorReportEntry {
+export function rowToErrorReport(row: Record<string, unknown>): ErrorReportEntry {
   return {
     id: String(row.id),
     title: String(row.title),

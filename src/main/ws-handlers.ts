@@ -8,7 +8,7 @@ import { getCliModels } from './cli-detection'
 import { getCachedCatalog } from './model-catalog'
 import { retrieveAuthMode } from './auth'
 import { getAndroidUpdateManifest } from './android-handlers'
-import { createErrorReport } from './error-report-handlers'
+import { createErrorReport, rowToErrorReport } from './error-report-handlers'
 import { listHistory } from './self-heal/history'
 import {
   emitInvestigationEvent,
@@ -92,8 +92,8 @@ export function registerWsHandlers(): void {
     if (command === 'self-heal:get-reports') {
       const rows = getDatabase()
         .prepare('SELECT * FROM error_reports ORDER BY created_at DESC LIMIT 50')
-        .all()
-      reply({ event: 'self-heal:reports', data: { reports: rows } })
+        .all() as Record<string, unknown>[]
+      reply({ event: 'self-heal:reports', data: { reports: rows.map(rowToErrorReport) } })
       return
     }
 
@@ -421,6 +421,64 @@ export function registerWsHandlers(): void {
         `INSERT INTO conversations (id, agent_id, project_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
       ).run(id, agentId, projectId, title, now, now)
       reply({ event: 'conversation:created', data: { id, agentId, projectId, title } })
+      return
+    }
+
+    if (command === 'conversation:rename') {
+      const id = typeof data.id === 'string' ? data.id : ''
+      const title = typeof data.title === 'string' ? data.title : ''
+      if (!id || !title) return
+      db.prepare('UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?').run(title, Date.now(), id)
+      broadcastToMobile({ event: 'conversation:renamed', data: { id, title } })
+      return
+    }
+
+    if (command === 'conversation:delete') {
+      const id = typeof data.id === 'string' ? data.id : ''
+      if (!id) return
+      db.prepare('DELETE FROM conversations WHERE id = ?').run(id)
+      broadcastToMobile({ event: 'conversation:deleted', data: { id } })
+      return
+    }
+
+    if (command === 'conversation:search') {
+      const query = typeof data.query === 'string' ? data.query.trim() : ''
+      const rows = query
+        ? db.prepare(`
+            SELECT DISTINCT c.id, c.title, c.created_at, c.updated_at,
+              c.agent_id, c.model,
+              json_extract(a.config_json, '$.name') AS agent_name,
+              json_extract(a.config_json, '$.icon') AS agent_icon,
+              c.project_id, p.name AS project_name,
+              (SELECT content FROM messages WHERE conversation_id = c.id ORDER BY timestamp DESC LIMIT 1) AS last_message
+            FROM conversations c
+            LEFT JOIN messages m ON m.conversation_id = c.id
+            LEFT JOIN agents a ON c.agent_id = a.id
+            LEFT JOIN projects p ON c.project_id = p.id
+            WHERE c.title LIKE ? OR m.content LIKE ?
+            ORDER BY c.updated_at DESC
+          `).all(`%${query}%`, `%${query}%`)
+        : db.prepare(`
+            SELECT c.id, c.title, c.created_at, c.updated_at,
+              c.agent_id, c.model,
+              json_extract(a.config_json, '$.name') AS agent_name,
+              json_extract(a.config_json, '$.icon') AS agent_icon,
+              c.project_id, p.name AS project_name,
+              (SELECT content FROM messages WHERE conversation_id = c.id ORDER BY timestamp DESC LIMIT 1) AS last_message
+            FROM conversations c
+            LEFT JOIN agents a ON c.agent_id = a.id
+            LEFT JOIN projects p ON c.project_id = p.id
+            ORDER BY c.updated_at DESC
+          `).all()
+      reply({ event: 'conversation:search-results', data: { conversations: rows } })
+      return
+    }
+
+    if (command === 'message:delete') {
+      const id = typeof data.id === 'string' ? data.id : ''
+      if (!id) return
+      db.prepare('DELETE FROM messages WHERE id = ?').run(id)
+      reply({ event: 'message:deleted', data: { id } })
       return
     }
 
