@@ -18,7 +18,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Badge
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -48,6 +48,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.model.PromptEntry
+import io.nexy.android.ui.components.NexyConfirmDialog
+import io.nexy.android.ui.components.NexyEmptyState
+import io.nexy.android.ui.components.NexyInfoDialog
+import io.nexy.android.ui.components.NexySearchField
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,6 +62,20 @@ fun PromptsScreen(
     vm: PromptsViewModel = viewModel(),
 ) {
     val state by vm.state.collectAsState()
+    var searchQuery by remember { mutableStateOf("") }
+    val filteredEntries = remember(state.entries, searchQuery) {
+        val query = searchQuery.trim()
+        if (query.isBlank()) state.entries else state.entries.filter { entry ->
+            listOf(
+                entry.title,
+                entry.description,
+                entry.category,
+                entry.scope,
+                entry.body,
+                entry.tags.joinToString(" "),
+            ).any { it.contains(query, ignoreCase = true) }
+        }
+    }
 
     LaunchedEffect(projectId) { vm.load(projectId) }
 
@@ -67,6 +85,14 @@ fun PromptsScreen(
             onInsert?.invoke(text)
             vm.clearInserted()
         }
+    }
+
+    state.error?.let { error ->
+        NexyInfoDialog(
+            title = "Prompt error",
+            message = error,
+            onDismiss = { vm.dismissError() },
+        )
     }
 
     val selected = state.selectedEntry
@@ -123,6 +149,11 @@ fun PromptsScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
+                actions = {
+                    IconButton(onClick = { vm.load(projectId) }) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Refresh prompts")
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                     titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -142,30 +173,51 @@ fun PromptsScreen(
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text("No prompts yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(8.dp))
-                Text("Tap + to create one.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                NexyEmptyState(
+                    title = "No prompts yet.",
+                    detail = "Tap + to create one.",
+                    action = {
+                        TextButton(onClick = { vm.load(projectId) }) { Text("Refresh") }
+                    },
+                )
             }
         } else {
-            val grouped = state.entries.groupBy { it.category }
-            LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
-                grouped.forEach { (category, items) ->
-                    item {
-                        Text(
-                            category,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        )
-                    }
-                    items(items) { entry ->
-                        PromptRow(
-                            entry = entry,
-                            showInsert = onInsert != null,
-                            onClick = { vm.selectEntry(entry) },
-                            onInsert = { vm.insertPrompt(entry.body) },
-                        )
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+                NexySearchField(
+                    query = searchQuery,
+                    onQueryChange = { searchQuery = it },
+                    placeholder = "Search prompts",
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                if (filteredEntries.isEmpty()) {
+                    NexyEmptyState(
+                        title = "No matching prompts.",
+                        detail = "Try a different title, tag, category, or phrase.",
+                        modifier = Modifier.weight(1f),
+                        action = { TextButton(onClick = { searchQuery = "" }) { Text("Clear search") } },
+                    )
+                } else {
+                    val grouped = filteredEntries.groupBy { it.category }
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        grouped.forEach { (category, items) ->
+                            item {
+                                Text(
+                                    category,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                )
+                            }
+                            items(items) { entry ->
+                                PromptRow(
+                                    entry = entry,
+                                    showInsert = onInsert != null,
+                                    onClick = { vm.selectEntry(entry) },
+                                    onInsert = { vm.insertPrompt(entry.body) },
+                                )
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                            }
+                        }
                     }
                 }
             }
@@ -226,12 +278,16 @@ private fun PromptDetailScreen(
     var showDeleteDialog by remember { mutableStateOf(false) }
 
     if (showDeleteDialog) {
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            title = { Text("Delete prompt?") },
-            text = { Text("\"${entry.title}\" will be permanently deleted.") },
-            confirmButton = { TextButton(onClick = { showDeleteDialog = false; onDelete() }) { Text("Delete") } },
-            dismissButton = { TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") } },
+        NexyConfirmDialog(
+            title = "Delete prompt?",
+            message = "\"${entry.title}\" will be permanently deleted.",
+            confirmLabel = "Delete",
+            destructive = true,
+            onConfirm = {
+                showDeleteDialog = false
+                onDelete()
+            },
+            onDismiss = { showDeleteDialog = false },
         )
     }
 
