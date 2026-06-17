@@ -1,9 +1,16 @@
 package io.nexy.android.ui.chat
 
-import android.provider.OpenableColumns
+import android.Manifest
+import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.pm.PackageManager
+import android.os.Build
+import android.provider.MediaStore
+import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -51,6 +58,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
+import io.nexy.android.data.model.PromptEntry
 import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.model.activeModelDetail
 import io.nexy.android.ui.model.activeModelLabel
@@ -84,6 +92,7 @@ fun ChatScreen(
     val projects by WsRepository.projects.collectAsState()
     val models by WsRepository.models.collectAsState()
     val modelSource by WsRepository.modelSource.collectAsState()
+    val cliStatus by WsRepository.cliStatus.collectAsState()
     val connectionState by WsRepository.connectionState.collectAsState()
     val lastError by WsRepository.lastError.collectAsState()
     val conversation = conversations.find { it.id == conversationId }
@@ -97,10 +106,13 @@ fun ChatScreen(
     var showModelSheet by remember { mutableStateOf(false) }
     val modelSheetState = rememberModalBottomSheetState()
     var showActionsSheet by remember { mutableStateOf(false) }
+    var showPromptSheet by remember { mutableStateOf(false) }
+    var showInspectorSheet by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val sendError by vm.sendError.collectAsState()
     var deletingMessage by remember { mutableStateOf<ChatMessage?>(null) }
+    val promptEntries by WsRepository.promptEntries.collectAsState()
 
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         for (uri in uris) {
@@ -140,6 +152,97 @@ fun ChatScreen(
                 vm.addAttachment(name, mimeType, null, text)
             }
         }
+    }
+
+    val clipboardManager = context.getSystemService(ClipboardManager::class.java)
+
+    val pasteImage: () -> Unit = pasteImage@{
+        val clip = clipboardManager.primaryClip ?: return@pasteImage
+        val item = clip.getItemAt(0) ?: return@pasteImage
+        val uri = item.uri ?: return@pasteImage
+        val mimeType = context.contentResolver.getType(uri) ?: return@pasteImage
+        if (!mimeType.startsWith("image/")) {
+            scope.launch { snackbarHostState.showSnackbar("Clipboard item is not an image.") }
+            return@pasteImage
+        }
+        val inputStream = context.contentResolver.openInputStream(uri) ?: return@pasteImage
+        val bytes = inputStream.use { it.readBytes() }
+        if (bytes.size > 4 * 1024 * 1024) {
+            scope.launch { snackbarHostState.showSnackbar("Clipboard image is larger than 4 MB.") }
+            return@pasteImage
+        }
+        val name = context.contentResolver.query(uri, null, null, null, null)?.use { c ->
+            val idx = runCatching { c.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME) }.getOrElse { -1 }
+            if (idx >= 0 && c.moveToFirst()) c.getString(idx) else null
+        } ?: "clipboard.png"
+        val b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+        vm.addAttachment(name, mimeType, "data:$mimeType;base64,$b64", null)
+    }
+
+    val attachLatestScreenshot: () -> Unit = attachLatestScreenshot@{
+        val projection = arrayOf(
+            MediaStore.Images.Media._ID,
+            MediaStore.Images.Media.DISPLAY_NAME,
+            MediaStore.Images.Media.MIME_TYPE,
+        )
+        val selection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            "${MediaStore.Images.Media.RELATIVE_PATH} LIKE ?"
+        } else {
+            "${MediaStore.Images.Media.DATA} LIKE ?"
+        }
+        val selectionArg = "%Screenshot%"
+        val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
+        val uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        val cursor = context.contentResolver.query(uri, projection, selection, arrayOf(selectionArg), sortOrder)
+            ?: run {
+                scope.launch { snackbarHostState.showSnackbar("Could not query screenshots.") }
+                return@attachLatestScreenshot
+            }
+        val imageUri = cursor.use { c ->
+            if (!c.moveToFirst()) return@use null
+            val idCol = c.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+            val id = c.getLong(idCol)
+            android.content.ContentUris.withAppendedId(uri, id)
+        }
+        if (imageUri == null) {
+            scope.launch { snackbarHostState.showSnackbar("No screenshots found.") }
+            return@attachLatestScreenshot
+        }
+        val mimeType = context.contentResolver.getType(imageUri) ?: "image/png"
+        val name = context.contentResolver.query(imageUri, null, null, null, null)?.use { c ->
+            val idx = runCatching { c.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME) }.getOrElse { -1 }
+            if (idx >= 0 && c.moveToFirst()) c.getString(idx) else null
+        } ?: "screenshot.png"
+        val inputStream = context.contentResolver.openInputStream(imageUri) ?: run {
+            scope.launch { snackbarHostState.showSnackbar("Could not read screenshot.") }
+            return@attachLatestScreenshot
+        }
+        val bytes = inputStream.use { it.readBytes() }
+        if (bytes.size > 4 * 1024 * 1024) {
+            scope.launch { snackbarHostState.showSnackbar("Screenshot is larger than 4 MB.") }
+            return@attachLatestScreenshot
+        }
+        val b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+        vm.addAttachment(name, mimeType, "data:$mimeType;base64,$b64", null)
+    }
+
+    val screenshotPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        Manifest.permission.READ_MEDIA_IMAGES
+    } else {
+        Manifest.permission.READ_EXTERNAL_STORAGE
+    }
+
+    val screenshotPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) attachLatestScreenshot()
+        else scope.launch { snackbarHostState.showSnackbar("Permission denied — cannot read screenshots.") }
+    }
+
+    val onCaptureScreen: () -> Unit = {
+        val granted = ContextCompat.checkSelfPermission(context, screenshotPermission) == PackageManager.PERMISSION_GRANTED
+        if (granted) attachLatestScreenshot()
+        else screenshotPermissionLauncher.launch(screenshotPermission)
     }
 
     LaunchedEffect(messages.size, isAwaitingResponse) {
@@ -185,7 +288,6 @@ fun ChatScreen(
     val activeModelId = selectedModel ?: "default"
     val activeModelLabel = activeModelLabel(selectedModel, models)
     val activeModelDetail = activeModelDetail(selectedModel, chatAgent, modelSource)
-    val clipboardManager = context.getSystemService(ClipboardManager::class.java)
     val connectionBanner = when (connectionState) {
         ConnectionState.CONNECTED -> null
         ConnectionState.CONNECTING -> "Reconnecting to desktop..."
@@ -218,16 +320,10 @@ fun ChatScreen(
                 modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 12.dp),
             )
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            val modelOptions = if (models.isNotEmpty()) models else listOf(io.nexy.android.data.model.ModelOption("default", "Default model"))
-            modelOptions.forEach { model ->
-                ModelSheetItem(
-                    label = model.label,
-                    vendor = model.vendor,
-                    selected = model.id == activeModelId,
-                ) {
-                    vm.setModel(model.id)
-                    scope.launch { modelSheetState.hide() }.invokeOnCompletion { showModelSheet = false }
-                }
+            val vendorUnavailable: (String) -> Boolean = { vendor ->
+                val cliKey = vendor.removeSuffix(" CLI").lowercase()
+                val info = cliStatus[cliKey]
+                info != null && !info.installed
             }
             if (models.isEmpty()) {
                 Text(
@@ -236,6 +332,55 @@ fun ChatScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
                 )
+                ModelSheetItem(
+                    label = "Default model",
+                    vendor = null,
+                    selected = activeModelId == "default",
+                ) {
+                    vm.setModel(null)
+                    scope.launch { modelSheetState.hide() }.invokeOnCompletion { showModelSheet = false }
+                }
+            } else {
+                val grouped = models.groupBy { it.vendor ?: "" }
+                val hasVendorGroups = grouped.any { it.key.isNotBlank() }
+                if (hasVendorGroups) {
+                    grouped.forEach { (vendor, vendorModels) ->
+                        val groupUnavailable = vendor.isNotBlank() && vendorUnavailable(vendor)
+                        if (vendor.isNotBlank()) {
+                            Text(
+                                vendor,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (groupUnavailable) MaterialTheme.colorScheme.error
+                                        else MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                            )
+                        }
+                        vendorModels.forEach { model ->
+                            ModelSheetItem(
+                                label = model.label,
+                                vendor = null,
+                                selected = model.id == activeModelId,
+                                unavailable = groupUnavailable,
+                            ) {
+                                vm.setModel(model.id)
+                                scope.launch { modelSheetState.hide() }.invokeOnCompletion { showModelSheet = false }
+                            }
+                        }
+                    }
+                } else {
+                    models.forEach { model ->
+                        val modelUnavailable = model.vendor != null && vendorUnavailable(model.vendor)
+                        ModelSheetItem(
+                            label = model.label,
+                            vendor = model.vendor,
+                            selected = model.id == activeModelId,
+                            unavailable = modelUnavailable,
+                        ) {
+                            vm.setModel(model.id)
+                            scope.launch { modelSheetState.hide() }.invokeOnCompletion { showModelSheet = false }
+                        }
+                    }
+                }
             }
             Spacer(Modifier.padding(bottom = 16.dp))
         }
@@ -249,6 +394,84 @@ fun ChatScreen(
                 onOpenFork?.invoke(forkedId)
             },
         )
+    }
+
+    if (showPromptSheet) {
+        val promptSheetState = rememberModalBottomSheetState()
+        ModalBottomSheet(
+            onDismissRequest = { showPromptSheet = false },
+            sheetState = promptSheetState,
+            containerColor = MaterialTheme.colorScheme.surface,
+        ) {
+            Text(
+                "Insert Prompt",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            if (promptEntries.isEmpty()) {
+                Text(
+                    "No saved prompts. Create some in the Prompt Library.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+                )
+            } else {
+                promptEntries.forEach { prompt ->
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                val separator = if (input.isNotBlank() && !input.endsWith("\n")) "\n" else ""
+                                input += "$separator${prompt.body}"
+                                scope.launch { promptSheetState.hide() }.invokeOnCompletion { showPromptSheet = false }
+                            },
+                        color = MaterialTheme.colorScheme.surface,
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
+                            Text(prompt.title, style = MaterialTheme.typography.bodyLarge)
+                            if (prompt.description.isNotBlank()) {
+                                Text(
+                                    prompt.description,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                }
+            }
+            Spacer(Modifier.padding(bottom = 16.dp))
+        }
+    }
+
+    if (showInspectorSheet) {
+        val inspectorSheetState = rememberModalBottomSheetState()
+        ModalBottomSheet(
+            onDismissRequest = { showInspectorSheet = false },
+            sheetState = inspectorSheetState,
+            containerColor = MaterialTheme.colorScheme.surface,
+        ) {
+            Text(
+                "Context Inspector",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                InspectorRow("Model", activeModelLabel)
+                if (agentLabel != null) InspectorRow("Agent", agentLabel)
+                if (projectLabel != null) InspectorRow("Project", projectLabel)
+                val msgCount = messages.size
+                InspectorRow("Messages", "$msgCount message${if (msgCount != 1) "s" else ""} in context")
+                val backend = chatAgent?.backend
+                if (!backend.isNullOrBlank()) InspectorRow("Backend", backend)
+            }
+            Spacer(Modifier.padding(bottom = 16.dp))
+        }
     }
 
     deletingMessage?.let { message ->
@@ -292,6 +515,7 @@ fun ChatScreen(
                 actions = {
                     TextButton(onClick = {
                         requestModelList()
+                        WsRepository.getCliStatus()
                         showModelSheet = true
                     }) {
                         Icon(
@@ -327,6 +551,19 @@ fun ChatScreen(
                 canSend = canSend,
                 onSend = { vm.sendMessage(input); input = "" },
                 onAttachFile = { filePicker.launch("*/*") },
+                onPasteImage = {
+                    if (clipboardManager.primaryClipDescription?.hasMimeType("image/*") == true) {
+                        pasteImage()
+                    } else {
+                        scope.launch { snackbarHostState.showSnackbar("No image in clipboard.") }
+                    }
+                },
+                onCaptureScreen = onCaptureScreen,
+                onInsertPrompt = {
+                    WsRepository.listPrompts()
+                    showPromptSheet = true
+                },
+                onShowInspector = { showInspectorSheet = true },
             )
         },
     ) { padding ->
@@ -386,5 +623,13 @@ private fun ChatConnectionBanner(message: String) {
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+@Composable
+private fun InspectorRow(label: String, value: String) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.bodyMedium)
     }
 }

@@ -67,6 +67,7 @@ fun ModelSheetItem(
     label: String,
     vendor: String?,
     selected: Boolean,
+    unavailable: Boolean = false,
     onClick: () -> Unit,
 ) {
     Surface(
@@ -82,7 +83,9 @@ fun ModelSheetItem(
                 Text(
                     label,
                     style = MaterialTheme.typography.bodyLarge,
-                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+                            else if (unavailable) MaterialTheme.colorScheme.onSurfaceVariant
+                            else MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -94,7 +97,19 @@ fun ModelSheetItem(
                     )
                 }
             }
-            if (selected) {
+            if (unavailable) {
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = MaterialTheme.colorScheme.errorContainer,
+                ) {
+                    Text(
+                        "Not installed",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                }
+            } else if (selected) {
                 Text(
                     "Selected",
                     style = MaterialTheme.typography.labelSmall,

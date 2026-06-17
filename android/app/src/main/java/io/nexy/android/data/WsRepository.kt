@@ -98,6 +98,9 @@ object WsRepository : WsClient {
     private val _promptEntries = MutableStateFlow<List<PromptEntry>>(emptyList())
     val promptEntries: StateFlow<List<PromptEntry>> = _promptEntries
 
+    private val _cliStatus = MutableStateFlow<Map<String, CliInstallInfo>>(emptyMap())
+    val cliStatus: StateFlow<Map<String, CliInstallInfo>> = _cliStatus
+
     private val _profiles = MutableStateFlow<List<PairedServerProfile>>(emptyList())
     val profiles: StateFlow<List<PairedServerProfile>> = _profiles
 
@@ -229,6 +232,7 @@ object WsRepository : WsClient {
                     artifacts = _artifacts,
                     wikiEntries = _wikiEntries,
                     promptEntries = _promptEntries,
+                    cliStatus = _cliStatus,
                 )
             }
 
@@ -280,6 +284,7 @@ object WsRepository : WsClient {
         _artifacts.value = emptyList()
         _wikiEntries.value = emptyList()
         _promptEntries.value = emptyList()
+        _cliStatus.value = emptyMap()
     }
 
     fun forgetServer() {
@@ -393,6 +398,45 @@ object WsRepository : WsClient {
         send("prompt:update", mapOf("id" to id, "title" to title, "body" to body, "description" to description, "category" to category, "tags" to tags))
     }
     fun deletePrompt(id: String) { send("prompt:delete", mapOf("id" to id)) }
+
+    fun startProjectGeneratorChat(messages: List<Map<String, String>>) {
+        send("project-generator:start", mapOf("messages" to messages))
+    }
+    fun sendProjectGeneratorMessage(messages: List<Map<String, String>>) {
+        send("project-generator:message", mapOf("messages" to messages))
+    }
+    fun confirmProjectSpec(spec: io.nexy.android.data.model.ProjectGeneratorSpec) {
+        val agentsList = spec.agents.map { a ->
+            val m = mutableMapOf<String, Any>(
+                "role" to a.role,
+                "description" to a.description,
+                "isLeader" to a.isLeader,
+            )
+            a.existingAgentId?.let { m["existingAgentId"] = it }
+            if (a.existingAgentId == null) {
+                m["newAgent"] = mapOf(
+                    "name" to (a.newAgentName ?: a.role),
+                    "icon" to (a.newAgentIcon ?: ""),
+                    "systemPrompt" to (a.newAgentSystemPrompt ?: ""),
+                )
+            }
+            m
+        }
+        send("project-generator:confirm", mapOf(
+            "spec" to mapOf(
+                "name" to spec.name,
+                "color" to spec.color,
+                "instructions" to spec.instructions,
+                "variables" to spec.variables,
+                "inScope" to spec.inScope,
+                "outOfScope" to spec.outOfScope,
+                "milestones" to spec.milestones,
+                "orchestrationEnabled" to spec.orchestrationEnabled,
+                "agents" to agentsList,
+            )
+        ))
+    }
+    fun cancelProjectGenerator() { send("project-generator:cancel", emptyMap()) }
 
     fun exportConversationPack(conversationId: String, format: String = "json") {
         send("conversation:export-pack", mapOf("conversationId" to conversationId, "format" to format))
