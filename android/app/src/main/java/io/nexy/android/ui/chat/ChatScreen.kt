@@ -294,6 +294,7 @@ fun ChatScreen(
                             onCopy = { copyMessage(clipboardManager, msg.text) },
                             onEdit = if (msg.isUser) { { input = msg.text } } else null,
                             onResend = if (msg.isUser) { { vm.sendMessage(msg.text) } } else null,
+                            onDelete = { vm.deleteMessage(msg.id) },
                         )
                     }
                 }

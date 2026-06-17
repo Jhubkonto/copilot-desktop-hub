@@ -5,6 +5,7 @@ import io.nexy.android.data.model.HistoryMessage
 internal fun HistoryMessage.toChatMessage(): ChatMessage {
     if (role != "tool-call") {
         return ChatMessage(
+            id = id,
             text = content,
             isUser = role == "user",
             isStreaming = false,
@@ -14,6 +15,7 @@ internal fun HistoryMessage.toChatMessage(): ChatMessage {
 
     return runCatching {
         ChatMessage(
+            id = id,
             text = jsonString(content, "toolResult").orEmpty(),
             isUser = false,
             isStreaming = false,
@@ -26,6 +28,7 @@ internal fun HistoryMessage.toChatMessage(): ChatMessage {
         )
     }.getOrElse {
         ChatMessage(
+            id = id,
             text = content,
             isUser = false,
             isStreaming = false,

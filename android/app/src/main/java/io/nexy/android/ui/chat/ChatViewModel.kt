@@ -21,6 +21,7 @@ data class PendingAttachment(
 )
 
 data class ChatMessage(
+    val id: String = "",
     val text: String,
     val isUser: Boolean,
     val isStreaming: Boolean,
@@ -190,6 +191,11 @@ class ChatViewModel(
         _isAwaitingResponse.value = false
         _activityLabel.value = "Assistant is thinking"
         _isStreaming.value = false
+    }
+
+    fun deleteMessage(messageId: String) {
+        _messages.value = _messages.value.filter { it.id != messageId }
+        wsClient.send("message:delete", mapOf("id" to messageId))
     }
 
 }
