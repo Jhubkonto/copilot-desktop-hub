@@ -54,16 +54,20 @@ fun NavGraph() {
         }
 
         composable("pairing/scan") {
-            PairingScreen(onConnected = {
-                navController.navigate("home") {
-                    popUpTo("pairing") { inclusive = true }
-                }
-            })
+            PairingScreen(
+                onBack = { navController.popBackStack() },
+                onConnected = {
+                    navController.navigate("home") {
+                        popUpTo("pairing") { inclusive = true }
+                    }
+                },
+            )
         }
 
         composable("pairing/manual") {
             PairingScreen(
                 initialShowManual = true,
+                onBack = { navController.popBackStack() },
                 onConnected = {
                     navController.navigate("home") {
                         popUpTo("pairing") { inclusive = true }
