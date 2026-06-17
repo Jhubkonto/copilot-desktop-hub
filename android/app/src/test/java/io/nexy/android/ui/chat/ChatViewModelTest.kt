@@ -69,8 +69,8 @@ class ChatViewModelTest {
 
         assertEquals(
             listOf(
-                ChatMessage(text = "Hello", isUser = true, isStreaming = false),
-                ChatMessage(text = "Hi", isUser = false, isStreaming = false),
+                ChatMessage(id = "m1", text = "Hello", isUser = true, isStreaming = false),
+                ChatMessage(id = "m2", text = "Hi", isUser = false, isStreaming = false),
             ),
             vm.messages.value,
         )
@@ -119,6 +119,7 @@ class ChatViewModelTest {
 
         assertEquals(
             ChatMessage(
+                id = "m1",
                 text = "",
                 isUser = true,
                 isStreaming = false,
