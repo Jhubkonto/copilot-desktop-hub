@@ -2,6 +2,7 @@ package io.nexy.android.ui.home
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -31,14 +33,20 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.nexy.android.data.model.Conversation
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ConversationRow(
     conv: Conversation,
     onOpenChat: (String) -> Unit,
+    onRename: ((id: String, currentTitle: String) -> Unit)? = null,
+    onDelete: ((id: String) -> Unit)? = null,
 ) {
     val preview = conv.last_message ?: ""
     Surface(
-        modifier = Modifier.fillMaxWidth().clickable { onOpenChat(conv.id) },
+        modifier = Modifier.fillMaxWidth().combinedClickable(
+            onClick = { onOpenChat(conv.id) },
+            onLongClick = { onRename?.invoke(conv.id, conv.title) },
+        ),
         color = MaterialTheme.colorScheme.surface,
     ) {
         Column(

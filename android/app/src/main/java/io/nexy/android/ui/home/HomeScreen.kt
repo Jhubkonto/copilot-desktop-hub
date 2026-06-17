@@ -71,6 +71,8 @@ fun HomeScreen(
     val isRefreshingAgents by vm.isRefreshingAgents.collectAsState()
     val isRefreshingProjects by vm.isRefreshingProjects.collectAsState()
     val pendingApproval by vm.pendingApproval.collectAsState()
+    val searchQuery by vm.searchQuery.collectAsState()
+    val searchResults by vm.searchResults.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
     var showNewChatSheet by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState()
@@ -231,9 +233,14 @@ fun HomeScreen(
                     agents = agents,
                     projects = projects,
                     isRefreshing = isRefreshingConversations,
+                    searchQuery = searchQuery,
+                    searchResults = searchResults,
+                    onSearchQueryChange = { vm.setSearchQuery(it) },
                     onOpenChat = onOpenChat,
                     onRefresh = { vm.refreshConversations() },
                     onDisconnect = { vm.disconnect() },
+                    onRenameConversation = { id, title -> vm.renameConversation(id, title) },
+                    onDeleteConversation = { id -> vm.deleteConversation(id) },
                 )
                 1 -> ProjectsTab(
                     projects = projects,

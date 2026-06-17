@@ -10,6 +10,7 @@ import io.nexy.android.data.model.Agent
 import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.Project
 import io.nexy.android.data.model.WsEvent
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -42,6 +43,12 @@ class HomeViewModel(
     private val _newConversationId = MutableStateFlow<String?>(null)
     val newConversationId: StateFlow<String?> = _newConversationId
 
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    private val _searchResults = MutableStateFlow<List<Conversation>?>(null)
+    val searchResults: StateFlow<List<Conversation>?> = _searchResults.asStateFlow()
+
     init {
         viewModelScope.launch {
             wsClient.events.collect { event ->
@@ -54,6 +61,7 @@ class HomeViewModel(
                     is WsEvent.AgentList -> _isRefreshingAgents.value = false
                     is WsEvent.ProjectList -> _isRefreshingProjects.value = false
                     is WsEvent.ConversationCreated -> _newConversationId.value = event.id
+                    is WsEvent.ConversationSearchResults -> _searchResults.value = event.conversations
                     else -> {}
                 }
             }
@@ -93,6 +101,19 @@ class HomeViewModel(
     fun clearNewConversation() {
         _newConversationId.value = null
     }
+
+    fun setSearchQuery(q: String) {
+        _searchQuery.value = q
+        if (q.isBlank()) {
+            _searchResults.value = null
+        } else {
+            WsRepository.searchConversations(q)
+        }
+    }
+
+    fun renameConversation(id: String, title: String) = WsRepository.renameConversation(id, title)
+
+    fun deleteConversation(id: String) = WsRepository.deleteConversation(id)
 
     fun disconnect() {
         WsRepository.disconnect()

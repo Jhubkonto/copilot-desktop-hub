@@ -20,8 +20,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -31,10 +33,14 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,6 +48,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -63,13 +70,19 @@ fun ChatsTab(
     agents: List<Agent>,
     projects: List<Project>,
     isRefreshing: Boolean,
+    searchQuery: String,
+    searchResults: List<Conversation>?,
+    onSearchQueryChange: (String) -> Unit,
     onOpenChat: (String) -> Unit,
     onRefresh: () -> Unit,
     onDisconnect: () -> Unit,
+    onRenameConversation: (id: String, title: String) -> Unit,
+    onDeleteConversation: (id: String) -> Unit,
 ) {
     var activeFilter by remember { mutableStateOf<ChatFilter>(ChatFilter.All) }
-    var searchQuery by remember { mutableStateOf("") }
     var showFilterSheet by remember { mutableStateOf(false) }
+    var renamingConversation by remember { mutableStateOf<Conversation?>(null) }
+    var renameText by remember { mutableStateOf("") }
     val filterSheetState = rememberModalBottomSheetState()
     val scope = rememberCoroutineScope()
     val uniqueAgentNames = remember(conversations) {
@@ -78,31 +91,51 @@ fun ChatsTab(
     val uniqueProjectsWithChats = remember(conversations, projects) {
         projects.filter { p -> conversations.any { c -> c.project_id == p.id } }
     }
-    val filteredByScope = remember(conversations, activeFilter) {
-        when (val f = activeFilter) {
-            is ChatFilter.All -> conversations
-            is ChatFilter.ByAgent -> conversations.filter { it.agent_name == f.agentName }
-            is ChatFilter.ByProject -> conversations.filter { it.project_id == f.projectId }
-        }
-    }
-    val filteredConversations = remember(filteredByScope, searchQuery) {
-        val query = searchQuery.trim()
-        if (query.isBlank()) {
-            filteredByScope
-        } else {
-            filteredByScope.filter { conversation ->
-                listOfNotNull(
-                    conversation.title, conversation.agent_name,
-                    conversation.project_name, conversation.last_message,
-                ).any { it.contains(query, ignoreCase = true) }
+
+    // When a search query is active show server results; otherwise apply local scope filter
+    val displayList: List<Conversation> = if (searchQuery.isNotBlank()) {
+        searchResults ?: emptyList()
+    } else {
+        remember(conversations, activeFilter) {
+            when (val f = activeFilter) {
+                is ChatFilter.All -> conversations
+                is ChatFilter.ByAgent -> conversations.filter { it.agent_name == f.agentName }
+                is ChatFilter.ByProject -> conversations.filter { it.project_id == f.projectId }
             }
         }
     }
-    val showFilters = uniqueAgentNames.isNotEmpty() || uniqueProjectsWithChats.isNotEmpty()
+
+    val showFilters = searchQuery.isBlank() && (uniqueAgentNames.isNotEmpty() || uniqueProjectsWithChats.isNotEmpty())
     val activeFilterLabel = when (val f = activeFilter) {
         is ChatFilter.All -> "All chats"
         is ChatFilter.ByAgent -> "Agent: ${f.agentName}"
         is ChatFilter.ByProject -> "Project: ${f.projectName}"
+    }
+
+    // Rename dialog
+    renamingConversation?.let { conv ->
+        AlertDialog(
+            onDismissRequest = { renamingConversation = null },
+            title = { Text("Rename chat") },
+            text = {
+                OutlinedTextField(
+                    value = renameText,
+                    onValueChange = { renameText = it },
+                    singleLine = true,
+                    label = { Text("Title") },
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val trimmed = renameText.trim()
+                    if (trimmed.isNotBlank()) onRenameConversation(conv.id, trimmed)
+                    renamingConversation = null
+                }) { Text("Rename") }
+            },
+            dismissButton = {
+                TextButton(onClick = { renamingConversation = null }) { Text("Cancel") }
+            },
+        )
     }
 
     if (showFilterSheet) {
@@ -185,13 +218,13 @@ fun ChatsTab(
                 ) {
                     OutlinedTextField(
                         value = searchQuery,
-                        onValueChange = { searchQuery = it },
+                        onValueChange = { onSearchQueryChange(it) },
                         modifier = Modifier.weight(1f).height(56.dp),
                         singleLine = true,
                         leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                         trailingIcon = {
                             if (searchQuery.isNotBlank()) {
-                                IconButton(onClick = { searchQuery = "" }) {
+                                IconButton(onClick = { onSearchQueryChange("") }) {
                                     Icon(Icons.Default.Close, contentDescription = "Clear search")
                                 }
                             }
@@ -238,25 +271,54 @@ fun ChatsTab(
                     }
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                if (filteredConversations.isEmpty()) {
+                if (displayList.isEmpty()) {
                     Column(
                         modifier = Modifier.fillMaxWidth().weight(1f),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
                     ) {
                         Text(
-                            "No matching chats.",
+                            if (searchQuery.isNotBlank()) "No results for \"$searchQuery\"." else "No matching chats.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        TextButton(onClick = { searchQuery = ""; activeFilter = ChatFilter.All }) {
+                        TextButton(onClick = { onSearchQueryChange(""); activeFilter = ChatFilter.All }) {
                             Text("Clear filters")
                         }
                     }
                 } else {
                     LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                        items(filteredConversations, key = { it.id }) { conv ->
-                            ConversationRow(conv = conv, onOpenChat = onOpenChat)
+                        items(displayList, key = { it.id }) { conv ->
+                            val dismissState = rememberSwipeToDismissBoxState(
+                                confirmValueChange = { value ->
+                                    if (value == SwipeToDismissBoxValue.EndToStart) {
+                                        onDeleteConversation(conv.id)
+                                        true
+                                    } else false
+                                }
+                            )
+                            SwipeToDismissBox(
+                                state = dismissState,
+                                enableDismissFromStartToEnd = false,
+                                backgroundContent = {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize().background(Color(0xFFB00020)).padding(end = 20.dp),
+                                        contentAlignment = Alignment.CenterEnd,
+                                    ) {
+                                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.White)
+                                    }
+                                },
+                            ) {
+                                ConversationRow(
+                                    conv = conv,
+                                    onOpenChat = onOpenChat,
+                                    onRename = { id, _ ->
+                                        renameText = conv.title
+                                        renamingConversation = conv
+                                    },
+                                    onDelete = { id -> onDeleteConversation(id) },
+                                )
+                            }
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         }
                     }
