@@ -3,7 +3,6 @@ package io.nexy.android.ui.home
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,11 +14,20 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -28,7 +36,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.nexy.android.data.model.Conversation
@@ -42,6 +49,7 @@ fun ConversationRow(
     onDelete: ((id: String) -> Unit)? = null,
 ) {
     val preview = conv.last_message ?: ""
+    var menuExpanded by remember { mutableStateOf(false) }
     Surface(
         modifier = Modifier.fillMaxWidth().combinedClickable(
             onClick = { onOpenChat(conv.id) },
@@ -69,6 +77,39 @@ fun ConversationRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 8.dp),
                 )
+                if (onRename != null || onDelete != null) {
+                    Box {
+                        IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(48.dp)) {
+                            Icon(
+                                Icons.Default.MoreVert,
+                                contentDescription = "Chat actions",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                            if (onRename != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Rename") },
+                                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onRename.invoke(conv.id, conv.title)
+                                    },
+                                )
+                            }
+                            if (onDelete != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Delete") },
+                                    leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onDelete.invoke(conv.id)
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
             }
             Row(
                 modifier = Modifier.padding(top = 3.dp),
@@ -171,58 +212,18 @@ fun NewChatItem(
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RefreshableContent(
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
     content: @Composable () -> Unit,
 ) {
-    var dragDistance by remember { mutableStateOf(0f) }
-    val threshold = 120f
-    val distanceFraction = (dragDistance / threshold).coerceAtMost(1.25f)
-    val label = when {
-        isRefreshing -> "Refreshing…"
-        distanceFraction >= 1f -> "Release to refresh"
-        distanceFraction > 0.08f -> "Pull to refresh"
-        else -> null
-    }
-
-    Column(
-        modifier = Modifier.fillMaxSize().pointerInput(onRefresh, isRefreshing) {
-            detectVerticalDragGestures(
-                onDragStart = { dragDistance = 0f },
-                onVerticalDrag = { _, dragAmount ->
-                    if (dragAmount > 0 && !isRefreshing) dragDistance += dragAmount
-                },
-                onDragEnd = {
-                    if (dragDistance >= threshold && !isRefreshing) onRefresh()
-                    dragDistance = 0f
-                },
-                onDragCancel = { dragDistance = 0f },
-            )
-        },
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = onRefresh,
+        modifier = Modifier.fillMaxSize(),
     ) {
-        if (label != null) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 2.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (isRefreshing) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(14.dp).padding(end = 4.dp),
-                        strokeWidth = 2.dp,
-                    )
-                }
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        Box(modifier = Modifier.fillMaxSize()) {
-            content()
-        }
+        content()
     }
 }

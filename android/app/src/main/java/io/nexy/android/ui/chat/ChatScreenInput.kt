@@ -1,7 +1,6 @@
 package io.nexy.android.ui.chat
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,12 +22,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -37,7 +38,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 
@@ -147,6 +147,7 @@ fun ChatInputBar(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatRefreshableContent(
     isRefreshing: Boolean,
@@ -154,43 +155,11 @@ fun ChatRefreshableContent(
     onRefresh: () -> Unit,
     content: @Composable () -> Unit,
 ) {
-    var dragDistance by remember { mutableStateOf(0f) }
-    val threshold = 120f
-    val distanceFraction = (dragDistance / threshold).coerceAtMost(1.25f)
-    val label = when {
-        isRefreshing -> "Refreshing…"
-        distanceFraction >= 1f -> "Release to refresh"
-        distanceFraction > 0.08f -> "Pull to refresh"
-        else -> null
-    }
-
-    Column(
-        modifier = modifier.pointerInput(onRefresh, isRefreshing) {
-            detectVerticalDragGestures(
-                onDragStart = { dragDistance = 0f },
-                onVerticalDrag = { _, dragAmount ->
-                    if (dragAmount > 0 && !isRefreshing) dragDistance += dragAmount
-                },
-                onDragEnd = {
-                    if (dragDistance >= threshold && !isRefreshing) onRefresh()
-                    dragDistance = 0f
-                },
-                onDragCancel = { dragDistance = 0f },
-            )
-        },
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = onRefresh,
+        modifier = modifier,
     ) {
-        if (label != null) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 2.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (isRefreshing) {
-                    CircularProgressIndicator(modifier = Modifier.size(14.dp).padding(end = 4.dp), strokeWidth = 2.dp)
-                }
-                Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-        Box(modifier = Modifier.fillMaxSize()) { content() }
+        content()
     }
 }
