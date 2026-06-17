@@ -20,7 +20,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -52,6 +51,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.model.FeatureSpec
+import io.nexy.android.ui.components.NexyConfirmDialog
+import io.nexy.android.ui.components.NexyInfoDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,13 +61,27 @@ fun FeatureGeneratorScreen(
     vm: FeatureGeneratorViewModel = viewModel(),
 ) {
     val uiState by vm.uiState.collectAsState()
+    var confirmReset by remember { mutableStateOf(false) }
 
     uiState.error?.let { err ->
-        AlertDialog(
-            onDismissRequest = { vm.dismissError() },
-            title = { Text("Error") },
-            text = { Text(err) },
-            confirmButton = { TextButton(onClick = { vm.dismissError() }) { Text("OK") } },
+        NexyInfoDialog(
+            title = "Error",
+            message = err,
+            onDismiss = { vm.dismissError() },
+        )
+    }
+
+    if (confirmReset) {
+        NexyConfirmDialog(
+            title = "Start over?",
+            message = "The current Feature Generator run will be cleared from this screen.",
+            confirmLabel = "Start over",
+            destructive = true,
+            onConfirm = {
+                confirmReset = false
+                vm.reset()
+            },
+            onDismiss = { confirmReset = false },
         )
     }
 
@@ -79,6 +94,13 @@ fun FeatureGeneratorScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
+                actions = {
+                    if (uiState.phase != FeatureGenPhase.CHAT || uiState.messages.isNotEmpty() || uiState.streamingText.isNotBlank()) {
+                        TextButton(onClick = { confirmReset = true }) {
+                            Text("Reset")
+                        }
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                     titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -87,41 +109,91 @@ fun FeatureGeneratorScreen(
             )
         },
     ) { padding ->
-        when (uiState.phase) {
-            FeatureGenPhase.CHAT -> ChatPhase(
-                uiState = uiState,
-                onSend = { vm.sendMessage(it) },
-                modifier = Modifier.padding(padding),
-            )
-            FeatureGenPhase.SPEC_REVIEW -> SpecReviewPhase(
-                spec = uiState.pendingSpec,
-                isLoading = uiState.isLoading,
-                onConfirm = { vm.confirmSpec() },
-                onBack = { vm.reset() },
-                modifier = Modifier.padding(padding),
-            )
-            FeatureGenPhase.PLAN_REVIEW -> PlanReviewPhase(
-                plan = uiState.plan.orEmpty(),
-                isLoading = uiState.isLoading,
-                onConfirm = { vm.confirmPlan() },
-                modifier = Modifier.padding(padding),
-            )
-            FeatureGenPhase.DIFF_REVIEW -> DiffReviewPhase(
-                stagedFiles = uiState.stagedFiles,
-                appliedFiles = uiState.appliedFiles,
-                isLoading = uiState.isLoading,
-                onApplyAll = { vm.applyAll() },
-                onCommit = { msg -> vm.commit(msg) },
-                modifier = Modifier.padding(padding),
-            )
-            FeatureGenPhase.DONE -> DonePhase(
-                commitSha = uiState.commitSha.orEmpty(),
-                appliedFiles = uiState.appliedFiles,
-                onReset = { vm.reset() },
-                modifier = Modifier.padding(padding),
-            )
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            FeatureGeneratorPhaseHeader(phase = uiState.phase)
+            when (uiState.phase) {
+                FeatureGenPhase.CHAT -> ChatPhase(
+                    uiState = uiState,
+                    onSend = { vm.sendMessage(it) },
+                    modifier = Modifier.weight(1f),
+                )
+                FeatureGenPhase.SPEC_REVIEW -> SpecReviewPhase(
+                    spec = uiState.pendingSpec,
+                    isLoading = uiState.isLoading,
+                    onConfirm = { vm.confirmSpec() },
+                    onBack = { vm.reset() },
+                    modifier = Modifier.weight(1f),
+                )
+                FeatureGenPhase.PLAN_REVIEW -> PlanReviewPhase(
+                    plan = uiState.plan.orEmpty(),
+                    isLoading = uiState.isLoading,
+                    onConfirm = { vm.confirmPlan() },
+                    modifier = Modifier.weight(1f),
+                )
+                FeatureGenPhase.DIFF_REVIEW -> DiffReviewPhase(
+                    stagedFiles = uiState.stagedFiles,
+                    appliedFiles = uiState.appliedFiles,
+                    isLoading = uiState.isLoading,
+                    onApplyAll = { vm.applyAll() },
+                    onCommit = { msg -> vm.commit(msg) },
+                    modifier = Modifier.weight(1f),
+                )
+                FeatureGenPhase.DONE -> DonePhase(
+                    commitSha = uiState.commitSha.orEmpty(),
+                    appliedFiles = uiState.appliedFiles,
+                    onReset = { vm.reset() },
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
     }
+}
+
+@Composable
+private fun FeatureGeneratorPhaseHeader(phase: FeatureGenPhase) {
+    val steps = listOf(
+        FeatureGenPhase.CHAT to "Describe",
+        FeatureGenPhase.SPEC_REVIEW to "Spec",
+        FeatureGenPhase.PLAN_REVIEW to "Plan",
+        FeatureGenPhase.DIFF_REVIEW to "Apply",
+        FeatureGenPhase.DONE to "Done",
+    )
+    val activeIndex = steps.indexOfFirst { it.first == phase }.coerceAtLeast(0)
+
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            steps.forEachIndexed { index, (_, label) ->
+                val active = index == activeIndex
+                val complete = index < activeIndex
+                Surface(
+                    modifier = Modifier.weight(1f),
+                    shape = MaterialTheme.shapes.small,
+                    color = when {
+                        active -> MaterialTheme.colorScheme.primaryContainer
+                        complete -> MaterialTheme.colorScheme.surfaceVariant
+                        else -> MaterialTheme.colorScheme.surface
+                    },
+                ) {
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = when {
+                            active -> MaterialTheme.colorScheme.onPrimaryContainer
+                            complete -> MaterialTheme.colorScheme.onSurfaceVariant
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
+                        },
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+    }
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 }
 
 @Composable
@@ -331,7 +403,35 @@ private fun DiffReviewPhase(
     modifier: Modifier = Modifier,
 ) {
     var commitMessage by remember { mutableStateOf("") }
+    var confirmApplyAll by remember { mutableStateOf(false) }
+    var confirmCommit by remember { mutableStateOf(false) }
     val applied = appliedFiles.isNotEmpty()
+
+    if (confirmApplyAll) {
+        NexyConfirmDialog(
+            title = "Apply generated changes?",
+            message = "The staged changes will be written into the desktop workspace. Review the file list before continuing.",
+            confirmLabel = "Apply changes",
+            onConfirm = {
+                confirmApplyAll = false
+                onApplyAll()
+            },
+            onDismiss = { confirmApplyAll = false },
+        )
+    }
+
+    if (confirmCommit) {
+        NexyConfirmDialog(
+            title = "Commit applied changes?",
+            message = "A git commit will be created on the desktop with the message \"$commitMessage\".",
+            confirmLabel = "Commit",
+            onConfirm = {
+                confirmCommit = false
+                onCommit(commitMessage)
+            },
+            onDismiss = { confirmCommit = false },
+        )
+    }
 
     Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
         Text("Staged Changes", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -368,7 +468,7 @@ private fun DiffReviewPhase(
         Spacer(Modifier.height(16.dp))
 
         if (!applied) {
-            Button(onClick = onApplyAll, enabled = stagedFiles.isNotEmpty() && !isLoading, modifier = Modifier.fillMaxWidth()) {
+            Button(onClick = { confirmApplyAll = true }, enabled = stagedFiles.isNotEmpty() && !isLoading, modifier = Modifier.fillMaxWidth()) {
                 Text("Apply all changes to workspace")
             }
         } else {
@@ -381,7 +481,7 @@ private fun DiffReviewPhase(
             )
             Spacer(Modifier.height(8.dp))
             Button(
-                onClick = { if (commitMessage.isNotBlank()) onCommit(commitMessage) },
+                onClick = { if (commitMessage.isNotBlank()) confirmCommit = true },
                 enabled = commitMessage.isNotBlank() && !isLoading,
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Commit") }
