@@ -10,9 +10,11 @@ import {
   type MessageContentPart,
   type ProviderMessage,
 } from './providers'
+import { activeCliAbortControllers } from './provider-stream-state'
 import { safeHandle } from './safe-handle'
 import { runOrchestration, type OrchestratorAgent } from './orchestrator'
-import { ensureMcpServersReady, getAvailableMcpTools, getMcpServerConfigsForCli } from './mcp'
+import { ensureMcpServersReady, getAvailableMcpTools, getMcpServerConfigsForCli, servers as mcpServers } from './mcp'
+import { requestApproval } from './tools'
 import { getAdapter } from './cli-adapters/registry'
 import { broadcastToMobile } from './ws-server'
 import { ClaudeAdapter } from './cli-adapters/claude'
@@ -337,7 +339,7 @@ export async function dispatchChatSend(
         .all(conversationId) as { role: string; content: string }[]
       const historyMessages = historyRows.slice(0, -1).map((m) => ({ role: m.role, content: m.content }))
       const providerHistoryMessages = historyMessages.filter(
-        (m) => m.role !== 'team-activity',
+        (m) => m.role !== 'team-activity' && m.role !== 'tool-call',
       ) as ProviderMessage[]
       const contextMessages: ProviderMessage[] =
         regenerate && providerHistoryMessages.length > 0
@@ -427,14 +429,99 @@ export async function dispatchChatSend(
           sendActivity({ state: 'thinking', label: 'Preparing MCP tools' })
           await ensureMcpServersReady(assignedAgentMcpServerIds)
         }
-        const cliAllowedMcpTools =
-          cliMcpServers && cliMcpServers.length > 0
-            ? getAvailableMcpTools(assignedAgentMcpServerIds).flatMap((tool) => {
-                const server = cliMcpServers.find((s) => s.id === tool.serverId)
-                return server ? [`mcp__${server.key}__${tool.name}`] : []
-              })
-            : undefined
+        // Build the allowed-tools list for the CLI, respecting per-tool and server-level
+        // trust settings. Tools whose server is set to 'always-ask' are excluded so the
+        // CLI process cannot call them autonomously (it has no approval UI of its own).
+        // Build the allowed-tools list for the CLI, respecting per-tool and server-level
+        // trust settings. Tools on servers set to 'always-ask' are excluded — the CLI
+        // process runs autonomously and has no approval UI. Servers with no remaining
+        // allowed tools are also stripped from the mcpServers list so the CLI doesn't
+        // connect to them at all (otherwise it connects but then emits its own
+        // "permission not granted" message for every tool call attempt).
+        const { cliAllowedMcpTools, cliMcpServersFiltered } = await (async () => {
+          if (!cliMcpServers || cliMcpServers.length === 0) {
+            return { cliAllowedMcpTools: undefined, cliMcpServersFiltered: cliMcpServers }
+          }
+          const agentIdForTrust = effectiveAgentId ?? 'default'
+          const serverTrustRows = db
+            .prepare('SELECT server_id, trust FROM agent_mcp_server_trust WHERE agent_id = ?')
+            .all(agentIdForTrust) as { server_id: string; trust: string }[]
+          const serverTrustMap = new Map(serverTrustRows.map((r) => [r.server_id, r.trust]))
 
+          // For each assigned server, determine if it needs upfront approval. The CLI
+          // runs autonomously so we can't pause mid-run — instead we ask once before
+          // starting. Approved servers are included; denied servers are excluded entirely.
+          const approvedServerIds = new Set<string>()
+          const serverIds = [...new Set(
+            getAvailableMcpTools(assignedAgentMcpServerIds).map((t) => t.serverId)
+          )]
+          for (const serverId of serverIds) {
+            const server = cliMcpServers.find((s) => s.id === serverId)
+            if (!server) continue
+
+            // Determine the effective trust for this server: check if ALL its tools
+            // are disabled/blocked, all are auto, or any require approval.
+            const serverTools = getAvailableMcpTools(assignedAgentMcpServerIds).filter((t) => t.serverId === serverId)
+            let serverNeedsApproval = false
+            let serverFullyBlocked = false
+            const toolStatuses = serverTools.map((tool) => {
+              const override = db
+                .prepare('SELECT enabled, approval FROM agent_mcp_tool_overrides WHERE agent_id=? AND server_id=? AND tool_name=?')
+                .get(agentIdForTrust, serverId, tool.name) as { enabled: number; approval: string } | undefined
+              if (override) {
+                if (override.enabled === 0 || override.approval === 'disabled') return 'disabled'
+                return override.approval // 'auto' or 'always-ask'
+              }
+              const serverTrust = serverTrustMap.get(serverId)
+              return serverTrust ?? 'always-ask'
+            })
+
+            const nonDisabled = toolStatuses.filter((s) => s !== 'disabled')
+            if (nonDisabled.length === 0) {
+              serverFullyBlocked = true
+            } else if (nonDisabled.some((s) => s === 'always-ask')) {
+              serverNeedsApproval = true
+            }
+
+            if (serverFullyBlocked) continue
+
+            if (serverNeedsApproval) {
+              const approved = await requestApproval(
+                window.webContents,
+                `mcp__${server.key}`,
+                {},
+                `Allow agent to use ${mcpServers.get(serverId)?.config.name ?? server.key} tools for this message?`,
+                { noRemember: true }
+              )
+              if (approved) approvedServerIds.add(serverId)
+              // denied → server excluded from CLI run
+            } else {
+              // all tools are 'auto' — include without asking
+              approvedServerIds.add(serverId)
+            }
+          }
+
+          const allowedTools = getAvailableMcpTools(assignedAgentMcpServerIds).flatMap((tool) => {
+            if (!approvedServerIds.has(tool.serverId)) return []
+            const server = cliMcpServers.find((s) => s.id === tool.serverId)
+            if (!server) return []
+            const override = db
+              .prepare('SELECT enabled, approval FROM agent_mcp_tool_overrides WHERE agent_id=? AND server_id=? AND tool_name=?')
+              .get(agentIdForTrust, tool.serverId, tool.name) as { enabled: number; approval: string } | undefined
+            if (override && (override.enabled === 0 || override.approval === 'disabled')) return []
+            return [`mcp__${server.key}__${tool.name}`]
+          })
+
+          const filteredServers = cliMcpServers.filter((s) => approvedServerIds.has(s.id))
+
+          return {
+            cliAllowedMcpTools: allowedTools.length > 0 ? allowedTools : undefined,
+            cliMcpServersFiltered: filteredServers.length > 0 ? filteredServers : undefined,
+          }
+        })()
+
+        const cliAbortController = new AbortController()
+        activeCliAbortControllers.set(conversationId, cliAbortController)
         const cliResponseContent = await adapter.send(
           window,
           {
@@ -444,7 +531,7 @@ export async function dispatchChatSend(
             cwd: process.cwd(),
             model: cliModelForRequest,
             conversationId,
-            mcpServers: cliMcpServers,
+            mcpServers: cliMcpServersFiltered,
             allowedTools: cliAllowedMcpTools,
           },
           sendChunk,
@@ -475,7 +562,9 @@ export async function dispatchChatSend(
               })
             }
           },
+          cliAbortController.signal,
         )
+        activeCliAbortControllers.delete(conversationId)
 
         persistCompletedCliToolCalls()
 
@@ -518,7 +607,7 @@ export async function dispatchChatSend(
     .all(conversationId) as { role: string; content: string }[]
   const historyMessages = historyRows.slice(0, -1).map((m) => ({ role: m.role, content: m.content }))
   const providerHistoryMessages = historyMessages.filter(
-    (m) => m.role !== 'team-activity',
+    (m) => m.role !== 'team-activity' && m.role !== 'tool-call',
   ) as ProviderMessage[]
   const contextMessages: ProviderMessage[] =
     regenerate && providerHistoryMessages.length > 0
