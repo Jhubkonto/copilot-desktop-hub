@@ -25,7 +25,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        requestNotificationPermissionIfNeeded()
         setContent {
             val themePreference by ThemePreferenceStore.themePreference.collectAsState()
             val systemDark = isSystemInDarkTheme()
@@ -35,12 +34,12 @@ class MainActivity : ComponentActivity() {
                 ThemePreference.Dark -> true
             }
             NexyTheme(darkTheme = darkTheme) {
-                NavGraph()
+                NavGraph(onRequestNotificationPermission = ::requestNotificationPermissionIfNeeded)
             }
         }
     }
 
-    private fun requestNotificationPermissionIfNeeded() {
+    fun requestNotificationPermissionIfNeeded() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
             PackageManager.PERMISSION_GRANTED

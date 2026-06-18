@@ -66,6 +66,7 @@ fun HomeScreen(
     vm: HomeViewModel = viewModel(),
 ) {
     val connectionState by vm.connectionState.collectAsState()
+    val reconnectExhausted by vm.reconnectExhausted.collectAsState()
     val conversations by vm.conversations.collectAsState()
     val agents by vm.agents.collectAsState()
     val projects by vm.projects.collectAsState()
@@ -103,9 +104,12 @@ fun HomeScreen(
                 vm.requestAgents()
                 vm.requestProjects()
             }
-            ConnectionState.DISCONNECTED -> onDisconnected()
             else -> {}
         }
+    }
+
+    LaunchedEffect(reconnectExhausted) {
+        if (reconnectExhausted) onDisconnected()
     }
 
     LaunchedEffect(selectedTab) {

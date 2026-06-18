@@ -444,48 +444,6 @@ fun ActionsSection(
 }
 
 @Composable
-fun AdvancedToolsSection(
-    onOpenProviders: () -> Unit,
-    onOpenFeatureGenerator: () -> Unit,
-    onOpenArtifacts: () -> Unit,
-    onOpenPromptLibrary: () -> Unit,
-    onOpenSelfHeal: () -> Unit,
-) {
-    SettingsSectionHeader("Advanced tools")
-    Text(
-        "Manage providers, prompts, artifacts, and automated workflows.",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp).padding(bottom = 4.dp),
-    )
-    SettingsNavRow(
-        title = "API providers",
-        detail = "Manage BYOK keys stored on the desktop",
-        onClick = onOpenProviders,
-    )
-    SettingsNavRow(
-        title = "Feature generator",
-        detail = "Plan, review, apply, and commit generated changes",
-        onClick = onOpenFeatureGenerator,
-    )
-    SettingsNavRow(
-        title = "Artifacts",
-        detail = "Browse generated project artifacts",
-        onClick = onOpenArtifacts,
-    )
-    SettingsNavRow(
-        title = "Prompt library",
-        detail = "Browse and manage reusable prompts",
-        onClick = onOpenPromptLibrary,
-    )
-    SettingsNavRow(
-        title = "Self-Heal reports",
-        detail = "Review investigation and fix reports",
-        onClick = onOpenSelfHeal,
-    )
-}
-
-@Composable
 internal fun SettingsNavRow(
     title: String,
     detail: String,
@@ -526,54 +484,4 @@ internal fun SettingsNavRow(
         }
     }
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-}
-
-@Composable
-fun ProvidersSection(onOpenProviders: () -> Unit) {
-    SettingsSectionHeader("API Providers")
-    SettingsNavRow(
-        title = "Manage API keys",
-        detail = "Configure BYOK keys stored encrypted on the desktop",
-        onClick = onOpenProviders,
-    )
-}
-
-@Composable
-fun SelfHealSection(onOpenSelfHeal: () -> Unit) {
-    SettingsSectionHeader("Self-Heal")
-    SettingsNavRow(
-        title = "Error Reports",
-        detail = "Review investigation and fix reports from the desktop",
-        onClick = onOpenSelfHeal,
-    )
-}
-
-@Composable
-fun FeatureGeneratorSection(onOpen: () -> Unit) {
-    SettingsSectionHeader("Feature Generator")
-    SettingsNavRow(
-        title = "Plan & implement features",
-        detail = "Conversational spec, plan, diff review, and commit workflow",
-        onClick = onOpen,
-    )
-}
-
-@Composable
-fun ArtifactsSection(onOpen: () -> Unit) {
-    SettingsSectionHeader("Artifacts")
-    SettingsNavRow(
-        title = "Browse artifacts",
-        detail = "View generated project artifacts and their file versions",
-        onClick = onOpen,
-    )
-}
-
-@Composable
-fun PromptLibrarySection(onOpen: () -> Unit) {
-    SettingsSectionHeader("Prompt Library")
-    SettingsNavRow(
-        title = "Browse prompts",
-        detail = "Manage and insert reusable prompt templates",
-        onClick = onOpen,
-    )
 }

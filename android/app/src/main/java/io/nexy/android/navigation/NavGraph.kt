@@ -24,14 +24,36 @@ import io.nexy.android.ui.artifacts.ArtifactsScreen
 import io.nexy.android.ui.featuregenerator.FeatureGeneratorScreen
 import io.nexy.android.ui.projectgenerator.ProjectGeneratorScreen
 import io.nexy.android.ui.prompts.PromptsScreen
+import io.nexy.android.ui.settings.AppearanceScreen
+import io.nexy.android.ui.settings.ConnectionScreen
+import io.nexy.android.ui.settings.DiagnosticsScreen
+import io.nexy.android.ui.settings.ModelsScreen
+import io.nexy.android.ui.settings.NotificationsScreen
 import io.nexy.android.ui.settings.ProvidersScreen
 import io.nexy.android.ui.settings.SettingsScreen
+import io.nexy.android.ui.settings.UpdatesScreen
 import io.nexy.android.ui.splash.SplashScreen
 
 @Composable
-fun NavGraph() {
+fun NavGraph(onRequestNotificationPermission: () -> Unit = {}) {
     val navController = rememberNavController()
     val connectionState by WsRepository.connectionState.collectAsState()
+
+    // Track whether this was a brand-new pairing (no saved profiles before connecting).
+    val wasFirstPairing = androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf(!WsRepository.hasPairedServer())
+    }
+    val onPairingConnected: () -> Unit = androidx.compose.runtime.remember(navController, onRequestNotificationPermission) {
+        {
+            if (wasFirstPairing.value) {
+                onRequestNotificationPermission()
+                wasFirstPairing.value = false
+            }
+            navController.navigate("home") {
+                popUpTo("pairing") { inclusive = true }
+            }
+        }
+    }
 
     NavHost(navController = navController, startDestination = "splash") {
         composable("splash") {
@@ -47,22 +69,14 @@ fun NavGraph() {
             PairingStartScreen(
                 onScanQr = { navController.navigate("pairing/scan") },
                 onManualEntry = { navController.navigate("pairing/manual") },
-                onConnected = {
-                    navController.navigate("home") {
-                        popUpTo("pairing") { inclusive = true }
-                    }
-                },
+                onConnected = { onPairingConnected() },
             )
         }
 
         composable("pairing/scan") {
             PairingScreen(
                 onBack = { navController.popBackStack() },
-                onConnected = {
-                    navController.navigate("home") {
-                        popUpTo("pairing") { inclusive = true }
-                    }
-                },
+                onConnected = { onPairingConnected() },
             )
         }
 
@@ -70,11 +84,7 @@ fun NavGraph() {
             PairingScreen(
                 initialShowManual = true,
                 onBack = { navController.popBackStack() },
-                onConnected = {
-                    navController.navigate("home") {
-                        popUpTo("pairing") { inclusive = true }
-                    }
-                },
+                onConnected = { onPairingConnected() },
             )
         }
 
@@ -168,12 +178,56 @@ fun NavGraph() {
                         popUpTo(0) { inclusive = true }
                     }
                 },
+                onOpenAppearance = { navController.navigate("settings/appearance") },
+                onOpenConnection = { navController.navigate("settings/connection") },
+                onOpenModels = { navController.navigate("settings/models") },
+                onOpenNotifications = { navController.navigate("settings/notifications") },
+                onOpenUpdates = { navController.navigate("settings/updates") },
+                onOpenDiagnostics = { navController.navigate("settings/diagnostics") },
                 onOpenSelfHeal = { navController.navigate("self-heal") },
                 onOpenProviders = { navController.navigate("providers") },
                 onOpenFeatureGenerator = { navController.navigate("feature-generator") },
                 onOpenProjectGenerator = { navController.navigate("project-generator") },
                 onOpenArtifacts = { navController.navigate("artifacts") },
                 onOpenPromptLibrary = { navController.navigate("prompts") },
+            )
+        }
+
+        composable("settings/appearance") {
+            AppearanceScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable("settings/connection") {
+            ConnectionScreen(
+                onBack = { navController.popBackStack() },
+                onForgetServer = {
+                    navController.navigate("pairing") {
+                        popUpTo(0) { inclusive = true }
+                    }
+                },
+            )
+        }
+
+        composable("settings/models") {
+            ModelsScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable("settings/notifications") {
+            NotificationsScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable("settings/updates") {
+            UpdatesScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable("settings/diagnostics") {
+            DiagnosticsScreen(
+                onBack = { navController.popBackStack() },
+                onForgetServer = {
+                    navController.navigate("pairing") {
+                        popUpTo(0) { inclusive = true }
+                    }
+                },
             )
         }
 

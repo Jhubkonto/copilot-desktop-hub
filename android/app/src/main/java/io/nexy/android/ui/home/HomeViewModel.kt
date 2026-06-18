@@ -26,6 +26,7 @@ class HomeViewModel(
     constructor(app: Application) : this(app, WsRepository, AndroidApprovalEffects(app))
 
     val connectionState: StateFlow<ConnectionState> = WsRepository.connectionState
+    val reconnectExhausted: StateFlow<Boolean> = WsRepository.reconnectExhausted
     val conversations: StateFlow<List<Conversation>> = WsRepository.conversations
     val agents: StateFlow<List<Agent>> = WsRepository.agents
     val projects: StateFlow<List<Project>> = WsRepository.projects
