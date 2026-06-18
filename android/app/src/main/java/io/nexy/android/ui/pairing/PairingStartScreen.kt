@@ -9,11 +9,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -24,6 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -62,12 +65,12 @@ fun PairingStartScreen(
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    "Set up your mobile connection",
+                    "Connect to Nexy Desktop",
                     style = MaterialTheme.typography.headlineSmall,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
-                    "Open Nexy Desktop, go to Settings > Mobile, then scan the QR code or enter the WebSocket URL manually.",
+                    "1. Open Nexy on your computer\n2. Go to Settings → Mobile tab\n3. Scan the QR code shown there",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -109,6 +112,7 @@ fun PairingStartScreen(
                                 .fillMaxWidth()
                                 .padding(vertical = 10.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Column(
                                 modifier = Modifier.weight(1f),
@@ -131,6 +135,13 @@ fun PairingStartScreen(
                                 shape = MaterialTheme.shapes.small,
                             ) {
                                 Text("Connect")
+                            }
+                            IconButton(onClick = { vm.deleteProfile(profile.id) }) {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = "Remove server",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             }
                         }
                     }

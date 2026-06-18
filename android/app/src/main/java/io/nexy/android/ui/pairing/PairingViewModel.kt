@@ -66,4 +66,8 @@ class PairingViewModel : ViewModel() {
         runCatching { WsRepository.switchProfile(profileId) }
             .onFailure { _error.value = it.message ?: "Unable to connect" }
     }
+
+    fun deleteProfile(profileId: String) {
+        WsRepository.forgetProfile(profileId)
+    }
 }
