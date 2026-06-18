@@ -156,29 +156,6 @@ fun ChatScreen(
 
     val clipboardManager = context.getSystemService(ClipboardManager::class.java)
 
-    val pasteImage: () -> Unit = pasteImage@{
-        val clip = clipboardManager.primaryClip ?: return@pasteImage
-        val item = clip.getItemAt(0) ?: return@pasteImage
-        val uri = item.uri ?: return@pasteImage
-        val mimeType = context.contentResolver.getType(uri) ?: return@pasteImage
-        if (!mimeType.startsWith("image/")) {
-            scope.launch { snackbarHostState.showSnackbar("Clipboard item is not an image.") }
-            return@pasteImage
-        }
-        val inputStream = context.contentResolver.openInputStream(uri) ?: return@pasteImage
-        val bytes = inputStream.use { it.readBytes() }
-        if (bytes.size > 4 * 1024 * 1024) {
-            scope.launch { snackbarHostState.showSnackbar("Clipboard image is larger than 4 MB.") }
-            return@pasteImage
-        }
-        val name = context.contentResolver.query(uri, null, null, null, null)?.use { c ->
-            val idx = runCatching { c.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME) }.getOrElse { -1 }
-            if (idx >= 0 && c.moveToFirst()) c.getString(idx) else null
-        } ?: "clipboard.png"
-        val b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
-        vm.addAttachment(name, mimeType, "data:$mimeType;base64,$b64", null)
-    }
-
     val attachLatestScreenshot: () -> Unit = attachLatestScreenshot@{
         val projection = arrayOf(
             MediaStore.Images.Media._ID,
@@ -551,13 +528,6 @@ fun ChatScreen(
                 canSend = canSend,
                 onSend = { vm.sendMessage(input); input = "" },
                 onAttachFile = { filePicker.launch("*/*") },
-                onPasteImage = {
-                    if (clipboardManager.primaryClipDescription?.hasMimeType("image/*") == true) {
-                        pasteImage()
-                    } else {
-                        scope.launch { snackbarHostState.showSnackbar("No image in clipboard.") }
-                    }
-                },
                 onCaptureScreen = onCaptureScreen,
                 onInsertPrompt = {
                     WsRepository.listPrompts()

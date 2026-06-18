@@ -21,7 +21,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
-import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Screenshot
 import androidx.compose.material.icons.filled.TextFields
@@ -54,7 +53,6 @@ fun ChatInputBar(
     canSend: Boolean,
     onSend: () -> Unit,
     onAttachFile: () -> Unit,
-    onPasteImage: () -> Unit = {},
     onCaptureScreen: () -> Unit = {},
     onInsertPrompt: () -> Unit = {},
     onShowInspector: () -> Unit = {},
@@ -89,54 +87,34 @@ fun ChatInputBar(
                     shape = RoundedCornerShape(24.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant,
                 ) {
-                    Column {
-                        Row(
-                            modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 2.dp, bottom = 0.dp),
-                            verticalAlignment = Alignment.Bottom,
+                    Column(modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 2.dp, bottom = 2.dp)) {
+                        val textColor = MaterialTheme.colorScheme.onSurface
+                        val hintColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        val cursorColor = MaterialTheme.colorScheme.primary
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 8.dp),
                         ) {
-                            IconButton(
-                                onClick = onAttachFile,
-                                modifier = Modifier.size(40.dp),
-                            ) {
+                            if (input.isEmpty()) {
+                                Text("Message…", style = MaterialTheme.typography.bodyMedium, color = hintColor)
+                            }
+                            BasicTextField(
+                                value = input,
+                                onValueChange = onInputChange,
+                                modifier = Modifier.fillMaxWidth(),
+                                textStyle = MaterialTheme.typography.bodyMedium.copy(color = textColor),
+                                maxLines = 4,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                                keyboardActions = KeyboardActions(onSend = { if (canSend) onSend() }),
+                                cursorBrush = SolidColor(cursorColor),
+                            )
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = onAttachFile, modifier = Modifier.size(36.dp)) {
                                 Icon(
                                     Icons.Default.AttachFile,
                                     contentDescription = "Attach file",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(20.dp),
-                                )
-                            }
-                            val textColor = MaterialTheme.colorScheme.onSurface
-                            val hintColor = MaterialTheme.colorScheme.onSurfaceVariant
-                            val cursorColor = MaterialTheme.colorScheme.primary
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(end = 12.dp, top = 10.dp, bottom = 10.dp),
-                            ) {
-                                if (input.isEmpty()) {
-                                    Text("Message…", style = MaterialTheme.typography.bodyMedium, color = hintColor)
-                                }
-                                BasicTextField(
-                                    value = input,
-                                    onValueChange = onInputChange,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = textColor),
-                                    maxLines = 4,
-                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                                    keyboardActions = KeyboardActions(onSend = { if (canSend) onSend() }),
-                                    cursorBrush = SolidColor(cursorColor),
-                                )
-                            }
-                        }
-                        // Secondary action row
-                        Row(
-                            modifier = Modifier.padding(start = 2.dp, end = 2.dp, bottom = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            IconButton(onClick = onPasteImage, modifier = Modifier.size(36.dp)) {
-                                Icon(
-                                    Icons.Default.ContentPaste,
-                                    contentDescription = "Paste image from clipboard",
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(18.dp),
                                 )
