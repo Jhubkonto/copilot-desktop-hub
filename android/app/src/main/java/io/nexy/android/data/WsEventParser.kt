@@ -8,6 +8,8 @@ import io.nexy.android.data.model.AndroidUpdateManifest
 import io.nexy.android.data.model.ArtifactDetail2
 import io.nexy.android.data.model.ProjectGeneratorSpec
 import io.nexy.android.data.model.ProjectGeneratorAgentSpec
+import io.nexy.android.data.model.ProjectGeneratorAgentTools
+import io.nexy.android.data.model.ProjectGeneratorNewAgent
 import io.nexy.android.data.model.ArtifactSummary
 import io.nexy.android.data.model.ArtifactVersionFile
 import io.nexy.android.data.model.ArtifactVersionSummary
@@ -587,24 +589,33 @@ fun parseWsEvent(
             )
 
             "project-generator:token" -> WsEvent.ProjectGeneratorToken(
+                sessionId = data?.nullableString("sessionId"),
                 chunk = data?.optString("chunk") ?: "",
             )
 
+            "project-generator:turn-complete" -> WsEvent.ProjectGeneratorTurnComplete(
+                sessionId = data?.nullableString("sessionId"),
+                content = data?.optString("content") ?: "",
+            )
+
             "project-generator:spec-ready" -> {
-                val spec = parseProjectGeneratorSpec(data) ?: return
-                WsEvent.ProjectGeneratorSpecReady(spec)
+                val specData = data?.optJSONObject("spec") ?: data
+                val spec = parseProjectGeneratorSpec(specData) ?: return
+                WsEvent.ProjectGeneratorSpecReady(data?.nullableString("sessionId"), spec)
             }
 
             "project-generator:created" -> WsEvent.ProjectGeneratorCreated(
+                sessionId = data?.nullableString("sessionId"),
                 projectId = data?.optString("projectId") ?: "",
                 name = data?.optString("name") ?: "",
             )
 
             "project-generator:error" -> WsEvent.ProjectGeneratorError(
+                sessionId = data?.nullableString("sessionId"),
                 message = data?.optString("message") ?: "Unknown error",
             )
 
-            "project-generator:cancelled" -> WsEvent.ProjectGeneratorCancelled()
+            "project-generator:cancelled" -> WsEvent.ProjectGeneratorCancelled(data?.nullableString("sessionId"))
 
             else -> return
         }
@@ -663,20 +674,34 @@ private fun parseProjectGeneratorSpec(data: org.json.JSONObject?): ProjectGenera
     val agents = (0 until agentsArr.length()).map { i ->
         val a = agentsArr.getJSONObject(i)
         val na = a.optJSONObject("newAgent")
+        val tools = na?.optJSONObject("tools")
         ProjectGeneratorAgentSpec(
             role = a.optString("role"),
             description = a.optString("description"),
             existingAgentId = a.nullableString("existingAgentId"),
             isLeader = a.optBoolean("isLeader", false),
-            newAgentName = na?.nullableString("name"),
-            newAgentIcon = na?.nullableString("icon"),
-            newAgentSystemPrompt = na?.nullableString("systemPrompt"),
+            newAgent = na?.let {
+                ProjectGeneratorNewAgent(
+                    name = it.optString("name"),
+                    icon = it.optString("icon"),
+                    systemPrompt = it.optString("systemPrompt"),
+                    temperature = it.optDouble("temperature", 0.7),
+                    responseFormat = it.optString("responseFormat", "default"),
+                    tools = ProjectGeneratorAgentTools(
+                        fileEdit = tools?.optBoolean("fileEdit", false) ?: false,
+                        terminal = tools?.optBoolean("terminal", false) ?: false,
+                        webFetch = tools?.optBoolean("webFetch", false) ?: false,
+                    ),
+                )
+            },
         )
     }
     return ProjectGeneratorSpec(
         name = d.optString("name", "New Project"),
         color = d.optString("color", "blue"),
         instructions = d.optString("instructions", ""),
+        rootDirectory = d.nullableString("rootDirectory"),
+        instructionMode = d.nullableString("instructionMode"),
         variables = objList("variables"),
         inScope = objList("inScope"),
         outOfScope = objList("outOfScope"),

@@ -100,11 +100,12 @@ sealed class WsEvent {
     data class ConversationForkError(val message: String) : WsEvent()
     data class ConversationImported(val conversationId: String, val title: String, val messageCount: Int) : WsEvent()
     data class ConversationImportError(val message: String) : WsEvent()
-    data class ProjectGeneratorToken(val chunk: String) : WsEvent()
-    data class ProjectGeneratorSpecReady(val spec: ProjectGeneratorSpec) : WsEvent()
-    data class ProjectGeneratorCreated(val projectId: String, val name: String) : WsEvent()
-    data class ProjectGeneratorError(val message: String) : WsEvent()
-    class ProjectGeneratorCancelled : WsEvent()
+    data class ProjectGeneratorToken(val sessionId: String?, val chunk: String) : WsEvent()
+    data class ProjectGeneratorTurnComplete(val sessionId: String?, val content: String) : WsEvent()
+    data class ProjectGeneratorSpecReady(val sessionId: String?, val spec: ProjectGeneratorSpec) : WsEvent()
+    data class ProjectGeneratorCreated(val sessionId: String?, val projectId: String, val name: String) : WsEvent()
+    data class ProjectGeneratorError(val sessionId: String?, val message: String) : WsEvent()
+    data class ProjectGeneratorCancelled(val sessionId: String?) : WsEvent()
 }
 
 data class ErrorReport(
@@ -222,6 +223,8 @@ data class ProjectGeneratorSpec(
     val name: String,
     val color: String,
     val instructions: String,
+    val rootDirectory: String?,
+    val instructionMode: String?,
     val variables: List<Map<String, String>>,
     val inScope: List<Map<String, String>>,
     val outOfScope: List<Map<String, String>>,
@@ -236,9 +239,22 @@ data class ProjectGeneratorAgentSpec(
     val description: String,
     val existingAgentId: String?,
     val isLeader: Boolean,
-    val newAgentName: String?,
-    val newAgentIcon: String?,
-    val newAgentSystemPrompt: String?,
+    val newAgent: ProjectGeneratorNewAgent?,
+)
+
+data class ProjectGeneratorNewAgent(
+    val name: String,
+    val icon: String,
+    val systemPrompt: String,
+    val temperature: Double,
+    val responseFormat: String,
+    val tools: ProjectGeneratorAgentTools,
+)
+
+data class ProjectGeneratorAgentTools(
+    val fileEdit: Boolean,
+    val terminal: Boolean,
+    val webFetch: Boolean,
 )
 
 data class ConversationExportPackData(

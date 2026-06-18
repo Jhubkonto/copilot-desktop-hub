@@ -399,13 +399,13 @@ object WsRepository : WsClient {
     }
     fun deletePrompt(id: String) { send("prompt:delete", mapOf("id" to id)) }
 
-    fun startProjectGeneratorChat(messages: List<Map<String, String>>) {
-        send("project-generator:start", mapOf("messages" to messages))
+    fun startProjectGeneratorChat(sessionId: String, messages: List<Map<String, String>>) {
+        send("project-generator:start", mapOf("sessionId" to sessionId, "messages" to messages))
     }
-    fun sendProjectGeneratorMessage(messages: List<Map<String, String>>) {
-        send("project-generator:message", mapOf("messages" to messages))
+    fun sendProjectGeneratorMessage(sessionId: String, messages: List<Map<String, String>>) {
+        send("project-generator:message", mapOf("sessionId" to sessionId, "messages" to messages))
     }
-    fun confirmProjectSpec(spec: io.nexy.android.data.model.ProjectGeneratorSpec) {
+    fun confirmProjectSpec(sessionId: String, spec: io.nexy.android.data.model.ProjectGeneratorSpec) {
         val agentsList = spec.agents.map { a ->
             val m = mutableMapOf<String, Any>(
                 "role" to a.role,
@@ -414,29 +414,42 @@ object WsRepository : WsClient {
             )
             a.existingAgentId?.let { m["existingAgentId"] = it }
             if (a.existingAgentId == null) {
+                val newAgent = a.newAgent
                 m["newAgent"] = mapOf(
-                    "name" to (a.newAgentName ?: a.role),
-                    "icon" to (a.newAgentIcon ?: ""),
-                    "systemPrompt" to (a.newAgentSystemPrompt ?: ""),
+                    "name" to (newAgent?.name ?: a.role),
+                    "icon" to (newAgent?.icon ?: ""),
+                    "systemPrompt" to (newAgent?.systemPrompt ?: ""),
+                    "temperature" to (newAgent?.temperature ?: 0.7),
+                    "responseFormat" to (newAgent?.responseFormat ?: "default"),
+                    "tools" to mapOf(
+                        "fileEdit" to (newAgent?.tools?.fileEdit ?: false),
+                        "terminal" to (newAgent?.tools?.terminal ?: false),
+                        "webFetch" to (newAgent?.tools?.webFetch ?: false),
+                    ),
                 )
             }
             m
         }
+        val specPayload = mutableMapOf<String, Any>(
+            "name" to spec.name,
+            "color" to spec.color,
+            "instructions" to spec.instructions,
+            "variables" to spec.variables,
+            "inScope" to spec.inScope,
+            "outOfScope" to spec.outOfScope,
+            "milestones" to spec.milestones,
+            "orchestrationEnabled" to spec.orchestrationEnabled,
+            "agents" to agentsList,
+        )
+        spec.rootDirectory?.let { specPayload["rootDirectory"] = it }
+        spec.instructionMode?.let { specPayload["instructionMode"] = it }
+        spec.defaultModel?.let { specPayload["defaultModel"] = it }
         send("project-generator:confirm", mapOf(
-            "spec" to mapOf(
-                "name" to spec.name,
-                "color" to spec.color,
-                "instructions" to spec.instructions,
-                "variables" to spec.variables,
-                "inScope" to spec.inScope,
-                "outOfScope" to spec.outOfScope,
-                "milestones" to spec.milestones,
-                "orchestrationEnabled" to spec.orchestrationEnabled,
-                "agents" to agentsList,
-            )
+            "sessionId" to sessionId,
+            "spec" to specPayload,
         ))
     }
-    fun cancelProjectGenerator() { send("project-generator:cancel", emptyMap()) }
+    fun cancelProjectGenerator(sessionId: String) { send("project-generator:cancel", mapOf("sessionId" to sessionId)) }
 
     fun exportConversationPack(conversationId: String, format: String = "json") {
         send("conversation:export-pack", mapOf("conversationId" to conversationId, "format" to format))

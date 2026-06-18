@@ -237,9 +237,9 @@ export async function runProjectGeneratorChat(
 export async function runProjectGeneratorChatForAndroid(
   messages: ProjectGeneratorMessage[],
   existingAgents: { id: string; name: string; icon: string; systemPrompt: string }[],
+  sessionId = `project-gen-android-${randomUUID()}`,
 ): Promise<void> {
   const providerMessages = buildProviderMessages(messages, existingAgents)
-  const sessionId = `project-gen-android-${randomUUID()}`
 
   let accumulated = ''
 
@@ -249,16 +249,36 @@ export async function runProjectGeneratorChatForAndroid(
     { send: () => {}, isDestroyed: () => false } as unknown as Electron.WebContents,
     (chunk) => {
       accumulated += chunk
-      broadcastToMobile({ event: 'project-generator:token', data: { chunk } })
+      broadcastToMobile({ event: 'project-generator:token', data: { sessionId, chunk } })
     },
   )
 
   accumulated = fullText || accumulated
 
   const spec = extractSpec(accumulated)
+  const assistantText = accumulated.replace(/<project-spec>[\s\S]*?<\/project-spec>/g, '').trim()
+  broadcastToMobile({ event: 'project-generator:turn-complete', data: { sessionId, content: assistantText } })
   if (spec) {
-    broadcastToMobile({ event: 'project-generator:spec-ready', data: spec })
+    broadcastToMobile({ event: 'project-generator:spec-ready', data: { sessionId, spec } })
   }
+}
+
+export function getProjectGeneratorAgentSummaries(): { id: string; name: string; icon: string; systemPrompt: string }[] {
+  const db = getDatabase()
+  const rows = db.prepare('SELECT id, config_json FROM agents ORDER BY created_at ASC').all() as Array<{ id: string; config_json: string }>
+  return rows.flatMap((row) => {
+    try {
+      const config = JSON.parse(row.config_json) as { name?: unknown; icon?: unknown; systemPrompt?: unknown }
+      return [{
+        id: row.id,
+        name: typeof config.name === 'string' ? config.name : 'Agent',
+        icon: typeof config.icon === 'string' ? config.icon : '',
+        systemPrompt: typeof config.systemPrompt === 'string' ? config.systemPrompt : '',
+      }]
+    } catch {
+      return []
+    }
+  })
 }
 
 export async function createProjectFromSpec(spec: ProjectGeneratorSpec): Promise<{ projectId: string; name: string }> {
@@ -356,6 +376,10 @@ export async function createProjectFromSpec(spec: ProjectGeneratorSpec): Promise
       Date.now(),
       projectId,
     )
+
+    if (spec.defaultModel) {
+      db.prepare('UPDATE projects SET default_model = ?, updated_at = ? WHERE id = ?').run(spec.defaultModel, Date.now(), projectId)
+    }
 
     return { projectId, name: safeName }
   } catch (err) {

@@ -18,7 +18,7 @@ import { runFix, emitFixEvent } from './self-heal/fix-agent'
 import { emitVerificationEvent, runVerification } from './self-heal/verifier'
 import { commitSelfHealFix, prepareSelfHealCommit, pushSelfHealFix } from './self-heal/git-ops'
 import { approveRelaunch, getRecoveryRuns, prepareReload, rollbackHeal, startReload } from './self-heal/recovery'
-import { runProjectGeneratorChatForAndroid, createProjectFromSpec } from './project-generator'
+import { runProjectGeneratorChatForAndroid, createProjectFromSpec, getProjectGeneratorAgentSummaries } from './project-generator'
 import type { ProjectGeneratorSpec } from '../shared/types'
 import { storeApiKey, removeApiKey } from './provider-secrets'
 import { detectAllClis } from './cli-detection'
@@ -907,25 +907,35 @@ export function registerWsHandlers(): void {
 
     if (command === 'project-generator:start' || command === 'project-generator:message') {
       const messages = Array.isArray(data.messages) ? data.messages : []
-      const existingAgents = Array.isArray(data.existingAgents) ? data.existingAgents : []
-      void runProjectGeneratorChatForAndroid(messages, existingAgents)
+      const sessionId = typeof data.sessionId === 'string' && data.sessionId.trim()
+        ? data.sessionId.trim()
+        : `android-${Date.now()}`
+      const existingAgents = Array.isArray(data.existingAgents) && data.existingAgents.length > 0
+        ? data.existingAgents
+        : getProjectGeneratorAgentSummaries()
+      void runProjectGeneratorChatForAndroid(messages, existingAgents, sessionId)
+        .catch((err: unknown) => {
+          broadcastToMobile({ event: 'project-generator:error', data: { sessionId, message: String(err) } })
+        })
       return
     }
 
     if (command === 'project-generator:confirm') {
       const spec = data.spec as ProjectGeneratorSpec
+      const sessionId = typeof data.sessionId === 'string' ? data.sessionId : undefined
       createProjectFromSpec(spec)
         .then((result) => {
-          broadcastToMobile({ event: 'project-generator:created', data: result })
+          broadcastToMobile({ event: 'project-generator:created', data: { sessionId, ...result } })
         })
         .catch((err: unknown) => {
-          broadcastToMobile({ event: 'project-generator:error', data: { message: String(err) } })
+          broadcastToMobile({ event: 'project-generator:error', data: { sessionId, message: String(err) } })
         })
       return
     }
 
     if (command === 'project-generator:cancel') {
-      broadcastToMobile({ event: 'project-generator:cancelled', data: {} })
+      const sessionId = typeof data.sessionId === 'string' ? data.sessionId : undefined
+      broadcastToMobile({ event: 'project-generator:cancelled', data: { sessionId } })
       return
     }
   })
