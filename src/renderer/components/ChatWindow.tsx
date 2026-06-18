@@ -289,6 +289,7 @@ export function ChatWindow() {
   }, [])
 
 
+
   useEffect(() => {
     if (!chatProjectId || chatProjectId === '__none__') {
       setProjectRootDir(null)
@@ -1242,6 +1243,7 @@ export function ChatWindow() {
         )}
         {promptLibraryModal}
       </div>
+
 
       {fileInput.isDragging && (
         <div className="absolute inset-0 flex items-center justify-center bg-blue-500/10 pointer-events-none z-10">

@@ -211,11 +211,13 @@ export function useChat({
       if (chunk === null) {
         ignoreRemoteStreamRef.current = false
         const finalContent = streamingContentRef.current
-        if (finalContent) {
+        const hadToolCalls = liveToolCallsRef.current.length > 0
+        const displayContent = finalContent || (!hadToolCalls ? '_(no response)_' : '')
+        if (displayContent) {
           const assistantMessage: ChatMessage = {
             id: crypto.randomUUID(),
             role: 'assistant',
-            content: finalContent,
+            content: displayContent,
             timestamp: Date.now(),
             model: streamModelRef.current,
           }
