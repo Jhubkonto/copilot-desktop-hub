@@ -11,8 +11,6 @@ import io.nexy.android.data.model.PromptEntry
 import io.nexy.android.data.model.WikiEntry
 import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.ErrorReport
-import io.nexy.android.data.model.FeatureGeneratorRun
-import io.nexy.android.data.model.FeatureSpec
 import io.nexy.android.data.model.McpServerInfo
 import io.nexy.android.data.model.ModelListSource
 import io.nexy.android.data.model.ModelOption
@@ -91,9 +89,6 @@ object WsRepository : WsClient {
 
     private val _mcpServers = MutableStateFlow<List<McpServerInfo>>(emptyList())
     val mcpServers: StateFlow<List<McpServerInfo>> = _mcpServers
-
-    private val _featureGeneratorRuns = MutableStateFlow<List<FeatureGeneratorRun>>(emptyList())
-    val featureGeneratorRuns: StateFlow<List<FeatureGeneratorRun>> = _featureGeneratorRuns
 
     private val _artifacts = MutableStateFlow<List<ArtifactSummary>>(emptyList())
     val artifacts: StateFlow<List<ArtifactSummary>> = _artifacts
@@ -255,7 +250,6 @@ object WsRepository : WsClient {
                     errorReports = _errorReports,
                     providers = _providers,
                     mcpServers = _mcpServers,
-                    featureGeneratorRuns = _featureGeneratorRuns,
                     artifacts = _artifacts,
                     wikiEntries = _wikiEntries,
                     promptEntries = _promptEntries,
@@ -311,7 +305,6 @@ object WsRepository : WsClient {
         _errorReports.value = emptyList()
         _providers.value = emptyList()
         _mcpServers.value = emptyList()
-        _featureGeneratorRuns.value = emptyList()
         _artifacts.value = emptyList()
         _wikiEntries.value = emptyList()
         _promptEntries.value = emptyList()
@@ -379,31 +372,6 @@ object WsRepository : WsClient {
     fun getCliStatus() { send("app:cli-status", emptyMap()) }
     fun setSetting(key: String, value: String) { send("app:set-setting", mapOf("key" to key, "value" to value)) }
     fun getMcpServers() { send("mcp:list", emptyMap()) }
-    fun startFeatureGeneratorChat(messages: List<Map<String, String>>) { send("feature-generator:start", mapOf("messages" to messages)) }
-    fun sendFeatureGeneratorMessage(messages: List<Map<String, String>>) { send("feature-generator:message", mapOf("messages" to messages)) }
-    fun confirmFeatureSpec(runId: String, spec: FeatureSpec) {
-        send("feature-generator:confirm-spec", mapOf(
-            "runId" to runId,
-            "spec" to mapOf(
-                "title" to spec.title,
-                "type" to spec.type,
-                "userStory" to spec.userStory,
-                "acceptanceCriteria" to spec.acceptanceCriteria,
-                "constraints" to spec.constraints,
-                "outOfScope" to spec.outOfScope,
-                "risks" to spec.risks,
-                "likelyAffectedFiles" to spec.likelyAffectedFiles,
-                "verificationPlan" to spec.verificationPlan,
-                "autonomy" to spec.autonomy,
-                "targetAreas" to spec.targetAreas,
-            )
-        ))
-    }
-    fun startFeatureImplementation(runId: String) { send("feature-generator:start-implementation", mapOf("runId" to runId)) }
-    fun listFeatureDiffs(runId: String) { send("feature-generator:list-diffs", mapOf("runId" to runId)) }
-    fun applyAllFeatureDiffs(runId: String) { send("feature-generator:apply-all", mapOf("runId" to runId)) }
-    fun commitFeatureChanges(runId: String, message: String) { send("feature-generator:commit", mapOf("runId" to runId, "message" to message)) }
-    fun getFeatureGeneratorRuns() { send("feature-generator:get-runs", emptyMap()) }
     fun listArtifacts(projectId: String? = null) {
         send("artifact:list", if (projectId != null) mapOf("projectId" to projectId) else emptyMap())
     }

@@ -28,7 +28,6 @@ fun SettingsScreen(
     onOpenDiagnostics: () -> Unit = {},
     onOpenSelfHeal: () -> Unit = {},
     onOpenProviders: () -> Unit = {},
-    onOpenFeatureGenerator: () -> Unit = {},
     onOpenProjectGenerator: () -> Unit = {},
     onOpenArtifacts: () -> Unit = {},
     onOpenPromptLibrary: () -> Unit = {},
@@ -89,11 +88,6 @@ fun SettingsScreen(
                 title = "Project Generator",
                 detail = "LLM-assisted project scaffolding with agents and milestones",
                 onClick = onOpenProjectGenerator,
-            )
-            SettingsNavRow(
-                title = "Feature Generator",
-                detail = "Plan, review, apply, and commit generated changes",
-                onClick = onOpenFeatureGenerator,
             )
             SettingsNavRow(
                 title = "Artifacts",

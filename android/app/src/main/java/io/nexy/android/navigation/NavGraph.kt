@@ -21,7 +21,6 @@ import io.nexy.android.ui.pairing.PairingStartScreen
 import io.nexy.android.ui.selfheal.SelfHealReportDetailScreen
 import io.nexy.android.ui.selfheal.SelfHealReportsScreen
 import io.nexy.android.ui.artifacts.ArtifactsScreen
-import io.nexy.android.ui.featuregenerator.FeatureGeneratorScreen
 import io.nexy.android.ui.projectgenerator.ProjectGeneratorScreen
 import io.nexy.android.ui.prompts.PromptsScreen
 import io.nexy.android.ui.settings.AppearanceScreen
@@ -186,7 +185,6 @@ fun NavGraph(onRequestNotificationPermission: () -> Unit = {}) {
                 onOpenDiagnostics = { navController.navigate("settings/diagnostics") },
                 onOpenSelfHeal = { navController.navigate("self-heal") },
                 onOpenProviders = { navController.navigate("providers") },
-                onOpenFeatureGenerator = { navController.navigate("feature-generator") },
                 onOpenProjectGenerator = { navController.navigate("project-generator") },
                 onOpenArtifacts = { navController.navigate("artifacts") },
                 onOpenPromptLibrary = { navController.navigate("prompts") },
@@ -233,10 +231,6 @@ fun NavGraph(onRequestNotificationPermission: () -> Unit = {}) {
 
         composable("providers") {
             ProvidersScreen(onBack = { navController.popBackStack() })
-        }
-
-        composable("feature-generator") {
-            FeatureGeneratorScreen(onBack = { navController.popBackStack() })
         }
 
         composable("project-generator") {

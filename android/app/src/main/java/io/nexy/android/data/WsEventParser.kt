@@ -17,8 +17,6 @@ import io.nexy.android.data.model.PromptEntry
 import io.nexy.android.data.model.WikiEntry
 import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.ErrorReport
-import io.nexy.android.data.model.FeatureGeneratorRun
-import io.nexy.android.data.model.FeatureSpec
 import io.nexy.android.data.model.HistoryMessage
 import io.nexy.android.data.model.McpServerInfo
 import io.nexy.android.data.model.ModelListSource
@@ -49,7 +47,6 @@ fun parseWsEvent(
     errorReports: MutableStateFlow<List<ErrorReport>>,
     providers: MutableStateFlow<List<ProviderInfo>>,
     mcpServers: MutableStateFlow<List<McpServerInfo>>,
-    featureGeneratorRuns: MutableStateFlow<List<FeatureGeneratorRun>>,
     artifacts: MutableStateFlow<List<ArtifactSummary>>,
     wikiEntries: MutableStateFlow<List<WikiEntry>>,
     promptEntries: MutableStateFlow<List<PromptEntry>>,
@@ -439,93 +436,6 @@ fun parseWsEvent(
                 WsEvent.McpList(list)
             }
 
-            "feature-generator:run-created" -> {
-                val runId = data?.optString("runId") ?: ""
-                WsEvent.FeatureGeneratorRunCreated(runId)
-            }
-
-            "feature-generator:token" -> {
-                val chunk = data?.optString("chunk") ?: ""
-                WsEvent.FeatureGeneratorToken(chunk)
-            }
-
-            "feature-generator:chat-turn-done" -> WsEvent.FeatureGeneratorChatTurnDone()
-
-            "feature-generator:spec-ready" -> {
-                val spec = parseFeatureSpec(data) ?: return
-                WsEvent.FeatureGeneratorSpecReady(spec)
-            }
-
-            "feature-generator:plan-ready" -> {
-                val runId = data?.optString("runId") ?: ""
-                val plan = data?.optString("plan") ?: ""
-                featureGeneratorRuns.value = featureGeneratorRuns.value.map {
-                    if (it.id == runId) it.copy(planMarkdown = plan, status = "plan-ready") else it
-                }
-                WsEvent.FeatureGeneratorPlanReady(runId, plan)
-            }
-
-            "feature-generator:diff-ready" -> {
-                val runId = data?.optString("runId") ?: ""
-                featureGeneratorRuns.value = featureGeneratorRuns.value.map {
-                    if (it.id == runId) it.copy(status = "diff-ready") else it
-                }
-                WsEvent.FeatureGeneratorDiffReady(runId)
-            }
-
-            "feature-generator:diff-list" -> {
-                val runId = data?.optString("runId") ?: ""
-                val filesArr = data?.optJSONArray("files") ?: return
-                val files = (0 until filesArr.length()).map { filesArr.getString(it) }
-                WsEvent.FeatureGeneratorDiffList(runId, files)
-            }
-
-            "feature-generator:applied" -> {
-                val runId = data?.optString("runId") ?: ""
-                val filesArr = data?.optJSONArray("appliedFiles") ?: return
-                val applied = (0 until filesArr.length()).map { filesArr.getString(it) }
-                featureGeneratorRuns.value = featureGeneratorRuns.value.map {
-                    if (it.id == runId) it.copy(status = "applied") else it
-                }
-                WsEvent.FeatureGeneratorApplied(runId, applied)
-            }
-
-            "feature-generator:committed" -> {
-                val runId = data?.optString("runId") ?: ""
-                val commitSha = data?.optString("commitSha") ?: ""
-                featureGeneratorRuns.value = featureGeneratorRuns.value.map {
-                    if (it.id == runId) it.copy(status = "committed", commitSha = commitSha) else it
-                }
-                WsEvent.FeatureGeneratorCommitted(runId, commitSha)
-            }
-
-            "feature-generator:runs" -> {
-                val arr = data?.optJSONArray("runs") ?: return
-                val runs = (0 until arr.length()).map { i ->
-                    val r = arr.getJSONObject(i)
-                    FeatureGeneratorRun(
-                        id = r.optString("id"),
-                        title = r.optString("title"),
-                        status = r.optString("status"),
-                        specJson = r.nullableString("specJson"),
-                        planMarkdown = r.nullableString("planMarkdown"),
-                        stagedFilesJson = r.nullableString("stagedFilesJson"),
-                        appliedFilesJson = r.nullableString("appliedFilesJson"),
-                        commitSha = r.nullableString("commitSha"),
-                        createdAt = r.optLong("createdAt", 0L),
-                        updatedAt = r.optLong("updatedAt", 0L),
-                    )
-                }
-                featureGeneratorRuns.value = runs
-                WsEvent.FeatureGeneratorRuns(runs)
-            }
-
-            "feature-generator:error" -> {
-                val runId = data?.nullableString("runId")
-                val message = data?.optString("message") ?: "Unknown error"
-                WsEvent.FeatureGeneratorError(runId, message)
-            }
-
             "artifact:list" -> {
                 val arr = data?.optJSONArray("artifacts") ?: return
                 val list = (0 until arr.length()).map { i ->
@@ -700,28 +610,6 @@ fun parseWsEvent(
         }
         scope.launch { events.emit(wsEvent) }
     } catch (_: Exception) {}
-}
-
-private fun parseFeatureSpec(data: org.json.JSONObject?): FeatureSpec? {
-    val d = data ?: return null
-    val title = d.optString("title").takeIf { it.isNotBlank() } ?: return null
-    fun strList(key: String): List<String> {
-        val arr = d.optJSONArray(key) ?: return emptyList()
-        return (0 until arr.length()).map { arr.optString(it) }.filter { it.isNotBlank() }
-    }
-    return FeatureSpec(
-        title = title,
-        type = d.optString("type", "feature"),
-        userStory = d.optString("userStory"),
-        acceptanceCriteria = strList("acceptanceCriteria"),
-        constraints = strList("constraints"),
-        outOfScope = strList("outOfScope"),
-        risks = strList("risks"),
-        likelyAffectedFiles = strList("likelyAffectedFiles"),
-        verificationPlan = strList("verificationPlan"),
-        autonomy = d.optString("autonomy", "staged-diffs"),
-        targetAreas = strList("targetAreas"),
-    )
 }
 
 private fun parseWikiEntry(obj: JSONObject): WikiEntry {

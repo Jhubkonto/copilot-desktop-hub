@@ -84,17 +84,6 @@ sealed class WsEvent {
     data class CliStatus(val clis: Map<String, CliInstallInfo>) : WsEvent()
     data class SettingSet(val key: String, val value: String) : WsEvent()
     data class McpList(val servers: List<McpServerInfo>) : WsEvent()
-    data class FeatureGeneratorRunCreated(val runId: String) : WsEvent()
-    data class FeatureGeneratorToken(val chunk: String) : WsEvent()
-    class FeatureGeneratorChatTurnDone : WsEvent()
-    data class FeatureGeneratorSpecReady(val spec: FeatureSpec) : WsEvent()
-    data class FeatureGeneratorPlanReady(val runId: String, val plan: String) : WsEvent()
-    data class FeatureGeneratorDiffReady(val runId: String) : WsEvent()
-    data class FeatureGeneratorDiffList(val runId: String, val files: List<String>) : WsEvent()
-    data class FeatureGeneratorApplied(val runId: String, val appliedFiles: List<String>) : WsEvent()
-    data class FeatureGeneratorCommitted(val runId: String, val commitSha: String) : WsEvent()
-    data class FeatureGeneratorRuns(val runs: List<FeatureGeneratorRun>) : WsEvent()
-    data class FeatureGeneratorError(val runId: String?, val message: String) : WsEvent()
     data class ArtifactList(val artifacts: List<ArtifactSummary>) : WsEvent()
     data class ArtifactDetail(val artifact: ArtifactDetail2?) : WsEvent()
     data class WikiList(val entries: List<WikiEntry>) : WsEvent()
@@ -161,33 +150,6 @@ data class McpServerInfo(
     val name: String,
     val command: String,
     val enabled: Boolean,
-)
-
-data class FeatureSpec(
-    val title: String,
-    val type: String,
-    val userStory: String,
-    val acceptanceCriteria: List<String>,
-    val constraints: List<String>,
-    val outOfScope: List<String>,
-    val risks: List<String>,
-    val likelyAffectedFiles: List<String>,
-    val verificationPlan: List<String>,
-    val autonomy: String,
-    val targetAreas: List<String>,
-)
-
-data class FeatureGeneratorRun(
-    val id: String,
-    val title: String,
-    val status: String,
-    val specJson: String?,
-    val planMarkdown: String?,
-    val stagedFilesJson: String?,
-    val appliedFilesJson: String?,
-    val commitSha: String?,
-    val createdAt: Long,
-    val updatedAt: Long,
 )
 
 data class ArtifactSummary(
