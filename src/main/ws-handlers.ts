@@ -596,9 +596,30 @@ export function registerWsHandlers(): void {
       if (!id || !name) return
       const existing = db.prepare('SELECT config_json FROM agents WHERE id = ?').get(id) as { config_json: string } | undefined
       if (!existing) return
-      const config = { ...JSON.parse(existing.config_json) as Record<string, unknown>, name, icon }
+      const prev = JSON.parse(existing.config_json) as Record<string, unknown>
+      const patch: Record<string, unknown> = { name, icon }
+      if (typeof data.systemPrompt === 'string') patch.systemPrompt = data.systemPrompt
+      if (data.backend === '' || typeof data.backend === 'string') patch.backend = data.backend || undefined
+      if (typeof data.cliModel === 'string') patch.cliModel = data.cliModel
+      if (typeof data.temperature === 'number') patch.temperature = data.temperature
+      if (typeof data.maxTokens === 'number') patch.maxTokens = data.maxTokens
+      if (['default', 'concise', 'detailed', 'code-only'].includes(data.responseFormat as string)) patch.responseFormat = data.responseFormat
+      if (typeof data.agenticMode === 'boolean') patch.agenticMode = data.agenticMode
+      if (typeof data.memory === 'string') patch.memory = data.memory
+      if (data.tools && typeof data.tools === 'object') patch.tools = { ...(prev.tools as object), ...(data.tools as object) }
+      const config = { ...prev, ...patch }
       db.prepare('UPDATE agents SET config_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(config), Date.now(), id)
       broadcastToMobile({ event: 'agent:updated', data: { agent: { id, name, icon } } })
+      return
+    }
+
+    if (command === 'agent:get-full') {
+      const id = typeof data.id === 'string' ? data.id : ''
+      if (!id) return
+      const row = db.prepare('SELECT config_json FROM agents WHERE id = ?').get(id) as { config_json: string } | undefined
+      if (!row) return
+      const config = JSON.parse(row.config_json) as Record<string, unknown>
+      reply({ event: 'agent:full', data: { agent: config } })
       return
     }
 
