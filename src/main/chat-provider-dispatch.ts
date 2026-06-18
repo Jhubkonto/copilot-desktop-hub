@@ -14,6 +14,8 @@ import { runProviderMcpToolLoop } from './tool-loop'
 import type { ToolDefinition, ToolChoice, ProviderNonStreamResult } from './provider-types'
 import type { InlineHandler, MobileChatActivity } from './chat-context-builder'
 import type { MessageContentPart } from './provider-core-types'
+import { modelIdSupportsTools } from '../shared/models'
+import { getCachedCatalog } from './model-catalog'
 
 function stripImageParts(msgs: ProviderMessage[]): ProviderMessage[] {
   return msgs.map((msg) => {
@@ -74,7 +76,23 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
     systemPrompt,
   } = opts
 
-  const hasToolLoop = toolDefs.length > 0
+  const catalog = getCachedCatalog()
+  const catalogEntry = catalog.find((m) => m.id === providerModel)
+  let toolsSupported: boolean
+  if (providerName !== 'openrouter') {
+    toolsSupported = modelIdSupportsTools(providerModel, catalog)
+  } else if (catalogEntry) {
+    toolsSupported = catalogEntry.capabilities.length === 0 || catalogEntry.capabilities.includes('tool_calls')
+  } else {
+    // No catalog hit: strip ~ routing prefix and check known-capable families.
+    // hermes, nous, etc. won't match → conservative (no tools).
+    // claude, gpt-4, gemini, etc. will match → optimistic (tools enabled).
+    const id = providerModel.toLowerCase().replace(/^~/, '')
+    const TOOL_CAPABLE_FAMILIES = ['claude', 'gpt-4', 'gpt-4o', 'gemini', 'mistral-large', 'llama-3', 'qwen']
+    toolsSupported = TOOL_CAPABLE_FAMILIES.some((family) => id.includes(family))
+  }
+  const effectiveToolDefs = toolsSupported ? toolDefs : []
+  const hasToolLoop = effectiveToolDefs.length > 0
   const inlineHandlers = wikiInlineHandlers.size > 0 ? wikiInlineHandlers : undefined
   const agentId = effectiveAgentId ?? 'default'
   const onActivity = makeActivityHandler(sendActivity)
@@ -85,7 +103,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
         (msgs, tools, choice) =>
           sendAnthropicWithTools(byokKey, providerModel, msgs, tools ?? [], choice, generationOptions),
         chatMessages,
-        toolDefs,
+        effectiveToolDefs,
         toolMap,
         agentId,
         conversationId,
@@ -116,7 +134,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
         (msgs, tools, choice) =>
           sendOpenAIWithTools(byokKey, providerModel, msgs, tools ?? [], choice, generationOptions),
         chatMessages,
-        toolDefs,
+        effectiveToolDefs,
         toolMap,
         agentId,
         conversationId,
@@ -161,7 +179,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
       return runProviderMcpToolLoop(
         caller,
         chatMessages,
-        toolDefs,
+        effectiveToolDefs,
         toolMap,
         agentId,
         conversationId,
@@ -195,7 +213,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
       (msgs, tools, choice) =>
         sendAzureWithTools(byokKey, azureEndpoint, providerModel, msgs, tools ?? [], choice, generationOptions),
       chatMessages,
-      toolDefs,
+      effectiveToolDefs,
       toolMap,
       agentId,
       conversationId,
