@@ -9,6 +9,7 @@ import {
   isProviderConfigured,
 } from './providers'
 import { dispatchToProvider } from './chat-provider-dispatch'
+import { getAdapter } from './cli-adapters/registry'
 import type { ProviderMessage } from './provider-core-types'
 import type { ProjectGeneratorMessage, ProjectGeneratorSpec, AgentConfig } from '../shared/types'
 import { DEFAULT_PROJECT_CONFIG } from '../shared/types'
@@ -88,6 +89,7 @@ Keep instructions concise but actionable. Make milestones reflect the user's act
 function buildProviderMessages(
   messages: ProjectGeneratorMessage[],
   existingAgents: { id: string; name: string; icon: string; systemPrompt: string }[],
+  images?: { dataUrl: string }[],
 ): ProviderMessage[] {
   const agentsSummary = existingAgents.length > 0
     ? `\n\n## User's existing agents\n${existingAgents.map((a) =>
@@ -95,11 +97,35 @@ function buildProviderMessages(
       ).join('\n')}`
     : '\n\n## User\'s existing agents\n(none — all specialists will be new agents)'
 
-  const result: ProviderMessage[] = [
+  // Strip the hardcoded assistant greeting that is pre-loaded into the renderer state.
+  // It should not be forwarded to the provider — the system prompt already covers the intent.
+  const filteredMessages = messages[0]?.role === 'assistant' ? messages.slice(1) : messages
+
+  const providerMessages: ProviderMessage[] = filteredMessages.map((m): ProviderMessage => ({ role: m.role, content: m.content }))
+
+  // Attach images to the last user message as vision content parts
+  if (images && images.length > 0) {
+    let lastUserIdx = -1
+    for (let i = providerMessages.length - 1; i >= 0; i--) {
+      if (providerMessages[i].role === 'user') { lastUserIdx = i; break }
+    }
+    if (lastUserIdx !== -1) {
+      const lastUser = providerMessages[lastUserIdx]
+      const textContent = typeof lastUser.content === 'string' ? lastUser.content : ''
+      providerMessages[lastUserIdx] = {
+        role: 'user',
+        content: [
+          { type: 'text', text: textContent },
+          ...images.map((img) => ({ type: 'image_url' as const, image_url: { url: img.dataUrl } })),
+        ],
+      }
+    }
+  }
+
+  return [
     { role: 'system', content: PROJECT_GENERATOR_SYSTEM_PROMPT + agentsSummary },
-    ...messages.map((m): ProviderMessage => ({ role: m.role, content: m.content })),
+    ...providerMessages,
   ]
-  return result
 }
 
 function extractSpec(text: string): ProjectGeneratorSpec | null {
@@ -170,12 +196,36 @@ function getProjectGeneratorModel(): string {
 }
 
 async function runProjectGeneratorProviderChat(
+  win: BrowserWindow,
   providerMessages: ProviderMessage[],
   sessionId: string,
   webContents: Electron.WebContents,
   sendChunk: (chunk: string) => void,
+  modelOverride?: string,
 ): Promise<string> {
-  const selectedModel = getProjectGeneratorModel()
+  const selectedModel = modelOverride ?? getProjectGeneratorModel()
+
+  // ── CLI backend ──────────────────────────────────────────────────────────────
+  if (selectedModel.includes(':')) {
+    const colonIdx = selectedModel.indexOf(':')
+    const prefix = selectedModel.slice(0, colonIdx)
+    const cliModel = selectedModel.slice(colonIdx + 1)
+    if (prefix === 'claude-cli' || prefix === 'codex-cli') {
+      const adapter = getAdapter(prefix)
+      if (!adapter?.isAvailable()) throw new Error(`${prefix} is not available`)
+      const systemMsg = typeof providerMessages[0]?.content === 'string' && providerMessages[0].role === 'system'
+        ? providerMessages[0].content
+        : PROJECT_GENERATOR_SYSTEM_PROMPT
+      const conversationMessages = providerMessages.filter((m) => m.role !== 'system')
+      return adapter.send(
+        win,
+        { systemPrompt: systemMsg, messages: conversationMessages, cwd: process.cwd(), model: cliModel, conversationId: sessionId },
+        sendChunk,
+      )
+    }
+  }
+
+  // ── BYOK / provider path ─────────────────────────────────────────────────────
   const { provider, model } = getProviderForAgent(selectedModel)
   const apiKey = getApiKey(provider)
   const systemPrompt = typeof providerMessages[0]?.content === 'string'
@@ -206,8 +256,10 @@ export async function runProjectGeneratorChat(
   win: BrowserWindow,
   messages: ProjectGeneratorMessage[],
   existingAgents: { id: string; name: string; icon: string; systemPrompt: string }[],
+  modelOverride?: string,
+  images?: { dataUrl: string }[],
 ): Promise<void> {
-  const providerMessages = buildProviderMessages(messages, existingAgents)
+  const providerMessages = buildProviderMessages(messages, existingAgents, images)
   const sessionId = `project-gen-${randomUUID()}`
 
   const sendChunk = (chunk: string) => {
@@ -217,6 +269,7 @@ export async function runProjectGeneratorChat(
   let accumulated = ''
 
   const fullText = await runProjectGeneratorProviderChat(
+    win,
     providerMessages,
     sessionId,
     win.webContents,
@@ -224,13 +277,15 @@ export async function runProjectGeneratorChat(
       accumulated += chunk
       sendChunk(chunk)
     },
+    modelOverride,
   )
 
   accumulated = fullText || accumulated
 
   const spec = extractSpec(accumulated)
-  if (spec && !win.isDestroyed()) {
-    win.webContents.send('project-generator:spec-ready', spec)
+  if (!win.isDestroyed()) {
+    if (spec) win.webContents.send('project-generator:spec-ready', spec)
+    win.webContents.send('project-generator:done', { hasSpec: spec !== null })
   }
 }
 
@@ -243,10 +298,12 @@ export async function runProjectGeneratorChatForAndroid(
 
   let accumulated = ''
 
+  const fakeWin = { isDestroyed: () => false, webContents: { send: () => {}, isDestroyed: () => false } } as unknown as BrowserWindow
   const fullText = await runProjectGeneratorProviderChat(
+    fakeWin,
     providerMessages,
     sessionId,
-    { send: () => {}, isDestroyed: () => false } as unknown as Electron.WebContents,
+    fakeWin.webContents,
     (chunk) => {
       accumulated += chunk
       broadcastToMobile({ event: 'project-generator:token', data: { sessionId, chunk } })
@@ -257,7 +314,7 @@ export async function runProjectGeneratorChatForAndroid(
 
   const spec = extractSpec(accumulated)
   const assistantText = accumulated.replace(/<project-spec>[\s\S]*?<\/project-spec>/g, '').trim()
-  broadcastToMobile({ event: 'project-generator:turn-complete', data: { sessionId, content: assistantText } })
+  broadcastToMobile({ event: 'project-generator:turn-complete', data: { sessionId, content: assistantText, hasSpec: spec !== null } })
   if (spec) {
     broadcastToMobile({ event: 'project-generator:spec-ready', data: { sessionId, spec } })
   }
@@ -400,7 +457,7 @@ export async function createProjectFromSpec(spec: ProjectGeneratorSpec): Promise
 export function registerProjectGeneratorHandlers(win?: BrowserWindow): void {
   safeHandle(
     'project-generator:chat',
-    async (_event, messages: ProjectGeneratorMessage[], existingAgents: AgentConfig[]) => {
+    async (_event, messages: ProjectGeneratorMessage[], existingAgents: AgentConfig[], modelOverride?: string, images?: { dataUrl: string }[]) => {
       if (!win) throw new Error('No main window available')
       const agentSummaries = existingAgents.map((a) => ({
         id: a.id,
@@ -408,8 +465,14 @@ export function registerProjectGeneratorHandlers(win?: BrowserWindow): void {
         icon: a.icon,
         systemPrompt: a.systemPrompt,
       }))
-      await runProjectGeneratorChat(win, messages, agentSummaries)
+      await runProjectGeneratorChat(win, messages, agentSummaries, modelOverride, images)
       return { started: true }
     },
   )
+
+  safeHandle('project-generator:get-model', () => getProjectGeneratorModel())
+
+  // set-model is now session-only in the renderer; this handler is kept for
+  // backwards-compat but no longer writes to the database.
+  safeHandle('project-generator:set-model', (_event, _modelId: string) => undefined)
 }

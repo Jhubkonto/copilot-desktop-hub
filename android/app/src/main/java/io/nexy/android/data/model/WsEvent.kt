@@ -101,7 +101,7 @@ sealed class WsEvent {
     data class ConversationImported(val conversationId: String, val title: String, val messageCount: Int) : WsEvent()
     data class ConversationImportError(val message: String) : WsEvent()
     data class ProjectGeneratorToken(val sessionId: String?, val chunk: String) : WsEvent()
-    data class ProjectGeneratorTurnComplete(val sessionId: String?, val content: String) : WsEvent()
+    data class ProjectGeneratorTurnComplete(val sessionId: String?, val content: String, val hasSpec: Boolean = false) : WsEvent()
     data class ProjectGeneratorSpecReady(val sessionId: String?, val spec: ProjectGeneratorSpec) : WsEvent()
     data class ProjectGeneratorCreated(val sessionId: String?, val projectId: String, val name: String) : WsEvent()
     data class ProjectGeneratorError(val sessionId: String?, val message: String) : WsEvent()

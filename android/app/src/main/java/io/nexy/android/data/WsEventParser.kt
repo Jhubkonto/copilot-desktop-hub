@@ -596,6 +596,7 @@ fun parseWsEvent(
             "project-generator:turn-complete" -> WsEvent.ProjectGeneratorTurnComplete(
                 sessionId = data?.nullableString("sessionId"),
                 content = data?.optString("content") ?: "",
+                hasSpec = data?.optBoolean("hasSpec", false) ?: false,
             )
 
             "project-generator:spec-ready" -> {

@@ -30,13 +30,13 @@ function NavButton({
     >
       {icon}
       <span className="flex-1 text-left">{label}</span>
-      {modal && (
-        <SquareArrowOutUpRight className="w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0" />
-      )}
       {!!badgeCount && badgeCount > 0 && (
         <span className="flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-semibold leading-none">
           {badgeCount > 9 ? '9+' : badgeCount}
         </span>
+      )}
+      {modal && (
+        <SquareArrowOutUpRight className="w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0" />
       )}
     </Button>
   )

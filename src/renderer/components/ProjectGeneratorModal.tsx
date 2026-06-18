@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { X, Send, Loader2, ChevronRight, Crown, UserPlus, Sparkles, Pencil, Plus, Trash2, FolderOpen } from 'lucide-react'
+import { X, Send, Loader2, ChevronRight, Crown, UserPlus, Sparkles, Pencil, Plus, Trash2, FolderOpen, BookOpen, ClipboardPaste } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
-import type { ProjectGeneratorSpec, ProjectGeneratorAgentSpec, ProjectGeneratorMessage } from '../../shared/types'
+import type { ProjectGeneratorSpec, ProjectGeneratorAgentSpec, ProjectGeneratorMessage, AvailableModelGroup, AvailableModelEntry } from '../../shared/types'
 import { getAvailableModelIds, getModelLabel } from '../../shared/models'
+import { PromptLibraryModal } from './PromptLibraryModal'
+import { ModelPicker } from './chat/ModelPicker'
 
 // ─── Draft preview ────────────────────────────────────────────────────────────
 
@@ -558,10 +560,38 @@ function ChatBubble({ role, content }: { role: 'user' | 'assistant'; content: st
   )
 }
 
+// ─── Session persistence (survives close/reopen within the same app session) ──
+
+const GREETING: ProjectGeneratorMessage = {
+  role: 'assistant',
+  content: "Let's create a new project. Tell me what you're building or working on, and I'll help configure the perfect setup.",
+}
+
+interface GeneratorSession {
+  messages: ProjectGeneratorMessage[]
+  spec: ProjectGeneratorSpec | null
+}
+
+let _session: GeneratorSession | null = null
+
+function getSession(): GeneratorSession {
+  return _session ?? { messages: [GREETING], spec: null }
+}
+
+function saveSession(session: GeneratorSession) {
+  _session = session
+}
+
+function clearSession() {
+  _session = null
+}
+
 // ─── Main modal ───────────────────────────────────────────────────────────────
 
 export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
   const agents = useAppStore((s) => s.agents)
+  const catalogModels = useAppStore((s) => s.catalogModels)
+  const globalDefaultModel = useAppStore((s) => s.globalDefaultModel)
   const createProject = useAppStore((s) => s.createProject)
   const updateProjectConfig = useAppStore((s) => s.updateProjectConfig)
   const setProjectDefaultModel = useAppStore((s) => s.setProjectDefaultModel)
@@ -571,18 +601,24 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
   const selectProject = useAppStore((s) => s.selectProject)
   const addToast = useAppStore((s) => s.addToast)
 
-  const [messages, setMessages] = useState<ProjectGeneratorMessage[]>([])
+  const [messages, setMessages] = useState<ProjectGeneratorMessage[]>(() => getSession().messages)
   const [streamingText, setStreamingText] = useState('')
   const [inputText, setInputText] = useState('')
-  const [spec, setSpec] = useState<ProjectGeneratorSpec | null>(null)
+  const [spec, setSpec] = useState<ProjectGeneratorSpec | null>(() => getSession().spec)
   const [isStreaming, setIsStreaming] = useState(false)
   const [creationStep, setCreationStep] = useState<number>(-1)
   const [creationError, setCreationError] = useState<string | null>(null)
   const [isEditing, setIsEditing] = useState(false)
   const [editSpec, setEditSpec] = useState<ProjectGeneratorSpec | null>(null)
+  const [genModel, setGenModel] = useState<string | null>(null)
+  const [availableGroups, setAvailableGroups] = useState<AvailableModelGroup[]>([])
+  const [missedSpec, setMissedSpec] = useState(false)
+  const [showPromptLibrary, setShowPromptLibrary] = useState(false)
+  const [pendingImages, setPendingImages] = useState<{ id: string; dataUrl: string; name: string }[]>([])
 
   const chatEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const modelPickerRef = useRef<HTMLButtonElement>(null)
   const isCreating = creationStep >= 0
 
   // Auto-scroll chat to bottom
@@ -590,17 +626,33 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streamingText])
 
+  // Fetch available models on mount
+  useEffect(() => {
+    window.api.listAvailableModels().then(setAvailableGroups).catch(() => {})
+  }, [])
+
   // Subscribe to IPC events
   useEffect(() => {
     const offToken = window.api.onProjectGeneratorToken((chunk) => {
+      streamingTextRef.current += chunk
       setStreamingText((prev) => prev + chunk)
     })
     const offSpec = window.api.onProjectGeneratorSpecReady((incoming) => {
       setSpec(incoming)
+      setMissedSpec(false)
+    })
+    const offDone = window.api.onProjectGeneratorDone(({ hasSpec }) => {
+      const capturedText = streamingTextRef.current
+      const clean = capturedText.replace(/<project-spec>[\s\S]*?<\/project-spec>/g, '').trim()
+      if (clean) {
+        setMessages((prev) => [...prev, { role: 'assistant', content: clean }])
+      }
+      if (!hasSpec && !clean) setMissedSpec(true)
     })
     return () => {
       offToken()
       offSpec()
+      offDone()
     }
   }, [])
 
@@ -614,6 +666,10 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
     setInputText('')
     setIsStreaming(true)
     setStreamingText('')
+    streamingTextRef.current = ''
+    setMissedSpec(false)
+    const imagesToSend = pendingImages.map(({ dataUrl }) => ({ dataUrl }))
+    setPendingImages([])
 
     const agentSummaries = agents.map((a) => ({
       id: a.id,
@@ -623,36 +679,53 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
     }))
 
     try {
-      await window.api.projectGeneratorChat(nextMessages, agentSummaries)
-      // Streaming complete — capture the accumulated text as assistant message
-      setMessages((prev) => {
-        // The streaming text is already captured in state; read it at commit time
-        const currentStreaming = streamingTextRef.current
-        if (!currentStreaming.trim()) return prev
-        const clean = currentStreaming.replace(/<project-spec>[\s\S]*?<\/project-spec>/g, '').trim()
-        if (!clean) return prev
-        return [...prev, { role: 'assistant', content: clean }]
-      })
+      const result = await window.api.projectGeneratorChat(nextMessages, agentSummaries, genModel ?? undefined, imagesToSend.length > 0 ? imagesToSend : undefined)
+      // safeHandle returns { error } instead of throwing — surface it
+      if (result && typeof result === 'object' && 'error' in result) {
+        throw new Error(String((result as { error: unknown }).error))
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to get response'
       addToast(msg, 'error')
     } finally {
       setIsStreaming(false)
       setStreamingText('')
+      streamingTextRef.current = ''
     }
-  }, [isStreaming, messages, agents, addToast])
+  }, [isStreaming, messages, agents, addToast, genModel, pendingImages])
 
-  // Ref to access current streamingText inside async callback
+  // Ref written directly in the token handler — always current, no effect lag
   const streamingTextRef = useRef('')
-  useEffect(() => { streamingTextRef.current = streamingText }, [streamingText])
 
-  // Auto-send welcome on mount
-  const sentWelcome = useRef(false)
-  useEffect(() => {
-    if (sentWelcome.current) return
-    sentWelcome.current = true
-    sendMessage("Let's create a new project. Tell me what you're building or working on, and I'll help configure the perfect setup.")
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  // Persist conversation across close/reopen
+  useEffect(() => { saveSession({ messages, spec }) }, [messages, spec])
+
+  const handlePaste = useCallback(async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = Array.from(e.clipboardData.items).filter((item) => item.type.startsWith('image/'))
+    if (items.length === 0) return
+    e.preventDefault()
+    for (const item of items) {
+      const file = item.getAsFile()
+      if (!file) continue
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(String(reader.result ?? ''))
+        reader.onerror = () => reject(reader.error)
+        reader.readAsDataURL(file)
+      })
+      setPendingImages((prev) => [...prev, { id: crypto.randomUUID(), dataUrl, name: `image.${item.type.split('/')[1] ?? 'png'}` }])
+    }
+  }, [])
+
+  const handlePasteClipboard = useCallback(async () => {
+    const result = await window.api.readClipboardContent()
+    if (!result) { addToast('No image found in clipboard', 'info'); return }
+    if ('dataUrl' in result && result.dataUrl) {
+      setPendingImages((prev) => [...prev, { id: crypto.randomUUID(), dataUrl: result.dataUrl as string, name: 'clipboard.png' }])
+    } else {
+      addToast('No image found in clipboard', 'info')
+    }
+  }, [addToast])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -742,6 +815,7 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
       // Done — navigate to the new project
       await loadProjectAgents(projectId)
       selectProject(projectId)
+      clearSession()
       onClose()
       addToast(`Project "${specToCreate.name}" created`, 'success')
     } catch (err) {
@@ -776,15 +850,33 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
           </div>
           <div className="flex items-center gap-2">
             {!isEditing && !isCreating && (
-              <button
-                onClick={() => {
-                  setEditSpec({ name: '', color: 'blue', instructions: '', rootDirectory: undefined, instructionMode: 'prepend', variables: [], inScope: [], outOfScope: [], milestones: [], orchestrationEnabled: true, defaultModel: undefined, agents: [] })
-                  setIsEditing(true)
-                }}
-                className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-              >
-                Manual setup
-              </button>
+              <>
+                {messages.length > 1 && (
+                  <button
+                    onClick={() => {
+                      clearSession()
+                      setMessages([GREETING])
+                      setSpec(null)
+                      setMissedSpec(false)
+                      setInputText('')
+                      setPendingImages([])
+                      setGenModel(null)
+                    }}
+                    className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                  >
+                    Start over
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setEditSpec({ name: '', color: 'blue', instructions: '', rootDirectory: undefined, instructionMode: 'prepend', variables: [], inScope: [], outOfScope: [], milestones: [], orchestrationEnabled: true, defaultModel: undefined, agents: [] })
+                    setIsEditing(true)
+                  }}
+                  className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                >
+                  Manual setup
+                </button>
+              </>
             )}
             <button
               onClick={onClose}
@@ -835,10 +927,9 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
                       <div className="w-6 h-6 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0">
                         <Sparkles className="w-3 h-3 text-white" />
                       </div>
-                      <div className="flex gap-1 items-center px-3 py-2 bg-gray-100 dark:bg-gray-800 rounded-2xl rounded-tl-sm">
-                        <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                        <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                        <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                      <div className="flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-800 rounded-2xl rounded-tl-sm">
+                        <Loader2 className="w-3 h-3 text-indigo-400 animate-spin shrink-0" />
+                        <span className="text-xs text-gray-500 dark:text-gray-400">Generating project spec…</span>
                       </div>
                     </div>
                   )}
@@ -871,36 +962,98 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
                     </div>
                   )}
                   <div className="px-4 pb-4 pt-2">
-                    <div className="flex items-end gap-2 bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 px-3 py-2">
+                    {pendingImages.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mb-2">
+                        {pendingImages.map((img) => (
+                          <div key={img.id} className="relative group">
+                            <img
+                              src={img.dataUrl}
+                              alt={img.name}
+                              className="w-14 h-14 object-cover rounded-lg border border-gray-200 dark:border-gray-700"
+                            />
+                            <button
+                              onClick={() => setPendingImages((prev) => prev.filter((i) => i.id !== img.id))}
+                              className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                              aria-label="Remove image"
+                            >
+                              <X className="w-2.5 h-2.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus-within:ring-2 focus-within:ring-gray-400 dark:focus-within:ring-gray-500 focus-within:border-transparent transition-colors">
                       <textarea
                         ref={inputRef}
                         value={inputText}
                         onChange={(e) => setInputText(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        placeholder={spec ? 'Refine or ask for changes…' : 'Describe your project…'}
+                        onPaste={(e) => void handlePaste(e)}
+                        placeholder={spec ? 'Refine or ask for changes…' : 'Describe your project… (paste images with Ctrl+V)'}
                         rows={1}
                         disabled={isStreaming}
-                        className="flex-1 resize-none bg-transparent text-sm text-gray-800 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none min-h-[24px] max-h-[96px] overflow-y-auto disabled:opacity-50"
-                        style={{ height: 'auto' }}
-                        onInput={(e) => {
-                          const el = e.currentTarget
-                          el.style.height = 'auto'
-                          el.style.height = `${Math.min(el.scrollHeight, 96)}px`
-                        }}
+                        className="chat-input w-full resize-none bg-transparent px-4 pt-3 pb-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed overflow-y-auto"
                       />
-                      <button
-                        onClick={() => {
-                          if (spec) { setSpec(null); sendMessage(inputText) }
-                          else sendMessage(inputText)
-                        }}
-                        disabled={isStreaming || !inputText.trim()}
-                        className="p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
-                        aria-label="Send message"
-                      >
-                        {isStreaming ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                      </button>
+                      <div className="flex items-center justify-between px-2 pb-2">
+                        <div className="flex items-center gap-0.5">
+                          <button
+                            type="button"
+                            onClick={() => void handlePasteClipboard()}
+                            disabled={isStreaming}
+                            className="p-1.5 rounded-md text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            title="Paste image from clipboard"
+                            aria-label="Paste image from clipboard"
+                          >
+                            <ClipboardPaste className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setShowPromptLibrary(true)}
+                            disabled={isStreaming}
+                            className="p-1.5 rounded-md text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            title="Insert prompt from library"
+                            aria-label="Insert prompt from library"
+                          >
+                            <BookOpen className="w-4 h-4" />
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <ModelPicker
+                            value={genModel ?? 'default'}
+                            availableGroups={availableGroups}
+                            catalogModels={catalogModels}
+                            globalDefaultModel={globalDefaultModel ?? undefined}
+                            includeDefault={true}
+                            buttonRef={modelPickerRef}
+                            onSelectDefault={() => setGenModel(null)}
+                            onSelectAvailableModel={(group: AvailableModelGroup, model: AvailableModelEntry) => {
+                              const id = group.sourceType === 'cli' ? `${group.sourceKey}:${model.id}` : model.id
+                              setGenModel(id)
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (spec) { setSpec(null) }
+                              sendMessage(inputText)
+                            }}
+                            disabled={isStreaming || !inputText.trim()}
+                            className={`p-1.5 rounded-md flex items-center justify-center transition-colors ${
+                              inputText.trim() && !isStreaming
+                                ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-300'
+                                : 'bg-transparent text-gray-400 dark:text-gray-500 cursor-not-allowed'
+                            }`}
+                            aria-label="Send message"
+                          >
+                            <Send className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                    {!spec && <p className="text-[10px] text-gray-400 mt-1.5 text-center">Press Enter to send · Shift+Enter for newline</p>}
+                    {missedSpec && (
+                      <p className="text-[10px] text-amber-500 mt-1.5 text-center">No spec was generated — try asking me to set up the project.</p>
+                    )}
+                    {!spec && !missedSpec && <p className="text-[10px] text-gray-400 mt-1.5 text-center">Press Enter to send · Shift+Enter for newline</p>}
                   </div>
                 </div>
               </>
@@ -920,6 +1073,19 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
           />
         )}
       </div>
+
+      {showPromptLibrary && (
+        <PromptLibraryModal
+          projectId={null}
+          draftContent={inputText}
+          onInsert={(content) => {
+            setInputText((prev) => prev ? `${prev}\n${content}` : content)
+            inputRef.current?.focus()
+          }}
+          onRun={(content) => sendMessage(content)}
+          onClose={() => setShowPromptLibrary(false)}
+        />
+      )}
     </div>
   )
 }

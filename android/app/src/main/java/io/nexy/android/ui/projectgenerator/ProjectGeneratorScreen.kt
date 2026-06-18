@@ -86,7 +86,7 @@ fun ProjectGeneratorScreen(
                 titleContent = { Text("Project Generator", style = MaterialTheme.typography.titleMedium) },
                 onBack = onBack,
                 actions = {
-                    if (uiState.phase != ProjectGenPhase.CHAT || uiState.messages.isNotEmpty() || uiState.streamingText.isNotBlank()) {
+                    if (uiState.phase != ProjectGenPhase.CHAT || uiState.messages.size > 1 || uiState.streamingText.isNotBlank()) {
                         TextButton(onClick = { confirmReset = true }) {
                             Text("Reset")
                         }
@@ -101,6 +101,7 @@ fun ProjectGeneratorScreen(
                 ProjectGenPhase.CHAT -> ChatPhase(
                     uiState = uiState,
                     onSend = { vm.sendMessage(it) },
+                    missedSpec = uiState.missedSpec,
                     modifier = Modifier.weight(1f),
                 )
                 ProjectGenPhase.SPEC_REVIEW -> SpecReviewPhase(
@@ -170,49 +171,51 @@ private fun ProjectGenPhaseHeader(phase: ProjectGenPhase) {
 private fun ChatPhase(
     uiState: ProjectGeneratorUiState,
     onSend: (String) -> Unit,
+    missedSpec: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
     var input by remember { mutableStateOf("") }
 
     LaunchedEffect(uiState.messages.size, uiState.streamingText) {
-        if (uiState.messages.isNotEmpty() || uiState.streamingText.isNotBlank()) {
+        if (uiState.messages.size > 1 || uiState.streamingText.isNotBlank()) {
             listState.animateScrollToItem(listState.layoutInfo.totalItemsCount.coerceAtLeast(1) - 1)
         }
     }
 
     Column(modifier = modifier.fillMaxSize().imePadding()) {
-        if (uiState.messages.isEmpty() && uiState.streamingText.isBlank()) {
-            Box(
-                modifier = Modifier.weight(1f).padding(24.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    "Describe the project you want to set up — its goals, scope, team roles, and milestones. The assistant will ask a few questions then generate a full project spec.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            items(uiState.messages) { msg ->
+                ChatBubble(role = msg.role, text = msg.content)
             }
-        } else {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                items(uiState.messages) { msg ->
-                    ChatBubble(role = msg.role, text = msg.content)
-                }
-                if (uiState.streamingText.isNotBlank()) {
-                    item {
-                        ChatBubble(role = "assistant", text = uiState.streamingText, streaming = true)
-                    }
+            if (uiState.streamingText.isNotBlank()) {
+                item {
+                    ChatBubble(role = "assistant", text = uiState.streamingText, streaming = true)
                 }
             }
         }
 
         if (uiState.isLoading) {
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+
+        if (missedSpec) {
+            Surface(
+                color = MaterialTheme.colorScheme.tertiaryContainer,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    "No spec was generated — try asking me to set up the project.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                )
+            }
         }
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)

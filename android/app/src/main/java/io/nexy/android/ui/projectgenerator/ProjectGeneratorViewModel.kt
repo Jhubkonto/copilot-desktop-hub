@@ -16,12 +16,15 @@ data class ProjectGenMessage(val role: String, val content: String)
 
 enum class ProjectGenPhase { CHAT, SPEC_REVIEW, DONE }
 
+private const val GREETING = "Let's create a new project. Tell me what you're building or working on, and I'll help configure the perfect setup."
+
 data class ProjectGeneratorUiState(
     val phase: ProjectGenPhase = ProjectGenPhase.CHAT,
-    val messages: List<ProjectGenMessage> = emptyList(),
+    val messages: List<ProjectGenMessage> = listOf(ProjectGenMessage("assistant", GREETING)),
     val streamingText: String = "",
     val pendingSpec: ProjectGeneratorSpec? = null,
     val isLoading: Boolean = false,
+    val missedSpec: Boolean = false,
     val error: String? = null,
     val createdProjectName: String? = null,
     val createdProjectId: String? = null,
@@ -47,7 +50,7 @@ class ProjectGeneratorViewModel(
                     }
                     is WsEvent.ProjectGeneratorTurnComplete -> {
                         if (!isActiveSession(event.sessionId)) return@collect
-                        commitAssistantTurn(event.content)
+                        commitAssistantTurn(event.content, event.hasSpec)
                     }
                     is WsEvent.ProjectGeneratorSpecReady -> {
                         if (!isActiveSession(event.sessionId)) return@collect
@@ -89,7 +92,7 @@ class ProjectGeneratorViewModel(
         val current = _uiState.value
         val userMsg = ProjectGenMessage("user", content)
         val next = current.messages + userMsg
-        _uiState.value = current.copy(messages = next, isLoading = true, streamingText = "")
+        _uiState.value = current.copy(messages = next, isLoading = true, streamingText = "", missedSpec = false)
         val payload = next.map { mapOf("role" to it.role, "content" to it.content) }
         if (current.messages.isEmpty()) {
             wsClient.send("project-generator:start", mapOf("sessionId" to current.activeSessionId, "messages" to payload))
@@ -123,7 +126,7 @@ class ProjectGeneratorViewModel(
     private fun isActiveSession(sessionId: String?): Boolean =
         sessionId == null || sessionId == _uiState.value.activeSessionId
 
-    private fun commitAssistantTurn(content: String) {
+    private fun commitAssistantTurn(content: String, hasSpec: Boolean = false) {
         val current = _uiState.value
         val clean = content.ifBlank { current.streamingText }
             .replace(Regex("<project-spec>[\\s\\S]*?</project-spec>"), "")
@@ -132,6 +135,7 @@ class ProjectGeneratorViewModel(
             streamingText = "",
             messages = if (clean.isBlank()) current.messages else current.messages + ProjectGenMessage("assistant", clean),
             isLoading = false,
+            missedSpec = !hasSpec && clean.isBlank(),
         )
     }
 

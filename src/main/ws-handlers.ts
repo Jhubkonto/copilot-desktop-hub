@@ -19,7 +19,8 @@ import { emitVerificationEvent, runVerification } from './self-heal/verifier'
 import { commitSelfHealFix, prepareSelfHealCommit, pushSelfHealFix } from './self-heal/git-ops'
 import { approveRelaunch, getRecoveryRuns, prepareReload, rollbackHeal, startReload } from './self-heal/recovery'
 import { runProjectGeneratorChatForAndroid, createProjectFromSpec, getProjectGeneratorAgentSummaries } from './project-generator'
-import type { ProjectGeneratorSpec } from '../shared/types'
+import { runAgentGeneratorChatForAndroid, createAgentFromSpec } from './agent-generator'
+import type { ProjectGeneratorSpec, AgentGeneratorSpec } from '../shared/types'
 import { storeApiKey, removeApiKey } from './provider-secrets'
 import { detectAllClis } from './cli-detection'
 import { ClaudeAdapter } from './cli-adapters/claude'
@@ -936,6 +937,37 @@ export function registerWsHandlers(): void {
     if (command === 'project-generator:cancel') {
       const sessionId = typeof data.sessionId === 'string' ? data.sessionId : undefined
       broadcastToMobile({ event: 'project-generator:cancelled', data: { sessionId } })
+      return
+    }
+
+    if (command === 'agent-generator:start' || command === 'agent-generator:message') {
+      const messages = Array.isArray(data.messages) ? data.messages : []
+      const sessionId = typeof data.sessionId === 'string' && data.sessionId.trim()
+        ? data.sessionId.trim()
+        : `android-agent-${Date.now()}`
+      void runAgentGeneratorChatForAndroid(messages, sessionId)
+        .catch((err: unknown) => {
+          broadcastToMobile({ event: 'agent-generator:error', data: { sessionId, message: String(err) } })
+        })
+      return
+    }
+
+    if (command === 'agent-generator:confirm') {
+      const spec = data.spec as AgentGeneratorSpec
+      const sessionId = typeof data.sessionId === 'string' ? data.sessionId : undefined
+      createAgentFromSpec(spec)
+        .then((result) => {
+          broadcastToMobile({ event: 'agent-generator:created', data: { sessionId, agentId: result.agentId, name: result.name } })
+        })
+        .catch((err: unknown) => {
+          broadcastToMobile({ event: 'agent-generator:error', data: { sessionId, message: String(err) } })
+        })
+      return
+    }
+
+    if (command === 'agent-generator:cancel') {
+      const sessionId = typeof data.sessionId === 'string' ? data.sessionId : undefined
+      broadcastToMobile({ event: 'agent-generator:cancelled', data: { sessionId } })
       return
     }
   })
