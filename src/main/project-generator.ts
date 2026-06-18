@@ -26,7 +26,8 @@ Your job is to help the user set up a new project by having a brief, focused con
 
 ## Conversation style
 - Ask 2–3 targeted questions per turn — don't overwhelm with a wall of questions
-- Aim to understand: what the project is, what kind of work it involves, any scope constraints, desired milestones
+- Aim to understand: what the project is, what kind of work it involves, the root directory path on their computer, any scope constraints, desired milestones
+- Always ask for the root directory path (the folder on their computer where this project lives) — this is required for agents to access files
 - Be concise and friendly
 - When you have enough information (usually 2–3 exchanges), emit the project spec
 
@@ -37,6 +38,8 @@ When you have enough context, emit a plain conversational summary followed by a 
   "name": "Project Name",
   "color": "blue",      // one of: blue, green, red, purple, orange, pink, yellow, gray
   "instructions": "System-level instructions for agents in this project...",
+  "rootDirectory": "/absolute/path/to/project",
+  "instructionMode": "prepend",   // one of: prepend, append, replace, standalone
   "variables": [{ "key": "VAR_NAME", "value": "value" }],
   "inScope": [{ "description": "What is in scope", "pathGlob": "src/**" }],
   "outOfScope": [{ "description": "What is out of scope" }],
@@ -53,12 +56,20 @@ When you have enough context, emit a plain conversational summary followed by a 
         "icon": "🏗️",
         "systemPrompt": "You are the lead architect for this project...",
         "temperature": 0.7,
-        "responseFormat": "default"
+        "responseFormat": "default",
+        "tools": { "fileEdit": true, "terminal": true, "webFetch": false }
       },
       "isLeader": true
     }
   ]
 }
+
+## Tool enablement guidance
+Set tool permissions per agent based on their role:
+- Coding / file-editing agents: fileEdit: true, terminal: true, webFetch: false
+- Research / web-browsing agents: fileEdit: false, terminal: false, webFetch: true
+- Review / read-only agents: fileEdit: false, terminal: false, webFetch: false
+- Full-stack agents: fileEdit: true, terminal: true, webFetch: true
 
 ## Agent matching
 You will be given the user's existing agents. If an existing agent is a strong match for a role, set "existingAgentId" to their ID and omit "newAgent". Otherwise, propose a new specialist.
@@ -107,11 +118,15 @@ function extractSpec(text: string): ProjectGeneratorSpec | null {
 
 const VALID_COLORS = new Set(['blue', 'green', 'red', 'purple', 'orange', 'pink', 'yellow', 'gray'])
 
+const VALID_INSTRUCTION_MODES = new Set(['prepend', 'append', 'replace', 'standalone'])
+
 function normalizeSpec(raw: Record<string, unknown>): ProjectGeneratorSpec {
   return {
     name: String(raw.name || 'New Project').trim().slice(0, 100),
     color: VALID_COLORS.has(String(raw.color)) ? String(raw.color) : 'blue',
     instructions: String(raw.instructions || ''),
+    rootDirectory: typeof raw.rootDirectory === 'string' && raw.rootDirectory.trim() ? raw.rootDirectory.trim() : undefined,
+    instructionMode: VALID_INSTRUCTION_MODES.has(String(raw.instructionMode)) ? String(raw.instructionMode) as ProjectGeneratorSpec['instructionMode'] : 'prepend',
     variables: Array.isArray(raw.variables) ? raw.variables.filter(isKeyValue) : [],
     inScope: Array.isArray(raw.inScope) ? raw.inScope.filter(hasScopeDescription) : [],
     outOfScope: Array.isArray(raw.outOfScope) ? raw.outOfScope.filter(hasScopeDescription) : [],
@@ -264,12 +279,13 @@ export async function createProjectFromSpec(spec: ProjectGeneratorSpec): Promise
     // Step 2: update project config
     const configPatch = {
       instructions: spec.instructions,
+      rootDirectory: spec.rootDirectory ?? '',
+      instructionMode: spec.instructionMode ?? 'prepend',
       variables: spec.variables,
       inScope: spec.inScope.map((s, i) => ({ id: String(i), ...s })),
       outOfScope: spec.outOfScope.map((s, i) => ({ id: String(i), ...s })),
       milestones: spec.milestones.map((m, i) => ({ id: String(i), ...m })),
       instructionsEnabled: true,
-      instructionMode: 'prepend',
     }
     const existing = db.prepare('SELECT config_json FROM projects WHERE id = ?').get(projectId) as { config_json: string | null } | undefined
     const current = existing?.config_json ? JSON.parse(existing.config_json) as Record<string, unknown> : {}
@@ -287,9 +303,23 @@ export async function createProjectFromSpec(spec: ProjectGeneratorSpec): Promise
       } else if (agentSpec.newAgent) {
         const agentId = randomUUID()
         const agentNow = Date.now()
+        const t = agentSpec.newAgent.tools
+        const agentConfig = {
+          ...agentSpec.newAgent,
+          maxTokens: 4096,
+          contextDirectories: [],
+          contextFiles: [],
+          mcpServers: [],
+          agenticMode: false,
+          tools: {
+            fileEdit: { enabled: t?.fileEdit ?? false, approval: 'always-ask' as const, instructions: '' },
+            terminal: { enabled: t?.terminal ?? false, approval: 'always-ask' as const, instructions: '' },
+            webFetch: { enabled: t?.webFetch ?? false, approval: 'always-ask' as const, instructions: '' },
+          },
+        }
         db.prepare(
           'INSERT INTO agents (id, config_json, is_default, created_at, updated_at) VALUES (?, ?, 0, ?, ?)',
-        ).run(agentId, JSON.stringify(agentSpec.newAgent), agentNow, agentNow)
+        ).run(agentId, JSON.stringify(agentConfig), agentNow, agentNow)
         agentIdByRole[agentSpec.role] = agentId
         createdAgentIds.push(agentId)
       }

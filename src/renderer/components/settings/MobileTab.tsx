@@ -1,5 +1,6 @@
-import { RefreshCw } from 'lucide-react'
+import { RefreshCw, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react'
 import { ToggleSwitch } from '../ui/primitives'
+import { useState } from 'react'
 
 interface Props {
   mobileEnabled: boolean
@@ -29,6 +30,7 @@ export function MobileTab({
   onSetMobileExternalUrl, onToggle, onRegenerateToken, onSaveExternalUrl, onRefreshStatus,
   fcmStatus, fcmJsonDraft, fcmSaving, fcmError, onSetFcmJsonDraft, onSaveFcmServiceAccount,
 }: Props) {
+  const [fcmExpanded, setFcmExpanded] = useState(false)
   return (
     <>
       <div>
@@ -97,6 +99,17 @@ export function MobileTab({
             </div>
           </div>
 
+          {mobileClients === 0 && (
+            <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 px-4 py-3">
+              <p className="text-xs font-medium text-blue-800 dark:text-blue-300 mb-1">First time? Here's how to pair:</p>
+              <ol className="text-xs text-blue-700 dark:text-blue-400 space-y-0.5 list-none">
+                <li>1. Download the <span className="font-medium">Nexy</span> app from the Play Store</li>
+                <li>2. Open the app and tap <span className="font-medium">Scan QR code</span></li>
+                <li>3. Point your camera at the code below</li>
+              </ol>
+            </div>
+          )}
+
           {mobileQr ? (
             <div className="flex flex-col items-center gap-3">
               <p className="text-xs text-gray-500 text-center">Scan with the Nexy Android app to pair</p>
@@ -106,11 +119,14 @@ export function MobileTab({
                 className="rounded-lg border border-gray-200 dark:border-gray-700"
                 style={{ width: 200, height: 200 }}
               />
+              <p className="text-xs text-gray-400 text-center">
+                This code never expires. Regenerate it if your device was lost or you want to revoke access.
+              </p>
               <button
                 type="button"
                 onClick={onRegenerateToken}
                 disabled={mobileLoading}
-                className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
               >
                 <RefreshCw className="w-3 h-3" />
                 Regenerate pairing code
@@ -129,44 +145,59 @@ export function MobileTab({
           >
             Refresh status
           </button>
+
+          {/* FCM Push Notifications — only relevant when server is enabled */}
+          <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3">
+            <button
+              type="button"
+              className="flex items-center justify-between w-full text-left"
+              onClick={() => setFcmExpanded((v) => !v)}
+            >
+              <div>
+                <p className="text-sm font-medium text-gray-800 dark:text-gray-100 flex items-center gap-2">
+                  FCM Push Notifications
+                  {fcmStatus?.configured && (
+                    <CheckCircle2 className="w-4 h-4 text-green-500" />
+                  )}
+                </p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {fcmStatus?.configured
+                    ? `Active — project: ${fcmStatus.projectId}`
+                    : 'Not configured — push notifications disabled'}
+                </p>
+              </div>
+              {fcmExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+            </button>
+
+            {fcmExpanded && (
+              <>
+                <p className="text-xs text-gray-500">
+                  Sends push notifications to offline devices when tool approvals are requested. Paste your Firebase service account JSON key below. Get it from Firebase Console → Project Settings → Service accounts → Generate new private key.
+                </p>
+                <textarea
+                  value={fcmJsonDraft}
+                  onChange={(e) => onSetFcmJsonDraft(e.target.value)}
+                  placeholder={'{\n  "type": "service_account",\n  "project_id": "my-project",\n  ...\n}'}
+                  rows={4}
+                  className="w-full font-mono text-[10px] p-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 resize-none"
+                />
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={onSaveFcmServiceAccount}
+                    disabled={fcmSaving || !fcmJsonDraft.trim()}
+                    className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40"
+                  >
+                    {fcmSaving ? 'Saving…' : 'Save configuration'}
+                  </button>
+                  {fcmError && (
+                    <p className="text-xs text-red-600 dark:text-red-400">{fcmError}</p>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
         </>
       )}
-
-      {/* FCM Push Notifications */}
-      <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3">
-        <div>
-          <p className="text-sm font-medium text-gray-800 dark:text-gray-100">
-            FCM Push Notifications
-            {fcmStatus && (
-              <span className={`ml-2 text-xs font-normal ${fcmStatus.configured ? 'text-green-600 dark:text-green-400' : 'text-gray-400'}`}>
-                — {fcmStatus.configured ? `configured (project: ${fcmStatus.projectId})` : 'not configured'}
-              </span>
-            )}
-          </p>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Sends push notifications to offline devices when tool approvals are requested. Paste your Firebase service account JSON key below. Get it from Firebase Console → Project Settings → Service accounts → Generate new private key.
-          </p>
-        </div>
-        <textarea
-          value={fcmJsonDraft}
-          onChange={(e) => onSetFcmJsonDraft(e.target.value)}
-          placeholder={'{\n  "type": "service_account",\n  "project_id": "my-project",\n  ...\n}'}
-          rows={4}
-          className="w-full font-mono text-[10px] p-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 resize-none"
-        />
-        <div className="flex items-center gap-3">
-          <button
-            onClick={onSaveFcmServiceAccount}
-            disabled={fcmSaving || !fcmJsonDraft.trim()}
-            className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40"
-          >
-            {fcmSaving ? 'Saving…' : 'Save configuration'}
-          </button>
-          {fcmError && (
-            <p className="text-xs text-red-600 dark:text-red-400">{fcmError}</p>
-          )}
-        </div>
-      </div>
     </>
   )
 }

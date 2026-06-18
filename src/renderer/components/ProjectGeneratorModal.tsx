@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { X, Send, Loader2, ChevronRight, Crown, UserPlus, Sparkles, Pencil, Plus, Trash2 } from 'lucide-react'
+import { X, Send, Loader2, ChevronRight, Crown, UserPlus, Sparkles, Pencil, Plus, Trash2, FolderOpen } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
-import type { ProjectGeneratorSpec, ProjectGeneratorMessage } from '../../shared/types'
+import type { ProjectGeneratorSpec, ProjectGeneratorAgentSpec, ProjectGeneratorMessage } from '../../shared/types'
+import { getAvailableModelIds, getModelLabel } from '../../shared/models'
 
 // ─── Draft preview ────────────────────────────────────────────────────────────
 
@@ -166,6 +167,116 @@ function CreationOverlay({ step, error, onRetry }: { step: number; error: string
   )
 }
 
+// ─── Agent card (extracted to avoid hook-in-map) ─────────────────────────────
+
+interface AgentCardProps {
+  agent: ProjectGeneratorAgentSpec
+  index: number
+  spec: ProjectGeneratorSpec
+  onChange: (spec: ProjectGeneratorSpec) => void
+}
+
+function AgentCard({ agent, index, spec, onChange }: AgentCardProps) {
+  const [promptOpen, setPromptOpen] = useState(false)
+  const set = (patch: Partial<ProjectGeneratorSpec>) => onChange({ ...spec, ...patch })
+
+  return (
+    <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-2.5 space-y-2">
+      <div className="flex items-center gap-2">
+        {agent.existingAgentId ? (
+          <span className="text-[9px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-500 font-medium shrink-0">Existing</span>
+        ) : (
+          <input
+            value={agent.newAgent?.icon ?? '🤖'}
+            onChange={(e) => {
+              const arr = [...spec.agents]
+              arr[index] = { ...arr[index], newAgent: { ...arr[index].newAgent!, icon: e.target.value } }
+              set({ agents: arr })
+            }}
+            className="w-8 text-center text-base border border-gray-200 dark:border-gray-700 rounded px-0.5 bg-white dark:bg-gray-800 focus:outline-none"
+            maxLength={4}
+          />
+        )}
+        <input
+          value={agent.newAgent?.name ?? agent.role}
+          onChange={(e) => {
+            const arr = [...spec.agents]
+            if (arr[index].newAgent) arr[index] = { ...arr[index], newAgent: { ...arr[index].newAgent!, name: e.target.value } }
+            set({ agents: arr })
+          }}
+          disabled={!!agent.existingAgentId}
+          placeholder="Agent name"
+          className="flex-1 text-xs border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-800 focus:outline-none disabled:opacity-50"
+        />
+        <button
+          onClick={() => {
+            const arr = [...spec.agents]
+            const wasLeader = arr[index].isLeader
+            arr.forEach((a, j) => { arr[j] = { ...a, isLeader: j === index ? !wasLeader : (wasLeader ? a.isLeader : false) } })
+            set({ agents: arr })
+          }}
+          className={`p-1 rounded ${agent.isLeader ? 'text-yellow-500' : 'text-gray-300 hover:text-yellow-400'}`}
+          title={agent.isLeader ? 'Leader — click to remove' : 'Set as leader'}
+        >
+          <Crown className="w-3.5 h-3.5" />
+        </button>
+        <button onClick={() => set({ agents: spec.agents.filter((_, j) => j !== index) })} className="text-gray-400 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>
+      </div>
+      <p className="text-[10px] text-gray-400 px-0.5">{agent.role}</p>
+      {!agent.existingAgentId && (
+        <div className="space-y-1.5">
+          {/* Tool toggles */}
+          <div className="flex items-center gap-3 px-0.5">
+            {(['fileEdit', 'terminal', 'webFetch'] as const).map((toolKey) => {
+              const labels: Record<string, string> = { fileEdit: 'File Edit', terminal: 'Terminal', webFetch: 'Web Fetch' }
+              const enabled = agent.newAgent?.tools?.[toolKey] ?? false
+              return (
+                <label key={toolKey} className="flex items-center gap-1 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={enabled}
+                    onChange={(e) => {
+                      const arr = [...spec.agents]
+                      const existing = arr[index].newAgent!
+                      arr[index] = {
+                        ...arr[index],
+                        newAgent: {
+                          ...existing,
+                          tools: { fileEdit: false, terminal: false, webFetch: false, ...(existing.tools ?? {}), [toolKey]: e.target.checked },
+                        },
+                      }
+                      set({ agents: arr })
+                    }}
+                    className="w-3 h-3 rounded"
+                  />
+                  <span className="text-[10px] text-gray-500 dark:text-gray-400">{labels[toolKey]}</span>
+                </label>
+              )
+            })}
+          </div>
+          <button
+            onClick={() => setPromptOpen((p) => !p)}
+            className="text-[10px] text-indigo-500 hover:text-indigo-700"
+          >{promptOpen ? 'Hide' : 'Edit'} system prompt</button>
+          {promptOpen && (
+            <textarea
+              value={agent.newAgent?.systemPrompt ?? ''}
+              onChange={(e) => {
+                const arr = [...spec.agents]
+                arr[index] = { ...arr[index], newAgent: { ...arr[index].newAgent!, systemPrompt: e.target.value } }
+                set({ agents: arr })
+              }}
+              rows={3}
+              className="mt-1 w-full text-xs border border-gray-200 dark:border-gray-700 rounded px-2 py-1.5 bg-white dark:bg-gray-800 focus:outline-none resize-none"
+              placeholder="System prompt…"
+            />
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Edit form ────────────────────────────────────────────────────────────────
 
 const COLOR_OPTIONS = ['blue', 'green', 'red', 'purple', 'orange', 'pink', 'yellow', 'gray'] as const
@@ -177,8 +288,18 @@ interface EditFormProps {
   onCancel: () => void
 }
 
+const INSTRUCTION_MODE_OPTIONS = [
+  { value: 'prepend', label: 'Prepend' },
+  { value: 'append', label: 'Append' },
+  { value: 'replace', label: 'Replace' },
+  { value: 'standalone', label: 'Standalone' },
+] as const
+
 function EditForm({ spec, onChange, onConfirm, onCancel }: EditFormProps) {
+  const catalogModels = useAppStore((s) => s.catalogModels)
+  const globalDefaultModel = useAppStore((s) => s.globalDefaultModel)
   const set = (patch: Partial<ProjectGeneratorSpec>) => onChange({ ...spec, ...patch })
+  const modelIds = getAvailableModelIds(catalogModels, spec.defaultModel ?? null)
 
   return (
     <div className="flex flex-col h-full">
@@ -204,6 +325,16 @@ function EditForm({ spec, onChange, onConfirm, onCancel }: EditFormProps) {
                 />
               ))}
             </div>
+            {/* Root directory */}
+            <div className="flex items-center gap-2 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-800">
+              <FolderOpen className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+              <input
+                value={spec.rootDirectory ?? ''}
+                onChange={(e) => set({ rootDirectory: e.target.value || undefined })}
+                placeholder="/path/to/project"
+                className="flex-1 text-xs bg-transparent text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none font-mono"
+              />
+            </div>
             <textarea
               value={spec.instructions}
               onChange={(e) => set({ instructions: e.target.value })}
@@ -211,6 +342,38 @@ function EditForm({ spec, onChange, onConfirm, onCancel }: EditFormProps) {
               rows={3}
               className="w-full text-xs border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-400 resize-none"
             />
+            {/* Instruction mode */}
+            <div>
+              <p className="text-[10px] text-gray-400 mb-1">Instruction mode</p>
+              <div className="flex gap-1">
+                {INSTRUCTION_MODE_OPTIONS.map(({ value, label }) => (
+                  <button
+                    key={value}
+                    onClick={() => set({ instructionMode: value })}
+                    className={`px-2 py-1 rounded text-[10px] font-medium border transition-colors ${
+                      (spec.instructionMode ?? 'prepend') === value
+                        ? 'bg-indigo-600 border-indigo-600 text-white'
+                        : 'border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
+                    }`}
+                  >{label}</button>
+                ))}
+              </div>
+            </div>
+            {/* Model picker */}
+            <div>
+              <p className="text-[10px] text-gray-400 mb-1">Default model</p>
+              <select
+                value={spec.defaultModel ?? 'default'}
+                onChange={(e) => set({ defaultModel: e.target.value === 'default' ? undefined : e.target.value })}
+                className="w-full text-xs border border-gray-200 dark:border-gray-700 rounded px-2 py-1.5 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 focus:outline-none"
+              >
+                {modelIds.map((id) => (
+                  <option key={id} value={id}>
+                    {getModelLabel(id, catalogModels, globalDefaultModel ?? undefined)}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div>
               <div className="flex items-center justify-between mb-1">
                 <span className="text-[10px] text-gray-400">Variables</span>
@@ -333,82 +496,16 @@ function EditForm({ spec, onChange, onConfirm, onCancel }: EditFormProps) {
               onClick={() => set({
                 agents: [...spec.agents, {
                   role: 'Specialist', description: '', isLeader: false,
-                  newAgent: { name: 'Specialist', icon: '🤖', systemPrompt: '', temperature: 0.7, responseFormat: 'default' }
+                  newAgent: { name: 'Specialist', icon: '🤖', systemPrompt: '', temperature: 0.7, responseFormat: 'default', tools: { fileEdit: false, terminal: false, webFetch: false } }
                 }]
               })}
               className="text-[10px] text-indigo-500 hover:text-indigo-700"
             ><Plus className="w-3 h-3 inline" /> Add</button>
           </div>
           <div className="space-y-2">
-            {spec.agents.map((agent, i) => {
-              const [promptOpen, setPromptOpen] = useState(false)
-              return (
-                <div key={i} className="rounded-lg border border-gray-200 dark:border-gray-700 p-2.5 space-y-2">
-                  <div className="flex items-center gap-2">
-                    {agent.existingAgentId ? (
-                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-500 font-medium shrink-0">Existing</span>
-                    ) : (
-                      <input
-                        value={agent.newAgent?.icon ?? '🤖'}
-                        onChange={(e) => {
-                          const arr = [...spec.agents]
-                          arr[i] = { ...arr[i], newAgent: { ...arr[i].newAgent!, icon: e.target.value } }
-                          set({ agents: arr })
-                        }}
-                        className="w-8 text-center text-base border border-gray-200 dark:border-gray-700 rounded px-0.5 bg-white dark:bg-gray-800 focus:outline-none"
-                        maxLength={4}
-                      />
-                    )}
-                    <input
-                      value={agent.newAgent?.name ?? agent.role}
-                      onChange={(e) => {
-                        const arr = [...spec.agents]
-                        if (arr[i].newAgent) arr[i] = { ...arr[i], newAgent: { ...arr[i].newAgent!, name: e.target.value } }
-                        set({ agents: arr })
-                      }}
-                      disabled={!!agent.existingAgentId}
-                      placeholder="Agent name"
-                      className="flex-1 text-xs border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-800 focus:outline-none disabled:opacity-50"
-                    />
-                    <button
-                      onClick={() => {
-                        const arr = [...spec.agents]
-                        const wasLeader = arr[i].isLeader
-                        arr.forEach((a, j) => { arr[j] = { ...a, isLeader: j === i ? !wasLeader : (wasLeader ? a.isLeader : false) } })
-                        set({ agents: arr })
-                      }}
-                      className={`p-1 rounded ${agent.isLeader ? 'text-yellow-500' : 'text-gray-300 hover:text-yellow-400'}`}
-                      title={agent.isLeader ? 'Leader — click to remove' : 'Set as leader'}
-                    >
-                      <Crown className="w-3.5 h-3.5" />
-                    </button>
-                    <button onClick={() => set({ agents: spec.agents.filter((_, j) => j !== i) })} className="text-gray-400 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>
-                  </div>
-                  <p className="text-[10px] text-gray-400 px-0.5">{agent.role}</p>
-                  {!agent.existingAgentId && (
-                    <div>
-                      <button
-                        onClick={() => setPromptOpen((p) => !p)}
-                        className="text-[10px] text-indigo-500 hover:text-indigo-700"
-                      >{promptOpen ? 'Hide' : 'Edit'} system prompt</button>
-                      {promptOpen && (
-                        <textarea
-                          value={agent.newAgent?.systemPrompt ?? ''}
-                          onChange={(e) => {
-                            const arr = [...spec.agents]
-                            arr[i] = { ...arr[i], newAgent: { ...arr[i].newAgent!, systemPrompt: e.target.value } }
-                            set({ agents: arr })
-                          }}
-                          rows={3}
-                          className="mt-1 w-full text-xs border border-gray-200 dark:border-gray-700 rounded px-2 py-1.5 bg-white dark:bg-gray-800 focus:outline-none resize-none"
-                          placeholder="System prompt…"
-                        />
-                      )}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+            {spec.agents.map((agent, i) => (
+              <AgentCard key={i} agent={agent} index={i} spec={spec} onChange={onChange} />
+            ))}
           </div>
         </section>
       </div>
@@ -467,6 +564,7 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
   const agents = useAppStore((s) => s.agents)
   const createProject = useAppStore((s) => s.createProject)
   const updateProjectConfig = useAppStore((s) => s.updateProjectConfig)
+  const setProjectDefaultModel = useAppStore((s) => s.setProjectDefaultModel)
   const loadProjectAgents = useAppStore((s) => s.loadProjectAgents)
   const addAgentToProject = useAppStore((s) => s.addAgentToProject)
   const setProjectPrimaryAgent = useAppStore((s) => s.setProjectPrimaryAgent)
@@ -580,12 +678,13 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
       setCreationStep(1)
       await updateProjectConfig(projectId, {
         instructions: specToCreate.instructions,
+        rootDirectory: specToCreate.rootDirectory ?? '',
+        instructionMode: (specToCreate.instructionMode ?? 'prepend') as 'prepend' | 'append' | 'replace' | 'standalone',
         variables: specToCreate.variables,
         inScope: specToCreate.inScope.map((s, i) => ({ id: String(i), ...s })),
         outOfScope: specToCreate.outOfScope.map((s, i) => ({ id: String(i), ...s })),
         milestones: specToCreate.milestones.map((m, i) => ({ id: String(i), ...m })),
         instructionsEnabled: true,
-        instructionMode: 'prepend' as const,
       })
 
       // Step 2: create new agents
@@ -595,6 +694,7 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
         if (agentSpec.existingAgentId) {
           agentIdByRole[agentSpec.role] = agentSpec.existingAgentId
         } else if (agentSpec.newAgent) {
+          const t = agentSpec.newAgent.tools
           const created = await window.api.createAgent({
             name: agentSpec.newAgent.name,
             icon: agentSpec.newAgent.icon,
@@ -607,9 +707,9 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
             mcpServers: [],
             agenticMode: false,
             tools: {
-              fileEdit: { enabled: false, approval: 'always-ask', instructions: '' },
-              terminal: { enabled: false, approval: 'always-ask', instructions: '' },
-              webFetch: { enabled: false, approval: 'always-ask', instructions: '' },
+              fileEdit: { enabled: t?.fileEdit ?? false, approval: 'always-ask', instructions: '' },
+              terminal: { enabled: t?.terminal ?? false, approval: 'always-ask', instructions: '' },
+              webFetch: { enabled: t?.webFetch ?? false, approval: 'always-ask', instructions: '' },
             },
           })
           agentIdByRole[agentSpec.role] = created.id
@@ -632,9 +732,12 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
         if (leaderId) await setProjectPrimaryAgent(projectId, leaderId)
       }
 
-      // Step 5: enable orchestration
+      // Step 5: enable orchestration + default model
       setCreationStep(5)
       await updateProjectConfig(projectId, { orchestrationEnabled: specToCreate.orchestrationEnabled })
+      if (specToCreate.defaultModel) {
+        await setProjectDefaultModel(projectId, specToCreate.defaultModel)
+      }
 
       // Done — navigate to the new project
       await loadProjectAgents(projectId)
@@ -671,14 +774,27 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
             <Sparkles className="w-4 h-4 text-indigo-500" />
             <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">New Project</h2>
           </div>
-          <button
-            onClick={onClose}
-            disabled={isCreating && !creationError}
-            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40"
-            aria-label="Close"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            {!isEditing && !isCreating && (
+              <button
+                onClick={() => {
+                  setEditSpec({ name: '', color: 'blue', instructions: '', rootDirectory: undefined, instructionMode: 'prepend', variables: [], inScope: [], outOfScope: [], milestones: [], orchestrationEnabled: true, defaultModel: undefined, agents: [] })
+                  setIsEditing(true)
+                }}
+                className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              >
+                Manual setup
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              disabled={isCreating && !creationError}
+              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40"
+              aria-label="Close"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Body — two columns */}
@@ -729,41 +845,39 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
                   <div ref={chatEndRef} />
                 </div>
 
-                {/* Spec action bar */}
-                {spec && !isStreaming && (
-                  <div className="px-4 pb-3 flex items-center gap-2 border-t border-gray-100 dark:border-gray-800 pt-3">
-                    <div className="flex-1 text-xs text-gray-500 dark:text-gray-400 truncate">
-                      <span className="text-green-600 dark:text-green-400 font-medium">Project spec ready</span>
-                      {' — '}{spec.agents.length} agent{spec.agents.length !== 1 ? 's' : ''}, {spec.milestones.length} milestone{spec.milestones.length !== 1 ? 's' : ''}
+                {/* Input / spec footer */}
+                <div className="border-t border-gray-100 dark:border-gray-800">
+                  {spec && !isStreaming && (
+                    <div className="px-4 pt-3 pb-2 flex items-center gap-2">
+                      <div className="flex-1 text-xs text-gray-500 dark:text-gray-400 truncate">
+                        <span className="text-green-600 dark:text-green-400 font-medium">Spec ready</span>
+                        {' — '}{spec.agents.length} agent{spec.agents.length !== 1 ? 's' : ''}, {spec.milestones.length} milestone{spec.milestones.length !== 1 ? 's' : ''}
+                      </div>
+                      <button
+                        onClick={() => { setEditSpec(spec); setIsEditing(true) }}
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                      >
+                        <Pencil className="w-3 h-3" />
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleCreate(spec)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium transition-colors"
+                      >
+                        <UserPlus className="w-3.5 h-3.5" />
+                        Create project
+                        <ChevronRight className="w-3 h-3" />
+                      </button>
                     </div>
-                    <button
-                      onClick={() => { setEditSpec(spec); setIsEditing(true) }}
-                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-                    >
-                      <Pencil className="w-3 h-3" />
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleCreate(spec)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium transition-colors"
-                    >
-                      <UserPlus className="w-3.5 h-3.5" />
-                      Create project
-                      <ChevronRight className="w-3 h-3" />
-                    </button>
-                  </div>
-                )}
-
-                {/* Input */}
-                {!spec && (
-                  <div className="px-4 pb-4 pt-2 border-t border-gray-100 dark:border-gray-800">
+                  )}
+                  <div className="px-4 pb-4 pt-2">
                     <div className="flex items-end gap-2 bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 px-3 py-2">
                       <textarea
                         ref={inputRef}
                         value={inputText}
                         onChange={(e) => setInputText(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        placeholder="Describe your project…"
+                        placeholder={spec ? 'Refine or ask for changes…' : 'Describe your project…'}
                         rows={1}
                         disabled={isStreaming}
                         className="flex-1 resize-none bg-transparent text-sm text-gray-800 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none min-h-[24px] max-h-[96px] overflow-y-auto disabled:opacity-50"
@@ -775,7 +889,10 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
                         }}
                       />
                       <button
-                        onClick={() => sendMessage(inputText)}
+                        onClick={() => {
+                          if (spec) { setSpec(null); sendMessage(inputText) }
+                          else sendMessage(inputText)
+                        }}
                         disabled={isStreaming || !inputText.trim()}
                         className="p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
                         aria-label="Send message"
@@ -783,39 +900,9 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
                         {isStreaming ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
                       </button>
                     </div>
-                    <p className="text-[10px] text-gray-400 mt-1.5 text-center">Press Enter to send · Shift+Enter for newline</p>
+                    {!spec && <p className="text-[10px] text-gray-400 mt-1.5 text-center">Press Enter to send · Shift+Enter for newline</p>}
                   </div>
-                )}
-
-                {/* Continue chatting after spec */}
-                {spec && !isStreaming && (
-                  <div className="px-4 pb-3">
-                    <div className="flex items-end gap-2 bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 px-3 py-2">
-                      <textarea
-                        ref={inputRef}
-                        value={inputText}
-                        onChange={(e) => setInputText(e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        placeholder="Refine or ask for changes…"
-                        rows={1}
-                        className="flex-1 resize-none bg-transparent text-sm text-gray-800 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none min-h-[24px] max-h-[96px] overflow-y-auto"
-                        onInput={(e) => {
-                          const el = e.currentTarget
-                          el.style.height = 'auto'
-                          el.style.height = `${Math.min(el.scrollHeight, 96)}px`
-                        }}
-                      />
-                      <button
-                        onClick={() => { setSpec(null); sendMessage(inputText) }}
-                        disabled={!inputText.trim()}
-                        className="p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
-                        aria-label="Send message"
-                      >
-                        <Send className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                )}
+                </div>
               </>
             )}
           </div>

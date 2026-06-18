@@ -481,6 +481,7 @@ export interface ProjectGeneratorAgentSpec {
     systemPrompt: string
     temperature: number
     responseFormat: 'default' | 'concise' | 'detailed' | 'code-only'
+    tools?: { fileEdit: boolean; terminal: boolean; webFetch: boolean }
   }
   isLeader: boolean
 }
@@ -489,6 +490,8 @@ export interface ProjectGeneratorSpec {
   name: string
   color: string
   instructions: string
+  rootDirectory?: string
+  instructionMode?: 'prepend' | 'append' | 'replace' | 'standalone'
   variables: { key: string; value: string }[]
   inScope: { description: string; pathGlob?: string }[]
   outOfScope: { description: string; pathGlob?: string }[]
