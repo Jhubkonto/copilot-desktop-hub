@@ -465,6 +465,12 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
       );
     `,
   },
+  {
+    version: 35,
+    sql: `
+      DROP TABLE IF EXISTS feature_generator_runs;
+    `,
+  },
 ];
 
 
