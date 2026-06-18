@@ -1,6 +1,9 @@
 package io.nexy.android.data
 
 import io.nexy.android.data.model.Agent
+import io.nexy.android.data.model.AgentFullConfig
+import io.nexy.android.data.model.AgentTools
+import io.nexy.android.data.model.ToolConfig
 import io.nexy.android.data.model.AndroidUpdateManifest
 import io.nexy.android.data.model.ArtifactDetail2
 import io.nexy.android.data.model.ProjectGeneratorSpec
@@ -39,6 +42,7 @@ fun parseWsEvent(
     conversations: MutableStateFlow<List<Conversation>>,
     projects: MutableStateFlow<List<Project>>,
     agents: MutableStateFlow<List<Agent>>,
+    agentFullConfig: MutableStateFlow<AgentFullConfig?>,
     models: MutableStateFlow<List<ModelOption>>,
     modelSource: MutableStateFlow<ModelListSource?>,
     androidUpdateManifest: MutableStateFlow<AndroidUpdateManifest?>,
@@ -347,6 +351,26 @@ fun parseWsEvent(
                 val id = data?.optString("id") ?: ""
                 agents.value = agents.value.filter { it.id != id }
                 WsEvent.AgentDeleted(id)
+            }
+
+            "agent:full" -> {
+                val a = data?.optJSONObject("agent") ?: return
+                val config = AgentFullConfig(
+                    id = a.optString("id"),
+                    name = a.optString("name"),
+                    icon = a.optString("icon", ""),
+                    systemPrompt = a.optString("systemPrompt", ""),
+                    backend = a.nullableString("backend"),
+                    cliModel = a.nullableString("cliModel"),
+                    temperature = a.optDouble("temperature", 0.7).toFloat(),
+                    maxTokens = a.optInt("maxTokens", 8192),
+                    responseFormat = a.optString("responseFormat", "default"),
+                    agenticMode = a.optBoolean("agenticMode", false),
+                    memory = a.optString("memory", ""),
+                    tools = parseAgentTools(a.optJSONObject("tools")),
+                )
+                agentFullConfig.value = config
+                WsEvent.AgentFull(config)
             }
 
             "provider:list" -> {
@@ -772,6 +796,18 @@ private fun parseProjectGeneratorSpec(data: org.json.JSONObject?): ProjectGenera
         orchestrationEnabled = d.optBoolean("orchestrationEnabled", true),
         defaultModel = d.nullableString("defaultModel"),
         agents = agents,
+    )
+}
+
+private fun parseAgentTools(obj: JSONObject?): AgentTools {
+    fun parseToolConfig(tool: JSONObject?, defaultEnabled: Boolean, defaultApproval: String) = ToolConfig(
+        enabled = tool?.optBoolean("enabled", defaultEnabled) ?: defaultEnabled,
+        approval = tool?.optString("approval", defaultApproval) ?: defaultApproval,
+    )
+    return AgentTools(
+        fileEdit = parseToolConfig(obj?.optJSONObject("fileEdit"), defaultEnabled = true, defaultApproval = "always-ask"),
+        terminal = parseToolConfig(obj?.optJSONObject("terminal"), defaultEnabled = false, defaultApproval = "always-ask"),
+        webFetch = parseToolConfig(obj?.optJSONObject("webFetch"), defaultEnabled = true, defaultApproval = "never-ask"),
     )
 }
 

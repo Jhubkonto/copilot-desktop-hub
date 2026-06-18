@@ -77,6 +77,7 @@ sealed class WsEvent {
     data class AgentCreated(val agent: Agent) : WsEvent()
     data class AgentUpdated(val agent: Agent) : WsEvent()
     data class AgentDeleted(val id: String) : WsEvent()
+    data class AgentFull(val config: AgentFullConfig) : WsEvent()
     data class ProviderList(val providers: List<ProviderInfo>) : WsEvent()
     data class ProviderKeySet(val provider: String) : WsEvent()
     data class ProviderKeyRemoved(val provider: String) : WsEvent()

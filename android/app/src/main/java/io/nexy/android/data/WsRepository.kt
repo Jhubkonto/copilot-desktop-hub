@@ -3,6 +3,7 @@ package io.nexy.android.data
 import android.app.Application
 import android.app.NotificationManager
 import io.nexy.android.data.model.Agent
+import io.nexy.android.data.model.AgentFullConfig
 import io.nexy.android.data.model.AndroidUpdateManifest
 import io.nexy.android.data.model.ArtifactSummary
 import io.nexy.android.data.model.CliInstallInfo
@@ -53,6 +54,9 @@ object WsRepository : WsClient {
     private val _lastError = MutableStateFlow<String?>(null)
     val lastError: StateFlow<String?> = _lastError
 
+    private val _reconnectExhausted = MutableStateFlow(false)
+    val reconnectExhausted: StateFlow<Boolean> = _reconnectExhausted
+
     private val _serverVersion = MutableStateFlow<String?>(null)
     val serverVersion: StateFlow<String?> = _serverVersion
 
@@ -64,6 +68,8 @@ object WsRepository : WsClient {
 
     private val _agents = MutableStateFlow<List<Agent>>(emptyList())
     val agents: StateFlow<List<Agent>> = _agents
+
+    val agentFullConfig = MutableStateFlow<AgentFullConfig?>(null)
 
     private val _projects = MutableStateFlow<List<Project>>(emptyList())
     val projects: StateFlow<List<Project>> = _projects
@@ -112,6 +118,7 @@ object WsRepository : WsClient {
     private var currentToken: String? = null
     private var currentCertFingerprint: String? = null
     private var reconnectJob: Job? = null
+    private var handshakeTimeoutJob: Job? = null
     private var reconnectAttempts = 0
     private val maxReconnects = 5
 
@@ -155,11 +162,13 @@ object WsRepository : WsClient {
 
     fun connect(config: PairedServerConfig) {
         reconnectJob?.cancel()
+        handshakeTimeoutJob?.cancel()
         ws?.cancel()
         currentUrl = config.connectUrl
         currentToken = config.token
         currentCertFingerprint = config.certFingerprint
         reconnectAttempts = 0
+        _reconnectExhausted.value = false
         doConnect(config.connectUrl)
     }
 
@@ -198,6 +207,7 @@ object WsRepository : WsClient {
         ws = activeClient.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 reconnectAttempts = 0
+                _reconnectExhausted.value = false
                 _connectionState.value = ConnectionState.CONNECTED
                 _lastError.value = null
                 _serverVersion.value = null
@@ -211,6 +221,22 @@ object WsRepository : WsClient {
                     pendingCommands.forEach { (cmd, data) -> send(cmd, data) }
                     pendingCommands.clear()
                 }
+                // If the desktop doesn't send the "connected" event within 15s, treat it as a failure.
+                handshakeTimeoutJob?.cancel()
+                handshakeTimeoutJob = scope.launch {
+                    // Wait up to 15s for serverVersion to be set (happens on "connected" event).
+                    var elapsed = 0
+                    while (_serverVersion.value == null && elapsed < 15_000) {
+                        delay(500L)
+                        elapsed += 500
+                    }
+                    if (_serverVersion.value == null) {
+                        _lastError.value = "Desktop did not respond — check that Nexy is open and on the same network."
+                        webSocket.cancel()
+                        _connectionState.value = ConnectionState.DISCONNECTED
+                        scheduleReconnect()
+                    }
+                }
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -222,6 +248,7 @@ object WsRepository : WsClient {
                     conversations = _conversations,
                     projects = _projects,
                     agents = _agents,
+                    agentFullConfig = agentFullConfig,
                     models = _models,
                     modelSource = _modelSource,
                     androidUpdateManifest = _androidUpdateManifest,
@@ -253,7 +280,10 @@ object WsRepository : WsClient {
     private fun scheduleReconnect() {
         val url = currentUrl ?: return
         if (currentToken == null) return
-        if (reconnectAttempts >= maxReconnects) return
+        if (reconnectAttempts >= maxReconnects) {
+            _reconnectExhausted.value = true
+            return
+        }
         reconnectJob?.cancel()
         reconnectJob = scope.launch {
             delay(3_000L)
@@ -264,6 +294,7 @@ object WsRepository : WsClient {
 
     fun disconnect() {
         reconnectJob?.cancel()
+        handshakeTimeoutJob?.cancel()
         currentUrl = null
         currentToken = null
         currentCertFingerprint = null
@@ -341,6 +372,7 @@ object WsRepository : WsClient {
     fun createAgent(name: String, icon: String) { send("agent:create", mapOf("name" to name, "icon" to icon)) }
     fun updateAgent(id: String, name: String, icon: String) { send("agent:update", mapOf("id" to id, "name" to name, "icon" to icon)) }
     fun deleteAgent(id: String) { send("agent:delete", mapOf("id" to id)) }
+    fun requestAgentFull(id: String) { send("agent:get-full", mapOf("id" to id)) }
     fun getProviders() { send("provider:get-configured", emptyMap()) }
     fun setProviderKey(provider: String, key: String) { send("provider:set-key", mapOf("provider" to provider, "key" to key)) }
     fun removeProviderKey(provider: String) { send("provider:remove-key", mapOf("provider" to provider)) }
