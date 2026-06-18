@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -344,6 +345,7 @@ fun ProjectsTab(
     onDismissCreateSheet: () -> Unit,
     onRefresh: () -> Unit,
     onOpenProjectHistory: (String) -> Unit,
+    onOpenProjectGenerator: () -> Unit,
     onCreateProject: (name: String, color: String) -> Unit,
     onRenameProject: (id: String, name: String) -> Unit,
     onDeleteProject: (id: String) -> Unit,
@@ -456,14 +458,30 @@ fun ProjectsTab(
 
     RefreshableContent(isRefreshing = isRefreshing, onRefresh = onRefresh) {
         if (projects.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                NexyEmptyState(
-                    title = "No projects yet.",
-                    detail = "Tap + to create one.",
-                )
+            Column(
+                modifier = Modifier.fillMaxSize().padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                NexyEmptyState(title = "No projects yet.", detail = "Create one manually or generate a full setup.")
+                TextButton(onClick = onOpenProjectGenerator) {
+                    Icon(Icons.Filled.Add, contentDescription = null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Generate project")
+                }
             }
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
+                item {
+                    TextButton(
+                        onClick = onOpenProjectGenerator,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                    ) {
+                        Icon(Icons.Filled.Add, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Generate project")
+                    }
+                }
                 items(projects, key = { it.id }) { project ->
                     val accentColor = projectColor(project.color)
                     var menuExpanded by remember { mutableStateOf(false) }

@@ -106,6 +106,7 @@ fun ProjectGeneratorScreen(
                 ProjectGenPhase.SPEC_REVIEW -> SpecReviewPhase(
                     spec = uiState.pendingSpec,
                     isLoading = uiState.isLoading,
+                    onSpecChange = { vm.updateSpec(it) },
                     onConfirm = { vm.confirmSpec() },
                     onBack = { vm.reset() },
                     modifier = Modifier.weight(1f),
@@ -269,6 +270,7 @@ private fun ChatBubble(role: String, text: String, streaming: Boolean = false) {
 private fun SpecReviewPhase(
     spec: ProjectGeneratorSpec?,
     isLoading: Boolean,
+    onSpecChange: (ProjectGeneratorSpec) -> Unit,
     onConfirm: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -282,11 +284,45 @@ private fun SpecReviewPhase(
         if (spec == null) {
             Text("No spec generated yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
-            SpecField("Name", spec.name)
+            OutlinedTextField(
+                value = spec.name,
+                onValueChange = { onSpecChange(spec.copy(name = it)) },
+                label = { Text("Name") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+            )
+            Spacer(Modifier.height(8.dp))
             SpecField("Color", spec.color)
-            if (spec.instructions.isNotBlank()) SpecField("Instructions", spec.instructions)
+            OutlinedTextField(
+                value = spec.rootDirectory.orEmpty(),
+                onValueChange = { onSpecChange(spec.copy(rootDirectory = it.ifBlank { null })) },
+                label = { Text("Root directory") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = spec.instructions,
+                onValueChange = { onSpecChange(spec.copy(instructions = it)) },
+                label = { Text("Instructions") },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 3,
+                maxLines = 6,
+            )
+            Spacer(Modifier.height(8.dp))
+            InstructionModePicker(
+                selected = spec.instructionMode ?: "prepend",
+                onChange = { onSpecChange(spec.copy(instructionMode = it)) },
+            )
+            if (!spec.defaultModel.isNullOrBlank()) SpecField("Default model", spec.defaultModel)
+            if (spec.variables.isNotEmpty()) {
+                SpecListField("Variables", spec.variables.map { v -> "${v["key"].orEmpty()}=${v["value"].orEmpty()}" })
+            }
             if (spec.inScope.isNotEmpty()) {
-                SpecListField("In scope", spec.inScope.mapNotNull { it["description"] })
+                SpecListField("In scope", spec.inScope.map { scope ->
+                    val glob = scope["pathGlob"].orEmpty()
+                    if (glob.isBlank()) scope["description"].orEmpty() else "${scope["description"].orEmpty()} ($glob)"
+                })
             }
             if (spec.outOfScope.isNotEmpty()) {
                 SpecListField("Out of scope", spec.outOfScope.mapNotNull { it["description"] })
@@ -299,8 +335,8 @@ private fun SpecReviewPhase(
                 Text("Agents", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 spec.agents.forEach { agent ->
                     val label = buildString {
-                        append(if (agent.existingAgentId != null) "Existing" else agent.newAgentIcon?.let { "$it " }.orEmpty())
-                        append(agent.newAgentName ?: agent.role)
+                        append(if (agent.existingAgentId != null) "Existing " else agent.newAgent?.icon?.let { "$it " }.orEmpty())
+                        append(agent.newAgent?.name ?: agent.role)
                         if (agent.isLeader) append(" (leader)")
                     }
                     Text("• $label", style = MaterialTheme.typography.bodyMedium)
@@ -315,9 +351,37 @@ private fun SpecReviewPhase(
             Spacer(Modifier.height(8.dp))
             Text("Creating project…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
+            val canCreate = spec?.let { it.name.isNotBlank() && !it.rootDirectory.isNullOrBlank() } ?: false
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedButton(onClick = onBack) { Text("Start over") }
-                Button(onClick = onConfirm, enabled = spec != null) { Text("Create project") }
+                Button(onClick = onConfirm, enabled = canCreate) {
+                    Text("Create project")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InstructionModePicker(
+    selected: String,
+    onChange: (String) -> Unit,
+) {
+    val options = listOf("prepend", "append", "replace", "standalone")
+    Column(modifier = Modifier.padding(vertical = 4.dp)) {
+        Text("Instruction mode", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            options.chunked(2).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    row.forEach { option ->
+                        if (selected == option) {
+                            Button(onClick = { onChange(option) }, modifier = Modifier.weight(1f)) { Text(option, maxLines = 1) }
+                        } else {
+                            OutlinedButton(onClick = { onChange(option) }, modifier = Modifier.weight(1f)) { Text(option, maxLines = 1) }
+                        }
+                    }
+                    if (row.size == 1) Spacer(Modifier.weight(1f))
+                }
             }
         }
     }

@@ -106,6 +106,9 @@ fun NavGraph(onRequestNotificationPermission: () -> Unit = {}) {
                 onOpenProjectHistory = { projectId ->
                     navController.navigate("history/project/${Uri.encode(projectId)}")
                 },
+                onOpenProjectGenerator = {
+                    navController.navigate("project-generator")
+                },
                 onDisconnected = {
                     navController.navigate("pairing") {
                         popUpTo("home") { inclusive = true }
