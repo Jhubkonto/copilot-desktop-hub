@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, type ReactNode } from 'react'
-import { Plus, MessageSquare, Settings, FolderOpen, Bot, Wrench, Sparkles, Package, Bug, SquareArrowOutUpRight } from 'lucide-react'
+import { Plus, MessageSquare, Settings, FolderOpen, Bot, Wrench, Package, Bug, SquareArrowOutUpRight } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import { ResizeHandle } from './ResizeHandle'
 import { Button } from './ui/primitives'
@@ -61,7 +61,6 @@ export function Sidebar() {
   const logout = useAppStore((s) => s.logout)
   const setShowSettings = useAppStore((s) => s.setShowSettings)
   const setShowSelfHealPanel = useAppStore((s) => s.setShowSelfHealPanel)
-  const setShowFeatureGeneratorPanel = useAppStore((s) => s.setShowFeatureGeneratorPanel)
   const setShowArtifactsPanel = useAppStore((s) => s.setShowArtifactsPanel)
   const openBugReport = useAppStore((s) => s.openBugReport)
   const activeSectionPane = useAppStore((s) => s.activeSectionPane)
@@ -141,13 +140,6 @@ export function Sidebar() {
           ariaLabel="Open agents"
         />
         <hr className="border-gray-200 dark:border-gray-700/80" />
-        <NavButton
-          icon={<Sparkles className="w-3.5 h-3.5" />}
-          label="Feature Generator"
-          onClick={() => setShowFeatureGeneratorPanel(true)}
-          ariaLabel="Open Feature Generator"
-          modal
-        />
         <NavButton
           icon={<Package className="w-3.5 h-3.5" />}
           label="Artifacts"

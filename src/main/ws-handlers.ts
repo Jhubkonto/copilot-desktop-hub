@@ -19,19 +19,9 @@ import { emitVerificationEvent, runVerification } from './self-heal/verifier'
 import { commitSelfHealFix, prepareSelfHealCommit, pushSelfHealFix } from './self-heal/git-ops'
 import { approveRelaunch, getRecoveryRuns, prepareReload, rollbackHeal, startReload } from './self-heal/recovery'
 import { runProjectGeneratorChatForAndroid, createProjectFromSpec } from './project-generator'
-import {
-  runFeatureGeneratorChatForAndroid,
-  getFeatureGenStagingDir,
-  generateImplementationPlan,
-  runFeatureImplementation,
-} from './feature-generator'
-import type { ProjectGeneratorSpec, FeatureSpec, FeatureGeneratorMessage } from '../shared/types'
+import type { ProjectGeneratorSpec } from '../shared/types'
 import { storeApiKey, removeApiKey } from './provider-secrets'
 import { detectAllClis } from './cli-detection'
-import { getWorkspacePath } from './self-heal/investigator'
-import { existsSync, mkdirSync, copyFileSync, readdirSync, statSync } from 'fs'
-import path from 'path'
-import { execSync } from 'child_process'
 import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
 import { insertWikiEntry } from './wiki-handlers'
@@ -692,139 +682,6 @@ export function registerWsHandlers(): void {
         return { id: row.id, name: cfg.name ?? row.id, command: cfg.command ?? '', enabled: row.enabled === 1 }
       })
       reply({ event: 'mcp:list', data: { servers } })
-      return
-    }
-
-    if (command === 'feature-generator:start' || command === 'feature-generator:message') {
-      const workspaceSetting = (db.prepare("SELECT value FROM settings WHERE key = 'build_workspace_path'").get() as { value: string } | undefined)?.value
-      if (!workspaceSetting) {
-        broadcastToMobile({ event: 'feature-generator:error', data: { runId: null, message: 'Workspace path is not set. Open Settings → Self-Heal → set a workspace path before using Feature Generator.' } })
-        return
-      }
-      const messages = Array.isArray(data.messages) ? (data.messages as FeatureGeneratorMessage[]) : []
-      void runFeatureGeneratorChatForAndroid(messages)
-      return
-    }
-
-    if (command === 'feature-generator:confirm-spec') {
-      const spec = data.spec as FeatureSpec
-      if (!spec?.title) return
-      const runId = typeof data.runId === 'string' ? data.runId : randomUUID()
-      const now = Date.now()
-      db.prepare(
-        `INSERT OR REPLACE INTO feature_generator_runs (id, title, status, spec_json, created_at, updated_at) VALUES (?, ?, 'spec-ready', ?, ?, ?)`
-      ).run(runId, spec.title, JSON.stringify(spec), now, now)
-      reply({ event: 'feature-generator:run-created', data: { runId } })
-      const win = BrowserWindow.getAllWindows()[0]
-      if (!win) return
-      void generateImplementationPlan(win, runId, spec).then((plan) => {
-        broadcastToMobile({ event: 'feature-generator:plan-ready', data: { runId, plan } })
-      }).catch((err: unknown) => {
-        broadcastToMobile({ event: 'feature-generator:error', data: { runId, message: String(err) } })
-      })
-      return
-    }
-
-    if (command === 'feature-generator:start-implementation') {
-      const runId = typeof data.runId === 'string' ? data.runId : ''
-      if (!runId) return
-      const row = db.prepare('SELECT spec_json, plan_markdown FROM feature_generator_runs WHERE id = ?').get(runId) as
-        | { spec_json: string; plan_markdown: string }
-        | undefined
-      if (!row?.spec_json || !row?.plan_markdown) return
-      const spec = JSON.parse(row.spec_json) as FeatureSpec
-      const plan = row.plan_markdown
-      const win = BrowserWindow.getAllWindows()[0]
-      if (!win) return
-      void runFeatureImplementation(win, runId, spec, plan).then(() => {
-        broadcastToMobile({ event: 'feature-generator:diff-ready', data: { runId } })
-      }).catch((err: unknown) => {
-        broadcastToMobile({ event: 'feature-generator:error', data: { runId, message: String(err) } })
-      })
-      return
-    }
-
-    if (command === 'feature-generator:list-diffs') {
-      const runId = typeof data.runId === 'string' ? data.runId : ''
-      if (!runId) return
-      const row = db.prepare('SELECT staged_files_json FROM feature_generator_runs WHERE id = ?').get(runId) as
-        | { staged_files_json: string | null }
-        | undefined
-      const files: string[] = row?.staged_files_json ? (JSON.parse(row.staged_files_json) as string[]) : []
-      reply({ event: 'feature-generator:diff-list', data: { runId, files } })
-      return
-    }
-
-    if (command === 'feature-generator:apply-all') {
-      const runId = typeof data.runId === 'string' ? data.runId : ''
-      if (!runId) return
-      const row = db.prepare('SELECT staged_files_json FROM feature_generator_runs WHERE id = ?').get(runId) as
-        | { staged_files_json: string | null }
-        | undefined
-      const files: string[] = row?.staged_files_json ? (JSON.parse(row.staged_files_json) as string[]) : []
-      const stagingDir = getFeatureGenStagingDir(runId)
-      const workspacePath = getWorkspacePath()
-      const applied: string[] = []
-      for (const rel of files) {
-        try {
-          const src = path.join(stagingDir, rel)
-          const dest = path.join(workspacePath, rel)
-          if (existsSync(src)) {
-            mkdirSync(path.dirname(dest), { recursive: true })
-            copyFileSync(src, dest)
-            applied.push(rel)
-          }
-        } catch {}
-      }
-      db.prepare('UPDATE feature_generator_runs SET applied_files_json = ?, status = ?, updated_at = ? WHERE id = ?')
-        .run(JSON.stringify(applied), 'applied', Date.now(), runId)
-      reply({ event: 'feature-generator:applied', data: { runId, appliedFiles: applied } })
-      return
-    }
-
-    if (command === 'feature-generator:commit') {
-      const runId = typeof data.runId === 'string' ? data.runId : ''
-      const message = typeof data.message === 'string' ? data.message : ''
-      if (!runId || !message) return
-      const row = db.prepare('SELECT applied_files_json FROM feature_generator_runs WHERE id = ?').get(runId) as
-        | { applied_files_json: string | null }
-        | undefined
-      const applied: string[] = row?.applied_files_json ? (JSON.parse(row.applied_files_json) as string[]) : []
-      const workspacePath = getWorkspacePath()
-      try {
-        for (const rel of applied) {
-          execSync(`git add "${rel}"`, { cwd: workspacePath, encoding: 'utf8' })
-        }
-        const commitResult = execSync(`git commit -m "${message.replace(/"/g, '\\"')}"`, {
-          cwd: workspacePath,
-          encoding: 'utf8',
-        })
-        const shaMatch = /([a-f0-9]{7,40})/.exec(commitResult)
-        const commitSha = shaMatch?.[1] ?? ''
-        db.prepare('UPDATE feature_generator_runs SET commit_sha = ?, status = ?, updated_at = ? WHERE id = ?')
-          .run(commitSha, 'committed', Date.now(), runId)
-        reply({ event: 'feature-generator:committed', data: { runId, commitSha } })
-      } catch (err) {
-        reply({ event: 'feature-generator:error', data: { runId, message: String(err) } })
-      }
-      return
-    }
-
-    if (command === 'feature-generator:get-runs') {
-      const rows = db.prepare('SELECT * FROM feature_generator_runs ORDER BY created_at DESC LIMIT 20').all() as Record<string, unknown>[]
-      const runs = rows.map((r) => ({
-        id: String(r.id),
-        title: String(r.title),
-        status: String(r.status),
-        specJson: r.spec_json != null ? String(r.spec_json) : null,
-        planMarkdown: r.plan_markdown != null ? String(r.plan_markdown) : null,
-        stagedFilesJson: r.staged_files_json != null ? String(r.staged_files_json) : null,
-        appliedFilesJson: r.applied_files_json != null ? String(r.applied_files_json) : null,
-        commitSha: r.commit_sha != null ? String(r.commit_sha) : null,
-        createdAt: Number(r.created_at),
-        updatedAt: Number(r.updated_at),
-      }))
-      reply({ event: 'feature-generator:runs', data: { runs } })
       return
     }
 

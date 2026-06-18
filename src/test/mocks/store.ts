@@ -85,7 +85,6 @@ export function createMockAppStore(overrides: Record<string, unknown> = {}) {
     setShowMcpPanel: vi.fn(),
     setShowSettings: vi.fn(),
     setShowSelfHealPanel: vi.fn(),
-    setShowFeatureGeneratorPanel: vi.fn(),
     setShowArtifactsPanel: vi.fn(),
     openBugReport: vi.fn(),
     setPendingSelfHealReportId: vi.fn(),

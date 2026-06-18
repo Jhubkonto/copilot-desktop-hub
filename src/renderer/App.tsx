@@ -31,9 +31,6 @@ const ProjectGeneratorModal = lazy(() =>
 const SelfHealPanel = lazy(() =>
   import('./components/SelfHealPanel').then((m) => ({ default: m.SelfHealPanel }))
 )
-const FeatureGeneratorPanel = lazy(() =>
-  import('./components/FeatureGeneratorPanel').then((m) => ({ default: m.FeatureGeneratorPanel }))
-)
 const ArtifactsPanel = lazy(() =>
   import('./components/ArtifactsPanel').then((m) => ({ default: m.ArtifactsPanel }))
 )
@@ -235,8 +232,6 @@ export default function App() {
         <SettingsPanel />
 
         <SelfHealPanel />
-
-        <FeatureGeneratorPanel />
 
         <ArtifactsPanel />
 
