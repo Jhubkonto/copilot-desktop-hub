@@ -18,6 +18,7 @@ interface Props {
   fcmStatus: { configured: boolean; projectId?: string } | null
   fcmJsonDraft: string
   fcmSaving: boolean
+  fcmError: string | null
   onSetFcmJsonDraft: (v: string) => void
   onSaveFcmServiceAccount: () => void
 }
@@ -26,7 +27,7 @@ export function MobileTab({
   mobileEnabled, mobileQr, mobileClients, mobileLoading,
   mobileLocalIp, mobilePairingUrl, mobileExternalUrl,
   onSetMobileExternalUrl, onToggle, onRegenerateToken, onSaveExternalUrl, onRefreshStatus,
-  fcmStatus, fcmJsonDraft, fcmSaving, onSetFcmJsonDraft, onSaveFcmServiceAccount,
+  fcmStatus, fcmJsonDraft, fcmSaving, fcmError, onSetFcmJsonDraft, onSaveFcmServiceAccount,
 }: Props) {
   return (
     <>
@@ -153,13 +154,18 @@ export function MobileTab({
           rows={4}
           className="w-full font-mono text-[10px] p-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 resize-none"
         />
-        <button
-          onClick={onSaveFcmServiceAccount}
-          disabled={fcmSaving || !fcmJsonDraft.trim()}
-          className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40"
-        >
-          {fcmSaving ? 'Saving…' : 'Save configuration'}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onSaveFcmServiceAccount}
+            disabled={fcmSaving || !fcmJsonDraft.trim()}
+            className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40"
+          >
+            {fcmSaving ? 'Saving…' : 'Save configuration'}
+          </button>
+          {fcmError && (
+            <p className="text-xs text-red-600 dark:text-red-400">{fcmError}</p>
+          )}
+        </div>
       </div>
     </>
   )

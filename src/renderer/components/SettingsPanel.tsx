@@ -183,6 +183,7 @@ export function SettingsPanel() {
   const [fcmStatus, setFcmStatus] = useState<{ configured: boolean; projectId?: string } | null>(null)
   const [fcmJsonDraft, setFcmJsonDraft] = useState('')
   const [fcmSaving, setFcmSaving] = useState(false)
+  const [fcmError, setFcmError] = useState<string | null>(null)
 
   // Prompt library state
   const [prompts, setPrompts] = useState<PromptLibraryEntry[]>([])
@@ -400,7 +401,9 @@ export function SettingsPanel() {
   }
 
   useEffect(() => {
-    if (visible && category === 'mobile') void refreshMobileStatus()
+    if (!visible || category !== 'mobile') return
+    void refreshMobileStatus()
+    void window.api.androidGetFcmConfigStatus().then(setFcmStatus).catch(() => {})
   }, [visible, category, refreshMobileStatus])
 
   const refreshWorkspaceInfo = useCallback(async () => {
@@ -430,7 +433,6 @@ export function SettingsPanel() {
       }).catch(() => {}),
       window.api.androidGetUpdateManifest().then(setAndroidUpdateManifest).catch(() => {}),
       window.api.androidGetPublishHistory().then(setAndroidPublishHistory).catch(() => {}),
-      window.api.androidGetFcmConfigStatus().then(setFcmStatus).catch(() => {}),
     ])
   }, [visible, category, refreshWorkspaceInfo])
 
@@ -929,14 +931,21 @@ export function SettingsPanel() {
             fcmJsonDraft={fcmJsonDraft}
             fcmSaving={fcmSaving}
             onSetFcmJsonDraft={setFcmJsonDraft}
+            fcmError={fcmError}
             onSaveFcmServiceAccount={() => {
               setFcmSaving(true)
+              setFcmError(null)
               void window.api.androidSaveFcmServiceAccount(fcmJsonDraft)
                 .then((result) => {
                   if (result.saved) {
                     void window.api.androidGetFcmConfigStatus().then(setFcmStatus)
                     setFcmJsonDraft('')
+                  } else {
+                    setFcmError(result.error ?? 'Failed to save configuration')
                   }
+                })
+                .catch((err: unknown) => {
+                  setFcmError(err instanceof Error ? err.message : 'Failed to save configuration')
                 })
                 .finally(() => setFcmSaving(false))
             }}
