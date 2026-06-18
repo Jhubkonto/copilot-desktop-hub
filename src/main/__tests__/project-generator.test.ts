@@ -2,14 +2,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const state = vi.hoisted(() => {
   const sent: Array<{ channel: string; payload: unknown }> = []
+  const mobile: Array<{ event: string; data: unknown }> = []
   const settings = new Map<string, string | undefined>()
   const configured = new Set<string>()
+  let providerText = 'Ready\n<project-spec>{"name":"Demo","color":"blue","instructions":"","variables":[],"inScope":[],"outOfScope":[],"milestones":[],"agents":[]}</project-spec>'
   const dispatchToProvider = vi.fn(async (opts: { sendChunk: (chunk: string) => void }) => {
-    const text = 'Ready\n<project-spec>{"name":"Demo","color":"blue","instructions":"","variables":[],"inScope":[],"outOfScope":[],"milestones":[],"agents":[]}</project-spec>'
-    opts.sendChunk(text)
-    return text
+    opts.sendChunk(providerText)
+    return providerText
   })
-  return { sent, settings, configured, dispatchToProvider }
+  return { sent, mobile, settings, configured, dispatchToProvider, get providerText() { return providerText }, set providerText(value: string) { providerText = value } }
 })
 
 vi.mock('../database', () => ({
@@ -52,16 +53,18 @@ vi.mock('../chat-provider-dispatch', () => ({
 }))
 
 vi.mock('../safe-handle', () => ({ safeHandle: vi.fn() }))
-vi.mock('../ws-server', () => ({ broadcastToMobile: vi.fn() }))
+vi.mock('../ws-server', () => ({ broadcastToMobile: vi.fn((payload: { event: string; data: unknown }) => state.mobile.push(payload)) }))
 vi.mock('../project-handlers', () => ({ PROJECT_COLORS: new Set(['blue']) }))
 
-import { runProjectGeneratorChat } from '../project-generator'
+import { runProjectGeneratorChat, runProjectGeneratorChatForAndroid } from '../project-generator'
 
 describe('project generator provider selection', () => {
   beforeEach(() => {
     state.sent.length = 0
+    state.mobile.length = 0
     state.settings.clear()
     state.configured.clear()
+    state.providerText = 'Ready\n<project-spec>{"name":"Demo","color":"blue","instructions":"","variables":[],"inScope":[],"outOfScope":[],"milestones":[],"agents":[]}</project-spec>'
     state.dispatchToProvider.mockClear()
   })
 
@@ -89,6 +92,23 @@ describe('project generator provider selection', () => {
       providerModel: 'claude-sonnet-4.5',
       byokKey: 'anthropic-key',
     }))
+  })
+
+  it('emits a mobile turn-complete event when no spec is ready', async () => {
+    state.configured.add('openai')
+    state.providerText = 'Can you share the root directory?'
+
+    await runProjectGeneratorChatForAndroid(
+      [{ role: 'user', content: 'new project' }],
+      [],
+      'session-1',
+    )
+
+    expect(state.mobile).toContainEqual({
+      event: 'project-generator:turn-complete',
+      data: { sessionId: 'session-1', content: 'Can you share the root directory?' },
+    })
+    expect(state.mobile.some((event) => event.event === 'project-generator:spec-ready')).toBe(false)
   })
 })
 
