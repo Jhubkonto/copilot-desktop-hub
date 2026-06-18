@@ -57,6 +57,7 @@ export default function App() {
   const confirmDeleteAgent = useAppStore((s) => s.confirmDeleteAgent)
   const cancelDeleteAgent = useAppStore((s) => s.cancelDeleteAgent)
   const addToolApprovalRequest = useAppStore((s) => s.addToolApprovalRequest)
+  const removeToolApprovalRequest = useAppStore((s) => s.removeToolApprovalRequest)
   const setUpdateAvailable = useAppStore((s) => s.setUpdateAvailable)
   const setUpdateDownloaded = useAppStore((s) => s.setUpdateDownloaded)
   const dismissToast = useAppStore((s) => s.dismissToast)
@@ -98,6 +99,14 @@ export default function App() {
     )
     return () => { unsubscribe() }
   }, [addToolApprovalRequest])
+
+  // Dismiss approval bar when phone approves/rejects remotely
+  useEffect(() => {
+    const unsubscribe = window.api.onToolApprovalResolved((requestId: string) => {
+      removeToolApprovalRequest(requestId)
+    })
+    return () => { unsubscribe() }
+  }, [removeToolApprovalRequest])
 
   // Listen for auto-update events
   useEffect(() => {

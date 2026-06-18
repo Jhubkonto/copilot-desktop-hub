@@ -73,6 +73,9 @@ export function registerWsHandlers(): void {
     if (command === 'tool:approve' || command === 'tool:reject') {
       const requestId = typeof data.requestId === 'string' ? data.requestId : ''
       resolveApprovalFn?.(requestId, command === 'tool:approve')
+      BrowserWindow.getAllWindows().forEach((w) => {
+        if (!w.isDestroyed()) w.webContents.send('tool:approval-resolved', requestId)
+      })
       return
     }
 

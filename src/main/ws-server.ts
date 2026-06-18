@@ -144,6 +144,14 @@ export function setWsCommandHandler(handler: CommandHandler): void {
   commandHandler = handler
 }
 
+export async function autoStartWsServerIfEnabled(): Promise<void> {
+  const db = getDatabase()
+  const row = db.prepare("SELECT value FROM settings WHERE key = 'ws_enabled'").get() as { value: string } | undefined
+  if (row?.value === 'true') {
+    await startWsServer().catch(() => {})
+  }
+}
+
 export async function startWsServer(): Promise<{ port: number; token: string }> {
   if (wss) return { port: currentPort!, token: currentToken! }
 
@@ -185,6 +193,7 @@ export async function startWsServer(): Promise<{ port: number; token: string }> 
     httpServer!.listen(FIXED_PORT, '0.0.0.0', () => {
       currentPort = (httpServer!.address() as AddressInfo).port
       db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ws_port', ?)").run(String(currentPort))
+      db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ws_enabled', 'true')").run()
       resolve({ port: currentPort, token: currentToken! })
     })
 
@@ -205,6 +214,10 @@ export function stopWsServer(): void {
   httpServer = null
   currentPort = null
   currentCertFingerprint = null
+  try {
+    const db = getDatabase()
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ws_enabled', 'false')").run()
+  } catch { /* best-effort */ }
 }
 
 export function regenerateToken(): string {

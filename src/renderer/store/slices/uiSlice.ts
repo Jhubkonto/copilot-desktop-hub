@@ -63,6 +63,7 @@ export interface UiSlice {
   setCatalogModels: (models: CatalogModel[]) => void
   setGlobalDefaultModel: (model: string) => void
   addToolApprovalRequest: (request: ToolApprovalRequest) => void
+  removeToolApprovalRequest: (requestId: string) => void
   respondToToolApproval: (
     requestId: string,
     approved: boolean,
@@ -269,6 +270,12 @@ export const createUiSlice: StateCreator<
   addToolApprovalRequest: (request) => {
     set((s) => {
       s.toolApprovalRequests.push(request)
+    })
+  },
+
+  removeToolApprovalRequest: (requestId) => {
+    set((s) => {
+      s.toolApprovalRequests = s.toolApprovalRequests.filter((r) => r.requestId !== requestId)
     })
   },
 

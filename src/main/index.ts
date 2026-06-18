@@ -11,7 +11,7 @@ import { validateSender } from './safe-handle'
 import { initDebugMode } from './debug-mode'
 import { initErrorLogCapture } from './error-log-handlers'
 import { confirmStartupAfterRelaunch, rollbackHeal } from './self-heal/recovery'
-import { broadcastToMobile } from './ws-server'
+import { broadcastToMobile, autoStartWsServerIfEnabled } from './ws-server'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -199,6 +199,7 @@ app.whenReady().then(() => {
 
   createWindow()
   registerIpcHandlers(mainWindow ?? undefined)
+  void autoStartWsServerIfEnabled()
   createTray()
   registerGlobalHotkey()
 
