@@ -56,20 +56,49 @@ export async function sendOpenAIMessage(
       },
       (res) => {
         let fullContent = ''
+        const contentType = res.headers['content-type'] ?? ''
 
+        if (!contentType.includes('text/event-stream')) {
+          // Non-streaming response (some providers ignore stream:true).
+          // Collect the full body and extract content normally.
+          let body = ''
+          res.on('data', (chunk: Buffer) => { body += chunk.toString() })
+          res.on('end', () => {
+            try {
+              const parsed = JSON.parse(body)
+              const content = parsed.choices?.[0]?.message?.content
+              if (content) { fullContent = content; onChunk(content) }
+            } catch { /* malformed */ }
+            cleanupActiveRequest(req)
+            resolve(fullContent)
+          })
+          res.on('error', (err: Error) => { cleanupActiveRequest(req); reject(err) })
+          return
+        }
+
+        let sawEmptyStop = false
         parseSseStream(res, (data) => {
           try {
             const parsed = JSON.parse(data)
-            const delta = parsed.choices?.[0]?.delta?.content
+            const delta = parsed.choices?.[0]?.delta?.content ?? parsed.choices?.[0]?.message?.content
+            const finishReason = parsed.choices?.[0]?.finish_reason
             if (delta) {
               fullContent += delta
               onChunk(delta)
             }
+            if (!delta && finishReason === 'stop') sawEmptyStop = true
           } catch {
             // Skip malformed chunks
           }
         })
-          .then(() => { cleanupActiveRequest(req); resolve(fullContent) })
+          .then(() => {
+            cleanupActiveRequest(req)
+            if (fullContent === '' && sawEmptyStop) {
+              reject(new Error('The model returned an empty response. The conversation may be too long for this model — try starting a new conversation.'))
+              return
+            }
+            resolve(fullContent)
+          })
           .catch((err: Error) => { cleanupActiveRequest(req); reject(err) })
       }
     )
@@ -224,7 +253,7 @@ export async function sendAzureMessage(
         parseSseStream(res, (data) => {
           try {
             const parsed = JSON.parse(data)
-            const delta = parsed.choices?.[0]?.delta?.content
+            const delta = parsed.choices?.[0]?.delta?.content ?? parsed.choices?.[0]?.message?.content
             if (delta) { fullContent += delta; onChunk(delta) }
           } catch {
             // Skip malformed chunks
