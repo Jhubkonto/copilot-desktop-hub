@@ -179,7 +179,7 @@ class ChatViewModel(
         _isAwaitingResponse.value = true
         _activityLabel.value = "Assistant is thinking"
 
-        if (WsRepository.connectionState.value != ConnectionState.CONNECTED) {
+        if (wsClient === WsRepository && WsRepository.connectionState.value != ConnectionState.CONNECTED) {
             val msgs = _messages.value
             _messages.value = msgs.dropLast(1) + msgs.last().copy(sendFailed = true)
             _isAwaitingResponse.value = false
