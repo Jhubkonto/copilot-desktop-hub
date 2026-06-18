@@ -28,6 +28,8 @@ import type {
   PublishedEntry,
   ProjectGeneratorMessage,
   ProjectGeneratorSpec,
+  AgentGeneratorMessage,
+  AgentGeneratorSpec,
   ArtifactGeneratorMessage,
   ArtifactSpec,
   ArtifactRow,
@@ -609,8 +611,8 @@ const api = {
   },
 
   // Project generator
-  projectGeneratorChat: (messages: ProjectGeneratorMessage[], existingAgents: { id: string; name: string; icon: string; systemPrompt: string }[]) =>
-    typedInvoke('project-generator:chat', messages, existingAgents),
+  projectGeneratorChat: (messages: ProjectGeneratorMessage[], existingAgents: { id: string; name: string; icon: string; systemPrompt: string }[], modelOverride?: string, images?: { dataUrl: string }[]) =>
+    typedInvoke('project-generator:chat', messages, existingAgents, modelOverride, images),
   onProjectGeneratorToken: (callback: (chunk: string) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, chunk: string) => callback(chunk)
     typedOn('project-generator:token', handler)
@@ -621,6 +623,34 @@ const api = {
     typedOn('project-generator:spec-ready', handler)
     return () => typedOff('project-generator:spec-ready', handler)
   },
+  onProjectGeneratorDone: (callback: (data: { hasSpec: boolean }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { hasSpec: boolean }) => callback(data)
+    typedOn('project-generator:done', handler)
+    return () => typedOff('project-generator:done', handler)
+  },
+  projectGeneratorGetModel: () => typedInvoke('project-generator:get-model'),
+  projectGeneratorSetModel: (modelId: string) => typedInvoke('project-generator:set-model', modelId),
+
+  // Agent generator
+  agentGeneratorChat: (messages: AgentGeneratorMessage[], modelOverride?: string) =>
+    typedInvoke('agent-generator:chat', messages, modelOverride),
+  onAgentGeneratorToken: (callback: (chunk: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, chunk: string) => callback(chunk)
+    typedOn('agent-generator:token', handler)
+    return () => typedOff('agent-generator:token', handler)
+  },
+  onAgentGeneratorSpecReady: (callback: (spec: AgentGeneratorSpec) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, spec: AgentGeneratorSpec) => callback(spec)
+    typedOn('agent-generator:spec-ready', handler)
+    return () => typedOff('agent-generator:spec-ready', handler)
+  },
+  onAgentGeneratorDone: (callback: (data: { hasSpec: boolean }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { hasSpec: boolean }) => callback(data)
+    typedOn('agent-generator:done', handler)
+    return () => typedOff('agent-generator:done', handler)
+  },
+  agentGeneratorGetModel: () => typedInvoke('agent-generator:get-model'),
+  agentGeneratorSetModel: (modelId: string) => typedInvoke('agent-generator:set-model', modelId),
 
   // Artifact CRUD
   artifactList: (projectId?: string) =>
