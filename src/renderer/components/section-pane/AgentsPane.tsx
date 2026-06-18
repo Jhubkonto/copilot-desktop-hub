@@ -1,7 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
-import { Plus, Settings, Upload, MessageSquare, Trash2, FolderPlus, Check, Search, X } from 'lucide-react'
+import { useEffect, useRef, useState, lazy, Suspense } from 'react'
+import { Plus, Settings, Upload, MessageSquare, Trash2, FolderPlus, Check, Search, X, Sparkles } from 'lucide-react'
 import { useAppStore } from '../../store/app-store'
 import type { AgentConfig } from '../../../shared/types'
+
+const AgentGeneratorModal = lazy(() =>
+  import('../AgentGeneratorModal').then((m) => ({ default: m.AgentGeneratorModal }))
+)
 
 export function AgentsPane() {
   const agents = useAppStore((s) => s.agents)
@@ -19,6 +23,7 @@ export function AgentsPane() {
   const addToast = useAppStore((s) => s.addToast)
 
   const [query, setQuery] = useState('')
+  const [showGenerator, setShowGenerator] = useState(false)
   const [addToProjectAgentId, setAddToProjectAgentId] = useState<string | null>(null)
   const addToProjectPopoverRef = useRef<HTMLDivElement>(null)
 
@@ -55,6 +60,7 @@ export function AgentsPane() {
     : agents
 
   return (
+    <>
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between px-4 h-9 border-b border-gray-100 dark:border-gray-800">
         <span className="text-xs text-gray-400 dark:text-gray-500">
@@ -68,6 +74,14 @@ export function AgentsPane() {
           >
             <Upload className="w-3.5 h-3.5" />
             Import
+          </button>
+          <button
+            onClick={() => setShowGenerator(true)}
+            className="flex items-center gap-1 text-xs text-indigo-500 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-200 px-2 py-1 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
+            aria-label="Generate agent with AI"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            Generate
           </button>
           <button
             onClick={openCreateAgent}
@@ -223,5 +237,12 @@ export function AgentsPane() {
         })}
       </div>
     </div>
+
+    {showGenerator && (
+      <Suspense fallback={null}>
+        <AgentGeneratorModal onClose={() => setShowGenerator(false)} />
+      </Suspense>
+    )}
+    </>
   )
 }
