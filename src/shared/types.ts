@@ -506,6 +506,25 @@ export interface ProjectGeneratorMessage {
   content: string
 }
 
+export interface AgentGeneratorSpec {
+  name: string
+  icon: string
+  systemPrompt: string
+  temperature: number
+  responseFormat: 'default' | 'concise' | 'detailed' | 'code-only'
+  agenticMode: boolean
+  tools: { fileEdit: boolean; terminal: boolean; webFetch: boolean }
+  rootDirectory?: string
+  contextDirectories: string[]
+  memory?: string
+  customCommands?: { name: string; description: string; prompt: string }[]
+}
+
+export interface AgentGeneratorMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
 export type ArtifactKind =
   | 'document' | 'code' | 'ui' | 'data'
   | 'prompt' | 'agent-config' | 'plan' | 'bundle' | 'other'
@@ -1411,6 +1430,16 @@ export type IpcReturnMap = {
   'project-generator:chat': { started: boolean }
   'project-generator:token': void
   'project-generator:spec-ready': void
+  'project-generator:done': void
+  'project-generator:get-model': string
+  'project-generator:set-model': void
+  // Agent generator
+  'agent-generator:chat': { started: boolean }
+  'agent-generator:token': void
+  'agent-generator:spec-ready': void
+  'agent-generator:done': void
+  'agent-generator:get-model': string
+  'agent-generator:set-model': void
   // Artifact
   'artifact:list': ArtifactRow[]
   'artifact:get': ArtifactRow | null
@@ -1689,6 +1718,15 @@ export type IpcChannels =
   | 'project-generator:chat'
   | 'project-generator:token'
   | 'project-generator:spec-ready'
+  | 'project-generator:done'
+  | 'project-generator:get-model'
+  | 'project-generator:set-model'
+  | 'agent-generator:chat'
+  | 'agent-generator:token'
+  | 'agent-generator:spec-ready'
+  | 'agent-generator:done'
+  | 'agent-generator:get-model'
+  | 'agent-generator:set-model'
   | 'artifact:list'
   | 'artifact:get'
   | 'artifact:list-versions'
