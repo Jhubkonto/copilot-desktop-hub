@@ -59,6 +59,7 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
   // Skills tab state
   const [agentMcpTools, setAgentMcpTools] = useState<McpTool[]>([])
   const [mcpToolOverrides, setMcpToolOverrides] = useState<McpToolOverride[]>([])
+  const [mcpServerTrust, setMcpServerTrust] = useState<{ server_id: string; trust: string }[]>([])
   const [globalMcpServers, setGlobalMcpServers] = useState<McpServerInfo[]>([])
   const [expandedCustomServers, setExpandedCustomServers] = useState<Set<string>>(new Set())
 
@@ -79,6 +80,7 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
     }
     if (tab === 'skills' && isEditing) {
       window.api.getMcpToolOverrides(config.id).then((overrides) => setMcpToolOverrides(overrides as McpToolOverride[]))
+      window.api.getMcpServerTrust(config.id).then((rows) => setMcpServerTrust(rows as { server_id: string; trust: string }[]))
     }
     if (tab === 'knowledge' && isEditing) {
       window.api.listKnowledgeFiles(config.id).then((files) => setKnowledgeFiles(files as KnowledgeFile[]))
@@ -101,7 +103,12 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
 
   const deriveServerTier = (serverId: string): McpTrustTier => {
     const serverTools = agentMcpTools.filter((t) => t.serverId === serverId)
-    if (serverTools.length === 0) return 'always-ask'
+    if (serverTools.length === 0) {
+      // No tools loaded (server offline) — fall back to persisted server-level trust.
+      const saved = mcpServerTrust.find((r) => r.server_id === serverId)
+      if (saved) return saved.trust as McpTrustTier
+      return 'always-ask'
+    }
     const effective = serverTools.map((t) => {
       const o = getMcpOverride(serverId, t.name)
       return { enabled: o?.enabled ?? 1, approval: o?.approval ?? 'always-ask' }
@@ -121,6 +128,14 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
       return
     }
     setExpandedCustomServers((prev) => { const next = new Set(prev); next.delete(serverId); return next })
+    // Persist server-level trust so it is enforced even when the server is offline
+    // and per-tool override rows haven't been written yet.
+    const trustValue = tier === 'auto' ? 'auto' : tier === 'block' ? 'block' : 'always-ask'
+    await window.api.setMcpServerTrust(config.id, serverId, trustValue)
+    setMcpServerTrust((prev) => {
+      const filtered = prev.filter((r) => r.server_id !== serverId)
+      return [...filtered, { server_id: serverId, trust: trustValue }]
+    })
     const serverTools = agentMcpTools.filter((t) => t.serverId === serverId)
     const settings =
       tier === 'auto' ? { enabled: true, approval: 'auto', instructions: '' }

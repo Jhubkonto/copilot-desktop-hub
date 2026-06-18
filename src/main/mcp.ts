@@ -266,9 +266,10 @@ export async function callMcpTool(
   agenticMode?: boolean,
   autoApprove?: boolean
 ): Promise<{ success: boolean; result?: string; images?: { dataUrl: string; mimeType: string }[]; error?: string }> {
-  // Resolve approval policy; default to 'always-ask' when no override exists.
-  // Track whether the policy came from an explicit per-tool override so that
-  // agentic mode can only bypass the *default* always-ask, not an explicit one.
+  // Resolve approval policy. Per-tool overrides take precedence; the server-level
+  // trust setting is the fallback. Both count as "explicit" so that agentic mode
+  // cannot bypass them — agentic auto-approve only applies when neither a tool
+  // override nor a server trust row exists.
   let approval: string = 'always-ask'
   let hasExplicitOverride = false
 
@@ -281,6 +282,15 @@ export async function callMcpTool(
     if (override) {
       approval = override.approval
       hasExplicitOverride = true
+    } else {
+      // No per-tool row — fall back to the server-level trust setting.
+      const serverTrust = db.prepare(
+        'SELECT trust FROM agent_mcp_server_trust WHERE agent_id=? AND server_id=?'
+      ).get(agentId, serverId) as { trust: string } | undefined
+      if (serverTrust) {
+        approval = serverTrust.trust === 'auto' ? 'auto' : 'always-ask'
+        hasExplicitOverride = true
+      }
     }
   }
 
@@ -291,8 +301,8 @@ export async function callMcpTool(
     return { success: false, error: `Server ${serverId} not connected` }
   }
 
-  // Agentic mode auto-approves tools that have no explicit override. Tools the
-  // user has explicitly set to 'always-ask' or 'disabled' are always honoured.
+  // Agentic mode auto-approves tools that have no explicit override (neither
+  // per-tool nor server-level). If either is set, it is always honoured.
   const bypassApproval = autoApprove || (agenticMode && !hasExplicitOverride)
 
   if (approval === 'always-ask' && !bypassApproval) {
@@ -442,6 +452,19 @@ export function registerMcpHandlers(): void {
     db.prepare(
       'INSERT OR REPLACE INTO agent_mcp_tool_overrides (agent_id, server_id, tool_name, enabled, approval, instructions) VALUES (?, ?, ?, ?, ?, ?)'
     ).run(agentId, serverId, toolName, config.enabled ? 1 : 0, config.approval, config.instructions)
+    return true
+  })
+
+  safeHandle('agent:get-mcp-server-trust', (_event, agentId: string) => {
+    const db = getDatabase()
+    return db.prepare('SELECT server_id, trust FROM agent_mcp_server_trust WHERE agent_id = ?').all(agentId)
+  })
+
+  safeHandle('agent:set-mcp-server-trust', (_event, agentId: string, serverId: string, trust: string) => {
+    const db = getDatabase()
+    db.prepare(
+      'INSERT OR REPLACE INTO agent_mcp_server_trust (agent_id, server_id, trust) VALUES (?, ?, ?)'
+    ).run(agentId, serverId, trust)
     return true
   })
 

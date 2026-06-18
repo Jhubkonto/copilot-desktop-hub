@@ -1206,11 +1206,13 @@ export type IpcReturnMap = {
   'agent:export': boolean
   'agent:get': AgentConfig | null
   'agent:get-mcp-tool-overrides': McpToolOverrideRow[]
+  'agent:get-mcp-server-trust': { server_id: string; trust: string }[]
   'agent:import': AgentConfig | null
   'agent:list': AgentConfig[]
   'agent:list-knowledge-files': KnowledgeFile[]
   'agent:remove-knowledge-file': boolean
   'agent:set-mcp-tool-override': boolean
+  'agent:set-mcp-server-trust': boolean
   'agent:update': AgentConfig
   'agent:update-knowledge-inject-mode': boolean
   // App
@@ -1447,6 +1449,7 @@ export type IpcReturnMap = {
   'tool:get-preferences': Record<string, string>
   'tool:list': BuiltinToolDefinition[]
   'tool:request-approval': void
+  'tool:approval-resolved': void
   'tool:set-preference': boolean
   // Project generator
   'project-generator:chat': { started: boolean }
@@ -1509,11 +1512,13 @@ export type IpcChannels =
   | 'agent:export'
   | 'agent:get'
   | 'agent:get-mcp-tool-overrides'
+  | 'agent:get-mcp-server-trust'
   | 'agent:import'
   | 'agent:list'
   | 'agent:list-knowledge-files'
   | 'agent:remove-knowledge-file'
   | 'agent:set-mcp-tool-override'
+  | 'agent:set-mcp-server-trust'
   | 'agent:update'
   | 'agent:update-knowledge-inject-mode'
   | 'app:check-updates'
@@ -1680,6 +1685,7 @@ export type IpcChannels =
   | 'tool:get-preferences'
   | 'tool:list'
   | 'tool:request-approval'
+  | 'tool:approval-resolved'
   | 'tool:set-preference'
   | 'updater:download-progress'
   | 'updater:error'

@@ -404,6 +404,12 @@ const api = {
     return () => typedOff('tool:request-approval', handler)
   },
 
+  onToolApprovalResolved: (callback: (requestId: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, requestId: string) => callback(requestId)
+    typedOn('tool:approval-resolved', handler)
+    return () => typedOff('tool:approval-resolved', handler)
+  },
+
   // MCP Servers
   listMcpServers: () => typedInvoke('mcp:list-servers'),
   addMcpServer: (config: Record<string, unknown>) =>
@@ -421,6 +427,9 @@ const api = {
     toolName: string,
     config: { enabled: boolean; approval: string; instructions: string }
   ) => typedInvoke('agent:set-mcp-tool-override', agentId, serverId, toolName, config),
+  getMcpServerTrust: (agentId: string) => typedInvoke('agent:get-mcp-server-trust', agentId),
+  setMcpServerTrust: (agentId: string, serverId: string, trust: string) =>
+    typedInvoke('agent:set-mcp-server-trust', agentId, serverId, trust),
   callMcpTool: (serverId: string, toolName: string, args: Record<string, unknown>, agentId?: string) =>
     typedInvoke('mcp:call-tool', serverId, toolName, args, agentId),
   restartMcpServer: (id: string) => typedInvoke('mcp:restart-server', id),

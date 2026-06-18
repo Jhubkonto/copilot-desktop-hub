@@ -453,6 +453,18 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
       );
     `,
   },
+  {
+    version: 34,
+    sql: `
+      CREATE TABLE IF NOT EXISTS agent_mcp_server_trust (
+        agent_id  TEXT NOT NULL,
+        server_id TEXT NOT NULL,
+        trust     TEXT NOT NULL DEFAULT 'always-ask',
+        PRIMARY KEY (agent_id, server_id),
+        FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+      );
+    `,
+  },
 ];
 
 
