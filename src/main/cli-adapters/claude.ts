@@ -1,7 +1,7 @@
 import { spawn } from 'child_process'
 import type { BrowserWindow } from 'electron'
 import type { CliAgentAdapter, CliAdapterRequest } from './types'
-import { resolveCliPath } from './utils'
+import { resolveCliPath, killProcess } from './utils'
 
 type ClaudeContentBlock =
   | { type: 'text'; text?: string }
@@ -93,7 +93,8 @@ export const ClaudeAdapter: CliAgentAdapter = {
     _window: BrowserWindow,
     req: CliAdapterRequest,
     onChunk: (chunk: string) => void,
-    onEvent?: Parameters<CliAgentAdapter['send']>[3]
+    onEvent?: Parameters<CliAgentAdapter['send']>[3],
+    signal?: AbortSignal
   ): Promise<string> {
     return new Promise((resolve, reject) => {
       const claudePath = resolveCliPath('claude')
@@ -104,7 +105,10 @@ export const ClaudeAdapter: CliAgentAdapter = {
 
       const hasImages = (req.images?.length ?? 0) > 0
       const useJsonInput = hasImages
-      const args = ['--output-format', 'stream-json', '--print', '--verbose']
+      // Always pass --strict-mcp-config so the CLI ignores any MCP servers registered
+      // in the user's global ~/.claude.json. We control exactly which servers are
+      // available via --mcp-config (or none at all when no servers are permitted).
+      const args = ['--output-format', 'stream-json', '--print', '--verbose', '--strict-mcp-config']
       if (req.model && req.model !== 'default') {
         args.push('--model', req.model)
       }
@@ -120,7 +124,7 @@ export const ClaudeAdapter: CliAgentAdapter = {
             return [server.key, config]
           })),
         }
-        args.push('--mcp-config', JSON.stringify(mcpConfig), '--strict-mcp-config')
+        args.push('--mcp-config', JSON.stringify(mcpConfig))
       }
       if (req.allowedTools && req.allowedTools.length > 0) {
         args.push('--allowedTools', req.allowedTools.join(','))
@@ -138,6 +142,10 @@ export const ClaudeAdapter: CliAgentAdapter = {
 
       const stdinContent = useJsonInput ? buildConversationJson(req) : buildConversationText(req)
       proc.stdin.end(stdinContent, 'utf8')
+
+      if (signal) {
+        signal.addEventListener('abort', () => { killProcess(proc) }, { once: true })
+      }
 
       let fullText = ''
       let buffer = ''

@@ -1,4 +1,5 @@
-import { execSync } from 'child_process'
+import { execSync, spawn } from 'child_process'
+import type { ChildProcess } from 'child_process'
 import { debugLog, debugTime, debugTimeEnd } from '../debug-mode'
 
 const cache = new Map<string, string | null>()
@@ -26,4 +27,21 @@ export function resolveCliPath(name: string): string | null {
 
 export function clearCliPathCache(): void {
   cache.clear()
+}
+
+/**
+ * Kill a spawned process and its entire process tree.
+ * On Windows, cmd.exe wrappers don't propagate SIGTERM to their children,
+ * so we use taskkill /F /T to force-kill the whole tree by PID.
+ */
+export function killProcess(proc: ChildProcess): void {
+  if (process.platform === 'win32' && proc.pid != null) {
+    try {
+      spawn('taskkill', ['/F', '/T', '/PID', String(proc.pid)], { detached: true, stdio: 'ignore' }).unref()
+    } catch {
+      proc.kill()
+    }
+  } else {
+    proc.kill()
+  }
 }

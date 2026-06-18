@@ -30,7 +30,8 @@ export interface CliAgentAdapter {
     window: BrowserWindow,
     req: CliAdapterRequest,
     onChunk: (chunk: string) => void,
-    onEvent?: (event: CliStreamEvent) => void
+    onEvent?: (event: CliStreamEvent) => void,
+    signal?: AbortSignal
   ): Promise<string>
   isAvailable(): boolean
 }

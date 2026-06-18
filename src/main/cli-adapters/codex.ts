@@ -5,7 +5,7 @@ import { join } from 'path'
 import { randomUUID } from 'crypto'
 import type { BrowserWindow } from 'electron'
 import type { CliAgentAdapter, CliAdapterRequest } from './types'
-import { resolveCliPath } from './utils'
+import { resolveCliPath, killProcess } from './utils'
 
 function stripAnsi(str: string): string {
   // eslint-disable-next-line no-control-regex
@@ -293,7 +293,8 @@ export const CodexAdapter: CliAgentAdapter = {
     _window: BrowserWindow,
     req: CliAdapterRequest,
     onChunk: (chunk: string) => void,
-    onEvent?: Parameters<CliAgentAdapter['send']>[3]
+    onEvent?: Parameters<CliAgentAdapter['send']>[3],
+    signal?: AbortSignal
   ): Promise<string> {
     return new Promise((resolve, reject) => {
       if (!CodexAdapter.isAvailable()) {
@@ -371,6 +372,10 @@ export const CodexAdapter: CliAgentAdapter = {
         env: process.env,
       })
       proc.stdin?.end(prompt, 'utf8')
+
+      if (signal) {
+        signal.addEventListener('abort', () => { killProcess(proc) }, { once: true })
+      }
 
       let fullText = ''
       let rawStdout = ''
