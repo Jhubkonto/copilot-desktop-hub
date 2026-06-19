@@ -55,6 +55,8 @@ describe('useChat', () => {
         addToast,
         loadConversations,
         conversationCreated,
+        markConversationGenerating: vi.fn(),
+        markConversationDoneGenerating: vi.fn(),
       }),
     )
 
@@ -94,6 +96,8 @@ describe('useChat', () => {
         addToast,
         loadConversations,
         conversationCreated,
+        markConversationGenerating: vi.fn(),
+        markConversationDoneGenerating: vi.fn(),
       }),
     )
 
@@ -116,6 +120,8 @@ describe('useChat', () => {
         addToast,
         loadConversations,
         conversationCreated,
+        markConversationGenerating: vi.fn(),
+        markConversationDoneGenerating: vi.fn(),
       }),
     )
 
@@ -168,6 +174,8 @@ describe('useChat', () => {
         addToast,
         loadConversations,
         conversationCreated,
+        markConversationGenerating: vi.fn(),
+        markConversationDoneGenerating: vi.fn(),
       }),
     )
 
@@ -214,6 +222,8 @@ describe('useChat', () => {
         addToast,
         loadConversations,
         conversationCreated,
+        markConversationGenerating: vi.fn(),
+        markConversationDoneGenerating: vi.fn(),
       }),
     )
 

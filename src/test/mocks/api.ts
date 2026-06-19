@@ -169,6 +169,8 @@ export function createMockApi() {
     onCliCost: vi.fn().mockReturnValue(() => {}),
     onActivity: vi.fn().mockReturnValue(() => {}),
     onStreamModel: vi.fn().mockReturnValue(() => {}),
+    onThinkingDelta: vi.fn().mockReturnValue(() => {}),
+    onThinkingEnd: vi.fn().mockReturnValue(() => {}),
     stopGeneration: vi.fn().mockResolvedValue(undefined),
     onAutoClipboardFocus: vi.fn().mockReturnValue(() => {}),
 

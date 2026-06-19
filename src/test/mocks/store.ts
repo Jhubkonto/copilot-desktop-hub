@@ -56,6 +56,7 @@ export function createMockAppStore(overrides: Record<string, unknown> = {}) {
     // Tool Approval
     toolApprovalRequests: [],
     unreadConversationIds: [],
+    generatingConversationIds: [],
     checkAuth: vi.fn(),
     loginByok: vi.fn(),
     logout: vi.fn(),
@@ -101,6 +102,8 @@ export function createMockAppStore(overrides: Record<string, unknown> = {}) {
     respondToToolApproval: vi.fn(),
     markConversationUnread: vi.fn(),
     markConversationRead: vi.fn(),
+    markConversationGenerating: vi.fn(),
+    markConversationDoneGenerating: vi.fn(),
     hydrate: vi.fn(),
     loadProjects: vi.fn(),
     createProject: vi.fn(),
