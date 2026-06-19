@@ -89,11 +89,11 @@ export function ModelPicker({
         ref={resolvedButtonRef}
         type="button"
         aria-label="Conversation model"
-        title={sourceLabel ? `${getModelLabel(value, catalogModels)} · via ${sourceLabel}` : undefined}
+        title={sourceLabel ? `${getModelLabel(value, catalogModels, globalDefaultModel)} · via ${sourceLabel}` : undefined}
         className={buttonClassName}
         onClick={() => setShowModelMenu((prev) => !prev)}
       >
-        <span className="truncate">{getModelLabel(value, catalogModels)}</span>
+        <span className="truncate">{getModelLabel(value, catalogModels, globalDefaultModel)}</span>
         {sourceLabel && (
           <span className="shrink-0 text-gray-400 dark:text-gray-500 opacity-80">· {sourceLabel}</span>
         )}
