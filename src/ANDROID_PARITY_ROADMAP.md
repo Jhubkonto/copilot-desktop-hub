@@ -1,179 +1,197 @@
-# Nexy Android — Desktop Parity Roadmap
+# Nexy Android - Desktop Parity Roadmap
 
-Last updated: 2026-06-17
+Last updated: 2026-06-19
 
-This document tracks the work needed to bring the Android companion app to close feature parity with the Electron desktop app. Work items are grouped into phased milestones by priority and logical dependency. Each item notes which side(s) need work and carries a rough effort estimate (S = a few hours, M = half to full day, L = multiple days).
+This document tracks the work needed to bring the Android companion app to practical parity with the current Electron desktop app. Parity means matching current desktop behavior through the paired desktop bridge; removed desktop features are not Android targets.
 
----
+Status legend:
 
-## What Android Already Has (no work needed)
-
-- Chat (send/receive/stream/stop), conversation list, create conversation
-- Agent list, project list, scoped chat history by agent or project
-- Tool approvals (notification + in-app dialog)
-- Self-heal (investigation / fix / verification / git ops) — fully wired
-- App updates (OTA via local feed server)
-- Bug report capture request
-- Theme selection (light / dark / system)
-- Multi-profile (multiple paired servers)
-- Model selection per conversation
+- `Done` - implemented on Android and wired through the desktop bridge.
+- `Partial` - present, but missing important desktop behavior or polish.
+- `Missing` - desktop has the feature and Android does not.
+- `Mobile-adjusted` - Android should provide a practical equivalent for desktop-local OS behavior.
 
 ---
 
-## Phase 1 — Conversation Management (Quick Wins)
+## Current Android Baseline
 
-**Theme:** Fix the most obvious day-to-day gaps. All required WS handlers already exist on desktop (`conversation:rename`, `conversation:delete`, `conversation:search` are live in `conversation-handlers.ts`). This is almost entirely Android UI work.
-
-| Feature | Description | Sides | Effort |
-|---------|-------------|-------|--------|
-| Rename conversation | Long-press or swipe action on conversation list item; sends `conversation:rename` | Android UI | S |
-| Delete conversation | Swipe-to-delete or context menu; sends `conversation:delete`; add `WsEvent.ConversationDeleted` broadcast | Android UI + Desktop WS (event) | S |
-| Search conversations | Search bar on HomeScreen Chats tab; sends `conversation:search`; add `WsEvent.ConversationSearchResults` reply | Android UI + Desktop WS (event) | M |
-| Delete individual message | Long-press on message bubble → delete; need WS bridge for `message:delete` IPC | Android UI + Desktop WS handler | M |
-| Self-Heal report list | Dedicated screen listing error reports by status; sends `self-heal:get-reports`; add `WsEvent.SelfHealReports` | Android UI + WsEvent.kt variant | M |
-| Self-Heal report detail | View investigation markdown, fix status for a selected report; reuses existing self-heal WS commands | Android UI | M |
-
-**New protocol additions:**
-- `WsEvent.ConversationDeleted(id)` — desktop broadcasts when a conversation is deleted
-- `WsEvent.ConversationSearchResults(conversations)` — reply to `conversation:search`
-- `WsEvent.SelfHealReports(reports)` — reply to `self-heal:get-reports`
-
----
-
-## Phase 2 — Projects & Agents CRUD
-
-**Theme:** Android can read projects and agents but cannot create or configure them. Desktop IPC handlers for create/rename/delete all exist — new WS command handlers bridge them.
-
-### 2a — Projects
-
-| Feature | Description | Sides | Effort |
-|---------|-------------|-------|--------|
-| Create project | FAB or bottom sheet on Projects tab; sends `project:create`; add WS handler wrapping existing IPC | Android UI + Desktop WS handler | M |
-| Rename project | Edit action from project detail; sends `project:rename` | Android UI + Desktop WS handler | S |
-| Delete project | Delete action with confirmation dialog; sends `project:delete` | Android UI + Desktop WS handler | S |
-| Edit ProjectConfig | Basic settings sheet (instructions, rootDir, scope rules, variables, milestones, orchestration toggles); sends `project:update-config` | Android UI + Desktop WS handler | L |
-| Manage project agents | Agent picker within project settings; add/remove/set-primary; sends `project:set-agents` | Android UI + Desktop WS handler | M |
-| Project generator wizard | Conversational project creation; `project-generator:start/message/confirm/cancel` WS commands already exist on desktop | Android UI | L |
-
-**New WS handlers needed:** `project:create`, `project:rename`, `project:delete`, `project:update-config`, `project:set-agents`
-
-### 2b — Agents
-
-| Feature | Description | Sides | Effort |
-|---------|-------------|-------|--------|
-| Create agent | New agent sheet (name, icon, system prompt); sends `agent:create` | Android UI + Desktop WS handler | M |
-| Edit agent (basic fields) | Name, icon, system prompt, temperature, maxTokens; sends `agent:update` | Android UI + Desktop WS handler | M |
-| Edit agent tools & MCP | Toggle fileEdit / terminal / webFetch and select MCP servers; part of `agent:update` payload | Android UI | M |
-| Delete agent | Confirmation dialog; sends `agent:delete` | Android UI + Desktop WS handler | S |
-| Agent memory field | View/edit `memory` string; part of `agent:update` | Android UI | S |
-
-**New WS handlers needed:** `agent:create`, `agent:update`, `agent:delete`
-
-**Note:** Agent CLI model editing requires Phase 3 CLI status first; can ship without that field initially.
+- Chat send/receive/stream/stop, attachments, latest screenshot attach, prompt insertion, per-conversation model picker, and context inspector.
+- Conversation list/create/rename/delete/search/export/fork/import and message delete.
+- Project and agent list/create/rename/delete.
+- Basic project config and team-agent management.
+- Basic agent config editing.
+- Provider key management, CLI status plumbing, settings screens, model diagnostics.
+- MCP server list read-only.
+- Project Generator exists and should be reachable from project creation, not Settings.
+- Agent Generator exists and is routed from the Agents area.
+- Artifacts list/detail/export exists and should be reachable as a content/tool area, not Settings.
+- Prompt CRUD and insert into chat.
+- Wiki CRUD code exists and is routed from Project Config.
+- Self-heal reports/detail/investigation/fix/verification/git/reload flows.
+- Updates, pairing, multi-profile, notifications, diagnostics.
 
 ---
 
-## Phase 3 — Settings & Providers
+## Parity Gap Matrix
 
-**Theme:** BYOK API key management and global settings. The WS bridge must never transmit raw key values — use masked display and a write-only set flow.
+| Area | Android status | Remaining work |
+|------|----------------|----------------|
+| Navigation / IA | Partial | Add missing top-level/tool destinations for Skill Generator, full Project Settings sections, and Artifact Generator. |
+| Models | Partial | Add visible Android errors when global default model resolution fails. |
+| Providers | Partial | Add Azure endpoint and provider test/has-key flows. |
+| Chat UI | Partial | Add advanced conversation controls and richer stream metadata rendering. |
+| Skills | Partial | Add tests for skill CRUD and agent-skill round trips. |
+| Skill Generator | Missing | Add desktop WS bridge and Android generator UI. |
+| Agent Generator | Partial | Android route exists; verify parser/repository/UI parity with desktop generator. |
+| Agent Config | Partial | Add skills, knowledge files, MCP trust/tool overrides, tool instructions, thinking effort, context files/rules, root directory, custom commands, JSON parity. |
+| Project Settings | Partial | Add full General/Scope/Milestones/Team/Wiki/Artifacts parity, default model, root directory, orchestration controls. |
+| Artifacts | Partial | Add generator, versions, delete, revision, storage-root visibility, and Android export/share equivalents. |
+| Prompts | Partial | Add prompt version history and rollback. |
+| Wiki | Partial | Add extraction from conversation and source conversation/message display. |
+| MCP | Partial | Add server add/update/remove/restart/status/tools/trust/agent overrides. |
+| Developer tooling | Mobile-adjusted | Add read-only build/update dashboards and guarded desktop-triggered actions where useful. |
 
-| Feature | Description | Sides | Effort |
-|---------|-------------|-------|--------|
-| Provider list (configured status) | List providers (OpenAI, Anthropic, Azure, Gemini, Mistral, Groq, xAI, OpenRouter) with configured badge; sends `provider:get-configured` | Android UI + Desktop WS handler | M |
-| Set API key (write-only) | Input sheet per provider; sends `provider:set-key`; key is encrypted by desktop, never echoed back | Android UI + Desktop WS handler | M |
-| Remove API key | Remove action per provider; sends `provider:remove-key` | Android UI + Desktop WS handler | S |
-| Global default model | Picker; sends `app:set-setting` with key `default_model`; desktop handler exists | Android UI | S |
-| Global temperature / max tokens | Numeric inputs; sends `app:set-setting` for `default_temperature` / `default_max_tokens` | Android UI | S |
-| Auto-start toggle | Toggle; sends `app:set-setting` for `auto_start` | Android UI | S |
-| Auto-clipboard toggle | Toggle; sends `app:set-setting` for `auto_clipboard` | Android UI | S |
-| MCP server list (read-only) | List configured MCP servers with status; sends `mcp:list` | Android UI + Desktop WS handler | M |
-| CLI status | Installed/version indicators for Claude CLI and Codex CLI; sends `app:cli-status`; returns `CliInstallStatus` | Android UI + Desktop WS handler | S |
-
-**New WS handlers needed:** `provider:get-configured`, `provider:set-key`, `provider:remove-key`, `mcp:list`, `app:cli-status`
-
-**Security:** `provider:set-key` must call `storeApiKey` from `src/main/provider-secrets.ts` and must never include raw key material in any WS reply event.
-
----
-
-## Phase 4 — Artifacts
-
-Desktop `artifacts.ts` has full CRUD. Start with read-only listing, then add create/export.
-
-| Feature | Description | Sides | Effort |
-|---------|-------------|-------|--------|
-| Artifact list | List artifacts scoped to a project; `artifact:list` WS command | Android UI + Desktop WS handler | M |
-| Artifact detail | View metadata, version history, file list; `artifact:get` | Android UI + Desktop WS handler | M |
-| Artifact export | Trigger export (JSON/zip); receive file data or local URL; `artifact:export` | Android UI + Desktop WS handler | L |
-
-**New WS handlers needed:** `artifact:list`, `artifact:get`, `artifact:export`
+Feature Generator is intentionally excluded because it has been removed from the desktop app.
 
 ---
 
-## Phase 5 — Wiki, Prompts & Advanced
+## Manager Phases
 
-**Theme:** Lower-priority completions. All require new WS handlers on desktop.
+### Phase 0 - Roadmap Hygiene And Protocol Audit
 
-### 5a — Project Wiki
+- [x] Replace stale "complete parity" status with the current gap matrix.
+- [x] Remove Feature Generator from the Android parity roadmap.
+- [x] Add status legend and mobile-adjusted policy.
+- [x] Add a WS coverage table for each remaining area: desktop IPC, desktop WS, Android parser, Android repository, Android UI.
+- [ ] Keep this roadmap updated as phases land.
 
-| Feature | Description | Sides | Effort |
-|---------|-------------|-------|--------|
-| Wiki entry list | List wiki entries for a project; `wiki:list` | Android UI + Desktop WS handler | M |
-| Wiki entry detail | Read-only body + tags view | Android UI | S |
-| Create / edit entry | Form sheet; `wiki:create` / `wiki:update` | Android UI + Desktop WS handlers | M |
-| Delete entry | `wiki:delete` | Android UI + Desktop WS handler | S |
+### WebSocket Coverage Table
 
-### 5b — Prompt Library
+| Area | Desktop IPC | Desktop WS | Android parser | Android repository | Android UI |
+|------|-------------|------------|----------------|--------------------|------------|
+| Skills CRUD | Done | Done | Done | Done | Done |
+| Skill import/export | Done | Partial | Partial | Done | Done |
+| Agent-skill links | Done | Done | Done | Done | Done |
+| Skill Generator | Done | Missing | Missing | Missing | Missing |
+| Artifact Generator | Done | Missing | Missing | Missing | Missing |
+| Full Agent Config | Done | Partial | Partial | Partial | Partial |
+| Full Project Settings | Done | Partial | Partial | Partial | Partial |
+| Artifact lifecycle | Done | Partial | Partial | Partial | Partial |
+| Prompt versions | Done | Missing | Missing | Missing | Missing |
+| Wiki extraction/source markers | Done | Missing | Missing | Missing | Partial |
+| MCP management/tools/trust | Done | Partial | Partial | Partial | Partial |
+| Provider Azure/test-key | Done | Missing | Missing | Missing | Missing |
+| Advanced conversation controls | Done | Partial | Partial | Partial | Partial |
 
-| Feature | Description | Sides | Effort |
-|---------|-------------|-------|--------|
-| Browse prompts | List global and project-scoped prompts; `prompt:list` | Android UI + Desktop WS handler | M |
-| Insert prompt into chat | Tap to pre-fill chat composer; purely Android UI after list is fetched | Android UI | S |
-| Create / edit prompt | Form sheet; `prompt:create` / `prompt:update` | Android UI + Desktop WS handlers | M |
+### Phase 1 - Navigation And IA Parity
 
-### 5c — Advanced Conversation Operations
+- [x] Move Project Generator out of Settings into the Projects creation flow.
+- [x] Move Artifacts out of Settings into a desktop-parity content/tool entry point.
+- [x] Add Android route for Skills.
+- [ ] Add missing Android routes for Skill Generator, full Project Settings sections, and Artifact Generator.
+- [ ] Ensure every desktop top-level pane has an Android destination or documented mobile-adjusted equivalent.
+- [ ] Add consistent empty/error/retry states for each parity screen.
 
-| Feature | Description | Sides | Effort |
-|---------|-------------|-------|--------|
-| Export conversation | JSON or markdown via Android share sheet; `conversation:export-json` WS bridge | Android UI + Desktop WS handler | M |
-| Fork conversation | Fork at a selected message; `conversation:fork` WS bridge | Android UI + Desktop WS handler | M |
-| Import conversation | File picker → send raw JSON payload; WS variant must accept JSON directly (not open a desktop dialog) | Android UI + Desktop WS handler | L |
+### Phase 2 - Models, Providers, And CLI Model Parity
+
+- [x] Verify Android new-chat model dropdown includes all desktop-available provider models when no agent/project is selected.
+- [x] Fix missing OpenRouter models in the new-chat model dropdown if the desktop bridge is not returning them.
+- [x] Fix Android Settings model list so it shows the full grouped model list, including OpenRouter.
+- [x] Add a dedicated CLI Models entry/section in Android Settings.
+- [ ] Ensure global default model resolution produces visible Android errors when it fails.
+- [x] Fix OpenRouter provider row layout so "Configured" never wraps awkwardly.
+- [ ] Add provider parity for Azure endpoint and provider has-key/test-key flows.
+
+### Phase 3 - Chat UI Polish And Conversation Parity
+
+- [x] Equalize Android chat history row heights.
+- [x] Move the send button inside the Android chat input field.
+- [x] Add compression preview, prepare summary, and save summary.
+- [x] Add pin/unpin conversation controls.
+- [x] Add delete-after-message flow.
+- [ ] Improve chat rendering parity for thinking blocks, costs, tool events, artifacts, wiki markers, and in-reply-to navigation where metadata exists.
+- [ ] Add richer export/fork/import option parity.
+- [ ] Add visible error notifications for every failed WS action.
+
+### Phase 4 - Skills Parity
+
+- [x] Add desktop WS handlers for `skill:list/get/create/update/delete/duplicate/export/import`.
+- [x] Add WS handlers for `skill:get-agent-links`, `skill:attach-to-agent`, `skill:reorder-for-agent`, `skill:get-agent-usage`.
+- [x] Add Android `Skill` models, events, parser branches, repository state, and ViewModels.
+- [x] Build Skills list/detail/editor screens for core CRUD and duplicate.
+- [x] Add Android import/export UI for skill JSON.
+- [x] Add skill usage display in Android Skills list/detail.
+- [x] Add Android editor parity for built-in tool permissions/instructions, MCP server assignment, and knowledge entries.
+- [x] Add Android editor parity for MCP trust/tool overrides.
+- [x] Add attach/detach/reorder skills inside Android Agent Config.
+- [ ] Add tests for skill CRUD and agent-skill round trip.
+
+### Phase 5 - Generator Parity
+
+- [ ] Verify existing Android `agent-generator:*` support against the desktop generator.
+- [ ] Add `skill-generator:*` WS bridge and Android screen.
+- [ ] Add `artifact-generator:*` WS bridge and Android screen.
+- [ ] Add parser and ViewModel tests for token/spec/done/error/cancel flows.
+
+### Phase 6 - Full Agent Configuration Parity
+
+- [ ] Extend Android `AgentFullConfig` to preserve all desktop agent fields.
+- [ ] Add UI for thinking effort, root directory, context directories/files, context rules, and custom commands.
+- [ ] Add knowledge file list/add/remove/read/update support.
+- [ ] Add built-in tool instructions and approval parity.
+- [ ] Add MCP server assignment, server trust, and tool override UI.
+- [ ] Fix tool approval value normalization to match desktop/shared config.
+- [ ] Add round-trip tests proving Android does not drop advanced fields.
+
+### Phase 7 - Project Settings Parity
+
+- [ ] Add Android Project Settings sections for General, Scope, Milestones, Team, Wiki, and Artifacts.
+- [ ] Add or expose WS commands for complete project config read/update.
+- [ ] Add team management: add/remove/reorder agents and set primary agent.
+- [ ] Add orchestration settings: enabled, delegation depth, team activity visibility.
+- [ ] Add default model and root directory controls.
+- [ ] Add tests for project config and team round trips.
+
+### Phase 8 - Artifact Lifecycle Parity
+
+- [ ] Extend Android artifact detail to include version history.
+- [ ] Add artifact export/share support as Android equivalent of desktop export/open-folder.
+- [ ] Add artifact delete.
+- [ ] Add generated artifact revision flow.
+- [ ] Add storage-root visibility; make editing mobile-adjusted or desktop-triggered with confirmation.
+- [ ] Add tests for list/detail/version/export/delete events.
+
+### Phase 9 - Prompts, Wiki, MCP, And Developer Tooling
+
+- [ ] Add prompt version list and rollback.
+- [ ] Add project-scoped prompt filtering where desktop supports it.
+- [ ] Add wiki extraction from conversation.
+- [ ] Add source conversation/message display for wiki entries.
+- [ ] Add MCP add/update/remove/restart/status flows.
+- [ ] Add MCP list-tools and list-tools-for-agent flows.
+- [ ] Add read-only build/developer dashboards for desktop and Android build records.
+- [ ] Add guarded trigger actions for preflight/build/install/publish/restore where mobile-safe.
 
 ---
 
 ## Protocol Work Pattern
 
-Every new WS command follows the existing pattern in `src/main/ws-handlers.ts`:
-1. Register in the `setWsCommandHandler` block
-2. Call existing IPC handler logic or DB directly
-3. `reply(...)` or `broadcastToMobile(...)` with a typed event
+Every new WebSocket command should update these layers together:
 
-For each new reply event:
-1. New `sealed class` entry in `android/app/src/main/java/io/nexy/android/data/model/WsEvent.kt`
-2. New `when` branch in `android/app/src/main/java/io/nexy/android/data/WsEventParser.kt`
-3. New `StateFlow` field in `android/app/src/main/java/io/nexy/android/data/WsRepository.kt` if data needs to persist across screen navigations
-
----
-
-## Key Files
-
-| File | Role |
-|------|------|
-| `src/main/ws-handlers.ts` | All new desktop WS command handlers land here |
-| `android/.../data/model/WsEvent.kt` | New sealed class variant per new reply event |
-| `android/.../data/WsEventParser.kt` | Updated in lockstep with WsEvent.kt |
-| `android/.../data/WsRepository.kt` | New StateFlow fields for persistent list/detail data |
-| `src/main/provider-secrets.ts` | `storeApiKey` / `removeApiKey` — used by Phase 3 handlers; must not leak key material |
+1. Desktop WS handler in `src/main/ws-handlers.ts`.
+2. Typed event in `android/.../data/model/WsEvent.kt`.
+3. Parser branch in `android/.../data/WsEventParser.kt`.
+4. Repository state/send helper in `android/.../data/WsRepository.kt`.
+5. ViewModel and Compose UI.
+6. Focused desktop and Android tests.
 
 ---
 
-## Effort at a Glance
+## Acceptance Criteria
 
-| Phase | Est. calendar |
-|-------|---------------|
-| 1 — Conversation Management | 2–3 days |
-| 2 — Projects & Agents CRUD | 5–7 days |
-| 3 — Settings & Providers | 3–4 days |
-| 4 — Artifacts | 2–3 days |
-| 5 — Wiki, Prompts, Advanced | 4–5 days |
-
-**~21–32 days total.** Phases 1–3 can proceed largely in parallel since they touch independent screens. Phase 4 depends on Phase 2a (projects). Phase 5 is independent of Phase 4 and can be interleaved.
+- Every current desktop pane or modal is represented as `Done`, `Partial`, `Missing`, or `Mobile-adjusted`.
+- Removed desktop features, especially Feature Generator, are not included as Android targets.
+- Android model lists match desktop model availability, including OpenRouter and CLI model sections.
+- Settings contains settings, not creation/content tools like Project Generator or Artifacts.
+- Each phase has a checklist small enough to assign independently.
+- The roadmap distinguishes missing Android UI from missing WS bridge support.
