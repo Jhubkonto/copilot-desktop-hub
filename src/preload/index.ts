@@ -235,6 +235,16 @@ const api = {
     typedOn('chat:stream-model', handler)
     return () => typedOff('chat:stream-model', handler)
   },
+  onThinkingDelta: (callback: (data: { blockId: string; chunk: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { blockId: string; chunk: string }) => callback(data)
+    typedOn('chat:thinking-delta', handler)
+    return () => typedOff('chat:thinking-delta', handler)
+  },
+  onThinkingEnd: (callback: (data: { blockId: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { blockId: string }) => callback(data)
+    typedOn('chat:thinking-end', handler)
+    return () => typedOff('chat:thinking-end', handler)
+  },
   stopGeneration: (conversationId?: string) => typedInvoke('chat:stop-generation', conversationId),
 
   // Conversations

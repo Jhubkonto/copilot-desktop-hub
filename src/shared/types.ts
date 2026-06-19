@@ -58,6 +58,8 @@ export interface AgentConfig {
   backend?: 'claude-cli' | 'codex-cli' | 'gh-copilot'
   /** Model to use when backend is a CLI (e.g. 'claude-sonnet-4-6' or 'gpt-4.1'). */
   cliModel?: string
+  /** How much reasoning effort the model should spend. undefined/'disabled' = provider default. */
+  thinkingEffort?: 'low' | 'medium' | 'high' | 'max' | 'disabled'
 }
 
 export interface CliInstallStatus {
@@ -1222,6 +1224,8 @@ export type IpcReturnMap = {
   'chat:team-step-stream': void
   'chat:activity': void
   'chat:stream-model': void
+  'chat:thinking-delta': void
+  'chat:thinking-end': void
   'chat:wiki-injected': { count: number }
   'chat:remote-message': void
   // CLI
@@ -1525,6 +1529,8 @@ export type IpcChannels =
   | 'chat:team-step-stream'
   | 'chat:activity'
   | 'chat:stream-model'
+  | 'chat:thinking-delta'
+  | 'chat:thinking-end'
   | 'chat:wiki-injected'
   | 'chat:remote-message'
   | 'clipboard:auto-focus'
