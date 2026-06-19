@@ -29,8 +29,23 @@ fun toJsonValue(v: Any): Any = when (v) {
 fun jsonObjectToMap(obj: JSONObject?): Map<String, Any> {
     if (obj == null) return emptyMap()
     val map = mutableMapOf<String, Any>()
-    for (key in obj.keys()) map[key] = obj.get(key)
+    for (key in obj.keys()) {
+        val value = obj.get(key)
+        map[key] = jsonValueToAny(value)
+    }
     return map
+}
+
+fun jsonArrayToList(arr: JSONArray?): List<Any> {
+    if (arr == null) return emptyList()
+    return (0 until arr.length()).map { jsonValueToAny(arr.get(it)) }
+}
+
+private fun jsonValueToAny(value: Any): Any = when (value) {
+    JSONObject.NULL -> ""
+    is JSONObject -> jsonObjectToMap(value)
+    is JSONArray -> jsonArrayToList(value)
+    else -> value
 }
 
 fun attachmentsFromJson(attachmentsJson: String?): List<AttachmentMeta> {
