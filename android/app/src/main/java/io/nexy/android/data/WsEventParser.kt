@@ -7,6 +7,8 @@ import io.nexy.android.data.model.ToolConfig
 import io.nexy.android.data.model.AndroidUpdateManifest
 import io.nexy.android.data.model.AgentGeneratorSpec
 import io.nexy.android.data.model.AgentGeneratorTools
+import io.nexy.android.data.model.SkillGeneratorSpec
+import io.nexy.android.data.model.SkillGeneratorTools
 import io.nexy.android.data.model.ProjectSettingsConfig
 import io.nexy.android.data.model.ArtifactDetail2
 import io.nexy.android.data.model.ProjectGeneratorSpec
@@ -855,6 +857,50 @@ fun parseWsEvent(
 
             "agent-generator:cancelled" -> WsEvent.AgentGeneratorCancelled(data?.nullableString("sessionId"))
 
+            "skill-generator:token" -> WsEvent.SkillGeneratorToken(
+                sessionId = data?.nullableString("sessionId"),
+                chunk = data?.optString("chunk") ?: "",
+            )
+
+            "skill-generator:turn-complete" -> WsEvent.SkillGeneratorTurnComplete(
+                sessionId = data?.nullableString("sessionId"),
+                content = data?.optString("content") ?: "",
+                hasSpec = data?.optBoolean("hasSpec", false) ?: false,
+            )
+
+            "skill-generator:spec-ready" -> {
+                val specData = data?.optJSONObject("spec") ?: data
+                val spec = parseSkillGeneratorSpec(specData) ?: return
+                WsEvent.SkillGeneratorSpecReady(data?.nullableString("sessionId"), spec)
+            }
+
+            "skill-generator:created" -> WsEvent.SkillGeneratorCreated(
+                sessionId = data?.nullableString("sessionId"),
+                skillId = data?.optString("skillId") ?: "",
+                name = data?.optString("name") ?: "",
+            )
+
+            "skill-generator:error" -> WsEvent.SkillGeneratorError(
+                sessionId = data?.nullableString("sessionId"),
+                message = data?.optString("message") ?: "Unknown error",
+            )
+
+            "skill-generator:cancelled" -> WsEvent.SkillGeneratorCancelled(data?.nullableString("sessionId"))
+
+            "provider:azure-endpoint" -> WsEvent.ProviderAzureEndpoint(
+                endpoint = data?.optString("endpoint") ?: "",
+            )
+
+            "provider:azure-endpoint-set" -> WsEvent.ProviderAzureEndpointSet(
+                endpoint = data?.optString("endpoint") ?: "",
+            )
+
+            "provider:test-result" -> WsEvent.ProviderTestResult(
+                provider = data?.optString("provider") ?: "",
+                valid = data?.optBoolean("valid", false) ?: false,
+                error = data?.nullableString("error"),
+            )
+
             else -> return
         }
         scope.launch { events.emit(wsEvent) }
@@ -1038,6 +1084,47 @@ private fun parseAgentGeneratorSpec(data: JSONObject?): AgentGeneratorSpec? {
         rootDirectory = d.nullableString("rootDirectory"),
         contextDirectories = contextDirectories,
         memory = d.nullableString("memory"),
+    )
+}
+
+private fun parseSkillGeneratorSpec(data: JSONObject?): SkillGeneratorSpec? {
+    val d = data ?: return null
+    val toolsObj = d.optJSONObject("tools")
+    val toolInstrObj = d.optJSONObject("toolInstructions")
+    val approvalObj = d.optJSONObject("approval")
+    val toolInstructions = mutableMapOf<String, String>()
+    val approval = mutableMapOf<String, String>()
+    listOf("fileEdit", "terminal", "webFetch").forEach { key ->
+        toolInstrObj?.nullableString(key)?.let { toolInstructions[key] = it }
+        approvalObj?.nullableString(key)?.let { approval[key] = it }
+    }
+    fun strList(key: String): List<String> {
+        val arr = d.optJSONArray(key) ?: return emptyList()
+        return (0 until arr.length()).map { arr.optString(it) }.filter { it.isNotBlank() }
+    }
+    val knowledgeArr = d.optJSONArray("knowledge")
+    val knowledge = if (knowledgeArr != null) {
+        (0 until knowledgeArr.length()).mapNotNull { i ->
+            val k = knowledgeArr.optJSONObject(i) ?: return@mapNotNull null
+            SkillKnowledge(title = k.optString("title"), content = k.optString("content"))
+        }
+    } else emptyList()
+    return SkillGeneratorSpec(
+        name = d.optString("name", ""),
+        icon = d.optString("icon", ""),
+        description = d.optString("description", ""),
+        instructions = d.optString("instructions", ""),
+        tools = SkillGeneratorTools(
+            fileEdit = toolsObj?.optBoolean("fileEdit", false) ?: false,
+            terminal = toolsObj?.optBoolean("terminal", false) ?: false,
+            webFetch = toolsObj?.optBoolean("webFetch", false) ?: false,
+        ),
+        toolInstructions = toolInstructions,
+        approval = approval,
+        mcpServers = strList("mcpServers"),
+        tags = strList("tags"),
+        knowledge = knowledge,
+        suggestedAgents = strList("suggestedAgents"),
     )
 }
 

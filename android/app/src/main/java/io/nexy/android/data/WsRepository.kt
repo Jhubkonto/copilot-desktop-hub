@@ -569,6 +569,38 @@ object WsRepository : WsClient {
     }
     fun cancelProjectGenerator(sessionId: String) { send("project-generator:cancel", mapOf("sessionId" to sessionId)) }
 
+    fun startSkillGeneratorChat(sessionId: String, messages: List<Map<String, String>>) {
+        send("skill-generator:start", mapOf("sessionId" to sessionId, "messages" to messages))
+    }
+    fun sendSkillGeneratorMessage(sessionId: String, messages: List<Map<String, String>>) {
+        send("skill-generator:message", mapOf("sessionId" to sessionId, "messages" to messages))
+    }
+    fun confirmSkillSpec(sessionId: String, spec: io.nexy.android.data.model.SkillGeneratorSpec) {
+        val specPayload = mutableMapOf<String, Any>(
+            "name" to spec.name,
+            "icon" to spec.icon,
+            "description" to spec.description,
+            "instructions" to spec.instructions,
+            "tools" to mapOf("fileEdit" to spec.tools.fileEdit, "terminal" to spec.tools.terminal, "webFetch" to spec.tools.webFetch),
+            "toolInstructions" to spec.toolInstructions,
+            "approval" to spec.approval,
+            "mcpServers" to spec.mcpServers,
+            "tags" to spec.tags,
+            "knowledge" to spec.knowledge.map { mapOf("title" to it.title, "content" to it.content) },
+            "suggestedAgents" to spec.suggestedAgents,
+        )
+        send("skill-generator:confirm", mapOf("sessionId" to sessionId, "spec" to specPayload))
+    }
+    fun cancelSkillGenerator(sessionId: String) { send("skill-generator:cancel", mapOf("sessionId" to sessionId)) }
+
+    fun getAzureEndpoint() { send("provider:get-azure-endpoint", emptyMap()) }
+    fun setAzureEndpoint(endpoint: String) { send("provider:set-azure-endpoint", mapOf("endpoint" to endpoint)) }
+    fun testProviderKey(provider: String, key: String, endpoint: String? = null) {
+        val data = mutableMapOf<String, Any>("provider" to provider, "key" to key)
+        if (endpoint != null) data["endpoint"] = endpoint
+        send("provider:test-key", data)
+    }
+
     fun exportConversationPack(conversationId: String, format: String = "json") {
         send("conversation:export-pack", mapOf("conversationId" to conversationId, "format" to format))
     }

@@ -152,6 +152,15 @@ sealed class WsEvent {
     data class AgentGeneratorCreated(val sessionId: String?, val agentId: String, val name: String) : WsEvent()
     data class AgentGeneratorError(val sessionId: String?, val message: String) : WsEvent()
     data class AgentGeneratorCancelled(val sessionId: String?) : WsEvent()
+    data class SkillGeneratorToken(val sessionId: String?, val chunk: String) : WsEvent()
+    data class SkillGeneratorTurnComplete(val sessionId: String?, val content: String, val hasSpec: Boolean = false) : WsEvent()
+    data class SkillGeneratorSpecReady(val sessionId: String?, val spec: SkillGeneratorSpec) : WsEvent()
+    data class SkillGeneratorCreated(val sessionId: String?, val skillId: String, val name: String) : WsEvent()
+    data class SkillGeneratorError(val sessionId: String?, val message: String) : WsEvent()
+    data class SkillGeneratorCancelled(val sessionId: String?) : WsEvent()
+    data class ProviderAzureEndpoint(val endpoint: String) : WsEvent()
+    data class ProviderAzureEndpointSet(val endpoint: String) : WsEvent()
+    data class ProviderTestResult(val provider: String, val valid: Boolean, val error: String?) : WsEvent()
 }
 
 data class CompressionSections(
@@ -414,6 +423,26 @@ data class AgentGeneratorSpec(
 )
 
 data class AgentGeneratorTools(
+    val fileEdit: Boolean,
+    val terminal: Boolean,
+    val webFetch: Boolean,
+)
+
+data class SkillGeneratorSpec(
+    val name: String,
+    val icon: String,
+    val description: String,
+    val instructions: String,
+    val tools: SkillGeneratorTools,
+    val toolInstructions: Map<String, String> = emptyMap(),
+    val approval: Map<String, String> = emptyMap(),
+    val mcpServers: List<String> = emptyList(),
+    val tags: List<String> = emptyList(),
+    val knowledge: List<SkillKnowledge> = emptyList(),
+    val suggestedAgents: List<String> = emptyList(),
+)
+
+data class SkillGeneratorTools(
     val fileEdit: Boolean,
     val terminal: Boolean,
     val webFetch: Boolean,
