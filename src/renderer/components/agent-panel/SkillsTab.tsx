@@ -133,46 +133,44 @@ export function SkillsTab({
             })
           }
           return (
-            <div key={tool.key} className="space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-2.5 dark:border-gray-700 dark:bg-gray-800/60">
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-xs font-medium text-gray-800 dark:text-gray-100">{tool.icon} {tool.label}</div>
+            <div key={tool.key} className="rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 dark:border-gray-700 dark:bg-gray-800/60">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-medium text-gray-800 dark:text-gray-100">{tool.icon} {tool.label}</span>
                 <button
                   type="button"
                   onClick={toggleEnabled}
-                  className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs text-gray-600 hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-700"
+                  className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] text-gray-600 hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-700"
                   aria-label={`Toggle ${tool.label}`}
                 >
-                  {toolConfig.enabled ? <ToggleRight className="h-4 w-4 text-green-500" /> : <ToggleLeft className="h-4 w-4 text-gray-400" />}
+                  {toolConfig.enabled ? <ToggleRight className="h-3.5 w-3.5 text-green-500" /> : <ToggleLeft className="h-3.5 w-3.5 text-gray-400" />}
                   <span>{toolConfig.enabled ? 'Enabled' : 'Disabled'}</span>
                 </button>
               </div>
-              <div className="flex items-center gap-2">
-                <label className="w-20 text-xs font-medium text-gray-600 dark:text-gray-400">Approval</label>
+              <div className="mt-1 flex items-center gap-2">
+                <label className="w-16 text-[11px] text-gray-500 dark:text-gray-400 shrink-0">Approval</label>
                 <select
                   value={toolConfig.approval}
                   onChange={(e) => onUpdateField('tools', {
                     ...config.tools,
                     [tool.key]: { ...toolConfig, approval: e.target.value as 'auto' | 'always-ask' | 'disabled' }
                   })}
-                  className="flex-1 rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                  className="flex-1 rounded border border-gray-300 bg-white px-1.5 py-0.5 text-[11px] text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                 >
                   <option value="auto">Auto</option>
                   <option value="always-ask">Always ask</option>
                   <option value="disabled">Disabled</option>
                 </select>
               </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Instructions</label>
-                <textarea
-                  value={toolConfig.instructions}
-                  onChange={(e) => onUpdateField('tools', {
-                    ...config.tools,
-                    [tool.key]: { ...toolConfig, instructions: e.target.value }
-                  })}
-                  rows={2}
-                  className="w-full rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-                />
-              </div>
+              <textarea
+                value={toolConfig.instructions}
+                onChange={(e) => onUpdateField('tools', {
+                  ...config.tools,
+                  [tool.key]: { ...toolConfig, instructions: e.target.value }
+                })}
+                placeholder="Instructions…"
+                rows={1}
+                className="mt-1 w-full rounded border border-gray-300 bg-white px-1.5 py-0.5 text-[11px] text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+              />
             </div>
           )
         })}
@@ -212,37 +210,35 @@ export function SkillsTab({
             return (
               <div key={server.id} className="rounded-lg border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/60">
                 {/* Server header */}
-                <div className="flex items-center justify-between gap-3 px-2.5 py-1.5">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <span className={`text-xs ${statusColor}`}>
-                        {server.status === 'connected' ? '●' : '○'}
-                      </span>
-                      <span className="text-xs font-medium text-gray-800 dark:text-gray-100 truncate">{server.name}</span>
-                      {server.toolCount > 0 && <span className="text-xs text-gray-400">{server.toolCount} tools</span>}
-                    </div>
+                <div className="flex items-center justify-between gap-2 px-2 py-1">
+                  <div className="min-w-0 flex-1 flex items-center gap-1">
+                    <span className={`text-[10px] ${statusColor}`}>
+                      {server.status === 'connected' ? '●' : '○'}
+                    </span>
+                    <span className="text-[11px] font-medium text-gray-800 dark:text-gray-100 truncate">{server.name}</span>
+                    {server.toolCount > 0 && <span className="text-[10px] text-gray-400">{server.toolCount} tools</span>}
                   </div>
                   <button
                     type="button"
                     onClick={() => onToggleServerAssignment(server.id)}
-                    className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs text-gray-600 hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-700 shrink-0"
+                    className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] text-gray-600 hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-700 shrink-0"
                     aria-label={`${isAssigned ? 'Remove' : 'Add'} ${server.name}`}
                   >
-                    {isAssigned ? <ToggleRight className="h-4 w-4 text-green-500" /> : <ToggleLeft className="h-4 w-4 text-gray-400" />}
+                    {isAssigned ? <ToggleRight className="h-3.5 w-3.5 text-green-500" /> : <ToggleLeft className="h-3.5 w-3.5 text-gray-400" />}
                     <span>{isAssigned ? 'On' : 'Off'}</span>
                   </button>
                 </div>
 
                 {/* Trust tier */}
                 {isAssigned && isEditing && (
-                  <div className="px-2.5 pb-2 border-t border-gray-200 dark:border-gray-700 pt-2 space-y-1">
+                  <div className="px-2 pb-1.5 border-t border-gray-200 dark:border-gray-700 pt-1 space-y-0.5">
                     <div className="flex items-center gap-2">
-                      <label className="text-xs text-gray-500 dark:text-gray-400 shrink-0">Trust</label>
+                      <label className="text-[10px] text-gray-500 dark:text-gray-400 shrink-0 w-8">Trust</label>
                       <select
                         value={tier}
                         onChange={(e) => void onSetServerTier(server.id, e.target.value as McpTrustTier)}
                         aria-label={`Trust tier for ${server.name}`}
-                        className="flex-1 rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                        className="flex-1 rounded border border-gray-300 bg-white px-1.5 py-0.5 text-[11px] text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                       >
                         <option value="always-ask">Ask before running</option>
                         <option value="auto">Run automatically</option>
@@ -254,24 +250,24 @@ export function SkillsTab({
                       {tier === 'always-ask' && 'Every tool on this server prompts for approval before running.'}
                       {tier === 'auto' && 'Every tool on this server runs without a prompt.'}
                       {tier === 'block' && 'No tool on this server can run.'}
-                      {tier === 'custom' && 'Set approval and instructions per tool below — overrides this server’s default.'}
+                      {tier === 'custom' && "Set approval and instructions per tool below — overrides this server's default."}
                     </p>
                   </div>
                 )}
 
                 {/* Per-tool custom config */}
                 {isAssigned && isEditing && tier === 'custom' && serverTools.length > 0 && (
-                  <div className="px-2.5 pb-2 pt-1.5 space-y-1.5 border-t border-gray-200 dark:border-gray-700">
+                  <div className="px-2 pb-1.5 pt-1 space-y-1 border-t border-gray-200 dark:border-gray-700">
                     {serverTools.map((tool) => {
                       const override = onGetMcpOverride(tool.serverId, tool.name)
                       const enabled = (override?.enabled ?? 1) === 1
                       const approval = override?.approval ?? 'always-ask'
                       const instructions = override?.instructions ?? ''
                       return (
-                        <div key={`${tool.serverId}:${tool.name}`} className="space-y-1.5 rounded-md border border-gray-200 bg-white px-2 py-1.5 dark:border-gray-700 dark:bg-gray-900/50">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="text-xs font-medium text-gray-800 dark:text-gray-100 truncate">🔌 {tool.name}</div>
+                        <div key={`${tool.serverId}:${tool.name}`} className="rounded border border-gray-200 bg-white px-1.5 py-1 dark:border-gray-700 dark:bg-gray-900/50">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <div className="text-[11px] font-medium text-gray-800 dark:text-gray-100 truncate">🔌 {tool.name}</div>
                               {tool.description && (
                                 <div className="text-[10px] text-gray-400 dark:text-gray-500 truncate">{tool.description}</div>
                               )}
@@ -279,19 +275,19 @@ export function SkillsTab({
                             <button
                               type="button"
                               onClick={() => void onSetMcpOverride(tool.serverId, tool.name, 'enabled', !enabled)}
-                              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 shrink-0"
+                              className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 shrink-0"
                               aria-label={`Toggle ${tool.name}`}
                             >
-                              {enabled ? <ToggleRight className="h-3.5 w-3.5 text-green-500" /> : <ToggleLeft className="h-3.5 w-3.5 text-gray-400" />}
+                              {enabled ? <ToggleRight className="h-3 w-3 text-green-500" /> : <ToggleLeft className="h-3 w-3 text-gray-400" />}
                               <span>{enabled ? 'On' : 'Off'}</span>
                             </button>
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="mt-0.5 flex items-center gap-1.5">
                             <label className="text-[10px] text-gray-500 dark:text-gray-400 shrink-0">Approval</label>
                             <select
                               value={approval}
                               onChange={(e) => void onSetMcpOverride(tool.serverId, tool.name, 'approval', e.target.value)}
-                              className="w-32 rounded border border-gray-300 bg-white px-1.5 py-0.5 text-xs text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                              className="w-28 rounded border border-gray-300 bg-white px-1 py-0.5 text-[10px] text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                             >
                               <option value="auto">Auto</option>
                               <option value="always-ask">Always ask</option>
@@ -303,7 +299,7 @@ export function SkillsTab({
                             onChange={(e) => void onSetMcpOverride(tool.serverId, tool.name, 'instructions', e.target.value)}
                             placeholder="Optional instructions for this tool…"
                             rows={1}
-                            className="w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                            className="mt-0.5 w-full rounded border border-gray-300 bg-white px-1.5 py-0.5 text-[10px] text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                           />
                         </div>
                       )
