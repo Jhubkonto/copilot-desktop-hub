@@ -34,7 +34,7 @@ interface ChatMessagesProps {
   onSignIn: () => void
   onPickModel: () => void
   onUseImageAsContext?: (dataUrl: string) => void
-  thinkingBlocks?: Map<string, { blockId: string; content: string; done: boolean }>
+  liveThinkingBlocks?: Map<string, { blockId: string; content: string; done: boolean }>
 }
 
 export function ChatMessagesBase({
@@ -61,7 +61,7 @@ export function ChatMessagesBase({
   onSignIn,
   onPickModel,
   onUseImageAsContext,
-  thinkingBlocks,
+  liveThinkingBlocks,
 }: ChatMessagesProps) {
   const catalogModels = useAppStore((state) => state.catalogModels)
   const lastAssistantIndex = (() => {
@@ -143,44 +143,54 @@ export function ChatMessagesBase({
           }
 
           return (
-            <MessageBubble
-              key={message.id}
-              id={message.id}
-              role={message.role}
-              content={message.content}
-              isEdited={message.isEdited}
-              modelLabel={
-                message.role === 'assistant' && message.model
-                  ? getModelLabel(message.model, catalogModels)
-                  : undefined
-              }
-              attachments={message.attachments}
-              images={message.images}
-              contextSnapshot={message.contextSnapshot}
-              isLastAssistant={index === lastAssistantIndex}
-              isGenerating={isGenerating}
-              isError={message.isError}
-              errorType={message.errorType}
-              retryable={message.retryable}
-              isStopped={message.isStopped}
-              messageIndex={index}
-              timestamp={message.timestamp}
-              onCopy={onCopy}
-              onSaveToWiki={message.role === 'assistant' ? onSaveToWiki : undefined}
-              hasWikiEntry={wikiMessageIds.has(message.id)}
-              onRegenerate={index === lastAssistantIndex ? onRegenerate : undefined}
-              onRegenerateWithModel={index === lastAssistantIndex ? onRegenerateWithModel : undefined}
-              onEdit={message.role === 'user' ? onEdit : undefined}
-              onRetry={message.isError && message.retryable ? onRetry : undefined}
-              onSignIn={
-                message.isError && message.errorType === 'auth' ? onSignIn : undefined
-              }
-              onPickModel={
-                message.isError && message.errorType === 'model_not_available'
-                  ? onPickModel
-                  : undefined
-              }
-            />
+            <div key={message.id}>
+              {message.role === 'assistant' && message.thinkingBlocks && message.thinkingBlocks.size > 0 && (
+                <div className="flex justify-start mb-1">
+                  <div className="w-full max-w-[80%]">
+                    {Array.from(message.thinkingBlocks.values()).map((block) => (
+                      <ThinkingBlock key={block.blockId} content={block.content} done={block.done} />
+                    ))}
+                  </div>
+                </div>
+              )}
+              <MessageBubble
+                id={message.id}
+                role={message.role}
+                content={message.content}
+                isEdited={message.isEdited}
+                modelLabel={
+                  message.role === 'assistant' && message.model
+                    ? getModelLabel(message.model, catalogModels)
+                    : undefined
+                }
+                attachments={message.attachments}
+                images={message.images}
+                contextSnapshot={message.contextSnapshot}
+                isLastAssistant={index === lastAssistantIndex}
+                isGenerating={isGenerating}
+                isError={message.isError}
+                errorType={message.errorType}
+                retryable={message.retryable}
+                isStopped={message.isStopped}
+                messageIndex={index}
+                timestamp={message.timestamp}
+                onCopy={onCopy}
+                onSaveToWiki={message.role === 'assistant' ? onSaveToWiki : undefined}
+                hasWikiEntry={wikiMessageIds.has(message.id)}
+                onRegenerate={index === lastAssistantIndex ? onRegenerate : undefined}
+                onRegenerateWithModel={index === lastAssistantIndex ? onRegenerateWithModel : undefined}
+                onEdit={message.role === 'user' ? onEdit : undefined}
+                onRetry={message.isError && message.retryable ? onRetry : undefined}
+                onSignIn={
+                  message.isError && message.errorType === 'auth' ? onSignIn : undefined
+                }
+                onPickModel={
+                  message.isError && message.errorType === 'model_not_available'
+                    ? onPickModel
+                    : undefined
+                }
+              />
+            </div>
           )
         })}
         {isGenerating && liveTeamActivity.length > 0 && (
@@ -188,10 +198,10 @@ export function ChatMessagesBase({
             <TeamActivityBlock steps={liveTeamActivity} isLive={true} />
           </div>
         )}
-        {thinkingBlocks && thinkingBlocks.size > 0 && (
+        {liveThinkingBlocks && liveThinkingBlocks.size > 0 && (
           <div className="flex justify-start">
             <div className="w-full max-w-[80%]">
-              {Array.from(thinkingBlocks.values()).map((block) => (
+              {Array.from(liveThinkingBlocks.values()).map((block) => (
                 <ThinkingBlock key={block.blockId} content={block.content} done={block.done} />
               ))}
             </div>

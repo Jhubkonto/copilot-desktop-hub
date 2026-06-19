@@ -67,7 +67,10 @@ interface UseChatWindowActionsParams {
   lastUndoneUserMessageRef: MutableRefObject<string | null>
   streamModelRef: MutableRefObject<string | null>
   streamingContentRef: MutableRefObject<string>
+  streamingConversationRef: MutableRefObject<string | null>
   conversationCreated: (id: string) => void
+  markConversationGenerating: (id: string) => void
+  markConversationDoneGenerating: (id: string) => void
   setIsGenerating: Dispatch<SetStateAction<boolean>>
   setGenerationStartedAt: Dispatch<SetStateAction<number | null>>
   setStreamingContent: Dispatch<SetStateAction<string>>
@@ -83,6 +86,7 @@ interface UseChatWindowActionsParams {
   loadConversations: () => Promise<void>
   onAfterSend?: () => void
   onEditStateConsumed?: () => void
+  clearLiveThinkingBlocks: () => void
 }
 
 export function useChatWindowActions({
@@ -131,7 +135,10 @@ export function useChatWindowActions({
   lastUndoneUserMessageRef,
   streamModelRef,
   streamingContentRef,
+  streamingConversationRef,
   conversationCreated,
+  markConversationGenerating,
+  markConversationDoneGenerating,
   setIsGenerating,
   setGenerationStartedAt,
   setStreamingContent,
@@ -147,6 +154,7 @@ export function useChatWindowActions({
   loadConversations,
   onAfterSend,
   onEditStateConsumed,
+  clearLiveThinkingBlocks,
 }: UseChatWindowActionsParams) {
   // Stores a CLI model and backend chosen before the conversation row exists (new chat), applied on first send.
   const pendingCliModelRef = useRef<string | null>(null)
@@ -374,6 +382,7 @@ export function useChatWindowActions({
     setGenerationStartedAt(Date.now())
     setStreamingContent('')
     setLiveTeamActivity([])
+    clearLiveThinkingBlocks()
     streamingContentRef.current = ''
     const requestModel = effectiveModel === 'default' ? undefined : effectiveModel
     streamModelRef.current = requestModel ?? null
@@ -385,6 +394,8 @@ export function useChatWindowActions({
       conversationCreated(conversation)
       activeConversationRef.current = conversation
     }
+    streamingConversationRef.current = conversation
+    markConversationGenerating(conversation)
 
     try {
       if (editCutoffTimestamp != null) {
@@ -410,6 +421,9 @@ export function useChatWindowActions({
       onAfterSend?.()
     } catch (error) {
       console.error('Failed to send message:', error)
+      const failedConvId = streamingConversationRef.current ?? ''
+      streamingConversationRef.current = null
+      markConversationDoneGenerating(failedConvId)
       setIsGenerating(false)
       setLoadingFailed(true)
       setGenerationStartedAt(null)
@@ -459,12 +473,16 @@ export function useChatWindowActions({
     streamingContentRef,
     streamModelRef,
     activeConversationRef,
+    streamingConversationRef,
     justCreatedConversationRef,
     conversationCreated,
+    markConversationGenerating,
+    markConversationDoneGenerating,
     chatAgentId,
     chatProjectId,
     onAfterSend,
     onEditStateConsumed,
+    clearLiveThinkingBlocks,
   ])
 
   const handleRetry = useCallback(async () => {
@@ -480,13 +498,16 @@ export function useChatWindowActions({
     }
     setMessages(trimmedMessages)
 
+    const conversation = activeConversationRef.current
+    if (!conversation) return
+
+    streamingConversationRef.current = conversation
+    markConversationGenerating(conversation)
     setIsGenerating(true)
     setGenerationStartedAt(Date.now())
     setStreamingContent('')
+    clearLiveThinkingBlocks()
     streamingContentRef.current = ''
-
-    const conversation = activeConversationRef.current
-    if (!conversation) return
 
     try {
       await window.api.sendMessage(conversation, lastUser.content, {
@@ -495,6 +516,8 @@ export function useChatWindowActions({
       })
     } catch (error) {
       console.error('Retry failed:', error)
+      streamingConversationRef.current = null
+      markConversationDoneGenerating(conversation)
       setIsGenerating(false)
       setGenerationStartedAt(null)
       streamModelRef.current = null
@@ -508,10 +531,14 @@ export function useChatWindowActions({
     setGenerationStartedAt,
     setStreamingContent,
     streamingContentRef,
+    streamingConversationRef,
     activeConversationRef,
+    markConversationGenerating,
+    markConversationDoneGenerating,
     effectiveModel,
     streamModelRef,
     addToast,
+    clearLiveThinkingBlocks,
   ])
 
   const handleEdit = useCallback(
@@ -600,6 +627,9 @@ export function useChatWindowActions({
   const handleStop = useCallback(async () => {
     try {
       await window.api.stopGeneration(conversationId ?? undefined)
+      const stoppedConvId = streamingConversationRef.current ?? conversationId ?? ''
+      streamingConversationRef.current = null
+      markConversationDoneGenerating(stoppedConvId)
       const partialContent = streamingContentRef.current
       if (partialContent) {
         setMessages((prev) => [
@@ -624,6 +654,8 @@ export function useChatWindowActions({
     }
   }, [
     conversationId,
+    streamingConversationRef,
+    markConversationDoneGenerating,
     streamingContentRef,
     streamModelRef,
     setMessages,

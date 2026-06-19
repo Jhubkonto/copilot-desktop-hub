@@ -31,6 +31,7 @@ export interface UiSlice {
   toasts: Toast[]
   toolApprovalRequests: ToolApprovalRequest[]
   unreadConversationIds: string[]
+  generatingConversationIds: string[]
   catalogModels: CatalogModel[]
   globalDefaultModel: string
   debugLogging: boolean
@@ -69,6 +70,8 @@ export interface UiSlice {
   ) => Promise<void>
   markConversationUnread: (id: string) => void
   markConversationRead: (id: string) => void
+  markConversationGenerating: (id: string) => void
+  markConversationDoneGenerating: (id: string) => void
 }
 
 export const createUiSlice: StateCreator<
@@ -95,6 +98,7 @@ export const createUiSlice: StateCreator<
   toasts: [],
   toolApprovalRequests: [],
   unreadConversationIds: [],
+  generatingConversationIds: [],
   catalogModels: [],
   globalDefaultModel: 'default',
   debugLogging: false,
@@ -294,6 +298,20 @@ export const createUiSlice: StateCreator<
   markConversationRead: (id) => {
     set((s) => {
       s.unreadConversationIds = s.unreadConversationIds.filter((cid) => cid !== id)
+    })
+  },
+
+  markConversationGenerating: (id) => {
+    set((s) => {
+      if (!s.generatingConversationIds.includes(id)) {
+        s.generatingConversationIds.push(id)
+      }
+    })
+  },
+
+  markConversationDoneGenerating: (id) => {
+    set((s) => {
+      s.generatingConversationIds = s.generatingConversationIds.filter((cid) => cid !== id)
     })
   },
 })

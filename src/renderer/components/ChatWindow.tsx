@@ -56,6 +56,8 @@ export function ChatWindow() {
   const markConversationUnread = useAppStore((state) => state.markConversationUnread)
   const catalogModels = useAppStore((state) => state.catalogModels)
   const markConversationRead = useAppStore((state) => state.markConversationRead)
+  const markConversationGenerating = useAppStore((state) => state.markConversationGenerating)
+  const markConversationDoneGenerating = useAppStore((state) => state.markConversationDoneGenerating)
   const defaultModelSetting = useAppStore((state) => state.globalDefaultModel)
 
   const [pendingModel, setPendingModel] = useState<string | null>(null)
@@ -180,6 +182,8 @@ export function ChatWindow() {
     loadConversations,
     conversationCreated,
     rateLimitSetterRef,
+    markConversationGenerating,
+    markConversationDoneGenerating,
   })
   const fileInput = useFileInput()
   const slashMenu = useSlashMenu()
@@ -236,6 +240,7 @@ export function ChatWindow() {
     historyIndexRef,
     historyDraftRef,
     activeConversationRef: chat.activeConversationRef,
+    streamingConversationRef: chat.streamingConversationRef,
     justCreatedConversationRef: chat.justCreatedConversationRef,
     pendingEditedResendRef: chat.pendingEditedResendRef,
     editCutoffTimestampRef: chat.editCutoffTimestampRef,
@@ -243,6 +248,8 @@ export function ChatWindow() {
     streamModelRef: chat.streamModelRef,
     streamingContentRef: chat.streamingContentRef,
     conversationCreated,
+    markConversationGenerating,
+    markConversationDoneGenerating,
     setIsGenerating: chat.setIsGenerating,
     setGenerationStartedAt: chat.setGenerationStartedAt,
     setStreamingContent: chat.setStreamingContent,
@@ -261,6 +268,7 @@ export function ChatWindow() {
       setPromptInstructionRef(null)
     },
     onEditStateConsumed: chat.clearEditState,
+    clearLiveThinkingBlocks: () => chat.setLiveThinkingBlocks(new Map()),
   })
 
   useLayoutEffect(() => {
@@ -1204,7 +1212,7 @@ export function ChatWindow() {
               { id: crypto.randomUUID(), dataUrl, name: 'browser-screenshot.png' }
             ])
           }}
-          thinkingBlocks={chat.thinkingBlocks}
+          liveThinkingBlocks={chat.liveThinkingBlocks}
         />
         {hasUnreadBelow && (
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 pointer-events-none">

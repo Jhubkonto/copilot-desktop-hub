@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, type ReactNode } from 'react'
-import { Plus, MessageSquare, Settings, FolderOpen, Bot, Wrench, Package, Bug, SquareArrowOutUpRight } from 'lucide-react'
+import { Plus, MessageSquare, Settings, FolderOpen, Bot, Wrench, Package, Bug, SquareArrowOutUpRight, Loader2 } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import { ResizeHandle } from './ResizeHandle'
 import { Button } from './ui/primitives'
@@ -67,6 +67,14 @@ export function Sidebar() {
   const openSectionPane = useAppStore((s) => s.openSectionPane)
   const setHistoryProjectId = useAppStore((s) => s.setHistoryProjectId)
   const setHistoryAgentId = useAppStore((s) => s.setHistoryAgentId)
+  const conversations = useAppStore((s) => s.conversations)
+  const currentConversationId = useAppStore((s) => s.currentConversationId)
+  const selectConversation = useAppStore((s) => s.selectConversation)
+  const agents = useAppStore((s) => s.agents)
+  const generatingConversationIds = useAppStore((s) => s.generatingConversationIds)
+  const unreadConversationIds = useAppStore((s) => s.unreadConversationIds)
+
+  const recentConvs = conversations.slice(0, 5)
 
   const [openReportCount, setOpenReportCount] = useState(0)
   const [configuredProviderLabel, setConfiguredProviderLabel] = useState('')
@@ -165,7 +173,50 @@ export function Sidebar() {
         />
       </div>
 
-      <div className="flex-1 min-h-0" />
+      <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-2">
+        {recentConvs.length > 0 && (
+          <div className="mt-2">
+            <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider px-1 mb-1">
+              Recent
+            </p>
+            <div className="space-y-0.5">
+              {recentConvs.map((conv) => {
+                const isActive = currentConversationId === conv.id
+                const isGenerating = generatingConversationIds.includes(conv.id)
+                const isUnread = unreadConversationIds.includes(conv.id)
+                const agent = conv.agent_id ? agents.find((a) => a.id === conv.agent_id) : null
+                return (
+                  <button
+                    key={conv.id}
+                    onClick={() => selectConversation(conv.id)}
+                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-colors ${
+                      isActive
+                        ? 'bg-gray-200 dark:bg-gray-700'
+                        : 'hover:bg-gray-100 dark:hover:bg-gray-800'
+                    }`}
+                  >
+                    {isGenerating ? (
+                      <span title="Generating…"><Loader2 className="w-3 h-3 text-purple-500 animate-spin shrink-0" /></span>
+                    ) : isUnread ? (
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse shrink-0" />
+                    ) : (
+                      <span className="w-1.5 h-1.5 shrink-0" />
+                    )}
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-xs text-gray-700 dark:text-gray-200 truncate">{conv.title}</span>
+                      {agent && (
+                        <span className="block text-[10px] text-gray-400 dark:text-gray-500 truncate">
+                          {agent.icon} {agent.name}
+                        </span>
+                      )}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </div>
 
       <div className="p-3 border-t border-gray-200 dark:border-gray-700/80">
         <div className="flex items-center justify-between gap-2 px-2 py-1">

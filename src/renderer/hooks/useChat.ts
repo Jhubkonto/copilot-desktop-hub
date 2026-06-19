@@ -26,6 +26,8 @@ interface UseChatParams {
   loadConversations: () => Promise<void>
   conversationCreated: (id: string) => void
   rateLimitSetterRef?: MutableRefObject<(seconds: number) => void>
+  markConversationGenerating: (id: string) => void
+  markConversationDoneGenerating: (id: string) => void
 }
 
 export function useChat({
@@ -35,6 +37,8 @@ export function useChat({
   addToast,
   loadConversations,
   rateLimitSetterRef,
+  markConversationGenerating,
+  markConversationDoneGenerating,
 }: UseChatParams) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isGenerating, setIsGenerating] = useState(false)
@@ -46,13 +50,20 @@ export function useChat({
   const [generationStartedAt, setGenerationStartedAt] = useState<number | null>(null)
   const [currentActivity, setCurrentActivity] = useState<ActivityEvent | null>(null)
   const [cliCost, setCliCost] = useState<CliCostSummary | null>(null)
-  const [thinkingBlocks, setThinkingBlocks] = useState<Map<string, { blockId: string; content: string; done: boolean }>>(new Map())
+  const [liveThinkingBlocks, setLiveThinkingBlocksState] = useState<Map<string, { blockId: string; content: string; done: boolean }>>(new Map())
+  const liveThinkingBlocksRef = useRef<Map<string, { blockId: string; content: string; done: boolean }>>(new Map())
+  const setLiveThinkingBlocks = (map: Map<string, { blockId: string; content: string; done: boolean }>) => {
+    liveThinkingBlocksRef.current = map
+    setLiveThinkingBlocksState(map)
+  }
 
   const streamingContentRef = useRef('')
   const ignoreRemoteStreamRef = useRef(false)
   const liveToolCallsRef = useRef<ChatMessage[]>([])
   const streamModelRef = useRef<string | null>(null)
   const activeConversationRef = useRef<string | null>(conversationId)
+  // Locked to the conversation that started the current stream; cleared on stream end/error.
+  const streamingConversationRef = useRef<string | null>(null)
   const justCreatedConversationRef = useRef(false)
   const lastUndoneUserMessageRef = useRef<string | null>(null)
   const pendingEditedResendRef = useRef(false)
@@ -129,7 +140,7 @@ export function useChat({
             )
 
             return dbMessages.map((message) => {
-              const base = {
+              const base: ChatMessage = {
                 id: message.id,
                 role: message.role as ChatMessage['role'],
                 content: message.content,
@@ -139,6 +150,12 @@ export function useChat({
                 attachments: message.attachments ? JSON.parse(message.attachments) : undefined,
                 images: imageMap.get(message.id),
                 contextSnapshot: message.context_snapshot ?? undefined,
+              }
+              if (message.role === 'assistant' && message.thinking_blocks) {
+                try {
+                  const blocks = JSON.parse(message.thinking_blocks) as Array<{ blockId: string; content: string; done: boolean }>
+                  base.thinkingBlocks = new Map(blocks.map((b) => [b.blockId, b]))
+                } catch { /* malformed — ignore */ }
               }
               if (message.role === 'tool-call') {
                 try {
@@ -185,7 +202,7 @@ export function useChat({
     setLiveTeamActivity([])
     setCurrentActivity(null)
     setCliCost(null)
-    setThinkingBlocks(new Map())
+    setLiveThinkingBlocks(new Map())
     liveToolCallsRef.current = []
     setLoadingFailed(false)
   }, [conversationId, addToast])
@@ -204,17 +221,22 @@ export function useChat({
         images,
         timestamp: Date.now(),
       }
+      streamingConversationRef.current = remoteId
       setMessages((prev) => [...prev, userMsg])
       setIsGenerating(true)
       setGenerationStartedAt(Date.now())
+      markConversationGenerating(remoteId)
     })
 
     const unsubscribeStream = window.api.onStreamResponse((chunk: string | null) => {
       if (chunk === null) {
         ignoreRemoteStreamRef.current = false
+        const doneConvId = streamingConversationRef.current ?? activeConversationRef.current ?? ''
+        streamingConversationRef.current = null
         const finalContent = streamingContentRef.current
         const hadToolCalls = liveToolCallsRef.current.length > 0
         const displayContent = finalContent || (!hadToolCalls ? '_(no response)_' : '')
+        const frozenThinking = liveThinkingBlocksRef.current.size > 0 ? new Map(liveThinkingBlocksRef.current) : null
         if (displayContent) {
           const assistantMessage: ChatMessage = {
             id: crypto.randomUUID(),
@@ -222,9 +244,20 @@ export function useChat({
             content: displayContent,
             timestamp: Date.now(),
             model: streamModelRef.current,
+            ...(frozenThinking ? { thinkingBlocks: frozenThinking } : {}),
           }
           setMessages((prev) => [...prev, assistantMessage])
+        } else if (frozenThinking) {
+          // No text content but there were thinking blocks — attach to last assistant message
+          setMessages((prev) => {
+            const lastIdx = [...prev].map((m) => m.role).lastIndexOf('assistant')
+            if (lastIdx === -1) return prev
+            const updated = [...prev]
+            updated[lastIdx] = { ...updated[lastIdx], thinkingBlocks: frozenThinking }
+            return updated
+          })
         }
+        setLiveThinkingBlocks(new Map())
         streamingContentRef.current = ''
         streamModelRef.current = null
         setStreamingContent('')
@@ -234,6 +267,7 @@ export function useChat({
         setLiveTeamActivity([])
         setCurrentActivity(null)
         liveToolCallsRef.current = []
+        markConversationDoneGenerating(doneConvId)
         // Now that the new response arrived, delete the old assistant message from DB.
         if (pendingDeleteMessageRef.current) {
           void window.api.deleteMessage(pendingDeleteMessageRef.current.id)
@@ -245,11 +279,14 @@ export function useChat({
       }
 
       if (ignoreRemoteStreamRef.current) return
+      if (streamingConversationRef.current && streamingConversationRef.current !== activeConversationRef.current) return
       streamingContentRef.current += chunk
       setStreamingContent((prev) => prev + chunk)
     })
 
     const unsubscribeError = window.api.onStreamError((error: StreamError) => {
+      const errorConvId = streamingConversationRef.current ?? activeConversationRef.current ?? ''
+      streamingConversationRef.current = null
       streamingContentRef.current = ''
       streamModelRef.current = null
       setStreamingContent('')
@@ -259,6 +296,7 @@ export function useChat({
       setCurrentActivity(null)
       setCliCost(null)
       liveToolCallsRef.current = []
+      markConversationDoneGenerating(errorConvId)
 
       if (preRegenMessagesRef.current) {
         // Restore the conversation to its state before the failed regeneration
@@ -311,6 +349,7 @@ export function useChat({
     })
 
     const unsubscribeCliToolStart = window.api.onCliToolStart(({ id, name, input }) => {
+      if (streamingConversationRef.current && streamingConversationRef.current !== activeConversationRef.current) return
       const toolCallMsg: ChatMessage = {
         id: crypto.randomUUID(),
         role: 'tool-call',
@@ -326,6 +365,7 @@ export function useChat({
     })
 
     const unsubscribeCliToolEnd = window.api.onCliToolEnd(({ id, content, isError }) => {
+      if (streamingConversationRef.current && streamingConversationRef.current !== activeConversationRef.current) return
       setMessages((prev) =>
         prev.map((message) =>
           message.toolCallId === id
@@ -336,29 +376,38 @@ export function useChat({
     })
 
     const unsubscribeCliCost = window.api.onCliCost((data) => {
+      if (streamingConversationRef.current && streamingConversationRef.current !== activeConversationRef.current) return
       setCliCost(data)
     })
 
     const unsubscribeActivity = window.api.onActivity((event) => {
+      if (streamingConversationRef.current && streamingConversationRef.current !== activeConversationRef.current) return
       setCurrentActivity(event)
     })
 
     const unsubscribeStreamModel = window.api.onStreamModel((model) => {
+      if (streamingConversationRef.current && streamingConversationRef.current !== activeConversationRef.current) return
       streamModelRef.current = model
     })
 
     const unsubscribeThinkingDelta = window.api.onThinkingDelta(({ blockId, chunk }) => {
-      setThinkingBlocks((prev) => {
+      if (streamingConversationRef.current && streamingConversationRef.current !== activeConversationRef.current) return
+      setLiveThinkingBlocksState((prev) => {
         const existing = prev.get(blockId) ?? { blockId, content: '', done: false }
-        return new Map(prev).set(blockId, { ...existing, content: existing.content + chunk })
+        const next = new Map(prev).set(blockId, { ...existing, content: existing.content + chunk })
+        liveThinkingBlocksRef.current = next
+        return next
       })
     })
 
     const unsubscribeThinkingEnd = window.api.onThinkingEnd(({ blockId }) => {
-      setThinkingBlocks((prev) => {
+      if (streamingConversationRef.current && streamingConversationRef.current !== activeConversationRef.current) return
+      setLiveThinkingBlocksState((prev) => {
         const existing = prev.get(blockId)
         if (!existing) return prev
-        return new Map(prev).set(blockId, { ...existing, done: true })
+        const next = new Map(prev).set(blockId, { ...existing, done: true })
+        liveThinkingBlocksRef.current = next
+        return next
       })
     })
 
@@ -424,11 +473,13 @@ export function useChat({
 
       setMessages((prev) => prev.slice(0, -1))
 
+      streamingConversationRef.current = conversationId
+      markConversationGenerating(conversationId)
       setIsGenerating(true)
       setGenerationStartedAt(Date.now())
       setStreamingContent('')
       streamingContentRef.current = ''
-      setThinkingBlocks(new Map())
+      setLiveThinkingBlocks(new Map())
 
       const regenerateModel =
         modelOverride ?? (effectiveModel === 'default' ? null : effectiveModel)
@@ -466,6 +517,8 @@ export function useChat({
         if (hasIpcError(regenResult)) throw new Error(regenResult.error)
       } catch (error) {
         console.error('Regenerate failed:', error)
+        streamingConversationRef.current = null
+        markConversationDoneGenerating(conversationId)
         // Restore the original conversation state on a synchronous IPC failure.
         if (preRegenMessagesRef.current) {
           setMessages(preRegenMessagesRef.current)
@@ -478,7 +531,7 @@ export function useChat({
         addToast('Failed to regenerate response', 'error')
       }
     },
-    [conversationId, messages, isGenerating, effectiveModel, catalogModels, addToast],
+    [conversationId, messages, isGenerating, effectiveModel, catalogModels, addToast, markConversationGenerating, markConversationDoneGenerating],
   )
 
   const handleEdit = useCallback(
@@ -536,6 +589,7 @@ export function useChat({
     streamingContentRef,
     streamModelRef,
     activeConversationRef,
+    streamingConversationRef,
     justCreatedConversationRef,
     lastUndoneUserMessageRef,
     pendingEditedResendRef,
@@ -547,6 +601,7 @@ export function useChat({
     pushSystemMessage,
     attachArtifact,
     buildConversationMarkdown,
-    thinkingBlocks,
+    liveThinkingBlocks,
+    setLiveThinkingBlocks,
   }
 }

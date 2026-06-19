@@ -60,6 +60,7 @@ export interface ChatMessage {
   toolSuccess?: boolean
   toolInProgress?: boolean
   toolResultImages?: { dataUrl: string }[]
+  thinkingBlocks?: Map<string, { blockId: string; content: string; done: boolean }>
 }
 
 export interface CliCostSummary {

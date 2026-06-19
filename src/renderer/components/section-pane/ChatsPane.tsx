@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Search, X, Pin, Trash2 } from 'lucide-react'
+import { Plus, Search, X, Pin, Trash2, Loader2 } from 'lucide-react'
 import { useAppStore } from '../../store/app-store'
 import type { Conversation } from '../../store/types'
 import { DeleteConversationDialog } from '../DeleteConversationDialog'
@@ -15,6 +15,7 @@ export function ChatsPane() {
   const deleteConversation = useAppStore((s) => s.deleteConversation)
   const newChat = useAppStore((s) => s.newChat)
   const unreadConversationIds = useAppStore((s) => s.unreadConversationIds)
+  const generatingConversationIds = useAppStore((s) => s.generatingConversationIds)
   const [query, setQuery] = useState('')
   const [pendingDeleteConv, setPendingDeleteConv] = useState<{ id: string; title: string } | null>(null)
 
@@ -31,6 +32,7 @@ export function ChatsPane() {
     const project = conv.project_id ? projects.find((p) => p.id === conv.project_id) : null
     const agent = conv.agent_id ? agents.find((a) => a.id === conv.agent_id) : null
     const isUnread = unreadConversationIds.includes(conv.id)
+    const isGenerating = generatingConversationIds.includes(conv.id)
 
     return (
       <div
@@ -43,7 +45,11 @@ export function ChatsPane() {
         }`}
       >
         {isPinned(conv) && <Pin className="w-3 h-3 text-gray-400 shrink-0 mt-0.5" />}
-        {isUnread && <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse shrink-0 mt-1.5" />}
+        {isGenerating ? (
+          <span title="Generating…"><Loader2 className="w-3.5 h-3.5 text-purple-500 animate-spin shrink-0 mt-0.5" /></span>
+        ) : isUnread ? (
+          <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse shrink-0 mt-1.5" />
+        ) : null}
         <div className="flex-1 min-w-0">
           <p className="text-xs font-medium text-gray-800 dark:text-gray-100 truncate">{conv.title}</p>
           <div className="flex items-center gap-2 mt-0.5 flex-wrap">
