@@ -28,6 +28,7 @@ import { CodexAdapter } from './cli-adapters/codex'
 import { insertWikiEntry } from './wiki-handlers'
 import { insertPromptLibraryEntry } from './prompt-handlers'
 import { buildConversationExportPack, forkConversation, importConversationExport } from './conversation-handlers'
+import { readFileSync, existsSync } from 'fs'
 import { parseConversationExport } from './conversation-serialization'
 import {
   startWsServer,
@@ -584,6 +585,72 @@ export function registerWsHandlers(): void {
       return
     }
 
+    if (command === 'project:list-agents') {
+      const id = typeof data.id === 'string' ? data.id : ''
+      if (!id) return
+      const rows = db.prepare(
+        'SELECT pa.agent_id, pa.is_primary, pa.sort_order, a.config_json FROM project_agents pa JOIN agents a ON a.id = pa.agent_id WHERE pa.project_id = ? ORDER BY pa.sort_order ASC, pa.added_at ASC'
+      ).all(id) as { agent_id: string; config_json: string; is_primary: number; sort_order: number }[]
+      const agents = rows.map((r) => {
+        const cfg = JSON.parse(r.config_json) as { name?: string; icon?: string }
+        return { agentId: r.agent_id, agentName: cfg.name ?? '', agentIcon: cfg.icon ?? '', isPrimary: r.is_primary === 1, sortOrder: r.sort_order }
+      })
+      reply({ event: 'project:agents', data: { id, agents } })
+      return
+    }
+
+    if (command === 'project:add-agent') {
+      const id = typeof data.id === 'string' ? data.id : ''
+      const agentId = typeof data.agentId === 'string' ? data.agentId : ''
+      if (!id || !agentId) return
+      db.prepare('INSERT OR IGNORE INTO project_agents (project_id, agent_id, is_primary, sort_order, added_at) VALUES (?, ?, 0, 0, ?)').run(id, agentId, Date.now())
+      const rows = db.prepare(
+        'SELECT pa.agent_id, pa.is_primary, pa.sort_order, a.config_json FROM project_agents pa JOIN agents a ON a.id = pa.agent_id WHERE pa.project_id = ? ORDER BY pa.sort_order ASC, pa.added_at ASC'
+      ).all(id) as { agent_id: string; config_json: string; is_primary: number; sort_order: number }[]
+      const agents = rows.map((r) => {
+        const cfg = JSON.parse(r.config_json) as { name?: string; icon?: string }
+        return { agentId: r.agent_id, agentName: cfg.name ?? '', agentIcon: cfg.icon ?? '', isPrimary: r.is_primary === 1, sortOrder: r.sort_order }
+      })
+      reply({ event: 'project:agents', data: { id, agents } })
+      return
+    }
+
+    if (command === 'project:remove-agent') {
+      const id = typeof data.id === 'string' ? data.id : ''
+      const agentId = typeof data.agentId === 'string' ? data.agentId : ''
+      if (!id || !agentId) return
+      db.prepare('DELETE FROM project_agents WHERE project_id = ? AND agent_id = ?').run(id, agentId)
+      const rows = db.prepare(
+        'SELECT pa.agent_id, pa.is_primary, pa.sort_order, a.config_json FROM project_agents pa JOIN agents a ON a.id = pa.agent_id WHERE pa.project_id = ? ORDER BY pa.sort_order ASC, pa.added_at ASC'
+      ).all(id) as { agent_id: string; config_json: string; is_primary: number; sort_order: number }[]
+      const agents = rows.map((r) => {
+        const cfg = JSON.parse(r.config_json) as { name?: string; icon?: string }
+        return { agentId: r.agent_id, agentName: cfg.name ?? '', agentIcon: cfg.icon ?? '', isPrimary: r.is_primary === 1, sortOrder: r.sort_order }
+      })
+      reply({ event: 'project:agents', data: { id, agents } })
+      return
+    }
+
+    if (command === 'project:set-primary-agent') {
+      const id = typeof data.id === 'string' ? data.id : ''
+      const agentId = typeof data.agentId === 'string' ? data.agentId : ''
+      if (!id || !agentId) return
+      const setPrimary = db.transaction(() => {
+        db.prepare('UPDATE project_agents SET is_primary = 0 WHERE project_id = ?').run(id)
+        db.prepare('UPDATE project_agents SET is_primary = 1 WHERE project_id = ? AND agent_id = ?').run(id, agentId)
+      })
+      setPrimary()
+      const rows = db.prepare(
+        'SELECT pa.agent_id, pa.is_primary, pa.sort_order, a.config_json FROM project_agents pa JOIN agents a ON a.id = pa.agent_id WHERE pa.project_id = ? ORDER BY pa.sort_order ASC, pa.added_at ASC'
+      ).all(id) as { agent_id: string; config_json: string; is_primary: number; sort_order: number }[]
+      const agents = rows.map((r) => {
+        const cfg = JSON.parse(r.config_json) as { name?: string; icon?: string }
+        return { agentId: r.agent_id, agentName: cfg.name ?? '', agentIcon: cfg.icon ?? '', isPrimary: r.is_primary === 1, sortOrder: r.sort_order }
+      })
+      reply({ event: 'project:agents', data: { id, agents } })
+      return
+    }
+
     if (command === 'agent:create') {
       const name = typeof data.name === 'string' ? data.name.trim() : ''
       const icon = typeof data.icon === 'string' ? data.icon : ''
@@ -779,6 +846,29 @@ export function registerWsHandlers(): void {
           },
         },
       })
+      return
+    }
+
+    if (command === 'artifact:export') {
+      const versionId = typeof data.versionId === 'string' ? data.versionId : ''
+      if (!versionId) return
+      try {
+        const vRow = db.prepare('SELECT * FROM artifact_versions WHERE id = ?').get(versionId) as Record<string, unknown> | undefined
+        if (!vRow) { reply({ event: 'artifact:export-error', data: { message: 'Version not found' } }); return }
+        const fileRows = db.prepare('SELECT id, relative_path, media_type, absolute_path, role FROM artifact_files WHERE version_id = ?').all(versionId) as Record<string, unknown>[]
+        if (fileRows.length === 0) { reply({ event: 'artifact:export-error', data: { message: 'No files found for this version' } }); return }
+        const files = fileRows
+          .filter((f) => existsSync(String(f.absolute_path)))
+          .map((f) => ({
+            relativePath: String(f.relative_path),
+            mediaType: String(f.media_type),
+            contentBase64: readFileSync(String(f.absolute_path)).toString('base64'),
+          }))
+        if (files.length === 0) { reply({ event: 'artifact:export-error', data: { message: 'Artifact files not found on disk' } }); return }
+        reply({ event: 'artifact:export-pack', data: { versionId, files } })
+      } catch (err) {
+        reply({ event: 'artifact:export-error', data: { message: String(err) } })
+      }
       return
     }
 

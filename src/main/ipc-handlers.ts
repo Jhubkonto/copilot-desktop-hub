@@ -70,7 +70,6 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerSkillGeneratorHandlers(mainWindow)
   registerArtifactHandlers()
   registerArtifactGeneratorHandlers(mainWindow)
-
   if (mainWindow) {
     mainWindow.on('blur', () => {
       cacheExternalWindowLabel(mainWindow.getTitle()).catch(() => {})
