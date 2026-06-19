@@ -6,6 +6,7 @@ import { registerChatHandlers } from './chat-handlers'
 import { registerFileHandlers, registerContextHandlers } from './file-handlers'
 import { registerSystemHandlers } from './system-handlers'
 import { registerAgentHandlers } from './agents'
+import { registerSkillHandlers } from './skills'
 import { registerKnowledgeHandlers } from './knowledge'
 import { registerToolHandlers } from './tools'
 import { registerMcpHandlers, initDesktopNavigatorMcp } from './mcp'
@@ -29,6 +30,7 @@ import { registerProjectGeneratorHandlers } from './project-generator'
 import { registerAgentGeneratorHandlers } from './agent-generator'
 import { registerArtifactHandlers } from './artifacts'
 import { registerArtifactGeneratorHandlers } from './artifact-generator'
+import { registerSkillGeneratorHandlers } from './skill-generator'
 
 export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerSettingsHandlers()
@@ -42,6 +44,7 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerFileHandlers()
   registerContextHandlers()
   registerAgentHandlers()
+  registerSkillHandlers()
   registerKnowledgeHandlers()
   registerToolHandlers()
   registerMcpHandlers()
@@ -64,6 +67,7 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerAndroidHandlers(mainWindow)
   registerProjectGeneratorHandlers(mainWindow)
   registerAgentGeneratorHandlers(mainWindow)
+  registerSkillGeneratorHandlers(mainWindow)
   registerArtifactHandlers()
   registerArtifactGeneratorHandlers(mainWindow)
 

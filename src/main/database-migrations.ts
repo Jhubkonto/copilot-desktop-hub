@@ -475,6 +475,30 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
     version: 36,
     sql: `ALTER TABLE messages ADD COLUMN thinking_blocks TEXT`,
   },
+  {
+    version: 37,
+    sql: `
+      CREATE TABLE IF NOT EXISTS skills (
+        id TEXT PRIMARY KEY,
+        config_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+      );
+
+      CREATE TABLE IF NOT EXISTS agent_skills (
+        agent_id TEXT NOT NULL,
+        skill_id TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        attached_at INTEGER NOT NULL,
+        PRIMARY KEY (agent_id, skill_id),
+        FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+        FOREIGN KEY (skill_id) REFERENCES skills(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_agent_skills_agent
+        ON agent_skills(agent_id, sort_order);
+    `,
+  },
 ];
 
 
@@ -607,6 +631,13 @@ export function initializeBaseSchema(db: Database.Database): void {
       updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
     );
 
+    CREATE TABLE IF NOT EXISTS skills (
+      id TEXT PRIMARY KEY,
+      config_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+
     CREATE TABLE IF NOT EXISTS mcp_servers (
       id TEXT PRIMARY KEY,
       config_json TEXT NOT NULL,
@@ -635,6 +666,19 @@ export function initializeBaseSchema(db: Database.Database): void {
       instructions TEXT NOT NULL DEFAULT '',
       PRIMARY KEY (agent_id, server_id, tool_name)
     );
+
+    CREATE TABLE IF NOT EXISTS agent_skills (
+      agent_id TEXT NOT NULL,
+      skill_id TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      attached_at INTEGER NOT NULL,
+      PRIMARY KEY (agent_id, skill_id),
+      FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+      FOREIGN KEY (skill_id) REFERENCES skills(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_agent_skills_agent
+      ON agent_skills(agent_id, sort_order);
 
     CREATE TABLE IF NOT EXISTS project_agents (
       project_id   TEXT NOT NULL,

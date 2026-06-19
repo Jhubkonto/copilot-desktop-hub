@@ -62,6 +62,41 @@ export interface AgentConfig {
   thinkingEffort?: 'low' | 'medium' | 'high' | 'max' | 'disabled'
 }
 
+export interface SkillBuiltinToolConfig {
+  enabled: boolean
+  approval: 'auto' | 'always-ask' | 'disabled'
+  instructions: string
+}
+
+export interface SkillMcpToolOverride {
+  serverId: string
+  toolName: string
+  enabled: boolean
+  approval: 'auto' | 'always-ask' | 'disabled'
+  instructions: string
+}
+
+export interface SkillMcpServerTrust {
+  serverId: string
+  trust: 'auto' | 'always-ask' | 'block'
+}
+
+export interface SkillConfig {
+  id: string
+  name: string
+  icon: string
+  description: string
+  instructions: string
+  tools: { fileEdit: SkillBuiltinToolConfig; terminal: SkillBuiltinToolConfig; webFetch: SkillBuiltinToolConfig }
+  mcpServers: string[]
+  mcpServerTrust: SkillMcpServerTrust[]
+  mcpToolOverrides: SkillMcpToolOverride[]
+  knowledge: { title: string; content: string }[]
+  tags: string[]
+  created_at?: number
+  updated_at?: number
+}
+
 export interface CliInstallStatus {
   installed: boolean
   path: string | null
@@ -523,6 +558,25 @@ export interface AgentGeneratorSpec {
 }
 
 export interface AgentGeneratorMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface SkillGeneratorSpec {
+  name: string
+  icon: string
+  description: string
+  instructions: string
+  tools: { fileEdit: boolean; terminal: boolean; webFetch: boolean }
+  toolInstructions?: Partial<Record<'fileEdit' | 'terminal' | 'webFetch', string>>
+  approval?: Partial<Record<'fileEdit' | 'terminal' | 'webFetch', 'auto' | 'always-ask' | 'disabled'>>
+  mcpServers?: string[]
+  tags?: string[]
+  knowledge?: { title: string; content: string }[]
+  suggestedAgents?: string[]
+}
+
+export interface SkillGeneratorMessage {
   role: 'user' | 'assistant'
   content: string
 }
@@ -1193,6 +1247,19 @@ export type IpcReturnMap = {
   'agent:set-mcp-server-trust': boolean
   'agent:update': AgentConfig
   'agent:update-knowledge-inject-mode': boolean
+  // Skill
+  'skill:attach-to-agent': boolean
+  'skill:create': SkillConfig
+  'skill:delete': boolean
+  'skill:duplicate': SkillConfig | null
+  'skill:export': boolean
+  'skill:get': SkillConfig | null
+  'skill:get-agent-links': { skill_id: string; sort_order: number }[]
+  'skill:get-agent-usage': { skill_id: string; agent_count: number }[]
+  'skill:import': SkillConfig | null
+  'skill:list': SkillConfig[]
+  'skill:reorder-for-agent': boolean
+  'skill:update': SkillConfig
   // App
   'app:check-updates': void
   'app:create-gist': string
@@ -1445,6 +1512,13 @@ export type IpcReturnMap = {
   'agent-generator:done': void
   'agent-generator:get-model': string
   'agent-generator:set-model': void
+  // Skill generator
+  'skill-generator:chat': { started: boolean }
+  'skill-generator:token': void
+  'skill-generator:spec-ready': void
+  'skill-generator:done': void
+  'skill-generator:get-model': string
+  'skill-generator:set-model': void
   // Artifact
   'artifact:list': ArtifactRow[]
   'artifact:get': ArtifactRow | null
@@ -1503,6 +1577,18 @@ export type IpcChannels =
   | 'agent:set-mcp-server-trust'
   | 'agent:update'
   | 'agent:update-knowledge-inject-mode'
+  | 'skill:attach-to-agent'
+  | 'skill:create'
+  | 'skill:delete'
+  | 'skill:duplicate'
+  | 'skill:export'
+  | 'skill:get'
+  | 'skill:get-agent-links'
+  | 'skill:get-agent-usage'
+  | 'skill:import'
+  | 'skill:list'
+  | 'skill:reorder-for-agent'
+  | 'skill:update'
   | 'app:check-updates'
   | 'app:create-gist'
   | 'app:download-update'
@@ -1736,6 +1822,12 @@ export type IpcChannels =
   | 'agent-generator:done'
   | 'agent-generator:get-model'
   | 'agent-generator:set-model'
+  | 'skill-generator:chat'
+  | 'skill-generator:token'
+  | 'skill-generator:spec-ready'
+  | 'skill-generator:done'
+  | 'skill-generator:get-model'
+  | 'skill-generator:set-model'
   | 'artifact:list'
   | 'artifact:get'
   | 'artifact:list-versions'

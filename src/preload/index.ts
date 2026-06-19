@@ -30,6 +30,9 @@ import type {
   ProjectGeneratorSpec,
   AgentGeneratorMessage,
   AgentGeneratorSpec,
+  SkillConfig,
+  SkillGeneratorMessage,
+  SkillGeneratorSpec,
   ArtifactGeneratorMessage,
   ArtifactSpec,
   ArtifactRow,
@@ -318,6 +321,22 @@ const api = {
   duplicateAgent: (id: string) => typedInvoke('agent:duplicate', id),
   exportAgent: (id: string) => typedInvoke('agent:export', id),
   importAgent: () => typedInvoke('agent:import'),
+
+  // Skills
+  listSkills: () => typedInvoke('skill:list'),
+  getSkill: (id: string) => typedInvoke('skill:get', id),
+  createSkill: (config: Partial<SkillConfig>) => typedInvoke('skill:create', config),
+  updateSkill: (id: string, config: Partial<SkillConfig>) => typedInvoke('skill:update', id, config),
+  deleteSkill: (id: string) => typedInvoke('skill:delete', id),
+  duplicateSkill: (id: string) => typedInvoke('skill:duplicate', id),
+  exportSkill: (id: string) => typedInvoke('skill:export', id),
+  importSkill: () => typedInvoke('skill:import'),
+  getSkillAgentLinks: (agentId: string) => typedInvoke('skill:get-agent-links', agentId),
+  attachSkillToAgent: (agentId: string, skillId: string, attach: boolean) =>
+    typedInvoke('skill:attach-to-agent', agentId, skillId, attach),
+  reorderSkillsForAgent: (agentId: string, skillIds: string[]) =>
+    typedInvoke('skill:reorder-for-agent', agentId, skillIds),
+  getSkillAgentUsage: () => typedInvoke('skill:get-agent-usage'),
 
   // Projects (additional)
   duplicateProject: (id: string) => typedInvoke('project:duplicate', id),
@@ -661,6 +680,27 @@ const api = {
   },
   agentGeneratorGetModel: () => typedInvoke('agent-generator:get-model'),
   agentGeneratorSetModel: (modelId: string) => typedInvoke('agent-generator:set-model', modelId),
+
+  // Skill generator
+  skillGeneratorChat: (messages: SkillGeneratorMessage[], modelOverride?: string) =>
+    typedInvoke('skill-generator:chat', messages, modelOverride),
+  onSkillGeneratorToken: (callback: (chunk: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, chunk: string) => callback(chunk)
+    typedOn('skill-generator:token', handler)
+    return () => typedOff('skill-generator:token', handler)
+  },
+  onSkillGeneratorSpecReady: (callback: (spec: SkillGeneratorSpec) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, spec: SkillGeneratorSpec) => callback(spec)
+    typedOn('skill-generator:spec-ready', handler)
+    return () => typedOff('skill-generator:spec-ready', handler)
+  },
+  onSkillGeneratorDone: (callback: (data: { hasSpec: boolean }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { hasSpec: boolean }) => callback(data)
+    typedOn('skill-generator:done', handler)
+    return () => typedOff('skill-generator:done', handler)
+  },
+  skillGeneratorGetModel: () => typedInvoke('skill-generator:get-model'),
+  skillGeneratorSetModel: (modelId: string) => typedInvoke('skill-generator:set-model', modelId),
 
   // Artifact CRUD
   artifactList: (projectId?: string) =>
