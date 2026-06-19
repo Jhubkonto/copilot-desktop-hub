@@ -1204,6 +1204,7 @@ export function ChatWindow() {
               { id: crypto.randomUUID(), dataUrl, name: 'browser-screenshot.png' }
             ])
           }}
+          thinkingBlocks={chat.thinkingBlocks}
         />
         {hasUnreadBelow && (
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 pointer-events-none">

@@ -46,6 +46,7 @@ export function useChat({
   const [generationStartedAt, setGenerationStartedAt] = useState<number | null>(null)
   const [currentActivity, setCurrentActivity] = useState<ActivityEvent | null>(null)
   const [cliCost, setCliCost] = useState<CliCostSummary | null>(null)
+  const [thinkingBlocks, setThinkingBlocks] = useState<Map<string, { blockId: string; content: string; done: boolean }>>(new Map())
 
   const streamingContentRef = useRef('')
   const ignoreRemoteStreamRef = useRef(false)
@@ -184,6 +185,7 @@ export function useChat({
     setLiveTeamActivity([])
     setCurrentActivity(null)
     setCliCost(null)
+    setThinkingBlocks(new Map())
     liveToolCallsRef.current = []
     setLoadingFailed(false)
   }, [conversationId, addToast])
@@ -345,6 +347,21 @@ export function useChat({
       streamModelRef.current = model
     })
 
+    const unsubscribeThinkingDelta = window.api.onThinkingDelta(({ blockId, chunk }) => {
+      setThinkingBlocks((prev) => {
+        const existing = prev.get(blockId) ?? { blockId, content: '', done: false }
+        return new Map(prev).set(blockId, { ...existing, content: existing.content + chunk })
+      })
+    })
+
+    const unsubscribeThinkingEnd = window.api.onThinkingEnd(({ blockId }) => {
+      setThinkingBlocks((prev) => {
+        const existing = prev.get(blockId)
+        if (!existing) return prev
+        return new Map(prev).set(blockId, { ...existing, done: true })
+      })
+    })
+
     return () => {
       unsubscribeRemoteMessage()
       unsubscribeStream()
@@ -355,6 +372,8 @@ export function useChat({
       unsubscribeCliCost()
       unsubscribeActivity()
       unsubscribeStreamModel()
+      unsubscribeThinkingDelta()
+      unsubscribeThinkingEnd()
     }
   }, [loadConversations, rateLimitSetterRef])
 
@@ -409,6 +428,7 @@ export function useChat({
       setGenerationStartedAt(Date.now())
       setStreamingContent('')
       streamingContentRef.current = ''
+      setThinkingBlocks(new Map())
 
       const regenerateModel =
         modelOverride ?? (effectiveModel === 'default' ? null : effectiveModel)
@@ -527,5 +547,6 @@ export function useChat({
     pushSystemMessage,
     attachArtifact,
     buildConversationMarkdown,
+    thinkingBlocks,
   }
 }

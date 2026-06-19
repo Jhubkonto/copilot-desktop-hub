@@ -1,5 +1,6 @@
 import { X, Folder, FileText, Plus, ExternalLink } from 'lucide-react'
 import type { AgentConfig } from '../../../shared/types'
+import { ToggleSwitch } from '../ui/primitives'
 
 const EMOJI_OPTIONS = ['🤖', '🔍', '🐛', '💡', '📝', '🎨', '🔧', '🚀', '🧠', '⚡', '🛡️', '📊']
 const FORMAT_OPTIONS = ['default', 'concise', 'detailed', 'code-only'] as const
@@ -171,6 +172,36 @@ export function SettingsTab({
           step={256}
           className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
+      </div>
+
+      {/* Thinking */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <div>
+            <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Thinking</span>
+            <p className="text-xs text-gray-400 mt-0.5">Extended reasoning for Claude CLI, Anthropic, and OpenRouter o-series</p>
+          </div>
+          <ToggleSwitch
+            checked={!!config.thinkingEffort && config.thinkingEffort !== 'disabled'}
+            onChange={(on) => onUpdateField('thinkingEffort', on ? 'medium' : 'disabled')}
+            ariaLabel="Enable thinking"
+          />
+        </div>
+        {config.thinkingEffort && config.thinkingEffort !== 'disabled' && (
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-gray-500 dark:text-gray-400 shrink-0">Effort</label>
+            <select
+              value={config.thinkingEffort}
+              onChange={(e) => onUpdateField('thinkingEffort', e.target.value as AgentConfig['thinkingEffort'])}
+              className="flex-1 px-2 py-1.5 text-xs rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="max">Max</option>
+            </select>
+          </div>
+        )}
       </div>
 
       {/* Agentic Mode */}

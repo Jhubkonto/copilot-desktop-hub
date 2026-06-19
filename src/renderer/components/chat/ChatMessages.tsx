@@ -6,6 +6,7 @@ import { MarkdownRenderer } from '../MarkdownRenderer'
 import { MessageBubble } from '../MessageBubble'
 import { TeamActivityBlock } from '../TeamActivityBlock'
 import { ToolCallBlock } from './ToolCallBlock'
+import { ThinkingBlock } from './ThinkingBlock'
 import { ArtifactCard } from '../artifacts/ArtifactCard'
 import type { ActivityEvent, ChatMessage, CliCostSummary, TeamActivityStep } from '../../hooks/chat-types'
 
@@ -33,6 +34,7 @@ interface ChatMessagesProps {
   onSignIn: () => void
   onPickModel: () => void
   onUseImageAsContext?: (dataUrl: string) => void
+  thinkingBlocks?: Map<string, { blockId: string; content: string; done: boolean }>
 }
 
 export function ChatMessagesBase({
@@ -59,6 +61,7 @@ export function ChatMessagesBase({
   onSignIn,
   onPickModel,
   onUseImageAsContext,
+  thinkingBlocks,
 }: ChatMessagesProps) {
   const catalogModels = useAppStore((state) => state.catalogModels)
   const lastAssistantIndex = (() => {
@@ -183,6 +186,15 @@ export function ChatMessagesBase({
         {isGenerating && liveTeamActivity.length > 0 && (
           <div className="max-w-3xl mx-auto">
             <TeamActivityBlock steps={liveTeamActivity} isLive={true} />
+          </div>
+        )}
+        {thinkingBlocks && thinkingBlocks.size > 0 && (
+          <div className="flex justify-start">
+            <div className="w-full max-w-[80%]">
+              {Array.from(thinkingBlocks.values()).map((block) => (
+                <ThinkingBlock key={block.blockId} content={block.content} done={block.done} />
+              ))}
+            </div>
           </div>
         )}
         {isGenerating && streamingContent && (
