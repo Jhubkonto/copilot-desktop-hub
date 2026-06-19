@@ -26,6 +26,7 @@ body {
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -38,6 +39,37 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   @apply bg-gray-400 dark:bg-gray-500;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.code-scrollbar {
+  scrollbar-color: #475569 transparent;
+  scrollbar-width: thin;
+}
+
+.code-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.code-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.code-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.45);
+  border-radius: 9999px;
+}
+
+.code-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(203, 213, 225, 0.65);
+}
+
+.code-scrollbar::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 /* Chat input textarea — scrollbar uses default arrow cursor, not the I-beam */
