@@ -18,22 +18,39 @@ function httpsRequest(
   )
 }
 
+// Returns true for OpenAI o-series and compatible reasoning models.
+function supportsReasoningEffort(model: string): boolean {
+  return /^o\d|\/o\d|[/-]o1[^a-z]|[/-]o3[^a-z]|[/-]o4[^a-z]/i.test(model)
+}
+
 export async function sendOpenAIMessage(
   conversationId: string,
   apiKey: string,
   model: string,
   messages: ProviderMessage[],
   onChunk: (chunk: string) => void,
-  options: { maxTokens?: number; temperature?: number } = {},
+  options: {
+    maxTokens?: number
+    temperature?: number
+    thinkingEffort?: string
+    onThinkingChunk?: (blockId: string, chunk: string) => void
+    onThinkingEnd?: (blockId: string) => void
+  } = {},
   baseUrl?: string
 ): Promise<string> {
-  const body = JSON.stringify({
+  const bodyObj: Record<string, unknown> = {
     model,
     messages,
     stream: true,
     max_tokens: options.maxTokens ?? 4096,
-    temperature: options.temperature ?? 0.7
-  })
+    temperature: options.temperature ?? 0.7,
+  }
+  if (options.thinkingEffort && options.thinkingEffort !== 'disabled' && supportsReasoningEffort(model)) {
+    const effortMap: Record<string, string> = { low: 'low', medium: 'medium', high: 'high', max: 'high' }
+    const effort = effortMap[options.thinkingEffort]
+    if (effort) bodyObj.reasoning_effort = effort
+  }
+  const body = JSON.stringify(bodyObj)
 
   return new Promise((resolve, reject) => {
     const requestId = conversationId || `__provider_request__:${incrementFallbackCounter()}`
@@ -77,16 +94,34 @@ export async function sendOpenAIMessage(
         }
 
         let sawEmptyStop = false
+        let reasoningBlockOpen = false
         parseSseStream(res, (data) => {
           try {
             const parsed = JSON.parse(data)
-            const delta = parsed.choices?.[0]?.delta?.content ?? parsed.choices?.[0]?.message?.content
-            const finishReason = parsed.choices?.[0]?.finish_reason
-            if (delta) {
-              fullContent += delta
-              onChunk(delta)
+            const choice = parsed.choices?.[0]
+            const delta = choice?.delta
+            const finishReason = choice?.finish_reason
+            const textContent = delta?.content ?? choice?.message?.content
+            const reasoning = delta?.reasoning ?? delta?.reasoning_content
+            if (reasoning && typeof reasoning === 'string') {
+              reasoningBlockOpen = true
+              options.onThinkingChunk?.('reasoning-0', reasoning)
             }
-            if (!delta && finishReason === 'stop') sawEmptyStop = true
+            if (textContent) {
+              if (reasoningBlockOpen) {
+                options.onThinkingEnd?.('reasoning-0')
+                reasoningBlockOpen = false
+              }
+              fullContent += textContent
+              onChunk(textContent)
+            }
+            if (!textContent && finishReason === 'stop') {
+              if (reasoningBlockOpen) {
+                options.onThinkingEnd?.('reasoning-0')
+                reasoningBlockOpen = false
+              }
+              sawEmptyStop = true
+            }
           } catch {
             // Skip malformed chunks
           }
@@ -159,7 +194,7 @@ export async function sendOpenAIWithTools(
   messages: ProviderMessage[],
   tools: ToolDefinition[],
   toolChoice: ToolChoice,
-  options: { maxTokens?: number; temperature?: number } = {},
+  options: { maxTokens?: number; temperature?: number; thinkingEffort?: string } = {},
   baseUrl?: string
 ): Promise<ProviderNonStreamResult> {
   const bodyObj: Record<string, unknown> = {
@@ -172,6 +207,11 @@ export async function sendOpenAIWithTools(
   if (tools.length > 0) {
     bodyObj.tools = tools
     bodyObj.tool_choice = toolChoice
+  }
+  if (options.thinkingEffort && options.thinkingEffort !== 'disabled' && supportsReasoningEffort(model)) {
+    const effortMap: Record<string, string> = { low: 'low', medium: 'medium', high: 'high', max: 'high' }
+    const effort = effortMap[options.thinkingEffort]
+    if (effort) bodyObj.reasoning_effort = effort
   }
   const body = JSON.stringify(bodyObj)
   const url = baseUrl ? `${baseUrl}/chat/completions` : 'https://api.openai.com/v1/chat/completions'

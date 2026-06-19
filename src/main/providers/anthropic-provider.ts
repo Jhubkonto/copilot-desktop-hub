@@ -53,13 +53,23 @@ export function toAnthropicTools(
   return { tools: anthropicTools, nameMap }
 }
 
+function supportsExtendedThinking(model: string): boolean {
+  return /claude-3[-.]?[57]|claude-3[-.]?7|claude-4/.test(model)
+}
+
 export async function sendAnthropicWithTools(
   apiKey: string,
   model: string,
   messages: ProviderMessage[],
   tools: ToolDefinition[],
   toolChoice: ToolChoice,
-  options: { maxTokens?: number; temperature?: number } = {}
+  options: {
+    maxTokens?: number
+    temperature?: number
+    thinkingEffort?: string
+    onThinkingChunk?: (blockId: string, chunk: string) => void
+    onThinkingEnd?: (blockId: string) => void
+  } = {}
 ): Promise<ProviderNonStreamResult> {
   const { system, messages: anthropicMsgs } = toAnthropicMessages(messages)
   const { tools: anthropicTools, nameMap } = toAnthropicTools(tools)
@@ -80,6 +90,14 @@ export async function sendAnthropicWithTools(
   if (toolChoice !== 'none' && anthropicTools.length > 0) {
     bodyObj.tools = anthropicTools
     bodyObj.tool_choice = toolChoiceParam
+  }
+  if (options.thinkingEffort && options.thinkingEffort !== 'disabled' && supportsExtendedThinking(model)) {
+    const budgetMap: Record<string, number> = { low: 2000, medium: 8000, high: 16000, max: 32000 }
+    const budget = budgetMap[options.thinkingEffort]
+    if (budget) {
+      bodyObj.thinking = { type: 'enabled', budget_tokens: budget }
+      bodyObj.temperature = 1
+    }
   }
 
   const body = JSON.stringify(bodyObj)
@@ -107,14 +125,20 @@ export async function sendAnthropicWithTools(
   }
 
   const parsed = JSON.parse(data)
-  const contentBlocks: Array<{ type: string; text?: string; id?: string; name?: string; input?: unknown }> =
+  const contentBlocks: Array<{ type: string; text?: string; thinking?: string; id?: string; name?: string; input?: unknown }> =
     parsed.content ?? []
 
   let content: string | null = null
   const toolCalls: ToolCallResult[] = []
 
-  for (const block of contentBlocks) {
-    if (block.type === 'text' && block.text) {
+  for (let i = 0; i < contentBlocks.length; i++) {
+    const block = contentBlocks[i]
+    if (block.type === 'thinking' && (block.thinking || block.text)) {
+      const blockId = `thinking-${i}`
+      const thinkingText = block.thinking ?? block.text ?? ''
+      options.onThinkingChunk?.(blockId, thinkingText)
+      options.onThinkingEnd?.(blockId)
+    } else if (block.type === 'text' && block.text) {
       content = (content ?? '') + block.text
     } else if (block.type === 'tool_use' && block.id && block.name) {
       const originalName = nameMap.get(block.name) ?? block.name
@@ -135,19 +159,34 @@ export async function sendAnthropicMessage(
   messages: ProviderMessage[],
   systemPrompt: string | undefined,
   onChunk: (chunk: string) => void,
-  options: { maxTokens?: number; temperature?: number } = {}
+  options: {
+    maxTokens?: number
+    temperature?: number
+    thinkingEffort?: string
+    onThinkingChunk?: (blockId: string, chunk: string) => void
+    onThinkingEnd?: (blockId: string) => void
+  } = {}
 ): Promise<string> {
   const anthropicMessages = messages
     .filter((m) => m.role !== 'system')
     .map((m) => ({ role: m.role, content: toAnthropicContent(m.content ?? '') as string | AnthropicContentBlock[] }))
-  const body = JSON.stringify({
+  const bodyObj: Record<string, unknown> = {
     model,
     max_tokens: options.maxTokens ?? 4096,
     temperature: options.temperature ?? 0.7,
     stream: true,
     ...(systemPrompt ? { system: systemPrompt } : {}),
     messages: anthropicMessages
-  })
+  }
+  if (options.thinkingEffort && options.thinkingEffort !== 'disabled' && supportsExtendedThinking(model)) {
+    const budgetMap: Record<string, number> = { low: 2000, medium: 8000, high: 16000, max: 32000 }
+    const budget = budgetMap[options.thinkingEffort]
+    if (budget) {
+      bodyObj.thinking = { type: 'enabled', budget_tokens: budget }
+      bodyObj.temperature = 1
+    }
+  }
+  const body = JSON.stringify(bodyObj)
 
   return new Promise((resolve, reject) => {
     const requestId = conversationId || `__provider_request__:${incrementFallbackCounter()}`
@@ -172,6 +211,7 @@ export async function sendAnthropicMessage(
       (res) => {
         let fullContent = ''
         let buffer = ''
+        let activeThinkingBlockId: string | null = null
 
         res.on('data', (chunk: Buffer) => {
           buffer += chunk.toString()
@@ -184,10 +224,30 @@ export async function sendAnthropicMessage(
             const data = trimmed.slice(6)
 
             try {
-              const parsed = JSON.parse(data)
-              if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
-                fullContent += parsed.delta.text
-                onChunk(parsed.delta.text)
+              const parsed = JSON.parse(data) as Record<string, unknown>
+              if (
+                parsed.type === 'content_block_start' &&
+                (parsed.content_block as Record<string, unknown> | undefined)?.type === 'thinking'
+              ) {
+                activeThinkingBlockId = `thinking-${parsed.index as number ?? 0}`
+              }
+              if (parsed.type === 'content_block_stop' && activeThinkingBlockId) {
+                options.onThinkingEnd?.(activeThinkingBlockId)
+                activeThinkingBlockId = null
+              }
+              if (parsed.type === 'content_block_delta') {
+                const delta = parsed.delta as Record<string, unknown> | undefined
+                if (delta?.type === 'thinking_delta' && typeof delta.thinking === 'string' && activeThinkingBlockId) {
+                  options.onThinkingChunk?.(activeThinkingBlockId, delta.thinking)
+                } else if (delta?.type === 'text_delta' && typeof delta.text === 'string') {
+                  fullContent += delta.text
+                  onChunk(delta.text)
+                } else if (typeof (parsed.delta as Record<string, unknown> | undefined)?.text === 'string') {
+                  // fallback: older delta format without explicit type
+                  const text = (parsed.delta as { text: string }).text
+                  fullContent += text
+                  onChunk(text)
+                }
               }
             } catch {
               // Skip malformed chunks

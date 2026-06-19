@@ -36,7 +36,7 @@ export type ProviderDispatchOptions = {
   agenticMode: boolean
   wikiInlineHandlers: Map<string, InlineHandler>
   toolDirective: string
-  generationOptions: { temperature: number; maxTokens: number }
+  generationOptions: { temperature: number; maxTokens: number; thinkingEffort?: string }
   conversationId: string
   webContents: WebContents
   sendChunk: (chunk: string) => void
@@ -97,11 +97,16 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
   const agentId = effectiveAgentId ?? 'default'
   const onActivity = makeActivityHandler(sendActivity)
 
+  const thinkingCallbacks = {
+    onThinkingChunk: (blockId: string, chunk: string) => webContents.send('chat:thinking-delta', { blockId, chunk }),
+    onThinkingEnd: (blockId: string) => webContents.send('chat:thinking-end', { blockId }),
+  }
+
   if (providerName === 'anthropic') {
     if (hasToolLoop) {
       return runProviderMcpToolLoop(
         (msgs, tools, choice) =>
-          sendAnthropicWithTools(byokKey, providerModel, msgs, tools ?? [], choice, generationOptions),
+          sendAnthropicWithTools(byokKey, providerModel, msgs, tools ?? [], choice, { ...generationOptions, ...thinkingCallbacks }),
         chatMessages,
         effectiveToolDefs,
         toolMap,
@@ -124,7 +129,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
       chatMessages.slice(1),
       systemPrompt,
       sendChunk,
-      generationOptions,
+      { ...generationOptions, ...thinkingCallbacks },
     )
   }
 
@@ -194,7 +199,10 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
     }
     sendActivity({ state: 'thinking', label: 'Generating response' })
     try {
-      return await sendOpenAIMessage(conversationId, byokKey, providerModel, chatMessages, sendChunk, generationOptions, baseUrl)
+      return await sendOpenAIMessage(conversationId, byokKey, providerModel, chatMessages, sendChunk, {
+        ...generationOptions,
+        ...thinkingCallbacks,
+      }, baseUrl)
     } catch (err) {
       if (err instanceof Error && err.message.includes('No endpoints found that support image input')) {
         return sendOpenAIMessage(conversationId, byokKey, providerModel, stripImageParts(chatMessages), sendChunk, generationOptions, baseUrl)
