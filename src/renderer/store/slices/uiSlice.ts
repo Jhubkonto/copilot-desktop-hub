@@ -6,7 +6,7 @@ import type {
   Toast,
   ToolApprovalRequest
 } from '../types'
-import type { CatalogModel } from '../../../shared/types'
+import type { AvailableModelGroup, CatalogModel } from '../../../shared/types'
 
 export interface BugReportDraft {
   title?: string
@@ -22,6 +22,7 @@ export interface UiSlice {
   showSelfHealPanel: boolean
   pendingSelfHealReportId: string | null
   showArtifactsPanel: boolean
+  pendingArtifactGeneration: { title: string; kind: string; startedAt: number } | null
   pendingArtifactAttach: { artifactId: string; versionId?: string } | null
   bugReportDraft: BugReportDraft | null
   pendingErrorCount: number
@@ -33,6 +34,7 @@ export interface UiSlice {
   unreadConversationIds: string[]
   generatingConversationIds: string[]
   catalogModels: CatalogModel[]
+  availableModelGroups: AvailableModelGroup[]
   globalDefaultModel: string
   debugLogging: boolean
   setTheme: (theme: Theme) => void
@@ -45,6 +47,7 @@ export interface UiSlice {
   setShowSelfHealPanel: (show: boolean) => void
   setPendingSelfHealReportId: (reportId: string | null) => void
   setShowArtifactsPanel: (show: boolean) => void
+  setPendingArtifactGeneration: (v: { title: string; kind: string; startedAt: number } | null) => void
   requestArtifactAttach: (artifactId: string, versionId?: string) => void
   clearPendingArtifactAttach: () => void
   openBugReport: (draft?: BugReportDraft) => void
@@ -60,6 +63,7 @@ export interface UiSlice {
   addToast: (message: string, type?: Toast['type'], action?: Toast['action']) => void
   dismissToast: (id: string) => void
   setCatalogModels: (models: CatalogModel[]) => void
+  refreshAvailableModels: () => Promise<void>
   setGlobalDefaultModel: (model: string) => void
   addToolApprovalRequest: (request: ToolApprovalRequest) => void
   removeToolApprovalRequest: (requestId: string) => void
@@ -89,6 +93,7 @@ export const createUiSlice: StateCreator<
   showSelfHealPanel: false,
   pendingSelfHealReportId: null,
   showArtifactsPanel: false,
+  pendingArtifactGeneration: null,
   pendingArtifactAttach: null,
   bugReportDraft: null,
   pendingErrorCount: 0,
@@ -100,6 +105,7 @@ export const createUiSlice: StateCreator<
   unreadConversationIds: [],
   generatingConversationIds: [],
   catalogModels: [],
+  availableModelGroups: [],
   globalDefaultModel: 'default',
   debugLogging: false,
 
@@ -163,6 +169,12 @@ export const createUiSlice: StateCreator<
   setShowArtifactsPanel: (show) => {
     set((s) => {
       s.showArtifactsPanel = show
+    })
+  },
+
+  setPendingArtifactGeneration: (v) => {
+    set((s) => {
+      s.pendingArtifactGeneration = v
     })
   },
 
@@ -254,6 +266,13 @@ export const createUiSlice: StateCreator<
     set((s) => {
       s.catalogModels = models
     })
+  },
+
+  refreshAvailableModels: async () => {
+    try {
+      const groups = await window.api.listAvailableModels()
+      set((s) => { s.availableModelGroups = groups })
+    } catch { /* leave existing value */ }
   },
 
   setGlobalDefaultModel: (model) => {

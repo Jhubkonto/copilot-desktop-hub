@@ -90,6 +90,7 @@ export const useAppStore = create<AppState>()(
         get().loadConversations(),
         get().loadAgents(),
         get().loadProjects(),
+        get().refreshAvailableModels(),
         window.api
           .listModelCatalog()
           .then((models) => {
