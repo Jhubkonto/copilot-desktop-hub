@@ -318,6 +318,8 @@ export function createMockApi() {
     listMcpTools: vi.fn().mockResolvedValue([]),
     listMcpToolsForAgent: vi.fn().mockResolvedValue([]),
     getMcpToolOverrides: vi.fn().mockResolvedValue([]),
+    getMcpServerTrust: vi.fn().mockResolvedValue([]),
+    setMcpServerTrust: vi.fn().mockResolvedValue(true),
     setMcpToolOverride: vi.fn().mockResolvedValue(true),
     callMcpTool: vi.fn().mockResolvedValue(null),
     restartMcpServer: vi.fn().mockResolvedValue(true),

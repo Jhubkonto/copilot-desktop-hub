@@ -105,7 +105,7 @@ describe('CLI adapters', () => {
     })
     expect(mockSpawn).toHaveBeenCalledWith(
       'C:\\claude.exe',
-      ['--output-format', 'stream-json', '--print', '--verbose'],
+      ['--output-format', 'stream-json', '--print', '--verbose', '--strict-mcp-config'],
       expect.objectContaining({ cwd: 'C:\\workspace' })
     )
     expect(proc.stdin.end).toHaveBeenCalledWith('[System]: system\n\n[User]: hello', 'utf8')
@@ -255,7 +255,7 @@ describe('CLI adapters', () => {
     // Must add --input-format stream-json when images are present
     expect(mockSpawn).toHaveBeenCalledWith(
       'C:\\claude.exe',
-      ['--output-format', 'stream-json', '--print', '--verbose', '--input-format', 'stream-json'],
+      ['--output-format', 'stream-json', '--print', '--verbose', '--strict-mcp-config', '--input-format', 'stream-json'],
       expect.objectContaining({ cwd: 'C:\\workspace' })
     )
 
@@ -290,7 +290,7 @@ describe('CLI adapters', () => {
 
     expect(mockSpawn).toHaveBeenCalledWith(
       'C:\\claude.exe',
-      ['--output-format', 'stream-json', '--print', '--verbose'],
+      ['--output-format', 'stream-json', '--print', '--verbose', '--strict-mcp-config'],
       expect.any(Object)
     )
     // No --input-format flag in text-only mode

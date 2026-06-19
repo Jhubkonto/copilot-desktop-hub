@@ -106,7 +106,7 @@ describe('project generator provider selection', () => {
 
     expect(state.mobile).toContainEqual({
       event: 'project-generator:turn-complete',
-      data: { sessionId: 'session-1', content: 'Can you share the root directory?' },
+      data: { sessionId: 'session-1', content: 'Can you share the root directory?', hasSpec: false },
     })
     expect(state.mobile.some((event) => event.event === 'project-generator:spec-ready')).toBe(false)
   })

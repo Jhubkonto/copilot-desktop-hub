@@ -735,7 +735,7 @@ describe('getAndroidUpdateManifest', () => {
 
     try {
       const { getAndroidUpdateManifest } = await import('../android-handlers')
-      expect(getAndroidUpdateManifest(db)).toEqual(manifest)
+      expect(await getAndroidUpdateManifest(db)).toEqual(manifest)
     } finally {
       rmSync(feedDir, { recursive: true, force: true })
     }
@@ -744,6 +744,6 @@ describe('getAndroidUpdateManifest', () => {
   it('returns null when no Android manifest has been published', async () => {
     const { getAndroidUpdateManifest } = await import('../android-handlers')
 
-    expect(getAndroidUpdateManifest(db)).toBeNull()
+    expect(await getAndroidUpdateManifest(db)).toBeNull()
   })
 })

@@ -91,6 +91,7 @@ import { CodexAdapter } from '../cli-adapters/codex'
 import { retrieveAuthMode } from '../auth'
 import { getAgentConfig } from '../agents'
 import { getAvailableMcpTools, getMcpServerConfigsForCli } from '../mcp'
+import { getApiKey } from '../providers'
 
 describe('chat handlers', () => {
   beforeEach(() => {
@@ -160,6 +161,7 @@ describe('chat handlers', () => {
     vi.mocked(getAdapter).mockReturnValue(mockAdapter as never)
     vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(true)
     vi.mocked(retrieveAuthMode).mockReturnValue('none')
+    vi.mocked(getApiKey).mockReturnValue(null)
 
     const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<unknown>
     await handler({ sender: {} }, 'conv-cli', 'tell me something')
@@ -189,6 +191,7 @@ describe('chat handlers', () => {
     vi.mocked(getAdapter).mockReturnValue(mockAdapter as never)
     vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(true)
     vi.mocked(retrieveAuthMode).mockReturnValue('none')
+    vi.mocked(getApiKey).mockReturnValue(null)
     vi.mocked(getMcpServerConfigsForCli).mockReturnValue([{
       id: 'server-1',
       key: 'playwright_chromium',
@@ -234,6 +237,7 @@ describe('chat handlers', () => {
     vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(false)
     vi.mocked(CodexAdapter.isAvailable).mockReturnValue(true)
     vi.mocked(retrieveAuthMode).mockReturnValue('none')
+    vi.mocked(getApiKey).mockReturnValue(null)
     vi.mocked(getMcpServerConfigsForCli).mockReturnValue([{
       id: 'server-1',
       key: 'playwright_chromium',
@@ -270,6 +274,7 @@ describe('chat handlers', () => {
     vi.mocked(getAdapter).mockReturnValue(mockAdapter as never)
     vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(true)
     vi.mocked(retrieveAuthMode).mockReturnValue('none')
+    vi.mocked(getApiKey).mockReturnValue(null)
 
     const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<unknown>
     await handler({ sender: {} }, 'conv-cli-error', 'open google')

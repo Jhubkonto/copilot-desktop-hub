@@ -47,7 +47,7 @@ vi.mock('../database', () => ({
 
 vi.mock('electron', () => ({
   BrowserWindow: {
-    getAllWindows: () => [{ webContents: { send: state.webContentsSend } }],
+    getAllWindows: () => [{ isDestroyed: vi.fn(() => false), webContents: { send: state.webContentsSend } }],
   },
 }))
 
@@ -106,6 +106,7 @@ vi.mock('../ws-server', () => ({
 import { registerWsHandlers, registerApprovalResolver } from '../ws-handlers'
 import { retrieveAuthMode } from '../auth'
 import { getAndroidUpdateManifest } from '../android-handlers'
+import { isProviderConfigured } from '../providers'
 import { ClaudeAdapter } from '../cli-adapters/claude'
 import { CodexAdapter } from '../cli-adapters/codex'
 
@@ -124,7 +125,7 @@ describe('ws handlers', () => {
     state.dispatchChatSend.mockClear()
     state.webContentsSend.mockClear()
     vi.mocked(retrieveAuthMode).mockReturnValue('byok')
-    vi.mocked(getAndroidUpdateManifest).mockReturnValue(null)
+    vi.mocked(getAndroidUpdateManifest).mockResolvedValue(null)
     vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(false)
     vi.mocked(CodexAdapter.isAvailable).mockReturnValue(false)
     registerWsHandlers()
@@ -216,7 +217,7 @@ describe('ws handlers', () => {
     expect(reply).toHaveBeenCalledWith({
       event: 'model:list',
       data: {
-        source: { type: 'provider', label: 'Configured OpenAI models' },
+        source: { type: 'provider', label: 'OpenAI' },
         models: [
           { id: 'default', label: 'Default model' },
           { id: 'gpt-5-mini', label: 'GPT-5 mini', vendor: 'OpenAI' },
@@ -228,13 +229,14 @@ describe('ws handlers', () => {
   it('falls back to installed Claude CLI models when no BYOK backend is active', () => {
     vi.mocked(retrieveAuthMode).mockReturnValue('none')
     vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(true)
+    vi.mocked(isProviderConfigured).mockReturnValue(false)
 
     const reply = sendCommand('model:list')
 
     expect(reply).toHaveBeenCalledWith({
       event: 'model:list',
       data: {
-        source: { type: 'cli', label: 'Claude CLI models', backend: 'claude-cli' },
+        source: { type: 'provider', label: 'Claude CLI' },
         models: [
           { id: 'default', label: 'Default model' },
           { id: 'claude-sonnet-4.6', label: 'Claude Sonnet 4.6', vendor: 'Claude CLI' },
@@ -301,7 +303,7 @@ describe('ws handlers', () => {
     })
   })
 
-  it('serves the Android update manifest over the paired websocket', () => {
+  it('serves the Android update manifest over the paired websocket', async () => {
     const manifest = {
       versionCode: 42,
       versionName: '1.2.3',
@@ -311,9 +313,10 @@ describe('ws handlers', () => {
       artifactUrl: 'http://192.168.1.100:12345/android/app-release.apk',
       publishedAt: 123456,
     }
-    vi.mocked(getAndroidUpdateManifest).mockReturnValue(manifest)
+    vi.mocked(getAndroidUpdateManifest).mockResolvedValue(manifest)
 
     const reply = sendCommand('android:update-manifest')
+    await Promise.resolve()
 
     expect(reply).toHaveBeenCalledWith({
       event: 'android:update-manifest',
@@ -321,8 +324,11 @@ describe('ws handlers', () => {
     })
   })
 
-  it('returns null when no Android update manifest has been published', () => {
+  it('returns null when no Android update manifest has been published', async () => {
+    vi.mocked(getAndroidUpdateManifest).mockResolvedValue(null)
+
     const reply = sendCommand('android:update-manifest')
+    await Promise.resolve()
 
     expect(reply).toHaveBeenCalledWith({
       event: 'android:update-manifest',

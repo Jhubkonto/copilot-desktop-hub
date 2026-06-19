@@ -16,7 +16,7 @@ vi.mock('child_process', () => {
         })
       }),
   })
-  return { execFile: fn }
+  return { execFile: fn, exec: vi.fn() }
 })
 
 vi.mock('../database', () => ({ getDatabase: vi.fn() }))

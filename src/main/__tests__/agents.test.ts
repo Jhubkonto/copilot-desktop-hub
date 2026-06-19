@@ -3,7 +3,7 @@ import type { AgentConfig } from '../../shared/types'
 
 // ── Hoisted mocks ──────────────────────────────────────────────────────────────
 
-const { mockDb, ipcHandlers, mockIpcMain, mockDialog, mockRandomUUID, mockReadFileSync, mockWriteFileSync } = vi.hoisted(() => {
+const { mockDb, ipcHandlers, mockIpcMain, mockDialog, mockRandomUUID, mockReadFileSync, mockWriteFileSync, mockWriteFile, mockReadFile } = vi.hoisted(() => {
   const ipcHandlers = new Map<string, (...args: unknown[]) => unknown>()
 
   const stmtResults = new Map<string, unknown>()
@@ -37,7 +37,9 @@ const { mockDb, ipcHandlers, mockIpcMain, mockDialog, mockRandomUUID, mockReadFi
     },
     mockRandomUUID: vi.fn(() => 'test-uuid-1234'),
     mockReadFileSync: vi.fn(),
-    mockWriteFileSync: vi.fn()
+    mockWriteFileSync: vi.fn(),
+    mockWriteFile: vi.fn().mockResolvedValue(undefined),
+    mockReadFile: vi.fn(),
   }
 })
 
@@ -65,7 +67,13 @@ vi.mock('crypto', () => ({
 
 vi.mock('fs', () => ({
   readFileSync: mockReadFileSync,
-  writeFileSync: mockWriteFileSync
+  writeFileSync: mockWriteFileSync,
+  existsSync: vi.fn(() => false)
+}))
+
+vi.mock('fs/promises', () => ({
+  writeFile: mockWriteFile,
+  readFile: mockReadFile
 }))
 
 // ── Test helpers ───────────────────────────────────────────────────────────────
@@ -249,7 +257,7 @@ describe('Agents — IPC Handlers', () => {
 
       const result = await invokeHandler('agent:export', 'agent-abc')
       expect(result).toBe(true)
-      expect(mockWriteFileSync).toHaveBeenCalledWith(
+      expect(mockWriteFile).toHaveBeenCalledWith(
         '/tmp/agent.json',
         expect.stringContaining('"Test Agent"'),
         'utf-8'
@@ -272,7 +280,7 @@ describe('Agents — IPC Handlers', () => {
         canceled: false,
         filePaths: ['/tmp/import.json']
       })
-      mockReadFileSync.mockReturnValue(JSON.stringify({
+      mockReadFile.mockResolvedValue(JSON.stringify({
         name: 'Imported Agent',
         icon: '🚀',
         systemPrompt: 'Hello',
@@ -295,7 +303,7 @@ describe('Agents — IPC Handlers', () => {
         canceled: false,
         filePaths: ['/tmp/bad.json']
       })
-      mockReadFileSync.mockReturnValue('not valid json {{{')
+      mockReadFile.mockResolvedValue('not valid json {{{')
 
       const result = await invokeHandler('agent:import')
       expect(result).toBeNull()
@@ -306,7 +314,7 @@ describe('Agents — IPC Handlers', () => {
         canceled: false,
         filePaths: ['/tmp/noname.json']
       })
-      mockReadFileSync.mockReturnValue(JSON.stringify({ icon: '🚀' }))
+      mockReadFile.mockResolvedValue(JSON.stringify({ icon: '🚀' }))
 
       const result = await invokeHandler('agent:import')
       expect(result).toBeNull()

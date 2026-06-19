@@ -39,7 +39,7 @@ vi.mock('../knowledge', () => ({ registerKnowledgeHandlers: vi.fn() }))
 vi.mock('../wiki-handlers', () => ({ registerWikiHandlers: vi.fn() }))
 vi.mock('../prompt-handlers', () => ({ registerPromptHandlers: vi.fn() }))
 vi.mock('../tools', () => ({ registerToolHandlers: vi.fn() }))
-vi.mock('../mcp', () => ({ registerMcpHandlers: vi.fn() }))
+vi.mock('../mcp', () => ({ registerMcpHandlers: vi.fn(), initDesktopNavigatorMcp: vi.fn() }))
 vi.mock('../providers', () => ({
   registerProviderHandlers: vi.fn(),
   PROVIDERS: [],

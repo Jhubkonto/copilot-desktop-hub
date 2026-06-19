@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, act, waitFor } from "@testing-library/react";
+import { render, screen, act, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChatWindow } from "../../renderer/components/ChatWindow";
 import { setupMockApi, type MockApi } from "../../test/mocks/api";
@@ -233,6 +233,200 @@ describe("ChatWindow — Messages Display", () => {
     expect(messages[0]).toHaveTextContent("First message");
     expect(messages[1]).toHaveTextContent("First reply");
     expect(messages[2]).toHaveTextContent("Second message");
+  });
+
+  it("shows a clickable request reference when the related user message is above the viewport", async () => {
+    const originalScrollIntoView = Element.prototype.scrollIntoView;
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    mockApi.getMessages.mockResolvedValue([
+      { id: "m1", role: "user", content: "Explain the renderer scroll behavior", timestamp: 1000 },
+      { id: "m2", role: "assistant", content: "The scroll container tracks message visibility.", timestamp: 2000 },
+    ]);
+
+    mockStore = createMockAppStore({
+      authState: { authenticated: true, user: null },
+      currentConversationId: "conv-1",
+    });
+    setupStoreMock(useAppStore, mockStore);
+
+    render(<ChatWindow />);
+
+    await waitFor(() => {
+      expect(screen.getByText("The scroll container tracks message visibility.")).toBeInTheDocument();
+    });
+
+    const log = screen.getByRole("log", { name: /messages/i });
+    const userMessage = document.querySelector('[data-message-id="m1"]') as HTMLDivElement;
+    const assistantMessage = document.querySelector('[data-message-id="m2"]') as HTMLDivElement;
+
+    vi.spyOn(log, "getBoundingClientRect").mockReturnValue({
+      top: 0,
+      bottom: 500,
+      left: 0,
+      right: 800,
+      width: 800,
+      height: 500,
+      x: 0,
+      y: 0,
+      toJSON: () => {},
+    });
+    vi.spyOn(userMessage, "getBoundingClientRect").mockReturnValue({
+      top: -180,
+      bottom: -80,
+      left: 0,
+      right: 800,
+      width: 800,
+      height: 100,
+      x: 0,
+      y: -180,
+      toJSON: () => {},
+    });
+    vi.spyOn(assistantMessage, "getBoundingClientRect").mockReturnValue({
+      top: 80,
+      bottom: 300,
+      left: 0,
+      right: 800,
+      width: 800,
+      height: 220,
+      x: 0,
+      y: 80,
+      toJSON: () => {},
+    });
+
+    fireEvent.scroll(log);
+
+    const reference = await screen.findByRole("button", { name: "Scroll to related request" });
+    expect(reference).toHaveTextContent("Explain the renderer scroll behavior");
+
+    await userEvent.click(reference);
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "center" });
+    Element.prototype.scrollIntoView = originalScrollIntoView;
+  });
+
+  it("hides the request reference when the related user message is visible", async () => {
+    mockApi.getMessages.mockResolvedValue([
+      { id: "m1", role: "user", content: "Visible request", timestamp: 1000 },
+      { id: "m2", role: "assistant", content: "Visible answer", timestamp: 2000 },
+    ]);
+
+    mockStore = createMockAppStore({
+      authState: { authenticated: true, user: null },
+      currentConversationId: "conv-1",
+    });
+    setupStoreMock(useAppStore, mockStore);
+
+    render(<ChatWindow />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Visible answer")).toBeInTheDocument();
+    });
+
+    const log = screen.getByRole("log", { name: /messages/i });
+    const userMessage = document.querySelector('[data-message-id="m1"]') as HTMLDivElement;
+    const assistantMessage = document.querySelector('[data-message-id="m2"]') as HTMLDivElement;
+
+    vi.spyOn(log, "getBoundingClientRect").mockReturnValue({
+      top: 0,
+      bottom: 500,
+      left: 0,
+      right: 800,
+      width: 800,
+      height: 500,
+      x: 0,
+      y: 0,
+      toJSON: () => {},
+    });
+    vi.spyOn(userMessage, "getBoundingClientRect").mockReturnValue({
+      top: 20,
+      bottom: 120,
+      left: 0,
+      right: 800,
+      width: 800,
+      height: 100,
+      x: 0,
+      y: 20,
+      toJSON: () => {},
+    });
+    vi.spyOn(assistantMessage, "getBoundingClientRect").mockReturnValue({
+      top: 150,
+      bottom: 300,
+      left: 0,
+      right: 800,
+      width: 800,
+      height: 150,
+      x: 0,
+      y: 150,
+      toJSON: () => {},
+    });
+
+    fireEvent.scroll(log);
+
+    expect(screen.queryByRole("button", { name: "Scroll to related request" })).not.toBeInTheDocument();
+  });
+
+  it("truncates long request previews in the request reference", async () => {
+    const longRequest = "Summarize ".repeat(30);
+    mockApi.getMessages.mockResolvedValue([
+      { id: "m1", role: "user", content: longRequest, timestamp: 1000 },
+      { id: "m2", role: "assistant", content: "Short answer", timestamp: 2000 },
+    ]);
+
+    mockStore = createMockAppStore({
+      authState: { authenticated: true, user: null },
+      currentConversationId: "conv-1",
+    });
+    setupStoreMock(useAppStore, mockStore);
+
+    render(<ChatWindow />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Short answer")).toBeInTheDocument();
+    });
+
+    const log = screen.getByRole("log", { name: /messages/i });
+    const userMessage = document.querySelector('[data-message-id="m1"]') as HTMLDivElement;
+    const assistantMessage = document.querySelector('[data-message-id="m2"]') as HTMLDivElement;
+
+    vi.spyOn(log, "getBoundingClientRect").mockReturnValue({
+      top: 0,
+      bottom: 500,
+      left: 0,
+      right: 800,
+      width: 800,
+      height: 500,
+      x: 0,
+      y: 0,
+      toJSON: () => {},
+    });
+    vi.spyOn(userMessage, "getBoundingClientRect").mockReturnValue({
+      top: -220,
+      bottom: -120,
+      left: 0,
+      right: 800,
+      width: 800,
+      height: 100,
+      x: 0,
+      y: -220,
+      toJSON: () => {},
+    });
+    vi.spyOn(assistantMessage, "getBoundingClientRect").mockReturnValue({
+      top: 80,
+      bottom: 260,
+      left: 0,
+      right: 800,
+      width: 800,
+      height: 180,
+      x: 0,
+      y: 80,
+      toJSON: () => {},
+    });
+
+    fireEvent.scroll(log);
+
+    const reference = await screen.findByRole("button", { name: "Scroll to related request" });
+    expect(reference.textContent).toContain("...");
+    expect(reference.textContent!.length).toBeLessThan(longRequest.length);
   });
 });
 

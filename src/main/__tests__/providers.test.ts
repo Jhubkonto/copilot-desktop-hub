@@ -207,7 +207,7 @@ describe('Providers — IPC Handlers', () => {
         }
 
         res.statusCode = 200
-        res.headers = {}
+        res.headers = { 'content-type': 'text/event-stream' }
         req.write = (chunk: string) => {
           requestBody += chunk
         }

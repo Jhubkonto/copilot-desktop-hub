@@ -12,19 +12,21 @@ const { useAppStore } = vi.hoisted(() => ({
 vi.mock('../../renderer/store/app-store', () => ({ useAppStore }))
 
 let mockStore: ReturnType<typeof createMockAppStore>
+let mockApi: ReturnType<typeof setupMockApi>
 const user = userEvent.setup()
 
 beforeEach(() => {
-  setupMockApi()
+  mockApi = setupMockApi()
 })
 
 describe('Sidebar', () => {
-  it('shows provider-configured footer in BYOK mode', () => {
+  it('shows provider-configured footer in BYOK mode', async () => {
     mockStore = createMockAppStore({ authState: { authenticated: true, mode: 'byok', user: null } })
     setupStoreMock(useAppStore, mockStore)
+    mockApi.listProviders.mockResolvedValue([{ name: 'openai', label: 'API keys configured', configured: true }])
 
     render(<Sidebar />)
-    expect(screen.getByText('API keys configured')).toBeInTheDocument()
+    await screen.findByText('API keys configured')
     expect(screen.getByText('BYOK mode is active')).toBeInTheDocument()
   })
 
