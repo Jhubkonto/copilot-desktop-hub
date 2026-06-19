@@ -558,6 +558,32 @@ export function registerWsHandlers(): void {
       return
     }
 
+    if (command === 'project:update-config') {
+      const id = typeof data.id === 'string' ? data.id : ''
+      if (!id) return
+      const existing = db.prepare('SELECT config_json FROM projects WHERE id = ?').get(id) as { config_json: string | null } | undefined
+      const current = existing?.config_json ? (JSON.parse(existing.config_json) as Record<string, unknown>) : {}
+      const patch: Record<string, unknown> = {}
+      if (typeof data.instructions === 'string') patch.instructions = data.instructions
+      if (typeof data.rootDirectory === 'string') patch.rootDirectory = data.rootDirectory
+      if (typeof data.orchestrationEnabled === 'boolean') patch.orchestrationEnabled = data.orchestrationEnabled
+      if (typeof data.defaultModel === 'string') patch.defaultModel = data.defaultModel
+      if (typeof data.instructionMode === 'string') patch.instructionMode = data.instructionMode
+      const merged = { ...current, ...patch }
+      db.prepare('UPDATE projects SET config_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(merged), Date.now(), id)
+      broadcastToMobile({ event: 'project:config-updated', data: { id } })
+      return
+    }
+
+    if (command === 'project:get-config') {
+      const id = typeof data.id === 'string' ? data.id : ''
+      if (!id) return
+      const row = db.prepare('SELECT config_json FROM projects WHERE id = ?').get(id) as { config_json: string | null } | undefined
+      const config = row?.config_json ? (JSON.parse(row.config_json) as Record<string, unknown>) : {}
+      reply({ event: 'project:config', data: { id, config } })
+      return
+    }
+
     if (command === 'agent:create') {
       const name = typeof data.name === 'string' ? data.name.trim() : ''
       const icon = typeof data.icon === 'string' ? data.icon : ''
