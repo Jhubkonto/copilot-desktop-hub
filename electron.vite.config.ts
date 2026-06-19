@@ -1,10 +1,24 @@
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import { resolve } from 'path'
+import { copyFileSync, mkdirSync } from 'fs'
+
+// Rollup plugin that copies static .cjs worker scripts to dist/main/
+function copyWorkers(): import('vite').Plugin {
+  return {
+    name: 'copy-cjs-workers',
+    closeBundle() {
+      const src = resolve(__dirname, 'src/main/desktop-navigator-bridge-worker.cjs')
+      const outDir = resolve(__dirname, 'dist/main')
+      mkdirSync(outDir, { recursive: true })
+      copyFileSync(src, resolve(outDir, 'desktop-navigator-bridge-worker.cjs'))
+    },
+  }
+}
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin(), copyWorkers()],
     build: {
       outDir: 'dist/main',
       rollupOptions: {

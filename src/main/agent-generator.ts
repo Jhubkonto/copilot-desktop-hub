@@ -63,14 +63,13 @@ When you have enough context, emit a brief conversational summary followed immed
   "responseFormat": "default",
   "agenticMode": false,
   "tools": { "fileEdit": false, "terminal": false, "webFetch": false },
-  "rootDirectory": "/path/to/project",
   "contextDirectories": [],
   "memory": "",
   "customCommands": []
 }
 
 responseFormat must be one of: "default", "concise", "detailed", "code-only".
-Omit rootDirectory if the user has not mentioned a specific working directory.
+Only include rootDirectory if the user explicitly mentions a specific working directory path — never invent or guess one.
 customCommands format: [{ "name": "cmd", "description": "...", "prompt": "..." }]
 Emit the spec only once you have enough information (usually after 1–2 exchanges).`
 
@@ -303,8 +302,8 @@ export async function createAgentFromSpec(spec: AgentGeneratorSpec): Promise<{ a
     'INSERT INTO agents (id, config_json, is_default, created_at, updated_at) VALUES (?, ?, 0, ?, ?)',
   ).run(agentId, JSON.stringify(agentConfig), now, now)
 
-  // Auto-create scratchpad when rootDirectory is set
-  if (spec.rootDirectory) {
+  // Auto-create scratchpad when rootDirectory is set and actually exists on disk
+  if (spec.rootDirectory && existsSync(spec.rootDirectory)) {
     const kebabName = safeName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
     const scratchpadPath = join(spec.rootDirectory, `${kebabName}-scratchpad.md`)
     if (!existsSync(scratchpadPath)) {

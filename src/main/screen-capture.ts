@@ -254,6 +254,49 @@ export async function captureWindowContent(
   }
 }
 
+export async function listOpenWindows(): Promise<{ title: string; id: string }[]> {
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ['window'],
+      thumbnailSize: { width: 0, height: 0 },
+    })
+    return sources
+      .filter((s) => s.name.trim().length > 0)
+      .map((s) => ({ title: s.name, id: s.id }))
+  } catch {
+    return []
+  }
+}
+
+export async function captureWindowByTitle(
+  title: string,
+): Promise<{ dataUrl: string } | { error: string }> {
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ['window'],
+      thumbnailSize: { width: 1920, height: 1080 },
+    })
+    const match = sources.find((s) => s.name.toLowerCase().includes(title.toLowerCase()))
+    if (!match) return { error: `No window matching "${title}" found` }
+
+    let img = match.thumbnail
+    const MAX_EDGE = 1568
+    const size = img.getSize()
+    const longest = Math.max(size.width, size.height)
+    if (longest > MAX_EDGE) {
+      const scale = MAX_EDGE / longest
+      img = img.resize({
+        width: Math.round(size.width * scale),
+        height: Math.round(size.height * scale),
+        quality: 'better',
+      })
+    }
+    return { dataUrl: `data:image/jpeg;base64,${img.toJPEG(85).toString('base64')}` }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Window capture failed' }
+  }
+}
+
 export function readClipboardImage(): { dataUrl: string } | null {
   const img = clipboard.readImage()
   if (img.isEmpty()) return null

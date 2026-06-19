@@ -5,6 +5,8 @@ import { getDatabase } from './database'
 import { randomUUID } from 'crypto'
 import { safeHandle } from './safe-handle'
 import { requestApproval } from './tools'
+import { DESKTOP_NAVIGATOR_ID, DESKTOP_NAVIGATOR_TOOLS, createDesktopNavigatorHandler } from './desktop-navigator-mcp'
+import { startDesktopNavigatorBridge, getDesktopNavigatorCliConfig } from './desktop-navigator-bridge'
 
 interface McpServerConfig {
   id: string
@@ -17,10 +19,13 @@ interface McpServerConfig {
   enabled: boolean
 }
 
+type InProcessHandler = (toolName: string, args: Record<string, unknown>) => Promise<{ success: boolean; result?: string; images?: { dataUrl: string; mimeType: string }[]; error?: string }>
+
 interface McpServerInstance {
   config: McpServerConfig
-  client: Client
-  transport: StdioClientTransport
+  client?: Client
+  transport?: StdioClientTransport
+  inProcessHandler?: InProcessHandler
   status: 'connecting' | 'connected' | 'error' | 'disconnected'
   error?: string
   tools: McpTool[]
@@ -49,9 +54,10 @@ const intentionallyDisconnected = new Set<string>()
 const RECONNECT_DELAY_MS = 5000
 
 function broadcastServerStatus(id: string): void {
-  const config = loadServerConfigs().find((c) => c.id === id)
-  if (!config) return
   const instance = servers.get(id)
+  const dbConfig = loadServerConfigs().find((c) => c.id === id)
+  const config = dbConfig ?? instance?.config
+  if (!config) return
   const payload = {
     ...config,
     status: instance?.status ?? 'disconnected',
@@ -193,10 +199,12 @@ export async function disconnectServer(id: string): Promise<void> {
 
   const instance = servers.get(id)
   if (instance) {
-    try {
-      await instance.transport.close()
-    } catch {
-      // Ignore close errors
+    if (instance.transport) {
+      try {
+        await instance.transport.close()
+      } catch {
+        // Ignore close errors
+      }
     }
     instance.status = 'disconnected'
     servers.delete(id)
@@ -240,7 +248,7 @@ function toCliMcpServerKey(config: McpServerConfig): string {
 
 export function getMcpServerConfigsForCli(serverIds: string[]): CliMcpServerConfig[] {
   const allowed = new Set(serverIds)
-  return loadServerConfigs()
+  const configs = loadServerConfigs()
     .filter((config) => config.enabled && allowed.has(config.id))
     .map((config) => {
       const extraArgs = config.imageResponses === 'omit'
@@ -255,6 +263,14 @@ export function getMcpServerConfigsForCli(serverIds: string[]): CliMcpServerConf
         ...(config.cwd && { cwd: config.cwd }),
       }
     })
+
+  // Inject the Desktop Navigator bridge when it is assigned to this agent
+  if (allowed.has(DESKTOP_NAVIGATOR_ID)) {
+    const bridgeConfig = getDesktopNavigatorCliConfig()
+    if (bridgeConfig) configs.push(bridgeConfig)
+  }
+
+  return configs
 }
 
 export async function callMcpTool(
@@ -316,6 +332,14 @@ export async function callMcpTool(
   }
 
   try {
+    if (instance.inProcessHandler) {
+      return await instance.inProcessHandler(toolName, args)
+    }
+
+    if (!instance.client) {
+      return { success: false, error: `Server ${serverId} has no client` }
+    }
+
     const result = await instance.client.callTool({ name: toolName, arguments: args })
     const contentArray = Array.isArray(result.content) ? result.content : []
 
@@ -373,10 +397,33 @@ export async function shutdownMcpServers(): Promise<void> {
   }
 }
 
+export function initDesktopNavigatorMcp(win: BrowserWindow): void {
+  const handler = createDesktopNavigatorHandler(win)
+  servers.set(DESKTOP_NAVIGATOR_ID, {
+    config: {
+      id: DESKTOP_NAVIGATOR_ID,
+      name: 'Desktop Navigator',
+      command: '',
+      args: [],
+      env: {},
+      enabled: true,
+    },
+    inProcessHandler: handler,
+    status: 'connected',
+    tools: DESKTOP_NAVIGATOR_TOOLS,
+  })
+  // Start the HTTP bridge so CLI adapters (claude, codex) can also reach Desktop
+  // Navigator tools via the stdio bridge worker script.
+  startDesktopNavigatorBridge(handler).catch((err) => {
+    console.error('[Desktop Navigator] Failed to start CLI bridge:', err)
+  })
+}
+
 export function registerMcpHandlers(): void {
   safeHandle('mcp:list-servers', () => {
     const configs = loadServerConfigs()
-    return configs.map((config) => {
+    const configIds = new Set(configs.map((c) => c.id))
+    const result = configs.map((config) => {
       const instance = servers.get(config.id)
       return {
         ...config,
@@ -385,6 +432,18 @@ export function registerMcpHandlers(): void {
         toolCount: instance?.tools.length ?? 0
       }
     })
+    // Append built-in in-process servers that have no DB row
+    for (const [id, instance] of servers) {
+      if (!configIds.has(id) && instance.inProcessHandler) {
+        result.push({
+          ...instance.config,
+          status: instance.status,
+          error: instance.error,
+          toolCount: instance.tools.length,
+        })
+      }
+    }
+    return result
   })
 
   safeHandle('mcp:add-server', async (_event, config: Omit<McpServerConfig, 'id'>) => {

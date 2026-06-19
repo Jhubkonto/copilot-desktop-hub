@@ -8,7 +8,7 @@ import { registerSystemHandlers } from './system-handlers'
 import { registerAgentHandlers } from './agents'
 import { registerKnowledgeHandlers } from './knowledge'
 import { registerToolHandlers } from './tools'
-import { registerMcpHandlers } from './mcp'
+import { registerMcpHandlers, initDesktopNavigatorMcp } from './mcp'
 import { registerProviderHandlers } from './providers'
 import { registerScreenCaptureHandlers } from './screen-capture-handlers'
 import { registerModelCatalogHandlers } from './model-catalog-handlers'
@@ -45,6 +45,9 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerKnowledgeHandlers()
   registerToolHandlers()
   registerMcpHandlers()
+  if (mainWindow) {
+    initDesktopNavigatorMcp(mainWindow)
+  }
   registerProviderHandlers()
   registerCliHandlers()
   registerWsHandlers()
