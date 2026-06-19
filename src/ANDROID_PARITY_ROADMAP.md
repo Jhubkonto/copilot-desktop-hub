@@ -43,7 +43,7 @@ Status legend:
 | Skills | Partial | Add tests for skill CRUD and agent-skill round trips. |
 | Skill Generator | Missing | Add desktop WS bridge and Android generator UI. |
 | Agent Generator | Partial | Android route exists; verify parser/repository/UI parity with desktop generator. |
-| Agent Config | Partial | Add skills, knowledge files, MCP trust/tool overrides, tool instructions, thinking effort, context files/rules, root directory, custom commands, JSON parity. |
+| Agent Config | Done | Full desktop field parity achieved: skills, knowledge files, MCP assignment/trust/tool overrides, tool instructions, thinking effort, context files/rules, root directory, custom commands. |
 | Project Settings | Partial | Add full General/Scope/Milestones/Team/Wiki/Artifacts parity, default model, root directory, orchestration controls. |
 | Artifacts | Partial | Add generator, versions, delete, revision, storage-root visibility, and Android export/share equivalents. |
 | Prompts | Partial | Add prompt version history and rollback. |
@@ -139,10 +139,10 @@ Feature Generator is intentionally excluded because it has been removed from the
 
 - [x] Extend Android `AgentFullConfig` to preserve all desktop agent fields.
 - [x] Add UI for thinking effort, root directory, context directories/files, context rules, and custom commands.
-- [ ] Add knowledge file list/add/remove/read/update support.
+- [x] Add knowledge file list/add/remove/read/update support.
 - [x] Add built-in tool instructions and approval parity.
-- [ ] Add MCP server assignment, server trust, and tool override UI.
-- [ ] Fix tool approval value normalization to match desktop/shared config.
+- [x] Add MCP server assignment, server trust, and tool override UI.
+- [x] Fix tool approval value normalization to match desktop/shared config.
 - [ ] Add round-trip tests proving Android does not drop advanced fields.
 
 ### Phase 7 - Project Settings Parity
