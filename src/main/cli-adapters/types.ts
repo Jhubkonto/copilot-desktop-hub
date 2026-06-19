@@ -17,12 +17,15 @@ export interface CliAdapterRequest {
   cwd: string
   model: string
   conversationId: string
+  thinkingEffort?: 'low' | 'medium' | 'high' | 'max' | 'disabled'
 }
 
 export type CliStreamEvent =
   | { type: 'tool_start'; id: string; name: string; input: Record<string, unknown> }
   | { type: 'tool_end'; id: string; content: string; isError: boolean }
   | { type: 'cost'; totalCostUsd: number; inputTokens: number; outputTokens: number }
+  | { type: 'thinking_chunk'; blockId: string; chunk: string }
+  | { type: 'thinking_end'; blockId: string }
 
 export interface CliAgentAdapter {
   readonly name: string

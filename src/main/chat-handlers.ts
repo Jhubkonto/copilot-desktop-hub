@@ -127,13 +127,13 @@ export async function dispatchChatSend(
   const defaultModel = settingsMap.get('default_model') || 'default'
   const temperatureSetting = Number.parseFloat(settingsMap.get('temperature') ?? '')
   const maxTokensSetting = Number.parseInt(settingsMap.get('max_tokens') ?? '', 10)
+  const effectiveAgentId = agentId ?? convRow?.agent_id ?? null
+  const agentCfg2 = effectiveAgentId ? getAgentConfig(effectiveAgentId) : null
   const generationOptions = {
     temperature: Number.isFinite(temperatureSetting) ? Math.min(2, Math.max(0, temperatureSetting)) : 0.7,
     maxTokens: Number.isFinite(maxTokensSetting) ? Math.min(16384, Math.max(256, maxTokensSetting)) : 4096,
+    thinkingEffort: agentCfg2?.thinkingEffort as string | undefined,
   }
-
-  const effectiveAgentId = agentId ?? convRow?.agent_id ?? null
-  const agentCfg2 = effectiveAgentId ? getAgentConfig(effectiveAgentId) : null
   const agenticMode = agentCfg2?.agenticMode === true
   const conversationModel = typeof convRow?.model === 'string' ? convRow.model : undefined
   const selectedModel =
@@ -533,6 +533,7 @@ export async function dispatchChatSend(
             conversationId,
             mcpServers: cliMcpServersFiltered,
             allowedTools: cliAllowedMcpTools,
+            thinkingEffort: agentCfg2?.thinkingEffort as 'low' | 'medium' | 'high' | 'max' | 'disabled' | undefined,
           },
           sendChunk,
           (event) => {
@@ -560,6 +561,10 @@ export async function dispatchChatSend(
                 inputTokens: event.inputTokens,
                 outputTokens: event.outputTokens,
               })
+            } else if (event.type === 'thinking_chunk') {
+              window.webContents.send('chat:thinking-delta', { blockId: event.blockId, chunk: event.chunk })
+            } else if (event.type === 'thinking_end') {
+              window.webContents.send('chat:thinking-end', { blockId: event.blockId })
             }
           },
           cliAbortController.signal,

@@ -5,6 +5,7 @@ import { resolveCliPath, killProcess } from './utils'
 
 type ClaudeContentBlock =
   | { type: 'text'; text?: string }
+  | { type: 'thinking'; thinking?: string; text?: string }
   | { type: 'tool_use'; id: string; name: string; input?: Record<string, unknown> }
   | { type: 'tool_result'; tool_use_id?: string; content?: unknown; is_error?: boolean }
   | { type: string; text?: string; content?: unknown; tool_use_id?: string; is_error?: boolean }
@@ -112,6 +113,11 @@ export const ClaudeAdapter: CliAgentAdapter = {
       if (req.model && req.model !== 'default') {
         args.push('--model', req.model)
       }
+      if (req.thinkingEffort && req.thinkingEffort !== 'disabled') {
+        const effortMap: Record<string, string> = { low: 'low', medium: 'medium', high: 'high', max: 'max' }
+        const cliEffort = effortMap[req.thinkingEffort]
+        if (cliEffort) args.push('--effort', cliEffort)
+      }
       if (req.mcpServers && req.mcpServers.length > 0) {
         const mcpConfig = {
           mcpServers: Object.fromEntries(req.mcpServers.map((server) => {
@@ -170,7 +176,14 @@ export const ClaudeAdapter: CliAgentAdapter = {
           // but still fire tool_start events from it.
           if (obj.type === 'assistant' && obj.message) {
             const content = ((obj.message as { content?: ClaudeContentBlock[] }).content ?? []) as ClaudeContentBlock[]
-            for (const block of content) {
+            for (let i = 0; i < content.length; i++) {
+              const block = content[i]
+              if (block.type === 'thinking') {
+                const blockId = `thinking-${i}`
+                const thinkingText = (block as { type: 'thinking'; thinking?: string; text?: string }).thinking ?? block.text ?? ''
+                onEvent?.({ type: 'thinking_chunk', blockId, chunk: thinkingText })
+                onEvent?.({ type: 'thinking_end', blockId })
+              }
               if (block.type === 'text' && block.text) {
                 if (!receivedDeltas) {
                   onChunk(block.text)
@@ -224,15 +237,20 @@ export const ClaudeAdapter: CliAgentAdapter = {
             })
           }
           // Per-token streaming delta format (used when --verbose outputs raw API events)
-          if (
-            obj.type === 'content_block_delta' &&
-            obj.delta &&
-            typeof (obj.delta as Record<string, unknown>).text === 'string'
-          ) {
-            const text = (obj.delta as { text: string }).text
-            receivedDeltas = true
-            onChunk(text)
-            fullText += text
+          if (obj.type === 'content_block_delta' && obj.delta) {
+            const delta = obj.delta as Record<string, unknown>
+            if (delta.type === 'thinking_delta' && typeof delta.thinking === 'string') {
+              const blockId = `thinking-${(obj as Record<string, unknown>).index ?? 0}`
+              onEvent?.({ type: 'thinking_chunk', blockId, chunk: delta.thinking })
+            } else if (typeof delta.text === 'string') {
+              receivedDeltas = true
+              onChunk(delta.text)
+              fullText += delta.text
+            }
+          }
+          if (obj.type === 'content_block_stop') {
+            const blockId = `thinking-${(obj as Record<string, unknown>).index ?? 0}`
+            onEvent?.({ type: 'thinking_end', blockId })
           }
         } catch {
           // non-JSON lines — ignore
