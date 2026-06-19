@@ -21,7 +21,8 @@ import { approveRelaunch, getRecoveryRuns, prepareReload, rollbackHeal, startRel
 import { runProjectGeneratorChatForAndroid, createProjectFromSpec, getProjectGeneratorAgentSummaries } from './project-generator'
 import { runAgentGeneratorChatForAndroid, createAgentFromSpec } from './agent-generator'
 import { runSkillGeneratorChatForAndroid, createSkillFromSpec } from './skill-generator'
-import type { ProjectGeneratorSpec, AgentGeneratorSpec, SkillConfig, SkillGeneratorSpec } from '../shared/types'
+import { runArtifactGeneratorChatForAndroid } from './artifact-generator'
+import type { ProjectGeneratorSpec, AgentGeneratorSpec, SkillConfig, SkillGeneratorSpec, ArtifactGeneratorMessage } from '../shared/types'
 import { storeApiKey, removeApiKey, getAzureEndpoint, setAzureEndpoint } from './provider-secrets'
 import { testProviderKey } from './providers'
 import { detectAllClis } from './cli-detection'
@@ -1330,6 +1331,30 @@ export function registerWsHandlers(): void {
     if (command === 'skill-generator:cancel') {
       const sessionId = typeof data.sessionId === 'string' ? data.sessionId : undefined
       broadcastToMobile({ event: 'skill-generator:cancelled', data: { sessionId } })
+      return
+    }
+
+    if (command === 'artifact-generator:start' || command === 'artifact-generator:message') {
+      const rawMessages = Array.isArray(data.messages) ? data.messages : []
+      const messages: ArtifactGeneratorMessage[] = rawMessages
+        .filter((m): m is Record<string, unknown> => typeof m === 'object' && m !== null)
+        .map((m) => ({
+          role: m.role === 'assistant' ? 'assistant' : 'user',
+          content: typeof m.content === 'string' ? m.content : '',
+        }))
+      const sessionId = typeof data.sessionId === 'string' && data.sessionId.trim()
+        ? data.sessionId.trim()
+        : `android-artifact-${Date.now()}`
+      void runArtifactGeneratorChatForAndroid(messages, sessionId)
+        .catch((err: unknown) => {
+          broadcastToMobile({ event: 'artifact-generator:error', data: { sessionId, message: String(err) } })
+        })
+      return
+    }
+
+    if (command === 'artifact-generator:cancel') {
+      const sessionId = typeof data.sessionId === 'string' ? data.sessionId : undefined
+      broadcastToMobile({ event: 'artifact-generator:cancelled', data: { sessionId } })
       return
     }
 

@@ -473,6 +473,45 @@ export async function runArtifactGeneration(
 }
 
 // ---------------------------------------------------------------------------
+// Android WS bridge
+// ---------------------------------------------------------------------------
+
+export async function runArtifactGeneratorChatForAndroid(
+  messages: ArtifactGeneratorMessage[],
+  sessionId: string,
+): Promise<void> {
+  const { broadcastToMobile } = await import('./ws-server')
+  const fakeWin = {
+    isDestroyed: () => false,
+    webContents: {
+      send: (_channel: string, _data: unknown) => {},
+    },
+  } as unknown as BrowserWindow
+
+  const providerMessages = buildChatMessages(messages)
+  let accumulated = ''
+  const fullText = await runProviderChat(
+    fakeWin,
+    providerMessages,
+    sessionId,
+    (chunk) => {
+      accumulated += chunk
+      broadcastToMobile({ event: 'artifact-generator:token', data: { sessionId, chunk } })
+    },
+  )
+  accumulated = fullText || accumulated
+
+  const spec = extractArtifactSpec(accumulated)
+  broadcastToMobile({
+    event: 'artifact-generator:turn-complete',
+    data: { sessionId, content: accumulated, hasSpec: !!spec },
+  })
+  if (spec) {
+    broadcastToMobile({ event: 'artifact-generator:spec-ready', data: { sessionId, spec } })
+  }
+}
+
+// ---------------------------------------------------------------------------
 // IPC handler registration
 // ---------------------------------------------------------------------------
 
