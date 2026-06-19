@@ -13,8 +13,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CallSplit
+import androidx.compose.material.icons.filled.Compress
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -22,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -34,6 +38,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import io.nexy.android.data.WsRepository
 import io.nexy.android.ui.components.NexyInfoDialog
 import java.io.File
 
@@ -48,6 +53,11 @@ fun ConversationActionsSheet(
 ) {
     val state by vm.state.collectAsState()
     val context = LocalContext.current
+    val conversations by WsRepository.conversations.collectAsState()
+
+    LaunchedEffect(conversationId, conversations) {
+        vm.initPin(conversations, conversationId)
+    }
 
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -81,6 +91,45 @@ fun ConversationActionsSheet(
         vm.clearImport()
         onDismiss()
         onImportNavigate(importedId)
+    }
+
+    state.compressionDraft?.let { draft ->
+        AlertDialog(
+            onDismissRequest = { vm.dismissCompression() },
+            title = { Text("Compress conversation") },
+            text = {
+                Column {
+                    Text(
+                        "Summarise ${draft.summarizedMessageCount} messages, keeping ${draft.retainedMessageCount} recent turns.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (draft.sections.goals.isNotEmpty() || draft.sections.recentContextNotes.isNotEmpty()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "The desktop will generate a structured summary. Tap Compress to apply it.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { vm.saveCompression(conversationId) },
+                    enabled = !state.compressionSaving,
+                ) {
+                    if (state.compressionSaving) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    } else {
+                        Text("Compress")
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { vm.dismissCompression() }) { Text("Cancel") }
+            },
+        )
     }
 
     state.error?.let { error ->
@@ -125,6 +174,22 @@ fun ConversationActionsSheet(
                 sublabel = "Restore a previously exported conversation",
                 loading = state.isImporting,
                 onClick = { importLauncher.launch("application/json") },
+            )
+
+            ActionRow(
+                icon = Icons.Default.PushPin,
+                label = if (state.isPinned) "Unpin conversation" else "Pin conversation",
+                sublabel = if (state.isPinned) "Remove from pinned chats" else "Keep at top of chat list",
+                loading = state.isPinning,
+                onClick = { vm.togglePin(conversationId) },
+            )
+
+            ActionRow(
+                icon = Icons.Default.Compress,
+                label = "Compress conversation",
+                sublabel = "Summarise old messages to free up context",
+                loading = state.compressionDraftLoading,
+                onClick = { vm.prepareCompression(conversationId) },
             )
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(vertical = 4.dp))
