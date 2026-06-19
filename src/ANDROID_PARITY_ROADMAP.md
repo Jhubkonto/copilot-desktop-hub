@@ -95,29 +95,7 @@ This document tracks the work needed to bring the Android companion app to close
 
 ---
 
-## Phase 4 — Feature Generator + Artifacts
-
-**Theme:** Power-user features requiring the most new protocol work. Feature Generator needs a new `feature-generator:*` command family modelled after the existing `project-generator:*` pattern in `ws-handlers.ts`.
-
-### 4a — Feature Generator
-
-Desktop `feature-generator.ts` runs a multi-turn chat → spec → plan → staged diff → commit workflow. No `feature-generator:*` WS commands exist today.
-
-| Feature | Description | Sides | Effort |
-|---------|-------------|-------|--------|
-| Discovery chat | Conversational spec gathering; `feature-generator:start` / `feature-generator:message`; streams chunks back | Android UI + Desktop WS handlers | L |
-| Spec review | Display generated spec for user approval before plan generation | Android UI | M |
-| Plan review | Display implementation plan; `feature-generator:confirm-spec` triggers plan phase | Android UI + Desktop WS handler | M |
-| Diff review | Show staged file diffs one at a time; `feature-generator:list-diffs` / `feature-generator:get-diff` / `feature-generator:apply-diff` | Android UI + Desktop WS handlers | L |
-| Commit | `feature-generator:commit`; reuses self-heal git-ops pattern | Android UI + Desktop WS handler | M |
-
-**All commands are new.** Template: `project-generator:*` block in `src/main/ws-handlers.ts`.
-
-New WsEvent variants: `FeatureGeneratorChunk`, `FeatureGeneratorSpec`, `FeatureGeneratorPlan`, `FeatureGeneratorDiff`, `FeatureGeneratorDone`, `FeatureGeneratorError`
-
-**Dependency:** Phase 2a (projects) should land first — Feature Generator is scoped to a project.
-
-### 4b — Artifacts
+## Phase 4 — Artifacts
 
 Desktop `artifacts.ts` has full CRUD. Start with read-only listing, then add create/export.
 
@@ -195,7 +173,7 @@ For each new reply event:
 | 1 — Conversation Management | 2–3 days |
 | 2 — Projects & Agents CRUD | 5–7 days |
 | 3 — Settings & Providers | 3–4 days |
-| 4 — Feature Generator + Artifacts | 7–10 days |
+| 4 — Artifacts | 2–3 days |
 | 5 — Wiki, Prompts, Advanced | 4–5 days |
 
 **~21–32 days total.** Phases 1–3 can proceed largely in parallel since they touch independent screens. Phase 4 depends on Phase 2a (projects). Phase 5 is independent of Phase 4 and can be interleaved.
