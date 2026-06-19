@@ -43,6 +43,8 @@ export type ProviderDispatchOptions = {
   sendActivity: (a: MobileChatActivity) => void
   onModel?: (model: string) => void
   systemPrompt: string
+  onThinkingChunk?: (blockId: string, chunk: string) => void
+  onThinkingEnd?: (blockId: string) => void
 }
 
 function makeActivityHandler(sendActivity: (a: MobileChatActivity) => void) {
@@ -74,6 +76,8 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
     sendActivity,
     onModel,
     systemPrompt,
+    onThinkingChunk: callerOnThinkingChunk,
+    onThinkingEnd: callerOnThinkingEnd,
   } = opts
 
   const catalog = getCachedCatalog()
@@ -98,8 +102,14 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
   const onActivity = makeActivityHandler(sendActivity)
 
   const thinkingCallbacks = {
-    onThinkingChunk: (blockId: string, chunk: string) => webContents.send('chat:thinking-delta', { blockId, chunk }),
-    onThinkingEnd: (blockId: string) => webContents.send('chat:thinking-end', { blockId }),
+    onThinkingChunk: (blockId: string, chunk: string) => {
+      webContents.send('chat:thinking-delta', { blockId, chunk })
+      callerOnThinkingChunk?.(blockId, chunk)
+    },
+    onThinkingEnd: (blockId: string) => {
+      webContents.send('chat:thinking-end', { blockId })
+      callerOnThinkingEnd?.(blockId)
+    },
   }
 
   if (providerName === 'anthropic') {

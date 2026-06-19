@@ -471,6 +471,10 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
       DROP TABLE IF EXISTS feature_generator_runs;
     `,
   },
+  {
+    version: 36,
+    sql: `ALTER TABLE messages ADD COLUMN thinking_blocks TEXT`,
+  },
 ];
 
 

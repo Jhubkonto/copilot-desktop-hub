@@ -656,6 +656,7 @@ export interface MessageRow {
   tool_calls: string | null
   attachments: string | null
   context_snapshot: string | null
+  thinking_blocks: string | null
 }
 
 export interface ConversationExportAttachment {

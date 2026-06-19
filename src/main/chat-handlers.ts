@@ -520,6 +520,7 @@ export async function dispatchChatSend(
           }
         })()
 
+        const cliThinkingBuffer = new Map<string, { blockId: string; content: string; done: boolean }>()
         const cliAbortController = new AbortController()
         activeCliAbortControllers.set(conversationId, cliAbortController)
         const cliResponseContent = await adapter.send(
@@ -563,8 +564,12 @@ export async function dispatchChatSend(
               })
             } else if (event.type === 'thinking_chunk') {
               window.webContents.send('chat:thinking-delta', { blockId: event.blockId, chunk: event.chunk })
+              const existing = cliThinkingBuffer.get(event.blockId) ?? { blockId: event.blockId, content: '', done: false }
+              cliThinkingBuffer.set(event.blockId, { ...existing, content: existing.content + event.chunk })
             } else if (event.type === 'thinking_end') {
               window.webContents.send('chat:thinking-end', { blockId: event.blockId })
+              const existing = cliThinkingBuffer.get(event.blockId)
+              if (existing) cliThinkingBuffer.set(event.blockId, { ...existing, done: true })
             }
           },
           cliAbortController.signal,
@@ -573,9 +578,13 @@ export async function dispatchChatSend(
 
         persistCompletedCliToolCalls()
 
+        const cliThinkingJson = cliThinkingBuffer.size > 0
+          ? JSON.stringify(Array.from(cliThinkingBuffer.values()))
+          : null
+
         const assistantMsgId = randomUUID()
         db.prepare(
-          'INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          'INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model, thinking_blocks) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
         ).run(
           assistantMsgId,
           conversationId,
@@ -584,6 +593,7 @@ export async function dispatchChatSend(
           null,
           Date.now(),
           (cliModelForRequest || null) as string | null,
+          cliThinkingJson,
         )
 
         sendStreamEnd()
@@ -723,6 +733,8 @@ export async function dispatchChatSend(
     }
   }
 
+  const byokThinkingBuffer = new Map<string, { blockId: string; content: string; done: boolean }>()
+
   let responseContent: string
 
   try {
@@ -750,6 +762,14 @@ export async function dispatchChatSend(
       sendActivity,
       onModel: handleStreamModel,
       systemPrompt,
+      onThinkingChunk: (blockId, chunk) => {
+        const existing = byokThinkingBuffer.get(blockId) ?? { blockId, content: '', done: false }
+        byokThinkingBuffer.set(blockId, { ...existing, content: existing.content + chunk })
+      },
+      onThinkingEnd: (blockId) => {
+        const existing = byokThinkingBuffer.get(blockId)
+        if (existing) byokThinkingBuffer.set(blockId, { ...existing, done: true })
+      },
     })
 
     sendStreamEnd()
@@ -766,9 +786,13 @@ export async function dispatchChatSend(
     responseContent = message
   }
 
+  const byokThinkingJson = byokThinkingBuffer.size > 0
+    ? JSON.stringify(Array.from(byokThinkingBuffer.values()))
+    : null
+
   const assistantMsgId = randomUUID()
   db.prepare(
-    'INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model, thinking_blocks) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
   ).run(
     assistantMsgId,
     conversationId,
@@ -777,6 +801,7 @@ export async function dispatchChatSend(
     null,
     Date.now(),
     capturedStreamModel ?? selectedModel ?? null,
+    byokThinkingJson,
   )
 
   return { assistantMsgId }
