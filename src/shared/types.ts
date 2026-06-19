@@ -1452,6 +1452,7 @@ export type IpcReturnMap = {
   'artifact:get-version': ArtifactVersion | null
   'artifact:delete': { deleted: boolean }
   'artifact:export': { exportPath: string }
+  'artifact:open-folder': { ok: boolean }
   'artifact-generator:chat': { started: boolean }
   'artifact-generator:generate': { started: boolean }
   'artifact-generator:get-runs': ArtifactGeneratorRun[]
@@ -1460,6 +1461,7 @@ export type IpcReturnMap = {
   'artifact-generator:token': void
   'artifact-generator:spec-ready': void
   'artifact-generator:file-event': void
+  'artifact-generator:done': { hasSpec: boolean }
   // Updater (push-only)
   'updater:download-progress': void
   'updater:error': void
@@ -1740,6 +1742,7 @@ export type IpcChannels =
   | 'artifact:get-version'
   | 'artifact:delete'
   | 'artifact:export'
+  | 'artifact:open-folder'
   | 'artifact-generator:chat'
   | 'artifact-generator:generate'
   | 'artifact-generator:get-runs'
@@ -1748,3 +1751,4 @@ export type IpcChannels =
   | 'artifact-generator:token'
   | 'artifact-generator:spec-ready'
   | 'artifact-generator:file-event'
+  | 'artifact-generator:done'

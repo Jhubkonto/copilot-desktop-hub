@@ -675,12 +675,14 @@ const api = {
     typedInvoke('artifact:delete', id),
   artifactExport: (versionId: string, format: string) =>
     typedInvoke('artifact:export', versionId, format),
+  artifactOpenFolder: (absolutePath: string) =>
+    typedInvoke('artifact:open-folder', absolutePath),
 
   // Artifact generator
-  artifactGeneratorChat: (messages: ArtifactGeneratorMessage[], projectId?: string) =>
-    typedInvoke('artifact-generator:chat', messages, projectId),
-  artifactGeneratorGenerate: (runId: string, spec: ArtifactSpec, projectId?: string) =>
-    typedInvoke('artifact-generator:generate', runId, spec, projectId),
+  artifactGeneratorChat: (messages: ArtifactGeneratorMessage[], projectId?: string, modelOverride?: string) =>
+    typedInvoke('artifact-generator:chat', messages, projectId, modelOverride),
+  artifactGeneratorGenerate: (runId: string, spec: ArtifactSpec, projectId?: string, modelOverride?: string) =>
+    typedInvoke('artifact-generator:generate', runId, spec, projectId, modelOverride),
   artifactGeneratorGetRuns: () =>
     typedInvoke('artifact-generator:get-runs'),
   artifactGeneratorGetStorageRoot: () =>
@@ -697,10 +699,15 @@ const api = {
     typedOn('artifact-generator:spec-ready', handler)
     return () => typedOff('artifact-generator:spec-ready', handler)
   },
-  onArtifactGeneratorFileEvent: (callback: (event: { file: string; status: string }) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, e: { file: string; status: string }) => callback(e)
+  onArtifactGeneratorFileEvent: (callback: (event: { file: string; absolutePath?: string; status: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, e: { file: string; absolutePath?: string; status: string }) => callback(e)
     typedOn('artifact-generator:file-event', handler)
     return () => typedOff('artifact-generator:file-event', handler)
+  },
+  onArtifactGeneratorDone: (callback: (result: { hasSpec: boolean }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, result: { hasSpec: boolean }) => callback(result)
+    typedOn('artifact-generator:done', handler)
+    return () => typedOff('artifact-generator:done', handler)
   },
 }
 
