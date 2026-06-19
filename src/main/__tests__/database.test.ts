@@ -48,7 +48,7 @@ describe('database migrations', () => {
     initializeBaseSchema(db)
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(36)
+    expect(db.pragma('user_version', { simple: true })).toBe(37)
     expect(getColumnNames(db, 'projects')).toEqual(
       expect.arrayContaining(['default_model', 'config_json'])
     )
@@ -80,6 +80,12 @@ describe('database migrations', () => {
     expect(getColumnNames(db, 'self_heal_recovery_runs')).toEqual(
       expect.arrayContaining(['report_id', 'status', 'target_commit_sha', 'backup_manifest_json', 'pre_reload_state_json'])
     )
+    expect(getColumnNames(db, 'skills')).toEqual(
+      expect.arrayContaining(['id', 'config_json', 'created_at', 'updated_at'])
+    )
+    expect(getColumnNames(db, 'agent_skills')).toEqual(
+      expect.arrayContaining(['agent_id', 'skill_id', 'sort_order', 'attached_at'])
+    )
   })
 
   it('allows persisted tool call messages on a fresh DB', () => {
@@ -101,7 +107,7 @@ describe('database migrations', () => {
       runMigrations(db)
       runMigrations(db)
     }).not.toThrow()
-    expect(db.pragma('user_version', { simple: true })).toBe(36)
+    expect(db.pragma('user_version', { simple: true })).toBe(37)
   })
 
   it('only runs pending migrations for a partial upgrade', () => {
@@ -155,7 +161,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(36)
+    expect(db.pragma('user_version', { simple: true })).toBe(37)
     expect(getColumnNames(db, 'messages')).toEqual(
       expect.arrayContaining(['is_edited', 'previous_content', 'context_snapshot'])
     )
@@ -177,6 +183,9 @@ describe('database migrations', () => {
     )
     expect(getColumnNames(db, 'self_heal_recovery_runs')).toEqual(
       expect.arrayContaining(['report_id', 'status', 'backup_manifest_json'])
+    )
+    expect(getColumnNames(db, 'agent_skills')).toEqual(
+      expect.arrayContaining(['agent_id', 'skill_id', 'sort_order'])
     )
   })
 
@@ -215,7 +224,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(36)
+    expect(db.pragma('user_version', { simple: true })).toBe(37)
     expect(() => insertMessageWithRole(db, 'tool-call')).not.toThrow()
     expect(
       db.prepare("SELECT COUNT(*) AS count FROM messages WHERE role = ?").get('assistant')

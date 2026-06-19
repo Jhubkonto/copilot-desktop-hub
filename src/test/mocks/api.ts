@@ -280,6 +280,20 @@ export function createMockApi() {
     exportAgent: vi.fn().mockResolvedValue(true),
     importAgent: vi.fn().mockResolvedValue(null),
 
+    // Skills
+    listSkills: vi.fn().mockResolvedValue([]),
+    getSkill: vi.fn().mockResolvedValue(null),
+    createSkill: vi.fn().mockResolvedValue({ id: 'skill-1' }),
+    updateSkill: vi.fn().mockResolvedValue(true),
+    deleteSkill: vi.fn().mockResolvedValue(true),
+    duplicateSkill: vi.fn().mockResolvedValue({ id: 'skill-2' }),
+    exportSkill: vi.fn().mockResolvedValue(true),
+    importSkill: vi.fn().mockResolvedValue(null),
+    getSkillAgentLinks: vi.fn().mockResolvedValue([]),
+    attachSkillToAgent: vi.fn().mockResolvedValue(true),
+    reorderSkillsForAgent: vi.fn().mockResolvedValue(true),
+    getSkillAgentUsage: vi.fn().mockResolvedValue([]),
+
     // Knowledge files
     listKnowledgeFiles: vi.fn().mockResolvedValue([]),
     addKnowledgeFile: vi.fn().mockResolvedValue({
@@ -392,6 +406,14 @@ export function createMockApi() {
 
     // System events
     onNewChat: vi.fn().mockReturnValue(() => {}),
+
+    // Skill generator
+    skillGeneratorChat: vi.fn().mockResolvedValue({ started: true }),
+    onSkillGeneratorToken: vi.fn().mockReturnValue(() => {}),
+    onSkillGeneratorSpecReady: vi.fn().mockReturnValue(() => {}),
+    onSkillGeneratorDone: vi.fn().mockReturnValue(() => {}),
+    skillGeneratorGetModel: vi.fn().mockResolvedValue('gpt-5.5'),
+    skillGeneratorSetModel: vi.fn().mockResolvedValue(undefined),
 
     // Projects
     listProjects: vi.fn().mockResolvedValue([]),

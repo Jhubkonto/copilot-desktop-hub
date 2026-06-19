@@ -189,6 +189,29 @@ describe('AgentPanel — Skills tab', () => {
     )
   })
 
+  it('ap-skills-2b: enabling a disabled tool restores ask approval', async () => {
+    setupEditMode({
+      ...SAMPLE_AGENT,
+      tools: {
+        ...SAMPLE_AGENT.tools,
+        fileEdit: { enabled: false, approval: 'disabled', instructions: '' },
+      },
+    })
+    render(<AgentPanel width={440} onResize={() => {}} />)
+
+    await user.click(screen.getByText('Skills'))
+    await user.click(screen.getByRole('button', { name: /toggle file edit/i }))
+    await user.click(screen.getByText('Save'))
+
+    expect(mockStore.saveAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tools: expect.objectContaining({
+          fileEdit: expect.objectContaining({ enabled: true, approval: 'always-ask' })
+        })
+      })
+    )
+  })
+
   it('ap-skills-3: Approval dropdown renders Auto/Always ask/Disabled options', async () => {
     setupEditMode()
     render(<AgentPanel width={440} onResize={() => {}} />)

@@ -92,6 +92,7 @@ import { retrieveAuthMode } from '../auth'
 import { getAgentConfig } from '../agents'
 import { getAvailableMcpTools, getMcpServerConfigsForCli } from '../mcp'
 import { getApiKey } from '../providers'
+import { requestApproval } from '../tools'
 
 describe('chat handlers', () => {
   beforeEach(() => {
@@ -100,6 +101,16 @@ describe('chat handlers', () => {
     state.send.mockClear()
     state.broadcastToMobile.mockClear()
     state.abortActiveStream.mockClear()
+    vi.mocked(requestApproval).mockReset()
+    vi.mocked(getAdapter).mockReturnValue(undefined)
+    vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(false)
+    vi.mocked(CodexAdapter.isAvailable).mockReturnValue(false)
+    vi.mocked(retrieveAuthMode).mockReturnValue('byok')
+    vi.mocked(getAgentConfig).mockReturnValue(null)
+    vi.mocked(getAvailableMcpTools).mockReturnValue([])
+    vi.mocked(getMcpServerConfigsForCli).mockReturnValue([])
+    vi.mocked(getApiKey).mockReturnValue('test-key')
+    vi.mocked(requestApproval).mockResolvedValue(false)
     registerChatHandlers()
   })
 
@@ -215,6 +226,46 @@ describe('chat handlers', () => {
       args: ['-y', '@playwright/mcp'],
     }])
     expect(capturedReqs[0].allowedTools).toEqual(['mcp__playwright_chromium__browser_navigate'])
+  })
+
+  it('asks once and passes built-in file edit tools to Claude CLI', async () => {
+    const capturedReqs: Array<{ allowedTools?: string[] }> = []
+    const mockAdapter = {
+      isAvailable: () => true,
+      send: vi.fn(async (_win: unknown, req: { allowedTools?: string[] }) => {
+        capturedReqs.push({ allowedTools: req.allowedTools })
+        return 'cli response'
+      }),
+    }
+    vi.mocked(getAgentConfig).mockReturnValue({
+      id: 'agent-file',
+      name: 'File Agent',
+      systemPrompt: 'Draw with SVG files.',
+      mcpServers: [],
+      agenticMode: false,
+      tools: {
+        fileEdit: { enabled: true, approval: 'always-ask', instructions: '' },
+        terminal: { enabled: false, approval: 'always-ask', instructions: '' },
+        webFetch: { enabled: false, approval: 'always-ask', instructions: '' },
+      },
+    } as never)
+    vi.mocked(getAdapter).mockReturnValue(mockAdapter as never)
+    vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(true)
+    vi.mocked(retrieveAuthMode).mockReturnValue('none')
+    vi.mocked(getApiKey).mockReturnValue(null)
+    vi.mocked(requestApproval).mockResolvedValue(true)
+
+    const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<unknown>
+    await handler({ sender: {} }, 'conv-file', 'draw crossbones', { agentId: 'agent-file' })
+
+    expect(requestApproval).toHaveBeenCalledWith(
+      expect.anything(),
+      'claude-cli:fileEdit',
+      {},
+      'Allow Claude CLI to read and edit files for this message?',
+      { noRemember: true },
+    )
+    expect(capturedReqs[0].allowedTools).toEqual(['Read', 'Write', 'Edit', 'MultiEdit'])
   })
 
   it('injects assigned MCP servers when falling back to Codex CLI for MCP agents', async () => {

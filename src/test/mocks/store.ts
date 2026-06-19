@@ -38,7 +38,14 @@ export function createMockAppStore(overrides: Record<string, unknown> = {}) {
     showOnboarding: false,
     updateAvailable: null,
     updateDownloaded: false,
-    activeSectionPane: null as 'projects' | 'agents' | 'chats' | null,
+    activeSectionPane: null as 'projects' | 'agents' | 'chats' | 'skills' | null,
+
+    // Skills
+    skills: [],
+    skillsLoading: false,
+    editingSkillId: null,
+    showSkillPanel: false,
+    showSkillGenerator: false,
 
     // Projects
     projects: [],
@@ -79,6 +86,16 @@ export function createMockAppStore(overrides: Record<string, unknown> = {}) {
     duplicateAgent: vi.fn(),
     exportAgent: vi.fn(),
     importAgent: vi.fn(),
+    loadSkills: vi.fn().mockResolvedValue(undefined),
+    openCreateSkill: vi.fn(),
+    openEditSkill: vi.fn(),
+    closeSkillPanel: vi.fn(),
+    setShowSkillGenerator: vi.fn(),
+    saveSkill: vi.fn(),
+    deleteSkill: vi.fn(),
+    duplicateSkill: vi.fn(),
+    exportSkill: vi.fn(),
+    importSkill: vi.fn(),
     setTheme: vi.fn(),
     toggleTheme: vi.fn(),
     toggleSidebar: vi.fn(),

@@ -96,6 +96,37 @@ describe("SectionPane", () => {
     expect(screen.getByText(/no agents configured/i)).toBeInTheDocument();
   });
 
+  it("keeps a stable hook order when agents finish loading", () => {
+    mockStore.agentsLoading = true;
+    const { rerender, container } = render(<SectionPane section="agents" />);
+    expect(container.querySelector(".animate-pulse")).toBeTruthy();
+
+    mockStore.agentsLoading = false;
+    (mockStore as { agents: unknown[] }).agents = [
+      {
+        id: "agent-loaded",
+        name: "Loaded Agent",
+        icon: "🤖",
+        systemPrompt: "",
+        temperature: 0.7,
+        maxTokens: 4096,
+        contextDirectories: [],
+        contextFiles: [],
+        mcpServers: [],
+        agenticMode: false,
+        tools: {
+          fileEdit: { enabled: false, approval: "always-ask", instructions: "" },
+          terminal: { enabled: false, approval: "always-ask", instructions: "" },
+          webFetch: { enabled: false, approval: "always-ask", instructions: "" },
+        },
+        responseFormat: "default",
+      },
+    ];
+
+    expect(() => rerender(<SectionPane section="agents" />)).not.toThrow();
+    expect(screen.getByText("Loaded Agent")).toBeInTheDocument();
+  });
+
   it('shows "No conversations yet" message when conversations list is empty', () => {
     render(<SectionPane section="chats" />);
     expect(screen.getByText(/no conversations yet/i)).toBeInTheDocument();
