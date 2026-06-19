@@ -2,7 +2,7 @@ import { BrowserWindow } from 'electron'
 import { randomUUID } from 'crypto'
 import { safeHandle } from './safe-handle'
 import { getDatabase } from './database'
-import { abortActiveStream, PROVIDERS, isProviderConfigured } from './providers'
+import { abortActiveStream, PROVIDERS, getOpenRouterModels, isProviderConfigured } from './providers'
 import { dispatchChatSend } from './chat-handlers'
 import { getCliModels } from './cli-detection'
 import { getCachedCatalog } from './model-catalog'
@@ -20,14 +20,26 @@ import { commitSelfHealFix, prepareSelfHealCommit, pushSelfHealFix } from './sel
 import { approveRelaunch, getRecoveryRuns, prepareReload, rollbackHeal, startReload } from './self-heal/recovery'
 import { runProjectGeneratorChatForAndroid, createProjectFromSpec, getProjectGeneratorAgentSummaries } from './project-generator'
 import { runAgentGeneratorChatForAndroid, createAgentFromSpec } from './agent-generator'
-import type { ProjectGeneratorSpec, AgentGeneratorSpec } from '../shared/types'
+import type { ProjectGeneratorSpec, AgentGeneratorSpec, SkillConfig } from '../shared/types'
 import { storeApiKey, removeApiKey } from './provider-secrets'
 import { detectAllClis } from './cli-detection'
 import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
 import { insertWikiEntry } from './wiki-handlers'
 import { insertPromptLibraryEntry } from './prompt-handlers'
-import { buildConversationExportPack, forkConversation, importConversationExport } from './conversation-handlers'
+import { buildConversationExportPack, forkConversation, importConversationExport, getConversationCompressionPreview, prepareConversationCompressionSummary, saveConversationCompressionSummary } from './conversation-handlers'
+import {
+  createSkillConfig,
+  deleteSkillConfig,
+  duplicateSkillConfig,
+  getSkillAgentLinks,
+  getSkillAgentUsage,
+  getSkillConfig,
+  listSkillConfigs,
+  reorderSkillsForAgent,
+  setSkillAgentAttachment,
+  updateSkillConfig,
+} from './skills'
 import { readFileSync, existsSync } from 'fs'
 import { parseConversationExport } from './conversation-serialization'
 import {
@@ -282,6 +294,8 @@ export function registerWsHandlers(): void {
 
       const catalogById = new Map(getCachedCatalog().map((model) => [model.id, model]))
       const configuredProviders = PROVIDERS.filter((provider) => isProviderConfigured(provider.name))
+      const getProviderModelIds = (provider: (typeof PROVIDERS)[number]) =>
+        provider.name === 'openrouter' ? getOpenRouterModels() : provider.models
 
       if (backend) {
         // Explicit backend requested — return just that source (existing per-chat model picker behaviour)
@@ -304,7 +318,7 @@ export function registerWsHandlers(): void {
             : resolvedBackend === 'claude-cli'
               ? getCliModels('claude-cli').map((model) => ({ ...model, vendor: 'Claude CLI' }))
               : configuredProviders
-                  .flatMap((provider) => provider.models.map((model) => ({
+                  .flatMap((provider) => getProviderModelIds(provider).map((model) => ({
                     id: provider.name === 'azure' ? `azure:${model}` : model,
                     label: catalogById.get(model)?.name ?? (provider.name === 'azure' ? `Azure ${model}` : model),
                     vendor: provider.label,
@@ -329,7 +343,7 @@ export function registerWsHandlers(): void {
         }
       }
       for (const provider of configuredProviders) {
-        for (const model of provider.models) {
+        for (const model of getProviderModelIds(provider)) {
           const id = provider.name === 'azure' ? `azure:${model}` : model
           if (!byId.has(id)) {
             byId.set(id, {
@@ -779,6 +793,95 @@ export function registerWsHandlers(): void {
       return
     }
 
+    if (command === 'skill:list') {
+      reply({ event: 'skill:list', data: { skills: listSkillConfigs() } })
+      return
+    }
+
+    if (command === 'skill:get') {
+      const id = typeof data.id === 'string' ? data.id : ''
+      if (!id) return
+      reply({ event: 'skill:detail', data: { skill: getSkillConfig(id) } })
+      return
+    }
+
+    if (command === 'skill:create') {
+      const skill = createSkillConfig(data as Partial<SkillConfig>)
+      broadcastToMobile({ event: 'skill:created', data: { skill } })
+      return
+    }
+
+    if (command === 'skill:update') {
+      const id = typeof data.id === 'string' ? data.id : ''
+      if (!id) return
+      const skill = updateSkillConfig(id, data as Partial<SkillConfig>)
+      broadcastToMobile({ event: 'skill:updated', data: { skill } })
+      return
+    }
+
+    if (command === 'skill:delete') {
+      const id = typeof data.id === 'string' ? data.id : ''
+      if (!id) return
+      deleteSkillConfig(id)
+      broadcastToMobile({ event: 'skill:deleted', data: { id } })
+      return
+    }
+
+    if (command === 'skill:duplicate') {
+      const id = typeof data.id === 'string' ? data.id : ''
+      if (!id) return
+      const skill = duplicateSkillConfig(id)
+      reply({ event: 'skill:duplicated', data: { skill } })
+      if (skill) broadcastToMobile({ event: 'skill:created', data: { skill } })
+      return
+    }
+
+    if (command === 'skill:export') {
+      const id = typeof data.id === 'string' ? data.id : ''
+      if (!id) return
+      const skill = getSkillConfig(id)
+      reply({ event: 'skill:exported', data: { skill } })
+      return
+    }
+
+    if (command === 'skill:import') {
+      const rawSkill = (typeof data.skill === 'object' && data.skill !== null ? data.skill : data) as Partial<SkillConfig>
+      const skill = createSkillConfig(rawSkill)
+      broadcastToMobile({ event: 'skill:created', data: { skill } })
+      return
+    }
+
+    if (command === 'skill:get-agent-links') {
+      const agentId = typeof data.agentId === 'string' ? data.agentId : ''
+      if (!agentId) return
+      reply({ event: 'skill:agent-links', data: { agentId, links: getSkillAgentLinks(agentId) } })
+      return
+    }
+
+    if (command === 'skill:attach-to-agent') {
+      const agentId = typeof data.agentId === 'string' ? data.agentId : ''
+      const skillId = typeof data.skillId === 'string' ? data.skillId : ''
+      const attach = data.attach !== false
+      if (!agentId || !skillId) return
+      setSkillAgentAttachment(agentId, skillId, attach)
+      broadcastToMobile({ event: 'skill:agent-links', data: { agentId, links: getSkillAgentLinks(agentId) } })
+      return
+    }
+
+    if (command === 'skill:reorder-for-agent') {
+      const agentId = typeof data.agentId === 'string' ? data.agentId : ''
+      const skillIds = Array.isArray(data.skillIds) ? (data.skillIds as unknown[]).filter((id): id is string => typeof id === 'string') : []
+      if (!agentId) return
+      reorderSkillsForAgent(agentId, skillIds)
+      broadcastToMobile({ event: 'skill:agent-links', data: { agentId, links: getSkillAgentLinks(agentId) } })
+      return
+    }
+
+    if (command === 'skill:get-agent-usage') {
+      reply({ event: 'skill:agent-usage', data: { usage: getSkillAgentUsage() } })
+      return
+    }
+
     if (command === 'artifact:list') {
       const projectId = typeof data.projectId === 'string' ? data.projectId : null
       const rows = projectId
@@ -1018,6 +1121,116 @@ export function registerWsHandlers(): void {
         broadcastToMobile({ event: 'conversation:imported', data: { conversationId: result.conversation.id, title: result.conversation.title, messageCount: result.message_count } })
       } catch (err) {
         reply({ event: 'conversation:import-error', data: { message: String(err) } })
+      }
+      return
+    }
+
+    if (command === 'conversation:set-pinned') {
+      const id = typeof data.id === 'string' ? data.id : ''
+      const pinned = Boolean(data.pinned)
+      if (!id) return
+      db.prepare('UPDATE conversations SET pinned = ?, updated_at = ? WHERE id = ?').run(pinned ? 1 : 0, Date.now(), id)
+      broadcastToMobile({ event: 'conversation:pinned', data: { id, pinned } })
+      return
+    }
+
+    if (command === 'conversation:update-context') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+      if (!conversationId) return
+      const assignments: string[] = []
+      const values: (string | number | null)[] = []
+      if (Object.prototype.hasOwnProperty.call(data, 'projectId')) {
+        assignments.push('project_id = ?')
+        values.push(typeof data.projectId === 'string' ? data.projectId : null)
+      }
+      if (Object.prototype.hasOwnProperty.call(data, 'agentId')) {
+        assignments.push('agent_id = ?')
+        values.push(typeof data.agentId === 'string' ? data.agentId : null)
+      }
+      if (assignments.length === 0) return
+      assignments.push('updated_at = ?')
+      values.push(Date.now())
+      values.push(conversationId)
+      db.prepare(`UPDATE conversations SET ${assignments.join(', ')} WHERE id = ?`).run(...values)
+      broadcastToMobile({ event: 'conversation:context-updated', data: { conversationId, projectId: data.projectId ?? null, agentId: data.agentId ?? null } })
+      return
+    }
+
+    if (command === 'conversation:insert-message') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+      const role = typeof data.role === 'string' ? data.role : 'user'
+      const content = typeof data.content === 'string' ? data.content : ''
+      if (!conversationId || !content) return
+      const id = randomUUID()
+      const now = Date.now()
+      db.prepare('INSERT INTO messages (id, conversation_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)').run(id, conversationId, role, content, now)
+      db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(now, conversationId)
+      const row = db.prepare('SELECT * FROM messages WHERE id = ?').get(id) as Record<string, unknown>
+      reply({ event: 'message:inserted', data: { conversationId, message: row } })
+      return
+    }
+
+    if (command === 'message:delete-after') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+      const timestamp = typeof data.timestamp === 'number' ? data.timestamp : 0
+      if (!conversationId || !timestamp) return
+      db.prepare('DELETE FROM messages WHERE conversation_id = ? AND timestamp >= ?').run(conversationId, timestamp)
+      reply({ event: 'message:deleted-after', data: { conversationId, timestamp } })
+      return
+    }
+
+    if (command === 'conversation:compression-preview') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+      if (!conversationId) return
+      try {
+        const preview = getConversationCompressionPreview(db, conversationId)
+        reply({ event: 'conversation:compression-preview', data: preview })
+      } catch (err) {
+        reply({ event: 'conversation:compression-error', data: { message: String(err) } })
+      }
+      return
+    }
+
+    if (command === 'conversation:prepare-compression-summary') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+      if (!conversationId) return
+      try {
+        const draft = prepareConversationCompressionSummary(db, conversationId)
+        reply({ event: 'conversation:compression-draft', data: draft })
+      } catch (err) {
+        reply({ event: 'conversation:compression-error', data: { message: String(err) } })
+      }
+      return
+    }
+
+    if (command === 'conversation:save-compression-summary') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+      if (!conversationId) return
+      try {
+        const sections = (typeof data.sections === 'object' && data.sections !== null) ? data.sections as Record<string, string[]> : {}
+        const input = {
+          conversationId,
+          sections: {
+            goals: Array.isArray(sections.goals) ? sections.goals as string[] : [],
+            decisions: Array.isArray(sections.decisions) ? sections.decisions as string[] : [],
+            constraints: Array.isArray(sections.constraints) ? sections.constraints as string[] : [],
+            filesTouched: Array.isArray(sections.filesTouched) ? sections.filesTouched as string[] : [],
+            commandsRun: Array.isArray(sections.commandsRun) ? sections.commandsRun as string[] : [],
+            openQuestions: Array.isArray(sections.openQuestions) ? sections.openQuestions as string[] : [],
+            nextActions: Array.isArray(sections.nextActions) ? sections.nextActions as string[] : [],
+            recentContextNotes: Array.isArray(sections.recentContextNotes) ? sections.recentContextNotes as string[] : [],
+          },
+          summarizedMessageCount: typeof data.summarizedMessageCount === 'number' ? data.summarizedMessageCount : 0,
+          retainedMessageCount: typeof data.retainedMessageCount === 'number' ? data.retainedMessageCount : 0,
+          omittedMessageCount: typeof data.omittedMessageCount === 'number' ? data.omittedMessageCount : 0,
+          estimatedTokensBefore: typeof data.estimatedTokensBefore === 'number' ? data.estimatedTokensBefore : 0,
+          targetBudget: typeof data.targetBudget === 'number' ? data.targetBudget : 0,
+          strategy: typeof data.strategy === 'string' ? data.strategy : 'manual-structured-summary-plus-recent-turns',
+        }
+        const preview = saveConversationCompressionSummary(db, input)
+        reply({ event: 'conversation:compression-saved', data: preview })
+      } catch (err) {
+        reply({ event: 'conversation:compression-error', data: { message: String(err) } })
       }
       return
     }
