@@ -13,9 +13,11 @@ import kotlinx.coroutines.launch
 data class ConversationActionsState(
     val isExporting: Boolean = false,
     val isForkInProgress: Boolean = false,
+    val isImporting: Boolean = false,
     val exportedContent: ExportedConversation? = null,
     val forkedConversationId: String? = null,
     val forkedTitle: String? = null,
+    val importedConversationId: String? = null,
     val error: String? = null,
 )
 
@@ -60,6 +62,15 @@ class ConversationActionsViewModel(app: Application) : AndroidViewModel(app) {
                     is WsEvent.ConversationForkError -> {
                         _state.value = _state.value.copy(isForkInProgress = false, error = event.message)
                     }
+                    is WsEvent.ConversationImported -> {
+                        _state.value = _state.value.copy(
+                            isImporting = false,
+                            importedConversationId = event.conversationId,
+                        )
+                    }
+                    is WsEvent.ConversationImportError -> {
+                        _state.value = _state.value.copy(isImporting = false, error = event.message)
+                    }
                     else -> {}
                 }
             }
@@ -81,7 +92,13 @@ class ConversationActionsViewModel(app: Application) : AndroidViewModel(app) {
         WsRepository.forkConversation(conversationId)
     }
 
+    fun importJson(json: String) {
+        _state.value = _state.value.copy(isImporting = true)
+        WsRepository.importConversationJson(json)
+    }
+
     fun clearExport() { _state.value = _state.value.copy(exportedContent = null) }
     fun clearFork() { _state.value = _state.value.copy(forkedConversationId = null, forkedTitle = null) }
+    fun clearImport() { _state.value = _state.value.copy(importedConversationId = null) }
     fun dismissError() { _state.value = _state.value.copy(error = null) }
 }

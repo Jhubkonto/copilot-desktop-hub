@@ -370,6 +370,9 @@ fun ChatScreen(
             onForkNavigate = { forkedId ->
                 onOpenFork?.invoke(forkedId)
             },
+            onImportNavigate = { importedId ->
+                onOpenFork?.invoke(importedId)
+            },
         )
     }
 

@@ -1,6 +1,8 @@
 package io.nexy.android.ui.chat
 
 import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CallSplit
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -40,10 +43,17 @@ fun ConversationActionsSheet(
     conversationId: String,
     onDismiss: () -> Unit,
     onForkNavigate: (String) -> Unit,
+    onImportNavigate: (String) -> Unit,
     vm: ConversationActionsViewModel = viewModel(),
 ) {
     val state by vm.state.collectAsState()
     val context = LocalContext.current
+
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val json = context.contentResolver.openInputStream(uri)?.use { it.reader().readText() } ?: return@rememberLauncherForActivityResult
+        vm.importJson(json)
+    }
 
     LaunchedEffect(state.exportedContent) {
         val exported = state.exportedContent ?: return@LaunchedEffect
@@ -64,6 +74,13 @@ fun ConversationActionsSheet(
         vm.clearFork()
         onDismiss()
         onForkNavigate(forkedId)
+    }
+
+    LaunchedEffect(state.importedConversationId) {
+        val importedId = state.importedConversationId ?: return@LaunchedEffect
+        vm.clearImport()
+        onDismiss()
+        onImportNavigate(importedId)
     }
 
     state.error?.let { error ->
@@ -100,6 +117,14 @@ fun ConversationActionsSheet(
                 sublabel = "Human-readable transcript",
                 loading = state.isExporting,
                 onClick = { vm.exportMarkdown(conversationId) },
+            )
+
+            ActionRow(
+                icon = Icons.Default.Upload,
+                label = "Import JSON",
+                sublabel = "Restore a previously exported conversation",
+                loading = state.isImporting,
+                onClick = { importLauncher.launch("application/json") },
             )
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(vertical = 4.dp))
