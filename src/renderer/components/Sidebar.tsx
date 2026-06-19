@@ -164,6 +164,13 @@ export function Sidebar() {
           active={activeSectionPane === 'agents'}
           ariaLabel="Open agents"
         />
+        <NavButton
+          icon={<Wrench className="w-3.5 h-3.5" />}
+          label="Skills"
+          onClick={() => openSectionPane('skills')}
+          active={activeSectionPane === 'skills'}
+          ariaLabel="Open skills"
+        />
         <hr className="border-gray-200 dark:border-gray-700/80" />
         <NavButton
           icon={<Package className="w-3.5 h-3.5" />}

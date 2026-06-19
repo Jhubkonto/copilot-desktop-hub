@@ -41,6 +41,8 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
   const onDelete = useAppStore((s) => s.deleteAgent)
   const onDuplicate = useAppStore((s) => s.duplicateAgent)
   const onExport = useAppStore((s) => s.exportAgent)
+  const skills = useAppStore((s) => s.skills)
+  const loadSkills = useAppStore((s) => s.loadSkills)
   const setShowMcpPanel = useAppStore((s) => s.setShowMcpPanel)
   const setShowSettings = useAppStore((s) => s.setShowSettings)
   const setSettingsInitialTab = useAppStore((s) => s.setSettingsInitialTab)
@@ -62,6 +64,7 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
   const [mcpServerTrust, setMcpServerTrust] = useState<{ server_id: string; trust: string }[]>([])
   const [globalMcpServers, setGlobalMcpServers] = useState<McpServerInfo[]>([])
   const [expandedCustomServers, setExpandedCustomServers] = useState<Set<string>>(new Set())
+  const [attachedSkillIds, setAttachedSkillIds] = useState<string[]>([])
 
   // Settings tab local state
   const [newGlob, setNewGlob] = useState('')
@@ -79,13 +82,19 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
       setJsonError('')
     }
     if (tab === 'skills' && isEditing) {
+      loadSkills().catch(() => {})
+      window.api.getSkillAgentLinks(config.id).then((links) => setAttachedSkillIds(links.map((link) => link.skill_id)))
       window.api.getMcpToolOverrides(config.id).then((overrides) => setMcpToolOverrides(overrides as McpToolOverride[]))
       window.api.getMcpServerTrust(config.id).then((rows) => setMcpServerTrust(rows as { server_id: string; trust: string }[]))
+    }
+    if (tab === 'skills' && !isEditing) {
+      loadSkills().catch(() => {})
+      setAttachedSkillIds([])
     }
     if (tab === 'knowledge' && isEditing) {
       window.api.listKnowledgeFiles(config.id).then((files) => setKnowledgeFiles(files as KnowledgeFile[]))
     }
-  }, [tab, config, isEditing])
+  }, [tab, config, isEditing, loadSkills])
 
   useEffect(() => {
     if (tab !== 'skills') return
@@ -166,6 +175,35 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
       const filtered = prev.filter((o) => !(o.server_id === serverId && o.tool_name === toolName))
       return [...filtered, { agent_id: config.id, server_id: serverId, tool_name: toolName, ...newOverride } as McpToolOverride]
     })
+  }
+
+  const refreshAttachedSkills = async () => {
+    if (!config.id) return
+    const links = await window.api.getSkillAgentLinks(config.id)
+    setAttachedSkillIds(links.map((link) => link.skill_id))
+  }
+
+  const handleAttachSkill = async (skillId: string) => {
+    if (!config.id) return
+    await window.api.attachSkillToAgent(config.id, skillId, true)
+    await refreshAttachedSkills()
+  }
+
+  const handleDetachSkill = async (skillId: string) => {
+    if (!config.id) return
+    await window.api.attachSkillToAgent(config.id, skillId, false)
+    await refreshAttachedSkills()
+  }
+
+  const handleMoveSkill = async (skillId: string, direction: -1 | 1) => {
+    const currentIndex = attachedSkillIds.indexOf(skillId)
+    const nextIndex = currentIndex + direction
+    if (currentIndex === -1 || nextIndex < 0 || nextIndex >= attachedSkillIds.length) return
+    const next = [...attachedSkillIds]
+    const [moved] = next.splice(currentIndex, 1)
+    next.splice(nextIndex, 0, moved)
+    setAttachedSkillIds(next)
+    await window.api.reorderSkillsForAgent(config.id, next)
   }
 
   // ── Settings tab handlers ─────────────────────────────────────────────────
@@ -346,6 +384,11 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
               agentMcpTools={agentMcpTools}
               mcpToolOverrides={mcpToolOverrides}
               globalMcpServers={globalMcpServers}
+              skills={skills}
+              attachedSkillIds={attachedSkillIds}
+              onAttachSkill={handleAttachSkill}
+              onDetachSkill={handleDetachSkill}
+              onMoveSkill={handleMoveSkill}
               onUpdateField={updateField}
               onToggleServerAssignment={toggleServerAssignment}
               onGetServerTierValue={getServerTierValue}

@@ -28,6 +28,12 @@ const ProjectPanel = lazy(() =>
 const ProjectGeneratorModal = lazy(() =>
   import('./components/ProjectGeneratorModal').then((m) => ({ default: m.ProjectGeneratorModal }))
 )
+const SkillPanel = lazy(() =>
+  import('./components/SkillPanel').then((m) => ({ default: m.SkillPanel }))
+)
+const SkillGeneratorModal = lazy(() =>
+  import('./components/SkillGeneratorModal').then((m) => ({ default: m.SkillGeneratorModal }))
+)
 const SelfHealPanel = lazy(() =>
   import('./components/SelfHealPanel').then((m) => ({ default: m.SelfHealPanel }))
 )
@@ -49,6 +55,9 @@ export default function App() {
   const showNewProjectForm = useAppStore((s) => s.showNewProjectForm)
   const showProjectGenerator = useAppStore((s) => s.showProjectGenerator)
   const setShowProjectGenerator = useAppStore((s) => s.setShowProjectGenerator)
+  const showSkillPanel = useAppStore((s) => s.showSkillPanel)
+  const showSkillGenerator = useAppStore((s) => s.showSkillGenerator)
+  const setShowSkillGenerator = useAppStore((s) => s.setShowSkillGenerator)
   const editingProjectId = useAppStore((s) => s.editingProjectId)
   const pendingDeleteAgent = useAppStore((s) => s.pendingDeleteAgent)
   const confirmDeleteAgent = useAppStore((s) => s.confirmDeleteAgent)
@@ -79,6 +88,33 @@ export default function App() {
     },
     []
   )
+
+  const createCrashSelfHealReport = useCallback(async (draft: { title: string; description: string }) => {
+    let screenshotDataUrl: string | null = null
+    try {
+      const screenshot = await window.api.captureWindowScreenshot()
+      if (screenshot && typeof screenshot === 'object' && 'dataUrl' in screenshot) {
+        screenshotDataUrl = screenshot.dataUrl
+      }
+    } catch {
+      screenshotDataUrl = null
+    }
+
+    const result = await window.api.captureErrorReport({
+      title: draft.title,
+      description: draft.description,
+      includeLog: true,
+      includeScreenshot: screenshotDataUrl !== null,
+      screenshotDataUrl,
+    })
+    return result.reportId
+  }, [])
+
+  const openCrashSelfHealReport = useCallback((reportId: string) => {
+    setPendingSelfHealReportId(reportId)
+    setShowSelfHealPanel(true)
+    addToast(`Bug report captured (${reportId.slice(0, 8)}) - now in Self-Heal`, 'success')
+  }, [addToast, setPendingSelfHealReportId, setShowSelfHealPanel])
 
   // Hydrate store on mount
   useEffect(() => {
@@ -173,7 +209,11 @@ export default function App() {
   }, [])
 
   return (
-    <ErrorBoundary onReportBug={openBugReport}>
+    <ErrorBoundary
+      onReportBug={openBugReport}
+      onCreateSelfHealReport={createCrashSelfHealReport}
+      onOpenSelfHealReport={openCrashSelfHealReport}
+    >
     <div className={`flex flex-col h-full w-full overflow-hidden ${theme === 'dark' ? 'dark' : ''}`} role="application">
       {/* Custom frameless titlebar */}
       <TitleBar />
@@ -225,6 +265,12 @@ export default function App() {
 
         {showProjectGenerator && (
           <ProjectGeneratorModal onClose={() => setShowProjectGenerator(false)} />
+        )}
+
+        {showSkillPanel && <SkillPanel />}
+
+        {showSkillGenerator && (
+          <SkillGeneratorModal onClose={() => setShowSkillGenerator(false)} />
         )}
 
         <McpServerPanel />

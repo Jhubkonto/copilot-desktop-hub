@@ -19,6 +19,7 @@ export interface Project {
 }
 
 import type { AuthMode } from '../../shared/types'
+export type { SkillConfig } from '../../shared/types'
 
 export interface AuthState {
   authenticated: boolean
@@ -70,4 +71,4 @@ export type {
 export { DEFAULT_PROJECT_CONFIG } from '../../shared/types'
 
 export type Theme = 'light' | 'dark'
-export type ActiveSectionPane = 'projects' | 'agents' | 'chats' | null
+export type ActiveSectionPane = 'projects' | 'agents' | 'chats' | 'skills' | null

@@ -17,6 +17,10 @@ import {
   type ProjectSlice
 } from './slices/projectSlice'
 import {
+  createSkillSlice,
+  type SkillSlice
+} from './slices/skillSlice'
+import {
   createUiSlice,
   type UiSlice
 } from './slices/uiSlice'
@@ -33,6 +37,7 @@ export type {
   ProjectOrchestrationConfig,
   ProjectVariable,
   ScopeRule,
+  SkillConfig,
   Theme,
   Toast,
   ToolApprovalRequest
@@ -43,6 +48,7 @@ export type AppState =
   & AuthSlice
   & ConversationSlice
   & ProjectSlice
+  & SkillSlice
   & AgentSlice
   & UiSlice
   & {
@@ -54,6 +60,7 @@ export const useAppStore = create<AppState>()(
     ...createAuthSlice(set, get, store),
     ...createConversationSlice(set, get, store),
     ...createProjectSlice(set, get, store),
+    ...createSkillSlice(set, get, store),
     ...createAgentSlice(set, get, store),
     ...createUiSlice(set, get, store),
 
@@ -90,6 +97,7 @@ export const useAppStore = create<AppState>()(
         get().loadConversations(),
         get().loadAgents(),
         get().loadProjects(),
+        get().loadSkills(),
         get().refreshAvailableModels(),
         window.api
           .listModelCatalog()

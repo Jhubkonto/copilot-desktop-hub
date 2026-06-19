@@ -46,6 +46,11 @@ export function AgentsPane() {
     setAddToProjectAgentId(null)
   }
 
+  const filtered = useMemo(
+    () => deferredQuery ? agents.filter((a) => a.name.toLowerCase().includes(deferredQuery.toLowerCase())) : agents,
+    [agents, deferredQuery]
+  )
+
   if (agentsLoading) {
     return (
       <div className="p-2 space-y-0.5">
@@ -55,11 +60,6 @@ export function AgentsPane() {
       </div>
     )
   }
-
-  const filtered = useMemo(
-    () => deferredQuery ? agents.filter((a) => a.name.toLowerCase().includes(deferredQuery.toLowerCase())) : agents,
-    [agents, deferredQuery]
-  )
 
   return (
     <>
