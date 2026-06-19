@@ -4,6 +4,9 @@ import android.app.Application
 import android.app.NotificationManager
 import io.nexy.android.data.model.Agent
 import io.nexy.android.data.model.AgentFullConfig
+import io.nexy.android.data.model.AgentKnowledgeFile
+import io.nexy.android.data.model.AgentMcpServerTrust
+import io.nexy.android.data.model.AgentMcpToolOverride
 import io.nexy.android.data.model.AndroidUpdateManifest
 import io.nexy.android.data.model.ArtifactSummary
 import io.nexy.android.data.model.CliInstallInfo
@@ -69,6 +72,9 @@ object WsRepository : WsClient {
     val agents: StateFlow<List<Agent>> = _agents
 
     val agentFullConfig = MutableStateFlow<AgentFullConfig?>(null)
+    val agentKnowledgeFiles = MutableStateFlow<List<AgentKnowledgeFile>>(emptyList())
+    val agentMcpToolOverrides = MutableStateFlow<List<AgentMcpToolOverride>>(emptyList())
+    val agentMcpServerTrust = MutableStateFlow<List<AgentMcpServerTrust>>(emptyList())
 
     private val _projects = MutableStateFlow<List<Project>>(emptyList())
     val projects: StateFlow<List<Project>> = _projects
@@ -614,6 +620,35 @@ object WsRepository : WsClient {
     }
     fun forkConversation(conversationId: String) { send("conversation:fork", mapOf("conversationId" to conversationId)) }
     fun importConversationJson(json: String) { send("conversation:import-json", mapOf("json" to json)) }
+
+    fun listKnowledgeFiles(agentId: String) { send("agent:list-knowledge-files", mapOf("agentId" to agentId)) }
+    fun addKnowledgeFile(agentId: String, filePath: String, injectMode: String = "always") {
+        send("agent:add-knowledge-file", mapOf("agentId" to agentId, "filePath" to filePath, "injectMode" to injectMode))
+    }
+    fun removeKnowledgeFile(agentId: String, id: String) {
+        send("agent:remove-knowledge-file", mapOf("agentId" to agentId, "id" to id))
+    }
+    fun readKnowledgeFile(agentId: String, filePath: String) {
+        send("agent:read-knowledge-file", mapOf("agentId" to agentId, "filePath" to filePath))
+    }
+    fun writeKnowledgeFile(agentId: String, filePath: String, content: String) {
+        send("agent:write-knowledge-file", mapOf("agentId" to agentId, "filePath" to filePath, "content" to content))
+    }
+    fun getMcpToolOverrides(agentId: String) { send("agent:get-mcp-tool-overrides", mapOf("agentId" to agentId)) }
+    fun setMcpToolOverride(agentId: String, serverId: String, toolName: String, enabled: Boolean, approval: String, instructions: String) {
+        send("agent:set-mcp-tool-override", mapOf(
+            "agentId" to agentId,
+            "serverId" to serverId,
+            "toolName" to toolName,
+            "enabled" to enabled,
+            "approval" to approval,
+            "instructions" to instructions,
+        ))
+    }
+    fun getMcpServerTrust(agentId: String) { send("agent:get-mcp-server-trust", mapOf("agentId" to agentId)) }
+    fun setMcpServerTrust(agentId: String, serverId: String, trust: String) {
+        send("agent:set-mcp-server-trust", mapOf("agentId" to agentId, "serverId" to serverId, "trust" to trust))
+    }
 
     fun cancelApprovalNotification() {
         app?.getSystemService(NotificationManager::class.java)

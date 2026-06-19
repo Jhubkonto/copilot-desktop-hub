@@ -13,6 +13,7 @@ data class AgentFullConfig(
     val agenticMode: Boolean = false,
     val memory: String = "",
     val tools: AgentTools = AgentTools(),
+    val mcpServers: List<String> = emptyList(),
     val thinkingEffort: String? = null,
     val rootDirectory: String? = null,
     val contextDirectories: List<String> = emptyList(),
@@ -24,7 +25,7 @@ data class AgentFullConfig(
 data class AgentTools(
     val fileEdit: ToolConfig = ToolConfig(enabled = true, approval = "always-ask"),
     val terminal: ToolConfig = ToolConfig(enabled = false, approval = "always-ask"),
-    val webFetch: ToolConfig = ToolConfig(enabled = true, approval = "never-ask"),
+    val webFetch: ToolConfig = ToolConfig(enabled = true, approval = "auto"),
 )
 
 data class ToolConfig(

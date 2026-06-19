@@ -43,7 +43,7 @@ import {
   setSkillAgentAttachment,
   updateSkillConfig,
 } from './skills'
-import { readFileSync, existsSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync } from 'fs'
 import { parseConversationExport } from './conversation-serialization'
 import {
   startWsServer,
@@ -680,7 +680,7 @@ export function registerWsHandlers(): void {
         tools: {
           fileEdit: { enabled: true, approval: 'always-ask' },
           terminal: { enabled: false, approval: 'always-ask' },
-          webFetch: { enabled: true, approval: 'never-ask' },
+          webFetch: { enabled: true, approval: 'auto' },
         },
       }
       db.prepare(
@@ -708,6 +708,7 @@ export function registerWsHandlers(): void {
       if (typeof data.agenticMode === 'boolean') patch.agenticMode = data.agenticMode
       if (typeof data.memory === 'string') patch.memory = data.memory
       if (data.tools && typeof data.tools === 'object') patch.tools = { ...(prev.tools as object), ...(data.tools as object) }
+      if (Array.isArray(data.mcpServers)) patch.mcpServers = data.mcpServers
       if (typeof data.thinkingEffort === 'string') patch.thinkingEffort = data.thinkingEffort || undefined
       if (typeof data.rootDirectory === 'string') patch.rootDirectory = data.rootDirectory || undefined
       if (Array.isArray(data.contextDirectories)) patch.contextDirectories = data.contextDirectories
@@ -799,6 +800,111 @@ export function registerWsHandlers(): void {
         return { id: row.id, name: cfg.name ?? row.id, command: cfg.command ?? '', enabled: row.enabled === 1 }
       })
       reply({ event: 'mcp:list', data: { servers } })
+      return
+    }
+
+    if (command === 'agent:list-knowledge-files') {
+      const agentId = typeof data.agentId === 'string' ? data.agentId : ''
+      if (!agentId) return
+      const files = db.prepare('SELECT * FROM agent_knowledge_files WHERE agent_id = ? ORDER BY sort_order ASC, created_at ASC').all(agentId)
+      reply({ event: 'agent:knowledge-files', data: { agentId, files } })
+      return
+    }
+
+    if (command === 'agent:add-knowledge-file') {
+      const agentId = typeof data.agentId === 'string' ? data.agentId : ''
+      const filePath = typeof data.filePath === 'string' ? data.filePath : ''
+      const injectMode = typeof data.injectMode === 'string' ? data.injectMode : 'always'
+      if (!agentId || !filePath) return
+      const id = randomUUID()
+      const now = Date.now()
+      const maxRow = db.prepare('SELECT MAX(sort_order) as m FROM agent_knowledge_files WHERE agent_id = ?').get(agentId) as { m: number | null }
+      db.prepare('INSERT INTO agent_knowledge_files (id, agent_id, file_path, inject_mode, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, agentId, filePath, injectMode, (maxRow.m ?? -1) + 1, now, now)
+      const file = db.prepare('SELECT * FROM agent_knowledge_files WHERE id = ?').get(id)
+      reply({ event: 'agent:knowledge-file-added', data: { agentId, file } })
+      return
+    }
+
+    if (command === 'agent:remove-knowledge-file') {
+      const agentId = typeof data.agentId === 'string' ? data.agentId : ''
+      const id = typeof data.id === 'string' ? data.id : ''
+      if (!agentId || !id) return
+      db.prepare('DELETE FROM agent_knowledge_files WHERE id = ? AND agent_id = ?').run(id, agentId)
+      reply({ event: 'agent:knowledge-file-removed', data: { agentId, id } })
+      return
+    }
+
+    if (command === 'agent:read-knowledge-file') {
+      const agentId = typeof data.agentId === 'string' ? data.agentId : ''
+      const filePath = typeof data.filePath === 'string' ? data.filePath : ''
+      if (!agentId || !filePath) return
+      try {
+        const row = db.prepare('SELECT id FROM agent_knowledge_files WHERE agent_id = ? AND file_path = ?').get(agentId, filePath)
+        if (!row) { reply({ event: 'agent:knowledge-file-error', data: { message: 'File not registered for this agent' } }); return }
+        if (!existsSync(filePath)) { reply({ event: 'agent:knowledge-file-error', data: { message: `File not found: ${filePath}` } }); return }
+        const content = readFileSync(filePath, 'utf-8')
+        reply({ event: 'agent:knowledge-file-content', data: { agentId, filePath, content } })
+      } catch (err) {
+        reply({ event: 'agent:knowledge-file-error', data: { message: String(err) } })
+      }
+      return
+    }
+
+    if (command === 'agent:write-knowledge-file') {
+      const agentId = typeof data.agentId === 'string' ? data.agentId : ''
+      const filePath = typeof data.filePath === 'string' ? data.filePath : ''
+      const content = typeof data.content === 'string' ? data.content : ''
+      if (!agentId || !filePath) return
+      try {
+        const row = db.prepare('SELECT id FROM agent_knowledge_files WHERE agent_id = ? AND file_path = ?').get(agentId, filePath)
+        if (!row) { reply({ event: 'agent:knowledge-file-error', data: { message: 'File not registered for this agent' } }); return }
+        writeFileSync(filePath, content, 'utf-8')
+        db.prepare('UPDATE agent_knowledge_files SET updated_at = ? WHERE agent_id = ? AND file_path = ?').run(Date.now(), agentId, filePath)
+        reply({ event: 'agent:knowledge-file-saved', data: { agentId, filePath } })
+      } catch (err) {
+        reply({ event: 'agent:knowledge-file-error', data: { message: String(err) } })
+      }
+      return
+    }
+
+    if (command === 'agent:get-mcp-tool-overrides') {
+      const agentId = typeof data.agentId === 'string' ? data.agentId : ''
+      if (!agentId) return
+      const overrides = db.prepare('SELECT * FROM agent_mcp_tool_overrides WHERE agent_id = ?').all(agentId)
+      reply({ event: 'agent:mcp-tool-overrides', data: { agentId, overrides } })
+      return
+    }
+
+    if (command === 'agent:set-mcp-tool-override') {
+      const agentId = typeof data.agentId === 'string' ? data.agentId : ''
+      const serverId = typeof data.serverId === 'string' ? data.serverId : ''
+      const toolName = typeof data.toolName === 'string' ? data.toolName : ''
+      const enabled = typeof data.enabled === 'boolean' ? data.enabled : true
+      const approval = typeof data.approval === 'string' ? data.approval : 'always-ask'
+      const instructions = typeof data.instructions === 'string' ? data.instructions : ''
+      if (!agentId || !serverId || !toolName) return
+      db.prepare('INSERT OR REPLACE INTO agent_mcp_tool_overrides (agent_id, server_id, tool_name, enabled, approval, instructions) VALUES (?, ?, ?, ?, ?, ?)').run(agentId, serverId, toolName, enabled ? 1 : 0, approval, instructions)
+      const overrides = db.prepare('SELECT * FROM agent_mcp_tool_overrides WHERE agent_id = ?').all(agentId)
+      reply({ event: 'agent:mcp-tool-overrides', data: { agentId, overrides } })
+      return
+    }
+
+    if (command === 'agent:get-mcp-server-trust') {
+      const agentId = typeof data.agentId === 'string' ? data.agentId : ''
+      if (!agentId) return
+      const trust = db.prepare('SELECT server_id, trust FROM agent_mcp_server_trust WHERE agent_id = ?').all(agentId)
+      reply({ event: 'agent:mcp-server-trust', data: { agentId, trust } })
+      return
+    }
+
+    if (command === 'agent:set-mcp-server-trust') {
+      const agentId = typeof data.agentId === 'string' ? data.agentId : ''
+      const serverId = typeof data.serverId === 'string' ? data.serverId : ''
+      const trust = typeof data.trust === 'string' ? data.trust : 'auto'
+      if (!agentId || !serverId) return
+      db.prepare('INSERT OR REPLACE INTO agent_mcp_server_trust (agent_id, server_id, trust) VALUES (?, ?, ?)').run(agentId, serverId, trust)
+      const trustList = db.prepare('SELECT server_id, trust FROM agent_mcp_server_trust WHERE agent_id = ?').all(agentId)
+      reply({ event: 'agent:mcp-server-trust', data: { agentId, trust: trustList } })
       return
     }
 

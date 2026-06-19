@@ -166,7 +166,39 @@ sealed class WsEvent {
     data class ProviderAzureEndpoint(val endpoint: String) : WsEvent()
     data class ProviderAzureEndpointSet(val endpoint: String) : WsEvent()
     data class ProviderTestResult(val provider: String, val valid: Boolean, val error: String?) : WsEvent()
+    data class AgentKnowledgeFiles(val agentId: String, val files: List<AgentKnowledgeFile>) : WsEvent()
+    data class AgentKnowledgeFileAdded(val agentId: String, val file: AgentKnowledgeFile) : WsEvent()
+    data class AgentKnowledgeFileRemoved(val agentId: String, val id: String) : WsEvent()
+    data class AgentKnowledgeFileContent(val agentId: String, val filePath: String, val content: String) : WsEvent()
+    data class AgentKnowledgeFileSaved(val agentId: String, val filePath: String) : WsEvent()
+    data class AgentKnowledgeFileError(val message: String) : WsEvent()
+    data class AgentMcpToolOverrides(val agentId: String, val overrides: List<AgentMcpToolOverride>) : WsEvent()
+    data class AgentMcpServerTrustList(val agentId: String, val trust: List<AgentMcpServerTrust>) : WsEvent()
 }
+
+data class AgentKnowledgeFile(
+    val id: String,
+    val agentId: String,
+    val filePath: String,
+    val injectMode: String,
+    val sortOrder: Int,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
+data class AgentMcpToolOverride(
+    val agentId: String,
+    val serverId: String,
+    val toolName: String,
+    val enabled: Boolean,
+    val approval: String,
+    val instructions: String,
+)
+
+data class AgentMcpServerTrust(
+    val serverId: String,
+    val trust: String,
+)
 
 data class CompressionSections(
     val goals: List<String> = emptyList(),

@@ -4,6 +4,9 @@ import io.nexy.android.data.model.Agent
 import io.nexy.android.data.model.AgentContextRules
 import io.nexy.android.data.model.AgentCustomCommand
 import io.nexy.android.data.model.AgentFullConfig
+import io.nexy.android.data.model.AgentKnowledgeFile
+import io.nexy.android.data.model.AgentMcpServerTrust
+import io.nexy.android.data.model.AgentMcpToolOverride
 import io.nexy.android.data.model.AgentTools
 import io.nexy.android.data.model.ToolConfig
 import io.nexy.android.data.model.AndroidUpdateManifest
@@ -449,6 +452,8 @@ fun parseWsEvent(
 
             "agent:full" -> {
                 val a = data?.optJSONObject("agent") ?: return
+                val mcpServersArr = a.optJSONArray("mcpServers")
+                val mcpServersList = if (mcpServersArr != null) (0 until mcpServersArr.length()).map { mcpServersArr.optString(it) } else emptyList()
                 val ctxDirsArr = a.optJSONArray("contextDirectories")
                 val contextDirectories = if (ctxDirsArr != null) (0 until ctxDirsArr.length()).map { ctxDirsArr.optString(it) } else emptyList()
                 val ctxFilesArr = a.optJSONArray("contextFiles")
@@ -485,6 +490,7 @@ fun parseWsEvent(
                     agenticMode = a.optBoolean("agenticMode", false),
                     memory = a.optString("memory", ""),
                     tools = parseAgentTools(a.optJSONObject("tools")),
+                    mcpServers = mcpServersList,
                     thinkingEffort = a.nullableString("thinkingEffort"),
                     rootDirectory = a.nullableString("rootDirectory"),
                     contextDirectories = contextDirectories,
@@ -958,6 +964,96 @@ fun parseWsEvent(
                 valid = data?.optBoolean("valid", false) ?: false,
                 error = data?.nullableString("error"),
             )
+
+            "agent:knowledge-files" -> {
+                val agentId = data?.optString("agentId") ?: ""
+                val arr = data?.optJSONArray("files") ?: JSONArray()
+                val files = (0 until arr.length()).mapNotNull { i ->
+                    val f = arr.optJSONObject(i) ?: return@mapNotNull null
+                    AgentKnowledgeFile(
+                        id = f.optString("id"),
+                        agentId = f.optString("agent_id"),
+                        filePath = f.optString("file_path"),
+                        injectMode = f.optString("inject_mode", "always"),
+                        sortOrder = f.optInt("sort_order", 0),
+                        createdAt = f.optLong("created_at", 0L),
+                        updatedAt = f.optLong("updated_at", 0L),
+                    )
+                }
+                WsEvent.AgentKnowledgeFiles(agentId, files)
+            }
+
+            "agent:knowledge-file-added" -> {
+                val agentId = data?.optString("agentId") ?: ""
+                val f = data?.optJSONObject("file")
+                if (f != null) {
+                    WsEvent.AgentKnowledgeFileAdded(
+                        agentId = agentId,
+                        file = AgentKnowledgeFile(
+                            id = f.optString("id"),
+                            agentId = f.optString("agent_id"),
+                            filePath = f.optString("file_path"),
+                            injectMode = f.optString("inject_mode", "always"),
+                            sortOrder = f.optInt("sort_order", 0),
+                            createdAt = f.optLong("created_at", 0L),
+                            updatedAt = f.optLong("updated_at", 0L),
+                        ),
+                    )
+                } else return
+            }
+
+            "agent:knowledge-file-removed" -> {
+                val agentId = data?.optString("agentId") ?: ""
+                val id = data?.optString("id") ?: ""
+                WsEvent.AgentKnowledgeFileRemoved(agentId, id)
+            }
+
+            "agent:knowledge-file-content" -> {
+                val agentId = data?.optString("agentId") ?: ""
+                val filePath = data?.optString("filePath") ?: ""
+                val content = data?.optString("content") ?: ""
+                WsEvent.AgentKnowledgeFileContent(agentId, filePath, content)
+            }
+
+            "agent:knowledge-file-saved" -> {
+                val agentId = data?.optString("agentId") ?: ""
+                val filePath = data?.optString("filePath") ?: ""
+                WsEvent.AgentKnowledgeFileSaved(agentId, filePath)
+            }
+
+            "agent:knowledge-file-error" -> {
+                WsEvent.AgentKnowledgeFileError(data?.optString("message") ?: "Unknown error")
+            }
+
+            "agent:mcp-tool-overrides" -> {
+                val agentId = data?.optString("agentId") ?: ""
+                val arr = data?.optJSONArray("overrides") ?: JSONArray()
+                val overrides = (0 until arr.length()).mapNotNull { i ->
+                    val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                    AgentMcpToolOverride(
+                        agentId = agentId,
+                        serverId = o.optString("server_id"),
+                        toolName = o.optString("tool_name"),
+                        enabled = o.optInt("enabled", 1) != 0,
+                        approval = o.optString("approval", "always-ask"),
+                        instructions = o.optString("instructions", ""),
+                    )
+                }
+                WsEvent.AgentMcpToolOverrides(agentId, overrides)
+            }
+
+            "agent:mcp-server-trust" -> {
+                val agentId = data?.optString("agentId") ?: ""
+                val arr = data?.optJSONArray("trust") ?: JSONArray()
+                val trust = (0 until arr.length()).mapNotNull { i ->
+                    val t = arr.optJSONObject(i) ?: return@mapNotNull null
+                    AgentMcpServerTrust(
+                        serverId = t.optString("server_id"),
+                        trust = t.optString("trust", "auto"),
+                    )
+                }
+                WsEvent.AgentMcpServerTrustList(agentId, trust)
+            }
 
             else -> return
         }
