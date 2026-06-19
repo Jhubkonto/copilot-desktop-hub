@@ -152,6 +152,11 @@ sealed class WsEvent {
     data class AgentGeneratorCreated(val sessionId: String?, val agentId: String, val name: String) : WsEvent()
     data class AgentGeneratorError(val sessionId: String?, val message: String) : WsEvent()
     data class AgentGeneratorCancelled(val sessionId: String?) : WsEvent()
+    data class ArtifactGeneratorToken(val sessionId: String?, val chunk: String) : WsEvent()
+    data class ArtifactGeneratorTurnComplete(val sessionId: String?, val content: String, val hasSpec: Boolean = false) : WsEvent()
+    data class ArtifactGeneratorSpecReady(val sessionId: String?, val spec: ArtifactGeneratorSpec) : WsEvent()
+    data class ArtifactGeneratorError(val sessionId: String?, val message: String) : WsEvent()
+    data class ArtifactGeneratorCancelled(val sessionId: String?) : WsEvent()
     data class SkillGeneratorToken(val sessionId: String?, val chunk: String) : WsEvent()
     data class SkillGeneratorTurnComplete(val sessionId: String?, val content: String, val hasSpec: Boolean = false) : WsEvent()
     data class SkillGeneratorSpecReady(val sessionId: String?, val spec: SkillGeneratorSpec) : WsEvent()
@@ -446,4 +451,31 @@ data class SkillGeneratorTools(
     val fileEdit: Boolean,
     val terminal: Boolean,
     val webFetch: Boolean,
+)
+
+data class ArtifactGeneratorSpec(
+    val title: String,
+    val kind: String,
+    val scopeType: String,
+    val scopeProjectId: String?,
+    val intendedUse: String,
+    val audience: String?,
+    val outputFiles: List<ArtifactOutputFile>,
+    val acceptanceCriteria: List<String>,
+    val exportFormats: List<String>,
+    val sourceContext: ArtifactSourceContext,
+)
+
+data class ArtifactOutputFile(
+    val path: String,
+    val mediaType: String,
+    val role: String,
+    val description: String?,
+)
+
+data class ArtifactSourceContext(
+    val useProjectInstructions: Boolean,
+    val useProjectWiki: Boolean,
+    val useConversationContext: Boolean,
+    val referencedFiles: List<String>,
 )

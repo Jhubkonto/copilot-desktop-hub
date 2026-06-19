@@ -7,6 +7,9 @@ import io.nexy.android.data.model.ToolConfig
 import io.nexy.android.data.model.AndroidUpdateManifest
 import io.nexy.android.data.model.AgentGeneratorSpec
 import io.nexy.android.data.model.AgentGeneratorTools
+import io.nexy.android.data.model.ArtifactGeneratorSpec
+import io.nexy.android.data.model.ArtifactOutputFile
+import io.nexy.android.data.model.ArtifactSourceContext
 import io.nexy.android.data.model.SkillGeneratorSpec
 import io.nexy.android.data.model.SkillGeneratorTools
 import io.nexy.android.data.model.ProjectSettingsConfig
@@ -857,6 +860,30 @@ fun parseWsEvent(
 
             "agent-generator:cancelled" -> WsEvent.AgentGeneratorCancelled(data?.nullableString("sessionId"))
 
+            "artifact-generator:token" -> WsEvent.ArtifactGeneratorToken(
+                sessionId = data?.nullableString("sessionId"),
+                chunk = data?.optString("chunk") ?: "",
+            )
+
+            "artifact-generator:turn-complete" -> WsEvent.ArtifactGeneratorTurnComplete(
+                sessionId = data?.nullableString("sessionId"),
+                content = data?.optString("content") ?: "",
+                hasSpec = data?.optBoolean("hasSpec", false) ?: false,
+            )
+
+            "artifact-generator:spec-ready" -> {
+                val specData = data?.optJSONObject("spec") ?: data
+                val spec = parseArtifactGeneratorSpec(specData) ?: return
+                WsEvent.ArtifactGeneratorSpecReady(data?.nullableString("sessionId"), spec)
+            }
+
+            "artifact-generator:error" -> WsEvent.ArtifactGeneratorError(
+                sessionId = data?.nullableString("sessionId"),
+                message = data?.optString("message") ?: "Unknown error",
+            )
+
+            "artifact-generator:cancelled" -> WsEvent.ArtifactGeneratorCancelled(data?.nullableString("sessionId"))
+
             "skill-generator:token" -> WsEvent.SkillGeneratorToken(
                 sessionId = data?.nullableString("sessionId"),
                 chunk = data?.optString("chunk") ?: "",
@@ -1125,6 +1152,47 @@ private fun parseSkillGeneratorSpec(data: JSONObject?): SkillGeneratorSpec? {
         tags = strList("tags"),
         knowledge = knowledge,
         suggestedAgents = strList("suggestedAgents"),
+    )
+}
+
+private fun parseArtifactGeneratorSpec(data: JSONObject?): ArtifactGeneratorSpec? {
+    val d = data ?: return null
+    fun strList(key: String): List<String> {
+        val arr = d.optJSONArray(key) ?: return emptyList()
+        return (0 until arr.length()).map { arr.optString(it) }.filter { it.isNotBlank() }
+    }
+    val scopeObj = d.optJSONObject("scope")
+    val filesArr = d.optJSONArray("outputFiles") ?: JSONArray()
+    val outputFiles = (0 until filesArr.length()).map { i ->
+        val f = filesArr.optJSONObject(i) ?: JSONObject()
+        ArtifactOutputFile(
+            path = f.optString("path", "output.md"),
+            mediaType = f.optString("mediaType", "text/plain"),
+            role = f.optString("role", "primary"),
+            description = f.nullableString("description"),
+        )
+    }
+    val srcObj = d.optJSONObject("sourceContext")
+    fun srcStrList(key: String): List<String> {
+        val arr = srcObj?.optJSONArray(key) ?: return emptyList()
+        return (0 until arr.length()).map { arr.optString(it) }.filter { it.isNotBlank() }
+    }
+    return ArtifactGeneratorSpec(
+        title = d.optString("title", "New Artifact"),
+        kind = d.optString("kind", "document"),
+        scopeType = scopeObj?.optString("type") ?: "global",
+        scopeProjectId = scopeObj?.nullableString("projectId"),
+        intendedUse = d.optString("intendedUse", ""),
+        audience = d.nullableString("audience"),
+        outputFiles = outputFiles,
+        acceptanceCriteria = strList("acceptanceCriteria"),
+        exportFormats = strList("exportFormats"),
+        sourceContext = ArtifactSourceContext(
+            useProjectInstructions = srcObj?.optBoolean("useProjectInstructions", false) ?: false,
+            useProjectWiki = srcObj?.optBoolean("useProjectWiki", false) ?: false,
+            useConversationContext = srcObj?.optBoolean("useConversationContext", false) ?: false,
+            referencedFiles = srcStrList("referencedFiles"),
+        ),
     )
 }
 

@@ -593,6 +593,14 @@ object WsRepository : WsClient {
     }
     fun cancelSkillGenerator(sessionId: String) { send("skill-generator:cancel", mapOf("sessionId" to sessionId)) }
 
+    fun startArtifactGeneratorChat(sessionId: String, messages: List<Map<String, String>>) {
+        send("artifact-generator:start", mapOf("sessionId" to sessionId, "messages" to messages))
+    }
+    fun sendArtifactGeneratorMessage(sessionId: String, messages: List<Map<String, String>>) {
+        send("artifact-generator:message", mapOf("sessionId" to sessionId, "messages" to messages))
+    }
+    fun cancelArtifactGenerator(sessionId: String) { send("artifact-generator:cancel", mapOf("sessionId" to sessionId)) }
+
     fun getAzureEndpoint() { send("provider:get-azure-endpoint", emptyMap()) }
     fun setAzureEndpoint(endpoint: String) { send("provider:set-azure-endpoint", mapOf("endpoint" to endpoint)) }
     fun testProviderKey(provider: String, key: String, endpoint: String? = null) {
