@@ -370,12 +370,14 @@ object WsRepository : WsClient {
     fun setProviderKey(provider: String, key: String) { send("provider:set-key", mapOf("provider" to provider, "key" to key)) }
     fun removeProviderKey(provider: String) { send("provider:remove-key", mapOf("provider" to provider)) }
     fun getCliStatus() { send("app:cli-status", emptyMap()) }
+    fun getSetting(key: String) { send("app:get-setting", mapOf("key" to key)) }
     fun setSetting(key: String, value: String) { send("app:set-setting", mapOf("key" to key, "value" to value)) }
     fun getMcpServers() { send("mcp:list", emptyMap()) }
     fun listArtifacts(projectId: String? = null) {
         send("artifact:list", if (projectId != null) mapOf("projectId" to projectId) else emptyMap())
     }
     fun getArtifact(id: String) { send("artifact:get", mapOf("id" to id)) }
+    fun exportArtifact(versionId: String) { send("artifact:export", mapOf("versionId" to versionId)) }
 
     fun getProjectConfig(id: String) { send("project:get-config", mapOf("id" to id)) }
     fun updateProjectConfig(id: String, instructions: String, rootDirectory: String?, instructionMode: String, orchestrationEnabled: Boolean, defaultModel: String?) {
@@ -389,6 +391,11 @@ object WsRepository : WsClient {
         defaultModel?.let { data["defaultModel"] = it }
         send("project:update-config", data)
     }
+
+    fun listProjectAgents(projectId: String) { send("project:list-agents", mapOf("id" to projectId)) }
+    fun addProjectAgent(projectId: String, agentId: String) { send("project:add-agent", mapOf("id" to projectId, "agentId" to agentId)) }
+    fun removeProjectAgent(projectId: String, agentId: String) { send("project:remove-agent", mapOf("id" to projectId, "agentId" to agentId)) }
+    fun setPrimaryProjectAgent(projectId: String, agentId: String) { send("project:set-primary-agent", mapOf("id" to projectId, "agentId" to agentId)) }
 
     fun listWikiEntries(projectId: String) { send("wiki:list", mapOf("projectId" to projectId)) }
     fun createWikiEntry(projectId: String, title: String, body: String, tags: List<String>) {

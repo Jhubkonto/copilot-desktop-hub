@@ -83,9 +83,12 @@ sealed class WsEvent {
     data class ProviderKeyRemoved(val provider: String) : WsEvent()
     data class CliStatus(val clis: Map<String, CliInstallInfo>) : WsEvent()
     data class SettingSet(val key: String, val value: String) : WsEvent()
+    data class SettingValue(val key: String, val value: String?) : WsEvent()
     data class McpList(val servers: List<McpServerInfo>) : WsEvent()
     data class ArtifactList(val artifacts: List<ArtifactSummary>) : WsEvent()
     data class ArtifactDetail(val artifact: ArtifactDetail2?) : WsEvent()
+    data class ArtifactExportPack(val versionId: String, val files: List<ArtifactExportFile>) : WsEvent()
+    data class ArtifactExportError(val message: String) : WsEvent()
     data class WikiList(val entries: List<WikiEntry>) : WsEvent()
     data class WikiEntryCreated(val entry: WikiEntry) : WsEvent()
     data class WikiEntryUpdated(val entry: WikiEntry) : WsEvent()
@@ -108,6 +111,7 @@ sealed class WsEvent {
     data class ProjectGeneratorCancelled(val sessionId: String?) : WsEvent()
     data class ProjectConfigUpdated(val id: String) : WsEvent()
     data class ProjectConfig(val id: String, val config: ProjectSettingsConfig) : WsEvent()
+    data class ProjectAgents(val id: String, val agents: List<ProjectAgentEntry>) : WsEvent()
     data class AgentGeneratorToken(val sessionId: String?, val chunk: String) : WsEvent()
     data class AgentGeneratorTurnComplete(val sessionId: String?, val content: String, val hasSpec: Boolean = false) : WsEvent()
     data class AgentGeneratorSpecReady(val sessionId: String?, val spec: AgentGeneratorSpec) : WsEvent()
@@ -115,6 +119,14 @@ sealed class WsEvent {
     data class AgentGeneratorError(val sessionId: String?, val message: String) : WsEvent()
     data class AgentGeneratorCancelled(val sessionId: String?) : WsEvent()
 }
+
+data class ProjectAgentEntry(
+    val agentId: String,
+    val agentName: String,
+    val agentIcon: String,
+    val isPrimary: Boolean,
+    val sortOrder: Int,
+)
 
 data class ErrorReport(
     val id: String,
@@ -178,6 +190,12 @@ data class ArtifactVersionFile(
     val relativePath: String,
     val mediaType: String,
     val role: String,
+)
+
+data class ArtifactExportFile(
+    val relativePath: String,
+    val mediaType: String,
+    val contentBase64: String,
 )
 
 data class ArtifactVersionSummary(

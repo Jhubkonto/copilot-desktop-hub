@@ -14,6 +14,7 @@ import io.nexy.android.data.model.ProjectGeneratorAgentSpec
 import io.nexy.android.data.model.ProjectGeneratorAgentTools
 import io.nexy.android.data.model.ProjectGeneratorNewAgent
 import io.nexy.android.data.model.ArtifactSummary
+import io.nexy.android.data.model.ArtifactExportFile
 import io.nexy.android.data.model.ArtifactVersionFile
 import io.nexy.android.data.model.ArtifactVersionSummary
 import io.nexy.android.data.model.CliInstallInfo
@@ -27,6 +28,7 @@ import io.nexy.android.data.model.McpServerInfo
 import io.nexy.android.data.model.ModelListSource
 import io.nexy.android.data.model.ModelOption
 import io.nexy.android.data.model.Project
+import io.nexy.android.data.model.ProjectAgentEntry
 import io.nexy.android.data.model.ProviderInfo
 import io.nexy.android.data.model.WsEvent
 import kotlinx.coroutines.CoroutineScope
@@ -426,6 +428,12 @@ fun parseWsEvent(
                 WsEvent.SettingSet(key, value)
             }
 
+            "app:setting-value" -> {
+                val key = data?.optString("key") ?: ""
+                val value = data?.nullableString("value")
+                WsEvent.SettingValue(key, value)
+            }
+
             "mcp:list" -> {
                 val arr = data?.optJSONArray("servers") ?: return
                 val list = (0 until arr.length()).map { i ->
@@ -502,6 +510,24 @@ fun parseWsEvent(
                         )
                     )
                 }
+            }
+
+            "artifact:export-pack" -> {
+                val versionId = data?.optString("versionId") ?: ""
+                val arr = data?.optJSONArray("files") ?: org.json.JSONArray()
+                val files = (0 until arr.length()).map { i ->
+                    val f = arr.getJSONObject(i)
+                    ArtifactExportFile(
+                        relativePath = f.optString("relativePath"),
+                        mediaType = f.optString("mediaType"),
+                        contentBase64 = f.optString("contentBase64"),
+                    )
+                }
+                WsEvent.ArtifactExportPack(versionId, files)
+            }
+
+            "artifact:export-error" -> {
+                WsEvent.ArtifactExportError(data?.optString("message") ?: "Export failed")
             }
 
             "wiki:list" -> {
@@ -635,6 +661,22 @@ fun parseWsEvent(
                         defaultModel = c.nullableString("defaultModel"),
                     ),
                 )
+            }
+
+            "project:agents" -> {
+                val id = data?.optString("id") ?: ""
+                val arr = data?.optJSONArray("agents") ?: JSONArray()
+                val agents = (0 until arr.length()).map { i ->
+                    val a = arr.optJSONObject(i) ?: JSONObject()
+                    ProjectAgentEntry(
+                        agentId = a.optString("agentId"),
+                        agentName = a.optString("agentName"),
+                        agentIcon = a.optString("agentIcon"),
+                        isPrimary = a.optBoolean("isPrimary", false),
+                        sortOrder = a.optInt("sortOrder", 0),
+                    )
+                }
+                WsEvent.ProjectAgents(id = id, agents = agents)
             }
 
             "agent-generator:token" -> WsEvent.AgentGeneratorToken(
