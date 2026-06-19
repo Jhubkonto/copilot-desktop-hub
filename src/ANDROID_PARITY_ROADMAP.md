@@ -74,7 +74,7 @@ Feature Generator is intentionally excluded because it has been removed from the
 | Agent-skill links | Done | Done | Done | Done | Done |
 | Skill Generator | Done | Done | Done | Done | Done |
 | Artifact Generator | Done | Done | Done | Done | Done |
-| Full Agent Config | Done | Partial | Partial | Partial | Partial |
+| Full Agent Config | Done | Done | Done | Done | Done |
 | Full Project Settings | Done | Partial | Partial | Partial | Partial |
 | Artifact lifecycle | Done | Partial | Partial | Partial | Partial |
 | Prompt versions | Done | Missing | Missing | Missing | Missing |
@@ -130,17 +130,17 @@ Feature Generator is intentionally excluded because it has been removed from the
 
 ### Phase 5 - Generator Parity
 
-- [ ] Verify existing Android `agent-generator:*` support against the desktop generator.
+- [x] Verify existing Android `agent-generator:*` support against the desktop generator.
 - [x] Add `skill-generator:*` WS bridge and Android screen.
 - [x] Add `artifact-generator:*` WS bridge and Android screen.
 - [ ] Add parser and ViewModel tests for token/spec/done/error/cancel flows.
 
 ### Phase 6 - Full Agent Configuration Parity
 
-- [ ] Extend Android `AgentFullConfig` to preserve all desktop agent fields.
-- [ ] Add UI for thinking effort, root directory, context directories/files, context rules, and custom commands.
+- [x] Extend Android `AgentFullConfig` to preserve all desktop agent fields.
+- [x] Add UI for thinking effort, root directory, context directories/files, context rules, and custom commands.
 - [ ] Add knowledge file list/add/remove/read/update support.
-- [ ] Add built-in tool instructions and approval parity.
+- [x] Add built-in tool instructions and approval parity.
 - [ ] Add MCP server assignment, server trust, and tool override UI.
 - [ ] Fix tool approval value normalization to match desktop/shared config.
 - [ ] Add round-trip tests proving Android does not drop advanced fields.
