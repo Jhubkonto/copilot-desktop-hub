@@ -94,7 +94,21 @@ export function registerProviderHandlers(): void {
   })
 
   safeHandle('provider:test-key', async (_event, provider: string, key: string, endpoint?: string) => {
-    try {
+    return testProviderKey(provider, key, endpoint)
+  })
+
+  safeHandle('provider:get-azure-endpoint', () => {
+    return getAzureEndpoint()
+  })
+
+  safeHandle('provider:set-azure-endpoint', (_event, endpoint: string) => {
+    setAzureEndpoint(endpoint)
+    return true
+  })
+}
+
+export async function testProviderKey(provider: string, key: string, endpoint?: string): Promise<{ valid: boolean; error?: string }> {
+  try {
       if (provider === 'openai') {
         const result = await httpsRequest(
           'https://api.openai.com/v1/models',
@@ -146,14 +160,4 @@ export function registerProviderHandlers(): void {
     } catch (error) {
       return { valid: false, error: (error as Error).message }
     }
-  })
-
-  safeHandle('provider:get-azure-endpoint', () => {
-    return getAzureEndpoint()
-  })
-
-  safeHandle('provider:set-azure-endpoint', (_event, endpoint: string) => {
-    setAzureEndpoint(endpoint)
-    return true
-  })
 }

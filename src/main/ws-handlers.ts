@@ -20,8 +20,10 @@ import { commitSelfHealFix, prepareSelfHealCommit, pushSelfHealFix } from './sel
 import { approveRelaunch, getRecoveryRuns, prepareReload, rollbackHeal, startReload } from './self-heal/recovery'
 import { runProjectGeneratorChatForAndroid, createProjectFromSpec, getProjectGeneratorAgentSummaries } from './project-generator'
 import { runAgentGeneratorChatForAndroid, createAgentFromSpec } from './agent-generator'
-import type { ProjectGeneratorSpec, AgentGeneratorSpec, SkillConfig } from '../shared/types'
-import { storeApiKey, removeApiKey } from './provider-secrets'
+import { runSkillGeneratorChatForAndroid, createSkillFromSpec } from './skill-generator'
+import type { ProjectGeneratorSpec, AgentGeneratorSpec, SkillConfig, SkillGeneratorSpec } from '../shared/types'
+import { storeApiKey, removeApiKey, getAzureEndpoint, setAzureEndpoint } from './provider-secrets'
+import { testProviderKey } from './providers'
 import { detectAllClis } from './cli-detection'
 import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
@@ -1297,6 +1299,63 @@ export function registerWsHandlers(): void {
     if (command === 'agent-generator:cancel') {
       const sessionId = typeof data.sessionId === 'string' ? data.sessionId : undefined
       broadcastToMobile({ event: 'agent-generator:cancelled', data: { sessionId } })
+      return
+    }
+
+    if (command === 'skill-generator:start' || command === 'skill-generator:message') {
+      const messages = Array.isArray(data.messages) ? data.messages : []
+      const sessionId = typeof data.sessionId === 'string' && data.sessionId.trim()
+        ? data.sessionId.trim()
+        : `android-skill-${Date.now()}`
+      void runSkillGeneratorChatForAndroid(messages, sessionId)
+        .catch((err: unknown) => {
+          broadcastToMobile({ event: 'skill-generator:error', data: { sessionId, message: String(err) } })
+        })
+      return
+    }
+
+    if (command === 'skill-generator:confirm') {
+      const spec = data.spec as SkillGeneratorSpec
+      const sessionId = typeof data.sessionId === 'string' ? data.sessionId : undefined
+      createSkillFromSpec(spec)
+        .then((result) => {
+          broadcastToMobile({ event: 'skill-generator:created', data: { sessionId, skillId: result.skillId, name: result.name } })
+        })
+        .catch((err: unknown) => {
+          broadcastToMobile({ event: 'skill-generator:error', data: { sessionId, message: String(err) } })
+        })
+      return
+    }
+
+    if (command === 'skill-generator:cancel') {
+      const sessionId = typeof data.sessionId === 'string' ? data.sessionId : undefined
+      broadcastToMobile({ event: 'skill-generator:cancelled', data: { sessionId } })
+      return
+    }
+
+    if (command === 'provider:get-azure-endpoint') {
+      reply({ event: 'provider:azure-endpoint', data: { endpoint: getAzureEndpoint() ?? '' } })
+      return
+    }
+
+    if (command === 'provider:set-azure-endpoint') {
+      const endpoint = typeof data.endpoint === 'string' ? data.endpoint : ''
+      setAzureEndpoint(endpoint)
+      reply({ event: 'provider:azure-endpoint-set', data: { endpoint } })
+      return
+    }
+
+    if (command === 'provider:test-key') {
+      const provider = typeof data.provider === 'string' ? data.provider : ''
+      const key = typeof data.key === 'string' ? data.key : ''
+      const endpoint = typeof data.endpoint === 'string' ? data.endpoint : undefined
+      if (!provider || !key) {
+        reply({ event: 'provider:test-result', data: { provider, valid: false, error: 'Missing provider or key' } })
+        return
+      }
+      void testProviderKey(provider, key, endpoint)
+        .then((result) => reply({ event: 'provider:test-result', data: { provider, valid: result.valid, error: result.error } }))
+        .catch((err: unknown) => reply({ event: 'provider:test-result', data: { provider, valid: false, error: String(err) } }))
       return
     }
   })

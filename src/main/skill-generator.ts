@@ -14,6 +14,7 @@ import { getAdapter } from './cli-adapters/registry'
 import type { ProviderMessage } from './provider-core-types'
 import type { SkillGeneratorMessage, SkillGeneratorSpec } from '../shared/types'
 import { getDatabase } from './database'
+import { broadcastToMobile } from './ws-server'
 
 const SPEC_OPEN_TAG = '<skill-spec>'
 const SPEC_CLOSE_TAG = '</skill-spec>'
@@ -228,6 +229,59 @@ export async function runSkillGeneratorChat(
     if (spec) win.webContents.send('skill-generator:spec-ready', spec)
     win.webContents.send('skill-generator:done', { hasSpec: spec !== null })
   }
+}
+
+export async function runSkillGeneratorChatForAndroid(
+  messages: SkillGeneratorMessage[],
+  sessionId = `skill-gen-android-${randomUUID()}`,
+): Promise<void> {
+  const providerMessages = buildProviderMessages(messages)
+  const fakeWin = { isDestroyed: () => false, webContents: { send: () => {}, isDestroyed: () => false } } as unknown as BrowserWindow
+
+  let accumulated = ''
+
+  const fullText = await runSkillGeneratorProviderChat(
+    fakeWin,
+    providerMessages,
+    sessionId,
+    fakeWin.webContents,
+    (chunk) => {
+      accumulated += chunk
+      broadcastToMobile({ event: 'skill-generator:token', data: { sessionId, chunk } })
+    },
+  )
+
+  accumulated = fullText || accumulated
+  if (!accumulated.trim()) {
+    broadcastToMobile({ event: 'skill-generator:error', data: { sessionId, message: 'Skill generator returned no response. Check the selected model/provider.' } })
+    return
+  }
+
+  const spec = extractSpec(accumulated)
+  const assistantText = accumulated.replace(/<skill-spec>[\s\S]*?<\/skill-spec>/g, '').trim()
+  broadcastToMobile({ event: 'skill-generator:turn-complete', data: { sessionId, content: assistantText, hasSpec: spec !== null } })
+  if (spec) {
+    broadcastToMobile({ event: 'skill-generator:spec-ready', data: { sessionId, spec } })
+  }
+}
+
+export async function createSkillFromSpec(spec: SkillGeneratorSpec): Promise<{ skillId: string; name: string }> {
+  const { createSkillConfig } = await import('./skills')
+  const result = await createSkillConfig({
+    name: spec.name,
+    icon: spec.icon,
+    description: spec.description,
+    instructions: spec.instructions,
+    tools: {
+      fileEdit: { enabled: spec.tools.fileEdit, approval: spec.approval?.fileEdit ?? 'always-ask', instructions: spec.toolInstructions?.fileEdit ?? '' },
+      terminal: { enabled: spec.tools.terminal, approval: spec.approval?.terminal ?? 'always-ask', instructions: spec.toolInstructions?.terminal ?? '' },
+      webFetch: { enabled: spec.tools.webFetch, approval: spec.approval?.webFetch ?? 'always-ask', instructions: spec.toolInstructions?.webFetch ?? '' },
+    },
+    mcpServers: spec.mcpServers ?? [],
+    tags: spec.tags ?? [],
+    knowledge: spec.knowledge ?? [],
+  })
+  return { skillId: result.id, name: spec.name }
 }
 
 export function registerSkillGeneratorHandlers(win?: BrowserWindow): void {
