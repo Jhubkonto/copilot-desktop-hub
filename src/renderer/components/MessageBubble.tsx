@@ -9,7 +9,7 @@ import { getAvailableModelIds, getModelLabel, getModelMultiplier } from '../../s
 // Strip injected context blocks (e.g. [Project File Structure]...[/Project File Structure])
 // from user-facing message content — these are internal and shouldn't be shown in the bubble.
 const INJECTED_BLOCK_RE = /\[[A-Za-z][^\]]*\]\n[\s\S]*?\[\/[A-Za-z][^\]]*\]\n*/g
-function stripInjectedBlocks(text: string): string {
+export function stripInjectedBlocks(text: string): string {
   return text.replace(INJECTED_BLOCK_RE, '').trimStart()
 }
 
@@ -50,6 +50,7 @@ interface MessageBubbleProps {
   onSaveToWiki?: (messageId: string, content: string) => void
   hasWikiEntry?: boolean
   timestamp?: number
+  isHighlighted?: boolean
   onRetry?: () => void
   onSignIn?: () => void
   onPickModel?: () => void
@@ -80,7 +81,8 @@ export function MessageBubbleBase({
   hasWikiEntry,
   onRetry,
   onSignIn,
-  onPickModel
+  onPickModel,
+  isHighlighted
 }: MessageBubbleProps) {
   const [showActions, setShowActions] = useState(false)
   const [showRegenMenu, setShowRegenMenu] = useState(false)
@@ -130,8 +132,8 @@ export function MessageBubbleBase({
                 ? 'bg-gray-50 dark:bg-gray-800/60 border border-dashed border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-300 italic'
               : role === 'user'
                 ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
-                : 'bg-gray-50 dark:bg-gray-800/50 text-gray-900 dark:text-gray-100'
-          }`}
+              : 'bg-gray-50 dark:bg-gray-800/50 text-gray-900 dark:text-gray-100'
+          } transition-shadow ${isHighlighted ? 'ring-2 ring-blue-400/70 dark:ring-blue-300/70 shadow-md' : ''}`}
         >
           {attachments && attachments.length > 0 && (
             <div className="flex flex-col gap-1.5 mb-2">

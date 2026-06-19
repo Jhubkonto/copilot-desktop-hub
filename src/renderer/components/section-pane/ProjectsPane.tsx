@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Plus, Settings, Folder, FolderOpen, Trash2, Search, X } from 'lucide-react'
+import { useEffect, useDeferredValue, useMemo, useState } from 'react'
+import { Plus, Settings, Folder, FolderOpen, Trash2, Search, X, Sparkles } from 'lucide-react'
 import { useAppStore } from '../../store/app-store'
 import type { ProjectAgent } from '../../store/types'
 import { DeleteProjectDialog } from '../DeleteProjectDialog'
@@ -26,6 +26,7 @@ export function ProjectsPane() {
   const addToast = useAppStore((s) => s.addToast)
 
   const [query, setQuery] = useState('')
+  const deferredQuery = useDeferredValue(query)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameTitle, setRenameTitle] = useState('')
   const [dragOverProjectId, setDragOverProjectId] = useState<string | null>(null)
@@ -44,8 +45,13 @@ export function ProjectsPane() {
     clearPendingSettingsProject()
   }, [pendingSettingsProjectId, openEditProject, clearPendingSettingsProject])
 
-  const chatCountFor = (projectId: string) =>
-    conversations.filter((c) => c.project_id === projectId).length
+  const chatCountMap = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const c of conversations) {
+      if (c.project_id) map.set(c.project_id, (map.get(c.project_id) ?? 0) + 1)
+    }
+    return map
+  }, [conversations])
 
   const handleRename = async (id: string) => {
     const name = renameTitle.trim()
@@ -53,9 +59,10 @@ export function ProjectsPane() {
     setRenamingId(null)
   }
 
-  const filtered = query
-    ? projects.filter((p) => p.name.toLowerCase().includes(query.toLowerCase()))
-    : projects
+  const filtered = useMemo(
+    () => deferredQuery ? projects.filter((p) => p.name.toLowerCase().includes(deferredQuery.toLowerCase())) : projects,
+    [projects, deferredQuery]
+  )
 
   return (
     <div className="flex flex-col h-full">
@@ -63,14 +70,24 @@ export function ProjectsPane() {
         <span className="text-xs text-gray-400 dark:text-gray-500">
           {projects.length} project{projects.length !== 1 ? 's' : ''}
         </span>
-        <button
-          onClick={() => setShowProjectGenerator(true)}
-          className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 px-2 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-          aria-label="Create new project"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          New
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setShowProjectGenerator(true)}
+            className="flex items-center gap-1 text-xs text-indigo-500 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-200 px-2 py-1 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
+            aria-label="Generate project with AI"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            Generate
+          </button>
+          <button
+            onClick={() => setShowNewProjectForm(true)}
+            className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 px-2 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            aria-label="Create new project"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            New
+          </button>
+        </div>
       </div>
 
       <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-800">
@@ -99,7 +116,7 @@ export function ProjectsPane() {
         {filtered.map((project) => {
           const colors = PROJECT_COLOR_MAP[project.color] ?? PROJECT_COLOR_MAP.blue
           const isActive = activeProjectId === project.id
-          const count = chatCountFor(project.id)
+          const count = chatCountMap.get(project.id) ?? 0
           const isRenaming = renamingId === project.id
           const members: ProjectAgent[] = projectAgents[project.id] ?? []
           const isDragTarget = dragOverProjectId === project.id
@@ -205,9 +222,9 @@ export function ProjectsPane() {
           )
         })}
 
-        {filtered.length === 0 && query ? (
+        {filtered.length === 0 && deferredQuery ? (
           <p className="text-center text-xs text-gray-400 dark:text-gray-500 pt-8 italic">
-            No projects match "{query}"
+            No projects match "{deferredQuery}"
           </p>
         ) : projects.length === 0 && (
           <p className="text-center text-xs text-gray-400 dark:text-gray-500 pt-8 italic">

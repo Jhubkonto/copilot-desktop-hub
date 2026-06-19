@@ -8,7 +8,7 @@ import { useChat } from '../hooks/useChat'
 import { useChatWindowActions } from '../hooks/useChatWindowActions'
 import { useFileInput } from '../hooks/useFileInput'
 import { useSlashMenu } from '../hooks/useSlashMenu'
-import { useTimers } from '../hooks/useTimers'
+import { useRateLimitTimer } from '../hooks/useRateLimitTimer'
 import { useAppStore } from '../store/app-store'
 import { ChatComposer } from './chat/ChatComposer'
 import { ChatMessages } from './chat/ChatMessages'
@@ -60,8 +60,8 @@ export function ChatWindow() {
   const markConversationDoneGenerating = useAppStore((state) => state.markConversationDoneGenerating)
   const defaultModelSetting = useAppStore((state) => state.globalDefaultModel)
 
+  const availableGroups = useAppStore((state) => state.availableModelGroups)
   const [pendingModel, setPendingModel] = useState<string | null>(null)
-  const [availableGroups, setAvailableGroups] = useState<AvailableModelGroup[]>([])
   const [input, setInput] = useState('')
   const [showContextInspector, setShowContextInspector] = useState(false)
   const [isOnline, setIsOnline] = useState(navigator.onLine)
@@ -194,11 +194,8 @@ export function ChatWindow() {
     if (promptInstructionRef) refs.push(promptInstructionRef)
     return refs
   }, [atMenu.contextRefs, clipboardRef, promptInstructionRef])
-  const timers = useTimers({
-    isGenerating: chat.isGenerating,
-    generationStartedAt: chat.generationStartedAt,
-  })
-  rateLimitSetterRef.current = timers.setRateLimitRemainingSec
+  const { rateLimitRemainingSec, setRateLimitRemainingSec } = useRateLimitTimer()
+  rateLimitSetterRef.current = setRateLimitRemainingSec
 
   const actions = useChatWindowActions({
     conversationId,
@@ -216,7 +213,7 @@ export function ChatWindow() {
     messages: chat.messages,
     setMessages: chat.setMessages,
     isGenerating: chat.isGenerating,
-    rateLimitRemainingSec: timers.rateLimitRemainingSec,
+    rateLimitRemainingSec: rateLimitRemainingSec,
     pendingAttachments: fileInput.pendingAttachments,
     pendingImages: fileInput.pendingImages,
     setPendingAttachments: fileInput.setPendingAttachments,
@@ -278,12 +275,6 @@ export function ChatWindow() {
     const floor = inputPanelHeight ?? 0
     element.style.height = `${Math.min(Math.max(floor, element.scrollHeight), 400)}px`
   }, [input, inputPanelHeight])
-
-  useEffect(() => {
-    let cancelled = false
-    window.api.listAvailableModels().then((g) => { if (!cancelled) setAvailableGroups(g) }).catch(() => {})
-    return () => { cancelled = true }
-  }, [])
 
   useEffect(() => {
     const goOnline = () => setIsOnline(true)
@@ -888,7 +879,7 @@ export function ChatWindow() {
       authenticated={isReady}
       isOnline={isOnline}
       isGenerating={chat.isGenerating}
-      rateLimitRemainingSec={timers.rateLimitRemainingSec}
+      rateLimitRemainingSec={rateLimitRemainingSec}
       conversationId={conversationId}
       effectiveModel={effectiveModel}
       modelSourceLabel={modelSourceLabel}
@@ -1039,7 +1030,7 @@ export function ChatWindow() {
                 type="button"
                 onClick={() => void handleExtractLearnings()}
                 disabled={isExtracting}
-                className="inline-flex items-center gap-2 rounded-full border border-gray-200 dark:border-gray-700 bg-white/95 dark:bg-gray-800/95 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-200 shadow-sm transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center gap-2 rounded-full border border-gray-200 dark:border-gray-700 bg-white/95 dark:bg-gray-800/95 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-200 opacity-70 shadow-sm transition-[background-color,opacity] hover:bg-gray-100 hover:opacity-100 focus-visible:opacity-100 dark:hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
                 aria-label="Extract learnings"
                 title="Extract learnings"
               >
@@ -1055,7 +1046,7 @@ export function ChatWindow() {
                   setShowExportMenu((value) => !value)
                 }}
                 disabled={isExporting || !conversationId || chat.messages.length === 0}
-                className="inline-flex items-center gap-2 rounded-full border border-gray-200 dark:border-gray-700 bg-white/95 dark:bg-gray-800/95 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-200 shadow-sm transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center gap-2 rounded-full border border-gray-200 dark:border-gray-700 bg-white/95 dark:bg-gray-800/95 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-200 opacity-70 shadow-sm transition-[background-color,opacity] hover:bg-gray-100 hover:opacity-100 focus-visible:opacity-100 dark:hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
                 aria-label="Export conversation"
                 title="Export conversation"
               >
@@ -1094,7 +1085,7 @@ export function ChatWindow() {
                 type="button"
                 onClick={handleOpenContinueWith}
                 disabled={isForking}
-                className="inline-flex items-center gap-2 rounded-full border border-gray-200 dark:border-gray-700 bg-white/95 dark:bg-gray-800/95 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-200 shadow-sm transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center gap-2 rounded-full border border-gray-200 dark:border-gray-700 bg-white/95 dark:bg-gray-800/95 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-200 opacity-70 shadow-sm transition-[background-color,opacity] hover:bg-gray-100 hover:opacity-100 focus-visible:opacity-100 dark:hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
                 aria-label="Continue with another model or agent"
                 title="Continue with another model or agent"
               >
@@ -1107,7 +1098,7 @@ export function ChatWindow() {
                 type="button"
                 onClick={() => void handleImportIntoConversation()}
                 disabled={isImporting}
-                className="inline-flex items-center gap-2 rounded-full border border-gray-200 dark:border-gray-700 bg-white/95 dark:bg-gray-800/95 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-200 shadow-sm transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center gap-2 rounded-full border border-gray-200 dark:border-gray-700 bg-white/95 dark:bg-gray-800/95 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-200 opacity-70 shadow-sm transition-[background-color,opacity] hover:bg-gray-100 hover:opacity-100 focus-visible:opacity-100 dark:hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
                 aria-label="Import conversation"
                 title="Import conversation into this chat"
               >
@@ -1185,14 +1176,13 @@ export function ChatWindow() {
         )}
         <ChatMessages
           messages={chat.messages}
-          effectiveModel={effectiveModel}
           isLoadingMessages={chat.isLoadingMessages}
           isGenerating={chat.isGenerating}
           liveTeamActivity={chat.liveTeamActivity}
           streamingContent={chat.streamingContent}
           cliCost={chat.cliCost}
           currentActivity={chat.currentActivity}
-          generationElapsedSec={timers.generationElapsedSec}
+          generationStartedAt={chat.generationStartedAt}
           loadingFailed={chat.loadingFailed}
           messagesEndRef={messagesEndRef}
           scrollContainerRef={scrollContainerRef}
@@ -1259,10 +1249,10 @@ export function ChatWindow() {
           <div className="text-lg font-medium text-blue-500 bg-white dark:bg-gray-800 px-6 py-3 rounded-xl shadow-lg">Drop files to attach</div>
         </div>
       )}
-      {timers.rateLimitRemainingSec > 0 && (
+      {rateLimitRemainingSec > 0 && (
         <div className="px-4 pb-2">
           <div className="max-w-3xl mx-auto text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
-            Rate limited — you can send again in {timers.rateLimitRemainingSec}s.
+            Rate limited — you can send again in {rateLimitRemainingSec}s.
           </div>
         </div>
       )}

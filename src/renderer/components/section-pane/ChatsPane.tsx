@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo, useDeferredValue } from 'react'
 import { Plus, Search, X, Pin, Trash2, Loader2 } from 'lucide-react'
 import { useAppStore } from '../../store/app-store'
 import type { Conversation } from '../../store/types'
@@ -17,15 +17,17 @@ export function ChatsPane() {
   const unreadConversationIds = useAppStore((s) => s.unreadConversationIds)
   const generatingConversationIds = useAppStore((s) => s.generatingConversationIds)
   const [query, setQuery] = useState('')
+  const deferredQuery = useDeferredValue(query)
   const [pendingDeleteConv, setPendingDeleteConv] = useState<{ id: string; title: string } | null>(null)
 
-  const filtered = query
-    ? conversations.filter((c) => c.title.toLowerCase().includes(query.toLowerCase()))
-    : conversations
+  const filtered = useMemo(
+    () => deferredQuery ? conversations.filter((c) => c.title.toLowerCase().includes(deferredQuery.toLowerCase())) : conversations,
+    [conversations, deferredQuery]
+  )
 
-  const pinned = filtered.filter(isPinned)
-  const unpinned = filtered.filter((c) => !isPinned(c))
-  const groups = groupByDate(unpinned)
+  const pinned = useMemo(() => filtered.filter(isPinned), [filtered])
+  const unpinned = useMemo(() => filtered.filter((c) => !isPinned(c)), [filtered])
+  const groups = useMemo(() => groupByDate(unpinned), [unpinned])
 
   const renderConv = (conv: Conversation) => {
     const isActive = currentConversationId === conv.id
@@ -110,7 +112,7 @@ export function ChatsPane() {
       <div className="flex-1 overflow-y-auto mr-1.5 p-2 space-y-4">
         {filtered.length === 0 && (
           <p className="text-center text-xs text-gray-400 dark:text-gray-500 pt-8 italic">
-            {query ? 'No matching conversations' : 'No conversations yet'}
+            {deferredQuery ? 'No matching conversations' : 'No conversations yet'}
           </p>
         )}
 

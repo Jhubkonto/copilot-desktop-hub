@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from 'react'
+import { memo, useRef, useState, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
@@ -28,7 +28,7 @@ function CodeBlockWrapper({ children }: { children: ReactNode }) {
   return (
     <div className="relative group my-3" ref={wrapperRef}>
       <CopyButton getText={() => wrapperRef.current?.querySelector('code')?.textContent || ''} />
-      <pre className="overflow-x-auto rounded-lg !p-4 !bg-[#1e1e2e] !text-gray-100 text-sm leading-relaxed">
+      <pre className="code-scrollbar overflow-x-auto rounded-lg !p-4 !bg-[#1e1e2e] !text-gray-100 text-sm leading-relaxed">
         {children}
       </pre>
     </div>
@@ -39,7 +39,7 @@ interface MarkdownRendererProps {
   content: string
 }
 
-export function MarkdownRenderer({ content }: MarkdownRendererProps) {
+function MarkdownRendererBase({ content }: MarkdownRendererProps) {
   return (
     <div className="markdown-body prose prose-sm dark:prose-invert max-w-none break-words">
       <ReactMarkdown
@@ -87,3 +87,5 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
     </div>
   )
 }
+
+export const MarkdownRenderer = memo(MarkdownRendererBase)

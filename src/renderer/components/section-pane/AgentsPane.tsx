@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, lazy, Suspense } from 'react'
+import { useEffect, useDeferredValue, useMemo, useRef, useState, lazy, Suspense } from 'react'
 import { Plus, Settings, Upload, MessageSquare, Trash2, FolderPlus, Check, Search, X, Sparkles } from 'lucide-react'
 import { useAppStore } from '../../store/app-store'
 import type { AgentConfig } from '../../../shared/types'
@@ -23,6 +23,7 @@ export function AgentsPane() {
   const addToast = useAppStore((s) => s.addToast)
 
   const [query, setQuery] = useState('')
+  const deferredQuery = useDeferredValue(query)
   const [showGenerator, setShowGenerator] = useState(false)
   const [addToProjectAgentId, setAddToProjectAgentId] = useState<string | null>(null)
   const addToProjectPopoverRef = useRef<HTMLDivElement>(null)
@@ -55,9 +56,10 @@ export function AgentsPane() {
     )
   }
 
-  const filtered = query
-    ? agents.filter((a) => a.name.toLowerCase().includes(query.toLowerCase()))
-    : agents
+  const filtered = useMemo(
+    () => deferredQuery ? agents.filter((a) => a.name.toLowerCase().includes(deferredQuery.toLowerCase())) : agents,
+    [agents, deferredQuery]
+  )
 
   return (
     <>
@@ -134,9 +136,9 @@ export function AgentsPane() {
         </div>
         )}
 
-        {filtered.length === 0 && query ? (
+        {filtered.length === 0 && deferredQuery ? (
           <p className="text-center text-xs text-gray-400 dark:text-gray-500 pt-8 italic">
-            No agents match "{query}"
+            No agents match "{deferredQuery}"
           </p>
         ) : agents.length === 0 ? (
           <p className="text-center text-xs text-gray-400 dark:text-gray-500 pt-8 italic">

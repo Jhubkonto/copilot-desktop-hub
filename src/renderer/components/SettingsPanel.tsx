@@ -95,6 +95,8 @@ export function SettingsPanel() {
   const addToast = useAppStore((s) => s.addToast)
   const setGlobalDefaultModel = useAppStore((s) => s.setGlobalDefaultModel)
   const catalogModels = useAppStore((s) => s.catalogModels)
+  const availableModelGroups = useAppStore((s) => s.availableModelGroups)
+  const refreshAvailableModels = useAppStore((s) => s.refreshAvailableModels)
   const debugLogging = useAppStore((s) => s.debugLogging)
   const setDebugLogging = useAppStore((s) => s.setDebugLogging)
 
@@ -119,7 +121,6 @@ export function SettingsPanel() {
   const [autoStart, setAutoStart] = useState(false)
   const [autoClipboard, setAutoClipboard] = useState(false)
   const [providers, setProviders] = useState<ProviderInfo[]>([])
-  const [availableModelGroups, setAvailableModelGroups] = useState<import('@shared/types').AvailableModelGroup[]>([])
   const [editingProvider, setEditingProvider] = useState<string | null>(null)
   const [apiKeyInput, setApiKeyInput] = useState('')
   const [azureEndpoint, setAzureEndpoint] = useState('')
@@ -223,7 +224,6 @@ export function SettingsPanel() {
       setMobileExternalUrl(settings['ws_external_url'] || '')
     })
     window.api.listProviders().then(setProviders)
-    window.api.listAvailableModels().then(setAvailableModelGroups).catch(() => {})
     window.api.getAzureEndpoint().then((ep: string | null) => {
       if (ep) setAzureEndpoint(ep)
     })
@@ -751,7 +751,7 @@ export function SettingsPanel() {
       setApiKeyInput('')
       setTestResult(null)
       window.api.listProviders().then(setProviders)
-      window.api.listAvailableModels().then(setAvailableModelGroups).catch(() => {})
+      void refreshAvailableModels()
       addToast('API key saved', 'success')
     } catch {
       addToast('Failed to save API key', 'error')
@@ -771,7 +771,7 @@ export function SettingsPanel() {
     try {
       await window.api.removeProviderKey(provider)
       window.api.listProviders().then(setProviders)
-      window.api.listAvailableModels().then(setAvailableModelGroups).catch(() => {})
+      void refreshAvailableModels()
       addToast('API key removed', 'success')
     } catch {
       addToast('Failed to remove API key', 'error')

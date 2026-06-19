@@ -867,15 +867,6 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
                     Start over
                   </button>
                 )}
-                <button
-                  onClick={() => {
-                    setEditSpec({ name: '', color: 'blue', instructions: '', rootDirectory: undefined, instructionMode: 'prepend', variables: [], inScope: [], outOfScope: [], milestones: [], orchestrationEnabled: true, defaultModel: undefined, agents: [] })
-                    setIsEditing(true)
-                  }}
-                  className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                >
-                  Manual setup
-                </button>
               </>
             )}
             <button
