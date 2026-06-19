@@ -9,6 +9,7 @@ internal fun HistoryMessage.toChatMessage(): ChatMessage {
             text = content,
             isUser = role == "user",
             isStreaming = false,
+            timestamp = timestamp,
             attachments = attachments,
         )
     }
@@ -19,6 +20,7 @@ internal fun HistoryMessage.toChatMessage(): ChatMessage {
             text = jsonString(content, "toolResult").orEmpty(),
             isUser = false,
             isStreaming = false,
+            timestamp = timestamp,
             isToolCall = true,
             toolName = jsonString(content, "toolName"),
             serverName = jsonString(content, "serverName"),
@@ -32,6 +34,7 @@ internal fun HistoryMessage.toChatMessage(): ChatMessage {
             text = content,
             isUser = false,
             isStreaming = false,
+            timestamp = timestamp,
             isToolCall = true,
             toolName = "Tool call",
             toolResult = content,

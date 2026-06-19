@@ -117,6 +117,7 @@ fun MessageBubble(
     onEdit: (() -> Unit)?,
     onResend: (() -> Unit)?,
     onDelete: (() -> Unit)? = null,
+    onDeleteAfter: (() -> Unit)? = null,
 ) {
     val isUser = msg.isUser
     var menuExpanded by remember { mutableStateOf(false) }
@@ -164,6 +165,12 @@ fun MessageBubble(
                     DropdownMenuItem(
                         text = { Text("Delete") },
                         onClick = { menuExpanded = false; onDelete() },
+                    )
+                }
+                if (onDeleteAfter != null) {
+                    DropdownMenuItem(
+                        text = { Text("Delete from here") },
+                        onClick = { menuExpanded = false; onDeleteAfter() },
                     )
                 }
             }

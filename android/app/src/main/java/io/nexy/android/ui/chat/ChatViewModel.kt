@@ -26,6 +26,7 @@ data class ChatMessage(
     val text: String,
     val isUser: Boolean,
     val isStreaming: Boolean,
+    val timestamp: Long = 0L,
     val attachments: List<AttachmentMeta> = emptyList(),
     val isToolCall: Boolean = false,
     val toolName: String? = null,
@@ -212,6 +213,11 @@ class ChatViewModel(
     fun deleteMessage(messageId: String) {
         _messages.value = _messages.value.filter { it.id != messageId }
         wsClient.send("message:delete", mapOf("id" to messageId))
+    }
+
+    fun deleteMessagesAfter(conversationId: String, timestamp: Long) {
+        _messages.value = _messages.value.filter { it.timestamp < timestamp }
+        wsClient.send("message:delete-after", mapOf("conversationId" to conversationId, "timestamp" to timestamp))
     }
 
 }

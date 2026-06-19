@@ -112,6 +112,7 @@ fun ChatScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val sendError by vm.sendError.collectAsState()
     var deletingMessage by remember { mutableStateOf<ChatMessage?>(null) }
+    var deleteAfterMessage by remember { mutableStateOf<ChatMessage?>(null) }
     val promptEntries by WsRepository.promptEntries.collectAsState()
 
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
@@ -468,6 +469,20 @@ fun ChatScreen(
         )
     }
 
+    deleteAfterMessage?.let { message ->
+        NexyConfirmDialog(
+            title = "Delete from here?",
+            message = "This message and all messages after it will be removed from the conversation.",
+            confirmLabel = "Delete",
+            destructive = true,
+            onConfirm = {
+                vm.deleteMessagesAfter(conversationId, message.timestamp)
+                deleteAfterMessage = null
+            },
+            onDismiss = { deleteAfterMessage = null },
+        )
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -570,6 +585,7 @@ fun ChatScreen(
                                 onEdit = if (msg.isUser) { { input = msg.text } } else null,
                                 onResend = if (msg.isUser) { { vm.sendMessage(msg.text) } } else null,
                                 onDelete = if (msg.id.isNotBlank()) { { deletingMessage = msg } } else null,
+                                onDeleteAfter = if (msg.id.isNotBlank() && msg.timestamp > 0L) { { deleteAfterMessage = msg } } else null,
                             )
                         }
                     }
