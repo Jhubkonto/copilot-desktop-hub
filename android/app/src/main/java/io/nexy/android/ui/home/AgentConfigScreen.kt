@@ -55,6 +55,10 @@ import androidx.compose.ui.unit.dp
 import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.AgentCustomCommand
+import io.nexy.android.data.model.AgentKnowledgeFile
+import io.nexy.android.data.model.AgentMcpServerTrust
+import io.nexy.android.data.model.AgentMcpToolOverride
+import io.nexy.android.data.model.McpServerInfo
 import io.nexy.android.data.model.SkillConfig
 import io.nexy.android.data.model.ToolConfig
 import io.nexy.android.data.model.WsEvent
@@ -101,6 +105,7 @@ fun AgentConfigScreen(
     val connectionState by WsRepository.connectionState.collectAsState()
     val fullConfig by WsRepository.agentFullConfig.collectAsState()
     val skills by WsRepository.skills.collectAsState()
+    val availableMcpServers by WsRepository.mcpServers.collectAsState()
     val agent = agents.find { it.id == agentId }
 
     // Identity
@@ -146,6 +151,16 @@ fun AgentConfigScreen(
     var autoInjectGit by remember { mutableStateOf(true) }
     // Custom commands
     var customCommands by remember { mutableStateOf<List<AgentCustomCommand>>(emptyList()) }
+    // MCP servers
+    var mcpServers by remember { mutableStateOf<List<String>>(emptyList()) }
+    // Knowledge files
+    var knowledgeFiles by remember { mutableStateOf<List<AgentKnowledgeFile>>(emptyList()) }
+    var editingKnowledgeFile by remember { mutableStateOf<AgentKnowledgeFile?>(null) }
+    var editingKnowledgeContent by remember { mutableStateOf("") }
+    var knowledgeFileLoading by remember { mutableStateOf(false) }
+    // MCP tool overrides and server trust
+    var mcpToolOverrides by remember { mutableStateOf<List<AgentMcpToolOverride>>(emptyList()) }
+    var mcpServerTrust by remember { mutableStateOf<List<AgentMcpServerTrust>>(emptyList()) }
 
     var saving by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -157,6 +172,10 @@ fun AgentConfigScreen(
         WsRepository.requestAgentFull(agentId)
         WsRepository.listSkills()
         WsRepository.getSkillAgentLinks(agentId)
+        WsRepository.getMcpServers()
+        WsRepository.listKnowledgeFiles(agentId)
+        WsRepository.getMcpToolOverrides(agentId)
+        WsRepository.getMcpServerTrust(agentId)
     }
 
     // Populate fields when full config arrives
@@ -189,9 +208,10 @@ fun AgentConfigScreen(
         autoInjectWorkspace = c.contextRules?.autoInjectWorkspace ?: true
         autoInjectGit = c.contextRules?.autoInjectGit ?: true
         customCommands = c.customCommands
+        mcpServers = c.mcpServers
     }
 
-    // Listen for save confirmation and skill links
+    // Listen for save confirmation, skill links, knowledge files, and MCP events
     LaunchedEffect(agentId) {
         WsRepository.events.collect { event ->
             when {
@@ -201,6 +221,33 @@ fun AgentConfigScreen(
                 }
                 event is WsEvent.SkillAgentLinks && event.agentId == agentId -> {
                     attachedSkillIds = event.links.sortedBy { it.sortOrder }.map { it.skillId }
+                }
+                event is WsEvent.AgentKnowledgeFiles && event.agentId == agentId -> {
+                    knowledgeFiles = event.files
+                }
+                event is WsEvent.AgentKnowledgeFileAdded && event.agentId == agentId -> {
+                    knowledgeFiles = knowledgeFiles + event.file
+                }
+                event is WsEvent.AgentKnowledgeFileRemoved && event.agentId == agentId -> {
+                    knowledgeFiles = knowledgeFiles.filter { it.id != event.id }
+                }
+                event is WsEvent.AgentKnowledgeFileContent && event.agentId == agentId -> {
+                    knowledgeFileLoading = false
+                    editingKnowledgeContent = event.content
+                }
+                event is WsEvent.AgentKnowledgeFileSaved && event.agentId == agentId -> {
+                    editingKnowledgeFile = null
+                    scope.launch { snackbarHostState.showSnackbar("File saved.") }
+                }
+                event is WsEvent.AgentKnowledgeFileError -> {
+                    knowledgeFileLoading = false
+                    scope.launch { snackbarHostState.showSnackbar(event.message) }
+                }
+                event is WsEvent.AgentMcpToolOverrides && event.agentId == agentId -> {
+                    mcpToolOverrides = event.overrides
+                }
+                event is WsEvent.AgentMcpServerTrustList && event.agentId == agentId -> {
+                    mcpServerTrust = event.trust
                 }
             }
         }
@@ -609,6 +656,60 @@ fun AgentConfigScreen(
                 onCommandsChange = { customCommands = it },
             )
 
+            // — MCP servers —
+            SectionHeader("MCP Servers")
+
+            McpServerAssignmentSection(
+                availableServers = availableMcpServers,
+                assignedServerIds = mcpServers,
+                mcpToolOverrides = mcpToolOverrides,
+                mcpServerTrust = mcpServerTrust,
+                disabled = saving || disconnected,
+                onToggleServer = { serverId, assign ->
+                    mcpServers = if (assign) mcpServers + serverId else mcpServers.filter { it != serverId }
+                },
+                onSetTrust = { serverId, trust ->
+                    WsRepository.setMcpServerTrust(agentId, serverId, trust)
+                },
+                onSetToolOverride = { serverId, toolName, enabled, approval, instructions ->
+                    WsRepository.setMcpToolOverride(agentId, serverId, toolName, enabled, approval, instructions)
+                },
+            )
+
+            // — Knowledge files —
+            SectionHeader("Knowledge files")
+
+            if (editingKnowledgeFile != null) {
+                KnowledgeFileEditorSection(
+                    file = editingKnowledgeFile!!,
+                    content = editingKnowledgeContent,
+                    loading = knowledgeFileLoading,
+                    disabled = saving || disconnected,
+                    onContentChange = { editingKnowledgeContent = it },
+                    onSave = {
+                        WsRepository.writeKnowledgeFile(agentId, editingKnowledgeFile!!.filePath, editingKnowledgeContent)
+                    },
+                    onCancel = { editingKnowledgeFile = null },
+                )
+            } else {
+                KnowledgeFilesSection(
+                    files = knowledgeFiles,
+                    disabled = saving || disconnected,
+                    onAdd = { filePath ->
+                        WsRepository.addKnowledgeFile(agentId, filePath)
+                    },
+                    onRemove = { id ->
+                        WsRepository.removeKnowledgeFile(agentId, id)
+                    },
+                    onEdit = { file ->
+                        editingKnowledgeFile = file
+                        editingKnowledgeContent = ""
+                        knowledgeFileLoading = true
+                        WsRepository.readKnowledgeFile(agentId, file.filePath)
+                    },
+                )
+            }
+
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
             Button(
@@ -642,6 +743,7 @@ fun AgentConfigScreen(
                         put("temperature", temperature)
                         put("maxTokens", maxTokens)
                         put("tools", tools)
+                        put("mcpServers", mcpServers)
                         if (thinkingEffort != null) put("thinkingEffort", thinkingEffort!!) else put("thinkingEffort", "")
                         put("rootDirectory", rootDirectory.trim())
                         put("contextDirectories", contextDirectories)
@@ -997,6 +1099,226 @@ private fun SkillAttachmentRow(
                     TextButton(onClick = onMoveDown, enabled = !disabled && canMoveDown) { Text("Move down") }
                 }
             }
+        }
+    }
+}
+
+private val mcpTrustOptions = listOf(
+    "auto" to "Auto (inherit server default)",
+    "always-ask" to "Always ask",
+    "block" to "Block",
+)
+
+private val mcpApprovalOptions = listOf(
+    "auto" to "Auto",
+    "always-ask" to "Always ask",
+    "disabled" to "Disabled",
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun McpServerAssignmentSection(
+    availableServers: List<McpServerInfo>,
+    assignedServerIds: List<String>,
+    mcpToolOverrides: List<AgentMcpToolOverride>,
+    mcpServerTrust: List<AgentMcpServerTrust>,
+    disabled: Boolean,
+    onToggleServer: (serverId: String, assign: Boolean) -> Unit,
+    onSetTrust: (serverId: String, trust: String) -> Unit,
+    onSetToolOverride: (serverId: String, toolName: String, enabled: Boolean, approval: String, instructions: String) -> Unit,
+) {
+    if (availableServers.isEmpty()) {
+        Text(
+            "No MCP servers configured. Add servers in the MCP Servers settings.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        return
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        availableServers.forEach { server ->
+            val assigned = assignedServerIds.contains(server.id)
+            val trust = mcpServerTrust.find { it.serverId == server.id }?.trust ?: "auto"
+            var trustExpanded by remember { mutableStateOf(false) }
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (assigned) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                ),
+            ) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(server.name, style = MaterialTheme.typography.bodyMedium)
+                            Text(server.command, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        }
+                        Switch(
+                            checked = assigned,
+                            onCheckedChange = { if (!disabled) onToggleServer(server.id, it) },
+                            enabled = !disabled,
+                        )
+                    }
+                    if (assigned) {
+                        val trustLabel = mcpTrustOptions.find { it.first == trust }?.second ?: "Auto"
+                        ExposedDropdownMenuBox(
+                            expanded = trustExpanded,
+                            onExpandedChange = { if (!disabled) trustExpanded = it },
+                        ) {
+                            OutlinedTextField(
+                                value = trustLabel,
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("Trust") },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = trustExpanded) },
+                                enabled = !disabled,
+                                modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+                            )
+                            ExposedDropdownMenu(expanded = trustExpanded, onDismissRequest = { trustExpanded = false }) {
+                                mcpTrustOptions.forEach { (value, label) ->
+                                    DropdownMenuItem(
+                                        text = { Text(label) },
+                                        onClick = {
+                                            onSetTrust(server.id, value)
+                                            trustExpanded = false
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun KnowledgeFilesSection(
+    files: List<AgentKnowledgeFile>,
+    disabled: Boolean,
+    onAdd: (filePath: String) -> Unit,
+    onRemove: (id: String) -> Unit,
+    onEdit: (file: AgentKnowledgeFile) -> Unit,
+) {
+    var addingPath by remember { mutableStateOf("") }
+    var showAddField by remember { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (files.isEmpty()) {
+            Text(
+                "No knowledge files. Add file paths to inject into context.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            files.forEach { file ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                file.filePath.substringAfterLast('/').substringAfterLast('\\'),
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1,
+                            )
+                            Text(
+                                "Inject: ${file.injectMode}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Row {
+                            TextButton(onClick = { onEdit(file) }, enabled = !disabled) { Text("Edit") }
+                            IconButton(onClick = { onRemove(file.id) }, enabled = !disabled) {
+                                Icon(Icons.Default.Delete, contentDescription = "Remove", tint = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (showAddField) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedTextField(
+                    value = addingPath,
+                    onValueChange = { addingPath = it },
+                    label = { Text("File path") },
+                    placeholder = { Text("/absolute/path/to/file.md") },
+                    singleLine = true,
+                    enabled = !disabled,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(
+                    onClick = {
+                        if (addingPath.isNotBlank()) {
+                            onAdd(addingPath.trim())
+                            addingPath = ""
+                            showAddField = false
+                        }
+                    },
+                    enabled = !disabled && addingPath.isNotBlank(),
+                ) { Text("Add") }
+                TextButton(onClick = { showAddField = false; addingPath = "" }) { Text("Cancel") }
+            }
+        } else {
+            TextButton(onClick = { showAddField = true }, enabled = !disabled) {
+                Icon(Icons.Default.Add, contentDescription = null)
+                Text("Add file")
+            }
+        }
+    }
+}
+
+@Composable
+private fun KnowledgeFileEditorSection(
+    file: AgentKnowledgeFile,
+    content: String,
+    loading: Boolean,
+    disabled: Boolean,
+    onContentChange: (String) -> Unit,
+    onSave: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                file.filePath.substringAfterLast('/').substringAfterLast('\\'),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Row {
+                TextButton(onClick = onSave, enabled = !disabled && !loading) { Text("Save") }
+                TextButton(onClick = onCancel) { Text("Cancel") }
+            }
+        }
+        if (loading) {
+            CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
+        } else {
+            OutlinedTextField(
+                value = content,
+                onValueChange = onContentChange,
+                label = { Text("Content") },
+                enabled = !disabled,
+                minLines = 6,
+                maxLines = 20,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }
