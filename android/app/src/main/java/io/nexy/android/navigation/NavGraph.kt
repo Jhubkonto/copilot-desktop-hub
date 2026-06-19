@@ -12,6 +12,7 @@ import androidx.navigation.navArgument
 import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
 import io.nexy.android.ui.agentgenerator.AgentGeneratorScreen
+import io.nexy.android.ui.skillgenerator.SkillGeneratorScreen
 import io.nexy.android.ui.chat.ChatScreen
 import io.nexy.android.ui.projects.ProjectConfigScreen
 import io.nexy.android.ui.home.AgentConfigScreen
@@ -36,6 +37,7 @@ import io.nexy.android.ui.settings.NotificationsScreen
 import io.nexy.android.ui.settings.ProvidersScreen
 import io.nexy.android.ui.settings.SettingsScreen
 import io.nexy.android.ui.settings.UpdatesScreen
+import io.nexy.android.ui.skills.SkillsScreen
 import io.nexy.android.ui.splash.SplashScreen
 
 @Composable
@@ -120,6 +122,15 @@ fun NavGraph(onRequestNotificationPermission: () -> Unit = {}) {
                 onOpenAgentGenerator = {
                     navController.navigate("agent-generator")
                 },
+                onOpenArtifacts = {
+                    navController.navigate("artifacts")
+                },
+                onOpenSkills = {
+                    navController.navigate("skills")
+                },
+                onOpenSkillGenerator = {
+                    navController.navigate("skill-generator")
+                },
                 onDisconnected = {
                     navController.navigate("pairing") {
                         popUpTo("home") { inclusive = true }
@@ -199,8 +210,6 @@ fun NavGraph(onRequestNotificationPermission: () -> Unit = {}) {
                 onOpenDiagnostics = { navController.navigate("settings/diagnostics") },
                 onOpenSelfHeal = { navController.navigate("self-heal") },
                 onOpenProviders = { navController.navigate("providers") },
-                onOpenProjectGenerator = { navController.navigate("project-generator") },
-                onOpenArtifacts = { navController.navigate("artifacts") },
                 onOpenPromptLibrary = { navController.navigate("prompts") },
                 onOpenGlobalSettings = { navController.navigate("settings/global") },
                 onOpenMcpAndCli = { navController.navigate("settings/mcp-cli") },
@@ -279,6 +288,17 @@ fun NavGraph(onRequestNotificationPermission: () -> Unit = {}) {
 
         composable("artifacts") {
             ArtifactsScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable("skills") {
+            SkillsScreen(
+                onBack = { navController.popBackStack() },
+                onOpenSkillGenerator = { navController.navigate("skill-generator") },
+            )
+        }
+
+        composable("skill-generator") {
+            SkillGeneratorScreen(onBack = { navController.popBackStack() })
         }
 
         composable("prompts") {
