@@ -10,7 +10,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -18,7 +23,10 @@ import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -27,10 +35,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -40,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
+import io.nexy.android.data.model.ProjectAgentEntry
 import io.nexy.android.data.model.WsEvent
 import io.nexy.android.ui.components.NexyTopAppBar
 import kotlinx.coroutines.launch
@@ -56,8 +67,10 @@ private val instructionModeOptions = listOf(
 fun ProjectConfigScreen(
     projectId: String,
     onBack: () -> Unit,
+    onOpenWiki: () -> Unit = {},
 ) {
     val projects by WsRepository.projects.collectAsState()
+    val allAgents by WsRepository.agents.collectAsState()
     val connectionState by WsRepository.connectionState.collectAsState()
     val project = projects.find { it.id == projectId }
 
@@ -68,6 +81,9 @@ fun ProjectConfigScreen(
     var defaultModel by remember { mutableStateOf("") }
     var instructionModeExpanded by remember { mutableStateOf(false) }
 
+    val projectAgents = remember { mutableStateListOf<ProjectAgentEntry>() }
+    var showAddAgentSheet by remember { mutableStateOf(false) }
+
     var loaded by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -76,6 +92,7 @@ fun ProjectConfigScreen(
     LaunchedEffect(projectId) {
         loaded = false
         WsRepository.getProjectConfig(projectId)
+        WsRepository.listProjectAgents(projectId)
     }
 
     LaunchedEffect(projectId) {
@@ -93,6 +110,10 @@ fun ProjectConfigScreen(
                     saving = false
                     scope.launch { snackbarHostState.showSnackbar("Settings saved.") }
                 }
+                is WsEvent.ProjectAgents -> if (event.id == projectId) {
+                    projectAgents.clear()
+                    projectAgents.addAll(event.agents)
+                }
                 else -> {}
             }
         }
@@ -100,6 +121,46 @@ fun ProjectConfigScreen(
 
     val disconnected = connectionState != ConnectionState.CONNECTED
     val instructionModeLabel = instructionModeOptions.find { it.first == instructionMode }?.second ?: "Prepend"
+
+    if (showAddAgentSheet) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        val assignedIds = projectAgents.map { it.agentId }.toSet()
+        val available = allAgents.filter { it.id !in assignedIds }
+        ModalBottomSheet(
+            onDismissRequest = { showAddAgentSheet = false },
+            sheetState = sheetState,
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Add agent to project", style = MaterialTheme.typography.titleMedium)
+                if (available.isEmpty()) {
+                    Text(
+                        "All agents are already in this project.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
+                } else {
+                    available.forEach { agent ->
+                        TextButton(
+                            onClick = {
+                                showAddAgentSheet = false
+                                WsRepository.addProjectAgent(projectId, agent.id)
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                if (agent.icon.isNotBlank()) "${agent.icon}  ${agent.name}" else agent.name,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                }
+                TextButton(onClick = { showAddAgentSheet = false }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Cancel")
+                }
+            }
+        }
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -262,6 +323,80 @@ fun ProjectConfigScreen(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(if (saving) "Saving…" else "Save settings")
+            }
+
+            // — Agents —
+            SectionHeader("Agents")
+
+            if (projectAgents.isEmpty()) {
+                Text(
+                    "No agents assigned to this project.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                projectAgents.forEach { entry ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (entry.isPrimary)
+                                MaterialTheme.colorScheme.primaryContainer
+                            else
+                                MaterialTheme.colorScheme.surfaceVariant,
+                        ),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    if (entry.agentIcon.isNotBlank()) "${entry.agentIcon}  ${entry.agentName}" else entry.agentName,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                                if (entry.isPrimary) {
+                                    Text(
+                                        "Primary",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                            }
+                            if (!entry.isPrimary && !disconnected) {
+                                TextButton(
+                                    onClick = { WsRepository.setPrimaryProjectAgent(projectId, entry.agentId) },
+                                ) {
+                                    Text("Set primary", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                            if (!disconnected) {
+                                IconButton(onClick = { WsRepository.removeProjectAgent(projectId, entry.agentId) }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Remove agent")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (!disconnected) {
+                TextButton(
+                    onClick = { showAddAgentSheet = true },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
+                    Text("Add agent")
+                }
+            }
+
+            // — Wiki —
+            SectionHeader("Wiki")
+            TextButton(
+                onClick = onOpenWiki,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("View project wiki")
             }
         }
     }
