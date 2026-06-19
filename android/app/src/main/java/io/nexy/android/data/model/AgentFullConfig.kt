@@ -13,6 +13,12 @@ data class AgentFullConfig(
     val agenticMode: Boolean = false,
     val memory: String = "",
     val tools: AgentTools = AgentTools(),
+    val thinkingEffort: String? = null,
+    val rootDirectory: String? = null,
+    val contextDirectories: List<String> = emptyList(),
+    val contextFiles: List<String> = emptyList(),
+    val contextRules: AgentContextRules? = null,
+    val customCommands: List<AgentCustomCommand> = emptyList(),
 )
 
 data class AgentTools(
@@ -24,4 +30,17 @@ data class AgentTools(
 data class ToolConfig(
     val enabled: Boolean = true,
     val approval: String = "always-ask",
+    val instructions: String = "",
+)
+
+data class AgentContextRules(
+    val ignoredGlobs: List<String> = emptyList(),
+    val autoInjectWorkspace: Boolean = true,
+    val autoInjectGit: Boolean = true,
+)
+
+data class AgentCustomCommand(
+    val name: String,
+    val description: String,
+    val prompt: String,
 )

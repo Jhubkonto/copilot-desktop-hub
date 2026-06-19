@@ -708,6 +708,12 @@ export function registerWsHandlers(): void {
       if (typeof data.agenticMode === 'boolean') patch.agenticMode = data.agenticMode
       if (typeof data.memory === 'string') patch.memory = data.memory
       if (data.tools && typeof data.tools === 'object') patch.tools = { ...(prev.tools as object), ...(data.tools as object) }
+      if (typeof data.thinkingEffort === 'string') patch.thinkingEffort = data.thinkingEffort || undefined
+      if (typeof data.rootDirectory === 'string') patch.rootDirectory = data.rootDirectory || undefined
+      if (Array.isArray(data.contextDirectories)) patch.contextDirectories = data.contextDirectories
+      if (Array.isArray(data.contextFiles)) patch.contextFiles = data.contextFiles
+      if (data.contextRules && typeof data.contextRules === 'object') patch.contextRules = data.contextRules
+      if (Array.isArray(data.customCommands)) patch.customCommands = data.customCommands
       const config = { ...prev, ...patch }
       db.prepare('UPDATE agents SET config_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(config), Date.now(), id)
       broadcastToMobile({ event: 'agent:updated', data: { agent: { id, name, icon } } })

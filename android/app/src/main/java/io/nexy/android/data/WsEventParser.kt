@@ -1,6 +1,8 @@
 package io.nexy.android.data
 
 import io.nexy.android.data.model.Agent
+import io.nexy.android.data.model.AgentContextRules
+import io.nexy.android.data.model.AgentCustomCommand
 import io.nexy.android.data.model.AgentFullConfig
 import io.nexy.android.data.model.AgentTools
 import io.nexy.android.data.model.ToolConfig
@@ -447,6 +449,29 @@ fun parseWsEvent(
 
             "agent:full" -> {
                 val a = data?.optJSONObject("agent") ?: return
+                val ctxDirsArr = a.optJSONArray("contextDirectories")
+                val contextDirectories = if (ctxDirsArr != null) (0 until ctxDirsArr.length()).map { ctxDirsArr.optString(it) } else emptyList()
+                val ctxFilesArr = a.optJSONArray("contextFiles")
+                val contextFiles = if (ctxFilesArr != null) (0 until ctxFilesArr.length()).map { ctxFilesArr.optString(it) } else emptyList()
+                val contextRules = a.optJSONObject("contextRules")?.let { r ->
+                    val globsArr = r.optJSONArray("ignoredGlobs")
+                    AgentContextRules(
+                        ignoredGlobs = if (globsArr != null) (0 until globsArr.length()).map { globsArr.optString(it) } else emptyList(),
+                        autoInjectWorkspace = r.optBoolean("autoInjectWorkspace", true),
+                        autoInjectGit = r.optBoolean("autoInjectGit", true),
+                    )
+                }
+                val cmdsArr = a.optJSONArray("customCommands")
+                val customCommands = if (cmdsArr != null) {
+                    (0 until cmdsArr.length()).mapNotNull { i ->
+                        val c = cmdsArr.optJSONObject(i) ?: return@mapNotNull null
+                        AgentCustomCommand(
+                            name = c.optString("name", ""),
+                            description = c.optString("description", ""),
+                            prompt = c.optString("prompt", ""),
+                        )
+                    }
+                } else emptyList()
                 val config = AgentFullConfig(
                     id = a.optString("id"),
                     name = a.optString("name"),
@@ -460,6 +485,12 @@ fun parseWsEvent(
                     agenticMode = a.optBoolean("agenticMode", false),
                     memory = a.optString("memory", ""),
                     tools = parseAgentTools(a.optJSONObject("tools")),
+                    thinkingEffort = a.nullableString("thinkingEffort"),
+                    rootDirectory = a.nullableString("rootDirectory"),
+                    contextDirectories = contextDirectories,
+                    contextFiles = contextFiles,
+                    contextRules = contextRules,
+                    customCommands = customCommands,
                 )
                 agentFullConfig.value = config
                 WsEvent.AgentFull(config)
@@ -1083,6 +1114,7 @@ private fun parseAgentTools(obj: JSONObject?): AgentTools {
     fun parseToolConfig(tool: JSONObject?, defaultEnabled: Boolean, defaultApproval: String) = ToolConfig(
         enabled = tool?.optBoolean("enabled", defaultEnabled) ?: defaultEnabled,
         approval = tool?.optString("approval", defaultApproval) ?: defaultApproval,
+        instructions = tool?.optString("instructions", "") ?: "",
     )
     return AgentTools(
         fileEdit = parseToolConfig(obj?.optJSONObject("fileEdit"), defaultEnabled = true, defaultApproval = "always-ask"),
