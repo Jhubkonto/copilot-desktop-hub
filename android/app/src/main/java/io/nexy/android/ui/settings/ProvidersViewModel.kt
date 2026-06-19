@@ -24,6 +24,18 @@ class ProvidersViewModel(app: Application) : AndroidViewModel(app) {
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
+    private val _azureEndpoint = MutableStateFlow("")
+    val azureEndpoint: StateFlow<String> = _azureEndpoint.asStateFlow()
+
+    private val _testResult = MutableStateFlow<Pair<String, Boolean>?>(null)
+    val testResult: StateFlow<Pair<String, Boolean>?> = _testResult.asStateFlow()
+
+    private val _testError = MutableStateFlow<String?>(null)
+    val testError: StateFlow<String?> = _testError.asStateFlow()
+
+    private val _isTesting = MutableStateFlow(false)
+    val isTesting: StateFlow<Boolean> = _isTesting.asStateFlow()
+
     private var timeoutJob: Job? = null
 
     init {
@@ -35,14 +47,27 @@ class ProvidersViewModel(app: Application) : AndroidViewModel(app) {
                         _isLoading.value = false
                         _error.value = null
                     }
+                    is WsEvent.ProviderAzureEndpoint -> {
+                        _azureEndpoint.value = event.endpoint
+                    }
+                    is WsEvent.ProviderAzureEndpointSet -> {
+                        _azureEndpoint.value = event.endpoint
+                    }
+                    is WsEvent.ProviderTestResult -> {
+                        _isTesting.value = false
+                        _testResult.value = event.provider to event.valid
+                        _testError.value = event.error
+                    }
                     else -> {}
                 }
             }
         }
-        // Retry when the connection is established
         viewModelScope.launch {
             WsRepository.connectionState.collect { state ->
-                if (state == ConnectionState.CONNECTED) refresh()
+                if (state == ConnectionState.CONNECTED) {
+                    refresh()
+                    WsRepository.getAzureEndpoint()
+                }
             }
         }
     }
@@ -74,5 +99,21 @@ class ProvidersViewModel(app: Application) : AndroidViewModel(app) {
 
     fun removeKey(provider: String) {
         WsRepository.removeProviderKey(provider)
+    }
+
+    fun saveAzureEndpoint(endpoint: String) {
+        WsRepository.setAzureEndpoint(endpoint)
+    }
+
+    fun testKey(provider: String, key: String, endpoint: String? = null) {
+        _isTesting.value = true
+        _testResult.value = null
+        _testError.value = null
+        WsRepository.testProviderKey(provider, key, endpoint)
+    }
+
+    fun dismissTestResult() {
+        _testResult.value = null
+        _testError.value = null
     }
 }
