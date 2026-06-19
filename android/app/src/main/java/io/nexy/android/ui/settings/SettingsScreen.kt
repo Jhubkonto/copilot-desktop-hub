@@ -31,6 +31,8 @@ fun SettingsScreen(
     onOpenProjectGenerator: () -> Unit = {},
     onOpenArtifacts: () -> Unit = {},
     onOpenPromptLibrary: () -> Unit = {},
+    onOpenGlobalSettings: () -> Unit = {},
+    onOpenMcpAndCli: () -> Unit = {},
 ) {
     Scaffold(
         topBar = {
@@ -61,6 +63,11 @@ fun SettingsScreen(
 
             // — Configuration —
             SettingsSectionHeader("Configuration")
+            SettingsNavRow(
+                title = "Global Settings",
+                detail = "Default model, temperature, auto-start, clipboard",
+                onClick = onOpenGlobalSettings,
+            )
             SettingsNavRow(
                 title = "Models",
                 detail = "Available models from your desktop",
@@ -103,6 +110,12 @@ fun SettingsScreen(
                 title = "Updates",
                 detail = "App version and OTA install",
                 onClick = onOpenUpdates,
+            )
+
+            SettingsNavRow(
+                title = "MCP & CLI",
+                detail = "MCP server list and CLI tool status",
+                onClick = onOpenMcpAndCli,
             )
 
             // — Developer —

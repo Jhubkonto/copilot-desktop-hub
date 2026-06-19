@@ -25,9 +25,12 @@ import io.nexy.android.ui.selfheal.SelfHealReportsScreen
 import io.nexy.android.ui.artifacts.ArtifactsScreen
 import io.nexy.android.ui.projectgenerator.ProjectGeneratorScreen
 import io.nexy.android.ui.prompts.PromptsScreen
+import io.nexy.android.ui.wiki.WikiScreen
 import io.nexy.android.ui.settings.AppearanceScreen
 import io.nexy.android.ui.settings.ConnectionScreen
 import io.nexy.android.ui.settings.DiagnosticsScreen
+import io.nexy.android.ui.settings.GlobalSettingsScreen
+import io.nexy.android.ui.settings.McpAndCliScreen
 import io.nexy.android.ui.settings.ModelsScreen
 import io.nexy.android.ui.settings.NotificationsScreen
 import io.nexy.android.ui.settings.ProvidersScreen
@@ -199,7 +202,17 @@ fun NavGraph(onRequestNotificationPermission: () -> Unit = {}) {
                 onOpenProjectGenerator = { navController.navigate("project-generator") },
                 onOpenArtifacts = { navController.navigate("artifacts") },
                 onOpenPromptLibrary = { navController.navigate("prompts") },
+                onOpenGlobalSettings = { navController.navigate("settings/global") },
+                onOpenMcpAndCli = { navController.navigate("settings/mcp-cli") },
             )
+        }
+
+        composable("settings/global") {
+            GlobalSettingsScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable("settings/mcp-cli") {
+            McpAndCliScreen(onBack = { navController.popBackStack() })
         }
 
         composable("settings/appearance") {
@@ -257,7 +270,11 @@ fun NavGraph(onRequestNotificationPermission: () -> Unit = {}) {
             arguments = listOf(navArgument("projectId") { type = NavType.StringType }),
         ) { backStackEntry ->
             val projectId = backStackEntry.arguments?.getString("projectId") ?: return@composable
-            ProjectConfigScreen(projectId = projectId, onBack = { navController.popBackStack() })
+            ProjectConfigScreen(
+                projectId = projectId,
+                onBack = { navController.popBackStack() },
+                onOpenWiki = { navController.navigate("wiki/${Uri.encode(projectId)}") },
+            )
         }
 
         composable("artifacts") {
@@ -289,6 +306,14 @@ fun NavGraph(onRequestNotificationPermission: () -> Unit = {}) {
         ) { backStackEntry ->
             val agentId = backStackEntry.arguments?.getString("agentId") ?: return@composable
             AgentConfigScreen(agentId = agentId, onBack = { navController.popBackStack() })
+        }
+
+        composable(
+            route = "wiki/{projectId}",
+            arguments = listOf(navArgument("projectId") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val projectId = backStackEntry.arguments?.getString("projectId") ?: return@composable
+            WikiScreen(projectId = projectId, onBack = { navController.popBackStack() })
         }
     }
 }
