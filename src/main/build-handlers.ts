@@ -3,7 +3,8 @@ import { spawn, execFile } from 'child_process'
 import { promisify } from 'util'
 
 const execFileAsync = promisify(execFile)
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'fs'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'fs'
+import { readFile } from 'fs/promises'
 import path from 'path'
 import { app, BrowserWindow } from 'electron'
 import type Database from 'better-sqlite3'
@@ -72,7 +73,7 @@ export async function getWorkspaceInfo(db: Database.Database): Promise<Workspace
   try {
     const pkgPath = path.join(workspacePath, 'package.json')
     if (existsSync(pkgPath)) {
-      const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: string }
+      const pkg = JSON.parse(await readFile(pkgPath, 'utf8')) as { version?: string }
       info.version = pkg.version ?? null
     }
   } catch {
@@ -390,7 +391,7 @@ export function registerBuildHandlers(mainWindow?: BrowserWindow): void {
     if (!installerSrc) return { published: false, error: `No ${ext} installer found in release/` }
     if (!existsSync(ymlSrc)) return { published: false, error: `${ymlName} not found in release/` }
 
-    const ymlContent = readFileSync(ymlSrc, 'utf8')
+    const ymlContent = await readFile(ymlSrc, 'utf8')
     const parsed = parseYmlMeta(ymlContent)
     if (!parsed) return { published: false, error: 'Could not parse version from latest.yml' }
 
@@ -398,7 +399,7 @@ export function registerBuildHandlers(mainWindow?: BrowserWindow): void {
     const existingYml = path.join(feedPath, ymlName)
     if (existsSync(existingYml)) {
       try {
-        const oldContent = readFileSync(existingYml, 'utf8')
+        const oldContent = await readFile(existingYml, 'utf8')
         const oldParsed = parseYmlMeta(oldContent)
         if (oldParsed) {
           const backupDir = path.join(feedPath, '_backups', `v${oldParsed.version}`)
@@ -425,7 +426,7 @@ export function registerBuildHandlers(mainWindow?: BrowserWindow): void {
     return { published: true, version: parsed.version }
   })
 
-  safeHandle('build:list-published', () => {
+  safeHandle('build:list-published', async () => {
     debugTime('build:list-published')
     const feedPath = getLocalFeedPath(db)
     if (!feedPath || !existsSync(feedPath)) { debugTimeEnd('build:list-published'); return [] }
@@ -436,7 +437,7 @@ export function registerBuildHandlers(mainWindow?: BrowserWindow): void {
     const ymlPath = path.join(feedPath, ymlName)
     if (existsSync(ymlPath)) {
       try {
-        const content = readFileSync(ymlPath, 'utf8')
+        const content = await readFile(ymlPath, 'utf8')
         const parsed = parseYmlMeta(content)
         if (parsed) {
           const installerPath = path.join(feedPath, parsed.installerName)
@@ -454,7 +455,7 @@ export function registerBuildHandlers(mainWindow?: BrowserWindow): void {
           if (!statSync(backupDir).isDirectory()) continue
           const backupYml = path.join(backupDir, ymlName)
           if (!existsSync(backupYml)) continue
-          const content = readFileSync(backupYml, 'utf8')
+          const content = await readFile(backupYml, 'utf8')
           const parsed = parseYmlMeta(content)
           if (!parsed) continue
           const installerPath = path.join(backupDir, parsed.installerName)
@@ -469,7 +470,7 @@ export function registerBuildHandlers(mainWindow?: BrowserWindow): void {
     return result
   })
 
-  safeHandle('build:rollback-update', (_event, version: string) => {
+  safeHandle('build:rollback-update', async (_event, version: string) => {
     const feedPath = getLocalFeedPath(db)
     if (!feedPath) return { launched: false, error: 'No local update feed configured' }
 
@@ -480,7 +481,7 @@ export function registerBuildHandlers(mainWindow?: BrowserWindow): void {
     const ymlPath = path.join(backupDir, ymlName)
     if (!existsSync(ymlPath)) return { launched: false, error: 'Backup yml not found' }
 
-    const content = readFileSync(ymlPath, 'utf8')
+    const content = await readFile(ymlPath, 'utf8')
     const parsed = parseYmlMeta(content)
     if (!parsed) return { launched: false, error: 'Could not parse backup installer name' }
 

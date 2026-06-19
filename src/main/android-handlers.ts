@@ -3,7 +3,8 @@ import { execSync, spawn, execFile } from 'child_process'
 import { promisify } from 'util'
 
 const execFileAsync = promisify(execFile)
-import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'fs'
+import { copyFileSync, createReadStream, existsSync, mkdirSync, readdirSync, statSync } from 'fs'
+import { readFile, writeFile } from 'fs/promises'
 import path from 'path'
 import { networkInterfaces } from 'os'
 import { BrowserWindow } from 'electron'
@@ -125,13 +126,13 @@ function getAndroidFeedDir(db: Database.Database): string | null {
   return path.join(row.value, 'android')
 }
 
-export function getAndroidUpdateManifest(db: Database.Database): AndroidUpdateManifest | null {
+export async function getAndroidUpdateManifest(db: Database.Database): Promise<AndroidUpdateManifest | null> {
   const androidFeedDir = getAndroidFeedDir(db)
   if (!androidFeedDir) return null
   const manifestPath = path.join(androidFeedDir, 'android-update.json')
   if (!existsSync(manifestPath)) return null
   try {
-    return JSON.parse(readFileSync(manifestPath, 'utf8')) as AndroidUpdateManifest
+    return JSON.parse(await readFile(manifestPath, 'utf8')) as AndroidUpdateManifest
   } catch {
     return null
   }
@@ -141,22 +142,22 @@ function getPublishHistoryPath(androidFeedDir: string): string {
   return path.join(androidFeedDir, 'android-update-history.json')
 }
 
-function readPublishHistory(androidFeedDir: string): AndroidUpdateManifest[] {
+async function readPublishHistory(androidFeedDir: string): Promise<AndroidUpdateManifest[]> {
   const historyPath = getPublishHistoryPath(androidFeedDir)
   if (!existsSync(historyPath)) return []
   try {
-    return JSON.parse(readFileSync(historyPath, 'utf8')) as AndroidUpdateManifest[]
+    return JSON.parse(await readFile(historyPath, 'utf8')) as AndroidUpdateManifest[]
   } catch {
     return []
   }
 }
 
-function appendPublishHistory(androidFeedDir: string, manifest: AndroidUpdateManifest, archiveApkPath: string): void {
+async function appendPublishHistory(androidFeedDir: string, manifest: AndroidUpdateManifest, archiveApkPath: string): Promise<void> {
   const MAX_HISTORY = 5
   const entry = { ...manifest, archiveApkPath }
-  const existing = readPublishHistory(androidFeedDir)
+  const existing = await readPublishHistory(androidFeedDir)
   const updated = [entry, ...existing.filter((e) => e.versionCode !== manifest.versionCode)].slice(0, MAX_HISTORY)
-  writeFileSync(getPublishHistoryPath(androidFeedDir), JSON.stringify(updated, null, 2), 'utf8')
+  await writeFile(getPublishHistoryPath(androidFeedDir), JSON.stringify(updated, null, 2), 'utf8')
 }
 
 function getLocalIp(): string {
@@ -477,7 +478,7 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
     mkdirSync(androidFeedDir, { recursive: true })
 
     // Archive the previous release before overwriting so rollback is possible
-    const prevManifest = getAndroidUpdateManifest(db)
+    const prevManifest = await getAndroidUpdateManifest(db)
     if (prevManifest) {
       const prevApkName = prevManifest.artifactUrl.split('/').pop()
       const prevApkInFeed = prevApkName ? path.join(androidFeedDir, prevApkName) : null
@@ -487,7 +488,7 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
         const archiveName = `nexy-v${prevManifest.versionCode}-${prevManifest.publishedAt}.apk`
         const archivePath = path.join(archiveDir, archiveName)
         if (!existsSync(archivePath)) copyFileSync(prevApkInFeed, archivePath)
-        appendPublishHistory(androidFeedDir, prevManifest, archivePath)
+        await appendPublishHistory(androidFeedDir, prevManifest, archivePath)
       }
     }
 
@@ -516,14 +517,14 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
       publishedAt: Date.now(),
     }
 
-    writeFileSync(path.join(androidFeedDir, 'android-update.json'), JSON.stringify(manifest, null, 2), 'utf8')
+    await writeFile(path.join(androidFeedDir, 'android-update.json'), JSON.stringify(manifest, null, 2), 'utf8')
 
     return { published: true, manifest }
   })
 
-  safeHandle('android:get-update-manifest', () => {
+  safeHandle('android:get-update-manifest', async () => {
     debugTime('android:get-update-manifest')
-    const r = getAndroidUpdateManifest(db)
+    const r = await getAndroidUpdateManifest(db)
     debugTimeEnd('android:get-update-manifest')
     return r
   })
@@ -544,10 +545,10 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
     return r
   })
 
-  safeHandle('android:get-publish-history', () => {
+  safeHandle('android:get-publish-history', async () => {
     debugTime('android:get-publish-history')
     const androidFeedDir = getAndroidFeedDir(db)
-    const r = androidFeedDir ? readPublishHistory(androidFeedDir) : []
+    const r = androidFeedDir ? await readPublishHistory(androidFeedDir) : []
     debugTimeEnd('android:get-publish-history')
     return r
   })
@@ -556,7 +557,7 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
     const androidFeedDir = getAndroidFeedDir(db)
     if (!androidFeedDir) return { restored: false, error: 'No local update feed path configured' }
 
-    const history = readPublishHistory(androidFeedDir)
+    const history = await readPublishHistory(androidFeedDir)
     const entry = history.find((e) => e.versionCode === versionCode) as (AndroidUpdateManifest & { archiveApkPath?: string }) | undefined
     if (!entry) return { restored: false, error: `Version ${versionCode} not found in publish history` }
 
@@ -580,7 +581,7 @@ export function registerAndroidHandlers(mainWindow?: BrowserWindow): void {
       artifactUrl: `${feedLanUrl}/android/${apkName}`,
       publishedAt: entry.publishedAt,
     }
-    writeFileSync(path.join(androidFeedDir, 'android-update.json'), JSON.stringify(restoredManifest, null, 2), 'utf8')
+    await writeFile(path.join(androidFeedDir, 'android-update.json'), JSON.stringify(restoredManifest, null, 2), 'utf8')
 
     return { restored: true, manifest: restoredManifest }
   })

@@ -1,8 +1,12 @@
 import { app, BrowserWindow, dialog } from "electron";
 import { randomUUID } from "crypto";
 import { readFileSync, statSync, existsSync, readdirSync } from "fs";
+import { readdir } from "fs/promises";
 import { basename, isAbsolute, join, resolve } from "path";
-import { execSync } from "child_process";
+import { exec } from "child_process";
+import { promisify } from "util";
+
+const execAsync = promisify(exec);
 import { getDatabase } from "./database";
 import { safeHandle } from "./safe-handle";
 
@@ -222,47 +226,48 @@ export function registerContextHandlers(): void {
     };
   });
 
-  safeHandle("context:workspace-summary", () => {
+  safeHandle("context:workspace-summary", async () => {
     const cwd = getWorkingDirectory();
     const maxDepth = 3;
     const maxEntries = 200;
     const ignored = new Set([".git", "node_modules", "dist", "release"]);
     const lines: string[] = [cwd];
     let entryCount = 0;
-    const walk = (dir: string, depth: number) => {
+    const walk = async (dir: string, depth: number): Promise<void> => {
       if (depth > maxDepth || entryCount >= maxEntries) return;
-      const entries = readdirSync(dir, { withFileTypes: true }).filter(
-        (entry) => !ignored.has(entry.name),
-      );
+      let entries: import("fs").Dirent[];
+      try {
+        entries = (await readdir(dir, { withFileTypes: true })).filter(
+          (entry) => !ignored.has(entry.name),
+        );
+      } catch {
+        return;
+      }
       for (const entry of entries) {
         if (entryCount >= maxEntries) break;
         const indent = "  ".repeat(depth);
         lines.push(`${indent}- ${entry.name}${entry.isDirectory() ? "/" : ""}`);
         entryCount += 1;
         if (entry.isDirectory()) {
-          walk(join(dir, entry.name), depth + 1);
+          await walk(join(dir, entry.name), depth + 1);
         }
       }
     };
-    walk(cwd, 1);
+    await walk(cwd, 1);
     return lines.join("\n");
   });
 
-  safeHandle("context:git", () => {
+  safeHandle("context:git", async () => {
     const cwd = getWorkingDirectory();
     try {
-      const branch = execSync("git rev-parse --abbrev-ref HEAD", {
-        cwd,
-        encoding: "utf8",
-      }).trim();
-      const status = execSync("git status --short", {
-        cwd,
-        encoding: "utf8",
-      }).trim();
-      const recent = execSync("git log -5 --oneline", {
-        cwd,
-        encoding: "utf8",
-      }).trim();
+      const [branchResult, statusResult, recentResult] = await Promise.all([
+        execAsync("git rev-parse --abbrev-ref HEAD", { cwd }),
+        execAsync("git status --short", { cwd }),
+        execAsync("git log -5 --oneline", { cwd }),
+      ]);
+      const branch = branchResult.stdout.trim();
+      const status = statusResult.stdout.trim();
+      const recent = recentResult.stdout.trim();
       return [
         `Branch: ${branch}`,
         "",
@@ -277,20 +282,18 @@ export function registerContextHandlers(): void {
     }
   });
 
-  safeHandle("context:git-diff", () => {
+  safeHandle("context:git-diff", async () => {
     const cwd = getWorkingDirectory();
     try {
       // Check for a valid HEAD first (new repo with no commits has no HEAD)
       try {
-        execSync("git rev-parse HEAD", { cwd, encoding: "utf8" });
+        await execAsync("git rev-parse HEAD", { cwd });
       } catch {
         return "No commits yet — diff unavailable.";
       }
 
-      const stat = execSync("git diff --stat HEAD", {
-        cwd,
-        encoding: "utf8",
-      }).trim();
+      const { stdout } = await execAsync("git diff --stat HEAD", { cwd });
+      const stat = stdout.trim();
 
       if (!stat) {
         return "No changes since last commit.";

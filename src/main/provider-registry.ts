@@ -67,6 +67,10 @@ export const PROVIDERS: ProviderConfig[] = [
   }
 ]
 
+const MODEL_TO_PROVIDER = new Map<string, ProviderName>(
+  PROVIDERS.flatMap((p) => p.models.map((m) => [m, p.name] as [string, ProviderName]))
+)
+
 export function getProviderForAgent(agentModel: string): { provider: ProviderName; model: string } {
   const normalizedModel = !agentModel || agentModel === 'default' ? DEFAULT_PROVIDER_MODEL : agentModel
 
@@ -76,13 +80,8 @@ export function getProviderForAgent(agentModel: string): { provider: ProviderNam
     if (provider) return { provider: provider.name, model }
   }
 
-  for (const p of PROVIDERS) {
-    for (const m of p.models) {
-      if (normalizedModel === m) {
-        return { provider: p.name, model: m }
-      }
-    }
-  }
+  const staticProvider = MODEL_TO_PROVIDER.get(normalizedModel)
+  if (staticProvider) return { provider: staticProvider, model: normalizedModel }
 
   if (normalizedModel.startsWith('claude')) {
     return { provider: 'anthropic', model: normalizedModel }

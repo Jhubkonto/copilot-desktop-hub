@@ -1,7 +1,8 @@
 import { getDatabase } from './database'
 import { dialog, BrowserWindow } from 'electron'
 import { randomUUID } from 'crypto'
-import { readFileSync, writeFileSync, existsSync } from 'fs'
+import { existsSync } from 'fs'
+import { writeFile, readFile } from 'fs/promises'
 import { join } from 'path'
 import type { ToolConfig } from '../shared/types'
 import { safeHandle } from './safe-handle'
@@ -144,7 +145,7 @@ export function registerAgentHandlers(): void {
     return row ? rowToConfig(row) : null
   })
 
-  safeHandle('agent:create', (_event, config: Record<string, unknown>) => {
+  safeHandle('agent:create', async (_event, config: Record<string, unknown>) => {
     const id = randomUUID()
     const now = Date.now()
     db.prepare(
@@ -159,7 +160,7 @@ export function registerAgentHandlers(): void {
         .replace(/^-|-$/g, '')
       const scratchpadPath = join(config.rootDirectory, `${kebabName}-scratchpad.md`)
       if (!existsSync(scratchpadPath)) {
-        writeFileSync(
+        await writeFile(
           scratchpadPath,
           `# ${config.name} Scratchpad\n\nUse this file to store notes and context for the ${config.name} agent.\n`,
           'utf-8'
@@ -237,7 +238,7 @@ export function registerAgentHandlers(): void {
       filters: [{ name: 'JSON', extensions: ['json'] }]
     })
     if (result.canceled || !result.filePath) return false
-    writeFileSync(result.filePath, JSON.stringify(config, null, 2), 'utf-8')
+    await writeFile(result.filePath, JSON.stringify(config, null, 2), 'utf-8')
     return true
   })
 
@@ -249,7 +250,7 @@ export function registerAgentHandlers(): void {
     })
     if (result.canceled || result.filePaths.length === 0) return null
     try {
-      const content = readFileSync(result.filePaths[0], 'utf-8')
+      const content = await readFile(result.filePaths[0], 'utf-8')
       const config = JSON.parse(content)
       if (!config.name || typeof config.name !== 'string') return null
       const fullConfig = {

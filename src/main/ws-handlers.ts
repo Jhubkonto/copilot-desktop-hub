@@ -386,7 +386,7 @@ export function registerWsHandlers(): void {
     const db = getDatabase()
 
     if (command === 'android:update-manifest') {
-      reply({ event: 'android:update-manifest', data: getAndroidUpdateManifest(db) })
+      void getAndroidUpdateManifest(db).then((manifest) => reply({ event: 'android:update-manifest', data: manifest }))
       return
     }
 
