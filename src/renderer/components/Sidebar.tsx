@@ -77,10 +77,14 @@ export function Sidebar() {
   const recentConvs = conversations.slice(0, 5)
 
   const [openReportCount, setOpenReportCount] = useState(0)
+  const [newArtifactCount, setNewArtifactCount] = useState(0)
   const [configuredProviderLabel, setConfiguredProviderLabel] = useState('')
 
   const showSelfHealPanel = useAppStore((s) => s.showSelfHealPanel)
+  const showArtifactsPanel = useAppStore((s) => s.showArtifactsPanel)
   const showSettings = useAppStore((s) => s.showSettings)
+
+  const artifactLastOpenedRef = useRef(Date.now())
 
   useEffect(() => {
     if (typeof window.api.listErrorReports !== 'function') return
@@ -93,6 +97,19 @@ export function Sidebar() {
     const interval = setInterval(refresh, 30000)
     return () => clearInterval(interval)
   }, [showSelfHealPanel])
+
+  useEffect(() => {
+    const refresh = async () => {
+      try {
+        const all = await window.api.artifactList()
+        const fresh = all.filter((a) => a.status === 'ready' && a.createdAt > artifactLastOpenedRef.current)
+        setNewArtifactCount(fresh.length)
+      } catch {}
+    }
+    void refresh()
+    const interval = setInterval(() => { void refresh() }, 15000)
+    return () => clearInterval(interval)
+  }, [showArtifactsPanel])
 
   useEffect(() => {
     window.api.listProviders()
@@ -151,8 +168,9 @@ export function Sidebar() {
         <NavButton
           icon={<Package className="w-3.5 h-3.5" />}
           label="Artifacts"
-          onClick={() => setShowArtifactsPanel(true)}
-          ariaLabel="Open Artifacts"
+          onClick={() => { artifactLastOpenedRef.current = Date.now(); setNewArtifactCount(0); setShowArtifactsPanel(true) }}
+          badgeCount={newArtifactCount}
+          ariaLabel={`Open Artifacts${newArtifactCount > 0 ? ` (${newArtifactCount} new)` : ''}`}
           modal
         />
         <hr className="border-gray-200 dark:border-gray-700/80" />

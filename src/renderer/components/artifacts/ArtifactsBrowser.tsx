@@ -1,29 +1,33 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { CheckCircle, ChevronDown, ChevronRight, Package, Sparkles, Copy, Settings } from 'lucide-react'
-import type { ArtifactRow, ArtifactVersion, ArtifactSpec, ArtifactGeneratorMessage } from '@shared/types'
-import { BuildLog } from '../BuildLog'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { CheckCircle, ChevronDown, ChevronRight, Loader2, Package, Sparkles, Copy, Settings } from 'lucide-react'
+import type { ArtifactRow, ArtifactVersion } from '@shared/types'
 import { useAppStore } from '../../store/app-store'
-import { Button, PhaseBar, TextField, type PhaseBarStep } from '../ui/primitives'
+import { Button, TextField } from '../ui/primitives'
+import { ArtifactGeneratorModal } from '../ArtifactGeneratorModal'
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type Phase = 'idle' | 'chatting' | 'spec-ready' | 'generating' | 'ready' | 'failed'
-
 export type ArtifactScope = 'global' | 'project' | 'all'
 
-interface ChatMsg {
-  role: 'user' | 'assistant'
-  content: string
-}
+const SUPPORTED_EXPORT_FORMATS = ['raw-files', 'markdown', 'json']
 
 const KIND_LABELS: Record<string, string> = {
   document: 'Doc', code: 'Code', ui: 'UI', data: 'Data',
   prompt: 'Prompt', 'agent-config': 'Agent', plan: 'Plan', bundle: 'Bundle', other: 'Other',
 }
 
-const SUPPORTED_EXPORT_FORMATS = ['raw-files', 'markdown', 'json']
+function ElapsedTimer({ startedAt }: { startedAt: number }) {
+  const [elapsed, setElapsed] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000)
+    return () => clearInterval(id)
+  }, [startedAt])
+  const m = Math.floor(elapsed / 60)
+  const s = elapsed % 60
+  return <span className="text-[10px] tabular-nums text-purple-500 shrink-0">{m}:{String(s).padStart(2, '0')}</span>
+}
 
 function KindBadge({ kind }: { kind: string }) {
   return (
@@ -33,24 +37,21 @@ function KindBadge({ kind }: { kind: string }) {
   )
 }
 
-const PHASE_BAR_STEPS: PhaseBarStep[] = [
-  { id: 'chatting', label: 'Discovery' },
-  { id: 'spec-ready', label: 'Spec' },
-  { id: 'generating', label: 'Generate' },
-  { id: 'ready', label: 'Done' },
-]
-const PHASE_ORDER: Phase[] = ['idle', 'chatting', 'spec-ready', 'generating', 'ready']
-
 // ---------------------------------------------------------------------------
 // Artifact row
 // ---------------------------------------------------------------------------
 
-function ArtifactRowItem({ artifact, onRevise, onUseInChat }: { artifact: ArtifactRow; onRevise?: () => void; onUseInChat?: (artifactId: string, versionId?: string) => void }) {
+function ArtifactRowItem({ artifact, onRevise, onUseInChat }: {
+  artifact: ArtifactRow
+  onRevise?: () => void
+  onUseInChat?: (artifactId: string, versionId?: string) => void
+}) {
   const [expanded, setExpanded] = useState(false)
   const [versions, setVersions] = useState<ArtifactVersion[]>([])
   const [loadingVersions, setLoadingVersions] = useState(false)
   const [copying, setCopying] = useState('')
   const [exportMsg, setExportMsg] = useState('')
+  const [exportedPath, setExportedPath] = useState('')
 
   const handleExpand = async () => {
     if (!expanded && versions.length === 0) {
@@ -73,9 +74,11 @@ function ArtifactRowItem({ artifact, onRevise, onUseInChat }: { artifact: Artifa
 
   const handleExport = async (versionId: string, format: string) => {
     setExportMsg('')
+    setExportedPath('')
     try {
       const result = await window.api.artifactExport(versionId, format)
       setExportMsg(`Exported to: ${result.exportPath}`)
+      setExportedPath(result.exportPath)
     } catch (e) {
       setExportMsg(`Export failed: ${String(e)}`)
     }
@@ -101,8 +104,11 @@ function ArtifactRowItem({ artifact, onRevise, onUseInChat }: { artifact: Artifa
         {!artifact.projectId && (
           <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 font-medium">Global</span>
         )}
+        {artifact.status === 'generating' && <Loader2 className="w-3 h-3 text-purple-400 animate-spin shrink-0" />}
         <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
           artifact.status === 'ready' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+          : artifact.status === 'generating' ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400'
+          : artifact.status === 'failed' ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400'
           : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'
         }`}>{artifact.status}</span>
         <span className="text-[10px] text-gray-400 shrink-0">
@@ -160,7 +166,20 @@ function ArtifactRowItem({ artifact, onRevise, onUseInChat }: { artifact: Artifa
             </div>
           )}
 
-          {exportMsg && <p className="text-[10px] font-mono text-gray-500 truncate">{exportMsg}</p>}
+          {exportMsg && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-[10px] font-mono text-gray-500 truncate flex-1">{exportMsg}</p>
+              {exportedPath && (
+                <button
+                  type="button"
+                  onClick={() => void window.api.artifactOpenFolder(exportedPath)}
+                  className="text-[10px] text-blue-500 hover:text-blue-600 shrink-0"
+                >
+                  Open folder
+                </button>
+              )}
+            </div>
+          )}
 
           <div className="flex gap-2 pt-1">
             {onRevise && (
@@ -200,7 +219,6 @@ function ArtifactRowItem({ artifact, onRevise, onUseInChat }: { artifact: Artifa
 // ---------------------------------------------------------------------------
 
 interface ArtifactsBrowserProps {
-  /** Locks the browser to a single project and hides the scope picker. */
   fixedProjectId?: string
 }
 
@@ -210,6 +228,7 @@ export function ArtifactsBrowser({ fixedProjectId }: ArtifactsBrowserProps) {
   const requestArtifactAttach = useAppStore((s) => s.requestArtifactAttach)
   const setShowArtifactsPanel = useAppStore((s) => s.setShowArtifactsPanel)
   const addToast = useAppStore((s) => s.addToast)
+  const pendingGen = useAppStore((s) => s.pendingArtifactGeneration)
 
   const handleUseInChat = (artifactId: string, versionId?: string) => {
     requestArtifactAttach(artifactId, versionId)
@@ -219,25 +238,13 @@ export function ArtifactsBrowser({ fixedProjectId }: ArtifactsBrowserProps) {
 
   const [scope, setScope] = useState<ArtifactScope>(fixedProjectId ? 'project' : 'global')
   const [scopeProjectId, setScopeProjectId] = useState(fixedProjectId ?? projects[0]?.id ?? '')
-
   const [artifacts, setArtifacts] = useState<ArtifactRow[]>([])
   const [loading, setLoading] = useState(true)
   const [storageRoot, setStorageRoot] = useState('')
   const [editingRoot, setEditingRoot] = useState(false)
   const [rootInput, setRootInput] = useState('')
   const [showGenerator, setShowGenerator] = useState(false)
-  const [phase, setPhase] = useState<Phase>('idle')
-  const [messages, setMessages] = useState<ChatMsg[]>([])
-  const [input, setInput] = useState('')
-  const [sending, setSending] = useState(false)
-  const [streamBuf, setStreamBuf] = useState('')
-  const [pendingSpec, setPendingSpec] = useState<ArtifactSpec | null>(null)
-  const [fileEvents, setFileEvents] = useState<{ file: string; status: string }[]>([])
-  const [reviseTitle, setReviseTitle] = useState<string | null>(null)
-
-  const unsubTokenRef = useRef<(() => void) | null>(null)
-  const unsubSpecRef = useRef<(() => void) | null>(null)
-  const unsubFileRef = useRef<(() => void) | null>(null)
+  const [reviseProjectId, setReviseProjectId] = useState<string | undefined>(undefined)
 
   const effectiveProjectId = fixedProjectId ?? (scope === 'project' ? scopeProjectId : undefined)
 
@@ -263,27 +270,7 @@ export function ArtifactsBrowser({ fixedProjectId }: ArtifactsBrowserProps) {
     }
   }, [scope, scopeProjectId, effectiveProjectId, fixedProjectId])
 
-  useEffect(() => {
-    void loadAll()
-  }, [loadAll])
-
-  useEffect(() => {
-    unsubTokenRef.current = window.api.onArtifactGeneratorToken((chunk) => {
-      setStreamBuf((b) => b + chunk)
-    })
-    unsubSpecRef.current = window.api.onArtifactGeneratorSpecReady((spec) => {
-      setPendingSpec(spec)
-      setPhase('spec-ready')
-    })
-    unsubFileRef.current = window.api.onArtifactGeneratorFileEvent((e) => {
-      setFileEvents((prev) => [...prev, e])
-    })
-    return () => {
-      unsubTokenRef.current?.()
-      unsubSpecRef.current?.()
-      unsubFileRef.current?.()
-    }
-  }, [])
+  useEffect(() => { void loadAll() }, [loadAll])
 
   const handleSaveRoot = async () => {
     await window.api.artifactGeneratorSetStorageRoot(rootInput)
@@ -291,59 +278,9 @@ export function ArtifactsBrowser({ fixedProjectId }: ArtifactsBrowserProps) {
     setEditingRoot(false)
   }
 
-  const generatorProjectId = fixedProjectId ?? (scope === 'project' ? scopeProjectId : undefined)
-
-  const handleSend = async () => {
-    if (!input.trim() || sending) return
-    const userMsg: ChatMsg = { role: 'user', content: input.trim() }
-    const newMessages = [...messages, userMsg]
-    setMessages(newMessages)
-    setInput('')
-    setSending(true)
-    setStreamBuf('')
-    setPhase('chatting')
-
-    try {
-      await window.api.artifactGeneratorChat(newMessages as ArtifactGeneratorMessage[], generatorProjectId)
-      setMessages((prev) => [...prev, { role: 'assistant', content: streamBuf || '…' }])
-    } catch (e) {
-      setMessages((prev) => [...prev, { role: 'assistant', content: `Error: ${String(e)}` }])
-      setPhase('failed')
-    } finally {
-      setSending(false)
-    }
-  }
-
-  const handleApproveSpec = async () => {
-    if (!pendingSpec) return
-    setPhase('generating')
-    setFileEvents([])
-    const runId = crypto.randomUUID()
-    try {
-      await window.api.artifactGeneratorGenerate(runId, pendingSpec, generatorProjectId)
-      setPhase('ready')
-      await loadAll()
-    } catch {
-      setPhase('failed')
-    }
-  }
-
-  const handleReset = () => {
-    setPhase('idle')
-    setMessages([])
-    setInput('')
-    setStreamBuf('')
-    setPendingSpec(null)
-    setFileEvents([])
-    setReviseTitle(null)
-    setShowGenerator(false)
-  }
-
-  const handleRevise = (title: string) => {
-    setReviseTitle(title)
+  const handleRevise = (projectId: string | null) => {
+    setReviseProjectId(projectId ?? undefined)
     setShowGenerator(true)
-    setPhase('chatting')
-    setMessages([{ role: 'user', content: `I want to generate a new version of "${title}"` }])
   }
 
   const emptyMessage = useMemo(() => {
@@ -351,6 +288,8 @@ export function ArtifactsBrowser({ fixedProjectId }: ArtifactsBrowserProps) {
     if (scope === 'all') return 'No artifacts yet. Generate one above.'
     return 'No artifacts yet for this project. Generate one above.'
   }, [scope])
+
+  const generatorProjectId = fixedProjectId ?? (scope === 'project' ? scopeProjectId : undefined)
 
   return (
     <div className="space-y-4">
@@ -408,20 +347,8 @@ export function ArtifactsBrowser({ fixedProjectId }: ArtifactsBrowserProps) {
                 onChange={(e) => setRootInput(e.target.value)}
                 className="flex-1 text-[11px] font-mono px-2 py-1"
               />
-              <Button
-                variant="primary"
-                onClick={handleSaveRoot}
-                className="text-[10px] px-2 py-1"
-              >
-                Save
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => setEditingRoot(false)}
-                className="text-[10px] px-2 py-1"
-              >
-                Cancel
-              </Button>
+              <Button variant="primary" onClick={handleSaveRoot} className="text-[10px] px-2 py-1">Save</Button>
+              <Button variant="secondary" onClick={() => setEditingRoot(false)} className="text-[10px] px-2 py-1">Cancel</Button>
             </div>
           ) : (
             <p className="text-[11px] font-mono text-gray-500 dark:text-gray-400 truncate">{storageRoot || '—'}</p>
@@ -437,135 +364,53 @@ export function ArtifactsBrowser({ fixedProjectId }: ArtifactsBrowserProps) {
             {fixedProjectId ? 'Project Artifacts' : scope === 'global' ? 'Global Artifacts' : scope === 'all' ? 'All Artifacts' : 'Project Artifacts'}
           </p>
         </div>
-        {!showGenerator && (
-          <Button
-            variant="primary"
-            onClick={() => { setShowGenerator(true); setPhase('chatting') }}
-            disabled={scope === 'all'}
-            title={scope === 'all' ? 'Pick "Global" or "This Project" to generate' : undefined}
-          >
-            <Sparkles className="w-3 h-3" />
-            Generate artifact
-          </Button>
-        )}
+        <Button
+          variant="primary"
+          onClick={() => { setReviseProjectId(undefined); setShowGenerator(true) }}
+          disabled={scope === 'all'}
+          title={scope === 'all' ? 'Pick "Global" or "This Project" to generate' : undefined}
+        >
+          <Sparkles className="w-3 h-3" />
+          Generate artifact
+        </Button>
       </div>
-
-      {/* Inline generator */}
-      {showGenerator && (
-        <div className="border border-blue-200 dark:border-blue-800 rounded-lg p-3 space-y-3 bg-blue-50/30 dark:bg-blue-900/5">
-          <div className="mb-3">
-            <PhaseBar steps={PHASE_BAR_STEPS} currentIndex={PHASE_ORDER.indexOf(phase)} />
-          </div>
-
-          <div className="space-y-2 max-h-48 overflow-y-auto">
-            {messages.map((m, i) => (
-              <div key={i} className={`text-[11px] px-2.5 py-1.5 rounded-lg ${
-                m.role === 'user'
-                  ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-200 ml-4'
-                  : 'bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
-              }`}>
-                <span className="font-medium text-[10px] text-gray-400 block mb-0.5">{m.role === 'user' ? 'You' : 'Assistant'}</span>
-                <span className="whitespace-pre-wrap">{m.content}</span>
-              </div>
-            ))}
-            {sending && streamBuf && (
-              <div className="text-[11px] px-2.5 py-1.5 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
-                <span className="font-medium text-[10px] text-gray-400 block mb-0.5">Assistant</span>
-                <span className="whitespace-pre-wrap">{streamBuf}</span>
-              </div>
-            )}
-          </div>
-
-          {pendingSpec && phase === 'spec-ready' && (
-            <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/10 p-3 space-y-1.5">
-              <div className="flex items-center gap-2">
-                <KindBadge kind={pendingSpec.kind} />
-                <p className="text-xs font-semibold text-blue-800 dark:text-blue-300">{pendingSpec.title}</p>
-              </div>
-              <p className="text-[11px] text-gray-600 dark:text-gray-400">{pendingSpec.intendedUse}</p>
-              {pendingSpec.outputFiles.length > 0 && (
-                <div>
-                  <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Output files</p>
-                  {pendingSpec.outputFiles.map((f, i) => (
-                    <p key={i} className="text-[11px] font-mono text-gray-600 dark:text-gray-400">{f.path}</p>
-                  ))}
-                </div>
-              )}
-              <div className="flex gap-2 pt-1">
-                <Button
-                  variant="primary"
-                  onClick={handleApproveSpec}
-                  className="text-[11px] px-3 py-1"
-                >
-                  Approve and generate
-                </Button>
-                <Button variant="secondary" onClick={() => setPendingSpec(null)} className="text-[11px] px-2 py-1">
-                  Revise
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {phase === 'generating' && (
-            <BuildLog
-              lines={fileEvents.map((e) => `${e.status === 'done' ? '✓' : '✗'} ${e.file}`)}
-              className="h-24 text-[11px]"
-            />
-          )}
-
-          {phase === 'ready' && (
-            <div className="flex items-center gap-2 text-[11px] text-green-700 dark:text-green-400">
-              <CheckCircle className="w-3.5 h-3.5" />
-              Artifact generated successfully.
-            </div>
-          )}
-
-          {(phase === 'chatting' || phase === 'idle') && (
-            <div className="flex gap-2">
-              <TextField
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void handleSend() } }}
-                placeholder={reviseTitle ? `Tell me what to change in "${reviseTitle}"…` : 'Describe the artifact you want to create…'}
-                className="flex-1 text-xs px-3 py-2"
-                disabled={sending}
-              />
-              <Button
-                variant="primary"
-                onClick={handleSend}
-                disabled={sending || !input.trim()}
-                className="text-[11px] px-3 py-1.5"
-              >
-                {sending ? '…' : 'Send'}
-              </Button>
-            </div>
-          )}
-
-          <div className="flex justify-end">
-            <button type="button" onClick={handleReset} className="text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Artifact list */}
       {loading ? (
         <p className="text-[11px] text-gray-400">Loading artifacts…</p>
-      ) : artifacts.length === 0 ? (
-        <p className="text-[11px] text-gray-400">{emptyMessage}</p>
       ) : (
         <div className="space-y-2">
-          {artifacts.map((a) => (
-            <ArtifactRowItem
-              key={a.id}
-              artifact={a}
-              onRevise={a.projectId || fixedProjectId ? () => handleRevise(a.title) : undefined}
-              onUseInChat={currentConversationId ? handleUseInChat : undefined}
-            />
-          ))}
+          {pendingGen && (
+            <div className="border border-purple-200 dark:border-purple-800 rounded-lg px-3 py-2.5 flex items-center gap-2 bg-purple-50/50 dark:bg-purple-900/10">
+              <Loader2 className="w-3.5 h-3.5 text-purple-500 animate-spin shrink-0" />
+              <KindBadge kind={pendingGen.kind} />
+              <span className="text-xs font-medium text-gray-800 dark:text-gray-200 flex-1 truncate">{pendingGen.title}</span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400 font-medium">generating…</span>
+              <ElapsedTimer startedAt={pendingGen.startedAt} />
+            </div>
+          )}
+          {artifacts.length === 0 && !pendingGen ? (
+            <p className="text-[11px] text-gray-400">{emptyMessage}</p>
+          ) : (
+            artifacts.map((a) => (
+              <ArtifactRowItem
+                key={a.id}
+                artifact={a}
+                onRevise={a.projectId || fixedProjectId ? () => handleRevise(a.projectId) : undefined}
+                onUseInChat={currentConversationId ? handleUseInChat : undefined}
+              />
+            ))
+          )}
         </div>
+      )}
+
+      {/* Generator modal */}
+      {showGenerator && (
+        <ArtifactGeneratorModal
+          projectId={reviseProjectId ?? generatorProjectId}
+          onClose={() => setShowGenerator(false)}
+          onArtifactCreated={() => { void loadAll() }}
+        />
       )}
     </div>
   )
