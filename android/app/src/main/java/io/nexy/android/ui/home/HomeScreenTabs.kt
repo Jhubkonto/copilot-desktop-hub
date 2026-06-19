@@ -345,6 +345,7 @@ fun ProjectsTab(
     onDismissCreateSheet: () -> Unit,
     onRefresh: () -> Unit,
     onOpenProjectHistory: (String) -> Unit,
+    onOpenProjectConfig: (String) -> Unit = {},
     onOpenProjectGenerator: () -> Unit,
     onCreateProject: (name: String, color: String) -> Unit,
     onRenameProject: (id: String, name: String) -> Unit,
@@ -547,6 +548,14 @@ fun ProjectsTab(
                                 }
                                 DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                                     DropdownMenuItem(
+                                        text = { Text("Settings") },
+                                        leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            onOpenProjectConfig(project.id)
+                                        },
+                                    )
+                                    DropdownMenuItem(
                                         text = { Text("Rename") },
                                         leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
                                         onClick = {
@@ -585,6 +594,7 @@ fun AgentsTab(
     onRefresh: () -> Unit,
     onOpenAgentHistory: (String) -> Unit,
     onOpenAgentConfig: (String) -> Unit = {},
+    onOpenAgentGenerator: () -> Unit = {},
     onCreateAgent: (name: String, icon: String) -> Unit,
     onRenameAgent: (id: String, name: String, icon: String) -> Unit,
     onDeleteAgent: (id: String) -> Unit,
@@ -704,14 +714,30 @@ fun AgentsTab(
 
     RefreshableContent(isRefreshing = isRefreshing, onRefresh = onRefresh) {
         if (agents.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                NexyEmptyState(
-                    title = "No agents yet.",
-                    detail = "Tap + to create one.",
-                )
+            Column(
+                modifier = Modifier.fillMaxSize().padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                NexyEmptyState(title = "No agents yet.", detail = "Create one manually or generate a full setup.")
+                TextButton(onClick = onOpenAgentGenerator) {
+                    Icon(Icons.Filled.Add, contentDescription = null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Generate agent")
+                }
             }
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
+                item {
+                    TextButton(
+                        onClick = onOpenAgentGenerator,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                    ) {
+                        Icon(Icons.Filled.Add, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Generate agent")
+                    }
+                }
                 items(agents, key = { it.id }) { agent ->
                     var menuExpanded by remember { mutableStateOf(false) }
                     Surface(

@@ -106,6 +106,14 @@ sealed class WsEvent {
     data class ProjectGeneratorCreated(val sessionId: String?, val projectId: String, val name: String) : WsEvent()
     data class ProjectGeneratorError(val sessionId: String?, val message: String) : WsEvent()
     data class ProjectGeneratorCancelled(val sessionId: String?) : WsEvent()
+    data class ProjectConfigUpdated(val id: String) : WsEvent()
+    data class ProjectConfig(val id: String, val config: ProjectSettingsConfig) : WsEvent()
+    data class AgentGeneratorToken(val sessionId: String?, val chunk: String) : WsEvent()
+    data class AgentGeneratorTurnComplete(val sessionId: String?, val content: String, val hasSpec: Boolean = false) : WsEvent()
+    data class AgentGeneratorSpecReady(val sessionId: String?, val spec: AgentGeneratorSpec) : WsEvent()
+    data class AgentGeneratorCreated(val sessionId: String?, val agentId: String, val name: String) : WsEvent()
+    data class AgentGeneratorError(val sessionId: String?, val message: String) : WsEvent()
+    data class AgentGeneratorCancelled(val sessionId: String?) : WsEvent()
 }
 
 data class ErrorReport(
@@ -263,4 +271,31 @@ data class ConversationExportPackData(
     val fileName: String,
     val mimeType: String,
     val content: String,
+)
+
+data class ProjectSettingsConfig(
+    val instructions: String,
+    val rootDirectory: String?,
+    val instructionMode: String,
+    val orchestrationEnabled: Boolean,
+    val defaultModel: String?,
+)
+
+data class AgentGeneratorSpec(
+    val name: String,
+    val icon: String,
+    val systemPrompt: String,
+    val temperature: Double,
+    val responseFormat: String,
+    val agenticMode: Boolean,
+    val tools: AgentGeneratorTools,
+    val rootDirectory: String?,
+    val contextDirectories: List<String>,
+    val memory: String?,
+)
+
+data class AgentGeneratorTools(
+    val fileEdit: Boolean,
+    val terminal: Boolean,
+    val webFetch: Boolean,
 )

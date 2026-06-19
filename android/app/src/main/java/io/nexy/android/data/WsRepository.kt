@@ -377,6 +377,19 @@ object WsRepository : WsClient {
     }
     fun getArtifact(id: String) { send("artifact:get", mapOf("id" to id)) }
 
+    fun getProjectConfig(id: String) { send("project:get-config", mapOf("id" to id)) }
+    fun updateProjectConfig(id: String, instructions: String, rootDirectory: String?, instructionMode: String, orchestrationEnabled: Boolean, defaultModel: String?) {
+        val data = mutableMapOf<String, Any>(
+            "id" to id,
+            "instructions" to instructions,
+            "instructionMode" to instructionMode,
+            "orchestrationEnabled" to orchestrationEnabled,
+        )
+        rootDirectory?.let { data["rootDirectory"] = it }
+        defaultModel?.let { data["defaultModel"] = it }
+        send("project:update-config", data)
+    }
+
     fun listWikiEntries(projectId: String) { send("wiki:list", mapOf("projectId" to projectId)) }
     fun createWikiEntry(projectId: String, title: String, body: String, tags: List<String>) {
         send("wiki:create", mapOf("projectId" to projectId, "title" to title, "body" to body, "tags" to tags))

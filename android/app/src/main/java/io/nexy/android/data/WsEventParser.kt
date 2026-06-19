@@ -5,6 +5,9 @@ import io.nexy.android.data.model.AgentFullConfig
 import io.nexy.android.data.model.AgentTools
 import io.nexy.android.data.model.ToolConfig
 import io.nexy.android.data.model.AndroidUpdateManifest
+import io.nexy.android.data.model.AgentGeneratorSpec
+import io.nexy.android.data.model.AgentGeneratorTools
+import io.nexy.android.data.model.ProjectSettingsConfig
 import io.nexy.android.data.model.ArtifactDetail2
 import io.nexy.android.data.model.ProjectGeneratorSpec
 import io.nexy.android.data.model.ProjectGeneratorAgentSpec
@@ -618,6 +621,52 @@ fun parseWsEvent(
 
             "project-generator:cancelled" -> WsEvent.ProjectGeneratorCancelled(data?.nullableString("sessionId"))
 
+            "project:config-updated" -> WsEvent.ProjectConfigUpdated(id = data?.optString("id") ?: "")
+
+            "project:config" -> {
+                val c = data?.optJSONObject("config") ?: JSONObject()
+                WsEvent.ProjectConfig(
+                    id = data?.optString("id") ?: "",
+                    config = ProjectSettingsConfig(
+                        instructions = c.optString("instructions", ""),
+                        rootDirectory = c.nullableString("rootDirectory"),
+                        instructionMode = c.optString("instructionMode", "prepend"),
+                        orchestrationEnabled = c.optBoolean("orchestrationEnabled", false),
+                        defaultModel = c.nullableString("defaultModel"),
+                    ),
+                )
+            }
+
+            "agent-generator:token" -> WsEvent.AgentGeneratorToken(
+                sessionId = data?.nullableString("sessionId"),
+                chunk = data?.optString("chunk") ?: "",
+            )
+
+            "agent-generator:turn-complete" -> WsEvent.AgentGeneratorTurnComplete(
+                sessionId = data?.nullableString("sessionId"),
+                content = data?.optString("content") ?: "",
+                hasSpec = data?.optBoolean("hasSpec", false) ?: false,
+            )
+
+            "agent-generator:spec-ready" -> {
+                val specData = data?.optJSONObject("spec") ?: data
+                val spec = parseAgentGeneratorSpec(specData) ?: return
+                WsEvent.AgentGeneratorSpecReady(data?.nullableString("sessionId"), spec)
+            }
+
+            "agent-generator:created" -> WsEvent.AgentGeneratorCreated(
+                sessionId = data?.nullableString("sessionId"),
+                agentId = data?.optString("agentId") ?: "",
+                name = data?.optString("name") ?: "",
+            )
+
+            "agent-generator:error" -> WsEvent.AgentGeneratorError(
+                sessionId = data?.nullableString("sessionId"),
+                message = data?.optString("message") ?: "Unknown error",
+            )
+
+            "agent-generator:cancelled" -> WsEvent.AgentGeneratorCancelled(data?.nullableString("sessionId"))
+
             else -> return
         }
         scope.launch { events.emit(wsEvent) }
@@ -722,6 +771,29 @@ private fun parseAgentTools(obj: JSONObject?): AgentTools {
         fileEdit = parseToolConfig(obj?.optJSONObject("fileEdit"), defaultEnabled = true, defaultApproval = "always-ask"),
         terminal = parseToolConfig(obj?.optJSONObject("terminal"), defaultEnabled = false, defaultApproval = "always-ask"),
         webFetch = parseToolConfig(obj?.optJSONObject("webFetch"), defaultEnabled = true, defaultApproval = "never-ask"),
+    )
+}
+
+private fun parseAgentGeneratorSpec(data: JSONObject?): AgentGeneratorSpec? {
+    val d = data ?: return null
+    val toolsObj = d.optJSONObject("tools")
+    val ctxArr = d.optJSONArray("contextDirectories")
+    val contextDirectories = if (ctxArr != null) (0 until ctxArr.length()).map { ctxArr.optString(it) } else emptyList()
+    return AgentGeneratorSpec(
+        name = d.optString("name", ""),
+        icon = d.optString("icon", ""),
+        systemPrompt = d.optString("systemPrompt", ""),
+        temperature = d.optDouble("temperature", 0.7),
+        responseFormat = d.optString("responseFormat", "default"),
+        agenticMode = d.optBoolean("agenticMode", false),
+        tools = AgentGeneratorTools(
+            fileEdit = toolsObj?.optBoolean("fileEdit", true) ?: true,
+            terminal = toolsObj?.optBoolean("terminal", false) ?: false,
+            webFetch = toolsObj?.optBoolean("webFetch", true) ?: true,
+        ),
+        rootDirectory = d.nullableString("rootDirectory"),
+        contextDirectories = contextDirectories,
+        memory = d.nullableString("memory"),
     )
 }
 

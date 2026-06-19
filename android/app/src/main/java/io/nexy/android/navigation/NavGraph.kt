@@ -11,7 +11,9 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
+import io.nexy.android.ui.agentgenerator.AgentGeneratorScreen
 import io.nexy.android.ui.chat.ChatScreen
+import io.nexy.android.ui.projects.ProjectConfigScreen
 import io.nexy.android.ui.home.AgentConfigScreen
 import io.nexy.android.ui.home.HistoryScope
 import io.nexy.android.ui.home.HomeScreen
@@ -106,8 +108,14 @@ fun NavGraph(onRequestNotificationPermission: () -> Unit = {}) {
                 onOpenProjectHistory = { projectId ->
                     navController.navigate("history/project/${Uri.encode(projectId)}")
                 },
+                onOpenProjectConfig = { projectId ->
+                    navController.navigate("project-config/${Uri.encode(projectId)}")
+                },
                 onOpenProjectGenerator = {
                     navController.navigate("project-generator")
+                },
+                onOpenAgentGenerator = {
+                    navController.navigate("agent-generator")
                 },
                 onDisconnected = {
                     navController.navigate("pairing") {
@@ -238,6 +246,18 @@ fun NavGraph(onRequestNotificationPermission: () -> Unit = {}) {
 
         composable("project-generator") {
             ProjectGeneratorScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable("agent-generator") {
+            AgentGeneratorScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(
+            route = "project-config/{projectId}",
+            arguments = listOf(navArgument("projectId") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val projectId = backStackEntry.arguments?.getString("projectId") ?: return@composable
+            ProjectConfigScreen(projectId = projectId, onBack = { navController.popBackStack() })
         }
 
         composable("artifacts") {
