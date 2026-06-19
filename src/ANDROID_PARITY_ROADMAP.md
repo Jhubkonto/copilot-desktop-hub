@@ -72,15 +72,15 @@ Feature Generator is intentionally excluded because it has been removed from the
 | Skills CRUD | Done | Done | Done | Done | Done |
 | Skill import/export | Done | Partial | Partial | Done | Done |
 | Agent-skill links | Done | Done | Done | Done | Done |
-| Skill Generator | Done | Missing | Missing | Missing | Missing |
-| Artifact Generator | Done | Missing | Missing | Missing | Missing |
+| Skill Generator | Done | Done | Done | Done | Done |
+| Artifact Generator | Done | Done | Done | Done | Done |
 | Full Agent Config | Done | Partial | Partial | Partial | Partial |
 | Full Project Settings | Done | Partial | Partial | Partial | Partial |
 | Artifact lifecycle | Done | Partial | Partial | Partial | Partial |
 | Prompt versions | Done | Missing | Missing | Missing | Missing |
 | Wiki extraction/source markers | Done | Missing | Missing | Missing | Partial |
 | MCP management/tools/trust | Done | Partial | Partial | Partial | Partial |
-| Provider Azure/test-key | Done | Missing | Missing | Missing | Missing |
+| Provider Azure/test-key | Done | Done | Done | Done | Done |
 | Advanced conversation controls | Done | Partial | Partial | Partial | Partial |
 
 ### Phase 1 - Navigation And IA Parity
@@ -89,7 +89,8 @@ Feature Generator is intentionally excluded because it has been removed from the
 - [x] Move Artifacts out of Settings into a desktop-parity content/tool entry point.
 - [x] Add Android route for Skills.
 - [x] Add missing Android route for Skill Generator.
-- [ ] Add missing Android routes for full Project Settings sections and Artifact Generator.
+- [x] Add missing Android route for Artifact Generator.
+- [ ] Add missing Android routes for full Project Settings sections.
 - [ ] Ensure every desktop top-level pane has an Android destination or documented mobile-adjusted equivalent.
 - [ ] Add consistent empty/error/retry states for each parity screen.
 
@@ -131,7 +132,7 @@ Feature Generator is intentionally excluded because it has been removed from the
 
 - [ ] Verify existing Android `agent-generator:*` support against the desktop generator.
 - [x] Add `skill-generator:*` WS bridge and Android screen.
-- [ ] Add `artifact-generator:*` WS bridge and Android screen.
+- [x] Add `artifact-generator:*` WS bridge and Android screen.
 - [ ] Add parser and ViewModel tests for token/spec/done/error/cancel flows.
 
 ### Phase 6 - Full Agent Configuration Parity
