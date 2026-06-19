@@ -88,7 +88,8 @@ Feature Generator is intentionally excluded because it has been removed from the
 - [x] Move Project Generator out of Settings into the Projects creation flow.
 - [x] Move Artifacts out of Settings into a desktop-parity content/tool entry point.
 - [x] Add Android route for Skills.
-- [ ] Add missing Android routes for Skill Generator, full Project Settings sections, and Artifact Generator.
+- [x] Add missing Android route for Skill Generator.
+- [ ] Add missing Android routes for full Project Settings sections and Artifact Generator.
 - [ ] Ensure every desktop top-level pane has an Android destination or documented mobile-adjusted equivalent.
 - [ ] Add consistent empty/error/retry states for each parity screen.
 
@@ -100,7 +101,7 @@ Feature Generator is intentionally excluded because it has been removed from the
 - [x] Add a dedicated CLI Models entry/section in Android Settings.
 - [ ] Ensure global default model resolution produces visible Android errors when it fails.
 - [x] Fix OpenRouter provider row layout so "Configured" never wraps awkwardly.
-- [ ] Add provider parity for Azure endpoint and provider has-key/test-key flows.
+- [x] Add provider parity for Azure endpoint and provider test-key flows.
 
 ### Phase 3 - Chat UI Polish And Conversation Parity
 
@@ -129,7 +130,7 @@ Feature Generator is intentionally excluded because it has been removed from the
 ### Phase 5 - Generator Parity
 
 - [ ] Verify existing Android `agent-generator:*` support against the desktop generator.
-- [ ] Add `skill-generator:*` WS bridge and Android screen.
+- [x] Add `skill-generator:*` WS bridge and Android screen.
 - [ ] Add `artifact-generator:*` WS bridge and Android screen.
 - [ ] Add parser and ViewModel tests for token/spec/done/error/cancel flows.
 
