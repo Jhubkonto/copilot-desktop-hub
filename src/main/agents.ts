@@ -6,6 +6,7 @@ import { writeFile, readFile } from 'fs/promises'
 import { join } from 'path'
 import type { ToolConfig } from '../shared/types'
 import { safeHandle } from './safe-handle'
+import { applySkillsToAgentConfig } from './skills'
 
 interface AgentRow {
   id: string
@@ -128,7 +129,7 @@ export function getAgentConfig(agentId: string): Record<string, unknown> | null 
     terminal: normaliseToolConfig(config.tools?.terminal),
     webFetch: normaliseToolConfig(config.tools?.webFetch)
   }
-  return config
+  return applySkillsToAgentConfig(agentId, config)
 }
 
 export function registerAgentHandlers(): void {

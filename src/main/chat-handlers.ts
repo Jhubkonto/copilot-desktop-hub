@@ -41,6 +41,71 @@ type ChatSendOptions = {
   contextSnapshot?: string
 }
 
+type AgentToolPolicy = { enabled?: boolean; approval?: string }
+type BuiltInToolKey = 'fileEdit' | 'terminal' | 'webFetch'
+
+const CLAUDE_CLI_BUILT_IN_TOOLS: Array<{
+  key: BuiltInToolKey
+  label: string
+  approvalTool: string
+  claudeTools: string[]
+  description: string
+}> = [
+  {
+    key: 'fileEdit',
+    label: 'File Edit',
+    approvalTool: 'claude-cli:fileEdit',
+    claudeTools: ['Read', 'Write', 'Edit', 'MultiEdit'],
+    description: 'Allow Claude CLI to read and edit files for this message?',
+  },
+  {
+    key: 'terminal',
+    label: 'Terminal',
+    approvalTool: 'claude-cli:terminal',
+    claudeTools: ['Bash'],
+    description: 'Allow Claude CLI to run terminal commands for this message?',
+  },
+  {
+    key: 'webFetch',
+    label: 'Web Fetch',
+    approvalTool: 'claude-cli:webFetch',
+    claudeTools: ['WebFetch', 'WebSearch'],
+    description: 'Allow Claude CLI to fetch or search web content for this message?',
+  },
+]
+
+async function getClaudeCliAllowedBuiltInTools(
+  window: BrowserWindow,
+  agentConfig: Record<string, unknown> | null,
+  sendActivity: (activity: MobileChatActivity) => void,
+): Promise<string[]> {
+  const tools = (agentConfig?.tools && typeof agentConfig.tools === 'object'
+    ? agentConfig.tools
+    : {}) as Partial<Record<BuiltInToolKey, AgentToolPolicy>>
+  const allowedTools: string[] = []
+
+  for (const tool of CLAUDE_CLI_BUILT_IN_TOOLS) {
+    const policy = tools[tool.key]
+    if (policy?.enabled !== true) continue
+    const approval = policy.approval === 'disabled' ? 'always-ask' : policy.approval
+
+    let approved = approval === 'auto'
+    if (!approved) {
+      sendActivity({ state: 'approval', label: `Waiting for ${tool.label} approval`, toolName: tool.label })
+      approved = await requestApproval(
+        window.webContents,
+        tool.approvalTool,
+        {},
+        tool.description,
+        { noRemember: true },
+      )
+    }
+    if (approved) allowedTools.push(...tool.claudeTools)
+  }
+
+  return allowedTools
+}
+
 export async function dispatchChatSend(
   window: BrowserWindow,
   conversationId: string,
@@ -519,6 +584,10 @@ export async function dispatchChatSend(
             cliMcpServersFiltered: filteredServers.length > 0 ? filteredServers : undefined,
           }
         })()
+        const cliAllowedBuiltInTools = effectiveBackend === 'claude-cli'
+          ? await getClaudeCliAllowedBuiltInTools(window, agentCfg2, sendActivity)
+          : []
+        const cliAllowedTools = [...cliAllowedBuiltInTools, ...(cliAllowedMcpTools ?? [])]
 
         const cliThinkingBuffer = new Map<string, { blockId: string; content: string; done: boolean }>()
         const cliAbortController = new AbortController()
@@ -533,7 +602,7 @@ export async function dispatchChatSend(
             model: cliModelForRequest,
             conversationId,
             mcpServers: cliMcpServersFiltered,
-            allowedTools: cliAllowedMcpTools,
+            allowedTools: cliAllowedTools.length > 0 ? cliAllowedTools : undefined,
             thinkingEffort: agentCfg2?.thinkingEffort as 'low' | 'medium' | 'high' | 'max' | 'disabled' | undefined,
           },
           sendChunk,

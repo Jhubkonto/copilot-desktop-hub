@@ -217,13 +217,16 @@ export function registerToolHandlers(): void {
       if (pref === 'always_deny') {
         return { success: false, error: 'Tool denied by preference' }
       }
-      if (agentToolConfig?.approval === 'disabled') {
+      const approvalPolicy = agentToolConfig?.enabled === true && agentToolConfig.approval === 'disabled'
+        ? 'always-ask'
+        : agentToolConfig?.approval
+      if (approvalPolicy === 'disabled') {
         return { success: false, error: 'Tool disabled for this agent' }
       }
 
-      let approved = agentToolConfig?.approval === 'auto'
+      let approved = approvalPolicy === 'auto'
         ? true
-        : agentToolConfig?.approval === 'always-ask'
+        : approvalPolicy === 'always-ask'
           ? false
           : pref === 'always_allow'
 
