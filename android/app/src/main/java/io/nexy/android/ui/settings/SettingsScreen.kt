@@ -28,8 +28,6 @@ fun SettingsScreen(
     onOpenDiagnostics: () -> Unit = {},
     onOpenSelfHeal: () -> Unit = {},
     onOpenProviders: () -> Unit = {},
-    onOpenProjectGenerator: () -> Unit = {},
-    onOpenArtifacts: () -> Unit = {},
     onOpenPromptLibrary: () -> Unit = {},
     onOpenGlobalSettings: () -> Unit = {},
     onOpenMcpAndCli: () -> Unit = {},
@@ -74,6 +72,11 @@ fun SettingsScreen(
                 onClick = onOpenModels,
             )
             SettingsNavRow(
+                title = "CLI Models",
+                detail = "Claude and Codex CLI model availability",
+                onClick = onOpenMcpAndCli,
+            )
+            SettingsNavRow(
                 title = "Notifications",
                 detail = "Tool approval push notifications",
                 onClick = onOpenNotifications,
@@ -92,16 +95,6 @@ fun SettingsScreen(
                 onClick = onOpenPromptLibrary,
             )
             SettingsNavRow(
-                title = "Project Generator",
-                detail = "LLM-assisted project scaffolding with agents and milestones",
-                onClick = onOpenProjectGenerator,
-            )
-            SettingsNavRow(
-                title = "Artifacts",
-                detail = "Browse generated project artifacts",
-                onClick = onOpenArtifacts,
-            )
-            SettingsNavRow(
                 title = "Self-Heal Reports",
                 detail = "Review investigation and fix reports",
                 onClick = onOpenSelfHeal,
@@ -113,8 +106,8 @@ fun SettingsScreen(
             )
 
             SettingsNavRow(
-                title = "MCP & CLI",
-                detail = "MCP server list and CLI tool status",
+                title = "MCP Servers",
+                detail = "Configured desktop MCP server list",
                 onClick = onOpenMcpAndCli,
             )
 

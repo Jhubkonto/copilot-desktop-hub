@@ -192,11 +192,25 @@ fun ModelsSection(
                 Text(emptyModelListDetail(modelSource), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
                 Text("${models.size} available model${if (models.size == 1) "" else "s"}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                models.take(4).forEach { model ->
-                    Text(listOfNotNull(model.label, model.vendor).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                if (models.size > 4) {
-                    Text("+${models.size - 4} more", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                models
+                    .filterNot { it.id == "default" }
+                    .groupBy { it.vendor?.takeIf { vendor -> vendor.isNotBlank() } ?: "Other" }
+                    .toSortedMap()
+                    .forEach { (vendor, vendorModels) ->
+                        Text(
+                            vendor,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+                        vendorModels.sortedBy { it.label.lowercase() }.forEach { model ->
+                            Text(
+                                model.label,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                 }
             }
         }

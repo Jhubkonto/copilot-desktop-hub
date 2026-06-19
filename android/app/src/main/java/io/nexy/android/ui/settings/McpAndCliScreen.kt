@@ -45,7 +45,7 @@ fun McpAndCliScreen(onBack: () -> Unit) {
     Scaffold(
         topBar = {
             NexyTopAppBar(
-                titleContent = { Text("MCP & CLI", style = MaterialTheme.typography.titleMedium) },
+                titleContent = { Text("CLI Models & MCP", style = MaterialTheme.typography.titleMedium) },
                 onBack = onBack,
             )
         },
@@ -59,7 +59,7 @@ fun McpAndCliScreen(onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             // — CLI Status —
-            McpCliSectionHeader("CLI Tools")
+            McpCliSectionHeader("CLI Models")
 
             if (disconnected) {
                 Text(
