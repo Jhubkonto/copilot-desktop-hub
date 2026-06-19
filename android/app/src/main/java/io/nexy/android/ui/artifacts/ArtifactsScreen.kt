@@ -1,5 +1,8 @@
 package io.nexy.android.ui.artifacts
 
+import android.content.Context
+import android.content.Intent
+import android.util.Base64
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -9,12 +12,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -24,7 +30,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import io.nexy.android.ui.components.NexyTopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -34,15 +39,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.model.ArtifactDetail2
+import io.nexy.android.data.model.ArtifactExportFile
 import io.nexy.android.data.model.ArtifactSummary
 import io.nexy.android.ui.components.NexyEmptyState
 import io.nexy.android.ui.components.NexySearchField
 import io.nexy.android.ui.components.NexyStatusBadge
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,6 +64,10 @@ fun ArtifactsScreen(
     val selected by vm.selectedArtifact.collectAsState()
     val isLoading by vm.isLoading.collectAsState()
     val error by vm.error.collectAsState()
+    val exportPack by vm.exportPack.collectAsState()
+    val exportError by vm.exportError.collectAsState()
+    val exporting by vm.exporting.collectAsState()
+    val context = LocalContext.current
     var searchQuery by remember { mutableStateOf("") }
     val filteredArtifacts = remember(artifacts, searchQuery) {
         val query = searchQuery.trim()
@@ -66,9 +79,19 @@ fun ArtifactsScreen(
 
     LaunchedEffect(Unit) { vm.refresh(projectId) }
 
+    LaunchedEffect(exportPack) {
+        val pack = exportPack ?: return@LaunchedEffect
+        shareArtifactFiles(context, pack)
+        vm.clearExport()
+    }
+
     if (selected != null) {
         ArtifactDetailScreen(
             artifact = selected!!,
+            exporting = exporting,
+            exportError = exportError,
+            onExport = { versionId -> vm.exportVersion(versionId) },
+            onDismissExportError = { vm.clearExport() },
             onBack = { vm.clearSelection() },
         )
         return
@@ -185,12 +208,40 @@ private fun ArtifactStatusBadge(status: String) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ArtifactDetailScreen(artifact: ArtifactDetail2, onBack: () -> Unit) {
+private fun ArtifactDetailScreen(
+    artifact: ArtifactDetail2,
+    exporting: Boolean,
+    exportError: String?,
+    onExport: (versionId: String) -> Unit,
+    onDismissExportError: () -> Unit,
+    onBack: () -> Unit,
+) {
+    if (exportError != null) {
+        AlertDialog(
+            onDismissRequest = onDismissExportError,
+            title = { Text("Export failed") },
+            text = { Text(exportError) },
+            confirmButton = { TextButton(onClick = onDismissExportError) { Text("OK") } },
+        )
+    }
+
     Scaffold(
         topBar = {
             NexyTopAppBar(
                 titleContent = { Text(artifact.title, style = MaterialTheme.typography.titleMedium) },
                 onBack = onBack,
+                actions = {
+                    val versionId = artifact.currentVersionId
+                    if (versionId != null) {
+                        if (exporting) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp).padding(end = 4.dp), strokeWidth = 2.dp)
+                        } else {
+                            IconButton(onClick = { onExport(versionId) }) {
+                                Icon(Icons.Default.Share, contentDescription = "Export artifact")
+                            }
+                        }
+                    }
+                },
             )
         },
     ) { padding ->
@@ -246,4 +297,28 @@ private fun ArtifactDetailScreen(artifact: ArtifactDetail2, onBack: () -> Unit) 
             }
         }
     }
+}
+
+private fun shareArtifactFiles(context: Context, files: List<ArtifactExportFile>) {
+    val cacheDir = File(context.cacheDir, "artifact-export").also { it.mkdirs() }
+    val uris = files.map { f ->
+        val name = f.relativePath.substringAfterLast('/')
+        val dest = File(cacheDir, name)
+        dest.writeBytes(Base64.decode(f.contentBase64, Base64.DEFAULT))
+        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", dest)
+    }
+    val intent = if (uris.size == 1) {
+        Intent(Intent.ACTION_SEND).apply {
+            type = files.first().mediaType.ifBlank { "*/*" }
+            putExtra(Intent.EXTRA_STREAM, uris.first())
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    } else {
+        Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+            type = "*/*"
+            putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    }
+    context.startActivity(Intent.createChooser(intent, "Export artifact"))
 }
