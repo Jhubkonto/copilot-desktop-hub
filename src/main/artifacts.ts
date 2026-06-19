@@ -2,7 +2,7 @@ import { safeHandle } from './safe-handle'
 import { getDatabase } from './database'
 import type { ArtifactRow, ArtifactVersion, ArtifactFile, ArtifactKind, ArtifactStatus, ArtifactExportFormat } from '../shared/types'
 import { exportArtifactVersion } from './artifact-export'
-import { app } from 'electron'
+import { app, shell } from 'electron'
 import path from 'path'
 
 // ---------------------------------------------------------------------------
@@ -63,6 +63,27 @@ function getVersionWithFiles(versionId: string): ArtifactVersion | undefined {
   return rowToVersion(vRow, fileRows.map(rowToFile))
 }
 
+function getVersionsWithFilesBatch(versionIds: string[]): Map<string, ArtifactVersion> {
+  if (versionIds.length === 0) return new Map()
+  const db = getDatabase()
+  const placeholders = versionIds.map(() => '?').join(',')
+  const vRows = db.prepare(`SELECT * FROM artifact_versions WHERE id IN (${placeholders})`).all(...versionIds) as Record<string, unknown>[]
+  const fileRows = db.prepare(`SELECT * FROM artifact_files WHERE version_id IN (${placeholders})`).all(...versionIds) as Record<string, unknown>[]
+  const filesByVersionId = new Map<string, ArtifactFile[]>()
+  for (const f of fileRows) {
+    const vid = String(f.version_id)
+    const existing = filesByVersionId.get(vid)
+    if (existing) existing.push(rowToFile(f))
+    else filesByVersionId.set(vid, [rowToFile(f)])
+  }
+  const result = new Map<string, ArtifactVersion>()
+  for (const v of vRows) {
+    const vid = String(v.id)
+    result.set(vid, rowToVersion(v, filesByVersionId.get(vid) ?? []))
+  }
+  return result
+}
+
 // ---------------------------------------------------------------------------
 // Handler registration
 // ---------------------------------------------------------------------------
@@ -74,10 +95,11 @@ export function registerArtifactHandlers(): void {
       ? (db.prepare('SELECT * FROM artifacts WHERE project_id = ? ORDER BY updated_at DESC').all(projectId) as Record<string, unknown>[])
       : (db.prepare('SELECT * FROM artifacts WHERE project_id IS NULL ORDER BY updated_at DESC').all() as Record<string, unknown>[])
 
+    const versionIds = rows.map((r) => r.current_version_id != null ? String(r.current_version_id) : null).filter((id): id is string => id !== null)
+    const versionsById = getVersionsWithFilesBatch(versionIds)
     return rows.map((r) => {
       const currentVersionId = r.current_version_id != null ? String(r.current_version_id) : null
-      const currentVersion = currentVersionId ? getVersionWithFiles(currentVersionId) : undefined
-      return rowToArtifact(r, currentVersion)
+      return rowToArtifact(r, currentVersionId ? versionsById.get(currentVersionId) : undefined)
     })
   })
 
@@ -93,10 +115,9 @@ export function registerArtifactHandlers(): void {
   safeHandle('artifact:list-versions', (_event, artifactId: string) => {
     const db = getDatabase()
     const rows = db.prepare('SELECT * FROM artifact_versions WHERE artifact_id = ? ORDER BY version_number DESC').all(artifactId) as Record<string, unknown>[]
-    return rows.map((r) => {
-      const fileRows = db.prepare('SELECT * FROM artifact_files WHERE version_id = ?').all(String(r.id)) as Record<string, unknown>[]
-      return rowToVersion(r, fileRows.map(rowToFile))
-    })
+    const versionIds = rows.map((r) => String(r.id))
+    const versionsById = getVersionsWithFilesBatch(versionIds)
+    return rows.map((r) => versionsById.get(String(r.id)) ?? rowToVersion(r, []))
   })
 
   safeHandle('artifact:get-version', (_event, versionId: string) => {
@@ -120,5 +141,10 @@ export function registerArtifactHandlers(): void {
     const destDir = path.join(app.getPath('downloads'), 'nexy-artifacts', artifactId, `v${vRow.version_number}`)
     const exportPath = await exportArtifactVersion(versionId, format as ArtifactExportFormat, destDir)
     return { exportPath }
+  })
+
+  safeHandle('artifact:open-folder', (_event, absolutePath: string) => {
+    shell.showItemInFolder(absolutePath)
+    return { ok: true }
   })
 }

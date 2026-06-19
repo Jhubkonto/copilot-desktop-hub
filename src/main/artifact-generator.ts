@@ -4,10 +4,10 @@ import { mkdirSync, writeFileSync, statSync } from 'fs'
 import { randomUUID } from 'crypto'
 import type { BrowserWindow } from 'electron'
 import { safeHandle } from './safe-handle'
-import { getProviderForAgent, getApiKey, sendProviderWithTools } from './providers'
-import { runProviderMcpToolLoop } from './tool-loop'
+import { getProviderForAgent, getApiKey, DEFAULT_PROVIDER_MODEL, PROVIDERS, isProviderConfigured, getOpenRouterModels } from './providers'
+import { dispatchToProvider } from './chat-provider-dispatch'
+import { getAdapter } from './cli-adapters/registry'
 import type { ProviderMessage } from './provider-core-types'
-import type { ToolDefinition, ToolChoice, ProviderNonStreamResult } from './provider-types'
 import type { ArtifactSpec, ArtifactGeneratorMessage, ArtifactGeneratorRun, ArtifactKind, ArtifactExportFormat } from '../shared/types'
 import { getDatabase } from './database'
 
@@ -27,10 +27,11 @@ const ARTIFACT_GENERATOR_SYSTEM_PROMPT = `You are an expert artifact creation as
 Your job is to help a user create a versioned deliverable — a document, code file, prompt pack, plan, data file, UI spec, agent config, or any other tangible output.
 
 ## Conversation style
-- Ask 2–3 targeted, high-signal questions per turn
-- Aim to understand: what deliverable, audience, format/files needed, global vs project scope, constraints, and acceptance criteria
-- Be concise and practical
-- When you have enough context (usually 2–3 exchanges), emit the artifact spec
+- Be decisive and action-oriented. Make reasonable assumptions rather than asking clarifying questions.
+- If the user's request is clear enough to act on, emit the spec immediately without asking anything.
+- Only ask a clarifying question if information is genuinely missing and you cannot make a reasonable assumption (e.g. you don't know what the deliverable is at all).
+- Never ask more than one question per turn. Never ask the same question twice.
+- After at most ONE exchange of clarification, emit the spec — do not continue asking questions.
 
 ## Artifact kinds
 - document: PRDs, briefs, reports, plans, articles, specs
@@ -44,7 +45,7 @@ Your job is to help a user create a versioned deliverable — a document, code f
 - other: fallback for user-defined deliverables
 
 ## Generating the spec
-When you have enough context, emit a brief summary followed by a JSON block wrapped in <artifact-spec>…</artifact-spec> tags. The JSON must match this exact shape:
+When you have enough context (or when in doubt — just go ahead and make reasonable assumptions), emit a brief one-line acknowledgment followed by a JSON block wrapped in <artifact-spec>…</artifact-spec> tags. The JSON must match this exact shape:
 
 {
   "title": "Short descriptive title",
@@ -188,14 +189,78 @@ function buildGenerationMessages(spec: ArtifactSpec): ProviderMessage[] {
 }
 
 // ---------------------------------------------------------------------------
-// LLM caller factory
+// LLM caller helper
 // ---------------------------------------------------------------------------
 
-function makeCaller(maxTokens = 4096, temperature = 0.7) {
-  const { provider, model } = getProviderForAgent('')
+function getArtifactGeneratorModel(): string {
+  const db = getDatabase()
+  const row = db.prepare("SELECT value FROM settings WHERE key = 'default_model'").get() as { value: string } | undefined
+  const savedModel = row?.value && row.value !== 'default' ? row.value : DEFAULT_PROVIDER_MODEL
+  const savedProvider = getProviderForAgent(savedModel)
+  if (isProviderConfigured(savedProvider.provider)) return savedModel
+
+  const fallbackProvider = PROVIDERS.find((p) => isProviderConfigured(p.name) && p.models.length > 0)
+  if (fallbackProvider?.models[0]) {
+    return fallbackProvider.name === 'openai'
+      ? fallbackProvider.models[0]
+      : `${fallbackProvider.name}:${fallbackProvider.models[0]}`
+  }
+  const openRouterModel = isProviderConfigured('openrouter') ? getOpenRouterModels()[0] : undefined
+  return openRouterModel ? `openrouter:${openRouterModel}` : savedModel
+}
+
+async function runProviderChat(
+  win: BrowserWindow,
+  providerMessages: ProviderMessage[],
+  sessionId: string,
+  sendChunk: (chunk: string) => void,
+  modelOverride?: string,
+): Promise<string> {
+  const selectedModel = modelOverride ?? getArtifactGeneratorModel()
+
+  if (selectedModel.includes(':')) {
+    const colonIdx = selectedModel.indexOf(':')
+    const prefix = selectedModel.slice(0, colonIdx)
+    const cliModel = selectedModel.slice(colonIdx + 1)
+    if (prefix === 'claude-cli' || prefix === 'codex-cli') {
+      const adapter = getAdapter(prefix)
+      if (!adapter?.isAvailable()) throw new Error(`${prefix} is not available`)
+      const systemMsg = typeof providerMessages[0]?.content === 'string' && providerMessages[0].role === 'system'
+        ? providerMessages[0].content
+        : ARTIFACT_GENERATOR_SYSTEM_PROMPT
+      const conversationMessages = providerMessages.filter((m) => m.role !== 'system')
+      return adapter.send(
+        win,
+        { systemPrompt: systemMsg, messages: conversationMessages, cwd: process.cwd(), model: cliModel, conversationId: sessionId },
+        sendChunk,
+      )
+    }
+  }
+
+  const { provider, model } = getProviderForAgent(selectedModel)
   const apiKey = getApiKey(provider)
-  return (msgs: ProviderMessage[], tools: ToolDefinition[] | undefined, toolChoice: ToolChoice): Promise<ProviderNonStreamResult> =>
-    sendProviderWithTools(provider, apiKey, model, msgs, tools ?? [], toolChoice, { maxTokens, temperature })
+  const systemPrompt = typeof providerMessages[0]?.content === 'string'
+    ? providerMessages[0].content
+    : ARTIFACT_GENERATOR_SYSTEM_PROMPT
+
+  return dispatchToProvider({
+    providerName: provider,
+    providerModel: model,
+    byokKey: apiKey ?? '',
+    chatMessages: providerMessages,
+    toolDefs: [],
+    toolMap: new Map(),
+    effectiveAgentId: null,
+    agenticMode: false,
+    wikiInlineHandlers: new Map(),
+    toolDirective: '',
+    generationOptions: { maxTokens: 4096, temperature: 0.7 },
+    conversationId: sessionId,
+    webContents: win.webContents,
+    sendChunk,
+    sendActivity: () => {},
+    systemPrompt,
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -255,31 +320,22 @@ export async function runArtifactGeneratorChat(
   win: BrowserWindow,
   messages: ArtifactGeneratorMessage[],
   projectId?: string,
+  modelOverride?: string,
 ): Promise<void> {
   const providerMessages = buildChatMessages(messages)
   const sessionId = `artifact-gen-${randomUUID()}`
 
   let accumulated = ''
-  const fullText = await runProviderMcpToolLoop(
-    makeCaller(4096, 0.7),
+  const fullText = await runProviderChat(
+    win,
     providerMessages,
-    [],
-    new Map(),
     sessionId,
-    null,
-    win.webContents,
     (chunk) => {
       accumulated += chunk
       if (!win.isDestroyed()) win.webContents.send('artifact-generator:token', chunk)
     },
-    undefined,
-    false,
-    undefined,
-    undefined,
-    undefined,
-    false,
+    modelOverride,
   )
-
   accumulated = fullText || accumulated
 
   const spec = extractArtifactSpec(accumulated)
@@ -287,6 +343,7 @@ export async function runArtifactGeneratorChat(
     if (projectId) spec.scope = { type: 'project', projectId }
     if (!win.isDestroyed()) win.webContents.send('artifact-generator:spec-ready', spec)
   }
+  if (!win.isDestroyed()) win.webContents.send('artifact-generator:done', { hasSpec: !!spec })
 }
 
 // ---------------------------------------------------------------------------
@@ -297,6 +354,7 @@ export async function runArtifactGeneration(
   win: BrowserWindow,
   runId: string,
   spec: ArtifactSpec,
+  modelOverride?: string,
 ): Promise<void> {
   const db = getDatabase()
   const storageRoot = getStorageRoot()
@@ -325,25 +383,17 @@ export async function runArtifactGeneration(
   updateRunRecord(runId, { status: 'generating' })
 
   // Generate files via LLM
-  const messages = buildGenerationMessages(spec)
+  const genMessages = buildGenerationMessages(spec)
+  const genSessionId = `artifact-gen-files-${runId}`
   let accumulated = ''
-  const fullText = await runProviderMcpToolLoop(
-    makeCaller(16384, 0.3),
-    messages,
-    [],
-    new Map(),
-    `artifact-gen-files-${runId}`,
-    null,
-    win.webContents,
+  const genFullText = await runProviderChat(
+    win,
+    genMessages,
+    genSessionId,
     (chunk) => { accumulated += chunk },
-    undefined,
-    false,
-    undefined,
-    'Output only <<<FILE:…>>> delimited blocks.',
-    undefined,
-    false,
+    modelOverride,
   )
-  accumulated = fullText || accumulated
+  accumulated = genFullText || accumulated
 
   const parsed = parseGenerationOutput(accumulated)
   const writtenFiles: { relativePath: string; absolutePath: string; mediaType: string; role: string; sizeBytes: number }[] = []
@@ -354,8 +404,6 @@ export async function runArtifactGeneration(
       mkdirSync(path.dirname(dest), { recursive: true })
       writeFileSync(dest, f.content, 'utf8')
       const size = statSync(dest).size
-
-      // Match media type and role from spec
       const specFile = spec.outputFiles.find((sf) => sf.path === f.relativePath)
       writtenFiles.push({
         relativePath: f.relativePath,
@@ -364,14 +412,28 @@ export async function runArtifactGeneration(
         role: specFile?.role ?? 'supporting',
         sizeBytes: size,
       })
-
-      if (!win.isDestroyed()) win.webContents.send('artifact-generator:file-event', { file: f.relativePath, status: 'done' })
+      if (!win.isDestroyed()) win.webContents.send('artifact-generator:file-event', { file: f.relativePath, absolutePath: dest, status: 'done' })
     } catch {
       if (!win.isDestroyed()) win.webContents.send('artifact-generator:file-event', { file: f.relativePath, status: 'error' })
     }
   }
 
-  // Persist to DB
+  // Fallback: if the model didn't use delimiters but returned text, write the whole response as a single file
+  if (writtenFiles.length === 0 && accumulated.trim()) {
+    const fallbackFile = spec.outputFiles[0] ?? { path: 'output.md', mediaType: 'text/markdown', role: 'primary' as const }
+    const dest = path.join(versionDir, fallbackFile.path)
+    mkdirSync(path.dirname(dest), { recursive: true })
+    writeFileSync(dest, accumulated, 'utf8')
+    const size = statSync(dest).size
+    writtenFiles.push({ relativePath: fallbackFile.path, absolutePath: dest, mediaType: fallbackFile.mediaType, role: fallbackFile.role, sizeBytes: size })
+    if (!win.isDestroyed()) win.webContents.send('artifact-generator:file-event', { file: fallbackFile.path, absolutePath: dest, status: 'done' })
+  }
+
+  if (writtenFiles.length === 0) {
+    throw new Error('The model did not produce any files. Try again or refine your spec.')
+  }
+
+  // Persist to DB atomically
   const now = Date.now()
   const artifactId = existingArtifactId ?? randomUUID()
   const versionId = randomUUID()
@@ -386,26 +448,26 @@ export async function runArtifactGeneration(
     files: writtenFiles.map((f) => ({ path: f.relativePath, mediaType: f.mediaType, role: f.role })),
   })
 
-  if (!existingArtifactId) {
+  db.transaction(() => {
+    if (!existingArtifactId) {
+      db.prepare(
+        `INSERT INTO artifacts (id, project_id, title, kind, description, storage_root, current_version_id, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?)`,
+      ).run(artifactId, projectId ?? null, spec.title, spec.kind, spec.intendedUse || null, storageRoot, versionId, now, now)
+    } else {
+      db.prepare('UPDATE artifacts SET current_version_id = ?, status = ?, updated_at = ? WHERE id = ?').run(versionId, 'ready', now, existingArtifactId)
+    }
     db.prepare(
-      `INSERT INTO artifacts (id, project_id, title, kind, description, storage_root, current_version_id, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?)`,
-    ).run(artifactId, projectId ?? null, spec.title, spec.kind, spec.intendedUse || null, storageRoot, versionId, now, now)
-  } else {
-    db.prepare('UPDATE artifacts SET current_version_id = ?, status = ?, updated_at = ? WHERE id = ?').run(versionId, 'ready', now, existingArtifactId)
-  }
-
-  db.prepare(
-    `INSERT INTO artifact_versions (id, artifact_id, version_number, title, spec_json, manifest_json, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).run(versionId, artifactId, versionNumber, spec.title, JSON.stringify(spec), manifestJson, now)
-
-  for (const f of writtenFiles) {
-    db.prepare(
-      `INSERT INTO artifact_files (id, version_id, relative_path, absolute_path, media_type, role, size_bytes)
+      `INSERT INTO artifact_versions (id, artifact_id, version_number, title, spec_json, manifest_json, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).run(randomUUID(), versionId, f.relativePath, f.absolutePath, f.mediaType, f.role, f.sizeBytes)
-  }
+    ).run(versionId, artifactId, versionNumber, spec.title, JSON.stringify(spec), manifestJson, now)
+    for (const f of writtenFiles) {
+      db.prepare(
+        `INSERT INTO artifact_files (id, version_id, relative_path, absolute_path, media_type, role, size_bytes)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).run(randomUUID(), versionId, f.relativePath, f.absolutePath, f.mediaType, f.role, f.sizeBytes)
+    }
+  })()
 
   updateRunRecord(runId, { status: 'ready', artifactId })
 }
@@ -415,19 +477,19 @@ export async function runArtifactGeneration(
 // ---------------------------------------------------------------------------
 
 export function registerArtifactGeneratorHandlers(win?: BrowserWindow): void {
-  safeHandle('artifact-generator:chat', async (_event, messages: ArtifactGeneratorMessage[], projectId?: string) => {
+  safeHandle('artifact-generator:chat', async (_event, messages: ArtifactGeneratorMessage[], projectId?: string, modelOverride?: string) => {
     if (!win) throw new Error('No main window available')
-    await runArtifactGeneratorChat(win, messages, projectId)
+    await runArtifactGeneratorChat(win, messages, projectId, modelOverride)
     return { started: true }
   })
 
-  safeHandle('artifact-generator:generate', async (_event, runId: string, spec: ArtifactSpec, projectId?: string) => {
+  safeHandle('artifact-generator:generate', async (_event, runId: string, spec: ArtifactSpec, projectId?: string, modelOverride?: string) => {
     if (!win) throw new Error('No main window available')
     const db = getDatabase()
     const existing = db.prepare('SELECT id FROM artifact_generator_runs WHERE id = ?').get(runId)
     if (!existing) createRunRecord(runId, spec.title)
     updateRunRecord(runId, { specJson: JSON.stringify(spec) })
-    await runArtifactGeneration(win, runId, spec)
+    await runArtifactGeneration(win, runId, spec, modelOverride)
     return { started: true }
   })
 
