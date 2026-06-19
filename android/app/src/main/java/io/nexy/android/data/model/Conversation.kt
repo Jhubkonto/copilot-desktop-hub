@@ -12,6 +12,7 @@ data class Conversation(
     val project_name: String? = null,
     val model: String? = null,
     val last_message: String? = null,
+    val pinned: Boolean = false,
 )
 
 data class ModelOption(

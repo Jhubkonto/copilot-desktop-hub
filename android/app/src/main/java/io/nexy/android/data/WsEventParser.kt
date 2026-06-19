@@ -21,6 +21,7 @@ import io.nexy.android.data.model.CliInstallInfo
 import io.nexy.android.data.model.ConversationExportPackData
 import io.nexy.android.data.model.PromptEntry
 import io.nexy.android.data.model.WikiEntry
+import io.nexy.android.data.model.CompressionSections
 import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.ErrorReport
 import io.nexy.android.data.model.HistoryMessage
@@ -30,6 +31,14 @@ import io.nexy.android.data.model.ModelOption
 import io.nexy.android.data.model.Project
 import io.nexy.android.data.model.ProjectAgentEntry
 import io.nexy.android.data.model.ProviderInfo
+import io.nexy.android.data.model.SkillAgentLink
+import io.nexy.android.data.model.SkillAgentUsage
+import io.nexy.android.data.model.SkillConfig
+import io.nexy.android.data.model.SkillKnowledge
+import io.nexy.android.data.model.SkillMcpServerTrust
+import io.nexy.android.data.model.SkillMcpToolOverride
+import io.nexy.android.data.model.SkillToolConfig
+import io.nexy.android.data.model.SkillTools
 import io.nexy.android.data.model.WsEvent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -54,6 +63,8 @@ fun parseWsEvent(
     errorReports: MutableStateFlow<List<ErrorReport>>,
     providers: MutableStateFlow<List<ProviderInfo>>,
     mcpServers: MutableStateFlow<List<McpServerInfo>>,
+    skills: MutableStateFlow<List<SkillConfig>>,
+    skillAgentUsage: MutableStateFlow<Map<String, Int>>,
     artifacts: MutableStateFlow<List<ArtifactSummary>>,
     wikiEntries: MutableStateFlow<List<WikiEntry>>,
     promptEntries: MutableStateFlow<List<PromptEntry>>,
@@ -287,6 +298,78 @@ fun parseWsEvent(
 
             "message:deleted" -> WsEvent.MessageDeleted(id = data?.optString("id") ?: "")
 
+            "conversation:pinned" -> {
+                val id = data?.optString("id") ?: ""
+                val pinned = data?.optBoolean("pinned", false) ?: false
+                conversations.value = conversations.value.map { if (it.id == id) it.copy(pinned = pinned) else it }
+                WsEvent.ConversationPinned(id, pinned)
+            }
+
+            "conversation:context-updated" -> WsEvent.ConversationContextUpdated(
+                conversationId = data?.optString("conversationId") ?: "",
+                projectId = data?.nullableString("projectId"),
+                agentId = data?.nullableString("agentId"),
+            )
+
+            "message:inserted" -> {
+                val msg = data?.optJSONObject("message")
+                WsEvent.MessageInserted(
+                    conversationId = data?.optString("conversationId") ?: "",
+                    messageId = msg?.optString("id") ?: "",
+                    role = msg?.optString("role") ?: "user",
+                    content = msg?.optString("content") ?: "",
+                    timestamp = msg?.optLong("timestamp") ?: 0L,
+                )
+            }
+
+            "message:deleted-after" -> WsEvent.MessagesDeletedAfter(
+                conversationId = data?.optString("conversationId") ?: "",
+                timestamp = data?.optLong("timestamp") ?: 0L,
+            )
+
+            "conversation:compression-preview" -> WsEvent.CompressionPreview(
+                conversationId = data?.optString("conversation_id") ?: "",
+                hasSummary = data?.optBoolean("has_summary", false) ?: false,
+                summarizedMessageCount = data?.optInt("summarized_message_count") ?: 0,
+                retainedMessageCount = data?.optInt("retained_message_count") ?: 0,
+                estimatedTokensBefore = data?.optInt("estimated_tokens_before") ?: 0,
+                targetBudget = data?.optInt("target_budget") ?: 0,
+                strategy = data?.nullableString("strategy"),
+                updatedAt = if (data?.isNull("updated_at") == false) data.optLong("updated_at") else null,
+            )
+
+            "conversation:compression-draft" -> {
+                val s = data?.optJSONObject("sections")
+                fun strList(key: String) = s?.optJSONArray(key)?.let { a -> (0 until a.length()).map { a.optString(it) } } ?: emptyList()
+                WsEvent.CompressionDraft(
+                    conversationId = data?.optString("conversation_id") ?: "",
+                    summarizedMessageCount = data?.optInt("summarized_message_count") ?: 0,
+                    retainedMessageCount = data?.optInt("retained_message_count") ?: 0,
+                    estimatedTokensBefore = data?.optInt("estimated_tokens_before") ?: 0,
+                    targetBudget = data?.optInt("target_budget") ?: 0,
+                    strategy = data?.optString("strategy") ?: "manual-structured-summary-plus-recent-turns",
+                    sections = CompressionSections(
+                        goals = strList("goals"),
+                        decisions = strList("decisions"),
+                        constraints = strList("constraints"),
+                        filesTouched = strList("filesTouched"),
+                        commandsRun = strList("commandsRun"),
+                        openQuestions = strList("openQuestions"),
+                        nextActions = strList("nextActions"),
+                        recentContextNotes = strList("recentContextNotes"),
+                    ),
+                )
+            }
+
+            "conversation:compression-saved" -> WsEvent.CompressionSaved(
+                conversationId = data?.optString("conversation_id") ?: "",
+                hasSummary = data?.optBoolean("has_summary", false) ?: false,
+                summarizedMessageCount = data?.optInt("summarized_message_count") ?: 0,
+                retainedMessageCount = data?.optInt("retained_message_count") ?: 0,
+            )
+
+            "conversation:compression-error" -> WsEvent.CompressionError(data?.optString("message") ?: "Compression failed")
+
             "self-heal:reports" -> {
                 val reportsArray = data?.optJSONArray("reports") ?: JSONArray()
                 val list = (0 until reportsArray.length()).map { i ->
@@ -447,6 +530,69 @@ fun parseWsEvent(
                 }
                 mcpServers.value = list
                 WsEvent.McpList(list)
+            }
+
+            "skill:list" -> {
+                val arr = data?.optJSONArray("skills") ?: JSONArray()
+                val list = (0 until arr.length()).map { i -> parseSkillConfig(arr.getJSONObject(i)) }
+                skills.value = list
+                WsEvent.SkillList(list)
+            }
+
+            "skill:detail" -> WsEvent.SkillDetail(
+                skill = data?.optJSONObject("skill")?.let { parseSkillConfig(it) }
+            )
+
+            "skill:created" -> {
+                val skill = parseSkillConfig(data?.optJSONObject("skill") ?: return)
+                skills.value = skills.value + skill
+                WsEvent.SkillCreated(skill)
+            }
+
+            "skill:updated" -> {
+                val skill = parseSkillConfig(data?.optJSONObject("skill") ?: return)
+                skills.value = skills.value.map { if (it.id == skill.id) skill else it }
+                WsEvent.SkillUpdated(skill)
+            }
+
+            "skill:deleted" -> {
+                val id = data?.optString("id") ?: ""
+                skills.value = skills.value.filter { it.id != id }
+                WsEvent.SkillDeleted(id)
+            }
+
+            "skill:duplicated" -> WsEvent.SkillDuplicated(
+                skill = data?.optJSONObject("skill")?.let { parseSkillConfig(it) }
+            )
+
+            "skill:exported" -> WsEvent.SkillExported(
+                skill = data?.optJSONObject("skill")?.let { parseSkillConfig(it) }
+            )
+
+            "skill:agent-links" -> {
+                val agentId = data?.optString("agentId") ?: ""
+                val arr = data?.optJSONArray("links") ?: JSONArray()
+                val links = (0 until arr.length()).map { i ->
+                    val link = arr.getJSONObject(i)
+                    SkillAgentLink(
+                        skillId = link.optString("skill_id"),
+                        sortOrder = link.optInt("sort_order", 0),
+                    )
+                }
+                WsEvent.SkillAgentLinks(agentId, links)
+            }
+
+            "skill:agent-usage" -> {
+                val arr = data?.optJSONArray("usage") ?: JSONArray()
+                val usage = (0 until arr.length()).map { i ->
+                    val row = arr.getJSONObject(i)
+                    SkillAgentUsage(
+                        skillId = row.optString("skill_id"),
+                        agentCount = row.optInt("agent_count", 0),
+                    )
+                }
+                skillAgentUsage.value = usage.associate { it.skillId to it.agentCount }
+                WsEvent.SkillAgentUsageList(usage = usage)
             }
 
             "artifact:list" -> {
@@ -732,6 +878,62 @@ private fun parseWikiEntry(obj: JSONObject): WikiEntry {
     )
 }
 
+private fun parseSkillConfig(obj: JSONObject): SkillConfig {
+    fun strList(key: String): List<String> {
+        val arr = obj.optJSONArray(key) ?: return emptyList()
+        return (0 until arr.length()).map { arr.optString(it) }.filter { it.isNotBlank() }
+    }
+    fun parseTool(tool: JSONObject?) = SkillToolConfig(
+        enabled = tool?.optBoolean("enabled", false) ?: false,
+        approval = tool?.optString("approval", "always-ask") ?: "always-ask",
+        instructions = tool?.optString("instructions", "") ?: "",
+    )
+    val toolsObj = obj.optJSONObject("tools")
+    val knowledgeArr = obj.optJSONArray("knowledge") ?: JSONArray()
+    val trustArr = obj.optJSONArray("mcpServerTrust") ?: JSONArray()
+    val overridesArr = obj.optJSONArray("mcpToolOverrides") ?: JSONArray()
+    return SkillConfig(
+        id = obj.optString("id"),
+        name = obj.optString("name", "New Skill"),
+        icon = obj.optString("icon", "*"),
+        description = obj.optString("description", ""),
+        instructions = obj.optString("instructions", ""),
+        tags = strList("tags"),
+        tools = SkillTools(
+            fileEdit = parseTool(toolsObj?.optJSONObject("fileEdit")),
+            terminal = parseTool(toolsObj?.optJSONObject("terminal")),
+            webFetch = parseTool(toolsObj?.optJSONObject("webFetch")),
+        ),
+        mcpServers = strList("mcpServers"),
+        mcpServerTrust = (0 until trustArr.length()).map { i ->
+            val item = trustArr.optJSONObject(i) ?: JSONObject()
+            SkillMcpServerTrust(
+                serverId = item.optString("serverId"),
+                trust = item.optString("trust", "always-ask"),
+            )
+        },
+        mcpToolOverrides = (0 until overridesArr.length()).map { i ->
+            val item = overridesArr.optJSONObject(i) ?: JSONObject()
+            SkillMcpToolOverride(
+                serverId = item.optString("serverId"),
+                toolName = item.optString("toolName"),
+                enabled = item.optBoolean("enabled", true),
+                approval = item.optString("approval", "always-ask"),
+                instructions = item.optString("instructions", ""),
+            )
+        },
+        knowledge = (0 until knowledgeArr.length()).map { i ->
+            val item = knowledgeArr.optJSONObject(i) ?: JSONObject()
+            SkillKnowledge(
+                title = item.optString("title"),
+                content = item.optString("content"),
+            )
+        },
+        createdAt = if (obj.has("created_at")) obj.optLong("created_at") else null,
+        updatedAt = if (obj.has("updated_at")) obj.optLong("updated_at") else null,
+    )
+}
+
 private fun parsePromptEntry(obj: JSONObject): PromptEntry {
     fun strList(key: String): List<String> {
         val arr = obj.optJSONArray(key) ?: return emptyList()
@@ -854,5 +1056,6 @@ private fun parseConversationArray(arr: JSONArray): List<Conversation> =
             project_name = row.nullableString("project_name"),
             model = row.nullableString("model"),
             last_message = row.nullableString("last_message"),
+            pinned = row.optInt("pinned", 0) != 0,
         )
     }

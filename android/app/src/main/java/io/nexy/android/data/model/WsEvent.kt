@@ -85,6 +85,15 @@ sealed class WsEvent {
     data class SettingSet(val key: String, val value: String) : WsEvent()
     data class SettingValue(val key: String, val value: String?) : WsEvent()
     data class McpList(val servers: List<McpServerInfo>) : WsEvent()
+    data class SkillList(val skills: List<SkillConfig>) : WsEvent()
+    data class SkillDetail(val skill: SkillConfig?) : WsEvent()
+    data class SkillCreated(val skill: SkillConfig) : WsEvent()
+    data class SkillUpdated(val skill: SkillConfig) : WsEvent()
+    data class SkillDeleted(val id: String) : WsEvent()
+    data class SkillDuplicated(val skill: SkillConfig?) : WsEvent()
+    data class SkillExported(val skill: SkillConfig?) : WsEvent()
+    data class SkillAgentLinks(val agentId: String, val links: List<SkillAgentLink>) : WsEvent()
+    data class SkillAgentUsageList(val usage: List<SkillAgentUsage>) : WsEvent()
     data class ArtifactList(val artifacts: List<ArtifactSummary>) : WsEvent()
     data class ArtifactDetail(val artifact: ArtifactDetail2?) : WsEvent()
     data class ArtifactExportPack(val versionId: String, val files: List<ArtifactExportFile>) : WsEvent()
@@ -103,6 +112,31 @@ sealed class WsEvent {
     data class ConversationForkError(val message: String) : WsEvent()
     data class ConversationImported(val conversationId: String, val title: String, val messageCount: Int) : WsEvent()
     data class ConversationImportError(val message: String) : WsEvent()
+    data class ConversationPinned(val id: String, val pinned: Boolean) : WsEvent()
+    data class ConversationContextUpdated(val conversationId: String, val projectId: String?, val agentId: String?) : WsEvent()
+    data class MessageInserted(val conversationId: String, val messageId: String, val role: String, val content: String, val timestamp: Long) : WsEvent()
+    data class MessagesDeletedAfter(val conversationId: String, val timestamp: Long) : WsEvent()
+    data class CompressionPreview(
+        val conversationId: String,
+        val hasSummary: Boolean,
+        val summarizedMessageCount: Int,
+        val retainedMessageCount: Int,
+        val estimatedTokensBefore: Int,
+        val targetBudget: Int,
+        val strategy: String?,
+        val updatedAt: Long?,
+    ) : WsEvent()
+    data class CompressionDraft(
+        val conversationId: String,
+        val summarizedMessageCount: Int,
+        val retainedMessageCount: Int,
+        val estimatedTokensBefore: Int,
+        val targetBudget: Int,
+        val strategy: String,
+        val sections: CompressionSections,
+    ) : WsEvent()
+    data class CompressionSaved(val conversationId: String, val hasSummary: Boolean, val summarizedMessageCount: Int, val retainedMessageCount: Int) : WsEvent()
+    data class CompressionError(val message: String) : WsEvent()
     data class ProjectGeneratorToken(val sessionId: String?, val chunk: String) : WsEvent()
     data class ProjectGeneratorTurnComplete(val sessionId: String?, val content: String, val hasSpec: Boolean = false) : WsEvent()
     data class ProjectGeneratorSpecReady(val sessionId: String?, val spec: ProjectGeneratorSpec) : WsEvent()
@@ -119,6 +153,17 @@ sealed class WsEvent {
     data class AgentGeneratorError(val sessionId: String?, val message: String) : WsEvent()
     data class AgentGeneratorCancelled(val sessionId: String?) : WsEvent()
 }
+
+data class CompressionSections(
+    val goals: List<String> = emptyList(),
+    val decisions: List<String> = emptyList(),
+    val constraints: List<String> = emptyList(),
+    val filesTouched: List<String> = emptyList(),
+    val commandsRun: List<String> = emptyList(),
+    val openQuestions: List<String> = emptyList(),
+    val nextActions: List<String> = emptyList(),
+    val recentContextNotes: List<String> = emptyList(),
+)
 
 data class ProjectAgentEntry(
     val agentId: String,
@@ -171,6 +216,62 @@ data class McpServerInfo(
     val name: String,
     val command: String,
     val enabled: Boolean,
+)
+
+data class SkillConfig(
+    val id: String,
+    val name: String,
+    val icon: String,
+    val description: String,
+    val instructions: String,
+    val tags: List<String>,
+    val tools: SkillTools,
+    val mcpServers: List<String>,
+    val mcpServerTrust: List<SkillMcpServerTrust>,
+    val mcpToolOverrides: List<SkillMcpToolOverride>,
+    val knowledge: List<SkillKnowledge>,
+    val createdAt: Long?,
+    val updatedAt: Long?,
+)
+
+data class SkillTools(
+    val fileEdit: SkillToolConfig,
+    val terminal: SkillToolConfig,
+    val webFetch: SkillToolConfig,
+)
+
+data class SkillToolConfig(
+    val enabled: Boolean,
+    val approval: String,
+    val instructions: String,
+)
+
+data class SkillKnowledge(
+    val title: String,
+    val content: String,
+)
+
+data class SkillMcpServerTrust(
+    val serverId: String,
+    val trust: String,
+)
+
+data class SkillMcpToolOverride(
+    val serverId: String,
+    val toolName: String,
+    val enabled: Boolean,
+    val approval: String,
+    val instructions: String,
+)
+
+data class SkillAgentLink(
+    val skillId: String,
+    val sortOrder: Int,
+)
+
+data class SkillAgentUsage(
+    val skillId: String,
+    val agentCount: Int,
 )
 
 data class ArtifactSummary(

@@ -16,6 +16,7 @@ import io.nexy.android.data.model.ModelListSource
 import io.nexy.android.data.model.ModelOption
 import io.nexy.android.data.model.Project
 import io.nexy.android.data.model.ProviderInfo
+import io.nexy.android.data.model.SkillConfig
 import io.nexy.android.data.model.WsEvent
 import io.nexy.android.notification.ApprovalNotificationManager
 import kotlinx.coroutines.CoroutineScope
@@ -89,6 +90,12 @@ object WsRepository : WsClient {
 
     private val _mcpServers = MutableStateFlow<List<McpServerInfo>>(emptyList())
     val mcpServers: StateFlow<List<McpServerInfo>> = _mcpServers
+
+    private val _skills = MutableStateFlow<List<SkillConfig>>(emptyList())
+    val skills: StateFlow<List<SkillConfig>> = _skills
+
+    private val _skillAgentUsage = MutableStateFlow<Map<String, Int>>(emptyMap())
+    val skillAgentUsage: StateFlow<Map<String, Int>> = _skillAgentUsage
 
     private val _artifacts = MutableStateFlow<List<ArtifactSummary>>(emptyList())
     val artifacts: StateFlow<List<ArtifactSummary>> = _artifacts
@@ -250,6 +257,8 @@ object WsRepository : WsClient {
                     errorReports = _errorReports,
                     providers = _providers,
                     mcpServers = _mcpServers,
+                    skills = _skills,
+                    skillAgentUsage = _skillAgentUsage,
                     artifacts = _artifacts,
                     wikiEntries = _wikiEntries,
                     promptEntries = _promptEntries,
@@ -305,6 +314,8 @@ object WsRepository : WsClient {
         _errorReports.value = emptyList()
         _providers.value = emptyList()
         _mcpServers.value = emptyList()
+        _skills.value = emptyList()
+        _skillAgentUsage.value = emptyMap()
         _artifacts.value = emptyList()
         _wikiEntries.value = emptyList()
         _promptEntries.value = emptyList()
@@ -357,6 +368,24 @@ object WsRepository : WsClient {
     fun renameConversation(id: String, title: String) { send("conversation:rename", mapOf("id" to id, "title" to title)) }
     fun deleteConversation(id: String) { send("conversation:delete", mapOf("id" to id)) }
     fun searchConversations(query: String) { send("conversation:search", mapOf("query" to query)) }
+    fun setPinnedConversation(id: String, pinned: Boolean) { send("conversation:set-pinned", mapOf("id" to id, "pinned" to pinned)) }
+    fun updateConversationContext(conversationId: String, projectId: String?, agentId: String?) {
+        val m = mutableMapOf<String, Any>("conversationId" to conversationId)
+        if (projectId != null) m["projectId"] = projectId else m["projectId"] = ""
+        if (agentId != null) m["agentId"] = agentId else m["agentId"] = ""
+        send("conversation:update-context", m)
+    }
+    fun insertMessage(conversationId: String, role: String, content: String) {
+        send("conversation:insert-message", mapOf("conversationId" to conversationId, "role" to role, "content" to content))
+    }
+    fun deleteMessagesAfter(conversationId: String, timestamp: Long) {
+        send("message:delete-after", mapOf("conversationId" to conversationId, "timestamp" to timestamp))
+    }
+    fun getCompressionPreview(conversationId: String) { send("conversation:compression-preview", mapOf("conversationId" to conversationId)) }
+    fun prepareCompressionSummary(conversationId: String) { send("conversation:prepare-compression-summary", mapOf("conversationId" to conversationId)) }
+    fun saveCompressionSummary(conversationId: String, draft: Map<String, Any>) {
+        send("conversation:save-compression-summary", mapOf("conversationId" to conversationId) + draft)
+    }
     fun deleteMessage(id: String) { send("message:delete", mapOf("id" to id)) }
     fun refreshReports() { send("self-heal:get-reports", emptyMap()) }
     fun createProject(name: String, color: String) { send("project:create", mapOf("name" to name, "color" to color)) }
@@ -373,6 +402,75 @@ object WsRepository : WsClient {
     fun getSetting(key: String) { send("app:get-setting", mapOf("key" to key)) }
     fun setSetting(key: String, value: String) { send("app:set-setting", mapOf("key" to key, "value" to value)) }
     fun getMcpServers() { send("mcp:list", emptyMap()) }
+    private fun skillPayload(
+        name: String,
+        icon: String,
+        description: String,
+        instructions: String,
+        tags: List<String>,
+        tools: Map<String, Any>,
+        mcpServers: List<String>,
+        mcpServerTrust: List<Map<String, String>>,
+        mcpToolOverrides: List<Map<String, Any>>,
+        knowledge: List<Map<String, String>>,
+    ): Map<String, Any> =
+        mapOf(
+            "name" to name,
+            "icon" to icon,
+            "description" to description,
+            "instructions" to instructions,
+            "tags" to tags,
+            "tools" to tools,
+            "mcpServers" to mcpServers,
+            "mcpServerTrust" to mcpServerTrust,
+            "mcpToolOverrides" to mcpToolOverrides,
+            "knowledge" to knowledge,
+        )
+    fun listSkills() { send("skill:list", emptyMap()) }
+    fun getSkill(id: String) { send("skill:get", mapOf("id" to id)) }
+    fun createSkill(
+        name: String,
+        icon: String,
+        description: String,
+        instructions: String,
+        tags: List<String>,
+        tools: Map<String, Any>,
+        mcpServers: List<String>,
+        mcpServerTrust: List<Map<String, String>>,
+        mcpToolOverrides: List<Map<String, Any>>,
+        knowledge: List<Map<String, String>>,
+    ) {
+        send("skill:create", skillPayload(name, icon, description, instructions, tags, tools, mcpServers, mcpServerTrust, mcpToolOverrides, knowledge))
+    }
+    fun updateSkill(
+        id: String,
+        name: String,
+        icon: String,
+        description: String,
+        instructions: String,
+        tags: List<String>,
+        tools: Map<String, Any>,
+        mcpServers: List<String>,
+        mcpServerTrust: List<Map<String, String>>,
+        mcpToolOverrides: List<Map<String, Any>>,
+        knowledge: List<Map<String, String>>,
+    ) {
+        val data = skillPayload(name, icon, description, instructions, tags, tools, mcpServers, mcpServerTrust, mcpToolOverrides, knowledge).toMutableMap()
+        data["id"] = id
+        send("skill:update", data)
+    }
+    fun deleteSkill(id: String) { send("skill:delete", mapOf("id" to id)) }
+    fun duplicateSkill(id: String) { send("skill:duplicate", mapOf("id" to id)) }
+    fun exportSkill(id: String) { send("skill:export", mapOf("id" to id)) }
+    fun importSkill(skill: Map<String, Any>) { send("skill:import", mapOf("skill" to skill)) }
+    fun getSkillAgentLinks(agentId: String) { send("skill:get-agent-links", mapOf("agentId" to agentId)) }
+    fun attachSkillToAgent(agentId: String, skillId: String, attach: Boolean) {
+        send("skill:attach-to-agent", mapOf("agentId" to agentId, "skillId" to skillId, "attach" to attach))
+    }
+    fun reorderSkillsForAgent(agentId: String, skillIds: List<String>) {
+        send("skill:reorder-for-agent", mapOf("agentId" to agentId, "skillIds" to skillIds))
+    }
+    fun getSkillAgentUsage() { send("skill:get-agent-usage", emptyMap()) }
     fun listArtifacts(projectId: String? = null) {
         send("artifact:list", if (projectId != null) mapOf("projectId" to projectId) else emptyMap())
     }
