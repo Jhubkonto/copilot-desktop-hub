@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -64,6 +66,8 @@ fun HomeScreen(
     onOpenProjectHistory: (String) -> Unit,
     onOpenProjectConfig: (String) -> Unit,
     onOpenProjectGenerator: () -> Unit,
+    onOpenArtifacts: () -> Unit,
+    onOpenSkills: () -> Unit,
     onDisconnected: () -> Unit,
     onOpenSettings: () -> Unit,
     vm: HomeViewModel = viewModel(),
@@ -219,6 +223,12 @@ fun HomeScreen(
                     }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                     }
+                    IconButton(onClick = onOpenArtifacts) {
+                        Icon(Icons.Default.Folder, contentDescription = "Artifacts")
+                    }
+                    IconButton(onClick = onOpenSkills) {
+                        Icon(Icons.Default.Build, contentDescription = "Skills")
+                    }
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")
                     }
@@ -271,6 +281,7 @@ fun HomeScreen(
                     onDisconnect = { vm.disconnect() },
                     onRenameConversation = { id, title -> vm.renameConversation(id, title) },
                     onDeleteConversation = { id -> vm.deleteConversation(id) },
+                    onTogglePinConversation = { id, pinned -> vm.setPinnedConversation(id, pinned) },
                 )
                 1 -> ProjectsTab(
                     projects = projects,

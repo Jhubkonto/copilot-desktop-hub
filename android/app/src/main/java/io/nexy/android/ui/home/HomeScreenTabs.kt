@@ -87,6 +87,7 @@ fun ChatsTab(
     onDisconnect: () -> Unit,
     onRenameConversation: (id: String, title: String) -> Unit,
     onDeleteConversation: (id: String) -> Unit,
+    onTogglePinConversation: (id: String, pinned: Boolean) -> Unit = { _, _ -> },
 ) {
     var activeFilter by remember { mutableStateOf<ChatFilter>(ChatFilter.All) }
     var showFilterSheet by remember { mutableStateOf(false) }
@@ -107,11 +108,12 @@ fun ChatsTab(
         searchResults ?: emptyList()
     } else {
         remember(conversations, activeFilter) {
-            when (val f = activeFilter) {
+            val filtered = when (val f = activeFilter) {
                 is ChatFilter.All -> conversations
                 is ChatFilter.ByAgent -> conversations.filter { it.agent_name == f.agentName }
                 is ChatFilter.ByProject -> conversations.filter { it.project_id == f.projectId }
             }
+            filtered.sortedWith(compareByDescending { it.pinned })
         }
     }
 
@@ -323,6 +325,7 @@ fun ChatsTab(
                                     renamingConversation = conv
                                 },
                                 onDelete = { deletingConversation = conv },
+                                onTogglePin = { id, pinned -> onTogglePinConversation(id, pinned) },
                             )
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         }

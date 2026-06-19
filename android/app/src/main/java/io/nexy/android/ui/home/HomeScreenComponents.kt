@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -47,23 +49,35 @@ fun ConversationRow(
     onOpenChat: (String) -> Unit,
     onRename: ((id: String, currentTitle: String) -> Unit)? = null,
     onDelete: ((id: String) -> Unit)? = null,
+    onTogglePin: ((id: String, pinned: Boolean) -> Unit)? = null,
 ) {
     val preview = conv.last_message ?: ""
     var menuExpanded by remember { mutableStateOf(false) }
     Surface(
-        modifier = Modifier.fillMaxWidth().combinedClickable(
-            onClick = { onOpenChat(conv.id) },
-            onLongClick = { onRename?.invoke(conv.id, conv.title) },
-        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 92.dp)
+            .combinedClickable(
+                onClick = { onOpenChat(conv.id) },
+                onLongClick = { onRename?.invoke(conv.id, conv.title) },
+            ),
         color = MaterialTheme.colorScheme.surface,
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                if (conv.pinned) {
+                    Icon(
+                        Icons.Default.PushPin,
+                        contentDescription = "Pinned",
+                        modifier = Modifier.size(14.dp).padding(end = 2.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
                 Text(
                     text = conv.title.ifBlank { "Untitled" },
                     style = MaterialTheme.typography.bodyLarge,
@@ -77,7 +91,7 @@ fun ConversationRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 8.dp),
                 )
-                if (onRename != null || onDelete != null) {
+                if (onRename != null || onDelete != null || onTogglePin != null) {
                     Box {
                         IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(48.dp)) {
                             Icon(
@@ -87,6 +101,16 @@ fun ConversationRow(
                             )
                         }
                         DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                            if (onTogglePin != null) {
+                                DropdownMenuItem(
+                                    text = { Text(if (conv.pinned) "Unpin" else "Pin") },
+                                    leadingIcon = { Icon(Icons.Default.PushPin, contentDescription = null) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onTogglePin.invoke(conv.id, !conv.pinned)
+                                    },
+                                )
+                            }
                             if (onRename != null) {
                                 DropdownMenuItem(
                                     text = { Text("Rename") },
@@ -115,26 +139,22 @@ fun ConversationRow(
                 conv.agent_name?.takeIf { it.isNotBlank() }?.let { "Agent: $it" },
                 conv.project_name?.takeIf { it.isNotBlank() }?.let { "Project: $it" },
             )
-            if (contextParts.isNotEmpty()) {
-                Text(
-                    text = contextParts.joinToString(" · "),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
-            }
-            if (preview.isNotEmpty()) {
-                Text(
-                    text = preview,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
-            }
+            Text(
+                text = contextParts.joinToString(" · "),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+            Text(
+                text = preview,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 2.dp),
+            )
         }
     }
 }

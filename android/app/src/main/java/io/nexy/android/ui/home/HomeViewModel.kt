@@ -127,6 +127,8 @@ class HomeViewModel(
 
     fun deleteConversation(id: String) = WsRepository.deleteConversation(id)
 
+    fun setPinnedConversation(id: String, pinned: Boolean) = WsRepository.setPinnedConversation(id, pinned)
+
     fun createProject(name: String, color: String) = WsRepository.createProject(name, color)
     fun renameProject(id: String, name: String) = WsRepository.renameProject(id, name)
     fun deleteProject(id: String) = WsRepository.deleteProject(id)
