@@ -12,6 +12,7 @@ import androidx.navigation.navArgument
 import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
 import io.nexy.android.ui.agentgenerator.AgentGeneratorScreen
+import io.nexy.android.ui.artifactgenerator.ArtifactGeneratorScreen
 import io.nexy.android.ui.skillgenerator.SkillGeneratorScreen
 import io.nexy.android.ui.chat.ChatScreen
 import io.nexy.android.ui.projects.ProjectConfigScreen
@@ -287,7 +288,14 @@ fun NavGraph(onRequestNotificationPermission: () -> Unit = {}) {
         }
 
         composable("artifacts") {
-            ArtifactsScreen(onBack = { navController.popBackStack() })
+            ArtifactsScreen(
+                onBack = { navController.popBackStack() },
+                onOpenGenerator = { navController.navigate("artifact-generator") },
+            )
+        }
+
+        composable("artifact-generator") {
+            ArtifactGeneratorScreen(onBack = { navController.popBackStack() })
         }
 
         composable("skills") {

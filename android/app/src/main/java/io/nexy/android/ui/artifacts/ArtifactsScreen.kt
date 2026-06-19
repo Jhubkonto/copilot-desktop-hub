@@ -51,6 +51,7 @@ import io.nexy.android.data.model.ArtifactSummary
 import io.nexy.android.ui.components.NexyEmptyState
 import io.nexy.android.ui.components.NexySearchField
 import io.nexy.android.ui.components.NexyStatusBadge
+import io.nexy.android.ui.components.NexyTopAppBar
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -58,6 +59,7 @@ import java.io.File
 fun ArtifactsScreen(
     onBack: () -> Unit,
     projectId: String? = null,
+    onOpenGenerator: (() -> Unit)? = null,
     vm: ArtifactsViewModel = viewModel(),
 ) {
     val artifacts by vm.artifacts.collectAsState()
@@ -103,6 +105,9 @@ fun ArtifactsScreen(
                 titleContent = { Text("Artifacts", style = MaterialTheme.typography.titleMedium) },
                 onBack = onBack,
                 actions = {
+                    if (onOpenGenerator != null) {
+                        TextButton(onClick = onOpenGenerator) { Text("Generate") }
+                    }
                     IconButton(onClick = { vm.refresh(projectId) }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh artifacts")
                     }
