@@ -116,6 +116,17 @@ fun parseWsEvent(
                 conversationId = data?.optString("conversationId") ?: "",
             )
 
+            "chat:thinking-delta" -> WsEvent.ChatThinkingDelta(
+                conversationId = data?.optString("conversationId") ?: "",
+                blockId = data?.optString("blockId") ?: "",
+                chunk = data?.optString("chunk") ?: "",
+            )
+
+            "chat:thinking-end" -> WsEvent.ChatThinkingEnd(
+                conversationId = data?.optString("conversationId") ?: "",
+                blockId = data?.optString("blockId") ?: "",
+            )
+
             "chat:activity" -> WsEvent.ChatActivity(
                 conversationId = data?.optString("conversationId") ?: "",
                 state = data?.optString("state") ?: "thinking",

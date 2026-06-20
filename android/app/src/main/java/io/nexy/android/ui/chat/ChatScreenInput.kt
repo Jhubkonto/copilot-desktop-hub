@@ -99,7 +99,7 @@ fun ChatInputBar(
             .fillMaxWidth()
             .imePadding()
             .navigationBarsPadding()
-            .padding(horizontal = 12.dp, bottom = 8.dp),
+            .padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
     ) {
         Surface(
             shape = RoundedCornerShape(20.dp),

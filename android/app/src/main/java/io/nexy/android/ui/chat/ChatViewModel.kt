@@ -60,6 +60,9 @@ class ChatViewModel(
     private val _activityLabel = MutableStateFlow("Assistant is thinking")
     val activityLabel: StateFlow<String> = _activityLabel
 
+    private val _liveThinkingBlocks = MutableStateFlow<List<ThinkingBlock>>(emptyList())
+    val liveThinkingBlocks: StateFlow<List<ThinkingBlock>> = _liveThinkingBlocks
+
     private val _attachments = MutableStateFlow<List<PendingAttachment>>(emptyList())
     val attachments: StateFlow<List<PendingAttachment>> = _attachments
 
@@ -96,9 +99,19 @@ class ChatViewModel(
                         if (event.state == "complete" || event.state == "error") {
                             _isAwaitingResponse.value = false
                             _activityLabel.value = "Assistant is thinking"
+                            _liveThinkingBlocks.value = emptyList()
                         } else {
                             _activityLabel.value = event.label.ifBlank { "Assistant is thinking" }
                             if (!_isStreaming.value) _isAwaitingResponse.value = true
+                        }
+                    }
+                    event is WsEvent.ChatThinkingDelta && event.conversationId == conversationId -> {
+                        appendLiveThinking(event.blockId, event.chunk)
+                        if (!_isStreaming.value) _isAwaitingResponse.value = true
+                    }
+                    event is WsEvent.ChatThinkingEnd && event.conversationId == conversationId -> {
+                        _liveThinkingBlocks.value = _liveThinkingBlocks.value.map { block ->
+                            if (block.blockId == event.blockId) block.copy(done = true) else block
                         }
                     }
                     event is WsEvent.ChatStreamChunk && event.conversationId == conversationId -> {
@@ -118,6 +131,7 @@ class ChatViewModel(
                         _isAwaitingResponse.value = false
                         _activityLabel.value = "Assistant is thinking"
                         _isStreaming.value = false
+                        _liveThinkingBlocks.value = emptyList()
                         val current = _messages.value
                         if (current.lastOrNull()?.isStreaming == true) {
                             _messages.value = current.dropLast(1) + current.last().copy(isStreaming = false)
@@ -159,6 +173,7 @@ class ChatViewModel(
     fun refreshMessages() {
         _isRefreshing.value = true
         historyLoaded = false
+        _liveThinkingBlocks.value = emptyList()
         wsClient.send("conversation:get-messages", mapOf("conversationId" to conversationId))
     }
 
@@ -201,6 +216,7 @@ class ChatViewModel(
         _messages.value = _messages.value + optimisticMessage
         _isAwaitingResponse.value = true
         _activityLabel.value = "Assistant is thinking"
+        _liveThinkingBlocks.value = emptyList()
 
         if (wsClient === WsRepository && WsRepository.connectionState.value != ConnectionState.CONNECTED) {
             val msgs = _messages.value
@@ -228,6 +244,7 @@ class ChatViewModel(
         _isAwaitingResponse.value = false
         _activityLabel.value = "Assistant is thinking"
         _isStreaming.value = false
+        _liveThinkingBlocks.value = emptyList()
     }
 
     fun clearSendError() { _sendError.value = null }
@@ -240,6 +257,20 @@ class ChatViewModel(
     fun deleteMessagesAfter(conversationId: String, timestamp: Long) {
         _messages.value = _messages.value.filter { it.timestamp < timestamp }
         wsClient.send("message:delete-after", mapOf("conversationId" to conversationId, "timestamp" to timestamp))
+    }
+
+    private fun appendLiveThinking(blockId: String, chunk: String) {
+        if (blockId.isBlank() || chunk.isEmpty()) return
+        val current = _liveThinkingBlocks.value
+        val index = current.indexOfFirst { it.blockId == blockId }
+        _liveThinkingBlocks.value = if (index >= 0) {
+            current.toMutableList().also { list ->
+                val existing = list[index]
+                list[index] = existing.copy(content = existing.content + chunk, done = false)
+            }
+        } else {
+            current + ThinkingBlock(blockId = blockId, content = chunk, done = false)
+        }
     }
 
 }

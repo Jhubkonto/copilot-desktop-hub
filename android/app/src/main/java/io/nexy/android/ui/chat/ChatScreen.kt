@@ -88,6 +88,7 @@ fun ChatScreen(
     val isAwaitingResponse by vm.isAwaitingResponse.collectAsState()
     val isRefreshing by vm.isRefreshing.collectAsState()
     val activityLabel by vm.activityLabel.collectAsState()
+    val liveThinkingBlocks by vm.liveThinkingBlocks.collectAsState()
     val selectedModel by vm.selectedModel.collectAsState()
     val attachments by vm.attachments.collectAsState()
     val conversations by WsRepository.conversations.collectAsState()
@@ -120,6 +121,7 @@ fun ChatScreen(
     var deletingMessage by remember { mutableStateOf<ChatMessage?>(null) }
     var deleteAfterMessage by remember { mutableStateOf<ChatMessage?>(null) }
     val promptEntries by WsRepository.promptEntries.collectAsState()
+    var relaunchFilePicker by remember { mutableStateOf(false) }
 
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         for (uri in uris) {
@@ -143,7 +145,7 @@ fun ChatScreen(
                         actionLabel = "Choose another",
                     )
                     if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
-                        filePicker.launch("*/*")
+                        relaunchFilePicker = true
                     }
                 }
                 continue
@@ -164,6 +166,13 @@ fun ChatScreen(
                 }
                 vm.addAttachment(name, mimeType, null, text)
             }
+        }
+    }
+
+    LaunchedEffect(relaunchFilePicker) {
+        if (relaunchFilePicker) {
+            relaunchFilePicker = false
+            filePicker.launch("*/*")
         }
     }
 
@@ -592,6 +601,9 @@ fun ChatScreen(
                         if (msg.isToolCall) {
                             ToolCallBubble(msg)
                         } else {
+                            if (!msg.isUser && msg.isStreaming && liveThinkingBlocks.isNotEmpty()) {
+                                ThinkingHistoryBubble(liveThinkingBlocks)
+                            }
                             if (!msg.isUser && msg.thinkingBlocks.isNotEmpty()) {
                                 ThinkingHistoryBubble(msg.thinkingBlocks)
                             }
@@ -606,6 +618,9 @@ fun ChatScreen(
                         }
                     }
                     if (isAwaitingResponse) {
+                        if (liveThinkingBlocks.isNotEmpty()) {
+                            item { ThinkingHistoryBubble(liveThinkingBlocks) }
+                        }
                         item { ThinkingBubble(activityLabel) }
                     }
                 }

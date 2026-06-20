@@ -9,6 +9,8 @@ sealed class WsEvent {
     ) : WsEvent()
     data class ChatStreamChunk(val conversationId: String, val text: String) : WsEvent()
     data class ChatStreamEnd(val conversationId: String) : WsEvent()
+    data class ChatThinkingDelta(val conversationId: String, val blockId: String, val chunk: String) : WsEvent()
+    data class ChatThinkingEnd(val conversationId: String, val blockId: String) : WsEvent()
     data class ChatCost(val conversationId: String, val inputTokens: Int, val outputTokens: Int, val totalCostUsd: Double) : WsEvent()
     data class ChatActivity(
         val conversationId: String,

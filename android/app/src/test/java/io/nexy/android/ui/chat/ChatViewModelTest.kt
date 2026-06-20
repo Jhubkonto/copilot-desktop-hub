@@ -4,6 +4,7 @@ import androidx.lifecycle.viewModelScope
 import io.nexy.android.data.WsClient
 import io.nexy.android.data.model.AttachmentMeta
 import io.nexy.android.data.model.HistoryMessage
+import io.nexy.android.data.model.ThinkingBlock
 import io.nexy.android.data.model.WsEvent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -69,8 +70,8 @@ class ChatViewModelTest {
 
         assertEquals(
             listOf(
-                ChatMessage(id = "m1", text = "Hello", isUser = true, isStreaming = false),
-                ChatMessage(id = "m2", text = "Hi", isUser = false, isStreaming = false),
+                ChatMessage(id = "m1", text = "Hello", isUser = true, isStreaming = false, timestamp = 1),
+                ChatMessage(id = "m2", text = "Hi", isUser = false, isStreaming = false, timestamp = 2),
             ),
             vm.messages.value,
         )
@@ -123,9 +124,40 @@ class ChatViewModelTest {
                 text = "",
                 isUser = true,
                 isStreaming = false,
+                timestamp = 1,
                 attachments = listOf(AttachmentMeta(id = "m1", name = "photo.png", type = "image", thumbnailDataUrl = null)),
             ),
             vm.messages.value.single(),
+        )
+
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
+    fun restoresPersistedThinkingBlocksFromHistoryReload() = runTest {
+        val fakeWs = FakeWsClient()
+        val vm = ChatViewModel("conv-1", fakeWs)
+        advanceUntilIdle()
+
+        fakeWs.emit(
+            WsEvent.ConversationMessages(
+                conversationId = "conv-1",
+                messages = listOf(
+                    HistoryMessage(
+                        id = "m1",
+                        role = "assistant",
+                        content = "Done",
+                        timestamp = 1,
+                        thinkingBlocks = listOf(ThinkingBlock("codex-activity", "Ran tests", done = true)),
+                    ),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(ThinkingBlock("codex-activity", "Ran tests", done = true)),
+            vm.messages.value.single().thinkingBlocks,
         )
 
         vm.viewModelScope.cancel()
@@ -160,6 +192,82 @@ class ChatViewModelTest {
             ChatMessage(text = "Hello world", isUser = false, isStreaming = false),
             vm.messages.value.last(),
         )
+
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
+    fun accumulatesLiveThinkingBlocksAndClearsThemOnStreamEnd() = runTest {
+        val fakeWs = FakeWsClient()
+        val vm = ChatViewModel("conv-1", fakeWs)
+        advanceUntilIdle()
+
+        fakeWs.emit(WsEvent.ChatThinkingDelta("conv-1", "codex-activity", "Planning"))
+        fakeWs.emit(WsEvent.ChatThinkingDelta("conv-1", "codex-activity", " steps"))
+        fakeWs.emit(WsEvent.ChatThinkingEnd("conv-1", "codex-activity"))
+        advanceUntilIdle()
+
+        assertTrue(vm.isAwaitingResponse.value)
+        assertEquals(
+            listOf(ThinkingBlock("codex-activity", "Planning steps", done = true)),
+            vm.liveThinkingBlocks.value,
+        )
+
+        fakeWs.emit(WsEvent.ChatStreamChunk("conv-1", "Done"))
+        fakeWs.emit(WsEvent.ChatStreamEnd("conv-1"))
+        advanceUntilIdle()
+
+        assertTrue(vm.liveThinkingBlocks.value.isEmpty())
+
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
+    fun ignoresLiveThinkingEventsForOtherConversations() = runTest {
+        val fakeWs = FakeWsClient()
+        val vm = ChatViewModel("conv-1", fakeWs)
+        advanceUntilIdle()
+
+        fakeWs.emit(WsEvent.ChatThinkingDelta("other-conv", "codex-activity", "Ignored"))
+        fakeWs.emit(WsEvent.ChatThinkingEnd("other-conv", "codex-activity"))
+        advanceUntilIdle()
+
+        assertTrue(vm.liveThinkingBlocks.value.isEmpty())
+        assertFalse(vm.isAwaitingResponse.value)
+
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
+    fun clearsLiveThinkingBlocksOnStopRefreshAndErrorActivity() = runTest {
+        val fakeWs = FakeWsClient()
+        val vm = ChatViewModel("conv-1", fakeWs)
+        advanceUntilIdle()
+
+        fakeWs.emit(WsEvent.ChatThinkingDelta("conv-1", "codex-activity", "Working"))
+        advanceUntilIdle()
+        assertTrue(vm.liveThinkingBlocks.value.isNotEmpty())
+
+        vm.stopStream()
+        assertTrue(vm.liveThinkingBlocks.value.isEmpty())
+
+        fakeWs.emit(WsEvent.ChatThinkingDelta("conv-1", "codex-activity", "Working"))
+        advanceUntilIdle()
+        vm.refreshMessages()
+        assertTrue(vm.liveThinkingBlocks.value.isEmpty())
+
+        fakeWs.emit(WsEvent.ChatThinkingDelta("conv-1", "codex-activity", "Working"))
+        fakeWs.emit(
+            WsEvent.ChatActivity(
+                conversationId = "conv-1",
+                state = "error",
+                label = "Failed",
+                toolName = null,
+                serverName = null,
+            ),
+        )
+        advanceUntilIdle()
+        assertTrue(vm.liveThinkingBlocks.value.isEmpty())
 
         vm.viewModelScope.cancel()
     }

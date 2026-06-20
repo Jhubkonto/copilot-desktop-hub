@@ -70,7 +70,8 @@ class ProjectGeneratorViewModelTest {
 
         assertTrue(vm.uiState.value.isLoading)
         assertEquals("", vm.uiState.value.streamingText)
-        assertEquals(1, vm.uiState.value.messages.size)
+        assertEquals(2, vm.uiState.value.messages.size)
+        assertEquals(ProjectGenMessage("user", "Create a project"), vm.uiState.value.messages.last())
 
         vm.viewModelScope.cancel()
     }
