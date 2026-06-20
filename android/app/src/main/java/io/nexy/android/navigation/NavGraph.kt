@@ -32,6 +32,7 @@ import io.nexy.android.ui.settings.AppearanceScreen
 import io.nexy.android.ui.settings.ConnectionScreen
 import io.nexy.android.ui.settings.DiagnosticsScreen
 import io.nexy.android.ui.settings.GlobalSettingsScreen
+import io.nexy.android.ui.settings.BuildDashboardScreen
 import io.nexy.android.ui.settings.McpAndCliScreen
 import io.nexy.android.ui.settings.ModelsScreen
 import io.nexy.android.ui.settings.NotificationsScreen
@@ -214,7 +215,12 @@ fun NavGraph(onRequestNotificationPermission: () -> Unit = {}) {
                 onOpenPromptLibrary = { navController.navigate("prompts") },
                 onOpenGlobalSettings = { navController.navigate("settings/global") },
                 onOpenMcpAndCli = { navController.navigate("settings/mcp-cli") },
+                onOpenBuildDashboard = { navController.navigate("settings/build-dashboard") },
             )
+        }
+
+        composable("settings/build-dashboard") {
+            BuildDashboardScreen(onBack = { navController.popBackStack() })
         }
 
         composable("settings/global") {

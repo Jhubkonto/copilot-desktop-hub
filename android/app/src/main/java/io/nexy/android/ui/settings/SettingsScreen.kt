@@ -31,6 +31,7 @@ fun SettingsScreen(
     onOpenPromptLibrary: () -> Unit = {},
     onOpenGlobalSettings: () -> Unit = {},
     onOpenMcpAndCli: () -> Unit = {},
+    onOpenBuildDashboard: () -> Unit = {},
 ) {
     Scaffold(
         topBar = {
@@ -113,6 +114,11 @@ fun SettingsScreen(
 
             // — Developer —
             SettingsSectionHeader("Developer")
+            SettingsNavRow(
+                title = "Build Dashboard",
+                detail = "Build records, preflight, and APK publish/restore",
+                onClick = onOpenBuildDashboard,
+            )
             SettingsNavRow(
                 title = "Diagnostics",
                 detail = "Connection info and bug reports",
