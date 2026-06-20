@@ -31,6 +31,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import io.nexy.android.ui.components.NexyTopAppBar
@@ -40,8 +42,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -62,6 +66,14 @@ fun WikiScreen(
     vm: WikiViewModel = viewModel(),
 ) {
     val state by vm.state.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(state.error) {
+        val err = state.error ?: return@LaunchedEffect
+        scope.launch { snackbarHostState.showSnackbar(err) }
+        vm.dismissError()
+    }
 
     LaunchedEffect(projectId) { vm.load(projectId) }
 
@@ -110,6 +122,7 @@ fun WikiScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             NexyTopAppBar(
                 titleContent = { Text("Project Wiki", style = MaterialTheme.typography.titleMedium) },
