@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -52,6 +53,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import io.nexy.android.data.model.ThinkingBlock
 import io.noties.markwon.Markwon
 
 @Composable
@@ -106,6 +108,74 @@ fun TypingDots() {
                     .alpha(alpha)
                     .background(MaterialTheme.colorScheme.onSurfaceVariant, CircleShape),
             )
+        }
+    }
+}
+
+@Composable
+fun ThinkingHistoryBubble(blocks: List<ThinkingBlock>) {
+    if (blocks.isEmpty()) return
+    var expanded by remember { mutableStateOf(false) }
+    val totalChars = blocks.sumOf { it.content.length }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.Start,
+    ) {
+        Surface(
+            modifier = Modifier.widthIn(max = 320.dp),
+            shape = RoundedCornerShape(10.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+        ) {
+            Column(
+                modifier = Modifier
+                    .clickable { expanded = !expanded }
+                    .padding(horizontal = 12.dp, vertical = 9.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(
+                        Icons.Default.Psychology,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.tertiary,
+                    )
+                    Text(
+                        "Thought for ${if (totalChars > 2000) ">2k" else "~${totalChars / 100 * 100}"} chars",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Icon(
+                        if (expanded) Icons.Default.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = if (expanded) "Collapse thinking" else "Expand thinking",
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (expanded) {
+                    blocks.forEach { block ->
+                        if (block.content.isNotBlank()) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = MaterialTheme.colorScheme.surface,
+                            ) {
+                                Text(
+                                    block.content,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontFamily = FontFamily.Monospace,
+                                    modifier = Modifier.padding(8.dp),
+                                    maxLines = 30,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -255,6 +325,13 @@ fun MessageBubble(
                             color = MaterialTheme.colorScheme.error,
                         )
                     }
+                }
+                if (!isUser && !msg.isStreaming && (msg.inputTokens > 0 || msg.outputTokens > 0)) {
+                    Text(
+                        "${msg.inputTokens}↑ ${msg.outputTokens}↓",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = textColor.copy(alpha = 0.45f),
+                    )
                 }
             }
         }

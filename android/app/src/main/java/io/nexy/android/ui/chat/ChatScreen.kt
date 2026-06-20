@@ -579,6 +579,9 @@ fun ChatScreen(
                         if (msg.isToolCall) {
                             ToolCallBubble(msg)
                         } else {
+                            if (!msg.isUser && msg.thinkingBlocks.isNotEmpty()) {
+                                ThinkingHistoryBubble(msg.thinkingBlocks)
+                            }
                             MessageBubble(
                                 msg = msg,
                                 onCopy = { copyMessage(clipboardManager, msg.text) },
