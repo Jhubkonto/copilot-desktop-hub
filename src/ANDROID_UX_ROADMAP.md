@@ -195,12 +195,12 @@ The foundation is correct. Add the texture that makes the app feel premium.
 
 ### Checklist
 
-- [ ] **Move hardcoded colors to theme** (`ApprovalDialog.kt:84,98`): `Color(0xFF16A34A)` (approve green) and `Color(0xFFEF4444)` (reject red) are hardcoded; add `success` / `successContainer` color pairs to `Color.kt` + `Theme.kt` using Tailwind Green500 (`#22C55E`) / Green700 (`#15803D`) to match the existing palette; apply in `ApprovalDialog` and any other success-state usage
-- [ ] **List item entrance animations**: add `Modifier.animateItem()` to `LazyColumn` `items { }` in `SkillsScreen`, `ArtifactsScreen`, `PromptsScreen` for smooth insert/remove on filter
-- [ ] **Haptic feedback on FAB**: add `LocalHapticFeedback.current.performHapticFeedback(HapticFeedbackType.LongPress)` on FAB `onClick` in `HomeScreen`, `SkillsScreen`, `PromptsScreen`; replace raw `vibrate()` in `ApprovalDialog` with the Compose `HapticFeedback` API for consistency
-- [ ] **Extract Nexy brand violet to `Color.kt`**: `Color(0xFFA78BFA)` is hardcoded in both `SplashScreen.kt:54–57` and `HomeScreen.kt:207–213`; extract to `val NexyViolet = Color(0xFFA78BFA)` and reference from both files
-- [ ] **Animate `ConnectionChip` state transitions**: wrap `ConnectionChip` content changes with `AnimatedContent(targetState = connectionState)` for a crossfade instead of abrupt text/color swap
-- [ ] **Verify ripple on all `Surface` + `.clickable()` combos**: confirm none use `indication = null` unintentionally; all interactive `Surface` rows should show Material ripple
+- [x] **Move hardcoded colors to theme** (`ApprovalDialog.kt:84,98`): added `Green500`/`Green700`/`NexyViolet` to `Color.kt`; added `NexyExtendedColors` data class + `LocalNexyColors` `CompositionLocal` to `Theme.kt` (dark: `Green500`, light: `Green700`); `ApprovalDialog` now uses `LocalNexyColors.current.success` for Approve and `MaterialTheme.colorScheme.error` for Reject — `Done`
+- [x] **List item entrance animations**: added `Modifier.animateItem()` wrapper `Column` + stable `key = { it.id }` to `LazyColumn` items in `SkillsScreen`, `ArtifactsScreen`, `PromptsScreen` — `Done`
+- [x] **Haptic feedback on FAB**: added `LocalHapticFeedback.current.performHapticFeedback(HapticFeedbackType.LongPress)` to FABs in `HomeScreen`, `SkillsScreen`, `PromptsScreen`; replaced raw `vibrate()` in `ApprovalDialog` with Compose `HapticFeedback` API (removed all Android `Vibrator`/`VibratorManager` imports) — `Done`
+- [x] **Extract Nexy brand violet to `Color.kt`**: extracted to `val NexyViolet = Color(0xFFA78BFA)` in `Color.kt`; both `SplashScreen.kt` and `HomeScreen.kt` now import and reference `NexyViolet` — `Done`
+- [x] **Animate `ConnectionChip` state transitions**: wrapped `ConnectionChip` content with `AnimatedContent(targetState = state, transitionSpec = { fadeIn() togetherWith fadeOut() })` in `HomeScreenHelpers.kt` — `Done`
+- [x] **Verify ripple on all `Surface` + `.clickable()` combos**: audited all 30+ `Surface` + `clickable` usages — none use `indication = null`; all produce Material ripple by default — `Done`
 - [ ] **Optional: downloadable display font** via Compose `downloadableFonts` API for branded headings (skip if desktop visual parity takes priority)
 
 ---

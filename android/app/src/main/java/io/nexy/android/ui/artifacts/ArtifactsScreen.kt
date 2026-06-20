@@ -210,9 +210,11 @@ fun ArtifactsScreen(
                     )
                 } else {
                     LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                        items(filteredArtifacts) { artifact ->
-                            ArtifactRow(artifact = artifact, onClick = { vm.selectArtifact(artifact.id) })
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        items(filteredArtifacts, key = { it.id }) { artifact ->
+                            Column(modifier = Modifier.animateItem()) {
+                                ArtifactRow(artifact = artifact, onClick = { vm.selectArtifact(artifact.id) })
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                            }
                         }
                     }
                 }

@@ -7,8 +7,16 @@ import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+
+data class NexyExtendedColors(val success: Color, val onSuccess: Color)
+
+val LocalNexyColors = staticCompositionLocalOf {
+    NexyExtendedColors(success = Green500, onSuccess = Color.White)
+}
 
 private val DarkColorScheme = darkColorScheme(
     primary = Blue500,
@@ -92,11 +100,18 @@ fun NexyTheme(
     content: @Composable () -> Unit,
 ) {
     val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+    val extendedColors = if (darkTheme) {
+        NexyExtendedColors(success = Green500, onSuccess = Color.White)
+    } else {
+        NexyExtendedColors(success = Green700, onSuccess = Color.White)
+    }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography,
-        shapes = AppShapes,
-        content = content,
-    )
+    CompositionLocalProvider(LocalNexyColors provides extendedColors) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = Typography,
+            shapes = AppShapes,
+            content = content,
+        )
+    }
 }

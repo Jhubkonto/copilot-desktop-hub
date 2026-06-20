@@ -45,6 +45,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -69,6 +71,7 @@ fun PromptsScreen(
 ) {
     val state by vm.state.collectAsState()
     val isRefreshing by vm.isRefreshing.collectAsState()
+    val haptic = LocalHapticFeedback.current
     var searchQuery by remember { mutableStateOf("") }
     var scopeFilter by remember { mutableStateOf<String?>(null) }
     var sortOrder by remember { mutableStateOf(PromptSortOrder.TITLE_ASC) }
@@ -200,7 +203,10 @@ fun PromptsScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { vm.showCreate() }) {
+            FloatingActionButton(onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                vm.showCreate()
+            }) {
                 Icon(Icons.Default.Add, contentDescription = "New prompt")
             }
         },
@@ -281,14 +287,16 @@ fun PromptsScreen(
                                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                                     )
                                 }
-                                items(items) { entry ->
-                                    PromptRow(
-                                        entry = entry,
-                                        showInsert = onInsert != null,
-                                        onClick = { vm.selectEntry(entry) },
-                                        onInsert = { vm.insertPrompt(entry.body) },
-                                    )
-                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                                items(items, key = { it.id }) { entry ->
+                                    Column(modifier = Modifier.animateItem()) {
+                                        PromptRow(
+                                            entry = entry,
+                                            showInsert = onInsert != null,
+                                            onClick = { vm.selectEntry(entry) },
+                                            onInsert = { vm.insertPrompt(entry.body) },
+                                        )
+                                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                                    }
                                 }
                             }
                         }

@@ -48,7 +48,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -79,6 +81,7 @@ fun SkillsScreen(
     val connectionState by WsRepository.connectionState.collectAsState()
     val context = LocalContext.current
     val clipboardManager = context.getSystemService(ClipboardManager::class.java)
+    val haptic = LocalHapticFeedback.current
     var searchQuery by remember { mutableStateOf("") }
     var sortOrder by remember { mutableStateOf(SkillSortOrder.NAME_ASC) }
     var showSortSheet by remember { mutableStateOf(false) }
@@ -200,7 +203,10 @@ fun SkillsScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { vm.showCreate() }) {
+            FloatingActionButton(onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                vm.showCreate()
+            }) {
                 Icon(Icons.Default.Add, contentDescription = "New skill")
             }
         },
@@ -249,14 +255,16 @@ fun SkillsScreen(
                         )
                     } else {
                         LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                            items(filteredSkills) { skill ->
-                                SkillRow(
-                                    skill = skill,
-                                    usageCount = state.usageBySkillId[skill.id] ?: 0,
-                                    onClick = { vm.selectSkill(skill) },
-                                    onTagClick = { tag -> searchQuery = tag },
-                                )
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                            items(filteredSkills, key = { it.id }) { skill ->
+                                Column(modifier = Modifier.animateItem()) {
+                                    SkillRow(
+                                        skill = skill,
+                                        usageCount = state.usageBySkillId[skill.id] ?: 0,
+                                        onClick = { vm.selectSkill(skill) },
+                                        onTagClick = { tag -> searchQuery = tag },
+                                    )
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                                }
                             }
                         }
                     }

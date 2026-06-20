@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import io.nexy.android.ui.theme.NexyViolet
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -52,7 +53,7 @@ fun SplashScreen(onFinished: () -> Unit) {
         ) {
             Text(
                 text = buildAnnotatedString {
-                    withStyle(SpanStyle(color = Color(0xFFA78BFA))) { append("N") }
+                    withStyle(SpanStyle(color = NexyViolet)) { append("N") }
                     withStyle(SpanStyle(color = Color.White)) { append("exy") }
                 },
                 style = TextStyle(

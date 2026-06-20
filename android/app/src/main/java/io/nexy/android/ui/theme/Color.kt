@@ -25,3 +25,10 @@ val Blue900 = Color(0xFF1E3A8A)
 // Semantic
 val Red400 = Color(0xFFF87171)
 val Red600 = Color(0xFFDC2626)
+
+// Green — approve/success state
+val Green500 = Color(0xFF22C55E)
+val Green700 = Color(0xFF15803D)
+
+// Nexy brand violet
+val NexyViolet = Color(0xFFA78BFA)

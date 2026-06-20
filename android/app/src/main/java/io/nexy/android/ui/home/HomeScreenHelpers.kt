@@ -1,5 +1,9 @@
 package io.nexy.android.ui.home
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -11,17 +15,23 @@ import io.nexy.android.data.ConnectionState
 
 @Composable
 fun ConnectionChip(state: ConnectionState) {
-    val (label, color) = when (state) {
-        ConnectionState.CONNECTED -> "Connected" to Color(0xFF22C55E)
-        ConnectionState.CONNECTING -> "Connecting…" to Color(0xFFF59E0B)
-        ConnectionState.DISCONNECTED -> "Disconnected" to Color(0xFFEF4444)
+    AnimatedContent(
+        targetState = state,
+        transitionSpec = { fadeIn() togetherWith fadeOut() },
+        label = "connection-chip",
+    ) { currentState ->
+        val (label, color) = when (currentState) {
+            ConnectionState.CONNECTED -> "Connected" to Color(0xFF22C55E)
+            ConnectionState.CONNECTING -> "Connecting…" to Color(0xFFF59E0B)
+            ConnectionState.DISCONNECTED -> "Disconnected" to Color(0xFFEF4444)
+        }
+        Text(
+            text = "● $label",
+            color = color,
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.padding(end = 4.dp),
+        )
     }
-    Text(
-        text = "● $label",
-        color = color,
-        style = MaterialTheme.typography.labelMedium,
-        modifier = Modifier.padding(end = 4.dp),
-    )
 }
 
 fun projectColor(color: String): Color = when (color.lowercase()) {

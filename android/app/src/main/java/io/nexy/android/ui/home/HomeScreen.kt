@@ -41,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.SpanStyle
+import io.nexy.android.ui.theme.NexyViolet
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -52,6 +53,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.ConnectionState
 import io.nexy.android.ui.components.ApprovalDialog
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -94,6 +97,7 @@ fun HomeScreen(
     val sheetState = rememberModalBottomSheetState()
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val haptic = LocalHapticFeedback.current
 
     LaunchedEffect(Unit) {
         vm.projectCreated.collect { name ->
@@ -207,7 +211,7 @@ fun HomeScreen(
                     ) {
                         Text(
                             text = buildAnnotatedString {
-                                withStyle(SpanStyle(color = Color(0xFFA78BFA))) { append("N") }
+                                withStyle(SpanStyle(color = NexyViolet)) { append("N") }
                                 withStyle(SpanStyle(color = Color.White)) { append("exy") }
                             },
                             style = MaterialTheme.typography.titleMedium,
@@ -252,6 +256,7 @@ fun HomeScreen(
             }
             FloatingActionButton(
                 onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     when (selectedTab) {
                         0 -> showNewChatSheet = true
                         1 -> showCreateProjectSheet = true

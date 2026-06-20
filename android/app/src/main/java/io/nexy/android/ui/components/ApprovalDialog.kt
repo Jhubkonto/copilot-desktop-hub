@@ -1,10 +1,5 @@
 package io.nexy.android.ui.components
 
-import android.content.Context
-import android.os.Build
-import android.os.VibrationEffect
-import android.os.Vibrator
-import android.os.VibratorManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -22,11 +17,12 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import io.nexy.android.data.model.WsEvent
+import io.nexy.android.ui.theme.LocalNexyColors
 
 @Composable
 fun ApprovalDialog(
@@ -34,7 +30,8 @@ fun ApprovalDialog(
     onApprove: () -> Unit,
     onReject: () -> Unit,
 ) {
-    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+    val nexyColors = LocalNexyColors.current
 
     AlertDialog(
         onDismissRequest = { /* require explicit action */ },
@@ -77,12 +74,12 @@ fun ApprovalDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    vibrate(context, durationMs = 50, amplitude = VibrationEffect.DEFAULT_AMPLITUDE)
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     onApprove()
                 },
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF16A34A),
-                    contentColor = Color.White,
+                    containerColor = nexyColors.success,
+                    contentColor = nexyColors.onSuccess,
                 ),
                 shape = MaterialTheme.shapes.small,
             ) {
@@ -92,26 +89,14 @@ fun ApprovalDialog(
         dismissButton = {
             OutlinedButton(
                 onClick = {
-                    vibrate(context, durationMs = 100, amplitude = VibrationEffect.DEFAULT_AMPLITUDE)
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     onReject()
                 },
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFEF4444)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                 shape = MaterialTheme.shapes.small,
             ) {
                 Text("Reject", style = MaterialTheme.typography.labelLarge)
             }
         },
     )
-}
-
-private fun vibrate(context: Context, durationMs: Long, amplitude: Int) {
-    val effect = VibrationEffect.createOneShot(durationMs, amplitude)
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        val vm = context.getSystemService(VibratorManager::class.java)
-        vm?.defaultVibrator?.vibrate(effect)
-    } else {
-        @Suppress("DEPRECATION")
-        val v = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-        v?.vibrate(effect)
-    }
 }
