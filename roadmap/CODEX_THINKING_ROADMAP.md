@@ -64,9 +64,9 @@ Current findings:
 
 ### Phase 4: Android Live Parity
 
-- [ ] Add WebSocket parsing for live thinking delta/end.
-- [ ] Add `ChatViewModel` state and tests.
-- [ ] Render live blocks while awaiting/streaming, and stored blocks after history reload.
+- [x] Add WebSocket parsing for live thinking delta/end.
+- [x] Add `ChatViewModel` state and tests.
+- [x] Render live blocks while awaiting/streaming, and stored blocks after history reload.
 
 ### Phase 5: QA and Failure States
 
@@ -76,7 +76,7 @@ Current findings:
 - [x] Test stream stop.
 - [x] Test CLI error.
 - [x] Test BYOK provider thinking still works.
-- [ ] Test Android reconnect/history reload shows persisted blocks even if live events were missed.
+- [x] Test Android reconnect/history reload shows persisted blocks even if live events were missed.
 
 ## Test Plan
 
