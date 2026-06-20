@@ -43,13 +43,14 @@ import okhttp3.WebSocketListener
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
-enum class ConnectionState { DISCONNECTED, CONNECTING, CONNECTED }
+enum class ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, POLLING }
 
 object WsRepository : WsClient {
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.SECONDS)
+        .pingInterval(30_000, TimeUnit.MILLISECONDS)
         .build()
 
     private val scope = CoroutineScope(Dispatchers.IO)
@@ -62,6 +63,7 @@ object WsRepository : WsClient {
 
     private val _reconnectExhausted = MutableStateFlow(false)
     val reconnectExhausted: StateFlow<Boolean> = _reconnectExhausted
+
 
     private val _serverVersion = MutableStateFlow<String?>(null)
     val serverVersion: StateFlow<String?> = _serverVersion
@@ -134,7 +136,6 @@ object WsRepository : WsClient {
     private var reconnectJob: Job? = null
     private var handshakeTimeoutJob: Job? = null
     private var reconnectAttempts = 0
-    private val maxReconnects = 5
 
     private var app: Application? = null
     private var pairedServerStore: PairedServerStore? = null
@@ -275,6 +276,7 @@ object WsRepository : WsClient {
                     wikiEntries = _wikiEntries,
                     promptEntries = _promptEntries,
                     cliStatus = _cliStatus,
+                    pairedServerStore = pairedServerStore,
                 )
             }
 
@@ -295,16 +297,25 @@ object WsRepository : WsClient {
     private fun scheduleReconnect() {
         val url = currentUrl ?: return
         if (currentToken == null) return
-        if (reconnectAttempts >= maxReconnects) {
-            _reconnectExhausted.value = true
-            return
-        }
         reconnectJob?.cancel()
         reconnectJob = scope.launch {
-            delay(3_000L)
+            val delayMs = reconnectDelayMs(reconnectAttempts)
+            val isPolling = reconnectAttempts >= BACKOFF_DELAYS.size
+            if (isPolling) {
+                _connectionState.value = ConnectionState.POLLING
+            }
+            delay(delayMs)
             reconnectAttempts++
             doConnect(url)
         }
+    }
+
+    companion object {
+        private val BACKOFF_DELAYS = longArrayOf(1_000, 2_000, 4_000, 8_000, 16_000, 30_000)
+        private const val POLLING_DELAY_MS = 60_000L
+
+        private fun reconnectDelayMs(attempt: Int): Long =
+            if (attempt < BACKOFF_DELAYS.size) BACKOFF_DELAYS[attempt] else POLLING_DELAY_MS
     }
 
     fun disconnect() {
@@ -362,6 +373,19 @@ object WsRepository : WsClient {
     fun hasPairedServer(): Boolean = pairedServerStore?.profiles()?.isNotEmpty() == true
 
     fun pairedServer(): PairedServerConfig? = pairedServerStore?.load()
+
+    fun wakeDesktop() {
+        val profile = pairedServerStore?.activeProfile() ?: return
+        val mac = profile.macAddress ?: return
+        val broadcast = profile.broadcastAddress ?: return
+        scope.launch {
+            runCatching { WakeOnLanHelper.sendMagicPacket(mac, broadcast) }
+            reconnectAttempts = 0
+            _reconnectExhausted.value = false
+            _lastError.value = null
+            connect(profile.toConfig())
+        }
+    }
 
     private fun refreshProfiles() {
         _profiles.value = pairedServerStore?.profiles().orEmpty()

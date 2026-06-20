@@ -13,7 +13,9 @@ internal fun profilesToJson(profiles: List<PairedServerProfile>): String {
                 .put("token", profile.token)
                 .put("name", profile.name)
                 .put("lastUsedAt", profile.lastUsedAt)
-                .put("certFingerprint", profile.certFingerprint),
+                .put("certFingerprint", profile.certFingerprint)
+                .put("macAddress", profile.macAddress)
+                .put("broadcastAddress", profile.broadcastAddress),
         )
     }
     return array.toString()
@@ -32,6 +34,8 @@ internal fun profilesFromJson(raw: String): List<PairedServerProfile> {
             name = obj.optString("name").takeIf { it.isNotBlank() } ?: PairedServerConfig.displayNameForEndpoint(endpoint),
             lastUsedAt = obj.optLong("lastUsedAt", 0L),
             certFingerprint = obj.optString("certFingerprint").takeIf { it.isNotBlank() },
+            macAddress = obj.optString("macAddress").takeIf { it.isNotBlank() },
+            broadcastAddress = obj.optString("broadcastAddress").takeIf { it.isNotBlank() },
         )
     }.sortedByDescending { it.lastUsedAt }
 }

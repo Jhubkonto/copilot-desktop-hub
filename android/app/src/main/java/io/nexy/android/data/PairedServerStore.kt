@@ -48,6 +48,8 @@ data class PairedServerProfile(
     val name: String,
     val lastUsedAt: Long,
     val certFingerprint: String? = null,
+    val macAddress: String? = null,
+    val broadcastAddress: String? = null,
 ) {
     val connectUrl: String
         get() = buildString {
@@ -174,6 +176,17 @@ class PairedServerStore(context: Context) {
             editor.apply()
         }
         return nextActive?.toConfig()
+    }
+
+    fun updateActiveProfileWolInfo(macAddress: String?, broadcastAddress: String?) {
+        val activeId = activeProfile()?.id ?: return
+        val updated = profiles().map { profile ->
+            if (profile.id == activeId) profile.copy(macAddress = macAddress, broadcastAddress = broadcastAddress)
+            else profile
+        }
+        runCatching {
+            prefs.edit().putString(KEY_PROFILES, profilesToJson(updated)).apply()
+        }
     }
 
     fun clear() {

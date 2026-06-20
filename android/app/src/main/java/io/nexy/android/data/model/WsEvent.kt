@@ -1,7 +1,11 @@
 package io.nexy.android.data.model
 
 sealed class WsEvent {
-    data class Connected(val version: String) : WsEvent()
+    data class Connected(
+        val version: String,
+        val macAddress: String? = null,
+        val broadcastAddress: String? = null,
+    ) : WsEvent()
     data class ToolApprovalRequest(
         val requestId: String,
         val toolName: String,

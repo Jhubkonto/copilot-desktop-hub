@@ -87,6 +87,7 @@ fun parseWsEvent(
     artifacts: MutableStateFlow<List<ArtifactSummary>>,
     wikiEntries: MutableStateFlow<List<WikiEntry>>,
     promptEntries: MutableStateFlow<List<PromptEntry>>,
+    pairedServerStore: PairedServerStore? = null,
     cliStatus: MutableStateFlow<Map<String, CliInstallInfo>>,
 ) {
     try {
@@ -98,7 +99,12 @@ fun parseWsEvent(
             "connected" -> {
                 val version = data?.optString("version") ?: ""
                 serverVersion.value = version.takeIf { it.isNotBlank() }
-                WsEvent.Connected(version)
+                val macAddress = data?.optString("macAddress")?.takeIf { it.isNotBlank() }
+                val broadcastAddress = data?.optString("broadcastAddress")?.takeIf { it.isNotBlank() }
+                if (macAddress != null || broadcastAddress != null) {
+                    pairedServerStore?.updateActiveProfileWolInfo(macAddress, broadcastAddress)
+                }
+                WsEvent.Connected(version, macAddress, broadcastAddress)
             }
 
             "tool:approval-request" -> WsEvent.ToolApprovalRequest(
