@@ -171,8 +171,8 @@ Feature Generator is intentionally excluded because it has been removed from the
 - [x] Add source conversation/message display for wiki entries.
 - [x] Add MCP add/update/remove/restart/status flows.
 - [x] Add MCP list-tools and list-tools-for-agent flows.
-- [ ] Add read-only build/developer dashboards for desktop and Android build records.
-- [ ] Add guarded trigger actions for preflight/build/install/publish/restore where mobile-safe.
+- [x] Add read-only build/developer dashboards for desktop and Android build records.
+- [x] Add guarded trigger actions for preflight/build/install/publish/restore where mobile-safe.
 
 ---
 
