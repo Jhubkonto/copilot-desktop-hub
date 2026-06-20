@@ -54,10 +54,13 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
+import io.nexy.android.data.model.AgentContextRules
 import io.nexy.android.data.model.AgentCustomCommand
+import io.nexy.android.data.model.AgentFullConfig
 import io.nexy.android.data.model.AgentKnowledgeFile
 import io.nexy.android.data.model.AgentMcpServerTrust
 import io.nexy.android.data.model.AgentMcpToolOverride
+import io.nexy.android.data.model.AgentTools
 import io.nexy.android.data.model.McpServerInfo
 import io.nexy.android.data.model.SkillConfig
 import io.nexy.android.data.model.ToolConfig
@@ -717,40 +720,37 @@ fun AgentConfigScreen(
                     if (name.isBlank() || saving || disconnected) return@Button
                     saving = true
                     val maxTokens = maxTokensText.trim().toIntOrNull()?.coerceIn(256, 128000) ?: 8192
-                    val tools = mapOf(
-                        "fileEdit" to mapOf("enabled" to fileEditEnabled, "approval" to fileEditApproval, "instructions" to fileEditInstructions),
-                        "terminal" to mapOf("enabled" to terminalEnabled, "approval" to terminalApproval, "instructions" to terminalInstructions),
-                        "webFetch" to mapOf("enabled" to webFetchEnabled, "approval" to webFetchApproval, "instructions" to webFetchInstructions),
+                    val data = buildAgentUpdatePayload(
+                        AgentFullConfig(
+                            id = agentId,
+                            name = name.trim(),
+                            icon = icon.trim(),
+                            systemPrompt = systemPrompt.trim(),
+                            backend = backend,
+                            cliModel = cliModel.trim(),
+                            temperature = temperature,
+                            maxTokens = maxTokens,
+                            responseFormat = responseFormat,
+                            agenticMode = agenticMode,
+                            memory = memory.trim(),
+                            tools = AgentTools(
+                                fileEdit = ToolConfig(enabled = fileEditEnabled, approval = fileEditApproval, instructions = fileEditInstructions),
+                                terminal = ToolConfig(enabled = terminalEnabled, approval = terminalApproval, instructions = terminalInstructions),
+                                webFetch = ToolConfig(enabled = webFetchEnabled, approval = webFetchApproval, instructions = webFetchInstructions),
+                            ),
+                            mcpServers = mcpServers,
+                            thinkingEffort = thinkingEffort,
+                            rootDirectory = rootDirectory.trim(),
+                            contextDirectories = contextDirectories,
+                            contextFiles = contextFiles,
+                            contextRules = AgentContextRules(
+                                ignoredGlobs = ignoredGlobs,
+                                autoInjectWorkspace = autoInjectWorkspace,
+                                autoInjectGit = autoInjectGit,
+                            ),
+                            customCommands = customCommands,
+                        )
                     )
-                    val contextRulesPayload = mapOf(
-                        "ignoredGlobs" to ignoredGlobs,
-                        "autoInjectWorkspace" to autoInjectWorkspace,
-                        "autoInjectGit" to autoInjectGit,
-                    )
-                    val customCommandsPayload = customCommands.map {
-                        mapOf("name" to it.name, "description" to it.description, "prompt" to it.prompt)
-                    }
-                    val data = buildMap<String, Any> {
-                        put("id", agentId)
-                        put("name", name.trim())
-                        put("icon", icon.trim())
-                        put("systemPrompt", systemPrompt.trim())
-                        put("memory", memory.trim())
-                        put("agenticMode", agenticMode)
-                        if (backend != null) put("backend", backend!!) else put("backend", "")
-                        put("cliModel", cliModel.trim())
-                        put("responseFormat", responseFormat)
-                        put("temperature", temperature)
-                        put("maxTokens", maxTokens)
-                        put("tools", tools)
-                        put("mcpServers", mcpServers)
-                        if (thinkingEffort != null) put("thinkingEffort", thinkingEffort!!) else put("thinkingEffort", "")
-                        put("rootDirectory", rootDirectory.trim())
-                        put("contextDirectories", contextDirectories)
-                        put("contextFiles", contextFiles)
-                        put("contextRules", contextRulesPayload)
-                        put("customCommands", customCommandsPayload)
-                    }
                     WsRepository.send("agent:update", data)
                 },
                 enabled = name.isNotBlank() && !saving && !disconnected,

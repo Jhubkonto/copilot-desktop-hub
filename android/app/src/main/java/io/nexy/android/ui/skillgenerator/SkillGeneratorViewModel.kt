@@ -94,20 +94,20 @@ class SkillGeneratorViewModel(
         _uiState.value = current.copy(messages = next, isLoading = true, streamingText = "", missedSpec = false)
         val payload = next.map { mapOf("role" to it.role, "content" to it.content) }
         if (current.messages.size <= 1) {
-            WsRepository.startSkillGeneratorChat(current.activeSessionId, payload)
+            wsClient.send("skill-generator:start", mapOf("sessionId" to current.activeSessionId, "messages" to payload))
         } else {
-            WsRepository.sendSkillGeneratorMessage(current.activeSessionId, payload)
+            wsClient.send("skill-generator:message", mapOf("sessionId" to current.activeSessionId, "messages" to payload))
         }
     }
 
     fun confirmSpec() {
         val spec = _uiState.value.pendingSpec ?: return
         _uiState.value = _uiState.value.copy(isLoading = true, error = null)
-        WsRepository.confirmSkillSpec(_uiState.value.activeSessionId, spec)
+        wsClient.send("skill-generator:confirm", mapOf("sessionId" to _uiState.value.activeSessionId, "spec" to spec.toPayload()))
     }
 
     fun reset() {
-        WsRepository.cancelSkillGenerator(_uiState.value.activeSessionId)
+        wsClient.send("skill-generator:cancel", mapOf("sessionId" to _uiState.value.activeSessionId))
         _uiState.value = SkillGeneratorUiState()
     }
 
@@ -134,4 +134,23 @@ class SkillGeneratorViewModel(
             missedSpec = !hasSpec && clean.isBlank(),
         )
     }
+
+    private fun SkillGeneratorSpec.toPayload(): Map<String, Any> =
+        mapOf(
+            "name" to name,
+            "icon" to icon,
+            "description" to description,
+            "instructions" to instructions,
+            "tools" to mapOf(
+                "fileEdit" to tools.fileEdit,
+                "terminal" to tools.terminal,
+                "webFetch" to tools.webFetch,
+            ),
+            "toolInstructions" to toolInstructions,
+            "approval" to approval,
+            "mcpServers" to mcpServers,
+            "tags" to tags,
+            "knowledge" to knowledge.map { mapOf("title" to it.title, "content" to it.content) },
+            "suggestedAgents" to suggestedAgents,
+        )
 }
