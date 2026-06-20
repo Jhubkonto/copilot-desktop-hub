@@ -484,6 +484,7 @@ export async function dispatchChatSend(
           )
         }
       }
+      const cliThinkingBuffer = new Map<string, { blockId: string; content: string; done: boolean }>()
 
       try {
         if (!window.webContents.isDestroyed()) {
@@ -589,7 +590,6 @@ export async function dispatchChatSend(
           : []
         const cliAllowedTools = [...cliAllowedBuiltInTools, ...(cliAllowedMcpTools ?? [])]
 
-        const cliThinkingBuffer = new Map<string, { blockId: string; content: string; done: boolean }>()
         const cliAbortController = new AbortController()
         activeCliAbortControllers.set(conversationId, cliAbortController)
         const cliResponseContent = await adapter.send(
@@ -634,10 +634,12 @@ export async function dispatchChatSend(
               broadcastToMobile({ event: 'chat:cost', data: { conversationId, inputTokens: event.inputTokens, outputTokens: event.outputTokens, totalCostUsd: event.totalCostUsd } })
             } else if (event.type === 'thinking_chunk') {
               window.webContents.send('chat:thinking-delta', { blockId: event.blockId, chunk: event.chunk })
+              broadcastToMobile({ event: 'chat:thinking-delta', data: { conversationId, blockId: event.blockId, chunk: event.chunk } })
               const existing = cliThinkingBuffer.get(event.blockId) ?? { blockId: event.blockId, content: '', done: false }
               cliThinkingBuffer.set(event.blockId, { ...existing, content: existing.content + event.chunk })
             } else if (event.type === 'thinking_end') {
               window.webContents.send('chat:thinking-end', { blockId: event.blockId })
+              broadcastToMobile({ event: 'chat:thinking-end', data: { conversationId, blockId: event.blockId } })
               const existing = cliThinkingBuffer.get(event.blockId)
               if (existing) cliThinkingBuffer.set(event.blockId, { ...existing, done: true })
             }
@@ -672,13 +674,23 @@ export async function dispatchChatSend(
         console.error(`[cli-adapter] ${effectiveBackend} failed:`, err)
         persistCompletedCliToolCalls()
         const message = err instanceof Error ? err.message : 'CLI backend failed'
+        for (const [blockId, block] of cliThinkingBuffer) {
+          if (!block.done) {
+            cliThinkingBuffer.set(blockId, { ...block, done: true })
+            window.webContents.send('chat:thinking-end', { blockId })
+            broadcastToMobile({ event: 'chat:thinking-end', data: { conversationId, blockId } })
+          }
+        }
+        const cliErrorThinkingJson = cliThinkingBuffer.size > 0
+          ? JSON.stringify(Array.from(cliThinkingBuffer.values()))
+          : null
         window.webContents.send('chat:stream-error', { type: 'api', message, retryable: true })
         sendActivity({ state: 'error', label: message })
         broadcastToMobile({ event: 'chat:stream-end', data: { conversationId } })
         const assistantMsgId = randomUUID()
         db.prepare(
-          'INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        ).run(assistantMsgId, conversationId, 'assistant', message, null, Date.now(), effectiveBackend)
+          'INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model, thinking_blocks) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        ).run(assistantMsgId, conversationId, 'assistant', message, null, Date.now(), effectiveBackend, cliErrorThinkingJson)
         return { assistantMsgId }
       }
     }
@@ -835,10 +847,12 @@ export async function dispatchChatSend(
       onThinkingChunk: (blockId, chunk) => {
         const existing = byokThinkingBuffer.get(blockId) ?? { blockId, content: '', done: false }
         byokThinkingBuffer.set(blockId, { ...existing, content: existing.content + chunk })
+        broadcastToMobile({ event: 'chat:thinking-delta', data: { conversationId, blockId, chunk } })
       },
       onThinkingEnd: (blockId) => {
         const existing = byokThinkingBuffer.get(blockId)
         if (existing) byokThinkingBuffer.set(blockId, { ...existing, done: true })
+        broadcastToMobile({ event: 'chat:thinking-end', data: { conversationId, blockId } })
       },
     })
 

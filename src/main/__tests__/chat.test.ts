@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const state = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>()
-  const messages: Array<{ role: string; content: string; attachments: string | null }> = []
+  const messages: Array<{ role: string; content: string; attachments: string | null; thinkingBlocks: string | null }> = []
   const send = vi.fn()
   const broadcastToMobile = vi.fn()
   const abortActiveStream = vi.fn()
@@ -24,6 +24,7 @@ vi.mock('../database', () => ({
             role: String(args[2]),
             content: String(args[3]),
             attachments: typeof args[4] === 'string' ? args[4] : null,
+            thinkingBlocks: typeof args[7] === 'string' ? args[7] : null,
           })
         }
         return { changes: 1 }
@@ -91,7 +92,7 @@ import { CodexAdapter } from '../cli-adapters/codex'
 import { retrieveAuthMode } from '../auth'
 import { getAgentConfig } from '../agents'
 import { getAvailableMcpTools, getMcpServerConfigsForCli } from '../mcp'
-import { getApiKey } from '../providers'
+import { getApiKey, sendOpenAIMessage } from '../providers'
 import { requestApproval } from '../tools'
 
 describe('chat handlers', () => {
@@ -134,6 +135,39 @@ describe('chat handlers', () => {
       event: 'chat:activity',
       data: { conversationId: 'conv-1', state: 'complete', label: 'Complete' },
     })
+  })
+
+  it('forwards and stores BYOK provider thinking events', async () => {
+    vi.mocked(sendOpenAIMessage).mockImplementationOnce(async (
+      _conversationId,
+      _apiKey,
+      _model,
+      _messages,
+      onChunk,
+      options,
+    ) => {
+      options?.onThinkingChunk?.('reasoning-0', 'Checking context.')
+      options?.onThinkingEnd?.('reasoning-0')
+      onChunk('Hello')
+      return 'Hello'
+    })
+
+    const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<{ assistantMsgId: string }>
+    await handler({ sender: {} }, 'conv-byok-thinking', 'Hello there')
+
+    expect(state.send).toHaveBeenCalledWith('chat:thinking-delta', {
+      blockId: 'reasoning-0',
+      chunk: 'Checking context.',
+    })
+    expect(state.send).toHaveBeenCalledWith('chat:thinking-end', { blockId: 'reasoning-0' })
+    expect(state.broadcastToMobile).toHaveBeenCalledWith({
+      event: 'chat:thinking-delta',
+      data: { conversationId: 'conv-byok-thinking', blockId: 'reasoning-0', chunk: 'Checking context.' },
+    })
+    const assistantMessage = state.messages.find((message) => message.role === 'assistant')
+    expect(JSON.parse(assistantMessage?.thinkingBlocks ?? '[]')).toEqual([
+      { blockId: 'reasoning-0', content: 'Checking context.', done: true },
+    ])
   })
 
   it('stores mobile image attachment metadata without persisting image data', async () => {
@@ -181,6 +215,44 @@ describe('chat handlers', () => {
     // Must NOT contain the BYOK model identity instruction
     expect(capturedReqs[0].systemPrompt ?? '').not.toContain('gpt-5-mini')
     expect(capturedReqs[0].systemPrompt ?? '').not.toContain('Runtime model for this conversation')
+  })
+
+  it('forwards and stores CLI thinking events', async () => {
+    const mockAdapter = {
+      isAvailable: () => true,
+      send: vi.fn(async (_win: unknown, _req: unknown, onChunk: (chunk: string) => void, onEvent: (event: unknown) => void) => {
+        onEvent({ type: 'thinking_chunk', blockId: 'codex-activity', chunk: 'Starting Codex CLI.\n' })
+        onEvent({ type: 'thinking_end', blockId: 'codex-activity' })
+        onChunk('cli response')
+        return 'cli response'
+      }),
+    }
+    vi.mocked(getAdapter).mockReturnValue(mockAdapter as never)
+    vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(false)
+    vi.mocked(CodexAdapter.isAvailable).mockReturnValue(true)
+    vi.mocked(retrieveAuthMode).mockReturnValue('none')
+    vi.mocked(getApiKey).mockReturnValue(null)
+
+    const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<unknown>
+    await handler({ sender: {} }, 'conv-cli-thinking', 'tell me something')
+
+    expect(state.send).toHaveBeenCalledWith('chat:thinking-delta', {
+      blockId: 'codex-activity',
+      chunk: 'Starting Codex CLI.\n',
+    })
+    expect(state.send).toHaveBeenCalledWith('chat:thinking-end', { blockId: 'codex-activity' })
+    expect(state.broadcastToMobile).toHaveBeenCalledWith({
+      event: 'chat:thinking-delta',
+      data: { conversationId: 'conv-cli-thinking', blockId: 'codex-activity', chunk: 'Starting Codex CLI.\n' },
+    })
+    expect(state.broadcastToMobile).toHaveBeenCalledWith({
+      event: 'chat:thinking-end',
+      data: { conversationId: 'conv-cli-thinking', blockId: 'codex-activity' },
+    })
+    const assistantMessage = state.messages.find((message) => message.role === 'assistant')
+    expect(JSON.parse(assistantMessage?.thinkingBlocks ?? '[]')).toEqual([
+      { blockId: 'codex-activity', content: 'Starting Codex CLI.\n', done: true },
+    ])
   })
 
   it('injects assigned MCP servers when falling back to Claude CLI for MCP agents', async () => {
@@ -317,7 +389,8 @@ describe('chat handlers', () => {
   it('reports fallback CLI errors without falling through to provider configuration errors', async () => {
     const mockAdapter = {
       isAvailable: () => true,
-      send: vi.fn(async () => {
+      send: vi.fn(async (_win: unknown, _req: unknown, _onChunk: unknown, onEvent: (event: unknown) => void) => {
+        onEvent({ type: 'thinking_chunk', blockId: 'codex-activity', chunk: 'Starting Codex CLI.\n' })
         throw new Error('claude failed after running MCP tools')
       }),
     }
@@ -334,6 +407,11 @@ describe('chat handlers', () => {
     expect(state.send).toHaveBeenCalledWith('chat:stream-error', expect.objectContaining({
       message: 'claude failed after running MCP tools',
     }))
+    expect(state.send).toHaveBeenCalledWith('chat:thinking-end', { blockId: 'codex-activity' })
+    const assistantMessage = state.messages.find((message) => message.role === 'assistant')
+    expect(JSON.parse(assistantMessage?.thinkingBlocks ?? '[]')).toEqual([
+      { blockId: 'codex-activity', content: 'Starting Codex CLI.\n', done: true },
+    ])
     expect(state.messages.some((message) => message.content.includes('No provider configured'))).toBe(false)
   })
 

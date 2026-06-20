@@ -302,7 +302,12 @@ export function ChatMessagesBase({
                 <div className="flex justify-start mb-1">
                   <div className="w-full max-w-[80%]">
                     {Array.from(message.thinkingBlocks.values()).map((block) => (
-                      <ThinkingBlock key={block.blockId} content={block.content} done={block.done} />
+                      <ThinkingBlock
+                        key={block.blockId}
+                        content={block.content}
+                        done={block.done}
+                        label={block.blockId.startsWith('codex-') ? 'Codex activity' : 'Reasoning'}
+                      />
                     ))}
                   </div>
                 </div>
@@ -357,7 +362,12 @@ export function ChatMessagesBase({
           <div className="flex justify-start">
             <div className="w-full max-w-[80%]">
               {Array.from(liveThinkingBlocks.values()).map((block) => (
-                <ThinkingBlock key={block.blockId} content={block.content} done={block.done} />
+                <ThinkingBlock
+                  key={block.blockId}
+                  content={block.content}
+                  done={block.done}
+                  label={block.blockId.startsWith('codex-') ? 'Codex activity' : 'Reasoning'}
+                />
               ))}
             </div>
           </div>

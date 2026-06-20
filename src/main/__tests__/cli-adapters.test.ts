@@ -500,17 +500,112 @@ describe('CLI adapters', () => {
       '-c',
       'mcp_servers.playwright_chromium.enabled_tools=["browser_navigate"]',
     ]))
-    expect(onEvent).toHaveBeenNthCalledWith(1, {
+    expect(onEvent).toHaveBeenCalledWith({
       type: 'tool_start',
       id: 'tool-1',
       name: 'browser_navigate',
       input: { url: 'https://www.google.com' },
     })
-    expect(onEvent).toHaveBeenNthCalledWith(2, {
+    expect(onEvent).toHaveBeenCalledWith({
       type: 'tool_end',
       id: 'tool-1',
       content: 'Navigated to Google',
       isError: false,
+    })
+  })
+
+  it('CodexAdapter emits activity and reasoning summary as thinking events', async () => {
+    const proc = makeProc()
+    mockSpawn.mockReturnValue(proc)
+
+    const onEvent = vi.fn()
+    const sendPromise = CodexAdapter.send({} as never, {
+      messages: [{ role: 'user', content: 'test' }],
+      cwd: 'C:\\workspace',
+      model: 'default',
+      conversationId: 'conv-1',
+    }, () => {}, onEvent)
+
+    proc.stdout.emit('data', Buffer.from([
+      JSON.stringify({ type: 'thread.started', thread_id: 'thread-1' }),
+      JSON.stringify({ type: 'turn.started' }),
+      JSON.stringify({ type: 'response.reasoning_summary_text.delta', delta: 'I will inspect the request.' }),
+      JSON.stringify({ type: 'response.reasoning_summary_text.done' }),
+      JSON.stringify({ type: 'item.completed', item: { id: 'item_2', type: 'agent_message', text: 'Done.' } }),
+      JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 3 } }),
+      '',
+    ].join('\n')))
+    proc.emit('close', 0)
+
+    await expect(sendPromise).resolves.toBe('Done.')
+    expect(onEvent).toHaveBeenCalledWith({
+      type: 'thinking_chunk',
+      blockId: 'codex-activity',
+      chunk: 'Starting Codex CLI.\n',
+    })
+    expect(onEvent).toHaveBeenCalledWith({
+      type: 'thinking_chunk',
+      blockId: 'codex-reasoning-summary',
+      chunk: 'I will inspect the request.',
+    })
+    expect(onEvent).toHaveBeenCalledWith({
+      type: 'thinking_end',
+      blockId: 'codex-reasoning-summary',
+    })
+    expect(onEvent).toHaveBeenCalledWith({
+      type: 'thinking_end',
+      blockId: 'codex-activity',
+    })
+  })
+
+  it('CodexAdapter records failed tool activity', async () => {
+    const proc = makeProc()
+    mockSpawn.mockReturnValue(proc)
+
+    const onEvent = vi.fn()
+    const sendPromise = CodexAdapter.send({} as never, {
+      messages: [{ role: 'user', content: 'use tool' }],
+      cwd: 'C:\\workspace',
+      model: 'default',
+      conversationId: 'conv-1',
+    }, () => {}, onEvent)
+
+    proc.stdout.emit('data', Buffer.from([
+      JSON.stringify({
+        type: 'item.started',
+        item: {
+          id: 'tool-1',
+          type: 'mcp_tool_call',
+          name: 'browser_navigate',
+          arguments: { url: 'https://example.com' },
+        },
+      }),
+      JSON.stringify({
+        type: 'item.completed',
+        item: {
+          id: 'tool-1',
+          type: 'mcp_tool_call',
+          name: 'browser_navigate',
+          error: 'Permission denied',
+          status: 'failed',
+        },
+      }),
+      JSON.stringify({ type: 'item.completed', item: { id: 'item_2', type: 'agent_message', text: 'Could not navigate.' } }),
+      '',
+    ].join('\n')))
+    proc.emit('close', 0)
+
+    await expect(sendPromise).resolves.toBe('Could not navigate.')
+    expect(onEvent).toHaveBeenCalledWith({
+      type: 'tool_end',
+      id: 'tool-1',
+      content: 'Permission denied',
+      isError: true,
+    })
+    expect(onEvent).toHaveBeenCalledWith({
+      type: 'thinking_chunk',
+      blockId: 'codex-activity',
+      chunk: 'Failed browser_navigate.\n',
     })
   })
 

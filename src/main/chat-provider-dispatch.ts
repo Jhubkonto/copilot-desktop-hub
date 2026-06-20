@@ -163,7 +163,10 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
       )
     }
     sendActivity({ state: 'thinking', label: 'Generating response' })
-    return sendOpenAIMessage(conversationId, byokKey, providerModel, chatMessages, sendChunk, generationOptions)
+    return sendOpenAIMessage(conversationId, byokKey, providerModel, chatMessages, sendChunk, {
+      ...generationOptions,
+      ...thinkingCallbacks,
+    })
   }
 
   // OpenAI-compatible providers (OpenRouter, Groq, Mistral, Gemini, xAI)

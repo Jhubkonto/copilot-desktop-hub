@@ -13,6 +13,13 @@ function stripAnsi(str: string): string {
 }
 
 type TextResult = { text: string; isDelta: boolean }
+type ThinkingResult = { blockId: string; text: string; done?: boolean }
+
+const CODEX_ACTIVITY_BLOCK_ID = 'codex-activity'
+
+function formatActivityLine(text: string): string {
+  return `${text.trim()}\n`
+}
 
 function extractText(line: string): TextResult | null {
   try {
@@ -105,6 +112,87 @@ function extractError(line: string): string | null {
       return normalizeErrorMessage(obj.message)
     }
   } catch { /* non-JSON line — skip */ }
+  return null
+}
+
+function extractThinking(line: string): ThinkingResult | null {
+  try {
+    const obj = JSON.parse(line) as Record<string, unknown>
+    const type = typeof obj.type === 'string' ? obj.type : ''
+
+    if (
+      type === 'response.reasoning_summary_text.delta' ||
+      type === 'response.reasoning_summary.delta' ||
+      type === 'reasoning_summary_delta'
+    ) {
+      const delta = obj.delta
+      if (typeof delta === 'string' && delta) return { blockId: 'codex-reasoning-summary', text: delta }
+      const deltaRecord = asRecord(delta)
+      if (typeof deltaRecord?.text === 'string' && deltaRecord.text) {
+        return { blockId: 'codex-reasoning-summary', text: deltaRecord.text }
+      }
+    }
+
+    if (
+      type === 'response.reasoning_summary_text.done' ||
+      type === 'response.reasoning_summary.done' ||
+      type === 'reasoning_summary_done'
+    ) {
+      return { blockId: 'codex-reasoning-summary', text: '', done: true }
+    }
+
+    if (type === 'item.completed') {
+      const item = asRecord(obj.item)
+      if (item?.type === 'reasoning' || item?.type === 'reasoning_summary') {
+        const text = textFromUnknown(item.summary ?? item.content ?? item.text ?? '')
+        if (text) return { blockId: 'codex-reasoning-summary', text, done: true }
+      }
+    }
+  } catch {
+    // not JSON
+  }
+  return null
+}
+
+function extractActivity(line: string): { text: string; done?: boolean } | null {
+  try {
+    const obj = JSON.parse(line) as Record<string, unknown>
+    const type = typeof obj.type === 'string' ? obj.type : ''
+
+    if (type === 'thread.started') return { text: 'Started Codex session.' }
+    if (type === 'turn.started') return { text: 'Started Codex turn.' }
+    if (type === 'turn.completed') return { text: 'Codex turn completed.', done: true }
+    if (type === 'turn.failed') {
+      const err = obj.error as Record<string, unknown> | undefined
+      const message = typeof err?.message === 'string' ? normalizeErrorMessage(err.message) : 'Codex turn failed'
+      return { text: `Codex turn failed: ${message}`, done: true }
+    }
+    if (type === 'error') {
+      const message = typeof obj.message === 'string' ? normalizeErrorMessage(obj.message) : 'Codex reported an error'
+      return { text: `Codex error: ${message}` }
+    }
+
+    if (type === 'item.started' || type === 'item.completed') {
+      const item = asRecord(obj.item)
+      if (!item) return null
+      const itemType = typeof item.type === 'string' ? item.type : ''
+      if (itemType === 'agent_message') return null
+      if (/mcp|tool/.test(itemType)) {
+        const name =
+          typeof item.name === 'string' ? item.name
+            : typeof item.tool_name === 'string' ? item.tool_name
+            : typeof item.tool === 'string' ? item.tool
+            : itemType
+        if (type === 'item.started') return { text: `Running ${name}.` }
+        const failed = item.status === 'failed' || item.status === 'error' || Boolean(item.error)
+        return { text: `${failed ? 'Failed' : 'Completed'} ${name}.` }
+      }
+      if (type === 'item.started') return { text: `Started ${itemType || 'Codex item'}.` }
+      if (type === 'item.completed') return { text: `Completed ${itemType || 'Codex item'}.` }
+    }
+  } catch {
+    // not JSON
+  }
   return null
 }
 
@@ -384,6 +472,21 @@ export const CodexAdapter: CliAgentAdapter = {
       let parsedAnyJson = false
       let receivedDeltas = false
       let turnError: string | null = null
+      let emittedActivity = false
+      const endedThinkingBlocks = new Set<string>()
+
+      const emitThinking = (blockId: string, chunk: string, done = false) => {
+        if (chunk) {
+          onEvent?.({ type: 'thinking_chunk', blockId, chunk })
+          emittedActivity = emittedActivity || blockId === CODEX_ACTIVITY_BLOCK_ID
+        }
+        if (done && !endedThinkingBlocks.has(blockId)) {
+          onEvent?.({ type: 'thinking_end', blockId })
+          endedThinkingBlocks.add(blockId)
+        }
+      }
+
+      emitThinking(CODEX_ACTIVITY_BLOCK_ID, formatActivityLine('Starting Codex CLI.'))
 
       proc.stderr?.on('data', (chunk: Buffer) => {
         stderrText += chunk.toString('utf8')
@@ -391,11 +494,29 @@ export const CodexAdapter: CliAgentAdapter = {
 
       const parseLine = (line: string) => {
         if (!line.trim()) return
+        try {
+          JSON.parse(line)
+          parsedAnyJson = true
+        } catch {
+          // raw text fallback still applies if the stream never produced JSON
+        }
 
         const errMsg = extractError(line)
         if (errMsg) {
           turnError = errMsg
+          emitThinking(CODEX_ACTIVITY_BLOCK_ID, formatActivityLine(`Codex error: ${errMsg}`))
           return
+        }
+
+        const thinking = extractThinking(line)
+        if (thinking) {
+          emitThinking(thinking.blockId, thinking.text, thinking.done === true)
+          if (thinking.text || thinking.done) return
+        }
+
+        const activity = extractActivity(line)
+        if (activity) {
+          emitThinking(CODEX_ACTIVITY_BLOCK_ID, formatActivityLine(activity.text), activity.done === true)
         }
 
         const costData = extractCost(line)
@@ -466,13 +587,17 @@ export const CodexAdapter: CliAgentAdapter = {
         }
 
         if (fullText) {
+          if (emittedActivity) emitThinking(CODEX_ACTIVITY_BLOCK_ID, '', true)
           resolve(fullText)
         } else if (turnError) {
+          emitThinking(CODEX_ACTIVITY_BLOCK_ID, '', true)
           reject(new Error(`Codex error: ${turnError}`))
         } else if (code !== 0) {
           const detail = stderrText.trim() ? `: ${stderrText.trim()}` : ''
+          emitThinking(CODEX_ACTIVITY_BLOCK_ID, formatActivityLine(`Codex exited with code ${code}${detail}`), true)
           reject(new Error(`codex exited with code ${code}${detail}`))
         } else {
+          if (emittedActivity) emitThinking(CODEX_ACTIVITY_BLOCK_ID, '', true)
           resolve(fullText)
         }
       })

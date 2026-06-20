@@ -4,9 +4,10 @@ import { Brain, ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
 interface ThinkingBlockProps {
   content: string
   done: boolean
+  label?: string
 }
 
-export function ThinkingBlock({ content, done }: ThinkingBlockProps) {
+export function ThinkingBlock({ content, done, label = 'Reasoning' }: ThinkingBlockProps) {
   const [expanded, setExpanded] = useState(false)
 
   const wordCount = content.trim().split(/\s+/).filter(Boolean).length
@@ -23,8 +24,8 @@ export function ThinkingBlock({ content, done }: ThinkingBlockProps) {
         <Brain className="h-3.5 w-3.5 shrink-0 text-purple-500 dark:text-purple-400" />
         <span className="flex-1 font-medium text-purple-700 dark:text-purple-300">
           {done
-            ? `Thought · ${wordCount} word${wordCount !== 1 ? 's' : ''}`
-            : 'Thinking…'}
+            ? `${label} · ${wordCount} word${wordCount !== 1 ? 's' : ''}`
+            : `${label}…`}
         </span>
         {!done && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-purple-400" />}
         {content.length > 0 && (expanded
