@@ -40,6 +40,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -146,8 +147,9 @@ fun ChatInputBar(
                             Box(
                                 modifier = Modifier
                                     .size(40.dp)
+                                    .alpha(if (canSend) 1f else 0.38f)
                                     .background(
-                                        color = if (canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+                                        color = if (canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
                                         shape = CircleShape,
                                     ),
                                 contentAlignment = Alignment.Center,
@@ -160,7 +162,7 @@ fun ChatInputBar(
                                     Icon(
                                         Icons.AutoMirrored.Filled.Send,
                                         contentDescription = "Send",
-                                        tint = if (canSend) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        tint = if (canSend) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                                         modifier = Modifier.size(18.dp),
                                     )
                                 }

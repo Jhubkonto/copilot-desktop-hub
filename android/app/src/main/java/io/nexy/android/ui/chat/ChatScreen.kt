@@ -59,7 +59,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.PromptEntry
+import androidx.compose.runtime.CompositionLocalProvider
+import io.noties.markwon.Markwon
 import io.nexy.android.ui.components.NexyConfirmDialog
+import io.nexy.android.ui.components.NexyConnectionBanner
 import io.nexy.android.ui.model.activeModelDetail
 import io.nexy.android.ui.model.activeModelLabel
 import io.nexy.android.ui.model.emptyModelListDetail
@@ -100,14 +103,17 @@ fun ChatScreen(
     val chatAgentId = conversation?.agent_id ?: agentId
     val chatAgent = chatAgentId?.let { id -> agents.find { it.id == id } }
     val chatBackend = chatAgent?.backend
-    var input by remember { mutableStateOf("") }
+    val draftFromVm by vm.draft.collectAsState()
+    var input by remember { mutableStateOf(draftFromVm) }
     val listState = rememberLazyListState()
     val context = LocalContext.current
     var showModelSheet by remember { mutableStateOf(false) }
     val modelSheetState = rememberModalBottomSheetState()
     var showActionsSheet by remember { mutableStateOf(false) }
     var showPromptSheet by remember { mutableStateOf(false) }
+    val promptSheetState = rememberModalBottomSheetState()
     var showInspectorSheet by remember { mutableStateOf(false) }
+    val inspectorSheetState = rememberModalBottomSheetState()
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val sendError by vm.sendError.collectAsState()
@@ -132,7 +138,13 @@ fun ChatScreen(
             val bytes = inputStream.use { it.readBytes() }
             if (bytes.size > 4 * 1024 * 1024) {
                 scope.launch {
-                    snackbarHostState.showSnackbar("$name is larger than 4 MB and was not attached.")
+                    val result = snackbarHostState.showSnackbar(
+                        message = "$name is larger than 4 MB and was not attached.",
+                        actionLabel = "Choose another",
+                    )
+                    if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+                        filePicker.launch("*/*")
+                    }
                 }
                 continue
             }
@@ -266,11 +278,7 @@ fun ChatScreen(
     val activeModelId = selectedModel ?: "default"
     val activeModelLabel = activeModelLabel(selectedModel, models)
     val activeModelDetail = activeModelDetail(selectedModel, chatAgent, modelSource)
-    val connectionBanner = when (connectionState) {
-        ConnectionState.CONNECTED -> null
-        ConnectionState.CONNECTING -> "Reconnecting to desktop..."
-        ConnectionState.DISCONNECTED -> lastError?.let { "Disconnected: $it" } ?: "Disconnected from desktop"
-    }
+    val connectionBanner = connectionState != ConnectionState.CONNECTED
 
     if (showModelSheet) {
         ModalBottomSheet(
@@ -378,7 +386,6 @@ fun ChatScreen(
     }
 
     if (showPromptSheet) {
-        val promptSheetState = rememberModalBottomSheetState()
         ModalBottomSheet(
             onDismissRequest = { showPromptSheet = false },
             sheetState = promptSheetState,
@@ -405,6 +412,7 @@ fun ChatScreen(
                             .clickable {
                                 val separator = if (input.isNotBlank() && !input.endsWith("\n")) "\n" else ""
                                 input += "$separator${prompt.body}"
+                                vm.setDraft(input)
                                 scope.launch { promptSheetState.hide() }.invokeOnCompletion { showPromptSheet = false }
                             },
                         color = MaterialTheme.colorScheme.surface,
@@ -430,7 +438,6 @@ fun ChatScreen(
     }
 
     if (showInspectorSheet) {
-        val inspectorSheetState = rememberModalBottomSheetState()
         ModalBottomSheet(
             onDismissRequest = { showInspectorSheet = false },
             sheetState = inspectorSheetState,
@@ -483,6 +490,8 @@ fun ChatScreen(
         )
     }
 
+    val markwon = remember(context) { Markwon.create(context) }
+    CompositionLocalProvider(LocalMarkwon provides markwon) {
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -540,11 +549,11 @@ fun ChatScreen(
         bottomBar = {
             ChatInputBar(
                 input = input,
-                onInputChange = { input = it },
+                onInputChange = { input = it; vm.setDraft(it) },
                 attachments = attachments,
                 onRemoveAttachment = { vm.removeAttachment(it) },
                 canSend = canSend,
-                onSend = { vm.sendMessage(input); input = "" },
+                onSend = { vm.sendMessage(input); input = ""; vm.setDraft("") },
                 onAttachFile = { filePicker.launch("*/*") },
                 onCaptureScreen = onCaptureScreen,
                 onInsertPrompt = {
@@ -561,8 +570,8 @@ fun ChatScreen(
             modifier = Modifier.fillMaxSize().padding(padding),
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                if (connectionBanner != null) {
-                    ChatConnectionBanner(connectionBanner)
+                if (connectionBanner) {
+                    NexyConnectionBanner(connectionState, lastError)
                 }
                 LazyColumn(
                     state = listState,
@@ -585,7 +594,7 @@ fun ChatScreen(
                             MessageBubble(
                                 msg = msg,
                                 onCopy = { copyMessage(clipboardManager, msg.text) },
-                                onEdit = if (msg.isUser) { { input = msg.text } } else null,
+                                onEdit = if (msg.isUser) { { input = msg.text; vm.setDraft(msg.text) } } else null,
                                 onResend = if (msg.isUser) { { vm.sendMessage(msg.text) } } else null,
                                 onDelete = if (msg.id.isNotBlank()) { { deletingMessage = msg } } else null,
                                 onDeleteAfter = if (msg.id.isNotBlank() && msg.timestamp > 0L) { { deleteAfterMessage = msg } } else null,
@@ -599,23 +608,7 @@ fun ChatScreen(
             }
         }
     }
-}
-
-@Composable
-private fun ChatConnectionBanner(message: String) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.errorContainer,
-    ) {
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onErrorContainer,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
+    } // CompositionLocalProvider
 }
 
 @Composable

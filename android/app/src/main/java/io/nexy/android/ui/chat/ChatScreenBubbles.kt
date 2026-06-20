@@ -1,6 +1,9 @@
 package io.nexy.android.ui.chat
 
 import android.widget.TextView
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.StartOffset
 import androidx.compose.animation.core.animateFloat
@@ -53,8 +56,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.remember
 import io.nexy.android.data.model.ThinkingBlock
 import io.noties.markwon.Markwon
+
+val LocalMarkwon = compositionLocalOf<Markwon> { error("No Markwon provided") }
 
 @Composable
 fun ThinkingBubble(label: String) {
@@ -155,22 +162,28 @@ fun ThinkingHistoryBubble(blocks: List<ThinkingBlock>) {
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                if (expanded) {
-                    blocks.forEach { block ->
-                        if (block.content.isNotBlank()) {
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = MaterialTheme.colorScheme.surface,
-                            ) {
-                                Text(
-                                    block.content,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontFamily = FontFamily.Monospace,
-                                    modifier = Modifier.padding(8.dp),
-                                    maxLines = 30,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
+                AnimatedVisibility(
+                    visible = expanded,
+                    enter = expandVertically(),
+                    exit = shrinkVertically(),
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        blocks.forEach { block ->
+                            if (block.content.isNotBlank()) {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = MaterialTheme.colorScheme.surface,
+                                ) {
+                                    Text(
+                                        block.content,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontFamily = FontFamily.Monospace,
+                                        modifier = Modifier.padding(8.dp),
+                                        maxLines = 30,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
                             }
                         }
                     }
@@ -200,9 +213,10 @@ fun MessageBubble(
     else
         RoundedCornerShape(topStart = 4.dp, topEnd = 16.dp, bottomStart = 16.dp, bottomEnd = 16.dp)
 
-    Row(
+    val timeLabel = relativeTime(msg.timestamp)
+    Column(
         modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
+        horizontalAlignment = if (isUser) Alignment.End else Alignment.Start,
     ) {
         Box(
             modifier = Modifier
@@ -249,17 +263,18 @@ fun MessageBubble(
                     if (isUser) {
                         Text(msg.text, color = textColor, style = MaterialTheme.typography.bodyMedium)
                     } else {
+                        val markwon = LocalMarkwon.current
                         AndroidView(
                             factory = { ctx ->
                                 TextView(ctx).also { tv ->
                                     tv.setTextColor(textColorArgb)
                                     tv.textSize = 14f
-                                    Markwon.create(ctx).setMarkdown(tv, msg.text)
+                                    markwon.setMarkdown(tv, msg.text)
                                 }
                             },
                             update = { tv ->
                                 tv.setTextColor(textColorArgb)
-                                Markwon.create(tv.context).setMarkdown(tv, msg.text)
+                                markwon.setMarkdown(tv, msg.text)
                             },
                         )
                     }
@@ -334,6 +349,14 @@ fun MessageBubble(
                     )
                 }
             }
+        }
+        if (timeLabel != null && !msg.isStreaming) {
+            Text(
+                timeLabel,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+            )
         }
     }
 }
@@ -415,16 +438,33 @@ fun ToolCallBubble(msg: ChatMessage) {
                     maxLines = if (expanded) 3 else 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (expanded) {
-                    if (!msg.toolArgs.isNullOrBlank()) {
-                        ToolDetailSection(label = "Arguments", value = msg.toolArgs)
-                    }
-                    if (!msg.toolResult.isNullOrBlank()) {
-                        ToolDetailSection(label = "Result", value = msg.toolResult)
+                AnimatedVisibility(
+                    visible = expanded,
+                    enter = expandVertically(),
+                    exit = shrinkVertically(),
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (!msg.toolArgs.isNullOrBlank()) {
+                            ToolDetailSection(label = "Arguments", value = msg.toolArgs)
+                        }
+                        if (!msg.toolResult.isNullOrBlank()) {
+                            ToolDetailSection(label = "Result", value = msg.toolResult)
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+private fun relativeTime(timestampMs: Long): String? {
+    if (timestampMs <= 0L) return null
+    val diff = System.currentTimeMillis() - timestampMs
+    return when {
+        diff < 60_000L -> "just now"
+        diff < 3_600_000L -> "${diff / 60_000L} min ago"
+        diff < 86_400_000L -> "${diff / 3_600_000L} hr ago"
+        else -> "${diff / 86_400_000L} days ago"
     }
 }
 

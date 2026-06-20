@@ -63,6 +63,12 @@ class ChatViewModel(
     private val _attachments = MutableStateFlow<List<PendingAttachment>>(emptyList())
     val attachments: StateFlow<List<PendingAttachment>> = _attachments
 
+    private val _draft = MutableStateFlow("")
+    val draft: StateFlow<String> = _draft
+
+    fun setDraft(text: String) { _draft.value = text }
+    fun consumeDraft(): String = _draft.value.also { _draft.value = "" }
+
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing
 
