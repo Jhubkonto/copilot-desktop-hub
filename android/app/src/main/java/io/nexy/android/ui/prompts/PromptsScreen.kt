@@ -147,6 +147,7 @@ fun PromptsScreen(
             NexyTopAppBar(
                 titleContent = { Text("Prompt Library", style = MaterialTheme.typography.titleMedium) },
                 onBack = onBack,
+                subtitle = "Settings › Configuration",
                 actions = {
                     IconButton(onClick = { vm.load(projectId) }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh prompts")

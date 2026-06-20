@@ -28,6 +28,7 @@ fun AppearanceScreen(
             NexyTopAppBar(
                 titleContent = { Text("Appearance", style = MaterialTheme.typography.titleMedium) },
                 onBack = onBack,
+                subtitle = "Settings",
             )
         },
     ) { padding ->

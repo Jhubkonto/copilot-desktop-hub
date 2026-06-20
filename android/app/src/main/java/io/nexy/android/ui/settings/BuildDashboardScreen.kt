@@ -113,6 +113,7 @@ fun BuildDashboardScreen(onBack: () -> Unit) {
             NexyTopAppBar(
                 titleContent = { Text("Build Dashboard", style = MaterialTheme.typography.titleMedium) },
                 onBack = onBack,
+                subtitle = "Settings › Developer",
                 actions = {
                     IconButton(onClick = { WsRepository.getBuildRecords() }, enabled = !disconnected) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")

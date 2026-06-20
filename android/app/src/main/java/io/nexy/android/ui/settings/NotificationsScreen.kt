@@ -31,6 +31,7 @@ fun NotificationsScreen(
             NexyTopAppBar(
                 titleContent = { Text("Notifications", style = MaterialTheme.typography.titleMedium) },
                 onBack = onBack,
+                subtitle = "Settings",
             )
         },
     ) { padding ->

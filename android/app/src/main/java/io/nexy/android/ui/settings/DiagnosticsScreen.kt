@@ -42,6 +42,7 @@ fun DiagnosticsScreen(
             NexyTopAppBar(
                 titleContent = { Text("Diagnostics", style = MaterialTheme.typography.titleMedium) },
                 onBack = onBack,
+                subtitle = "Settings › Developer",
             )
         },
     ) { padding ->

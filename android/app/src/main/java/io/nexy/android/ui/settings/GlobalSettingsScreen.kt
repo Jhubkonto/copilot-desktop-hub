@@ -81,6 +81,7 @@ fun GlobalSettingsScreen(onBack: () -> Unit) {
             NexyTopAppBar(
                 titleContent = { Text("Global Settings", style = MaterialTheme.typography.titleMedium) },
                 onBack = onBack,
+                subtitle = "Settings › Configuration",
             )
         },
     ) { padding ->

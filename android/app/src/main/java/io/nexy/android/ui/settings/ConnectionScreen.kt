@@ -31,6 +31,7 @@ fun ConnectionScreen(
             NexyTopAppBar(
                 titleContent = { Text("Connection", style = MaterialTheme.typography.titleMedium) },
                 onBack = onBack,
+                subtitle = "Settings",
             )
         },
     ) { padding ->

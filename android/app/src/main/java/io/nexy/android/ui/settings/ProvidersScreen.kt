@@ -127,6 +127,7 @@ fun ProvidersScreen(
             NexyTopAppBar(
                 titleContent = { Text("API Providers", style = MaterialTheme.typography.titleMedium) },
                 onBack = onBack,
+                subtitle = "Settings › Configuration",
             )
         },
     ) { padding ->

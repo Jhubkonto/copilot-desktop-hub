@@ -32,6 +32,7 @@ fun ModelsScreen(
             NexyTopAppBar(
                 titleContent = { Text("Models", style = MaterialTheme.typography.titleMedium) },
                 onBack = onBack,
+                subtitle = "Settings › Configuration",
             )
         },
     ) { padding ->

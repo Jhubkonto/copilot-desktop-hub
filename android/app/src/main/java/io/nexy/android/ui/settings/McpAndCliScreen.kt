@@ -118,8 +118,9 @@ fun McpAndCliScreen(onBack: () -> Unit) {
     Scaffold(
         topBar = {
             NexyTopAppBar(
-                titleContent = { Text("CLI Models & MCP", style = MaterialTheme.typography.titleMedium) },
+                titleContent = { Text("MCP Servers & CLI Models", style = MaterialTheme.typography.titleMedium) },
                 onBack = onBack,
+                subtitle = "Settings › Configuration",
             )
         },
         floatingActionButton = {

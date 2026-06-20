@@ -75,6 +75,7 @@ fun SelfHealReportsScreen(
             NexyTopAppBar(
                 titleContent = { Text("Self-Heal Reports") },
                 onBack = onBack,
+                subtitle = "Settings › Developer",
             )
         }
     ) { padding ->

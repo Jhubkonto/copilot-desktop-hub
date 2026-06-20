@@ -185,9 +185,23 @@ fun NexyTopAppBar(
     titleContent: @Composable () -> Unit,
     onBack: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
+    subtitle: String? = null,
 ) {
     TopAppBar(
-        title = titleContent,
+        title = {
+            if (subtitle != null) {
+                Column {
+                    titleContent()
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                titleContent()
+            }
+        },
         navigationIcon = {
             if (onBack != null) {
                 IconButton(onClick = onBack) {

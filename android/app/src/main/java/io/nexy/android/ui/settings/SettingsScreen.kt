@@ -59,6 +59,16 @@ fun SettingsScreen(
                 detail = "Server profiles and connection status",
                 onClick = onOpenConnection,
             )
+            SettingsNavRow(
+                title = "Notifications",
+                detail = "Tool approval push notifications",
+                onClick = onOpenNotifications,
+            )
+            SettingsNavRow(
+                title = "Updates",
+                detail = "App version and OTA install",
+                onClick = onOpenUpdates,
+            )
 
             // — Configuration —
             SettingsSectionHeader("Configuration")
@@ -73,18 +83,10 @@ fun SettingsScreen(
                 onClick = onOpenModels,
             )
             SettingsNavRow(
-                title = "CLI Models",
-                detail = "Claude and Codex CLI model availability",
+                title = "MCP Servers & CLI Models",
+                detail = "Configured MCP servers and CLI model availability",
                 onClick = onOpenMcpAndCli,
             )
-            SettingsNavRow(
-                title = "Notifications",
-                detail = "Tool approval push notifications",
-                onClick = onOpenNotifications,
-            )
-
-            // — Tools —
-            SettingsSectionHeader("Tools")
             SettingsNavRow(
                 title = "API Providers",
                 detail = "Configure BYOK keys stored encrypted on the desktop",
@@ -95,22 +97,6 @@ fun SettingsScreen(
                 detail = "Browse and manage reusable prompt templates",
                 onClick = onOpenPromptLibrary,
             )
-            SettingsNavRow(
-                title = "Self-Heal Reports",
-                detail = "Review investigation and fix reports",
-                onClick = onOpenSelfHeal,
-            )
-            SettingsNavRow(
-                title = "Updates",
-                detail = "App version and OTA install",
-                onClick = onOpenUpdates,
-            )
-
-            SettingsNavRow(
-                title = "MCP Servers",
-                detail = "Configured desktop MCP server list",
-                onClick = onOpenMcpAndCli,
-            )
 
             // — Developer —
             SettingsSectionHeader("Developer")
@@ -118,6 +104,11 @@ fun SettingsScreen(
                 title = "Build Dashboard",
                 detail = "Build records, preflight, and APK publish/restore",
                 onClick = onOpenBuildDashboard,
+            )
+            SettingsNavRow(
+                title = "Self-Heal Reports",
+                detail = "Review investigation and fix reports",
+                onClick = onOpenSelfHeal,
             )
             SettingsNavRow(
                 title = "Diagnostics",

@@ -32,6 +32,7 @@ fun UpdatesScreen(
             NexyTopAppBar(
                 titleContent = { Text("Updates", style = MaterialTheme.typography.titleMedium) },
                 onBack = onBack,
+                subtitle = "Settings",
             )
         },
     ) { padding ->
