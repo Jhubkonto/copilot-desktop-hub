@@ -129,14 +129,14 @@ Skills, Artifacts, Prompts, and Wiki lists should be powerful tools, not passive
 
 ### Checklist
 
-- [ ] **Show search result count**: display "Showing X of Y" in `labelSmall` below the search field in Skills, Artifacts, and Prompts screens
-- [ ] **Tag chip filtering in SkillsScreen**: make tag `AssistChip` / `Badge` tappable — clicking sets `searchQuery` to the tag value; existing filter logic already searches tags
-- [ ] **Sort options**: add sort `IconButton` (`Icons.Default.Sort`) to top bar of Skills, Artifacts, Prompts; sort sheet with `RadioButton` rows: Name A→Z, Name Z→A, Recently Updated, Usage Count (skills)
-- [ ] **Pull-to-refresh for Skills and Prompts**: apply `PullToRefreshBox` (already used in `SelfHealReportsScreen`) to `SkillsScreen` and `PromptsScreen`
-- [ ] **Artifact diff view**: add "Compare" action in version history list; show before/after split in an `AlertDialog` or `ArtifactDiffScreen` with changed lines highlighted in `secondaryContainer`
-- [ ] **Wiki extraction preview**: add a collapsible preview card showing the first 5 lines of extracted content before the user accepts each item in `WikiExtractionSheet`
-- [ ] **Prompts scope filter chips**: add `FilterChip` row for scope (Global, Project, Agent) above the search field in `PromptsScreen`
-- [ ] **Stale data fix**: audit `LaunchedEffect(Unit)` across all content screens; convert to `LaunchedEffect(projectId)` or add `LifecycleResumeEffect` trigger
+- [x] **Show search result count**: display "Showing X of Y" in `labelSmall` below the search field in Skills, Artifacts, and Prompts screens — `Done`
+- [x] **Tag chip filtering in SkillsScreen**: make tag `Badge` tappable — clicking sets `searchQuery` to the tag value; existing filter logic already searches tags — `Done`
+- [x] **Sort options**: add sort `IconButton` (`Icons.Default.Sort`) to top bar of Skills, Artifacts, Prompts; `NexySortSheet` with `RadioButton` rows: Name A→Z, Name Z→A, Recently Updated, Usage Count (skills) — `Done`
+- [x] **Pull-to-refresh for Skills and Prompts**: `PullToRefreshBox` + `isRefreshing` StateFlow added to `SkillsViewModel` and `PromptsViewModel` — `Done`
+- [x] **Artifact diff view**: "Compare" button in version history (visible when a previous version exists); `AlertDialog` shows added/removed files highlighted in `secondaryContainer` / `errorContainer` — `Done`
+- [x] **Wiki extraction preview**: collapsible card per candidate in `WikiExtractionSheet` showing first 5 lines with `AnimatedVisibility` expand/collapse toggle — `Done`
+- [x] **Prompts scope filter chips**: `FilterChip` row (All + dynamic scope values from entries) above the search field in `PromptsScreen` — `Done`
+- [x] **Stale data fix**: `ArtifactsScreen` `LaunchedEffect(Unit)` → `LaunchedEffect(projectId)`; `PromptsScreen` now has `LifecycleResumeEffect(projectId)`; other screens audited — all `LaunchedEffect(Unit)` usages are event-stream collectors or global refreshes with no project context — `Done`
 
 ---
 

@@ -16,14 +16,17 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Surface
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -59,6 +62,7 @@ import io.nexy.android.ui.components.NexyEmptyState
 import io.nexy.android.ui.components.NexySearchField
 import io.nexy.android.ui.components.NexyStatusBadge
 import io.nexy.android.ui.components.NexyTopAppBar
+import io.nexy.android.ui.components.NexySortSheet
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -82,15 +86,36 @@ fun ArtifactsScreen(
     val revisioning by vm.revisioning.collectAsState()
     val context = LocalContext.current
     var searchQuery by remember { mutableStateOf("") }
-    val filteredArtifacts = remember(artifacts, searchQuery) {
+    var sortOrder by remember { mutableStateOf(ArtifactSortOrder.TITLE_ASC) }
+    var showSortSheet by remember { mutableStateOf(false) }
+    val filteredArtifacts = remember(artifacts, searchQuery, sortOrder) {
         val query = searchQuery.trim()
-        if (query.isBlank()) artifacts else artifacts.filter { artifact ->
-            listOfNotNull(artifact.title, artifact.description, artifact.kind, artifact.status)
-                .any { it.contains(query, ignoreCase = true) }
-        }
+        artifacts
+            .let { list ->
+                if (query.isBlank()) list else list.filter { artifact ->
+                    listOfNotNull(artifact.title, artifact.description, artifact.kind, artifact.status)
+                        .any { it.contains(query, ignoreCase = true) }
+                }
+            }
+            .let { list ->
+                when (sortOrder) {
+                    ArtifactSortOrder.TITLE_ASC -> list.sortedBy { it.title.lowercase() }
+                    ArtifactSortOrder.TITLE_DESC -> list.sortedByDescending { it.title.lowercase() }
+                    ArtifactSortOrder.RECENTLY_UPDATED -> list.sortedByDescending { it.updatedAt }
+                }
+            }
     }
 
-    LaunchedEffect(Unit) { vm.refresh(projectId) }
+    if (showSortSheet) {
+        NexySortSheet(
+            options = listOf("Title A→Z", "Title Z→A", "Recently Updated"),
+            selectedIndex = sortOrder.ordinal,
+            onSelect = { sortOrder = ArtifactSortOrder.entries[it]; showSortSheet = false },
+            onDismiss = { showSortSheet = false },
+        )
+    }
+
+    LaunchedEffect(projectId) { vm.refresh(projectId) }
     LifecycleResumeEffect(projectId) {
         vm.refresh(projectId)
         onPauseOrDispose {}
@@ -128,6 +153,11 @@ fun ArtifactsScreen(
                     if (onOpenGenerator != null) {
                         TextButton(onClick = onOpenGenerator) { Text("Generate") }
                     }
+                    if (artifacts.isNotEmpty()) {
+                        IconButton(onClick = { showSortSheet = true }) {
+                            Icon(Icons.Default.Sort, contentDescription = "Sort artifacts")
+                        }
+                    }
                     IconButton(onClick = { vm.refresh(projectId) }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh artifacts")
                     }
@@ -162,6 +192,14 @@ fun ArtifactsScreen(
                     placeholder = "Search artifacts",
                     debounceMs = 300L,
                 )
+                if (searchQuery.isNotBlank()) {
+                    Text(
+                        "Showing ${filteredArtifacts.size} of ${artifacts.size}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 if (filteredArtifacts.isEmpty()) {
                     NexyEmptyState(
@@ -182,6 +220,8 @@ fun ArtifactsScreen(
         }
     }
 }
+
+private enum class ArtifactSortOrder { TITLE_ASC, TITLE_DESC, RECENTLY_UPDATED }
 
 @Composable
 private fun ArtifactRow(artifact: ArtifactSummary, onClick: () -> Unit) {
@@ -249,6 +289,51 @@ private fun ArtifactDetailScreen(
     onBack: () -> Unit,
 ) {
     var confirmDelete by remember { mutableStateOf(false) }
+    var diffVersions by remember { mutableStateOf<Pair<ArtifactVersionSummary, ArtifactVersionSummary>?>(null) }
+    diffVersions?.let { (newer, older) ->
+        AlertDialog(
+            onDismissRequest = { diffVersions = null },
+            title = { Text("v${older.versionNumber} → v${newer.versionNumber}") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val olderPaths = older.files.map { it.relativePath }.toSet()
+                    val newerPaths = newer.files.map { it.relativePath }.toSet()
+                    val added = newerPaths - olderPaths
+                    val removed = olderPaths - newerPaths
+                    val unchanged = newerPaths intersect olderPaths
+                    if (added.isNotEmpty()) {
+                        Text("Added", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                        added.sorted().forEach { path ->
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text("+ $path", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(6.dp))
+                            }
+                        }
+                    }
+                    if (removed.isNotEmpty()) {
+                        Text("Removed", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
+                        removed.sorted().forEach { path ->
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = MaterialTheme.colorScheme.errorContainer,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text("- $path", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(6.dp))
+                            }
+                        }
+                    }
+                    if (added.isEmpty() && removed.isEmpty()) {
+                        Text("${unchanged.size} file(s) unchanged — no structural differences.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { diffVersions = null }) { Text("Close") } },
+        )
+    }
+
     if (exportError != null) {
         AlertDialog(
             onDismissRequest = onDismissExportError,
@@ -369,7 +454,9 @@ private fun ArtifactDetailScreen(
                 Spacer(Modifier.height(20.dp))
                 Text("Version history", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium)
                 Spacer(Modifier.height(8.dp))
-                versions.forEach { version ->
+                val sortedVersions = versions.sortedByDescending { it.versionNumber }
+                sortedVersions.forEachIndexed { index, version ->
+                    val olderVersion = sortedVersions.getOrNull(index + 1)
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -381,6 +468,11 @@ private fun ArtifactDetailScreen(
                                 Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Text("${version.files.size} file(s)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        if (olderVersion != null) {
+                            TextButton(onClick = { diffVersions = version to olderVersion }) {
+                                Text("Compare")
+                            }
                         }
                         IconButton(onClick = { onExport(version.id) }, enabled = !exporting) {
                             Icon(Icons.Default.Share, contentDescription = "Export version ${version.versionNumber}")

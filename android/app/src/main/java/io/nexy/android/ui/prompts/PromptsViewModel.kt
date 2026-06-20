@@ -35,6 +35,9 @@ class PromptsViewModel(app: Application) : AndroidViewModel(app) {
     private val _state = MutableStateFlow(PromptsUiState())
     val state: StateFlow<PromptsUiState> = _state.asStateFlow()
 
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
     private var currentProjectId: String? = null
 
     init {
@@ -46,7 +49,7 @@ class PromptsViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             WsRepository.events.collect { event ->
                 when (event) {
-                    is WsEvent.PromptList -> _state.value = _state.value.copy(isLoading = false)
+                    is WsEvent.PromptList -> { _state.value = _state.value.copy(isLoading = false); _isRefreshing.value = false }
                     is WsEvent.PromptVersions -> {
                         val selectedId = _state.value.selectedEntry?.id
                         if (event.promptId == selectedId) {
@@ -78,6 +81,7 @@ class PromptsViewModel(app: Application) : AndroidViewModel(app) {
 
     fun load(projectId: String? = null) {
         currentProjectId = projectId
+        _isRefreshing.value = true
         _state.value = _state.value.copy(isLoading = true)
         WsRepository.listPrompts(projectId)
     }

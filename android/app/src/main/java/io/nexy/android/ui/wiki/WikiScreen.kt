@@ -15,13 +15,20 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Surface
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -338,15 +345,49 @@ private fun WikiExtractionSheet(
             Text("Select which entries to add to the wiki:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(8.dp))
             candidates.forEachIndexed { index, candidate ->
+                var expanded by remember { mutableStateOf(false) }
                 Row(
                     modifier = Modifier.fillMaxWidth().clickable { onToggle(index) }.padding(vertical = 4.dp),
                     verticalAlignment = Alignment.Top,
                 ) {
                     Checkbox(checked = index in selectedIndices, onCheckedChange = { onToggle(index) })
                     Column(modifier = Modifier.weight(1f).padding(start = 4.dp)) {
-                        Text(candidate.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                        if (candidate.body.isNotBlank()) {
-                            Text(candidate.body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(candidate.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                            if (candidate.body.isNotBlank()) {
+                                IconButton(onClick = { expanded = !expanded }) {
+                                    Icon(
+                                        if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                        contentDescription = if (expanded) "Collapse preview" else "Expand preview",
+                                    )
+                                }
+                            }
+                        }
+                        AnimatedVisibility(
+                            visible = expanded,
+                            enter = expandVertically(),
+                            exit = shrinkVertically(),
+                        ) {
+                            val previewLines = candidate.body.lines().take(5).joinToString("\n")
+                            Column {
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(
+                                        previewLines,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(8.dp),
+                                    )
+                                }
+                                Spacer(Modifier.height(4.dp))
+                            }
                         }
                         if (candidate.tags.isNotEmpty()) {
                             Text(candidate.tags.joinToString(", "), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)

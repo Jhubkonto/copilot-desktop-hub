@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Card
@@ -31,10 +32,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -62,6 +65,7 @@ import io.nexy.android.ui.components.NexyFormSheet
 import io.nexy.android.ui.components.NexyInfoDialog
 import io.nexy.android.ui.components.NexySearchField
 import io.nexy.android.ui.components.NexyTopAppBar
+import io.nexy.android.ui.components.NexySortSheet
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -71,20 +75,42 @@ fun SkillsScreen(
     vm: SkillsViewModel = viewModel(),
 ) {
     val state by vm.state.collectAsState()
+    val isRefreshing by vm.isRefreshing.collectAsState()
     val connectionState by WsRepository.connectionState.collectAsState()
     val context = LocalContext.current
     val clipboardManager = context.getSystemService(ClipboardManager::class.java)
     var searchQuery by remember { mutableStateOf("") }
-    val filteredSkills = remember(state.skills, searchQuery) {
+    var sortOrder by remember { mutableStateOf(SkillSortOrder.NAME_ASC) }
+    var showSortSheet by remember { mutableStateOf(false) }
+    val filteredSkills = remember(state.skills, searchQuery, sortOrder) {
         val query = searchQuery.trim()
-        if (query.isBlank()) state.skills else state.skills.filter { skill ->
-            listOf(
-                skill.name,
-                skill.description,
-                skill.instructions,
-                skill.tags.joinToString(" "),
-            ).any { it.contains(query, ignoreCase = true) }
-        }
+        state.skills
+            .let { list ->
+                if (query.isBlank()) list else list.filter { skill ->
+                    listOf(
+                        skill.name,
+                        skill.description,
+                        skill.instructions,
+                        skill.tags.joinToString(" "),
+                    ).any { it.contains(query, ignoreCase = true) }
+                }
+            }
+            .let { list ->
+                when (sortOrder) {
+                    SkillSortOrder.NAME_ASC -> list.sortedBy { it.name.lowercase() }
+                    SkillSortOrder.NAME_DESC -> list.sortedByDescending { it.name.lowercase() }
+                    SkillSortOrder.USAGE_DESC -> list.sortedByDescending { state.usageBySkillId[it.id] ?: 0 }
+                }
+            }
+    }
+
+    if (showSortSheet) {
+        NexySortSheet(
+            options = listOf("Name A→Z", "Name Z→A", "Usage Count"),
+            selectedIndex = sortOrder.ordinal,
+            onSelect = { sortOrder = SkillSortOrder.entries[it]; showSortSheet = false },
+            onDismiss = { showSortSheet = false },
+        )
     }
 
     LaunchedEffect(Unit) { vm.load() }
@@ -162,6 +188,11 @@ fun SkillsScreen(
                     TextButton(onClick = { vm.showImport() }) {
                         Text("Import")
                     }
+                    if (state.skills.isNotEmpty()) {
+                        IconButton(onClick = { showSortSheet = true }) {
+                            Icon(Icons.Default.Sort, contentDescription = "Sort skills")
+                        }
+                    }
                     IconButton(onClick = { vm.load() }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh skills")
                     }
@@ -174,44 +205,59 @@ fun SkillsScreen(
             }
         },
     ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            NexyConnectionBanner(connectionState)
-            if (state.skills.isEmpty()) {
-                Column(
-                    modifier = Modifier.weight(1f).fillMaxWidth().padding(24.dp),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    NexyEmptyState(
-                        title = "No skills yet.",
-                        detail = "Tap + to create one.",
-                        action = { TextButton(onClick = { vm.load() }) { Text("Refresh") } },
-                    )
-                }
-            } else {
-                NexySearchField(
-                    query = searchQuery,
-                    onQueryChange = { searchQuery = it },
-                    placeholder = "Search skills",
-                    debounceMs = 300L,
-                )
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                if (filteredSkills.isEmpty()) {
-                    NexyEmptyState(
-                        title = "No matching skills.",
-                        detail = "Try a different name, tag, or phrase.",
-                        modifier = Modifier.weight(1f),
-                        action = { TextButton(onClick = { searchQuery = "" }) { Text("Clear search") } },
-                    )
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = { vm.load() },
+            modifier = Modifier.fillMaxSize().padding(padding),
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                NexyConnectionBanner(connectionState)
+                if (state.skills.isEmpty()) {
+                    Column(
+                        modifier = Modifier.weight(1f).fillMaxWidth().padding(24.dp),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        NexyEmptyState(
+                            title = "No skills yet.",
+                            detail = "Tap + to create one.",
+                            action = { TextButton(onClick = { vm.load() }) { Text("Refresh") } },
+                        )
+                    }
                 } else {
-                    LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                        items(filteredSkills) { skill ->
-                            SkillRow(
-                                skill = skill,
-                                usageCount = state.usageBySkillId[skill.id] ?: 0,
-                                onClick = { vm.selectSkill(skill) },
-                            )
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    NexySearchField(
+                        query = searchQuery,
+                        onQueryChange = { searchQuery = it },
+                        placeholder = "Search skills",
+                        debounceMs = 300L,
+                    )
+                    if (searchQuery.isNotBlank()) {
+                        Text(
+                            "Showing ${filteredSkills.size} of ${state.skills.size}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    if (filteredSkills.isEmpty()) {
+                        NexyEmptyState(
+                            title = "No matching skills.",
+                            detail = "Try a different name, tag, or phrase.",
+                            modifier = Modifier.weight(1f),
+                            action = { TextButton(onClick = { searchQuery = "" }) { Text("Clear search") } },
+                        )
+                    } else {
+                        LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                            items(filteredSkills) { skill ->
+                                SkillRow(
+                                    skill = skill,
+                                    usageCount = state.usageBySkillId[skill.id] ?: 0,
+                                    onClick = { vm.selectSkill(skill) },
+                                    onTagClick = { tag -> searchQuery = tag },
+                                )
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                            }
                         }
                     }
                 }
@@ -220,8 +266,10 @@ fun SkillsScreen(
     }
 }
 
+private enum class SkillSortOrder { NAME_ASC, NAME_DESC, USAGE_DESC }
+
 @Composable
-private fun SkillRow(skill: SkillConfig, usageCount: Int, onClick: () -> Unit) {
+private fun SkillRow(skill: SkillConfig, usageCount: Int, onClick: () -> Unit, onTagClick: (String) -> Unit = {}) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -249,7 +297,10 @@ private fun SkillRow(skill: SkillConfig, usageCount: Int, onClick: () -> Unit) {
                 Text(usageLabel(usageCount), style = MaterialTheme.typography.labelSmall)
             }
             if (skill.tags.isNotEmpty()) {
-                Badge(containerColor = MaterialTheme.colorScheme.secondaryContainer) {
+                Badge(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    modifier = Modifier.clickable { onTagClick(skill.tags.first()) },
+                ) {
                     Text(skill.tags.first(), style = MaterialTheme.typography.labelSmall)
                 }
             }

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -18,8 +19,10 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.Badge
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -29,6 +32,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import io.nexy.android.ui.components.NexyTopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -37,6 +41,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
@@ -50,6 +55,7 @@ import io.nexy.android.ui.components.NexyEmptyState
 import io.nexy.android.ui.components.NexyFormSheet
 import io.nexy.android.ui.components.NexyInfoDialog
 import io.nexy.android.ui.components.NexySearchField
+import io.nexy.android.ui.components.NexySortSheet
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,22 +66,53 @@ fun PromptsScreen(
     vm: PromptsViewModel = viewModel(),
 ) {
     val state by vm.state.collectAsState()
+    val isRefreshing by vm.isRefreshing.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
-    val filteredEntries = remember(state.entries, searchQuery) {
+    var scopeFilter by remember { mutableStateOf<String?>(null) }
+    var sortOrder by remember { mutableStateOf(PromptSortOrder.TITLE_ASC) }
+    var showSortSheet by remember { mutableStateOf(false) }
+    val scopeOptions = remember(state.entries) {
+        state.entries.map { it.scope }.distinct().sorted()
+    }
+    val filteredEntries = remember(state.entries, searchQuery, scopeFilter, sortOrder) {
         val query = searchQuery.trim()
-        if (query.isBlank()) state.entries else state.entries.filter { entry ->
-            listOf(
-                entry.title,
-                entry.description,
-                entry.category,
-                entry.scope,
-                entry.body,
-                entry.tags.joinToString(" "),
-            ).any { it.contains(query, ignoreCase = true) }
-        }
+        state.entries
+            .let { list -> if (scopeFilter != null) list.filter { it.scope == scopeFilter } else list }
+            .let { list ->
+                if (query.isBlank()) list else list.filter { entry ->
+                    listOf(
+                        entry.title,
+                        entry.description,
+                        entry.category,
+                        entry.scope,
+                        entry.body,
+                        entry.tags.joinToString(" "),
+                    ).any { it.contains(query, ignoreCase = true) }
+                }
+            }
+            .let { list ->
+                when (sortOrder) {
+                    PromptSortOrder.TITLE_ASC -> list.sortedBy { it.title.lowercase() }
+                    PromptSortOrder.TITLE_DESC -> list.sortedByDescending { it.title.lowercase() }
+                    PromptSortOrder.RECENTLY_UPDATED -> list.sortedByDescending { it.updatedAt }
+                }
+            }
+    }
+
+    if (showSortSheet) {
+        NexySortSheet(
+            options = listOf("Title A→Z", "Title Z→A", "Recently Updated"),
+            selectedIndex = sortOrder.ordinal,
+            onSelect = { sortOrder = PromptSortOrder.entries[it]; showSortSheet = false },
+            onDismiss = { showSortSheet = false },
+        )
     }
 
     LaunchedEffect(projectId) { vm.load(projectId) }
+    LifecycleResumeEffect(projectId) {
+        vm.load(projectId)
+        onPauseOrDispose {}
+    }
 
     LaunchedEffect(state.insertedText) {
         val text = state.insertedText
@@ -149,6 +186,11 @@ fun PromptsScreen(
                 onBack = onBack,
                 subtitle = "Settings › Configuration",
                 actions = {
+                    if (state.entries.isNotEmpty()) {
+                        IconButton(onClick = { showSortSheet = true }) {
+                            Icon(Icons.Default.Sort, contentDescription = "Sort prompts")
+                        }
+                    }
                     IconButton(onClick = { vm.load(projectId) }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh prompts")
                     }
@@ -161,55 +203,91 @@ fun PromptsScreen(
             }
         },
     ) { padding ->
-        if (state.entries.isEmpty()) {
-            Column(
-                modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                NexyEmptyState(
-                    title = "No prompts yet.",
-                    detail = "Tap + to create one.",
-                    action = {
-                        TextButton(onClick = { vm.load(projectId) }) { Text("Refresh") }
-                    },
-                )
-            }
-        } else {
-            Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-                NexySearchField(
-                    query = searchQuery,
-                    onQueryChange = { searchQuery = it },
-                    placeholder = "Search prompts",
-                )
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                if (filteredEntries.isEmpty()) {
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = { vm.load(projectId) },
+            modifier = Modifier.fillMaxSize().padding(padding),
+        ) {
+            if (state.entries.isEmpty()) {
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(24.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
                     NexyEmptyState(
-                        title = "No matching prompts.",
-                        detail = "Try a different title, tag, category, or phrase.",
-                        modifier = Modifier.weight(1f),
-                        action = { TextButton(onClick = { searchQuery = "" }) { Text("Clear search") } },
+                        title = "No prompts yet.",
+                        detail = "Tap + to create one.",
+                        action = {
+                            TextButton(onClick = { vm.load(projectId) }) { Text("Refresh") }
+                        },
                     )
-                } else {
-                    val grouped = filteredEntries.groupBy { it.category }
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        grouped.forEach { (category, items) ->
+                }
+            } else {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    if (scopeOptions.size > 1) {
+                        LazyRow(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
                             item {
-                                Text(
-                                    category,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                FilterChip(
+                                    selected = scopeFilter == null,
+                                    onClick = { scopeFilter = null },
+                                    label = { Text("All") },
                                 )
                             }
-                            items(items) { entry ->
-                                PromptRow(
-                                    entry = entry,
-                                    showInsert = onInsert != null,
-                                    onClick = { vm.selectEntry(entry) },
-                                    onInsert = { vm.insertPrompt(entry.body) },
+                            items(scopeOptions) { scope ->
+                                FilterChip(
+                                    selected = scopeFilter == scope,
+                                    onClick = { scopeFilter = if (scopeFilter == scope) null else scope },
+                                    label = { Text(scope.replaceFirstChar { it.uppercase() }) },
                                 )
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                            }
+                        }
+                    }
+                    NexySearchField(
+                        query = searchQuery,
+                        onQueryChange = { searchQuery = it },
+                        placeholder = "Search prompts",
+                        debounceMs = 300L,
+                    )
+                    if (searchQuery.isNotBlank() || scopeFilter != null) {
+                        Text(
+                            "Showing ${filteredEntries.size} of ${state.entries.size}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    if (filteredEntries.isEmpty()) {
+                        NexyEmptyState(
+                            title = "No matching prompts.",
+                            detail = "Try a different title, tag, category, or phrase.",
+                            modifier = Modifier.weight(1f),
+                            action = { TextButton(onClick = { searchQuery = ""; scopeFilter = null }) { Text("Clear filters") } },
+                        )
+                    } else {
+                        val grouped = filteredEntries.groupBy { it.category }
+                        LazyColumn(modifier = Modifier.fillMaxSize()) {
+                            grouped.forEach { (category, items) ->
+                                item {
+                                    Text(
+                                        category,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                    )
+                                }
+                                items(items) { entry ->
+                                    PromptRow(
+                                        entry = entry,
+                                        showInsert = onInsert != null,
+                                        onClick = { vm.selectEntry(entry) },
+                                        onInsert = { vm.insertPrompt(entry.body) },
+                                    )
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                                }
                             }
                         }
                     }
@@ -218,6 +296,8 @@ fun PromptsScreen(
         }
     }
 }
+
+private enum class PromptSortOrder { TITLE_ASC, TITLE_DESC, RECENTLY_UPDATED }
 
 @Composable
 private fun PromptRow(entry: PromptEntry, showInsert: Boolean, onClick: () -> Unit, onInsert: () -> Unit) {

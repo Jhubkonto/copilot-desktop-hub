@@ -52,6 +52,9 @@ class SkillsViewModel(app: Application) : AndroidViewModel(app) {
     private val _state = MutableStateFlow(SkillsUiState())
     val state: StateFlow<SkillsUiState> = _state.asStateFlow()
 
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
     init {
         viewModelScope.launch {
             WsRepository.skills.collect { skills ->
@@ -75,7 +78,7 @@ class SkillsViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             WsRepository.events.collect { event ->
                 when (event) {
-                    is WsEvent.SkillList -> _state.value = _state.value.copy(isLoading = false)
+                    is WsEvent.SkillList -> { _state.value = _state.value.copy(isLoading = false); _isRefreshing.value = false }
                     is WsEvent.SkillCreated -> _state.value = _state.value.copy(showCreateSheet = false, showImportSheet = false, importJson = "", isLoading = false)
                     is WsEvent.SkillUpdated -> _state.value = _state.value.copy(selectedSkill = event.skill, isEditing = false, isLoading = false)
                     is WsEvent.SkillDeleted -> _state.value = _state.value.copy(selectedSkill = null, isEditing = false, isLoading = false)
@@ -93,6 +96,7 @@ class SkillsViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun load() {
+        _isRefreshing.value = true
         _state.value = _state.value.copy(isLoading = true)
         WsRepository.listSkills()
         WsRepository.getSkillAgentUsage()
