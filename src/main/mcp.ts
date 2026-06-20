@@ -419,6 +419,74 @@ export function initDesktopNavigatorMcp(win: BrowserWindow): void {
   })
 }
 
+export function getMcpServersWithStatus(): (McpServerConfig & { status: string; error?: string; toolCount: number })[] {
+  const configs = loadServerConfigs()
+  const configIds = new Set(configs.map((c) => c.id))
+  const result = configs.map((config) => {
+    const instance = servers.get(config.id)
+    return { ...config, status: instance?.status ?? 'disconnected', error: instance?.error, toolCount: instance?.tools.length ?? 0 }
+  })
+  for (const [id, instance] of servers) {
+    if (!configIds.has(id) && instance.inProcessHandler) {
+      result.push({ ...instance.config, status: instance.status, error: instance.error, toolCount: instance.tools.length })
+    }
+  }
+  return result
+}
+
+export function getMcpServerStatus(id: string): { status: string; error?: string; tools: McpTool[] } {
+  const instance = servers.get(id)
+  return { status: instance?.status ?? 'disconnected', error: instance?.error, tools: instance?.tools ?? [] }
+}
+
+export async function addMcpServer(config: Omit<McpServerConfig, 'id'>): Promise<McpServerConfig> {
+  const id = randomUUID()
+  const full = { ...config, id } as McpServerConfig
+  saveServerConfig(full)
+  if (full.enabled) await connectServer(full).catch(() => {})
+  return full
+}
+
+export async function updateMcpServer(id: string, updates: Partial<McpServerConfig>): Promise<McpServerConfig | null> {
+  const configs = loadServerConfigs()
+  const existing = configs.find((c) => c.id === id)
+  if (!existing) return null
+  const updated = { ...existing, ...updates, id }
+  saveServerConfig(updated)
+  if (updated.enabled) {
+    await connectServer(updated).catch(() => {})
+  } else {
+    await disconnectServer(id)
+  }
+  return updated
+}
+
+export async function removeMcpServer(id: string): Promise<void> {
+  await disconnectServer(id)
+  removeServerConfig(id)
+}
+
+export async function restartMcpServer(id: string): Promise<boolean> {
+  const configs = loadServerConfigs()
+  const config = configs.find((c) => c.id === id)
+  if (!config) return false
+  await connectServer(config).catch(() => {})
+  return true
+}
+
+export function listMcpTools(serverIds?: string[]): McpTool[] {
+  return getAvailableMcpTools(serverIds)
+}
+
+export function listMcpToolsForAgent(agentId: string): McpTool[] {
+  const db = getDatabase()
+  const row = db.prepare('SELECT config_json FROM agents WHERE id = ?').get(agentId) as { config_json: string } | undefined
+  if (!row) return []
+  const cfg = JSON.parse(row.config_json) as Record<string, unknown>
+  const serverIds: string[] = Array.isArray(cfg.mcpServers) ? cfg.mcpServers as string[] : []
+  return getAvailableMcpTools(serverIds)
+}
+
 export function registerMcpHandlers(): void {
   safeHandle('mcp:list-servers', () => {
     const configs = loadServerConfigs()

@@ -21,15 +21,26 @@ import { approveRelaunch, getRecoveryRuns, prepareReload, rollbackHeal, startRel
 import { runProjectGeneratorChatForAndroid, createProjectFromSpec, getProjectGeneratorAgentSummaries } from './project-generator'
 import { runAgentGeneratorChatForAndroid, createAgentFromSpec } from './agent-generator'
 import { runSkillGeneratorChatForAndroid, createSkillFromSpec } from './skill-generator'
-import { runArtifactGeneratorChatForAndroid } from './artifact-generator'
-import type { ProjectGeneratorSpec, AgentGeneratorSpec, SkillConfig, SkillGeneratorSpec, ArtifactGeneratorMessage } from '../shared/types'
+import {
+  createArtifactGeneratorRunRecord,
+  runArtifactGeneration,
+  runArtifactGeneratorChatForAndroid,
+  updateArtifactGeneratorRunRecord,
+} from './artifact-generator'
+import type { ProjectGeneratorSpec, AgentGeneratorSpec, SkillConfig, SkillGeneratorSpec, ArtifactGeneratorMessage, ArtifactSpec, PromptLibraryEntry, PromptLibraryVersion } from '../shared/types'
 import { storeApiKey, removeApiKey, getAzureEndpoint, setAzureEndpoint } from './provider-secrets'
 import { testProviderKey } from './providers'
 import { detectAllClis } from './cli-detection'
 import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
-import { insertWikiEntry } from './wiki-handlers'
-import { insertPromptLibraryEntry } from './prompt-handlers'
+import { insertWikiEntry, extractWikiLearningsForWs } from './wiki-handlers'
+import { getMcpServersWithStatus, getMcpServerStatus, addMcpServer, updateMcpServer, removeMcpServer, restartMcpServer, listMcpTools, listMcpToolsForAgent } from './mcp'
+import {
+  insertPromptLibraryEntry,
+  listPromptLibraryVersions,
+  rollbackPromptLibraryEntry,
+  updatePromptLibraryEntry,
+} from './prompt-handlers'
 import { buildConversationExportPack, forkConversation, importConversationExport, getConversationCompressionPreview, prepareConversationCompressionSummary, saveConversationCompressionSummary } from './conversation-handlers'
 import {
   createSkillConfig,
@@ -59,6 +70,40 @@ import {
 let resolveApprovalFn: ((requestId: string, approved: boolean) => boolean) | null = null
 export function registerApprovalResolver(fn: (requestId: string, approved: boolean) => boolean): void {
   resolveApprovalFn = fn
+}
+
+function mobilePromptEntry(entry: PromptLibraryEntry): Record<string, unknown> {
+  return {
+    id: entry.id,
+    title: entry.title,
+    body: entry.body,
+    description: entry.description,
+    category: entry.category,
+    tags: entry.tags,
+    scope: entry.scope,
+    projectId: entry.project_id,
+    createdAt: entry.created_at,
+    updatedAt: entry.updated_at,
+  }
+}
+
+function mobilePromptVersion(version: PromptLibraryVersion): Record<string, unknown> {
+  return {
+    id: version.id,
+    promptId: version.prompt_id,
+    version: version.version,
+    title: version.title,
+    body: version.body,
+    description: version.description,
+    category: version.category,
+    tags: version.tags,
+    variables: version.variables,
+    scope: version.scope,
+    projectId: version.project_id,
+    source: version.source,
+    createdAt: version.created_at,
+    diff: version.diff,
+  }
 }
 
 export function registerWsHandlers(): void {
@@ -584,9 +629,16 @@ export function registerWsHandlers(): void {
       const patch: Record<string, unknown> = {}
       if (typeof data.instructions === 'string') patch.instructions = data.instructions
       if (typeof data.rootDirectory === 'string') patch.rootDirectory = data.rootDirectory
+      if (Array.isArray(data.variables)) patch.variables = data.variables
       if (typeof data.orchestrationEnabled === 'boolean') patch.orchestrationEnabled = data.orchestrationEnabled
+      if (typeof data.maxDelegationDepth === 'number') patch.maxDelegationDepth = Math.max(1, Math.min(10, data.maxDelegationDepth))
+      if (typeof data.showTeamActivity === 'boolean') patch.showTeamActivity = data.showTeamActivity
       if (typeof data.defaultModel === 'string') patch.defaultModel = data.defaultModel
       if (typeof data.instructionMode === 'string') patch.instructionMode = data.instructionMode
+      if (typeof data.instructionsEnabled === 'boolean') patch.instructionsEnabled = data.instructionsEnabled
+      if (Array.isArray(data.inScope)) patch.inScope = data.inScope
+      if (Array.isArray(data.outOfScope)) patch.outOfScope = data.outOfScope
+      if (Array.isArray(data.milestones)) patch.milestones = data.milestones
       const merged = { ...current, ...patch }
       db.prepare('UPDATE projects SET config_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(merged), Date.now(), id)
       broadcastToMobile({ event: 'project:config-updated', data: { id } })
@@ -657,6 +709,26 @@ export function registerWsHandlers(): void {
         db.prepare('UPDATE project_agents SET is_primary = 1 WHERE project_id = ? AND agent_id = ?').run(id, agentId)
       })
       setPrimary()
+      const rows = db.prepare(
+        'SELECT pa.agent_id, pa.is_primary, pa.sort_order, a.config_json FROM project_agents pa JOIN agents a ON a.id = pa.agent_id WHERE pa.project_id = ? ORDER BY pa.sort_order ASC, pa.added_at ASC'
+      ).all(id) as { agent_id: string; config_json: string; is_primary: number; sort_order: number }[]
+      const agents = rows.map((r) => {
+        const cfg = JSON.parse(r.config_json) as { name?: string; icon?: string }
+        return { agentId: r.agent_id, agentName: cfg.name ?? '', agentIcon: cfg.icon ?? '', isPrimary: r.is_primary === 1, sortOrder: r.sort_order }
+      })
+      reply({ event: 'project:agents', data: { id, agents } })
+      return
+    }
+
+    if (command === 'project:reorder-agents') {
+      const id = typeof data.id === 'string' ? data.id : ''
+      const agentIds = Array.isArray(data.agentIds) ? data.agentIds.filter((agentId): agentId is string => typeof agentId === 'string') : []
+      if (!id || agentIds.length === 0) return
+      const update = db.prepare('UPDATE project_agents SET sort_order = ? WHERE project_id = ? AND agent_id = ?')
+      const reorder = db.transaction(() => {
+        agentIds.forEach((agentId, index) => update.run(index, id, agentId))
+      })
+      reorder()
       const rows = db.prepare(
         'SELECT pa.agent_id, pa.is_primary, pa.sort_order, a.config_json FROM project_agents pa JOIN agents a ON a.id = pa.agent_id WHERE pa.project_id = ? ORDER BY pa.sort_order ASC, pa.added_at ASC'
       ).all(id) as { agent_id: string; config_json: string; is_primary: number; sort_order: number }[]
@@ -790,16 +862,102 @@ export function registerWsHandlers(): void {
     }
 
     if (command === 'mcp:list') {
-      const rows = db.prepare('SELECT id, config_json, enabled FROM mcp_servers').all() as {
-        id: string
-        config_json: string
-        enabled: number
-      }[]
-      const servers = rows.map((row) => {
-        const cfg = JSON.parse(row.config_json) as { name?: string; command?: string }
-        return { id: row.id, name: cfg.name ?? row.id, command: cfg.command ?? '', enabled: row.enabled === 1 }
-      })
+      const servers = getMcpServersWithStatus()
       reply({ event: 'mcp:list', data: { servers } })
+      return
+    }
+
+    if (command === 'mcp:add') {
+      const name = typeof data.name === 'string' ? data.name.trim() : ''
+      const command2 = typeof data.command === 'string' ? data.command.trim() : ''
+      if (!name || !command2) return
+      const args = Array.isArray(data.args) ? (data.args as string[]) : []
+      const env = (data.env && typeof data.env === 'object' && !Array.isArray(data.env)) ? data.env as Record<string, string> : {}
+      const cwd = typeof data.cwd === 'string' ? data.cwd : undefined
+      const enabled = typeof data.enabled === 'boolean' ? data.enabled : true
+      void addMcpServer({ name, command: command2, args, env, cwd, enabled }).then((server) => {
+        const s = getMcpServerStatus(server.id)
+        const payload = { ...server, status: s.status, toolCount: s.tools.length }
+        broadcastToMobile({ event: 'mcp:server-added', data: { server: payload } })
+        reply({ event: 'mcp:server-added', data: { server: payload } })
+      })
+      return
+    }
+
+    if (command === 'mcp:update') {
+      const id = typeof data.id === 'string' ? data.id : ''
+      if (!id) return
+      const updates: Record<string, unknown> = {}
+      if (typeof data.name === 'string') updates.name = data.name
+      if (typeof data.command === 'string') updates.command = data.command
+      if (Array.isArray(data.args)) updates.args = data.args
+      if (data.env && typeof data.env === 'object') updates.env = data.env
+      if (typeof data.cwd === 'string') updates.cwd = data.cwd || undefined
+      if (typeof data.enabled === 'boolean') updates.enabled = data.enabled
+      void updateMcpServer(id, updates).then((server) => {
+        if (!server) return
+        const s = getMcpServerStatus(id)
+        const payload = { ...server, status: s.status, toolCount: s.tools.length }
+        broadcastToMobile({ event: 'mcp:server-updated', data: { server: payload } })
+        reply({ event: 'mcp:server-updated', data: { server: payload } })
+      })
+      return
+    }
+
+    if (command === 'mcp:remove') {
+      const id = typeof data.id === 'string' ? data.id : ''
+      if (!id) return
+      void removeMcpServer(id).then(() => {
+        broadcastToMobile({ event: 'mcp:server-removed', data: { id } })
+        reply({ event: 'mcp:server-removed', data: { id } })
+      })
+      return
+    }
+
+    if (command === 'mcp:restart') {
+      const id = typeof data.id === 'string' ? data.id : ''
+      if (!id) return
+      void restartMcpServer(id).then(() => {
+        const s = getMcpServerStatus(id)
+        reply({ event: 'mcp:server-status', data: { id, status: s.status, error: s.error ?? null, toolCount: s.tools.length } })
+      })
+      return
+    }
+
+    if (command === 'mcp:get-status') {
+      const id = typeof data.id === 'string' ? data.id : ''
+      if (!id) return
+      const status = getMcpServerStatus(id)
+      reply({ event: 'mcp:server-status', data: { id, status: status.status, error: status.error ?? null, toolCount: status.tools.length } })
+      return
+    }
+
+    if (command === 'mcp:list-tools') {
+      const serverIds = Array.isArray(data.serverIds) ? (data.serverIds as string[]) : undefined
+      const tools = listMcpTools(serverIds)
+      reply({ event: 'mcp:tools', data: { tools } })
+      return
+    }
+
+    if (command === 'mcp:list-tools-for-agent') {
+      const agentId = typeof data.agentId === 'string' ? data.agentId : ''
+      if (!agentId) return
+      const tools = listMcpToolsForAgent(agentId)
+      reply({ event: 'mcp:tools', data: { agentId, tools } })
+      return
+    }
+
+    if (command === 'wiki:extract-from-conversation') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+      const projectId = typeof data.projectId === 'string' ? data.projectId : ''
+      if (!conversationId || !projectId) return
+      void extractWikiLearningsForWs(conversationId, projectId)
+        .then((result) => {
+          reply({ event: 'wiki:extraction-candidates', data: { conversationId, candidates: result.candidates } })
+        })
+        .catch((err: unknown) => {
+          reply({ event: 'wiki:extraction-error', data: { message: String(err) } })
+        })
       return
     }
 
@@ -1000,14 +1158,15 @@ export function registerWsHandlers(): void {
     if (command === 'artifact:list') {
       const projectId = typeof data.projectId === 'string' ? data.projectId : null
       const rows = projectId
-        ? (db.prepare('SELECT id, project_id, title, kind, description, status, current_version_id, created_at, updated_at FROM artifacts WHERE project_id = ? ORDER BY updated_at DESC').all(projectId) as Record<string, unknown>[])
-        : (db.prepare('SELECT id, project_id, title, kind, description, status, current_version_id, created_at, updated_at FROM artifacts ORDER BY updated_at DESC LIMIT 50').all() as Record<string, unknown>[])
+        ? (db.prepare('SELECT id, project_id, title, kind, description, storage_root, status, current_version_id, created_at, updated_at FROM artifacts WHERE project_id = ? ORDER BY updated_at DESC').all(projectId) as Record<string, unknown>[])
+        : (db.prepare('SELECT id, project_id, title, kind, description, storage_root, status, current_version_id, created_at, updated_at FROM artifacts ORDER BY updated_at DESC LIMIT 50').all() as Record<string, unknown>[])
       const artifacts = rows.map((r) => ({
         id: String(r.id),
         projectId: r.project_id != null ? String(r.project_id) : null,
         title: String(r.title),
         kind: String(r.kind),
         description: r.description != null ? String(r.description) : null,
+        storageRoot: r.storage_root != null ? String(r.storage_root) : null,
         status: String(r.status),
         currentVersionId: r.current_version_id != null ? String(r.current_version_id) : null,
         createdAt: Number(r.created_at),
@@ -1056,12 +1215,65 @@ export function registerWsHandlers(): void {
             title: String(r.title),
             kind: String(r.kind),
             description: r.description != null ? String(r.description) : null,
+            storageRoot: r.storage_root != null ? String(r.storage_root) : null,
             status: String(r.status),
             currentVersionId,
             createdAt: Number(r.created_at),
             updatedAt: Number(r.updated_at),
             currentVersion,
           },
+        },
+      })
+      return
+    }
+
+    if (command === 'artifact:list-versions') {
+      const artifactId = typeof data.artifactId === 'string' ? data.artifactId : ''
+      if (!artifactId) return
+      const rows = db.prepare('SELECT * FROM artifact_versions WHERE artifact_id = ? ORDER BY version_number DESC').all(artifactId) as Record<string, unknown>[]
+      const versions = rows.map((vRow) => {
+        const versionId = String(vRow.id)
+        const fileRows = db.prepare('SELECT id, version_id, relative_path, media_type, role FROM artifact_files WHERE version_id = ?').all(versionId) as Record<string, unknown>[]
+        return {
+          id: versionId,
+          artifactId: String(vRow.artifact_id),
+          versionNumber: Number(vRow.version_number),
+          title: String(vRow.title),
+          notes: vRow.notes != null ? String(vRow.notes) : null,
+          createdAt: Number(vRow.created_at),
+          files: fileRows.map((f) => ({
+            id: String(f.id),
+            relativePath: String(f.relative_path),
+            mediaType: String(f.media_type),
+            role: String(f.role),
+          })),
+        }
+      })
+      reply({ event: 'artifact:versions', data: { artifactId, versions } })
+      return
+    }
+
+    if (command === 'artifact:delete') {
+      const id = typeof data.id === 'string' ? data.id : ''
+      if (!id) return
+      const info = db.prepare('DELETE FROM artifacts WHERE id = ?').run(id)
+      reply({ event: 'artifact:deleted', data: { id, deleted: info.changes > 0 } })
+      const rows = db.prepare('SELECT id, project_id, title, kind, description, storage_root, status, current_version_id, created_at, updated_at FROM artifacts ORDER BY updated_at DESC LIMIT 50').all() as Record<string, unknown>[]
+      reply({
+        event: 'artifact:list',
+        data: {
+          artifacts: rows.map((r) => ({
+            id: String(r.id),
+            projectId: r.project_id != null ? String(r.project_id) : null,
+            title: String(r.title),
+            kind: String(r.kind),
+            description: r.description != null ? String(r.description) : null,
+            storageRoot: r.storage_root != null ? String(r.storage_root) : null,
+            status: String(r.status),
+            currentVersionId: r.current_version_id != null ? String(r.current_version_id) : null,
+            createdAt: Number(r.created_at),
+            updatedAt: Number(r.updated_at),
+          })),
         },
       })
       return
@@ -1161,6 +1373,14 @@ export function registerWsHandlers(): void {
       return
     }
 
+    if (command === 'prompt:list-versions') {
+      const promptId = typeof data.promptId === 'string' ? data.promptId : ''
+      if (!promptId) return
+      const versions = listPromptLibraryVersions(db, promptId).map(mobilePromptVersion)
+      reply({ event: 'prompt:versions', data: { promptId, versions } })
+      return
+    }
+
     if (command === 'prompt:create') {
       const title = typeof data.title === 'string' ? data.title.trim() : ''
       const body = typeof data.body === 'string' ? data.body : ''
@@ -1171,26 +1391,40 @@ export function registerWsHandlers(): void {
       const projectId = typeof data.projectId === 'string' ? data.projectId : undefined
       if (!title || !body.trim()) return
       const entry = insertPromptLibraryEntry(db, { title, body, description, category, tags, scope, project_id: projectId })
-      broadcastToMobile({ event: 'prompt:entry-created', data: { entry: { id: entry.id, title: entry.title, body: entry.body, description: entry.description, category: entry.category, tags: entry.tags, scope: entry.scope, projectId: entry.project_id, createdAt: entry.created_at, updatedAt: entry.updated_at } } })
+      broadcastToMobile({ event: 'prompt:entry-created', data: { entry: mobilePromptEntry(entry) } })
       return
     }
 
     if (command === 'prompt:update') {
       const id = typeof data.id === 'string' ? data.id : ''
       if (!id) return
-      type PromptRow = { id: string; title: string; body: string; description: string; category: string; tags: string; scope: string; project_id: string | null; created_at: number; updated_at: number }
-      const row = db.prepare('SELECT * FROM prompt_library_entries WHERE id = ?').get(id) as PromptRow | undefined
-      if (!row) return
-      const title = typeof data.title === 'string' ? data.title.trim().slice(0, 200) : row.title
-      const body = typeof data.body === 'string' ? data.body : row.body
-      const description = typeof data.description === 'string' ? data.description.trim().slice(0, 500) : row.description
-      const category = typeof data.category === 'string' ? (data.category.trim().slice(0, 80) || 'Custom') : row.category
-      const tags = Array.isArray(data.tags) ? JSON.stringify(data.tags as string[]) : row.tags
-      if (!title || !body.trim()) return
-      const now = Date.now()
-      db.prepare('UPDATE prompt_library_entries SET title = ?, body = ?, description = ?, category = ?, tags = ?, updated_at = ? WHERE id = ?').run(title, body, description, category, tags, now, id)
-      const updated = db.prepare('SELECT * FROM prompt_library_entries WHERE id = ?').get(id) as PromptRow
-      broadcastToMobile({ event: 'prompt:entry-updated', data: { entry: { id: updated.id, title: updated.title, body: updated.body, description: updated.description, category: updated.category, tags: (() => { try { return JSON.parse(updated.tags) as string[] } catch { return [] } })(), scope: updated.scope, projectId: updated.project_id, createdAt: updated.created_at, updatedAt: updated.updated_at } } })
+      try {
+        const updated = updatePromptLibraryEntry(db, id, {
+          title: typeof data.title === 'string' ? data.title : undefined,
+          body: typeof data.body === 'string' ? data.body : undefined,
+          description: typeof data.description === 'string' ? data.description : undefined,
+          category: typeof data.category === 'string' ? data.category : undefined,
+          tags: Array.isArray(data.tags) ? data.tags.map(String) : undefined,
+        })
+        broadcastToMobile({ event: 'prompt:entry-updated', data: { entry: mobilePromptEntry(updated) } })
+      } catch (err: unknown) {
+        reply({ event: 'prompt:error', data: { message: String(err) } })
+      }
+      return
+    }
+
+    if (command === 'prompt:rollback') {
+      const promptId = typeof data.promptId === 'string' ? data.promptId : ''
+      const version = typeof data.version === 'number' ? data.version : Number(data.version)
+      if (!promptId || !Number.isFinite(version)) return
+      try {
+        const entry = rollbackPromptLibraryEntry(db, promptId, version)
+        broadcastToMobile({ event: 'prompt:entry-updated', data: { entry: mobilePromptEntry(entry) } })
+        const versions = listPromptLibraryVersions(db, promptId).map(mobilePromptVersion)
+        reply({ event: 'prompt:versions', data: { promptId, versions } })
+      } catch (err: unknown) {
+        reply({ event: 'prompt:error', data: { message: String(err) } })
+      }
       return
     }
 
@@ -1467,6 +1701,35 @@ export function registerWsHandlers(): void {
     if (command === 'artifact-generator:cancel') {
       const sessionId = typeof data.sessionId === 'string' ? data.sessionId : undefined
       broadcastToMobile({ event: 'artifact-generator:cancelled', data: { sessionId } })
+      return
+    }
+
+    if (command === 'artifact-generator:generate') {
+      const sessionId = typeof data.sessionId === 'string' && data.sessionId.trim()
+        ? data.sessionId.trim()
+        : `android-artifact-generate-${Date.now()}`
+      const spec = data.spec && typeof data.spec === 'object' ? data.spec as ArtifactSpec : null
+      if (!spec) {
+        broadcastToMobile({ event: 'artifact-generator:error', data: { sessionId, message: 'Missing artifact spec' } })
+        return
+      }
+      const fakeWin = {
+        isDestroyed: () => false,
+        webContents: {
+          send: () => {},
+        },
+      } as unknown as BrowserWindow
+      void (async () => {
+        try {
+          createArtifactGeneratorRunRecord(sessionId, spec.title)
+          updateArtifactGeneratorRunRecord(sessionId, { specJson: JSON.stringify(spec) })
+          const artifactId = await runArtifactGeneration(fakeWin, sessionId, spec)
+          broadcastToMobile({ event: 'artifact-generator:created', data: { sessionId, artifactId, title: spec.title } })
+          broadcastToMobile({ event: 'artifact-generator:turn-complete', data: { sessionId, content: '', hasSpec: true } })
+        } catch (err: unknown) {
+          broadcastToMobile({ event: 'artifact-generator:error', data: { sessionId, message: String(err) } })
+        }
+      })()
       return
     }
 

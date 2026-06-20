@@ -30,12 +30,17 @@ import io.nexy.android.data.model.ArtifactVersionSummary
 import io.nexy.android.data.model.CliInstallInfo
 import io.nexy.android.data.model.ConversationExportPackData
 import io.nexy.android.data.model.PromptEntry
+import io.nexy.android.data.model.PromptVersion
+import io.nexy.android.data.model.PromptVersionDiff
 import io.nexy.android.data.model.WikiEntry
 import io.nexy.android.data.model.CompressionSections
 import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.ErrorReport
 import io.nexy.android.data.model.HistoryMessage
 import io.nexy.android.data.model.McpServerInfo
+import io.nexy.android.data.model.McpServerWithStatus
+import io.nexy.android.data.model.McpToolInfo
+import io.nexy.android.data.model.WikiExtractionCandidate
 import io.nexy.android.data.model.ModelListSource
 import io.nexy.android.data.model.ModelOption
 import io.nexy.android.data.model.Project
@@ -574,6 +579,67 @@ fun parseWsEvent(
                 WsEvent.McpList(list)
             }
 
+            "mcp:server-added" -> {
+                val s = data?.optJSONObject("server") ?: return
+                val server = parseMcpServerWithStatus(s)
+                mcpServers.value = mcpServers.value + McpServerInfo(id = server.id, name = server.name, command = server.command, enabled = server.enabled)
+                WsEvent.McpServerAdded(server)
+            }
+
+            "mcp:server-updated" -> {
+                val s = data?.optJSONObject("server") ?: return
+                val server = parseMcpServerWithStatus(s)
+                mcpServers.value = mcpServers.value.map { if (it.id == server.id) McpServerInfo(id = server.id, name = server.name, command = server.command, enabled = server.enabled) else it }
+                WsEvent.McpServerUpdated(server)
+            }
+
+            "mcp:server-removed" -> {
+                val id = data?.optString("id") ?: ""
+                mcpServers.value = mcpServers.value.filter { it.id != id }
+                WsEvent.McpServerRemoved(id)
+            }
+
+            "mcp:server-status" -> {
+                val id = data?.optString("id") ?: ""
+                val status = data?.optString("status") ?: "disconnected"
+                val error = data?.nullableString("error")
+                val toolCount = data?.optInt("toolCount", 0) ?: 0
+                WsEvent.McpServerStatus(id, status, error, toolCount)
+            }
+
+            "mcp:tools" -> {
+                val agentId = data?.nullableString("agentId")
+                val arr = data?.optJSONArray("tools") ?: JSONArray()
+                val tools = (0 until arr.length()).map { i ->
+                    val t = arr.getJSONObject(i)
+                    McpToolInfo(
+                        name = t.optString("name"),
+                        description = t.nullableString("description"),
+                        serverId = t.optString("serverId"),
+                        serverName = t.optString("serverName"),
+                    )
+                }
+                WsEvent.McpToolList(agentId, tools)
+            }
+
+            "wiki:extraction-candidates" -> {
+                val conversationId = data?.optString("conversationId") ?: ""
+                val arr = data?.optJSONArray("candidates") ?: JSONArray()
+                val candidates = (0 until arr.length()).map { i ->
+                    val c = arr.getJSONObject(i)
+                    WikiExtractionCandidate(
+                        title = c.optString("title"),
+                        body = c.optString("body"),
+                        tags = run { val ta = c.optJSONArray("tags"); if (ta != null) (0 until ta.length()).map { ta.optString(it) } else emptyList() },
+                    )
+                }
+                WsEvent.WikiExtractionCandidates(conversationId, candidates)
+            }
+
+            "wiki:extraction-error" -> {
+                WsEvent.WikiExtractionError(data?.optString("message") ?: "Extraction failed")
+            }
+
             "skill:list" -> {
                 val arr = data?.optJSONArray("skills") ?: JSONArray()
                 val list = (0 until arr.length()).map { i -> parseSkillConfig(arr.getJSONObject(i)) }
@@ -647,6 +713,7 @@ fun parseWsEvent(
                         title = a.optString("title"),
                         kind = a.optString("kind"),
                         description = a.nullableString("description"),
+                        storageRoot = a.nullableString("storageRoot"),
                         status = a.optString("status"),
                         currentVersionId = a.nullableString("currentVersionId"),
                         createdAt = a.optLong("createdAt", 0L),
@@ -690,6 +757,7 @@ fun parseWsEvent(
                             title = a.optString("title"),
                             kind = a.optString("kind"),
                             description = a.nullableString("description"),
+                            storageRoot = a.nullableString("storageRoot"),
                             status = a.optString("status"),
                             currentVersionId = a.nullableString("currentVersionId"),
                             createdAt = a.optLong("createdAt", 0L),
@@ -699,6 +767,20 @@ fun parseWsEvent(
                     )
                 }
             }
+
+            "artifact:versions" -> {
+                val artifactId = data?.optString("artifactId") ?: ""
+                val arr = data?.optJSONArray("versions") ?: org.json.JSONArray()
+                WsEvent.ArtifactVersions(
+                    artifactId = artifactId,
+                    versions = (0 until arr.length()).map { i -> parseArtifactVersion(arr.getJSONObject(i)) },
+                )
+            }
+
+            "artifact:deleted" -> WsEvent.ArtifactDeleted(
+                id = data?.optString("id") ?: "",
+                deleted = data?.optBoolean("deleted", false) ?: false,
+            )
 
             "artifact:export-pack" -> {
                 val versionId = data?.optString("versionId") ?: ""
@@ -750,6 +832,13 @@ fun parseWsEvent(
                 WsEvent.PromptList(list)
             }
 
+            "prompt:versions" -> {
+                val promptId = data?.optString("promptId") ?: ""
+                val arr = data?.optJSONArray("versions") ?: JSONArray()
+                val versions = (0 until arr.length()).map { i -> parsePromptVersion(arr.getJSONObject(i)) }
+                WsEvent.PromptVersions(promptId, versions)
+            }
+
             "prompt:entry-created" -> {
                 val entry = parsePromptEntry(data?.optJSONObject("entry") ?: return)
                 promptEntries.value = promptEntries.value + entry
@@ -767,6 +856,10 @@ fun parseWsEvent(
                 promptEntries.value = promptEntries.value.filter { it.id != id }
                 WsEvent.PromptEntryDeleted(id)
             }
+
+            "prompt:error" -> WsEvent.PromptError(
+                message = data?.optString("message") ?: "Prompt operation failed"
+            )
 
             "conversation:export-pack" -> {
                 val p = data?.optJSONObject("pack") ?: return
@@ -839,13 +932,31 @@ fun parseWsEvent(
 
             "project:config" -> {
                 val c = data?.optJSONObject("config") ?: JSONObject()
+                fun strMap(obj: JSONObject): Map<String, String> {
+                    val m = mutableMapOf<String, String>()
+                    obj.keys().forEach { key ->
+                        if (!obj.isNull(key)) m[key] = obj.optString(key)
+                    }
+                    return m
+                }
+                fun objList(key: String): List<Map<String, String>> {
+                    val arr = c.optJSONArray(key) ?: return emptyList()
+                    return (0 until arr.length()).map { strMap(arr.optJSONObject(it) ?: JSONObject()) }
+                }
                 WsEvent.ProjectConfig(
                     id = data?.optString("id") ?: "",
                     config = ProjectSettingsConfig(
                         instructions = c.optString("instructions", ""),
                         rootDirectory = c.nullableString("rootDirectory"),
+                        variables = objList("variables"),
                         instructionMode = c.optString("instructionMode", "prepend"),
+                        instructionsEnabled = c.optBoolean("instructionsEnabled", true),
                         orchestrationEnabled = c.optBoolean("orchestrationEnabled", false),
+                        maxDelegationDepth = c.optInt("maxDelegationDepth", 5).coerceIn(1, 10),
+                        showTeamActivity = c.optBoolean("showTeamActivity", true),
+                        inScope = objList("inScope"),
+                        outOfScope = objList("outOfScope"),
+                        milestones = objList("milestones"),
                         defaultModel = c.nullableString("defaultModel"),
                     ),
                 )
@@ -913,6 +1024,12 @@ fun parseWsEvent(
                 val spec = parseArtifactGeneratorSpec(specData) ?: return
                 WsEvent.ArtifactGeneratorSpecReady(data?.nullableString("sessionId"), spec)
             }
+
+            "artifact-generator:created" -> WsEvent.ArtifactGeneratorCreated(
+                sessionId = data?.nullableString("sessionId"),
+                artifactId = data?.optString("artifactId") ?: "",
+                title = data?.optString("title") ?: "",
+            )
 
             "artifact-generator:error" -> WsEvent.ArtifactGeneratorError(
                 sessionId = data?.nullableString("sessionId"),
@@ -1061,6 +1178,21 @@ fun parseWsEvent(
     } catch (_: Exception) {}
 }
 
+private fun parseMcpServerWithStatus(s: JSONObject): McpServerWithStatus {
+    val argsArr = s.optJSONArray("args")
+    val args = if (argsArr != null) (0 until argsArr.length()).map { argsArr.optString(it) } else emptyList()
+    return McpServerWithStatus(
+        id = s.optString("id"),
+        name = s.optString("name"),
+        command = s.optString("command"),
+        args = args,
+        enabled = s.optBoolean("enabled", false),
+        status = s.optString("status", "disconnected"),
+        error = s.nullableString("error"),
+        toolCount = s.optInt("toolCount", 0),
+    )
+}
+
 private fun parseWikiEntry(obj: JSONObject): WikiEntry {
     fun strList(key: String): List<String> {
         val arr = obj.optJSONArray(key) ?: return emptyList()
@@ -1075,6 +1207,27 @@ private fun parseWikiEntry(obj: JSONObject): WikiEntry {
         sourceConversationId = obj.nullableString("sourceConversationId"),
         createdAt = obj.optLong("createdAt", 0L),
         updatedAt = obj.optLong("updatedAt", 0L),
+    )
+}
+
+private fun parseArtifactVersion(obj: JSONObject): ArtifactVersionSummary {
+    val filesArr = obj.optJSONArray("files") ?: JSONArray()
+    return ArtifactVersionSummary(
+        id = obj.optString("id"),
+        artifactId = obj.optString("artifactId"),
+        versionNumber = obj.optInt("versionNumber", 1),
+        title = obj.optString("title"),
+        notes = obj.nullableString("notes"),
+        createdAt = obj.optLong("createdAt", 0L),
+        files = (0 until filesArr.length()).map { i ->
+            val f = filesArr.getJSONObject(i)
+            ArtifactVersionFile(
+                id = f.optString("id"),
+                relativePath = f.optString("relativePath"),
+                mediaType = f.optString("mediaType"),
+                role = f.optString("role"),
+            )
+        },
     )
 }
 
@@ -1150,6 +1303,42 @@ private fun parsePromptEntry(obj: JSONObject): PromptEntry {
         projectId = obj.nullableString("projectId"),
         createdAt = obj.optLong("createdAt", 0L),
         updatedAt = obj.optLong("updatedAt", 0L),
+    )
+}
+
+private fun parsePromptVersion(obj: JSONObject): PromptVersion {
+    fun strList(key: String): List<String> {
+        val arr = obj.optJSONArray(key) ?: return emptyList()
+        return (0 until arr.length()).map { arr.optString(it) }.filter { it.isNotBlank() }
+    }
+    val diff = obj.optJSONObject("diff") ?: JSONObject()
+    fun diffLines(key: String): List<String> {
+        val arr = diff.optJSONArray(key) ?: return emptyList()
+        return (0 until arr.length()).map { arr.optString(it) }.filter { it.isNotBlank() }
+    }
+    return PromptVersion(
+        id = obj.optString("id"),
+        promptId = obj.optString("promptId"),
+        version = obj.optInt("version", 1),
+        title = obj.optString("title"),
+        body = obj.optString("body"),
+        description = obj.optString("description"),
+        category = obj.optString("category"),
+        tags = strList("tags"),
+        variables = strList("variables"),
+        scope = obj.optString("scope", "global"),
+        projectId = obj.nullableString("projectId"),
+        source = obj.optString("source"),
+        createdAt = obj.optLong("createdAt", 0L),
+        diff = PromptVersionDiff(
+            titleChanged = diff.optBoolean("titleChanged", false),
+            descriptionChanged = diff.optBoolean("descriptionChanged", false),
+            categoryChanged = diff.optBoolean("categoryChanged", false),
+            tagsChanged = diff.optBoolean("tagsChanged", false),
+            scopeChanged = diff.optBoolean("scopeChanged", false),
+            addedLines = diffLines("addedLines"),
+            removedLines = diffLines("removedLines"),
+        ),
     )
 }
 

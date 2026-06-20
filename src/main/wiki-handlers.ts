@@ -284,3 +284,95 @@ Guidelines:
     return { candidates }
   })
 }
+
+export async function extractWikiLearningsForWs(
+  conversationId: string,
+  projectId: string,
+): Promise<{ candidates: { title: string; body: string; tags: string[] }[] }> {
+  const db = getDatabase()
+  const rows = db.prepare(
+    "SELECT role, content FROM messages WHERE conversation_id = ? AND role IN ('user', 'assistant') ORDER BY timestamp ASC"
+  ).all(conversationId) as { role: string; content: string }[]
+
+  if (rows.length === 0) return { candidates: [] }
+
+  const transcript = rows
+    .map((row) => `${row.role === 'user' ? 'User' : 'Assistant'}: ${row.content}`)
+    .join('\n\n')
+
+  const agentRow = db.prepare(
+    'SELECT a.config_json FROM project_agents pa JOIN agents a ON pa.agent_id = a.id WHERE pa.project_id = ? AND pa.is_primary = 1 LIMIT 1'
+  ).get(projectId) as { config_json: string } | undefined
+
+  const agentModel = (() => {
+    try {
+      const cfg = JSON.parse(agentRow?.config_json ?? '{}') as Record<string, unknown>
+      return typeof cfg.model === 'string' && cfg.model ? cfg.model : DEFAULT_PROVIDER_MODEL
+    } catch {
+      return DEFAULT_PROVIDER_MODEL
+    }
+  })()
+
+  const { provider, model: resolvedModel } = getProviderForAgent(agentModel)
+  const apiKey = getApiKey(provider)
+
+  const systemPrompt = `You are a knowledge extraction assistant. Analyze this conversation and extract factual learnings, decisions, and procedures as structured wiki entries.
+
+Return a JSON array (and NOTHING else — no markdown, no preamble) with this schema:
+[
+  {
+    "title": "Brief descriptive title (max 80 chars)",
+    "body": "The key fact, decision, or procedure. Be concise but complete.",
+    "tags": ["category1", "category2"]
+  }
+]
+
+Guidelines:
+- Only extract things worth remembering across conversations (architectural decisions, coding conventions, debugging resolutions, API quirks, project-specific facts)
+- Skip small talk, clarifying questions, and trivial exchanges
+- Maximum 10 entries
+- If nothing notable was learned, return []
+- Tags should be lowercase, 1-2 words each`
+
+  const HARD_LIMIT = 40000
+  const HEAD = 4000
+  const truncatedTranscript = transcript.length <= HARD_LIMIT
+    ? transcript
+    : transcript.slice(0, HEAD) + '\n\n[... conversation truncated ...]\n\n' + transcript.slice(-(HARD_LIMIT - HEAD))
+  const userContent = `Here is the conversation to analyze:\n\n${truncatedTranscript}`
+
+  let rawText: string
+  if (apiKey) {
+    const messages: ProviderMessage[] = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userContent },
+    ]
+    const result = await sendProviderNonStreaming(provider, apiKey, resolvedModel, messages, { maxTokens: 2000, temperature: 0.3 })
+    rawText = result.content ?? ''
+  } else if (ClaudeAdapter.isAvailable()) {
+    rawText = await ClaudeAdapter.send(
+      null as never,
+      { systemPrompt, messages: [{ role: 'user', content: userContent }], cwd: '', model: 'default', conversationId: randomUUID() },
+      () => {},
+    )
+  } else {
+    throw new Error(NO_PROVIDER_CONFIGURED_MESSAGE)
+  }
+
+  try {
+    const cleaned = rawText.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim()
+    const parsed = JSON.parse(cleaned) as { title: string; body: string; tags: string[] }[]
+    if (!Array.isArray(parsed)) return { candidates: [] }
+    const candidates = parsed
+      .slice(0, 10)
+      .map((c) => ({
+        title: String(c.title ?? '').slice(0, 200).trim(),
+        body: String(c.body ?? '').trim(),
+        tags: Array.isArray(c.tags) ? c.tags.map(String) : [],
+      }))
+      .filter((c) => c.title.length > 0)
+    return { candidates }
+  } catch {
+    return { candidates: [] }
+  }
+}

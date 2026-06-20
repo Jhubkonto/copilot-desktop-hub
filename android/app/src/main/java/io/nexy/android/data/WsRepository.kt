@@ -8,6 +8,7 @@ import io.nexy.android.data.model.AgentKnowledgeFile
 import io.nexy.android.data.model.AgentMcpServerTrust
 import io.nexy.android.data.model.AgentMcpToolOverride
 import io.nexy.android.data.model.AndroidUpdateManifest
+import io.nexy.android.data.model.ArtifactGeneratorSpec
 import io.nexy.android.data.model.ArtifactSummary
 import io.nexy.android.data.model.CliInstallInfo
 import io.nexy.android.data.model.PromptEntry
@@ -15,9 +16,12 @@ import io.nexy.android.data.model.WikiEntry
 import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.ErrorReport
 import io.nexy.android.data.model.McpServerInfo
+import io.nexy.android.data.model.McpToolInfo
+import io.nexy.android.data.model.WikiExtractionCandidate
 import io.nexy.android.data.model.ModelListSource
 import io.nexy.android.data.model.ModelOption
 import io.nexy.android.data.model.Project
+import io.nexy.android.data.model.ProjectSettingsConfig
 import io.nexy.android.data.model.ProviderInfo
 import io.nexy.android.data.model.SkillConfig
 import io.nexy.android.data.model.WsEvent
@@ -75,6 +79,8 @@ object WsRepository : WsClient {
     val agentKnowledgeFiles = MutableStateFlow<List<AgentKnowledgeFile>>(emptyList())
     val agentMcpToolOverrides = MutableStateFlow<List<AgentMcpToolOverride>>(emptyList())
     val agentMcpServerTrust = MutableStateFlow<List<AgentMcpServerTrust>>(emptyList())
+    val mcpToolList = MutableStateFlow<List<McpToolInfo>>(emptyList())
+    val wikiExtractionCandidates = MutableStateFlow<List<WikiExtractionCandidate>>(emptyList())
 
     private val _projects = MutableStateFlow<List<Project>>(emptyList())
     val projects: StateFlow<List<Project>> = _projects
@@ -481,25 +487,22 @@ object WsRepository : WsClient {
         send("artifact:list", if (projectId != null) mapOf("projectId" to projectId) else emptyMap())
     }
     fun getArtifact(id: String) { send("artifact:get", mapOf("id" to id)) }
+    fun listArtifactVersions(artifactId: String) { send("artifact:list-versions", mapOf("artifactId" to artifactId)) }
+    fun deleteArtifact(id: String) { send("artifact:delete", mapOf("id" to id)) }
     fun exportArtifact(versionId: String) { send("artifact:export", mapOf("versionId" to versionId)) }
 
     fun getProjectConfig(id: String) { send("project:get-config", mapOf("id" to id)) }
-    fun updateProjectConfig(id: String, instructions: String, rootDirectory: String?, instructionMode: String, orchestrationEnabled: Boolean, defaultModel: String?) {
-        val data = mutableMapOf<String, Any>(
-            "id" to id,
-            "instructions" to instructions,
-            "instructionMode" to instructionMode,
-            "orchestrationEnabled" to orchestrationEnabled,
-        )
-        rootDirectory?.let { data["rootDirectory"] = it }
-        defaultModel?.let { data["defaultModel"] = it }
-        send("project:update-config", data)
+    fun updateProjectConfig(id: String, config: ProjectSettingsConfig) {
+        send("project:update-config", buildProjectConfigPayload(id, config))
     }
 
     fun listProjectAgents(projectId: String) { send("project:list-agents", mapOf("id" to projectId)) }
     fun addProjectAgent(projectId: String, agentId: String) { send("project:add-agent", mapOf("id" to projectId, "agentId" to agentId)) }
     fun removeProjectAgent(projectId: String, agentId: String) { send("project:remove-agent", mapOf("id" to projectId, "agentId" to agentId)) }
     fun setPrimaryProjectAgent(projectId: String, agentId: String) { send("project:set-primary-agent", mapOf("id" to projectId, "agentId" to agentId)) }
+    fun reorderProjectAgents(projectId: String, agentIds: List<String>) {
+        send("project:reorder-agents", mapOf("id" to projectId, "agentIds" to agentIds))
+    }
 
     fun listWikiEntries(projectId: String) { send("wiki:list", mapOf("projectId" to projectId)) }
     fun createWikiEntry(projectId: String, title: String, body: String, tags: List<String>) {
@@ -520,6 +523,10 @@ object WsRepository : WsClient {
     }
     fun updatePrompt(id: String, title: String, body: String, description: String, category: String, tags: List<String>) {
         send("prompt:update", mapOf("id" to id, "title" to title, "body" to body, "description" to description, "category" to category, "tags" to tags))
+    }
+    fun listPromptVersions(promptId: String) { send("prompt:list-versions", mapOf("promptId" to promptId)) }
+    fun rollbackPrompt(promptId: String, version: Int) {
+        send("prompt:rollback", mapOf("promptId" to promptId, "version" to version))
     }
     fun deletePrompt(id: String) { send("prompt:delete", mapOf("id" to id)) }
 
@@ -605,6 +612,9 @@ object WsRepository : WsClient {
     fun sendArtifactGeneratorMessage(sessionId: String, messages: List<Map<String, String>>) {
         send("artifact-generator:message", mapOf("sessionId" to sessionId, "messages" to messages))
     }
+    fun generateArtifact(sessionId: String, spec: ArtifactGeneratorSpec) {
+        send("artifact-generator:generate", mapOf("sessionId" to sessionId, "spec" to spec.toPayload()))
+    }
     fun cancelArtifactGenerator(sessionId: String) { send("artifact-generator:cancel", mapOf("sessionId" to sessionId)) }
 
     fun getAzureEndpoint() { send("provider:get-azure-endpoint", emptyMap()) }
@@ -648,6 +658,33 @@ object WsRepository : WsClient {
     fun getMcpServerTrust(agentId: String) { send("agent:get-mcp-server-trust", mapOf("agentId" to agentId)) }
     fun setMcpServerTrust(agentId: String, serverId: String, trust: String) {
         send("agent:set-mcp-server-trust", mapOf("agentId" to agentId, "serverId" to serverId, "trust" to trust))
+    }
+
+    fun addMcpServer(name: String, command: String, args: List<String> = emptyList(), env: Map<String, String> = emptyMap(), cwd: String? = null, enabled: Boolean = true) {
+        val payload = mutableMapOf<String, Any>("name" to name, "command" to command, "args" to args, "env" to env, "enabled" to enabled)
+        if (cwd != null) payload["cwd"] = cwd
+        send("mcp:add", payload)
+    }
+    fun updateMcpServer(id: String, name: String? = null, command: String? = null, args: List<String>? = null, env: Map<String, String>? = null, cwd: String? = null, enabled: Boolean? = null) {
+        val payload = mutableMapOf<String, Any>("id" to id)
+        if (name != null) payload["name"] = name
+        if (command != null) payload["command"] = command
+        if (args != null) payload["args"] = args
+        if (env != null) payload["env"] = env
+        if (cwd != null) payload["cwd"] = cwd
+        if (enabled != null) payload["enabled"] = enabled
+        send("mcp:update", payload)
+    }
+    fun removeMcpServer(id: String) { send("mcp:remove", mapOf("id" to id)) }
+    fun restartMcpServer(id: String) { send("mcp:restart", mapOf("id" to id)) }
+    fun getMcpServerStatus(id: String) { send("mcp:get-status", mapOf("id" to id)) }
+    fun listMcpTools(serverIds: List<String>? = null) {
+        val payload: Map<String, Any> = if (serverIds != null) mapOf("serverIds" to serverIds) else emptyMap()
+        send("mcp:list-tools", payload)
+    }
+    fun listMcpToolsForAgent(agentId: String) { send("mcp:list-tools-for-agent", mapOf("agentId" to agentId)) }
+    fun extractWikiFromConversation(conversationId: String, projectId: String) {
+        send("wiki:extract-from-conversation", mapOf("conversationId" to conversationId, "projectId" to projectId))
     }
 
     fun cancelApprovalNotification() {

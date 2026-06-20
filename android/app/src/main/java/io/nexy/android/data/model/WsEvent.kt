@@ -96,6 +96,8 @@ sealed class WsEvent {
     data class SkillAgentUsageList(val usage: List<SkillAgentUsage>) : WsEvent()
     data class ArtifactList(val artifacts: List<ArtifactSummary>) : WsEvent()
     data class ArtifactDetail(val artifact: ArtifactDetail2?) : WsEvent()
+    data class ArtifactVersions(val artifactId: String, val versions: List<ArtifactVersionSummary>) : WsEvent()
+    data class ArtifactDeleted(val id: String, val deleted: Boolean) : WsEvent()
     data class ArtifactExportPack(val versionId: String, val files: List<ArtifactExportFile>) : WsEvent()
     data class ArtifactExportError(val message: String) : WsEvent()
     data class WikiList(val entries: List<WikiEntry>) : WsEvent()
@@ -103,9 +105,11 @@ sealed class WsEvent {
     data class WikiEntryUpdated(val entry: WikiEntry) : WsEvent()
     data class WikiEntryDeleted(val id: String) : WsEvent()
     data class PromptList(val entries: List<PromptEntry>) : WsEvent()
+    data class PromptVersions(val promptId: String, val versions: List<PromptVersion>) : WsEvent()
     data class PromptEntryCreated(val entry: PromptEntry) : WsEvent()
     data class PromptEntryUpdated(val entry: PromptEntry) : WsEvent()
     data class PromptEntryDeleted(val id: String) : WsEvent()
+    data class PromptError(val message: String) : WsEvent()
     data class ConversationExportPackResult(val pack: ConversationExportPackData) : WsEvent()
     data class ConversationExportError(val message: String) : WsEvent()
     data class ConversationForked(val conversationId: String, val title: String, val messageCount: Int) : WsEvent()
@@ -155,6 +159,7 @@ sealed class WsEvent {
     data class ArtifactGeneratorToken(val sessionId: String?, val chunk: String) : WsEvent()
     data class ArtifactGeneratorTurnComplete(val sessionId: String?, val content: String, val hasSpec: Boolean = false) : WsEvent()
     data class ArtifactGeneratorSpecReady(val sessionId: String?, val spec: ArtifactGeneratorSpec) : WsEvent()
+    data class ArtifactGeneratorCreated(val sessionId: String?, val artifactId: String, val title: String) : WsEvent()
     data class ArtifactGeneratorError(val sessionId: String?, val message: String) : WsEvent()
     data class ArtifactGeneratorCancelled(val sessionId: String?) : WsEvent()
     data class SkillGeneratorToken(val sessionId: String?, val chunk: String) : WsEvent()
@@ -174,6 +179,13 @@ sealed class WsEvent {
     data class AgentKnowledgeFileError(val message: String) : WsEvent()
     data class AgentMcpToolOverrides(val agentId: String, val overrides: List<AgentMcpToolOverride>) : WsEvent()
     data class AgentMcpServerTrustList(val agentId: String, val trust: List<AgentMcpServerTrust>) : WsEvent()
+    data class McpServerAdded(val server: McpServerWithStatus) : WsEvent()
+    data class McpServerUpdated(val server: McpServerWithStatus) : WsEvent()
+    data class McpServerRemoved(val id: String) : WsEvent()
+    data class McpServerStatus(val id: String, val status: String, val error: String?, val toolCount: Int) : WsEvent()
+    data class McpToolList(val agentId: String?, val tools: List<McpToolInfo>) : WsEvent()
+    data class WikiExtractionCandidates(val conversationId: String, val candidates: List<WikiExtractionCandidate>) : WsEvent()
+    data class WikiExtractionError(val message: String) : WsEvent()
 }
 
 data class AgentKnowledgeFile(
@@ -200,6 +212,30 @@ data class AgentMcpServerTrust(
     val trust: String,
 )
 
+data class McpServerWithStatus(
+    val id: String,
+    val name: String,
+    val command: String,
+    val args: List<String> = emptyList(),
+    val enabled: Boolean,
+    val status: String,
+    val error: String? = null,
+    val toolCount: Int = 0,
+)
+
+data class McpToolInfo(
+    val name: String,
+    val description: String?,
+    val serverId: String,
+    val serverName: String,
+)
+
+data class WikiExtractionCandidate(
+    val title: String,
+    val body: String,
+    val tags: List<String>,
+)
+
 data class CompressionSections(
     val goals: List<String> = emptyList(),
     val decisions: List<String> = emptyList(),
@@ -210,6 +246,9 @@ data class CompressionSections(
     val nextActions: List<String> = emptyList(),
     val recentContextNotes: List<String> = emptyList(),
 )
+
+typealias CompressionPreview = WsEvent.CompressionPreview
+typealias CompressionDraft = WsEvent.CompressionDraft
 
 data class ProjectAgentEntry(
     val agentId: String,
@@ -326,6 +365,7 @@ data class ArtifactSummary(
     val title: String,
     val kind: String,
     val description: String?,
+    val storageRoot: String?,
     val status: String,
     val currentVersionId: String?,
     val createdAt: Long,
@@ -361,6 +401,7 @@ data class ArtifactDetail2(
     val title: String,
     val kind: String,
     val description: String?,
+    val storageRoot: String?,
     val status: String,
     val currentVersionId: String?,
     val createdAt: Long,
@@ -390,6 +431,33 @@ data class PromptEntry(
     val projectId: String?,
     val createdAt: Long,
     val updatedAt: Long,
+)
+
+data class PromptVersionDiff(
+    val titleChanged: Boolean,
+    val descriptionChanged: Boolean,
+    val categoryChanged: Boolean,
+    val tagsChanged: Boolean,
+    val scopeChanged: Boolean,
+    val addedLines: List<String>,
+    val removedLines: List<String>,
+)
+
+data class PromptVersion(
+    val id: String,
+    val promptId: String,
+    val version: Int,
+    val title: String,
+    val body: String,
+    val description: String,
+    val category: String,
+    val tags: List<String>,
+    val variables: List<String>,
+    val scope: String,
+    val projectId: String?,
+    val source: String,
+    val createdAt: Long,
+    val diff: PromptVersionDiff,
 )
 
 data class ProjectGeneratorSpec(
@@ -441,8 +509,15 @@ data class ConversationExportPackData(
 data class ProjectSettingsConfig(
     val instructions: String,
     val rootDirectory: String?,
+    val variables: List<Map<String, String>> = emptyList(),
     val instructionMode: String,
+    val instructionsEnabled: Boolean = true,
     val orchestrationEnabled: Boolean,
+    val maxDelegationDepth: Int = 5,
+    val showTeamActivity: Boolean = true,
+    val inScope: List<Map<String, String>> = emptyList(),
+    val outOfScope: List<Map<String, String>> = emptyList(),
+    val milestones: List<Map<String, String>> = emptyList(),
     val defaultModel: String?,
 )
 
