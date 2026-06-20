@@ -21,6 +21,10 @@ data class WikiUiState(
     val editTags: String = "",
     val isLoading: Boolean = false,
     val error: String? = null,
+    val isExtracting: Boolean = false,
+    val extractionCandidates: List<io.nexy.android.data.model.WikiExtractionCandidate> = emptyList(),
+    val showExtractionSheet: Boolean = false,
+    val selectedCandidateIndices: Set<Int> = emptySet(),
 )
 
 class WikiViewModel(app: Application) : AndroidViewModel(app) {
@@ -43,6 +47,13 @@ class WikiViewModel(app: Application) : AndroidViewModel(app) {
                     is WsEvent.WikiEntryCreated -> _state.value = _state.value.copy(showCreateSheet = false, isLoading = false)
                     is WsEvent.WikiEntryUpdated -> _state.value = _state.value.copy(selectedEntry = null, isEditing = false, isLoading = false)
                     is WsEvent.WikiEntryDeleted -> _state.value = _state.value.copy(selectedEntry = null)
+                    is WsEvent.WikiExtractionCandidates -> _state.value = _state.value.copy(
+                        isExtracting = false,
+                        extractionCandidates = event.candidates,
+                        showExtractionSheet = event.candidates.isNotEmpty(),
+                        selectedCandidateIndices = event.candidates.indices.toSet(),
+                    )
+                    is WsEvent.WikiExtractionError -> _state.value = _state.value.copy(isExtracting = false, error = event.message)
                     else -> {}
                 }
             }
@@ -104,6 +115,30 @@ class WikiViewModel(app: Application) : AndroidViewModel(app) {
     fun deleteEntry(id: String) { WsRepository.deleteWikiEntry(id) }
 
     fun clearSelection() { _state.value = _state.value.copy(selectedEntry = null, isEditing = false) }
+
+    fun extractFromConversation(conversationId: String) {
+        val projectId = currentProjectId ?: return
+        _state.value = _state.value.copy(isExtracting = true, error = null)
+        WsRepository.extractWikiFromConversation(conversationId, projectId)
+    }
+
+    fun toggleCandidateSelection(index: Int) {
+        val current = _state.value.selectedCandidateIndices
+        _state.value = _state.value.copy(selectedCandidateIndices = if (index in current) current - index else current + index)
+    }
+
+    fun confirmExtraction() {
+        val projectId = currentProjectId ?: return
+        val candidates = _state.value.extractionCandidates
+        val selected = _state.value.selectedCandidateIndices
+        selected.forEach { i ->
+            val c = candidates.getOrNull(i) ?: return@forEach
+            WsRepository.createWikiEntry(projectId, c.title, c.body, c.tags)
+        }
+        _state.value = _state.value.copy(showExtractionSheet = false, extractionCandidates = emptyList(), selectedCandidateIndices = emptySet())
+    }
+
+    fun dismissExtraction() { _state.value = _state.value.copy(showExtractionSheet = false, extractionCandidates = emptyList(), selectedCandidateIndices = emptySet()) }
 
     fun setEditTitle(v: String) { _state.value = _state.value.copy(editTitle = v) }
     fun setEditBody(v: String) { _state.value = _state.value.copy(editBody = v) }

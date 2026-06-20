@@ -3,30 +3,51 @@ package io.nexy.android.ui.settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.CliInstallInfo
 import io.nexy.android.data.model.McpServerInfo
+import io.nexy.android.data.model.McpServerWithStatus
+import io.nexy.android.data.model.McpToolInfo
 import io.nexy.android.data.model.WsEvent
+import io.nexy.android.ui.components.NexyConfirmDialog
+import io.nexy.android.ui.components.NexyFormSheet
 import io.nexy.android.ui.components.NexyTopAppBar
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -37,9 +58,61 @@ fun McpAndCliScreen(onBack: () -> Unit) {
     val cliStatus by WsRepository.cliStatus.collectAsState()
     val disconnected = connectionState != ConnectionState.CONNECTED
 
+    var showAddSheet by remember { mutableStateOf(false) }
+    var editingServer by remember { mutableStateOf<McpServerInfo?>(null) }
+    var deleteTarget by remember { mutableStateOf<McpServerInfo?>(null) }
+    var serverToStatus by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var tools by remember { mutableStateOf<List<McpToolInfo>>(emptyList()) }
+    var showTools by remember { mutableStateOf(false) }
+
     LaunchedEffect(Unit) {
         WsRepository.getMcpServers()
         WsRepository.getCliStatus()
+    }
+
+    LaunchedEffect(Unit) {
+        WsRepository.events.collect { event ->
+            when (event) {
+                is WsEvent.McpServerAdded -> WsRepository.getMcpServers()
+                is WsEvent.McpServerUpdated -> {
+                    serverToStatus = serverToStatus + (event.server.id to event.server.status)
+                    WsRepository.getMcpServers()
+                }
+                is WsEvent.McpServerRemoved -> Unit
+                is WsEvent.McpServerStatus -> serverToStatus = serverToStatus + (event.id to event.status)
+                is WsEvent.McpToolList -> tools = event.tools
+                else -> {}
+            }
+        }
+    }
+
+    if (showAddSheet || editingServer != null) {
+        McpServerFormSheet(
+            server = editingServer,
+            onConfirm = { name, command, args, enabled ->
+                val existing = editingServer
+                if (existing != null) {
+                    WsRepository.updateMcpServer(existing.id, name = name, command = command, args = args.split(" ").filter { it.isNotBlank() }, enabled = enabled)
+                } else {
+                    WsRepository.addMcpServer(name = name, command = command, args = args.split(" ").filter { it.isNotBlank() }, enabled = enabled)
+                }
+                showAddSheet = false
+                editingServer = null
+            },
+            onDismiss = { showAddSheet = false; editingServer = null },
+        )
+    }
+
+    val dt = deleteTarget
+    if (dt != null) {
+        NexyConfirmDialog(
+            title = "Remove MCP server?",
+            message = "\"${dt.name}\" will be removed from the desktop.",
+            confirmLabel = "Remove",
+            destructive = true,
+            onConfirm = { WsRepository.removeMcpServer(dt.id); deleteTarget = null },
+            onDismiss = { deleteTarget = null },
+        )
     }
 
     Scaffold(
@@ -48,6 +121,13 @@ fun McpAndCliScreen(onBack: () -> Unit) {
                 titleContent = { Text("CLI Models & MCP", style = MaterialTheme.typography.titleMedium) },
                 onBack = onBack,
             )
+        },
+        floatingActionButton = {
+            if (!disconnected) {
+                FloatingActionButton(onClick = { showAddSheet = true }) {
+                    Icon(Icons.Default.Add, contentDescription = "Add MCP server")
+                }
+            }
         },
     ) { padding ->
         Column(
@@ -58,21 +138,12 @@ fun McpAndCliScreen(onBack: () -> Unit) {
                 .padding(horizontal = 16.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            // — CLI Status —
             McpCliSectionHeader("CLI Models")
 
             if (disconnected) {
-                Text(
-                    "Not connected to desktop.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Text("Not connected to desktop.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else if (cliStatus.isEmpty()) {
-                Text(
-                    "Loading…",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Text("Loading…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
                 cliStatus.entries.toList().sortedBy { it.key }.forEach { (name, info) ->
                     CliStatusCard(name = name, info = info)
@@ -80,41 +151,42 @@ fun McpAndCliScreen(onBack: () -> Unit) {
             }
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                Button(
-                    onClick = { WsRepository.getCliStatus() },
-                    enabled = !disconnected,
-                ) {
-                    Text("Refresh")
-                }
+                Button(onClick = { WsRepository.getCliStatus() }, enabled = !disconnected) { Text("Refresh") }
             }
 
-            // — MCP Servers —
             McpCliSectionHeader("MCP Servers")
 
             if (disconnected) {
-                Text(
-                    "Not connected to desktop.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Text("Not connected to desktop.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else if (mcpServers.isEmpty()) {
-                Text(
-                    "No MCP servers configured on the desktop.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Text("No MCP servers configured on the desktop.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
                 mcpServers.forEach { server ->
-                    McpServerCard(server = server)
+                    McpServerCard(
+                        server = server,
+                        status = serverToStatus[server.id],
+                        onEdit = { editingServer = server },
+                        onDelete = { deleteTarget = server },
+                        onRestart = { WsRepository.restartMcpServer(server.id); WsRepository.getMcpServerStatus(server.id) },
+                    )
                 }
             }
 
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                Button(
-                    onClick = { WsRepository.getMcpServers() },
-                    enabled = !disconnected,
-                ) {
-                    Text("Refresh")
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                TextButton(onClick = { WsRepository.listMcpTools(); showTools = !showTools }, enabled = !disconnected) {
+                    Text(if (showTools) "Hide tools" else "Show all tools")
+                }
+                Button(onClick = { WsRepository.getMcpServers() }, enabled = !disconnected) { Text("Refresh") }
+            }
+
+            if (showTools) {
+                if (tools.isEmpty()) {
+                    Text("No tools available (servers may be disconnected).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    McpCliSectionHeader("Available Tools (${tools.size})")
+                    tools.forEach { tool ->
+                        McpToolRow(tool)
+                    }
                 }
             }
         }
@@ -126,66 +198,100 @@ private fun CliStatusCard(name: String, info: CliInstallInfo) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = if (info.installed)
-                MaterialTheme.colorScheme.secondaryContainer
-            else
-                MaterialTheme.colorScheme.surfaceVariant,
+            containerColor = if (info.installed) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant,
         ),
     ) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(name, style = MaterialTheme.typography.bodyMedium)
-                Text(
-                    if (info.installed) "Installed" else "Not installed",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (info.installed) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Text(if (info.installed) "Installed" else "Not installed", style = MaterialTheme.typography.labelSmall, color = if (info.installed) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            if (info.version != null) {
-                Text(
-                    "Version: ${info.version}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            if (info.version != null) Text("Version: ${info.version}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (info.path != null) Text(info.path, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun McpServerCard(
+    server: McpServerInfo,
+    status: String?,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    onRestart: () -> Unit,
+) {
+    val statusColor = when (status) {
+        "connected" -> MaterialTheme.colorScheme.primary
+        "error" -> MaterialTheme.colorScheme.error
+        "connecting" -> MaterialTheme.colorScheme.tertiary
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = if (server.enabled) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface,
+        ),
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text(server.name, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                Row {
+                    IconButton(onClick = onRestart) { Icon(Icons.Default.Refresh, contentDescription = "Restart", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, contentDescription = "Edit") }
+                    IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error) }
+                }
             }
-            if (info.path != null) {
-                Text(
-                    info.path,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            if (server.command.isNotBlank()) Text(server.command, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (status != null) {
+                Spacer(Modifier.height(2.dp))
+                Text(status, style = MaterialTheme.typography.labelSmall, color = statusColor)
             }
         }
     }
 }
 
 @Composable
-private fun McpServerCard(server: McpServerInfo) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = if (server.enabled)
-                MaterialTheme.colorScheme.surfaceVariant
-            else
-                MaterialTheme.colorScheme.surface,
-        ),
+private fun McpToolRow(tool: McpToolInfo) {
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(tool.name, style = MaterialTheme.typography.bodySmall)
+            Text(tool.serverName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (!tool.description.isNullOrBlank()) {
+            Text(tool.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
+        }
+    }
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun McpServerFormSheet(
+    server: McpServerInfo?,
+    onConfirm: (name: String, command: String, args: String, enabled: Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var name by remember { mutableStateOf(server?.name ?: "") }
+    var command by remember { mutableStateOf(server?.command ?: "") }
+    var args by remember { mutableStateOf("") }
+    var enabled by remember { mutableStateOf(server?.enabled ?: true) }
+
+    NexyFormSheet(
+        title = if (server != null) "Edit MCP Server" else "Add MCP Server",
+        confirmLabel = if (server != null) "Save" else "Add",
+        onConfirm = { onConfirm(name.trim(), command.trim(), args.trim(), enabled) },
+        onDismiss = onDismiss,
+        confirmEnabled = name.isNotBlank() && command.isNotBlank(),
     ) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(server.name, style = MaterialTheme.typography.bodyMedium)
-                Text(
-                    if (server.enabled) "Enabled" else "Disabled",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (server.enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (server.command.isNotBlank()) {
-                Text(
-                    server.command,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+        OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Server name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(value = command, onValueChange = { command = it }, label = { Text("Command") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(value = args, onValueChange = { args = it }, label = { Text("Arguments (space-separated)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        Spacer(Modifier.height(8.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("Enabled", style = MaterialTheme.typography.bodyMedium)
+            Switch(checked = enabled, onCheckedChange = { enabled = it })
         }
     }
 }

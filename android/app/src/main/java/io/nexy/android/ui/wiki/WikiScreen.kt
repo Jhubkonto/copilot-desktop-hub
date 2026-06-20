@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -20,6 +21,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
@@ -40,10 +43,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.model.WikiEntry
+import io.nexy.android.data.model.WikiExtractionCandidate
 import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyFormSheet
 
@@ -51,12 +56,24 @@ import io.nexy.android.ui.components.NexyFormSheet
 @Composable
 fun WikiScreen(
     projectId: String,
+    conversationId: String? = null,
     onBack: () -> Unit,
+    onNavigateToConversation: ((conversationId: String) -> Unit)? = null,
     vm: WikiViewModel = viewModel(),
 ) {
     val state by vm.state.collectAsState()
 
     LaunchedEffect(projectId) { vm.load(projectId) }
+
+    if (state.showExtractionSheet) {
+        WikiExtractionSheet(
+            candidates = state.extractionCandidates,
+            selectedIndices = state.selectedCandidateIndices,
+            onToggle = { vm.toggleCandidateSelection(it) },
+            onConfirm = { vm.confirmExtraction() },
+            onDismiss = { vm.dismissExtraction() },
+        )
+    }
 
     val selected = state.selectedEntry
     if (selected != null) {
@@ -74,6 +91,7 @@ fun WikiScreen(
             onTitleChange = { vm.setEditTitle(it) },
             onBodyChange = { vm.setEditBody(it) },
             onTagsChange = { vm.setEditTags(it) },
+            onNavigateToConversation = onNavigateToConversation,
         )
         return
     }
@@ -96,6 +114,17 @@ fun WikiScreen(
             NexyTopAppBar(
                 titleContent = { Text("Project Wiki", style = MaterialTheme.typography.titleMedium) },
                 onBack = onBack,
+                actions = {
+                    if (conversationId != null) {
+                        if (state.isExtracting) {
+                            CircularProgressIndicator(modifier = Modifier.padding(horizontal = 12.dp), strokeWidth = 2.dp)
+                        } else {
+                            TextButton(onClick = { vm.extractFromConversation(conversationId) }) {
+                                Text("Extract")
+                            }
+                        }
+                    }
+                },
             )
         },
         floatingActionButton = {
@@ -113,6 +142,12 @@ fun WikiScreen(
                 Text("No wiki entries yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(8.dp))
                 Text("Tap + to create the first one.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (conversationId != null) {
+                    Spacer(Modifier.height(16.dp))
+                    TextButton(onClick = { vm.extractFromConversation(conversationId) }, enabled = !state.isExtracting) {
+                        Text("Extract learnings from this conversation")
+                    }
+                }
             }
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
@@ -166,6 +201,7 @@ private fun WikiEntryScreen(
     onTitleChange: (String) -> Unit,
     onBodyChange: (String) -> Unit,
     onTagsChange: (String) -> Unit,
+    onNavigateToConversation: ((String) -> Unit)? = null,
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
 
@@ -204,29 +240,11 @@ private fun WikiEntryScreen(
                 .padding(16.dp),
         ) {
             if (isEditing) {
-                OutlinedTextField(
-                    value = editTitle,
-                    onValueChange = onTitleChange,
-                    label = { Text("Title") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                )
+                OutlinedTextField(value = editTitle, onValueChange = onTitleChange, label = { Text("Title") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                 Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = editBody,
-                    onValueChange = onBodyChange,
-                    label = { Text("Body") },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 4,
-                )
+                OutlinedTextField(value = editBody, onValueChange = onBodyChange, label = { Text("Body") }, modifier = Modifier.fillMaxWidth(), minLines = 4)
                 Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = editTags,
-                    onValueChange = onTagsChange,
-                    label = { Text("Tags (comma-separated)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                )
+                OutlinedTextField(value = editTags, onValueChange = onTagsChange, label = { Text("Tags (comma-separated)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
             } else {
                 Text(entry.body, style = MaterialTheme.typography.bodyMedium)
                 if (entry.tags.isNotEmpty()) {
@@ -238,6 +256,20 @@ private fun WikiEntryScreen(
                             AssistChip(onClick = {}, label = { Text(tag) })
                         }
                     }
+                }
+                val srcConv = entry.sourceConversationId
+                if (srcConv != null && onNavigateToConversation != null) {
+                    Spacer(Modifier.height(20.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Spacer(Modifier.height(8.dp))
+                    Text("Source", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "View source conversation",
+                        style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.clickable { onNavigateToConversation(srcConv) },
+                    )
                 }
             }
         }
@@ -263,28 +295,53 @@ private fun CreateWikiEntrySheet(
         onDismiss = onDismiss,
         confirmEnabled = title.isNotBlank(),
     ) {
-        OutlinedTextField(
-            value = title,
-            onValueChange = onTitleChange,
-            label = { Text("Title") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-        )
+        OutlinedTextField(value = title, onValueChange = onTitleChange, label = { Text("Title") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         Spacer(Modifier.height(12.dp))
-        OutlinedTextField(
-            value = body,
-            onValueChange = onBodyChange,
-            label = { Text("Body") },
-            modifier = Modifier.fillMaxWidth(),
-            minLines = 3,
-        )
+        OutlinedTextField(value = body, onValueChange = onBodyChange, label = { Text("Body") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
         Spacer(Modifier.height(12.dp))
-        OutlinedTextField(
-            value = tags,
-            onValueChange = onTagsChange,
-            label = { Text("Tags (comma-separated)") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-        )
+        OutlinedTextField(value = tags, onValueChange = onTagsChange, label = { Text("Tags (comma-separated)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun WikiExtractionSheet(
+    candidates: List<WikiExtractionCandidate>,
+    selectedIndices: Set<Int>,
+    onToggle: (Int) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    NexyFormSheet(
+        title = "Extracted Learnings (${selectedIndices.size} selected)",
+        confirmLabel = "Add Selected",
+        onConfirm = onConfirm,
+        onDismiss = onDismiss,
+        confirmEnabled = selectedIndices.isNotEmpty(),
+    ) {
+        if (candidates.isEmpty()) {
+            Text("No learnings were extracted from this conversation.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            Text("Select which entries to add to the wiki:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(8.dp))
+            candidates.forEachIndexed { index, candidate ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().clickable { onToggle(index) }.padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Checkbox(checked = index in selectedIndices, onCheckedChange = { onToggle(index) })
+                    Column(modifier = Modifier.weight(1f).padding(start = 4.dp)) {
+                        Text(candidate.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                        if (candidate.body.isNotBlank()) {
+                            Text(candidate.body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3)
+                        }
+                        if (candidate.tags.isNotEmpty()) {
+                            Text(candidate.tags.joinToString(", "), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
+                if (index < candidates.lastIndex) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            }
+        }
     }
 }
