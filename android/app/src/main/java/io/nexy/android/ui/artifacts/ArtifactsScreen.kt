@@ -18,14 +18,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -48,6 +51,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.model.ArtifactDetail2
 import io.nexy.android.data.model.ArtifactExportFile
 import io.nexy.android.data.model.ArtifactSummary
+import io.nexy.android.data.model.ArtifactVersionSummary
 import io.nexy.android.ui.components.NexyEmptyState
 import io.nexy.android.ui.components.NexySearchField
 import io.nexy.android.ui.components.NexyStatusBadge
@@ -64,11 +68,14 @@ fun ArtifactsScreen(
 ) {
     val artifacts by vm.artifacts.collectAsState()
     val selected by vm.selectedArtifact.collectAsState()
+    val versions by vm.versions.collectAsState()
     val isLoading by vm.isLoading.collectAsState()
     val error by vm.error.collectAsState()
     val exportPack by vm.exportPack.collectAsState()
     val exportError by vm.exportError.collectAsState()
     val exporting by vm.exporting.collectAsState()
+    val deleting by vm.deleting.collectAsState()
+    val revisioning by vm.revisioning.collectAsState()
     val context = LocalContext.current
     var searchQuery by remember { mutableStateOf("") }
     val filteredArtifacts = remember(artifacts, searchQuery) {
@@ -90,9 +97,14 @@ fun ArtifactsScreen(
     if (selected != null) {
         ArtifactDetailScreen(
             artifact = selected!!,
+            versions = versions,
             exporting = exporting,
+            deleting = deleting,
+            revisioning = revisioning,
             exportError = exportError,
             onExport = { versionId -> vm.exportVersion(versionId) },
+            onDelete = { vm.deleteSelectedArtifact() },
+            onGenerateRevision = { vm.generateNewVersion() },
             onDismissExportError = { vm.clearExport() },
             onBack = { vm.clearSelection() },
         )
@@ -215,18 +227,40 @@ private fun ArtifactStatusBadge(status: String) {
 @Composable
 private fun ArtifactDetailScreen(
     artifact: ArtifactDetail2,
+    versions: List<ArtifactVersionSummary>,
     exporting: Boolean,
+    deleting: Boolean,
+    revisioning: Boolean,
     exportError: String?,
     onExport: (versionId: String) -> Unit,
+    onDelete: () -> Unit,
+    onGenerateRevision: () -> Unit,
     onDismissExportError: () -> Unit,
     onBack: () -> Unit,
 ) {
+    var confirmDelete by remember { mutableStateOf(false) }
     if (exportError != null) {
         AlertDialog(
             onDismissRequest = onDismissExportError,
             title = { Text("Export failed") },
             text = { Text(exportError) },
             confirmButton = { TextButton(onClick = onDismissExportError) { Text("OK") } },
+        )
+    }
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Delete artifact?") },
+            text = { Text("This deletes all versions of ${artifact.title}.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDelete = false
+                        onDelete()
+                    },
+                ) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
         )
     }
 
@@ -236,6 +270,9 @@ private fun ArtifactDetailScreen(
                 titleContent = { Text(artifact.title, style = MaterialTheme.typography.titleMedium) },
                 onBack = onBack,
                 actions = {
+                    IconButton(onClick = { confirmDelete = true }, enabled = !deleting) {
+                        Icon(Icons.Default.Delete, contentDescription = "Delete artifact")
+                    }
                     val versionId = artifact.currentVersionId
                     if (versionId != null) {
                         if (exporting) {
@@ -265,6 +302,23 @@ private fun ArtifactDetailScreen(
             if (!artifact.description.isNullOrBlank()) {
                 Spacer(Modifier.height(8.dp))
                 Text(artifact.description, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (!artifact.storageRoot.isNullOrBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text("Storage root", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(artifact.storageRoot, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+            }
+            Spacer(Modifier.height(12.dp))
+            Button(
+                onClick = onGenerateRevision,
+                enabled = !revisioning && !deleting,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(if (revisioning) "Generating new version..." else "Generate new version")
+            }
+            if (revisioning) {
+                Spacer(Modifier.height(8.dp))
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
 
             if (artifact.currentVersion == null) {
@@ -298,6 +352,31 @@ private fun ArtifactDetailScreen(
                         }
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     }
+                }
+            }
+
+            if (versions.isNotEmpty()) {
+                Spacer(Modifier.height(20.dp))
+                Text("Version history", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium)
+                Spacer(Modifier.height(8.dp))
+                versions.forEach { version ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("v${version.versionNumber} - ${version.title}", style = MaterialTheme.typography.bodyMedium)
+                            version.notes?.takeIf { it.isNotBlank() }?.let {
+                                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Text("${version.files.size} file(s)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        IconButton(onClick = { onExport(version.id) }, enabled = !exporting) {
+                            Icon(Icons.Default.Share, contentDescription = "Export version ${version.versionNumber}")
+                        }
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
             }
         }

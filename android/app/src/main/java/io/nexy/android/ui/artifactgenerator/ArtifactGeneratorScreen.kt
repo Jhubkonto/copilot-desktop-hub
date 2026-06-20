@@ -104,6 +104,7 @@ fun ArtifactGeneratorScreen(
                     spec = uiState.pendingSpec,
                     isLoading = uiState.isLoading,
                     onSpecChange = { vm.updateSpec(it) },
+                    onConfirm = { vm.confirmSpec() },
                     onBack = { vm.reset() },
                     modifier = Modifier.weight(1f),
                 )
@@ -258,6 +259,7 @@ private fun SpecReviewPhase(
     spec: ArtifactGeneratorSpec?,
     isLoading: Boolean,
     onSpecChange: (ArtifactGeneratorSpec) -> Unit,
+    onConfirm: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -316,13 +318,8 @@ private fun SpecReviewPhase(
             Spacer(Modifier.height(8.dp))
             Text("Preparing…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
-            Text(
-                "Review and edit the spec above, then head back to the Artifacts screen to view the result once generated from the desktop.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(16.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(onClick = onConfirm, enabled = spec != null) { Text("Generate artifact") }
                 OutlinedButton(onClick = onBack) { Text("Start over") }
             }
         }
@@ -350,7 +347,7 @@ private fun DonePhase(
         Text("Spec ready!", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
         Text(
-            "The artifact spec has been prepared. Open the Artifacts area to view and manage generated artifacts.",
+            "The artifact has been generated. Open the Artifacts area to view and manage generated versions.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

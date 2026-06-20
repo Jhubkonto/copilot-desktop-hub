@@ -7,7 +7,11 @@ import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.ArtifactDetail2
 import io.nexy.android.data.model.ArtifactExportFile
+import io.nexy.android.data.model.ArtifactGeneratorSpec
+import io.nexy.android.data.model.ArtifactOutputFile
+import io.nexy.android.data.model.ArtifactSourceContext
 import io.nexy.android.data.model.ArtifactSummary
+import io.nexy.android.data.model.ArtifactVersionSummary
 import io.nexy.android.data.model.WsEvent
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -22,6 +26,9 @@ class ArtifactsViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _selectedArtifact = MutableStateFlow<ArtifactDetail2?>(null)
     val selectedArtifact: StateFlow<ArtifactDetail2?> = _selectedArtifact.asStateFlow()
+
+    private val _versions = MutableStateFlow<List<ArtifactVersionSummary>>(emptyList())
+    val versions: StateFlow<List<ArtifactVersionSummary>> = _versions.asStateFlow()
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
@@ -38,6 +45,12 @@ class ArtifactsViewModel(app: Application) : AndroidViewModel(app) {
     private val _exporting = MutableStateFlow(false)
     val exporting: StateFlow<Boolean> = _exporting.asStateFlow()
 
+    private val _deleting = MutableStateFlow(false)
+    val deleting: StateFlow<Boolean> = _deleting.asStateFlow()
+
+    private val _revisioning = MutableStateFlow(false)
+    val revisioning: StateFlow<Boolean> = _revisioning.asStateFlow()
+
     private var timeoutJob: Job? = null
     private var pendingProjectId: String? = null
 
@@ -50,13 +63,44 @@ class ArtifactsViewModel(app: Application) : AndroidViewModel(app) {
                         _isLoading.value = false
                         _error.value = null
                     }
-                    is WsEvent.ArtifactDetail -> _selectedArtifact.value = event.artifact
+                    is WsEvent.ArtifactDetail -> {
+                        _selectedArtifact.value = event.artifact
+                        _versions.value = event.artifact?.currentVersion?.let { listOf(it) }.orEmpty()
+                        event.artifact?.id?.let { WsRepository.listArtifactVersions(it) }
+                    }
+                    is WsEvent.ArtifactVersions -> {
+                        if (_selectedArtifact.value?.id == event.artifactId) {
+                            _versions.value = event.versions
+                        }
+                    }
+                    is WsEvent.ArtifactDeleted -> {
+                        _deleting.value = false
+                        if (event.deleted) {
+                            clearSelection()
+                            refresh(pendingProjectId)
+                        } else {
+                            _exportError.value = "Artifact could not be deleted."
+                        }
+                    }
+                    is WsEvent.ArtifactGeneratorCreated -> {
+                        _revisioning.value = false
+                        _error.value = null
+                        val selected = _selectedArtifact.value
+                        refresh(pendingProjectId)
+                        if (selected != null && event.artifactId == selected.id) {
+                            WsRepository.getArtifact(selected.id)
+                        }
+                    }
                     is WsEvent.ArtifactExportPack -> {
                         _exporting.value = false
                         _exportPack.value = event.files
                     }
                     is WsEvent.ArtifactExportError -> {
                         _exporting.value = false
+                        _exportError.value = event.message
+                    }
+                    is WsEvent.ArtifactGeneratorError -> {
+                        _revisioning.value = false
                         _exportError.value = event.message
                     }
                     else -> {}
@@ -99,15 +143,68 @@ class ArtifactsViewModel(app: Application) : AndroidViewModel(app) {
 
     fun clearSelection() {
         _selectedArtifact.value = null
+        _versions.value = emptyList()
         _exportPack.value = null
         _exportError.value = null
         _exporting.value = false
+        _deleting.value = false
+        _revisioning.value = false
     }
 
     fun exportVersion(versionId: String) {
         _exporting.value = true
         _exportError.value = null
         WsRepository.exportArtifact(versionId)
+    }
+
+    fun deleteSelectedArtifact() {
+        val id = _selectedArtifact.value?.id ?: return
+        _deleting.value = true
+        _exportError.value = null
+        WsRepository.deleteArtifact(id)
+    }
+
+    fun generateNewVersion() {
+        val artifact = _selectedArtifact.value ?: return
+        if (_revisioning.value) return
+        val currentFiles = artifact.currentVersion?.files.orEmpty()
+        val outputFiles = currentFiles.map {
+            ArtifactOutputFile(
+                path = it.relativePath,
+                mediaType = it.mediaType,
+                role = it.role,
+                description = null,
+            )
+        }.ifEmpty {
+            listOf(
+                ArtifactOutputFile(
+                    path = "output.md",
+                    mediaType = "text/markdown",
+                    role = "primary",
+                    description = "Primary artifact output",
+                )
+            )
+        }
+        val spec = ArtifactGeneratorSpec(
+            title = artifact.title,
+            kind = artifact.kind,
+            scopeType = if (artifact.projectId != null) "project" else "global",
+            scopeProjectId = artifact.projectId,
+            intendedUse = artifact.description ?: "Generate a revised version of ${artifact.title}",
+            audience = null,
+            outputFiles = outputFiles,
+            acceptanceCriteria = listOf("Preserves the existing artifact intent", "Improves or refreshes the content for a new version"),
+            exportFormats = listOf("raw-files", "markdown"),
+            sourceContext = ArtifactSourceContext(
+                useProjectInstructions = artifact.projectId != null,
+                useProjectWiki = false,
+                useConversationContext = false,
+                referencedFiles = emptyList(),
+            ),
+        )
+        _revisioning.value = true
+        _error.value = null
+        WsRepository.generateArtifact("android-artifact-revise-${artifact.id}-${System.currentTimeMillis()}", spec)
     }
 
     fun clearExport() {

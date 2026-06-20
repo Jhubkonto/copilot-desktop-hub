@@ -281,7 +281,7 @@ function slugify(text: string): string {
     .slice(0, 60) || 'artifact'
 }
 
-function createRunRecord(id: string, title: string): void {
+export function createArtifactGeneratorRunRecord(id: string, title: string): void {
   const db = getDatabase()
   const now = Date.now()
   db.prepare(
@@ -289,7 +289,7 @@ function createRunRecord(id: string, title: string): void {
   ).run(id, title, now, now)
 }
 
-function updateRunRecord(id: string, fields: Partial<{ status: string; specJson: string; artifactId: string }>): void {
+export function updateArtifactGeneratorRunRecord(id: string, fields: Partial<{ status: string; specJson: string; artifactId: string }>): void {
   const db = getDatabase()
   const sets: string[] = ['updated_at = ?']
   const vals: unknown[] = [Date.now()]
@@ -355,7 +355,7 @@ export async function runArtifactGeneration(
   runId: string,
   spec: ArtifactSpec,
   modelOverride?: string,
-): Promise<void> {
+): Promise<string> {
   const db = getDatabase()
   const storageRoot = getStorageRoot()
   const projectId = spec.scope.type === 'project' ? spec.scope.projectId : undefined
@@ -380,7 +380,7 @@ export async function runArtifactGeneration(
     : path.join(storageRoot, 'global', slug, `v${versionNumber}`)
 
   mkdirSync(versionDir, { recursive: true })
-  updateRunRecord(runId, { status: 'generating' })
+  updateArtifactGeneratorRunRecord(runId, { status: 'generating' })
 
   // Generate files via LLM
   const genMessages = buildGenerationMessages(spec)
@@ -469,7 +469,8 @@ export async function runArtifactGeneration(
     }
   })()
 
-  updateRunRecord(runId, { status: 'ready', artifactId })
+  updateArtifactGeneratorRunRecord(runId, { status: 'ready', artifactId })
+  return artifactId
 }
 
 // ---------------------------------------------------------------------------
@@ -526,8 +527,8 @@ export function registerArtifactGeneratorHandlers(win?: BrowserWindow): void {
     if (!win) throw new Error('No main window available')
     const db = getDatabase()
     const existing = db.prepare('SELECT id FROM artifact_generator_runs WHERE id = ?').get(runId)
-    if (!existing) createRunRecord(runId, spec.title)
-    updateRunRecord(runId, { specJson: JSON.stringify(spec) })
+    if (!existing) createArtifactGeneratorRunRecord(runId, spec.title)
+    updateArtifactGeneratorRunRecord(runId, { specJson: JSON.stringify(spec) })
     await runArtifactGeneration(win, runId, spec, modelOverride)
     return { started: true }
   })

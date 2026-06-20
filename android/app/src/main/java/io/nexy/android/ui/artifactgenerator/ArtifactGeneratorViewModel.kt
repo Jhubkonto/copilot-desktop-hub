@@ -1,9 +1,10 @@
 package io.nexy.android.ui.artifactgenerator
 
-import android.app.Application
-import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import io.nexy.android.data.WsClient
 import io.nexy.android.data.WsRepository
+import io.nexy.android.data.toPayload
 import io.nexy.android.data.model.ArtifactGeneratorSpec
 import io.nexy.android.data.model.WsEvent
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,17 +30,21 @@ data class ArtifactGeneratorUiState(
     val missedSpec: Boolean = false,
     val pendingSpec: ArtifactGeneratorSpec? = null,
     val error: String? = null,
+    val createdArtifactId: String? = null,
+    val createdArtifactTitle: String? = null,
     val sessionId: String = "android-artifact-${UUID.randomUUID()}",
 )
 
-class ArtifactGeneratorViewModel(app: Application) : AndroidViewModel(app) {
+class ArtifactGeneratorViewModel(
+    private val wsClient: WsClient = WsRepository,
+) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ArtifactGeneratorUiState())
     val uiState: StateFlow<ArtifactGeneratorUiState> = _uiState.asStateFlow()
 
     init {
         viewModelScope.launch {
-            WsRepository.events.collect { event ->
+            wsClient.events.collect { event ->
                 val state = _uiState.value
                 when (event) {
                     is WsEvent.ArtifactGeneratorToken -> {
@@ -80,6 +85,21 @@ class ArtifactGeneratorViewModel(app: Application) : AndroidViewModel(app) {
                             )
                         }
                     }
+                    is WsEvent.ArtifactGeneratorCreated -> {
+                        if (event.sessionId == null || event.sessionId == state.sessionId) {
+                            _uiState.value = _uiState.value.copy(
+                                phase = ArtifactGenPhase.DONE,
+                                isLoading = false,
+                                createdArtifactId = event.artifactId,
+                                createdArtifactTitle = event.title,
+                            )
+                        }
+                    }
+                    is WsEvent.ArtifactGeneratorCancelled -> {
+                        if (event.sessionId == null || event.sessionId == state.sessionId) {
+                            _uiState.value = ArtifactGeneratorUiState()
+                        }
+                    }
                     else -> {}
                 }
             }
@@ -96,14 +116,21 @@ class ArtifactGeneratorViewModel(app: Application) : AndroidViewModel(app) {
             .filter { it.role != "assistant" || it != updatedMessages.first() }
             .map { mapOf("role" to it.role, "content" to it.content) }
         if (state.messages.size <= 1) {
-            WsRepository.startArtifactGeneratorChat(state.sessionId, payload)
+            wsClient.send("artifact-generator:start", mapOf("sessionId" to state.sessionId, "messages" to payload))
         } else {
-            WsRepository.sendArtifactGeneratorMessage(state.sessionId, payload)
+            wsClient.send("artifact-generator:message", mapOf("sessionId" to state.sessionId, "messages" to payload))
         }
     }
 
     fun updateSpec(spec: ArtifactGeneratorSpec) {
         _uiState.value = _uiState.value.copy(pendingSpec = spec)
+    }
+
+    fun confirmSpec() {
+        val state = _uiState.value
+        val spec = state.pendingSpec ?: return
+        _uiState.value = state.copy(isLoading = true, error = null)
+        wsClient.send("artifact-generator:generate", mapOf("sessionId" to state.sessionId, "spec" to spec.toPayload()))
     }
 
     fun dismissError() {
@@ -112,7 +139,7 @@ class ArtifactGeneratorViewModel(app: Application) : AndroidViewModel(app) {
 
     fun reset() {
         val old = _uiState.value
-        WsRepository.cancelArtifactGenerator(old.sessionId)
+        wsClient.send("artifact-generator:cancel", mapOf("sessionId" to old.sessionId))
         _uiState.value = ArtifactGeneratorUiState(sessionId = "android-artifact-${UUID.randomUUID()}")
     }
 
