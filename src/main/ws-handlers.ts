@@ -70,6 +70,8 @@ import {
   regenerateToken,
   setWsCommandHandler,
   broadcastToMobile,
+  getWakelockEnabled,
+  setWakelockEnabled,
 } from './ws-server'
 
 // Filled in by tools.ts after registration to avoid a circular import
@@ -1959,5 +1961,14 @@ export function registerWsHandlers(): void {
     const status = getWsStatus()
     const qrDataUrl = await getQrDataUrl()
     return { token, qrDataUrl, pairingUrl: status.pairingUrl, secure: status.secure }
+  })
+
+  safeHandle('ws:wakelock-enabled', () => {
+    return getWakelockEnabled()
+  })
+
+  safeHandle('ws:set-wakelock-enabled', (_event, enabled: boolean) => {
+    setWakelockEnabled(enabled)
+    return getWakelockEnabled()
   })
 }

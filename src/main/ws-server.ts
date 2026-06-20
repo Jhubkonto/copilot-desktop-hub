@@ -5,6 +5,7 @@ import { WebSocketServer, WebSocket } from 'ws'
 import type { AddressInfo } from 'net'
 import QRCode from 'qrcode'
 import selfsigned from 'selfsigned'
+import { powerSaveBlocker } from 'electron'
 import { getDatabase } from './database'
 import { isFeedRunning, getFeedLanUrl } from './local-feed-server'
 
@@ -30,6 +31,8 @@ let currentCertFingerprint: string | null = null
 const connectedClients = new Set<WebSocket>()
 let commandHandler: CommandHandler | null = null
 const EXTERNAL_WSS_URL_SETTING = 'ws_external_url'
+let wakeLockId: number | null = null
+let pingInterval: ReturnType<typeof setInterval> | null = null
 
 function ipScore(addr: string): number {
   if (addr.startsWith('192.168.')) return 0  // WiFi / home LAN — best
@@ -49,6 +52,29 @@ function getLocalIp(): string {
   }
   candidates.sort((a, b) => ipScore(a) - ipScore(b))
   return candidates[0] ?? '127.0.0.1'
+}
+
+function getMacAndBroadcast(boundIp: string): { macAddress: string | null; broadcastAddress: string | null } {
+  const ifaces = networkInterfaces()
+  for (const iface of Object.values(ifaces)) {
+    if (!iface) continue
+    for (const info of iface) {
+      if (info.family === 'IPv4' && info.address === boundIp && info.mac && info.cidr) {
+        const prefixLen = parseInt(info.cidr.split('/')[1] ?? '24', 10)
+        const ipParts = info.address.split('.').map(Number)
+        const maskParts = [0, 0, 0, 0].map((_, i) => {
+          const bits = Math.max(0, Math.min(8, prefixLen - i * 8))
+          return 0xff & (0xff << (8 - bits))
+        })
+        const broadcastParts = ipParts.map((b, i) => (b & maskParts[i]!) | (~maskParts[i]! & 0xff))
+        return {
+          macAddress: info.mac,
+          broadcastAddress: broadcastParts.join('.'),
+        }
+      }
+    }
+  }
+  return { macAddress: null, broadcastAddress: null }
 }
 
 function getOrCreateToken(): string {
@@ -120,6 +146,27 @@ export function normalizeExternalWssUrl(rawValue: string | null | undefined, tok
   return parsed.toString()
 }
 
+function isWakelockEnabled(): boolean {
+  try {
+    const db = getDatabase()
+    const row = db.prepare("SELECT value FROM settings WHERE key = 'ws_wakelock_enabled'").get() as { value: string } | undefined
+    return row?.value !== 'false'
+  } catch {
+    return true
+  }
+}
+
+function acquireWakeLock(): void {
+  if (wakeLockId !== null || !isWakelockEnabled()) return
+  wakeLockId = powerSaveBlocker.start('prevent-app-suspension')
+}
+
+function releaseWakeLock(): void {
+  if (wakeLockId === null) return
+  powerSaveBlocker.stop(wakeLockId)
+  wakeLockId = null
+}
+
 function getExternalWssUrl(): string | null {
   const db = getDatabase()
   const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(EXTERNAL_WSS_URL_SETTING) as { value: string } | undefined
@@ -169,8 +216,11 @@ export async function startWsServer(): Promise<{ port: number; token: string }> 
     }
 
     connectedClients.add(ws)
-    const feedUrl = isFeedRunning() ? getFeedLanUrl(getLocalIp()) : null
-    ws.send(JSON.stringify({ event: 'connected', data: { version: '0.9.0', feedUrl } }))
+    if (connectedClients.size === 1) acquireWakeLock()
+    const localIp = getLocalIp()
+    const feedUrl = isFeedRunning() ? getFeedLanUrl(localIp) : null
+    const { macAddress, broadcastAddress } = getMacAndBroadcast(localIp)
+    ws.send(JSON.stringify({ event: 'connected', data: { version: '0.9.0', feedUrl, macAddress, broadcastAddress } }))
 
     ws.on('message', (raw) => {
       try {
@@ -182,8 +232,14 @@ export async function startWsServer(): Promise<{ port: number; token: string }> 
       } catch { /* ignore malformed */ }
     })
 
-    ws.on('close', () => connectedClients.delete(ws))
-    ws.on('error', () => connectedClients.delete(ws))
+    ws.on('close', () => {
+      connectedClients.delete(ws)
+      if (connectedClients.size === 0) releaseWakeLock()
+    })
+    ws.on('error', () => {
+      connectedClients.delete(ws)
+      if (connectedClients.size === 0) releaseWakeLock()
+    })
   })
 
   const db = getDatabase()
@@ -194,6 +250,11 @@ export async function startWsServer(): Promise<{ port: number; token: string }> 
       currentPort = (httpServer!.address() as AddressInfo).port
       db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ws_port', ?)").run(String(currentPort))
       db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ws_enabled', 'true')").run()
+      pingInterval = setInterval(() => {
+        for (const client of connectedClients) {
+          if (client.readyState === WebSocket.OPEN) client.ping()
+        }
+      }, 30_000)
       resolve({ port: currentPort, token: currentToken! })
     })
 
@@ -206,8 +267,10 @@ export async function startWsServer(): Promise<{ port: number; token: string }> 
 }
 
 export function stopWsServer(): void {
+  if (pingInterval !== null) { clearInterval(pingInterval); pingInterval = null }
   for (const client of connectedClients) client.close(1001, 'Server stopping')
   connectedClients.clear()
+  releaseWakeLock()
   wss?.close()
   httpServer?.close()
   wss = null
@@ -218,6 +281,30 @@ export function stopWsServer(): void {
     const db = getDatabase()
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ws_enabled', 'false')").run()
   } catch { /* best-effort */ }
+}
+
+export async function startWsServerIfNeeded(): Promise<void> {
+  if (wss !== null) return
+  const db = getDatabase()
+  const row = db.prepare("SELECT value FROM settings WHERE key = 'ws_enabled'").get() as { value: string } | undefined
+  if (row?.value === 'true') {
+    await startWsServer().catch((err) => console.warn('[ws-server] resumed from sleep, restart failed:', err))
+    console.log('[ws-server] resumed from sleep, server listening')
+  }
+}
+
+export function getWakelockEnabled(): boolean {
+  return isWakelockEnabled()
+}
+
+export function setWakelockEnabled(enabled: boolean): void {
+  const db = getDatabase()
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ws_wakelock_enabled', ?)").run(enabled ? 'true' : 'false')
+  if (!enabled && wakeLockId !== null) {
+    releaseWakeLock()
+  } else if (enabled && connectedClients.size > 0 && wakeLockId === null) {
+    acquireWakeLock()
+  }
 }
 
 export function regenerateToken(): string {

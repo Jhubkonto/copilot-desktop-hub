@@ -303,6 +303,8 @@ const api = {
   wsStop: () => typedInvoke('ws:stop'),
   wsStatus: () => typedInvoke('ws:status'),
   wsRegenerateToken: () => typedInvoke('ws:regenerate-token'),
+  wsGetWakelockEnabled: () => typedInvoke('ws:wakelock-enabled'),
+  wsSetWakelockEnabled: (enabled: boolean) => typedInvoke('ws:set-wakelock-enabled', enabled),
 
   // CLI
   checkCli: () => typedInvoke('cli:check'),

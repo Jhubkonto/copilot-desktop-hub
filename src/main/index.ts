@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, globalShortcut, Tray, Menu, nativeImage, ipcMain } from 'electron'
+import { app, BrowserWindow, shell, globalShortcut, Tray, Menu, nativeImage, ipcMain, powerMonitor } from 'electron'
 import { join } from 'path'
 import { getDatabase, closeDatabase } from './database'
 import { registerIpcHandlers } from './ipc-handlers'
@@ -11,7 +11,7 @@ import { validateSender } from './safe-handle'
 import { initDebugMode } from './debug-mode'
 import { initErrorLogCapture } from './error-log-handlers'
 import { confirmStartupAfterRelaunch, rollbackHeal } from './self-heal/recovery'
-import { broadcastToMobile, autoStartWsServerIfEnabled } from './ws-server'
+import { broadcastToMobile, autoStartWsServerIfEnabled, startWsServerIfNeeded } from './ws-server'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -200,6 +200,10 @@ app.whenReady().then(() => {
   createWindow()
   registerIpcHandlers(mainWindow ?? undefined)
   void autoStartWsServerIfEnabled()
+
+  powerMonitor.on('resume', () => {
+    void startWsServerIfNeeded()
+  })
   createTray()
   registerGlobalHotkey()
 
