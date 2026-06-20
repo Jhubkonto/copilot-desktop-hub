@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.PromptEntry
+import io.nexy.android.data.model.PromptVersion
 import io.nexy.android.data.model.WsEvent
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,6 +23,8 @@ data class PromptsUiState(
     val editCategory: String = "",
     val editTags: String = "",
     val editScope: String = "global",
+    val versions: List<PromptVersion> = emptyList(),
+    val versionsLoading: Boolean = false,
     val isLoading: Boolean = false,
     val error: String? = null,
     val insertedText: String? = null,
@@ -44,9 +47,29 @@ class PromptsViewModel(app: Application) : AndroidViewModel(app) {
             WsRepository.events.collect { event ->
                 when (event) {
                     is WsEvent.PromptList -> _state.value = _state.value.copy(isLoading = false)
+                    is WsEvent.PromptVersions -> {
+                        val selectedId = _state.value.selectedEntry?.id
+                        if (event.promptId == selectedId) {
+                            _state.value = _state.value.copy(versions = event.versions, versionsLoading = false)
+                        }
+                    }
                     is WsEvent.PromptEntryCreated -> _state.value = _state.value.copy(showCreateSheet = false, isLoading = false)
-                    is WsEvent.PromptEntryUpdated -> _state.value = _state.value.copy(selectedEntry = null, isEditing = false, isLoading = false)
+                    is WsEvent.PromptEntryUpdated -> {
+                        val isSelected = _state.value.selectedEntry?.id == event.entry.id
+                        _state.value = _state.value.copy(
+                            selectedEntry = if (isSelected) event.entry else _state.value.selectedEntry,
+                            isEditing = false,
+                            isLoading = false,
+                            editTitle = if (isSelected) event.entry.title else _state.value.editTitle,
+                            editBody = if (isSelected) event.entry.body else _state.value.editBody,
+                            editDescription = if (isSelected) event.entry.description else _state.value.editDescription,
+                            editCategory = if (isSelected) event.entry.category else _state.value.editCategory,
+                            editTags = if (isSelected) event.entry.tags.joinToString(", ") else _state.value.editTags,
+                        )
+                        if (isSelected) loadVersions(event.entry.id)
+                    }
                     is WsEvent.PromptEntryDeleted -> _state.value = _state.value.copy(selectedEntry = null)
+                    is WsEvent.PromptError -> _state.value = _state.value.copy(error = event.message, isLoading = false, versionsLoading = false)
                     else -> {}
                 }
             }
@@ -69,7 +92,10 @@ class PromptsViewModel(app: Application) : AndroidViewModel(app) {
             editCategory = entry.category,
             editTags = entry.tags.joinToString(", "),
             editScope = entry.scope,
+            versions = emptyList(),
+            versionsLoading = true,
         )
+        WsRepository.listPromptVersions(entry.id)
     }
 
     fun startEdit() {
@@ -119,11 +145,23 @@ class PromptsViewModel(app: Application) : AndroidViewModel(app) {
 
     fun deleteEntry(id: String) { WsRepository.deletePrompt(id) }
 
+    fun loadVersions(promptId: String? = _state.value.selectedEntry?.id) {
+        val id = promptId ?: return
+        _state.value = _state.value.copy(versionsLoading = true)
+        WsRepository.listPromptVersions(id)
+    }
+
+    fun rollbackTo(version: Int) {
+        val entry = _state.value.selectedEntry ?: return
+        _state.value = _state.value.copy(isLoading = true)
+        WsRepository.rollbackPrompt(entry.id, version)
+    }
+
     fun insertPrompt(body: String) { _state.value = _state.value.copy(insertedText = body) }
 
     fun clearInserted() { _state.value = _state.value.copy(insertedText = null) }
 
-    fun clearSelection() { _state.value = _state.value.copy(selectedEntry = null, isEditing = false) }
+    fun clearSelection() { _state.value = _state.value.copy(selectedEntry = null, isEditing = false, versions = emptyList(), versionsLoading = false) }
 
     fun setEditTitle(v: String) { _state.value = _state.value.copy(editTitle = v) }
     fun setEditBody(v: String) { _state.value = _state.value.copy(editBody = v) }

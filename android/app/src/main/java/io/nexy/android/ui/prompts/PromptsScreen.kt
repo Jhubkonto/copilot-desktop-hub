@@ -44,6 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.model.PromptEntry
+import io.nexy.android.data.model.PromptVersion
 import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyEmptyState
 import io.nexy.android.ui.components.NexyFormSheet
@@ -102,11 +103,15 @@ fun PromptsScreen(
             editDescription = state.editDescription,
             editCategory = state.editCategory,
             editTags = state.editTags,
+            versions = state.versions,
+            versionsLoading = state.versionsLoading,
             onBack = { vm.clearSelection() },
             onStartEdit = { vm.startEdit() },
             onCancelEdit = { vm.cancelEdit() },
             onSaveEdit = { vm.saveEdit() },
             onDelete = { vm.deleteEntry(selected.id); vm.clearSelection() },
+            onRefreshVersions = { vm.loadVersions(selected.id) },
+            onRollback = { vm.rollbackTo(it) },
             onInsert = if (onInsert != null) {{ vm.insertPrompt(selected.body) }} else null,
             onTitleChange = { vm.setEditTitle(it) },
             onBodyChange = { vm.setEditBody(it) },
@@ -251,11 +256,15 @@ private fun PromptDetailScreen(
     editDescription: String,
     editCategory: String,
     editTags: String,
+    versions: List<PromptVersion>,
+    versionsLoading: Boolean,
     onBack: () -> Unit,
     onStartEdit: () -> Unit,
     onCancelEdit: () -> Unit,
     onSaveEdit: () -> Unit,
     onDelete: () -> Unit,
+    onRefreshVersions: () -> Unit,
+    onRollback: (Int) -> Unit,
     onInsert: (() -> Unit)?,
     onTitleChange: (String) -> Unit,
     onBodyChange: (String) -> Unit,
@@ -321,6 +330,107 @@ private fun PromptDetailScreen(
                     Spacer(Modifier.height(12.dp))
                 }
                 Text(entry.body, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace)
+                Spacer(Modifier.height(24.dp))
+                PromptVersionHistory(
+                    versions = versions,
+                    isLoading = versionsLoading,
+                    currentVersion = versions.maxOfOrNull { it.version },
+                    onRefresh = onRefreshVersions,
+                    onRollback = onRollback,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PromptVersionHistory(
+    versions: List<PromptVersion>,
+    isLoading: Boolean,
+    currentVersion: Int?,
+    onRefresh: () -> Unit,
+    onRollback: (Int) -> Unit,
+) {
+    var rollbackVersion by remember { mutableStateOf<PromptVersion?>(null) }
+
+    rollbackVersion?.let { version ->
+        NexyConfirmDialog(
+            title = "Restore version ${version.version}?",
+            message = "The current prompt will be replaced and a new rollback version will be recorded.",
+            confirmLabel = "Restore",
+            onConfirm = {
+                rollbackVersion = null
+                onRollback(version.version)
+            },
+            onDismiss = { rollbackVersion = null },
+        )
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("Version history", style = MaterialTheme.typography.titleSmall)
+        TextButton(onClick = onRefresh) { Text(if (isLoading) "Loading" else "Refresh") }
+    }
+    if (versions.isEmpty()) {
+        Text(
+            if (isLoading) "Loading versions..." else "No versions recorded yet.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        return
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 8.dp)) {
+        versions.forEach { version ->
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "v${version.version} · ${version.source}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                        )
+                        Text(
+                            version.title,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                        )
+                    }
+                    TextButton(
+                        onClick = { rollbackVersion = version },
+                        enabled = version.version != currentVersion,
+                    ) {
+                        Text(if (version.version == currentVersion) "Current" else "Restore")
+                    }
+                }
+                val changed = buildList {
+                    if (version.diff.titleChanged) add("title")
+                    if (version.diff.descriptionChanged) add("description")
+                    if (version.diff.categoryChanged) add("category")
+                    if (version.diff.tagsChanged) add("tags")
+                    if (version.diff.scopeChanged) add("scope")
+                    if (version.diff.addedLines.isNotEmpty()) add("+${version.diff.addedLines.size} lines")
+                    if (version.diff.removedLines.isNotEmpty()) add("-${version.diff.removedLines.size} lines")
+                }
+                Text(
+                    if (changed.isEmpty()) "No visible diff metadata" else changed.joinToString(" · "),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(top = 8.dp))
             }
         }
     }

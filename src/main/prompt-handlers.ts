@@ -122,6 +122,17 @@ function parseVersionRow(row: PromptVersionRow, previous: PromptVersionRow | nul
   }
 }
 
+export function listPromptLibraryVersions(
+  db: Database.Database,
+  promptId: string
+): PromptLibraryVersion[] {
+  const rows = db.prepare(
+    'SELECT * FROM prompt_library_versions WHERE prompt_id = ? ORDER BY version ASC'
+  ).all(promptId) as PromptVersionRow[]
+
+  return rows.map((row, index) => parseVersionRow(row, rows[index - 1] ?? null)).reverse()
+}
+
 function recordPromptVersion(db: Database.Database, promptId: string, source = 'manual'): void {
   const row = db.prepare('SELECT * FROM prompt_library_entries WHERE id = ?').get(promptId) as PromptRow | undefined
   if (!row) return
@@ -178,6 +189,73 @@ export function insertPromptLibraryEntry(
   return parseRow(db.prepare('SELECT * FROM prompt_library_entries WHERE id = ?').get(id) as PromptRow)
 }
 
+export function updatePromptLibraryEntry(
+  db: Database.Database,
+  id: string,
+  fields: PromptLibraryUpdate
+): PromptLibraryEntry {
+  const row = db.prepare('SELECT * FROM prompt_library_entries WHERE id = ?').get(id) as PromptRow | undefined
+  if (!row) throw new Error('Prompt not found')
+
+  const nextScope = normalizeScope({
+    scope: fields.scope ?? row.scope,
+    project_id: fields.project_id !== undefined ? fields.project_id : row.project_id,
+  })
+  const title = fields.title !== undefined ? String(fields.title).trim().slice(0, 200) : row.title
+  const body = fields.body !== undefined ? String(fields.body) : row.body
+  if (!title) throw new Error('Prompt title is required')
+  if (!body.trim()) throw new Error('Prompt body is required')
+
+  db.prepare(
+    `UPDATE prompt_library_entries
+     SET title = ?, body = ?, description = ?, category = ?, tags = ?, scope = ?, project_id = ?, updated_at = ?
+     WHERE id = ?`
+  ).run(
+    title,
+    body,
+    fields.description !== undefined ? String(fields.description).trim().slice(0, 500) : row.description,
+    fields.category !== undefined ? (String(fields.category).trim().slice(0, 80) || 'Custom') : row.category,
+    fields.tags !== undefined ? JSON.stringify(normalizeTags(fields.tags)) : row.tags,
+    nextScope.scope,
+    nextScope.projectId,
+    Date.now(),
+    id,
+  )
+
+  recordPromptVersion(db, id, 'manual-edit')
+  return parseRow(db.prepare('SELECT * FROM prompt_library_entries WHERE id = ?').get(id) as PromptRow)
+}
+
+export function rollbackPromptLibraryEntry(
+  db: Database.Database,
+  promptId: string,
+  version: number
+): PromptLibraryEntry {
+  const snapshot = db.prepare(
+    'SELECT * FROM prompt_library_versions WHERE prompt_id = ? AND version = ?'
+  ).get(promptId, version) as PromptVersionRow | undefined
+  if (!snapshot) throw new Error('Prompt version not found')
+
+  db.prepare(
+    `UPDATE prompt_library_entries
+     SET title = ?, body = ?, description = ?, category = ?, tags = ?, scope = ?, project_id = ?, updated_at = ?
+     WHERE id = ?`
+  ).run(
+    snapshot.title,
+    snapshot.body,
+    snapshot.description,
+    snapshot.category,
+    snapshot.tags,
+    snapshot.scope,
+    snapshot.project_id,
+    Date.now(),
+    promptId,
+  )
+
+  recordPromptVersion(db, promptId, `rollback-v${version}`)
+  return parseRow(db.prepare('SELECT * FROM prompt_library_entries WHERE id = ?').get(promptId) as PromptRow)
+}
+
 export function registerPromptHandlers(): void {
   const db = getDatabase()
 
@@ -195,70 +273,15 @@ export function registerPromptHandlers(): void {
   })
 
   safeHandle('prompt:list-versions', (_event, promptId: string) => {
-    const rows = db.prepare(
-      'SELECT * FROM prompt_library_versions WHERE prompt_id = ? ORDER BY version ASC'
-    ).all(promptId) as PromptVersionRow[]
-
-    return rows.map((row, index) => parseVersionRow(row, rows[index - 1] ?? null)).reverse()
+    return listPromptLibraryVersions(db, promptId)
   })
 
   safeHandle('prompt:rollback', (_event, promptId: string, version: number) => {
-    const snapshot = db.prepare(
-      'SELECT * FROM prompt_library_versions WHERE prompt_id = ? AND version = ?'
-    ).get(promptId, version) as PromptVersionRow | undefined
-    if (!snapshot) throw new Error('Prompt version not found')
-
-    db.prepare(
-      `UPDATE prompt_library_entries
-       SET title = ?, body = ?, description = ?, category = ?, tags = ?, scope = ?, project_id = ?, updated_at = ?
-       WHERE id = ?`
-    ).run(
-      snapshot.title,
-      snapshot.body,
-      snapshot.description,
-      snapshot.category,
-      snapshot.tags,
-      snapshot.scope,
-      snapshot.project_id,
-      Date.now(),
-      promptId,
-    )
-
-    recordPromptVersion(db, promptId, `rollback-v${version}`)
-    return parseRow(db.prepare('SELECT * FROM prompt_library_entries WHERE id = ?').get(promptId) as PromptRow)
+    return rollbackPromptLibraryEntry(db, promptId, version)
   })
 
   safeHandle('prompt:update', (_event, id: string, fields: PromptLibraryUpdate) => {
-    const row = db.prepare('SELECT * FROM prompt_library_entries WHERE id = ?').get(id) as PromptRow | undefined
-    if (!row) throw new Error('Prompt not found')
-
-    const nextScope = normalizeScope({
-      scope: fields.scope ?? row.scope,
-      project_id: fields.project_id !== undefined ? fields.project_id : row.project_id,
-    })
-    const title = fields.title !== undefined ? String(fields.title).trim().slice(0, 200) : row.title
-    const body = fields.body !== undefined ? String(fields.body) : row.body
-    if (!title) throw new Error('Prompt title is required')
-    if (!body.trim()) throw new Error('Prompt body is required')
-
-    db.prepare(
-      `UPDATE prompt_library_entries
-       SET title = ?, body = ?, description = ?, category = ?, tags = ?, scope = ?, project_id = ?, updated_at = ?
-       WHERE id = ?`
-    ).run(
-      title,
-      body,
-      fields.description !== undefined ? String(fields.description).trim().slice(0, 500) : row.description,
-      fields.category !== undefined ? (String(fields.category).trim().slice(0, 80) || 'Custom') : row.category,
-      fields.tags !== undefined ? JSON.stringify(normalizeTags(fields.tags)) : row.tags,
-      nextScope.scope,
-      nextScope.projectId,
-      Date.now(),
-      id,
-    )
-
-    recordPromptVersion(db, id, 'manual-edit')
-    return parseRow(db.prepare('SELECT * FROM prompt_library_entries WHERE id = ?').get(id) as PromptRow)
+    return updatePromptLibraryEntry(db, id, fields)
   })
 
   safeHandle('prompt:delete', (_event, id: string) => {
