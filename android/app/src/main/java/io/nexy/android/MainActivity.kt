@@ -12,6 +12,8 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
+import io.nexy.android.data.ConnectionState
+import io.nexy.android.data.WsRepository
 import io.nexy.android.navigation.NavGraph
 import io.nexy.android.ui.theme.NexyTheme
 import io.nexy.android.ui.theme.ThemePreference
@@ -36,6 +38,14 @@ class MainActivity : ComponentActivity() {
             NexyTheme(darkTheme = darkTheme) {
                 NavGraph(onRequestNotificationPermission = ::requestNotificationPermissionIfNeeded)
             }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val state = WsRepository.connectionState.value
+        if (state != ConnectionState.CONNECTED && state != ConnectionState.CONNECTING) {
+            WsRepository.connectFromStore()
         }
     }
 

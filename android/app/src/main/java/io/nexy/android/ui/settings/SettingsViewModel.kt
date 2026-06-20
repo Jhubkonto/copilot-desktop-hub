@@ -173,4 +173,23 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         return WsRepository.hasPairedServer()
     }
 
+    val activeProfileHasWolInfo: Boolean
+        get() {
+            val profile = WsRepository.profiles.value.firstOrNull { it.id == WsRepository.activeProfileId.value }
+                ?: WsRepository.profiles.value.firstOrNull()
+            return profile?.macAddress != null && profile.broadcastAddress != null
+        }
+
+    private val _wolSnackbar = MutableStateFlow<String?>(null)
+    val wolSnackbar: StateFlow<String?> = _wolSnackbar
+
+    fun wakeDesktop() {
+        _wolSnackbar.value = "Magic packet sent — waiting for desktop…"
+        WsRepository.wakeDesktop()
+    }
+
+    fun clearWolSnackbar() {
+        _wolSnackbar.value = null
+    }
+
 }

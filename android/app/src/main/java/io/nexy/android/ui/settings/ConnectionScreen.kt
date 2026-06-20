@@ -8,10 +8,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.ui.components.NexyTopAppBar
 
@@ -25,6 +30,14 @@ fun ConnectionScreen(
     val profiles by vm.profiles.collectAsState()
     val activeProfileId by vm.activeProfileId.collectAsState()
     val connectionState by vm.connectionState.collectAsState()
+    val wolSnackbar by vm.wolSnackbar.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(wolSnackbar) {
+        val msg = wolSnackbar ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(msg)
+        vm.clearWolSnackbar()
+    }
 
     Scaffold(
         topBar = {
@@ -33,6 +46,9 @@ fun ConnectionScreen(
                 onBack = onBack,
                 subtitle = "Settings",
             )
+        },
+        snackbarHost = {
+            SnackbarHost(snackbarHostState) { data -> Snackbar(snackbarData = data) }
         },
     ) { padding ->
         Column(
@@ -55,6 +71,8 @@ fun ConnectionScreen(
                 onDisconnect = { vm.disconnect() },
                 onForgetActiveServer = { vm.forgetServer() },
                 onForgetServer = onForgetServer,
+                showWakeDesktop = connectionState != io.nexy.android.data.ConnectionState.CONNECTED && vm.activeProfileHasWolInfo,
+                onWakeDesktop = { vm.wakeDesktop() },
             )
         }
     }

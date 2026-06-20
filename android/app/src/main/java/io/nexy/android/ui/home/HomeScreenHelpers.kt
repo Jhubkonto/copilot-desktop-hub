@@ -23,6 +23,7 @@ fun ConnectionChip(state: ConnectionState) {
         val (label, color) = when (currentState) {
             ConnectionState.CONNECTED -> "Connected" to Color(0xFF22C55E)
             ConnectionState.CONNECTING -> "Connecting…" to Color(0xFFF59E0B)
+            ConnectionState.POLLING -> "Searching…" to Color(0xFFF59E0B)
             ConnectionState.DISCONNECTED -> "Disconnected" to Color(0xFFEF4444)
         }
         Text(

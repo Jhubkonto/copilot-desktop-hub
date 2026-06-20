@@ -37,6 +37,7 @@ fun connectionStateLabel(state: ConnectionState): String =
     when (state) {
         ConnectionState.CONNECTED -> "Connected"
         ConnectionState.CONNECTING -> "Connecting"
+        ConnectionState.POLLING -> "Searching (slow poll)"
         ConnectionState.DISCONNECTED -> "Disconnected"
     }
 

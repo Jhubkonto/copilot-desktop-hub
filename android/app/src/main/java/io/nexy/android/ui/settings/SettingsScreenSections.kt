@@ -154,6 +154,7 @@ fun ConnectionSection(
             val (label, color) = when (connectionState) {
                 ConnectionState.CONNECTED -> "Connected" to Color(0xFF22C55E)
                 ConnectionState.CONNECTING -> "Connecting…" to Color(0xFFF59E0B)
+                ConnectionState.POLLING -> "Searching…" to Color(0xFFF59E0B)
                 ConnectionState.DISCONNECTED -> "Disconnected" to Color(0xFFEF4444)
             }
             Text("● $label", color = color, style = MaterialTheme.typography.bodyMedium)
@@ -413,6 +414,8 @@ fun ActionsSection(
     onDisconnect: () -> Unit,
     onForgetActiveServer: () -> Boolean,
     onForgetServer: () -> Unit,
+    showWakeDesktop: Boolean = false,
+    onWakeDesktop: () -> Unit = {},
 ) {
     var confirmForgetActive by remember { mutableStateOf(false) }
 
@@ -437,6 +440,15 @@ fun ActionsSection(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        if (showWakeDesktop) {
+            OutlinedButton(
+                onClick = onWakeDesktop,
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.small,
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFF59E0B)),
+            ) { Text("Wake Desktop") }
+        }
+
         OutlinedButton(
             onClick = onDisconnect,
             modifier = Modifier.fillMaxWidth(),
