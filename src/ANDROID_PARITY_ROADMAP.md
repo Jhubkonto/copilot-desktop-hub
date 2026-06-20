@@ -91,8 +91,8 @@ Feature Generator is intentionally excluded because it has been removed from the
 - [x] Add missing Android route for Skill Generator.
 - [x] Add missing Android route for Artifact Generator.
 - [x] Add missing Android routes for full Project Settings sections.
-- [ ] Ensure every desktop top-level pane has an Android destination or documented mobile-adjusted equivalent.
-- [ ] Add consistent empty/error/retry states for each parity screen.
+- [x] Ensure every desktop top-level pane has an Android destination or documented mobile-adjusted equivalent.
+- [x] Add consistent empty/error/retry states for each parity screen.
 
 ### Phase 2 - Models, Providers, And CLI Model Parity
 
@@ -100,7 +100,7 @@ Feature Generator is intentionally excluded because it has been removed from the
 - [x] Fix missing OpenRouter models in the new-chat model dropdown if the desktop bridge is not returning them.
 - [x] Fix Android Settings model list so it shows the full grouped model list, including OpenRouter.
 - [x] Add a dedicated CLI Models entry/section in Android Settings.
-- [ ] Ensure global default model resolution produces visible Android errors when it fails.
+- [x] Ensure global default model resolution produces visible Android errors when it fails.
 - [x] Fix OpenRouter provider row layout so "Configured" never wraps awkwardly.
 - [x] Add provider parity for Azure endpoint and provider test-key flows.
 
@@ -111,9 +111,9 @@ Feature Generator is intentionally excluded because it has been removed from the
 - [x] Add compression preview, prepare summary, and save summary.
 - [x] Add pin/unpin conversation controls.
 - [x] Add delete-after-message flow.
-- [ ] Improve chat rendering parity for thinking blocks, costs, tool events, artifacts, wiki markers, and in-reply-to navigation where metadata exists.
-- [ ] Add richer export/fork/import option parity.
-- [ ] Add visible error notifications for every failed WS action.
+- [x] Improve chat rendering parity for thinking blocks, costs, tool events, artifacts, wiki markers, and in-reply-to navigation where metadata exists.
+- [x] Add richer export/fork/import option parity.
+- [x] Add visible error notifications for every failed WS action.
 
 ### Phase 4 - Skills Parity
 
