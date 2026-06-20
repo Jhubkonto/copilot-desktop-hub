@@ -631,6 +631,7 @@ export async function dispatchChatSend(
                 inputTokens: event.inputTokens,
                 outputTokens: event.outputTokens,
               })
+              broadcastToMobile({ event: 'chat:cost', data: { conversationId, inputTokens: event.inputTokens, outputTokens: event.outputTokens, totalCostUsd: event.totalCostUsd } })
             } else if (event.type === 'thinking_chunk') {
               window.webContents.send('chat:thinking-delta', { blockId: event.blockId, chunk: event.chunk })
               const existing = cliThinkingBuffer.get(event.blockId) ?? { blockId: event.blockId, content: '', done: false }
