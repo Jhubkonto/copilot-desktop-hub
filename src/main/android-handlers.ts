@@ -110,7 +110,7 @@ function buildSigningEnv(config: AndroidSigningConfig): NodeJS.ProcessEnv {
   }
 }
 
-function computeSha256(filePath: string): Promise<string> {
+export function computeSha256(filePath: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const hash = createHash('sha256')
     const stream = createReadStream(filePath)

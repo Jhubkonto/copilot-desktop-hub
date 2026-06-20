@@ -7,7 +7,13 @@ import { dispatchChatSend } from './chat-handlers'
 import { getCliModels } from './cli-detection'
 import { getCachedCatalog } from './model-catalog'
 import { retrieveAuthMode } from './auth'
-import { getAndroidUpdateManifest } from './android-handlers'
+import { getAndroidUpdateManifest, getAndroidWorkspaceInfo, computeSha256 } from './android-handlers'
+import { getWorkspaceInfo } from './build-handlers'
+import { existsSync as fsExistsSync, copyFileSync as fsCopyFileSync, mkdirSync as fsMkdirSync, readdirSync as fsReaddirSync, statSync as fsStatSync } from 'fs'
+import { writeFile as fsWriteFile, readFile as fsReadFile } from 'fs/promises'
+import pathModule from 'path'
+import { networkInterfaces } from 'os'
+import { startFeedServer, getFeedLanUrl } from './local-feed-server'
 import { createErrorReport, rowToErrorReport } from './error-report-handlers'
 import { listHistory } from './self-heal/history'
 import {
@@ -1730,6 +1736,176 @@ export function registerWsHandlers(): void {
           broadcastToMobile({ event: 'artifact-generator:error', data: { sessionId, message: String(err) } })
         }
       })()
+      return
+    }
+
+    if (command === 'build:get-records') {
+      const platform = typeof data.platform === 'string' ? data.platform : undefined
+      const limit = typeof data.limit === 'number' ? Math.min(data.limit, 50) : 20
+      const rows = platform
+        ? db.prepare(`SELECT * FROM build_records WHERE platform = ? ORDER BY started_at DESC LIMIT ?`).all(platform, limit) as Record<string, unknown>[]
+        : db.prepare(`SELECT * FROM build_records ORDER BY started_at DESC LIMIT ?`).all(limit) as Record<string, unknown>[]
+      const records = rows.map((r) => ({
+        id: r.id, workspacePath: r.workspace_path, commitSha: r.commit_sha ?? null,
+        branch: r.branch ?? null, version: r.version ?? null, versionCode: r.version_code ?? null,
+        platform: r.platform, command: r.command, status: r.status, exitCode: r.exit_code ?? null,
+        artifactPaths: JSON.parse((r.artifact_paths as string | null) ?? '[]'),
+        logTail: (r.log_tail as string | null) ?? '',
+        startedAt: r.started_at, finishedAt: r.finished_at ?? null,
+      }))
+      reply({ event: 'build:records', data: { records } })
+      return
+    }
+
+    if (command === 'build:get-workspace-info') {
+      void getWorkspaceInfo(db)
+        .then((info) => reply({ event: 'build:workspace-info', data: info }))
+        .catch((err: unknown) => reply({ event: 'build:workspace-info', data: { error: String(err) } }))
+      return
+    }
+
+    if (command === 'build:run-preflight') {
+      const workspacePath = (db.prepare("SELECT value FROM settings WHERE key = 'build_workspace_path'").get() as { value: string } | undefined)?.value ?? process.cwd()
+      void (async () => {
+        const { execFile } = await import('child_process')
+        const { promisify } = await import('util')
+        const execFileAsync = promisify(execFile)
+        const checks: { label: string; status: string; detail: string }[] = []
+        try {
+          const { stdout } = await execFileAsync('git', ['status', '--porcelain'], { cwd: workspacePath, timeout: 5000, maxBuffer: 1024 * 1024 })
+          const statusOut = stdout.trim()
+          checks.push(statusOut.length > 0
+            ? { label: 'Git working tree', status: 'warn', detail: `${statusOut.split('\n').length} modified or untracked file(s)` }
+            : { label: 'Git working tree', status: 'ok', detail: 'Clean' })
+        } catch { checks.push({ label: 'Git working tree', status: 'warn', detail: 'Could not run git status' }) }
+        const { join } = pathModule
+        checks.push(fsExistsSync(join(workspacePath, 'node_modules', '.package-lock.json'))
+          ? { label: 'node_modules', status: 'ok', detail: 'Present' }
+          : { label: 'node_modules', status: 'fail', detail: 'Missing — run npm install' })
+        const signingKey = process.platform === 'win32' ? process.env['WIN_CSC_LINK'] : process.env['CSC_LINK']
+        checks.push(signingKey
+          ? { label: 'Code signing', status: 'ok', detail: 'Signing key configured' }
+          : { label: 'Code signing', status: 'warn', detail: 'No signing key env var set — unsigned build only' })
+        return checks
+      })().then((checks) => reply({ event: 'build:preflight-result', data: { checks } }))
+        .catch((err: unknown) => reply({ event: 'build:preflight-result', data: { checks: [{ label: 'Preflight', status: 'fail', detail: String(err) }] } }))
+      return
+    }
+
+    if (command === 'android:get-workspace-info') {
+      void getAndroidWorkspaceInfo(db)
+        .then((info) => reply({ event: 'android:workspace-info', data: info }))
+        .catch((err: unknown) => reply({ event: 'android:workspace-info', data: { error: String(err) } }))
+      return
+    }
+
+    if (command === 'android:validate-signing') {
+      const config = (() => {
+        const row = db.prepare("SELECT value FROM settings WHERE key = 'android_signing_config'").get() as { value: string } | undefined
+        if (!row?.value) return null
+        try { return JSON.parse(row.value) as { keystorePath: string; keyAlias: string; keystorePassword: string; keyPassword: string } } catch { return null }
+      })()
+      const checks: { label: string; status: string; detail: string }[] = []
+      if (!config) {
+        checks.push({ label: 'Signing config', status: 'fail', detail: 'No signing config saved' })
+        reply({ event: 'android:signing-validation', data: { valid: false, checks } })
+        return
+      }
+      checks.push({ label: 'Signing config', status: 'ok', detail: 'Config present' })
+      checks.push(fsExistsSync(config.keystorePath)
+        ? { label: 'Keystore file', status: 'ok', detail: 'File exists' }
+        : { label: 'Keystore file', status: 'fail', detail: `Not found: ${config.keystorePath}` })
+      reply({ event: 'android:signing-validation', data: { valid: checks.every((c) => c.status !== 'fail'), checks } })
+      return
+    }
+
+    if (command === 'android:publish-update') {
+      const androidFeedDir = (() => {
+        const row = db.prepare("SELECT value FROM settings WHERE key = 'local_update_feed_path'").get() as { value: string } | undefined
+        return row?.value ? pathModule.join(row.value, 'android') : null
+      })()
+      const workspacePath = (db.prepare("SELECT value FROM settings WHERE key = 'android_workspace_path'").get() as { value: string } | undefined)?.value ?? null
+      if (!androidFeedDir) { reply({ event: 'android:publish-result', data: { published: false, error: 'No local update feed path configured' } }); return }
+      if (!workspacePath) { reply({ event: 'android:publish-result', data: { published: false, error: 'Android workspace path not configured' } }); return }
+      const releaseApkDir = pathModule.join(workspacePath, 'app', 'build', 'outputs', 'apk', 'release')
+      let apkSrc: string | null = null
+      if (fsExistsSync(releaseApkDir)) {
+        let latestMtime = 0
+        for (const entry of fsReaddirSync(releaseApkDir)) {
+          if (entry.endsWith('.apk')) {
+            const full = pathModule.join(releaseApkDir, entry)
+            try { const st = fsStatSync(full); if (st.isFile() && st.mtimeMs > latestMtime) { apkSrc = full; latestMtime = st.mtimeMs } } catch { /* skip */ }
+          }
+        }
+      }
+      if (!apkSrc) { reply({ event: 'android:publish-result', data: { published: false, error: 'No release APK found in app/build/outputs/apk/release/' } }); return }
+      const apkName = pathModule.basename(apkSrc)
+      const destApk = pathModule.join(androidFeedDir, apkName)
+      fsMkdirSync(androidFeedDir, { recursive: true })
+      fsCopyFileSync(apkSrc, destApk)
+      const feedPathRow = db.prepare("SELECT value FROM settings WHERE key = 'local_update_feed_path'").get() as { value: string } | undefined
+      const feedRootPath = feedPathRow?.value ?? androidFeedDir
+      void (async () => {
+        const ifaces = networkInterfaces()
+        const candidates: string[] = []
+        for (const iface of Object.values(ifaces)) {
+          if (!iface) continue
+          for (const info of iface) { if (info.family === 'IPv4' && !info.internal) candidates.push(info.address) }
+        }
+        candidates.sort((a, b) => (a.startsWith('192.168.') ? 0 : a.startsWith('10.') ? 1 : 2) - (b.startsWith('192.168.') ? 0 : b.startsWith('10.') ? 1 : 2))
+        const lanIp = candidates[0] ?? '127.0.0.1'
+        await startFeedServer(feedRootPath, '0.0.0.0')
+        const feedLanUrl = getFeedLanUrl(lanIp)
+        const androidWsInfo = await getAndroidWorkspaceInfo(db)
+        const checksum = await computeSha256(destApk)
+        const manifest = {
+          versionCode: androidWsInfo.versionCode ?? 1, versionName: androidWsInfo.versionName ?? '1.0',
+          commitSha: androidWsInfo.commitSha, changelog: '', checksum,
+          artifactUrl: `${feedLanUrl}/android/${apkName}`, publishedAt: Date.now(),
+        }
+        await fsWriteFile(pathModule.join(androidFeedDir, 'android-update.json'), JSON.stringify(manifest, null, 2), 'utf8')
+        return manifest
+      })().then((manifest) => reply({ event: 'android:publish-result', data: { published: true, manifest } }))
+        .catch((err: unknown) => reply({ event: 'android:publish-result', data: { published: false, error: String(err) } }))
+      return
+    }
+
+    if (command === 'android:restore-version') {
+      const versionCode = typeof data.versionCode === 'number' ? data.versionCode : parseInt(String(data.versionCode), 10)
+      if (!Number.isFinite(versionCode)) { reply({ event: 'android:restore-result', data: { restored: false, error: 'Invalid version code' } }); return }
+      const androidFeedDir = (() => {
+        const row = db.prepare("SELECT value FROM settings WHERE key = 'local_update_feed_path'").get() as { value: string } | undefined
+        return row?.value ? pathModule.join(row.value, 'android') : null
+      })()
+      if (!androidFeedDir) { reply({ event: 'android:restore-result', data: { restored: false, error: 'No local update feed path configured' } }); return }
+      const historyPath = pathModule.join(androidFeedDir, 'android-update-history.json')
+      if (!fsExistsSync(historyPath)) { reply({ event: 'android:restore-result', data: { restored: false, error: `Version ${versionCode} not found in publish history` } }); return }
+      void (async () => {
+        const history = JSON.parse(await fsReadFile(historyPath, 'utf8')) as (Record<string, unknown> & { versionCode: number; archiveApkPath?: string })[]
+        const entry = history.find((e) => e.versionCode === versionCode)
+        if (!entry || !entry.archiveApkPath || !fsExistsSync(String(entry.archiveApkPath))) {
+          reply({ event: 'android:restore-result', data: { restored: false, error: `Archived APK for version ${versionCode} not found` } })
+          return
+        }
+        const apkName = pathModule.basename(String(entry.archiveApkPath))
+        const destApk = pathModule.join(androidFeedDir, apkName)
+        fsCopyFileSync(String(entry.archiveApkPath), destApk)
+        const ifaces = networkInterfaces()
+        const candidates: string[] = []
+        for (const iface of Object.values(ifaces)) {
+          if (!iface) continue
+          for (const info of iface) { if (info.family === 'IPv4' && !info.internal) candidates.push(info.address) }
+        }
+        candidates.sort((a, b) => (a.startsWith('192.168.') ? 0 : a.startsWith('10.') ? 1 : 2) - (b.startsWith('192.168.') ? 0 : b.startsWith('10.') ? 1 : 2))
+        const lanIp = candidates[0] ?? '127.0.0.1'
+        const feedPathRow = db.prepare("SELECT value FROM settings WHERE key = 'local_update_feed_path'").get() as { value: string } | undefined
+        const feedRootPath = feedPathRow?.value ?? androidFeedDir
+        await startFeedServer(feedRootPath, '0.0.0.0')
+        const feedLanUrl = getFeedLanUrl(lanIp)
+        const restoredManifest = { ...entry, artifactUrl: `${feedLanUrl}/android/${apkName}`, publishedAt: entry.publishedAt }
+        await fsWriteFile(pathModule.join(androidFeedDir, 'android-update.json'), JSON.stringify(restoredManifest, null, 2), 'utf8')
+        reply({ event: 'android:restore-result', data: { restored: true, manifest: restoredManifest } })
+      })().catch((err: unknown) => reply({ event: 'android:restore-result', data: { restored: false, error: String(err) } }))
       return
     }
 
