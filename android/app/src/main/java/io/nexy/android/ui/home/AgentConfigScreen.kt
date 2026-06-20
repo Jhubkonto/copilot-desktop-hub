@@ -65,6 +65,7 @@ import io.nexy.android.data.model.McpServerInfo
 import io.nexy.android.data.model.SkillConfig
 import io.nexy.android.data.model.ToolConfig
 import io.nexy.android.data.model.WsEvent
+import io.nexy.android.ui.components.NexyConnectionBanner
 import io.nexy.android.ui.components.NexyTopAppBar
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -306,20 +307,7 @@ fun AgentConfigScreen(
                 .padding(horizontal = 16.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            if (disconnected) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.errorContainer,
-                    shape = RoundedCornerShape(8.dp),
-                ) {
-                    Text(
-                        "Not connected to desktop. Changes cannot be saved.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    )
-                }
-            }
+            NexyConnectionBanner(connectionState)
 
             // — Identity —
             SectionHeader("Identity")
