@@ -213,19 +213,15 @@ The current `ChatInputBar` uses a `HorizontalDivider` separator, four always-vis
 
 ### Checklist
 
-- [ ] **Remove `HorizontalDivider` separator** (`ChatScreenInput.kt:61`): the card's `tonalElevation` provides visual separation from the message list; add `Modifier.padding(horizontal = 12.dp, bottom = 8.dp)` to the outer `Column` so the card floats with side margins
-- [ ] **Wrap content in a floating `Surface`** (`ChatScreenInput.kt`): replace the flat background `Column` with `Surface(shape = RoundedCornerShape(20.dp), tonalElevation = 2.dp)` so the card appears to lift off the screen
-- [ ] **Attachment chips inside the card**: keep existing `LazyRow` of `AttachmentChip` items, positioned above the text field within the card `Surface`
-- [ ] **Text field occupies top portion of card**: `BasicTextField` with `Modifier.padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 4.dp)`, `maxLines = 5`; placeholder text unchanged
-- [ ] **Collapse four action icons into a single `+` button** (`ChatScreenInput.kt:113–144`): replace `IconButton(AttachFile)`, `IconButton(Screenshot)`, `IconButton(TextFields)`, `IconButton(Info)` in the inner row with one circular `+` `IconButton` (36dp, `surfaceVariant` fill); tapping shows a `ModalBottomSheet` with `ListItem` rows:
-  - Attach File → `onAttachFile()`
-  - Latest Screenshot → `onCaptureScreen()`
-  - Insert Prompt → `onInsertPrompt()`
-  - Context Inspector → `onShowInspector()`
-- [ ] **Hoist attachment sheet state inside `ChatInputBar`**: `val attachSheetState = rememberModalBottomSheetState()`; `var showAttachSheet by remember { mutableStateOf(false) }`; show `ModalBottomSheet` when `showAttachSheet == true` — not inside any conditional branch
-- [ ] **Bottom action row**: `Row(modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 8.dp))` — `+` button left-aligned, `Spacer(Modifier.weight(1f))`, send button right-aligned
-- [ ] **Fix send button disabled state** (absorbed from Phase B): send button always rendered; when `!canSend` use `Modifier.alpha(0.38f)` + `onSurface` tint instead of `colorScheme.surface` background (which makes it invisible); when `canSend` use filled `primary` circle with `onPrimary` icon
-- [ ] **`ChatInputBar` signature unchanged**: same parameters — all callbacks preserved; callers in `ChatScreen.kt` need no changes
+- [x] **Remove `HorizontalDivider` separator** (`ChatScreenInput.kt:61`): removed; outer `Column` now has `padding(horizontal = 12.dp, bottom = 8.dp)` so card floats with side margins — `Done`
+- [x] **Wrap content in a floating `Surface`** (`ChatScreenInput.kt`): `Surface(shape = RoundedCornerShape(20.dp), tonalElevation = 2.dp, color = surfaceVariant)` replaces the old flat `Column` + `background` approach — `Done`
+- [x] **Attachment chips inside the card**: `LazyRow` of `AttachmentChip` items positioned at `padding(start=12.dp, end=12.dp, top=8.dp)` inside the card surface, visible only when `attachments.isNotEmpty()` — `Done`
+- [x] **Text field occupies top portion of card**: `BasicTextField` with `padding(start=16.dp, end=12.dp, top=12.dp, bottom=4.dp)`, `maxLines=5`; placeholder Text unchanged — `Done`
+- [x] **Collapse four action icons into a single `+` button**: replaced `AttachFile`, `Screenshot`, `TextFields`, `Info` `IconButton`s with one `+` `IconButton` (36dp); tapping opens `ModalBottomSheet` with four `ListItem` rows — Attach File, Latest Screenshot, Insert Prompt, Context Inspector — each dismisses the sheet and invokes the callback — `Done`
+- [x] **Hoist attachment sheet state inside `ChatInputBar`**: `attachSheetState = rememberModalBottomSheetState()` and `showAttachSheet` state both live inside `ChatInputBar` composable scope; sheet rendered unconditionally outside the card — `Done`
+- [x] **Bottom action row**: `Row(padding(start=8.dp, end=8.dp, bottom=8.dp))` — `+` left, `Spacer(weight(1f))`, send circle right — `Done`
+- [x] **Fix send button disabled state**: `alpha(0.38f)` + `onSurface` tint when `!canSend`; `primary` filled circle + `onPrimary` icon when `canSend`; button always rendered — `Done`
+- [x] **`ChatInputBar` signature unchanged**: same 10 parameters; `ChatScreen.kt` callers need no changes — `Done`
 
 ### Before / After
 
