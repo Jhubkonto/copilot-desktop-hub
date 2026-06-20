@@ -36,6 +36,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,6 +53,8 @@ import io.nexy.android.data.model.ArtifactDetail2
 import io.nexy.android.data.model.ArtifactExportFile
 import io.nexy.android.data.model.ArtifactSummary
 import io.nexy.android.data.model.ArtifactVersionSummary
+import io.nexy.android.data.WsRepository
+import io.nexy.android.ui.components.NexyConnectionBanner
 import io.nexy.android.ui.components.NexyEmptyState
 import io.nexy.android.ui.components.NexySearchField
 import io.nexy.android.ui.components.NexyStatusBadge
@@ -67,6 +70,7 @@ fun ArtifactsScreen(
     vm: ArtifactsViewModel = viewModel(),
 ) {
     val artifacts by vm.artifacts.collectAsState()
+    val connectionState by WsRepository.connectionState.collectAsState()
     val selected by vm.selectedArtifact.collectAsState()
     val versions by vm.versions.collectAsState()
     val isLoading by vm.isLoading.collectAsState()
@@ -87,6 +91,10 @@ fun ArtifactsScreen(
     }
 
     LaunchedEffect(Unit) { vm.refresh(projectId) }
+    LifecycleResumeEffect(projectId) {
+        vm.refresh(projectId)
+        onPauseOrDispose {}
+    }
 
     LaunchedEffect(exportPack) {
         val pack = exportPack ?: return@LaunchedEffect
@@ -127,30 +135,32 @@ fun ArtifactsScreen(
             )
         },
     ) { padding ->
-        if (artifacts.isEmpty()) {
-            Column(
-                modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                if (isLoading) {
-                    CircularProgressIndicator()
-                } else {
-                    NexyEmptyState(
-                        title = if (error != null) "Connection error" else "No artifacts yet.",
-                        detail = error ?: "Generated project artifacts will appear here.",
-                        action = {
-                            TextButton(onClick = { vm.refresh(projectId) }) { Text("Retry") }
-                        },
-                    )
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            NexyConnectionBanner(connectionState)
+            if (artifacts.isEmpty()) {
+                Column(
+                    modifier = Modifier.weight(1f).fillMaxWidth().padding(24.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    if (isLoading) {
+                        CircularProgressIndicator()
+                    } else {
+                        NexyEmptyState(
+                            title = if (error != null) "Connection error" else "No artifacts yet.",
+                            detail = error ?: "Generated project artifacts will appear here.",
+                            action = {
+                                TextButton(onClick = { vm.refresh(projectId) }) { Text("Retry") }
+                            },
+                        )
+                    }
                 }
-            }
-        } else {
-            Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            } else {
                 NexySearchField(
                     query = searchQuery,
                     onQueryChange = { searchQuery = it },
                     placeholder = "Search artifacts",
+                    debounceMs = 300L,
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 if (filteredArtifacts.isEmpty()) {
@@ -161,7 +171,7 @@ fun ArtifactsScreen(
                         action = { TextButton(onClick = { searchQuery = "" }) { Text("Clear search") } },
                     )
                 } else {
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
                         items(filteredArtifacts) { artifact ->
                             ArtifactRow(artifact = artifact, onClick = { vm.selectArtifact(artifact.id) })
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)

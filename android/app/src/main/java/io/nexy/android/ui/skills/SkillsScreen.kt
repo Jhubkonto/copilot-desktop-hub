@@ -38,6 +38,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,9 +51,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import io.nexy.android.data.ConnectionState
+import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.McpServerInfo
 import io.nexy.android.data.model.SkillConfig
 import io.nexy.android.ui.components.NexyConfirmDialog
+import io.nexy.android.ui.components.NexyConnectionBanner
 import io.nexy.android.ui.components.NexyEmptyState
 import io.nexy.android.ui.components.NexyFormSheet
 import io.nexy.android.ui.components.NexyInfoDialog
@@ -67,6 +71,7 @@ fun SkillsScreen(
     vm: SkillsViewModel = viewModel(),
 ) {
     val state by vm.state.collectAsState()
+    val connectionState by WsRepository.connectionState.collectAsState()
     val context = LocalContext.current
     val clipboardManager = context.getSystemService(ClipboardManager::class.java)
     var searchQuery by remember { mutableStateOf("") }
@@ -83,6 +88,10 @@ fun SkillsScreen(
     }
 
     LaunchedEffect(Unit) { vm.load() }
+    LifecycleResumeEffect(Unit) {
+        vm.load()
+        onPauseOrDispose {}
+    }
 
     state.error?.let { error ->
         NexyInfoDialog(
@@ -165,24 +174,26 @@ fun SkillsScreen(
             }
         },
     ) { padding ->
-        if (state.skills.isEmpty()) {
-            Column(
-                modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                NexyEmptyState(
-                    title = "No skills yet.",
-                    detail = "Tap + to create one.",
-                    action = { TextButton(onClick = { vm.load() }) { Text("Refresh") } },
-                )
-            }
-        } else {
-            Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            NexyConnectionBanner(connectionState)
+            if (state.skills.isEmpty()) {
+                Column(
+                    modifier = Modifier.weight(1f).fillMaxWidth().padding(24.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    NexyEmptyState(
+                        title = "No skills yet.",
+                        detail = "Tap + to create one.",
+                        action = { TextButton(onClick = { vm.load() }) { Text("Refresh") } },
+                    )
+                }
+            } else {
                 NexySearchField(
                     query = searchQuery,
                     onQueryChange = { searchQuery = it },
                     placeholder = "Search skills",
+                    debounceMs = 300L,
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 if (filteredSkills.isEmpty()) {
@@ -193,7 +204,7 @@ fun SkillsScreen(
                         action = { TextButton(onClick = { searchQuery = "" }) { Text("Clear search") } },
                     )
                 } else {
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
                         items(filteredSkills) { skill ->
                             SkillRow(
                                 skill = skill,
