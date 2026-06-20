@@ -6,6 +6,7 @@ import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsClient
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.AttachmentMeta
+import io.nexy.android.data.model.ThinkingBlock
 import io.nexy.android.data.model.WsEvent
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -35,6 +36,9 @@ data class ChatMessage(
     val toolResult: String? = null,
     val toolSuccess: Boolean = true,
     val sendFailed: Boolean = false,
+    val thinkingBlocks: List<ThinkingBlock> = emptyList(),
+    val inputTokens: Int = 0,
+    val outputTokens: Int = 0,
 )
 
 class ChatViewModel(
@@ -111,6 +115,18 @@ class ChatViewModel(
                         val current = _messages.value
                         if (current.lastOrNull()?.isStreaming == true) {
                             _messages.value = current.dropLast(1) + current.last().copy(isStreaming = false)
+                        }
+                    }
+                    event is WsEvent.ChatCost && event.conversationId == conversationId -> {
+                        val current = _messages.value
+                        val lastAssistantIdx = current.indexOfLast { !it.isUser && !it.isToolCall }
+                        if (lastAssistantIdx >= 0) {
+                            _messages.value = current.toMutableList().also { list ->
+                                list[lastAssistantIdx] = list[lastAssistantIdx].copy(
+                                    inputTokens = event.inputTokens,
+                                    outputTokens = event.outputTokens,
+                                )
+                            }
                         }
                     }
                     else -> {}

@@ -2,15 +2,19 @@ package io.nexy.android.ui.chat
 
 import io.nexy.android.data.model.HistoryMessage
 
+private val INJECTED_BLOCK_RE = Regex("""\[[A-Za-z][^\]]*]\n[\s\S]*?\[/[A-Za-z][^\]]*]\n*""")
+
 internal fun HistoryMessage.toChatMessage(): ChatMessage {
     if (role != "tool-call") {
+        val displayText = if (role == "user") INJECTED_BLOCK_RE.replace(content, "").trimStart() else content
         return ChatMessage(
             id = id,
-            text = content,
+            text = displayText,
             isUser = role == "user",
             isStreaming = false,
             timestamp = timestamp,
             attachments = attachments,
+            thinkingBlocks = thinkingBlocks,
         )
     }
 
