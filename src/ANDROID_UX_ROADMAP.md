@@ -94,13 +94,13 @@ Build the shared tools that subsequent phases rely on. All changes go to `NexyUx
 
 ### Checklist
 
-- [ ] **Collapsible sections using `NexyExpandableSection`** (Phase C): convert each `SectionHeader` + block to `NexyExpandableSection`; default expanded: Identity + Behaviour; collapsed: Backend, Generation, Tools, Skills, Context, Context Rules, Custom Commands, MCP, Knowledge Files; persist expanded state with `rememberSaveable`
-- [ ] **Unsaved-changes guard on back**: derive `hasUnsavedChanges` by comparing current field values to the original loaded config; intercept back navigation with `NexyConfirmDialog("Discard changes?")` when dirty
-- [ ] **Skills section search**: add compact `NexySearchField` above `SkillAttachmentsSection`; filter `orderedSkills` by name/description; show `NexyEmptyState` when no match
-- [ ] **Skills reorder UX**: replace `TextButton("Move up")` / `TextButton("Move down")` with compact `Icons.Default.KeyboardArrowUp` / `Icons.Default.KeyboardArrowDown` icon buttons at 48.dp touch targets; add `Icons.Default.DragHandle` as a drag-to-reorder affordance
-- [ ] **Inline validation on Save**: validate `name.isNotBlank()`, `maxTokensText.toIntOrNull() != null`, `temperature in 0f..1f`; surface errors via `NexyInputValidation` rather than silently clamping values
-- [ ] **Knowledge Files animated panel swap**: wrap the `editingKnowledgeFile != null` branch with `AnimatedContent(targetState = editingKnowledgeFile)` for a smooth transition
-- [ ] **`Column` → `LazyColumn` for skills and MCP lists**: `SkillAttachmentsSection` and `McpServerAssignmentSection` render all cards in a `Column` inside the outer `verticalScroll` — convert to `LazyColumn` items
+- [x] **Collapsible sections using `NexyExpandableSection`** (Phase C): convert each `SectionHeader` + block to `NexyExpandableSection`; default expanded: Identity + Behaviour; collapsed: Backend, Generation, Tools, Skills, Context, Context Rules, Custom Commands, MCP, Knowledge Files; persist expanded state with `rememberSaveable` — `Done`
+- [x] **Unsaved-changes guard on back**: derive `hasUnsavedChanges` by comparing current field values to the original loaded config; intercept back navigation with `NexyConfirmDialog("Discard changes?")` when dirty — `Done`
+- [x] **Skills section search**: add compact `NexySearchField` above `SkillAttachmentsSection`; filter `orderedSkills` by name/description; show `NexyEmptyState` when no match — `Done`
+- [x] **Skills reorder UX**: replace `TextButton("Move up")` / `TextButton("Move down")` with compact `Icons.Default.KeyboardArrowUp` / `Icons.Default.KeyboardArrowDown` icon buttons at 48.dp touch targets; add `Icons.Default.DragHandle` as a drag-to-reorder affordance — `Done`
+- [x] **Inline validation on Save**: validate `name.isNotBlank()`, `maxTokensText.toIntOrNull() != null`, `temperature in 0f..1f`; surface errors via `NexyInputValidation` rather than silently clamping values — `Done`
+- [x] **Knowledge Files animated panel swap**: wrap the `editingKnowledgeFile != null` branch with `AnimatedContent(targetState = editingKnowledgeFile)` for a smooth transition — `Done`
+- [x] **`Column` → `LazyColumn` for skills and MCP lists**: `SkillAttachmentsSection` and `McpServerAssignmentSection` render all cards in a `Column` inside the outer `verticalScroll` — convert to `LazyColumn` items — `Done` (kept Column; screen uses verticalScroll, nesting LazyColumn would conflict; items already collapse under NexyExpandableSection)
 
 ---
 

@@ -1,5 +1,7 @@
 package io.nexy.android.ui.home
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -16,6 +19,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -43,10 +48,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,7 +70,11 @@ import io.nexy.android.data.model.McpServerInfo
 import io.nexy.android.data.model.SkillConfig
 import io.nexy.android.data.model.ToolConfig
 import io.nexy.android.data.model.WsEvent
+import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyConnectionBanner
+import io.nexy.android.ui.components.NexyExpandableSection
+import io.nexy.android.ui.components.NexyInputValidation
+import io.nexy.android.ui.components.NexySearchField
 import io.nexy.android.ui.components.NexyTopAppBar
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -166,11 +175,73 @@ fun AgentConfigScreen(
     var mcpToolOverrides by remember { mutableStateOf<List<AgentMcpToolOverride>>(emptyList()) }
     var mcpServerTrust by remember { mutableStateOf<List<AgentMcpServerTrust>>(emptyList()) }
 
+    // Snapshot of loaded values for dirty-check
+    var loadedName by remember { mutableStateOf("") }
+    var loadedIcon by remember { mutableStateOf("") }
+    var loadedSystemPrompt by remember { mutableStateOf("") }
+    var loadedMemory by remember { mutableStateOf("") }
+    var loadedAgenticMode by remember { mutableStateOf(false) }
+    var loadedBackend by remember { mutableStateOf<String?>(null) }
+    var loadedCliModel by remember { mutableStateOf("") }
+    var loadedResponseFormat by remember { mutableStateOf("default") }
+    var loadedTemperature by remember { mutableFloatStateOf(0.7f) }
+    var loadedMaxTokensText by remember { mutableStateOf("8192") }
+    var loadedThinkingEffort by remember { mutableStateOf<String?>(null) }
+
+    // Section expand state (persisted across config changes)
+    var identityExpanded by rememberSaveable { mutableStateOf(true) }
+    var behaviourExpanded by rememberSaveable { mutableStateOf(true) }
+    var backendExpanded by rememberSaveable { mutableStateOf(false) }
+    var generationExpanded by rememberSaveable { mutableStateOf(false) }
+    var toolsExpanded by rememberSaveable { mutableStateOf(false) }
+    var skillsExpanded by rememberSaveable { mutableStateOf(false) }
+    var contextExpanded by rememberSaveable { mutableStateOf(false) }
+    var contextRulesExpanded by rememberSaveable { mutableStateOf(false) }
+    var customCommandsExpanded by rememberSaveable { mutableStateOf(false) }
+    var mcpExpanded by rememberSaveable { mutableStateOf(false) }
+    var knowledgeExpanded by rememberSaveable { mutableStateOf(false) }
+
+    // Validation errors
+    var nameError by remember { mutableStateOf<String?>(null) }
+    var maxTokensError by remember { mutableStateOf<String?>(null) }
+    var temperatureError by remember { mutableStateOf<String?>(null) }
+
+    // Unsaved changes guard
+    var showDiscardDialog by remember { mutableStateOf(false) }
+
     var saving by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
-    // Request full config on entry
+    val hasUnsavedChanges = fullConfig != null && (
+        name != loadedName ||
+        icon != loadedIcon ||
+        systemPrompt != loadedSystemPrompt ||
+        memory != loadedMemory ||
+        agenticMode != loadedAgenticMode ||
+        backend != loadedBackend ||
+        cliModel != loadedCliModel ||
+        responseFormat != loadedResponseFormat ||
+        temperature != loadedTemperature ||
+        maxTokensText != loadedMaxTokensText ||
+        thinkingEffort != loadedThinkingEffort
+    )
+
+    BackHandler(enabled = hasUnsavedChanges && !showDiscardDialog) {
+        showDiscardDialog = true
+    }
+
+    if (showDiscardDialog) {
+        NexyConfirmDialog(
+            title = "Discard changes?",
+            message = "You have unsaved changes. Leaving now will discard them.",
+            confirmLabel = "Discard",
+            onConfirm = { showDiscardDialog = false; onBack() },
+            onDismiss = { showDiscardDialog = false },
+            destructive = true,
+        )
+    }
+
     LaunchedEffect(agentId) {
         WsRepository.agentFullConfig.value = null
         WsRepository.requestAgentFull(agentId)
@@ -182,20 +253,19 @@ fun AgentConfigScreen(
         WsRepository.getMcpServerTrust(agentId)
     }
 
-    // Populate fields when full config arrives
     LaunchedEffect(fullConfig) {
         val c = fullConfig ?: return@LaunchedEffect
-        name = c.name
-        icon = c.icon
-        systemPrompt = c.systemPrompt
-        memory = c.memory
-        agenticMode = c.agenticMode
-        backend = c.backend
-        cliModel = c.cliModel ?: ""
-        responseFormat = c.responseFormat
-        temperature = c.temperature
-        maxTokensText = c.maxTokens.toString()
-        thinkingEffort = c.thinkingEffort
+        name = c.name; loadedName = c.name
+        icon = c.icon; loadedIcon = c.icon
+        systemPrompt = c.systemPrompt; loadedSystemPrompt = c.systemPrompt
+        memory = c.memory; loadedMemory = c.memory
+        agenticMode = c.agenticMode; loadedAgenticMode = c.agenticMode
+        backend = c.backend; loadedBackend = c.backend
+        cliModel = c.cliModel ?: ""; loadedCliModel = c.cliModel ?: ""
+        responseFormat = c.responseFormat; loadedResponseFormat = c.responseFormat
+        temperature = c.temperature; loadedTemperature = c.temperature
+        maxTokensText = c.maxTokens.toString(); loadedMaxTokensText = c.maxTokens.toString()
+        thinkingEffort = c.thinkingEffort; loadedThinkingEffort = c.thinkingEffort
         fileEditEnabled = c.tools.fileEdit.enabled
         fileEditApproval = c.tools.fileEdit.approval
         fileEditInstructions = c.tools.fileEdit.instructions
@@ -215,12 +285,18 @@ fun AgentConfigScreen(
         mcpServers = c.mcpServers
     }
 
-    // Listen for save confirmation, skill links, knowledge files, and MCP events
     LaunchedEffect(agentId) {
         WsRepository.events.collect { event ->
             when {
                 event is WsEvent.AgentUpdated && event.agent.id == agentId -> {
                     saving = false
+                    // Update snapshots so dirty flag resets after save
+                    loadedName = name; loadedIcon = icon
+                    loadedSystemPrompt = systemPrompt; loadedMemory = memory
+                    loadedAgenticMode = agenticMode; loadedBackend = backend
+                    loadedCliModel = cliModel; loadedResponseFormat = responseFormat
+                    loadedTemperature = temperature; loadedMaxTokensText = maxTokensText
+                    loadedThinkingEffort = thinkingEffort
                     scope.launch { snackbarHostState.showSnackbar("Agent saved.") }
                 }
                 event is WsEvent.SkillAgentLinks && event.agentId == agentId -> {
@@ -276,7 +352,7 @@ fun AgentConfigScreen(
                         maxLines = 1,
                     )
                 },
-                onBack = onBack,
+                onBack = { if (hasUnsavedChanges) showDiscardDialog = true else onBack() },
             )
         },
     ) { padding ->
@@ -304,410 +380,504 @@ fun AgentConfigScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {
             NexyConnectionBanner(connectionState)
 
             // — Identity —
-            SectionHeader("Identity")
-
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                OutlinedTextField(
-                    value = icon,
-                    onValueChange = { icon = it },
-                    label = { Text("Icon") },
-                    singleLine = true,
-                    enabled = !saving && !disconnected,
-                    modifier = Modifier.weight(0.28f),
-                )
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Name") },
-                    singleLine = true,
-                    enabled = !saving && !disconnected,
-                    modifier = Modifier.weight(0.72f),
-                )
-            }
-
-            // — Backend —
-            SectionHeader("Backend")
-
-            ExposedDropdownMenuBox(
-                expanded = backendMenuExpanded,
-                onExpandedChange = { if (!saving && !disconnected) backendMenuExpanded = it },
+            NexyExpandableSection(
+                title = "Identity",
+                expanded = identityExpanded,
+                onToggle = { identityExpanded = !identityExpanded },
             ) {
-                OutlinedTextField(
-                    value = backendLabel,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("Backend") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = backendMenuExpanded) },
-                    enabled = !saving && !disconnected,
-                    modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
-                )
-                ExposedDropdownMenu(
-                    expanded = backendMenuExpanded,
-                    onDismissRequest = { backendMenuExpanded = false },
-                ) {
-                    backendOptions.forEach { (value, label) ->
-                        DropdownMenuItem(
-                            text = { Text(label) },
-                            onClick = {
-                                backend = value
-                                backendMenuExpanded = false
-                            },
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                        NexyInputValidation(
+                            value = icon,
+                            onValueChange = { icon = it },
+                            label = "Icon",
+                            singleLine = true,
+                            enabled = !saving && !disconnected,
+                            modifier = Modifier.weight(0.28f),
+                        )
+                        NexyInputValidation(
+                            value = name,
+                            onValueChange = { name = it; if (it.isNotBlank()) nameError = null },
+                            label = "Name",
+                            singleLine = true,
+                            enabled = !saving && !disconnected,
+                            errorMessage = nameError,
+                            modifier = Modifier.weight(0.72f),
                         )
                     }
                 }
-            }
-
-            if (backend != null) {
-                OutlinedTextField(
-                    value = cliModel,
-                    onValueChange = { cliModel = it },
-                    label = { Text("CLI model (optional)") },
-                    placeholder = { Text("e.g. claude-sonnet-4-6") },
-                    singleLine = true,
-                    enabled = !saving && !disconnected,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-
-            // — Behaviour —
-            SectionHeader("Behaviour")
-
-            OutlinedTextField(
-                value = systemPrompt,
-                onValueChange = { systemPrompt = it },
-                label = { Text("System prompt") },
-                enabled = !saving && !disconnected,
-                minLines = 4,
-                maxLines = 12,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            OutlinedTextField(
-                value = memory,
-                onValueChange = { memory = it },
-                label = { Text("Memory") },
-                placeholder = { Text("Always appended to system prompt") },
-                enabled = !saving && !disconnected,
-                minLines = 3,
-                maxLines = 8,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column {
-                    Text("Agentic mode", style = MaterialTheme.typography.bodyMedium)
-                    Text("Allow autonomous multi-step actions", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Switch(checked = agenticMode, onCheckedChange = { if (!saving && !disconnected) agenticMode = it }, enabled = !saving && !disconnected)
-            }
-
-            // — Generation —
-            SectionHeader("Generation")
-
-            ExposedDropdownMenuBox(
-                expanded = responseFormatMenuExpanded,
-                onExpandedChange = { if (!saving && !disconnected) responseFormatMenuExpanded = it },
-            ) {
-                OutlinedTextField(
-                    value = responseFormatLabel,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("Response format") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = responseFormatMenuExpanded) },
-                    enabled = !saving && !disconnected,
-                    modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
-                )
-                ExposedDropdownMenu(
-                    expanded = responseFormatMenuExpanded,
-                    onDismissRequest = { responseFormatMenuExpanded = false },
-                ) {
-                    responseFormatOptions.forEach { (value, label) ->
-                        DropdownMenuItem(
-                            text = { Text(label) },
-                            onClick = {
-                                responseFormat = value
-                                responseFormatMenuExpanded = false
-                            },
-                        )
-                    }
-                }
-            }
-
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Temperature", style = MaterialTheme.typography.bodyMedium)
-                    Text("%.2f".format(temperature), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
-                }
-                Slider(
-                    value = temperature,
-                    onValueChange = { if (!saving && !disconnected) temperature = (it * 20).roundToInt() / 20f },
-                    valueRange = 0f..1f,
-                    steps = 19,
-                    enabled = !saving && !disconnected,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Precise", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("Creative", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-
-            OutlinedTextField(
-                value = maxTokensText,
-                onValueChange = { maxTokensText = it },
-                label = { Text("Max tokens") },
-                placeholder = { Text("256 – 128000") },
-                singleLine = true,
-                enabled = !saving && !disconnected,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            ExposedDropdownMenuBox(
-                expanded = thinkingEffortMenuExpanded,
-                onExpandedChange = { if (!saving && !disconnected) thinkingEffortMenuExpanded = it },
-            ) {
-                OutlinedTextField(
-                    value = thinkingEffortLabel,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("Thinking effort") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = thinkingEffortMenuExpanded) },
-                    enabled = !saving && !disconnected,
-                    modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
-                )
-                ExposedDropdownMenu(
-                    expanded = thinkingEffortMenuExpanded,
-                    onDismissRequest = { thinkingEffortMenuExpanded = false },
-                ) {
-                    thinkingEffortOptions.forEach { (value, label) ->
-                        DropdownMenuItem(
-                            text = { Text(label) },
-                            onClick = {
-                                thinkingEffort = value
-                                thinkingEffortMenuExpanded = false
-                            },
-                        )
-                    }
-                }
-            }
-
-            // — Tools —
-            SectionHeader("Tools")
-
-            ToolCard(
-                name = "File Edit",
-                description = "Read and modify files",
-                enabled = fileEditEnabled,
-                approval = fileEditApproval,
-                approvalExpanded = fileEditApprovalExpanded,
-                instructions = fileEditInstructions,
-                disabled = saving || disconnected,
-                onEnabledChange = { fileEditEnabled = it },
-                onApprovalChange = { fileEditApproval = it },
-                onApprovalExpandedChange = { fileEditApprovalExpanded = it },
-                onInstructionsChange = { fileEditInstructions = it },
-            )
-
-            ToolCard(
-                name = "Terminal",
-                description = "Run shell commands",
-                enabled = terminalEnabled,
-                approval = terminalApproval,
-                approvalExpanded = terminalApprovalExpanded,
-                instructions = terminalInstructions,
-                disabled = saving || disconnected,
-                onEnabledChange = { terminalEnabled = it },
-                onApprovalChange = { terminalApproval = it },
-                onApprovalExpandedChange = { terminalApprovalExpanded = it },
-                onInstructionsChange = { terminalInstructions = it },
-            )
-
-            ToolCard(
-                name = "Web Fetch",
-                description = "Fetch URLs and browse the web",
-                enabled = webFetchEnabled,
-                approval = webFetchApproval,
-                approvalExpanded = webFetchApprovalExpanded,
-                instructions = webFetchInstructions,
-                disabled = saving || disconnected,
-                onEnabledChange = { webFetchEnabled = it },
-                onApprovalChange = { webFetchApproval = it },
-                onApprovalExpandedChange = { webFetchApprovalExpanded = it },
-                onInstructionsChange = { webFetchInstructions = it },
-            )
-
-            // — Skills —
-            SectionHeader("Skills")
-
-            SkillAttachmentsSection(
-                skills = skills,
-                attachedSkillIds = attachedSkillIds,
-                disabled = saving || disconnected,
-                onRefresh = {
-                    WsRepository.listSkills()
-                    WsRepository.getSkillAgentLinks(agentId)
-                },
-                onToggleSkill = { skillId, attach ->
-                    WsRepository.attachSkillToAgent(agentId, skillId, attach)
-                },
-                onMoveSkill = { skillId, direction ->
-                    val current = attachedSkillIds.toMutableList()
-                    val index = current.indexOf(skillId)
-                    val target = index + direction
-                    if (index >= 0 && target in current.indices) {
-                        current.removeAt(index)
-                        current.add(target, skillId)
-                        attachedSkillIds = current
-                        WsRepository.reorderSkillsForAgent(agentId, current)
-                    }
-                },
-            )
-
-            // — Context —
-            SectionHeader("Context")
-
-            OutlinedTextField(
-                value = rootDirectory,
-                onValueChange = { rootDirectory = it },
-                label = { Text("Root directory") },
-                placeholder = { Text("Absolute path (optional)") },
-                singleLine = true,
-                enabled = !saving && !disconnected,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            StringListEditor(
-                label = "Context directories",
-                items = contextDirectories,
-                placeholder = "e.g. /path/to/dir",
-                disabled = saving || disconnected,
-                onItemsChange = { contextDirectories = it },
-            )
-
-            StringListEditor(
-                label = "Context files",
-                items = contextFiles,
-                placeholder = "e.g. /path/to/file.txt",
-                disabled = saving || disconnected,
-                onItemsChange = { contextFiles = it },
-            )
-
-            // — Context rules —
-            SectionHeader("Context rules")
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column {
-                    Text("Auto-inject workspace", style = MaterialTheme.typography.bodyMedium)
-                    Text("Include workspace file tree in context", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Switch(checked = autoInjectWorkspace, onCheckedChange = { if (!saving && !disconnected) autoInjectWorkspace = it }, enabled = !saving && !disconnected)
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column {
-                    Text("Auto-inject git status", style = MaterialTheme.typography.bodyMedium)
-                    Text("Include git status summary in context", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Switch(checked = autoInjectGit, onCheckedChange = { if (!saving && !disconnected) autoInjectGit = it }, enabled = !saving && !disconnected)
-            }
-
-            StringListEditor(
-                label = "Ignored globs",
-                items = ignoredGlobs,
-                placeholder = "e.g. **/*.log",
-                disabled = saving || disconnected,
-                onItemsChange = { ignoredGlobs = it },
-            )
-
-            // — Custom commands —
-            SectionHeader("Custom commands")
-
-            CustomCommandsEditor(
-                commands = customCommands,
-                disabled = saving || disconnected,
-                onCommandsChange = { customCommands = it },
-            )
-
-            // — MCP servers —
-            SectionHeader("MCP Servers")
-
-            McpServerAssignmentSection(
-                availableServers = availableMcpServers,
-                assignedServerIds = mcpServers,
-                mcpToolOverrides = mcpToolOverrides,
-                mcpServerTrust = mcpServerTrust,
-                disabled = saving || disconnected,
-                onToggleServer = { serverId, assign ->
-                    mcpServers = if (assign) mcpServers + serverId else mcpServers.filter { it != serverId }
-                },
-                onSetTrust = { serverId, trust ->
-                    WsRepository.setMcpServerTrust(agentId, serverId, trust)
-                },
-                onSetToolOverride = { serverId, toolName, enabled, approval, instructions ->
-                    WsRepository.setMcpToolOverride(agentId, serverId, toolName, enabled, approval, instructions)
-                },
-            )
-
-            // — Knowledge files —
-            SectionHeader("Knowledge files")
-
-            if (editingKnowledgeFile != null) {
-                KnowledgeFileEditorSection(
-                    file = editingKnowledgeFile!!,
-                    content = editingKnowledgeContent,
-                    loading = knowledgeFileLoading,
-                    disabled = saving || disconnected,
-                    onContentChange = { editingKnowledgeContent = it },
-                    onSave = {
-                        WsRepository.writeKnowledgeFile(agentId, editingKnowledgeFile!!.filePath, editingKnowledgeContent)
-                    },
-                    onCancel = { editingKnowledgeFile = null },
-                )
-            } else {
-                KnowledgeFilesSection(
-                    files = knowledgeFiles,
-                    disabled = saving || disconnected,
-                    onAdd = { filePath ->
-                        WsRepository.addKnowledgeFile(agentId, filePath)
-                    },
-                    onRemove = { id ->
-                        WsRepository.removeKnowledgeFile(agentId, id)
-                    },
-                    onEdit = { file ->
-                        editingKnowledgeFile = file
-                        editingKnowledgeContent = ""
-                        knowledgeFileLoading = true
-                        WsRepository.readKnowledgeFile(agentId, file.filePath)
-                    },
-                )
             }
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
+            // — Behaviour —
+            NexyExpandableSection(
+                title = "Behaviour",
+                expanded = behaviourExpanded,
+                onToggle = { behaviourExpanded = !behaviourExpanded },
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+                    OutlinedTextField(
+                        value = systemPrompt,
+                        onValueChange = { systemPrompt = it },
+                        label = { Text("System prompt") },
+                        enabled = !saving && !disconnected,
+                        minLines = 4,
+                        maxLines = 12,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+
+                    OutlinedTextField(
+                        value = memory,
+                        onValueChange = { memory = it },
+                        label = { Text("Memory") },
+                        placeholder = { Text("Always appended to system prompt") },
+                        enabled = !saving && !disconnected,
+                        minLines = 3,
+                        maxLines = 8,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column {
+                            Text("Agentic mode", style = MaterialTheme.typography.bodyMedium)
+                            Text("Allow autonomous multi-step actions", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(checked = agenticMode, onCheckedChange = { if (!saving && !disconnected) agenticMode = it }, enabled = !saving && !disconnected)
+                    }
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            // — Backend —
+            NexyExpandableSection(
+                title = "Backend",
+                expanded = backendExpanded,
+                onToggle = { backendExpanded = !backendExpanded },
+                badge = backendOptions.find { it.first == backend }?.second?.takeIf { backend != null },
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+                    ExposedDropdownMenuBox(
+                        expanded = backendMenuExpanded,
+                        onExpandedChange = { if (!saving && !disconnected) backendMenuExpanded = it },
+                    ) {
+                        OutlinedTextField(
+                            value = backendLabel,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Backend") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = backendMenuExpanded) },
+                            enabled = !saving && !disconnected,
+                            modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+                        )
+                        ExposedDropdownMenu(
+                            expanded = backendMenuExpanded,
+                            onDismissRequest = { backendMenuExpanded = false },
+                        ) {
+                            backendOptions.forEach { (value, label) ->
+                                DropdownMenuItem(
+                                    text = { Text(label) },
+                                    onClick = {
+                                        backend = value
+                                        backendMenuExpanded = false
+                                    },
+                                )
+                            }
+                        }
+                    }
+
+                    if (backend != null) {
+                        OutlinedTextField(
+                            value = cliModel,
+                            onValueChange = { cliModel = it },
+                            label = { Text("CLI model (optional)") },
+                            placeholder = { Text("e.g. claude-sonnet-4-6") },
+                            singleLine = true,
+                            enabled = !saving && !disconnected,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            // — Generation —
+            NexyExpandableSection(
+                title = "Generation",
+                expanded = generationExpanded,
+                onToggle = { generationExpanded = !generationExpanded },
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+                    ExposedDropdownMenuBox(
+                        expanded = responseFormatMenuExpanded,
+                        onExpandedChange = { if (!saving && !disconnected) responseFormatMenuExpanded = it },
+                    ) {
+                        OutlinedTextField(
+                            value = responseFormatLabel,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Response format") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = responseFormatMenuExpanded) },
+                            enabled = !saving && !disconnected,
+                            modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+                        )
+                        ExposedDropdownMenu(
+                            expanded = responseFormatMenuExpanded,
+                            onDismissRequest = { responseFormatMenuExpanded = false },
+                        ) {
+                            responseFormatOptions.forEach { (value, label) ->
+                                DropdownMenuItem(
+                                    text = { Text(label) },
+                                    onClick = {
+                                        responseFormat = value
+                                        responseFormatMenuExpanded = false
+                                    },
+                                )
+                            }
+                        }
+                    }
+
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Temperature", style = MaterialTheme.typography.bodyMedium)
+                            Text("%.2f".format(temperature), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                        }
+                        Slider(
+                            value = temperature,
+                            onValueChange = { if (!saving && !disconnected) temperature = (it * 20).roundToInt() / 20f },
+                            valueRange = 0f..1f,
+                            steps = 19,
+                            enabled = !saving && !disconnected,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Precise", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Creative", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+
+                    NexyInputValidation(
+                        value = maxTokensText,
+                        onValueChange = { maxTokensText = it; maxTokensError = null },
+                        label = "Max tokens",
+                        placeholder = "256 – 128000",
+                        singleLine = true,
+                        enabled = !saving && !disconnected,
+                        errorMessage = maxTokensError,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+
+                    ExposedDropdownMenuBox(
+                        expanded = thinkingEffortMenuExpanded,
+                        onExpandedChange = { if (!saving && !disconnected) thinkingEffortMenuExpanded = it },
+                    ) {
+                        OutlinedTextField(
+                            value = thinkingEffortLabel,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Thinking effort") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = thinkingEffortMenuExpanded) },
+                            enabled = !saving && !disconnected,
+                            modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+                        )
+                        ExposedDropdownMenu(
+                            expanded = thinkingEffortMenuExpanded,
+                            onDismissRequest = { thinkingEffortMenuExpanded = false },
+                        ) {
+                            thinkingEffortOptions.forEach { (value, label) ->
+                                DropdownMenuItem(
+                                    text = { Text(label) },
+                                    onClick = {
+                                        thinkingEffort = value
+                                        thinkingEffortMenuExpanded = false
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            // — Tools —
+            NexyExpandableSection(
+                title = "Tools",
+                expanded = toolsExpanded,
+                onToggle = { toolsExpanded = !toolsExpanded },
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+                    ToolCard(
+                        name = "File Edit",
+                        description = "Read and modify files",
+                        enabled = fileEditEnabled,
+                        approval = fileEditApproval,
+                        approvalExpanded = fileEditApprovalExpanded,
+                        instructions = fileEditInstructions,
+                        disabled = saving || disconnected,
+                        onEnabledChange = { fileEditEnabled = it },
+                        onApprovalChange = { fileEditApproval = it },
+                        onApprovalExpandedChange = { fileEditApprovalExpanded = it },
+                        onInstructionsChange = { fileEditInstructions = it },
+                    )
+                    ToolCard(
+                        name = "Terminal",
+                        description = "Run shell commands",
+                        enabled = terminalEnabled,
+                        approval = terminalApproval,
+                        approvalExpanded = terminalApprovalExpanded,
+                        instructions = terminalInstructions,
+                        disabled = saving || disconnected,
+                        onEnabledChange = { terminalEnabled = it },
+                        onApprovalChange = { terminalApproval = it },
+                        onApprovalExpandedChange = { terminalApprovalExpanded = it },
+                        onInstructionsChange = { terminalInstructions = it },
+                    )
+                    ToolCard(
+                        name = "Web Fetch",
+                        description = "Fetch URLs and browse the web",
+                        enabled = webFetchEnabled,
+                        approval = webFetchApproval,
+                        approvalExpanded = webFetchApprovalExpanded,
+                        instructions = webFetchInstructions,
+                        disabled = saving || disconnected,
+                        onEnabledChange = { webFetchEnabled = it },
+                        onApprovalChange = { webFetchApproval = it },
+                        onApprovalExpandedChange = { webFetchApprovalExpanded = it },
+                        onInstructionsChange = { webFetchInstructions = it },
+                    )
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            // — Skills —
+            NexyExpandableSection(
+                title = "Skills",
+                expanded = skillsExpanded,
+                onToggle = { skillsExpanded = !skillsExpanded },
+                badge = attachedSkillIds.size.takeIf { it > 0 }?.toString(),
+            ) {
+                Column(modifier = Modifier.padding(bottom = 12.dp)) {
+                    SkillAttachmentsSection(
+                        skills = skills,
+                        attachedSkillIds = attachedSkillIds,
+                        disabled = saving || disconnected,
+                        onRefresh = {
+                            WsRepository.listSkills()
+                            WsRepository.getSkillAgentLinks(agentId)
+                        },
+                        onToggleSkill = { skillId, attach ->
+                            WsRepository.attachSkillToAgent(agentId, skillId, attach)
+                        },
+                        onMoveSkill = { skillId, direction ->
+                            val current = attachedSkillIds.toMutableList()
+                            val index = current.indexOf(skillId)
+                            val target = index + direction
+                            if (index >= 0 && target in current.indices) {
+                                current.removeAt(index)
+                                current.add(target, skillId)
+                                attachedSkillIds = current
+                                WsRepository.reorderSkillsForAgent(agentId, current)
+                            }
+                        },
+                    )
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            // — Context —
+            NexyExpandableSection(
+                title = "Context",
+                expanded = contextExpanded,
+                onToggle = { contextExpanded = !contextExpanded },
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+                    OutlinedTextField(
+                        value = rootDirectory,
+                        onValueChange = { rootDirectory = it },
+                        label = { Text("Root directory") },
+                        placeholder = { Text("Absolute path (optional)") },
+                        singleLine = true,
+                        enabled = !saving && !disconnected,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    StringListEditor(
+                        label = "Context directories",
+                        items = contextDirectories,
+                        placeholder = "e.g. /path/to/dir",
+                        disabled = saving || disconnected,
+                        onItemsChange = { contextDirectories = it },
+                    )
+                    StringListEditor(
+                        label = "Context files",
+                        items = contextFiles,
+                        placeholder = "e.g. /path/to/file.txt",
+                        disabled = saving || disconnected,
+                        onItemsChange = { contextFiles = it },
+                    )
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            // — Context rules —
+            NexyExpandableSection(
+                title = "Context Rules",
+                expanded = contextRulesExpanded,
+                onToggle = { contextRulesExpanded = !contextRulesExpanded },
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column {
+                            Text("Auto-inject workspace", style = MaterialTheme.typography.bodyMedium)
+                            Text("Include workspace file tree in context", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(checked = autoInjectWorkspace, onCheckedChange = { if (!saving && !disconnected) autoInjectWorkspace = it }, enabled = !saving && !disconnected)
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column {
+                            Text("Auto-inject git status", style = MaterialTheme.typography.bodyMedium)
+                            Text("Include git status summary in context", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(checked = autoInjectGit, onCheckedChange = { if (!saving && !disconnected) autoInjectGit = it }, enabled = !saving && !disconnected)
+                    }
+                    StringListEditor(
+                        label = "Ignored globs",
+                        items = ignoredGlobs,
+                        placeholder = "e.g. **/*.log",
+                        disabled = saving || disconnected,
+                        onItemsChange = { ignoredGlobs = it },
+                    )
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            // — Custom commands —
+            NexyExpandableSection(
+                title = "Custom Commands",
+                expanded = customCommandsExpanded,
+                onToggle = { customCommandsExpanded = !customCommandsExpanded },
+                badge = customCommands.size.takeIf { it > 0 }?.toString(),
+            ) {
+                Column(modifier = Modifier.padding(bottom = 12.dp)) {
+                    CustomCommandsEditor(
+                        commands = customCommands,
+                        disabled = saving || disconnected,
+                        onCommandsChange = { customCommands = it },
+                    )
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            // — MCP servers —
+            NexyExpandableSection(
+                title = "MCP Servers",
+                expanded = mcpExpanded,
+                onToggle = { mcpExpanded = !mcpExpanded },
+                badge = mcpServers.size.takeIf { it > 0 }?.toString(),
+            ) {
+                Column(modifier = Modifier.padding(bottom = 12.dp)) {
+                    McpServerAssignmentSection(
+                        availableServers = availableMcpServers,
+                        assignedServerIds = mcpServers,
+                        mcpToolOverrides = mcpToolOverrides,
+                        mcpServerTrust = mcpServerTrust,
+                        disabled = saving || disconnected,
+                        onToggleServer = { serverId, assign ->
+                            mcpServers = if (assign) mcpServers + serverId else mcpServers.filter { it != serverId }
+                        },
+                        onSetTrust = { serverId, trust ->
+                            WsRepository.setMcpServerTrust(agentId, serverId, trust)
+                        },
+                        onSetToolOverride = { serverId, toolName, enabled, approval, instructions ->
+                            WsRepository.setMcpToolOverride(agentId, serverId, toolName, enabled, approval, instructions)
+                        },
+                    )
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            // — Knowledge files —
+            NexyExpandableSection(
+                title = "Knowledge Files",
+                expanded = knowledgeExpanded,
+                onToggle = { knowledgeExpanded = !knowledgeExpanded },
+                badge = knowledgeFiles.size.takeIf { it > 0 }?.toString(),
+            ) {
+                Column(modifier = Modifier.padding(bottom = 12.dp)) {
+                    AnimatedContent(targetState = editingKnowledgeFile, label = "knowledge-panel") { editing ->
+                        if (editing != null) {
+                            KnowledgeFileEditorSection(
+                                file = editing,
+                                content = editingKnowledgeContent,
+                                loading = knowledgeFileLoading,
+                                disabled = saving || disconnected,
+                                onContentChange = { editingKnowledgeContent = it },
+                                onSave = {
+                                    WsRepository.writeKnowledgeFile(agentId, editing.filePath, editingKnowledgeContent)
+                                },
+                                onCancel = { editingKnowledgeFile = null },
+                            )
+                        } else {
+                            KnowledgeFilesSection(
+                                files = knowledgeFiles,
+                                disabled = saving || disconnected,
+                                onAdd = { filePath ->
+                                    WsRepository.addKnowledgeFile(agentId, filePath)
+                                },
+                                onRemove = { id ->
+                                    WsRepository.removeKnowledgeFile(agentId, id)
+                                },
+                                onEdit = { file ->
+                                    editingKnowledgeFile = file
+                                    editingKnowledgeContent = ""
+                                    knowledgeFileLoading = true
+                                    WsRepository.readKnowledgeFile(agentId, file.filePath)
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
             Button(
                 onClick = {
-                    if (name.isBlank() || saving || disconnected) return@Button
+                    var valid = true
+                    if (name.isBlank()) { nameError = "Name is required"; valid = false }
+                    val maxTokensParsed = maxTokensText.trim().toIntOrNull()
+                    if (maxTokensParsed == null || maxTokensParsed !in 256..128000) {
+                        maxTokensError = "Enter a number between 256 and 128000"
+                        valid = false
+                    }
+                    if (!valid || saving || disconnected) return@Button
                     saving = true
-                    val maxTokens = maxTokensText.trim().toIntOrNull()?.coerceIn(256, 128000) ?: 8192
                     val data = buildAgentUpdatePayload(
                         AgentFullConfig(
                             id = agentId,
@@ -717,7 +887,7 @@ fun AgentConfigScreen(
                             backend = backend,
                             cliModel = cliModel.trim(),
                             temperature = temperature,
-                            maxTokens = maxTokens,
+                            maxTokens = maxTokensParsed!!.coerceIn(256, 128000),
                             responseFormat = responseFormat,
                             agenticMode = agenticMode,
                             memory = memory.trim(),
@@ -741,19 +911,15 @@ fun AgentConfigScreen(
                     )
                     WsRepository.send("agent:update", data)
                 },
-                enabled = name.isNotBlank() && !saving && !disconnected,
+                enabled = !saving && !disconnected,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(if (saving) "Saving…" else "Save changes")
             }
+
+            Spacer(Modifier.height(8.dp))
         }
     }
-}
-
-@Composable
-private fun SectionHeader(title: String) {
-    Text(title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -990,6 +1156,8 @@ private fun SkillAttachmentsSection(
     onToggleSkill: (skillId: String, attach: Boolean) -> Unit,
     onMoveSkill: (skillId: String, direction: Int) -> Unit,
 ) {
+    var skillSearch by remember { mutableStateOf("") }
+
     if (skills.isEmpty()) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
@@ -1010,26 +1178,51 @@ private fun SkillAttachmentsSection(
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        NexySearchField(
+            query = skillSearch,
+            onQueryChange = { skillSearch = it },
+            placeholder = "Search skills",
+            debounceMs = 200L,
+        )
+
         Text(
             if (attachedSkillIds.isEmpty()) "No skills attached." else "${attachedSkillIds.size} skill(s) attached.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+
         val orderedSkills = skills.sortedWith(compareBy<SkillConfig> {
             val index = attachedSkillIds.indexOf(it.id)
             if (index == -1) Int.MAX_VALUE else index
         }.thenBy { it.name.lowercase() })
-        orderedSkills.forEach { skill ->
-            SkillAttachmentRow(
-                skill = skill,
-                attached = attachedSkillIds.contains(skill.id),
-                canMoveUp = attachedSkillIds.indexOf(skill.id) > 0,
-                canMoveDown = attachedSkillIds.indexOf(skill.id).let { it >= 0 && it < attachedSkillIds.lastIndex },
-                disabled = disabled,
-                onToggle = { onToggleSkill(skill.id, it) },
-                onMoveUp = { onMoveSkill(skill.id, -1) },
-                onMoveDown = { onMoveSkill(skill.id, 1) },
+
+        val filteredSkills = remember(orderedSkills, skillSearch) {
+            if (skillSearch.isBlank()) orderedSkills
+            else orderedSkills.filter {
+                it.name.contains(skillSearch, ignoreCase = true) ||
+                it.description.contains(skillSearch, ignoreCase = true)
+            }
+        }
+
+        if (filteredSkills.isEmpty()) {
+            Text(
+                "No skills match \"$skillSearch\".",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        } else {
+            filteredSkills.forEach { skill ->
+                SkillAttachmentRow(
+                    skill = skill,
+                    attached = attachedSkillIds.contains(skill.id),
+                    canMoveUp = attachedSkillIds.indexOf(skill.id) > 0,
+                    canMoveDown = attachedSkillIds.indexOf(skill.id).let { it >= 0 && it < attachedSkillIds.lastIndex },
+                    disabled = disabled,
+                    onToggle = { onToggleSkill(skill.id, it) },
+                    onMoveUp = { onMoveSkill(skill.id, -1) },
+                    onMoveDown = { onMoveSkill(skill.id, 1) },
+                )
+            }
         }
     }
 }
@@ -1082,9 +1275,32 @@ private fun SkillAttachmentRow(
                 )
             }
             if (attached) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = onMoveUp, enabled = !disabled && canMoveUp) { Text("Move up") }
-                    TextButton(onClick = onMoveDown, enabled = !disabled && canMoveDown) { Text("Move down") }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(
+                        onClick = onMoveUp,
+                        enabled = !disabled && canMoveUp,
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.KeyboardArrowUp,
+                            contentDescription = "Move ${skill.name} up",
+                            tint = if (canMoveUp) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+                        )
+                    }
+                    IconButton(
+                        onClick = onMoveDown,
+                        enabled = !disabled && canMoveDown,
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.KeyboardArrowDown,
+                            contentDescription = "Move ${skill.name} down",
+                            tint = if (canMoveDown) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+                        )
+                    }
                 }
             }
         }
@@ -1227,7 +1443,7 @@ private fun KnowledgeFilesSection(
                         Row {
                             TextButton(onClick = { onEdit(file) }, enabled = !disabled) { Text("Edit") }
                             IconButton(onClick = { onRemove(file.id) }, enabled = !disabled) {
-                                Icon(Icons.Default.Delete, contentDescription = "Remove", tint = MaterialTheme.colorScheme.error)
+                                Icon(Icons.Default.Delete, contentDescription = "Remove knowledge file", tint = MaterialTheme.colorScheme.error)
                             }
                         }
                     }
