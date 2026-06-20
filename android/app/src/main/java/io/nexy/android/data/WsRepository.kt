@@ -687,6 +687,20 @@ object WsRepository : WsClient {
         send("wiki:extract-from-conversation", mapOf("conversationId" to conversationId, "projectId" to projectId))
     }
 
+    val buildRecords = MutableStateFlow<List<io.nexy.android.data.model.BuildRecord>>(emptyList())
+
+    fun getBuildRecords(platform: String? = null, limit: Int = 20) {
+        val payload = mutableMapOf<String, Any>("limit" to limit)
+        if (platform != null) payload["platform"] = platform
+        send("build:get-records", payload)
+    }
+    fun getBuildWorkspaceInfo() { send("build:get-workspace-info", emptyMap()) }
+    fun runBuildPreflight() { send("build:run-preflight", emptyMap()) }
+    fun getAndroidWorkspaceInfo() { send("android:get-workspace-info", emptyMap()) }
+    fun validateAndroidSigning() { send("android:validate-signing", emptyMap()) }
+    fun publishAndroidUpdate() { send("android:publish-update", emptyMap()) }
+    fun restoreAndroidVersion(versionCode: Int) { send("android:restore-version", mapOf("versionCode" to versionCode)) }
+
     fun cancelApprovalNotification() {
         app?.getSystemService(NotificationManager::class.java)
             ?.cancel(ApprovalNotificationManager.NOTIFICATION_ID)

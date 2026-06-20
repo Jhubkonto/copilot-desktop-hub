@@ -41,6 +41,9 @@ import io.nexy.android.data.model.McpServerInfo
 import io.nexy.android.data.model.McpServerWithStatus
 import io.nexy.android.data.model.McpToolInfo
 import io.nexy.android.data.model.WikiExtractionCandidate
+import io.nexy.android.data.model.BuildRecord
+import io.nexy.android.data.model.PreflightCheck
+import io.nexy.android.data.model.AndroidPublishManifest
 import io.nexy.android.data.model.ModelListSource
 import io.nexy.android.data.model.ModelOption
 import io.nexy.android.data.model.Project
@@ -1172,11 +1175,96 @@ fun parseWsEvent(
                 WsEvent.AgentMcpServerTrustList(agentId, trust)
             }
 
+            "build:records" -> {
+                val arr = data?.optJSONArray("records") ?: JSONArray()
+                val list = (0 until arr.length()).map { i ->
+                    val r = arr.getJSONObject(i)
+                    val pathsArr = r.optJSONArray("artifactPaths") ?: JSONArray()
+                    BuildRecord(
+                        id = r.optString("id"),
+                        workspacePath = r.optString("workspacePath"),
+                        commitSha = r.nullableString("commitSha"),
+                        branch = r.nullableString("branch"),
+                        version = r.nullableString("version"),
+                        versionCode = if (r.isNull("versionCode")) null else r.optInt("versionCode"),
+                        platform = r.optString("platform"),
+                        command = r.optString("command"),
+                        status = r.optString("status"),
+                        exitCode = if (r.isNull("exitCode")) null else r.optInt("exitCode"),
+                        artifactPaths = (0 until pathsArr.length()).map { pathsArr.optString(it) },
+                        logTail = r.optString("logTail", ""),
+                        startedAt = r.optLong("startedAt", 0L),
+                        finishedAt = if (r.isNull("finishedAt")) null else r.optLong("finishedAt"),
+                    )
+                }
+                WsEvent.BuildRecords(list)
+            }
+
+            "build:workspace-info" -> WsEvent.BuildWorkspaceInfo(
+                path = data?.optString("path") ?: "",
+                branch = data?.nullableString("branch"),
+                commitSha = data?.nullableString("commitSha"),
+                dirty = data?.optBoolean("dirty", false) ?: false,
+                version = data?.nullableString("version"),
+                isGitRepo = data?.optBoolean("isGitRepo", false) ?: false,
+            )
+
+            "build:preflight-result" -> {
+                val arr = data?.optJSONArray("checks") ?: JSONArray()
+                WsEvent.BuildPreflightResult((0 until arr.length()).map { i ->
+                    val c = arr.getJSONObject(i)
+                    PreflightCheck(label = c.optString("label"), status = c.optString("status"), detail = c.optString("detail"))
+                })
+            }
+
+            "android:workspace-info" -> WsEvent.AndroidWorkspaceInfo(
+                path = data?.optString("path") ?: "",
+                branch = data?.nullableString("branch"),
+                commitSha = data?.nullableString("commitSha"),
+                dirty = data?.optBoolean("dirty", false) ?: false,
+                versionCode = if (data?.isNull("versionCode") != false) null else data.optInt("versionCode"),
+                versionName = data?.nullableString("versionName"),
+                isGitRepo = data?.optBoolean("isGitRepo", false) ?: false,
+            )
+
+            "android:signing-validation" -> {
+                val arr = data?.optJSONArray("checks") ?: JSONArray()
+                WsEvent.AndroidSigningValidation(
+                    valid = data?.optBoolean("valid", false) ?: false,
+                    checks = (0 until arr.length()).map { i ->
+                        val c = arr.getJSONObject(i)
+                        PreflightCheck(label = c.optString("label"), status = c.optString("status"), detail = c.optString("detail"))
+                    }
+                )
+            }
+
+            "android:publish-result" -> WsEvent.AndroidPublishResult(
+                published = data?.optBoolean("published", false) ?: false,
+                error = data?.nullableString("error"),
+                manifest = data?.optJSONObject("manifest")?.let { parseAndroidPublishManifest(it) },
+            )
+
+            "android:restore-result" -> WsEvent.AndroidRestoreResult(
+                restored = data?.optBoolean("restored", false) ?: false,
+                error = data?.nullableString("error"),
+                manifest = data?.optJSONObject("manifest")?.let { parseAndroidPublishManifest(it) },
+            )
+
             else -> return
         }
         scope.launch { events.emit(wsEvent) }
     } catch (_: Exception) {}
 }
+
+private fun parseAndroidPublishManifest(m: JSONObject) = AndroidPublishManifest(
+    versionCode = m.optInt("versionCode", 0),
+    versionName = m.optString("versionName", ""),
+    commitSha = m.nullableString("commitSha"),
+    changelog = m.optString("changelog", ""),
+    checksum = m.optString("checksum", ""),
+    artifactUrl = m.optString("artifactUrl", ""),
+    publishedAt = m.optLong("publishedAt", 0L),
+)
 
 private fun parseMcpServerWithStatus(s: JSONObject): McpServerWithStatus {
     val argsArr = s.optJSONArray("args")

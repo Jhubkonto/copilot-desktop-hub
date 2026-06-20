@@ -186,7 +186,47 @@ sealed class WsEvent {
     data class McpToolList(val agentId: String?, val tools: List<McpToolInfo>) : WsEvent()
     data class WikiExtractionCandidates(val conversationId: String, val candidates: List<WikiExtractionCandidate>) : WsEvent()
     data class WikiExtractionError(val message: String) : WsEvent()
+    data class BuildRecords(val records: List<BuildRecord>) : WsEvent()
+    data class BuildWorkspaceInfo(val path: String, val branch: String?, val commitSha: String?, val dirty: Boolean, val version: String?, val isGitRepo: Boolean) : WsEvent()
+    data class BuildPreflightResult(val checks: List<PreflightCheck>) : WsEvent()
+    data class AndroidWorkspaceInfo(val path: String, val branch: String?, val commitSha: String?, val dirty: Boolean, val versionCode: Int?, val versionName: String?, val isGitRepo: Boolean) : WsEvent()
+    data class AndroidSigningValidation(val valid: Boolean, val checks: List<PreflightCheck>) : WsEvent()
+    data class AndroidPublishResult(val published: Boolean, val error: String?, val manifest: AndroidPublishManifest?) : WsEvent()
+    data class AndroidRestoreResult(val restored: Boolean, val error: String?, val manifest: AndroidPublishManifest?) : WsEvent()
 }
+
+data class BuildRecord(
+    val id: String,
+    val workspacePath: String,
+    val commitSha: String?,
+    val branch: String?,
+    val version: String?,
+    val versionCode: Int?,
+    val platform: String,
+    val command: String,
+    val status: String,
+    val exitCode: Int?,
+    val artifactPaths: List<String>,
+    val logTail: String,
+    val startedAt: Long,
+    val finishedAt: Long?,
+)
+
+data class PreflightCheck(
+    val label: String,
+    val status: String,
+    val detail: String,
+)
+
+data class AndroidPublishManifest(
+    val versionCode: Int,
+    val versionName: String,
+    val commitSha: String?,
+    val changelog: String,
+    val checksum: String,
+    val artifactUrl: String,
+    val publishedAt: Long,
+)
 
 data class AgentKnowledgeFile(
     val id: String,
