@@ -106,16 +106,27 @@ fun NexyInfoDialog(
     message: String,
     onDismiss: () -> Unit,
     confirmLabel: String = "OK",
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = { Text(message) },
         confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text(confirmLabel)
+            if (actionLabel != null && onAction != null) {
+                TextButton(onClick = { onAction(); onDismiss() }) {
+                    Text(actionLabel)
+                }
+            } else {
+                TextButton(onClick = onDismiss) {
+                    Text(confirmLabel)
+                }
             }
         },
+        dismissButton = if (actionLabel != null) {
+            { TextButton(onClick = onDismiss) { Text(confirmLabel) } }
+        } else null,
     )
 }
 

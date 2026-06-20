@@ -1,7 +1,6 @@
 package io.nexy.android.ui.projectgenerator
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -47,6 +46,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.model.ProjectGeneratorSpec
 import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyInfoDialog
+import io.nexy.android.ui.components.NexyStepIndicator
 import io.nexy.android.ui.components.NexyTopAppBar
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -63,6 +63,8 @@ fun ProjectGeneratorScreen(
             title = "Error",
             message = err,
             onDismiss = { vm.dismissError() },
+            actionLabel = "Retry",
+            onAction = { vm.retryLastMessage() },
         )
     }
 
@@ -96,7 +98,11 @@ fun ProjectGeneratorScreen(
         },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            ProjectGenPhaseHeader(phase = uiState.phase)
+            NexyStepIndicator(
+                steps = listOf("Describe", "Review", "Done"),
+                currentStep = uiState.phase.ordinal,
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             when (uiState.phase) {
                 ProjectGenPhase.CHAT -> ChatPhase(
                     uiState = uiState,
@@ -109,7 +115,7 @@ fun ProjectGeneratorScreen(
                     isLoading = uiState.isLoading,
                     onSpecChange = { vm.updateSpec(it) },
                     onConfirm = { vm.confirmSpec() },
-                    onBack = { vm.reset() },
+                    onBack = { vm.backToChat() },
                     modifier = Modifier.weight(1f),
                 )
                 ProjectGenPhase.DONE -> DonePhase(
@@ -120,51 +126,6 @@ fun ProjectGeneratorScreen(
             }
         }
     }
-}
-
-@Composable
-private fun ProjectGenPhaseHeader(phase: ProjectGenPhase) {
-    val steps = listOf(
-        ProjectGenPhase.CHAT to "Describe",
-        ProjectGenPhase.SPEC_REVIEW to "Review",
-        ProjectGenPhase.DONE to "Done",
-    )
-    val activeIndex = steps.indexOfFirst { it.first == phase }.coerceAtLeast(0)
-
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            steps.forEachIndexed { index, (_, label) ->
-                val active = index == activeIndex
-                val complete = index < activeIndex
-                Surface(
-                    modifier = Modifier.weight(1f),
-                    shape = MaterialTheme.shapes.small,
-                    color = when {
-                        active -> MaterialTheme.colorScheme.primaryContainer
-                        complete -> MaterialTheme.colorScheme.surfaceVariant
-                        else -> MaterialTheme.colorScheme.surface
-                    },
-                ) {
-                    Text(
-                        label,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = when {
-                            active -> MaterialTheme.colorScheme.onPrimaryContainer
-                            complete -> MaterialTheme.colorScheme.onSurfaceVariant
-                            else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
-                        },
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
-                        maxLines = 1,
-                    )
-                }
-            }
-        }
-    }
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 }
 
 @Composable
@@ -356,7 +317,7 @@ private fun SpecReviewPhase(
         } else {
             val canCreate = spec?.let { it.name.isNotBlank() && !it.rootDirectory.isNullOrBlank() } ?: false
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = onBack) { Text("Start over") }
+                OutlinedButton(onClick = onBack) { Text("Back") }
                 Button(onClick = onConfirm, enabled = canCreate) {
                     Text("Create project")
                 }

@@ -46,6 +46,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.model.ArtifactGeneratorSpec
 import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyInfoDialog
+import io.nexy.android.ui.components.NexyStepIndicator
 import io.nexy.android.ui.components.NexyTopAppBar
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -62,6 +63,8 @@ fun ArtifactGeneratorScreen(
             title = "Error",
             message = err,
             onDismiss = { vm.dismissError() },
+            actionLabel = "Retry",
+            onAction = { vm.retryLastMessage() },
         )
     }
 
@@ -93,7 +96,11 @@ fun ArtifactGeneratorScreen(
         },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            ArtifactGenPhaseHeader(phase = uiState.phase)
+            NexyStepIndicator(
+                steps = listOf("Describe", "Review", "Done"),
+                currentStep = uiState.phase.ordinal,
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             when (uiState.phase) {
                 ArtifactGenPhase.CHAT -> ChatPhase(
                     uiState = uiState,
@@ -105,7 +112,7 @@ fun ArtifactGeneratorScreen(
                     isLoading = uiState.isLoading,
                     onSpecChange = { vm.updateSpec(it) },
                     onConfirm = { vm.confirmSpec() },
-                    onBack = { vm.reset() },
+                    onBack = { vm.backToChat() },
                     modifier = Modifier.weight(1f),
                 )
                 ArtifactGenPhase.DONE -> DonePhase(
@@ -115,50 +122,6 @@ fun ArtifactGeneratorScreen(
             }
         }
     }
-}
-
-@Composable
-private fun ArtifactGenPhaseHeader(phase: ArtifactGenPhase) {
-    val steps = listOf(
-        ArtifactGenPhase.CHAT to "Describe",
-        ArtifactGenPhase.SPEC_REVIEW to "Review",
-        ArtifactGenPhase.DONE to "Done",
-    )
-    val activeIndex = steps.indexOfFirst { it.first == phase }.coerceAtLeast(0)
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            steps.forEachIndexed { index, (_, label) ->
-                val active = index == activeIndex
-                val complete = index < activeIndex
-                Surface(
-                    modifier = Modifier.weight(1f),
-                    shape = MaterialTheme.shapes.small,
-                    color = when {
-                        active -> MaterialTheme.colorScheme.primaryContainer
-                        complete -> MaterialTheme.colorScheme.surfaceVariant
-                        else -> MaterialTheme.colorScheme.surface
-                    },
-                ) {
-                    Text(
-                        label,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = when {
-                            active -> MaterialTheme.colorScheme.onPrimaryContainer
-                            complete -> MaterialTheme.colorScheme.onSurfaceVariant
-                            else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
-                        },
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
-                        maxLines = 1,
-                    )
-                }
-            }
-        }
-    }
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 }
 
 @Composable
@@ -319,8 +282,8 @@ private fun SpecReviewPhase(
             Text("Preparing…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedButton(onClick = onBack) { Text("Back") }
                 Button(onClick = onConfirm, enabled = spec != null) { Text("Generate artifact") }
-                OutlinedButton(onClick = onBack) { Text("Start over") }
             }
         }
     }

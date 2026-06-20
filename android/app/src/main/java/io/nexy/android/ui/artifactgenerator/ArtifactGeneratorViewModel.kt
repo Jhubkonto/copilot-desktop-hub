@@ -133,6 +133,16 @@ class ArtifactGeneratorViewModel(
         wsClient.send("artifact-generator:generate", mapOf("sessionId" to state.sessionId, "spec" to spec.toPayload()))
     }
 
+    fun backToChat() {
+        _uiState.value = _uiState.value.copy(phase = ArtifactGenPhase.CHAT, error = null)
+    }
+
+    fun retryLastMessage() {
+        val lastUserMsg = _uiState.value.messages.lastOrNull { it.role == "user" }?.content ?: return
+        _uiState.value = _uiState.value.copy(error = null)
+        sendMessage(lastUserMsg)
+    }
+
     fun dismissError() {
         _uiState.value = _uiState.value.copy(error = null)
     }

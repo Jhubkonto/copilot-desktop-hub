@@ -48,6 +48,7 @@ import io.nexy.android.data.model.AgentGeneratorSpec
 import io.nexy.android.data.model.AgentGeneratorTools
 import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyInfoDialog
+import io.nexy.android.ui.components.NexyStepIndicator
 import io.nexy.android.ui.components.NexyTopAppBar
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -64,6 +65,8 @@ fun AgentGeneratorScreen(
             title = "Error",
             message = err,
             onDismiss = { vm.dismissError() },
+            actionLabel = "Retry",
+            onAction = { vm.retryLastMessage() },
         )
     }
 
@@ -95,7 +98,11 @@ fun AgentGeneratorScreen(
         },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            AgentGenPhaseHeader(phase = uiState.phase)
+            NexyStepIndicator(
+                steps = listOf("Describe", "Review", "Done"),
+                currentStep = uiState.phase.ordinal,
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             when (uiState.phase) {
                 AgentGenPhase.CHAT -> ChatPhase(
                     uiState = uiState,
@@ -107,7 +114,7 @@ fun AgentGeneratorScreen(
                     isLoading = uiState.isLoading,
                     onSpecChange = { vm.updateSpec(it) },
                     onConfirm = { vm.confirmSpec() },
-                    onBack = { vm.reset() },
+                    onBack = { vm.backToChat() },
                     modifier = Modifier.weight(1f),
                 )
                 AgentGenPhase.DONE -> DonePhase(
@@ -118,50 +125,6 @@ fun AgentGeneratorScreen(
             }
         }
     }
-}
-
-@Composable
-private fun AgentGenPhaseHeader(phase: AgentGenPhase) {
-    val steps = listOf(
-        AgentGenPhase.CHAT to "Describe",
-        AgentGenPhase.SPEC_REVIEW to "Review",
-        AgentGenPhase.DONE to "Done",
-    )
-    val activeIndex = steps.indexOfFirst { it.first == phase }.coerceAtLeast(0)
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            steps.forEachIndexed { index, (_, label) ->
-                val active = index == activeIndex
-                val complete = index < activeIndex
-                Surface(
-                    modifier = Modifier.weight(1f),
-                    shape = MaterialTheme.shapes.small,
-                    color = when {
-                        active -> MaterialTheme.colorScheme.primaryContainer
-                        complete -> MaterialTheme.colorScheme.surfaceVariant
-                        else -> MaterialTheme.colorScheme.surface
-                    },
-                ) {
-                    Text(
-                        label,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = when {
-                            active -> MaterialTheme.colorScheme.onPrimaryContainer
-                            complete -> MaterialTheme.colorScheme.onSurfaceVariant
-                            else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
-                        },
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
-                        maxLines = 1,
-                    )
-                }
-            }
-        }
-    }
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 }
 
 @Composable
@@ -334,7 +297,7 @@ private fun SpecReviewPhase(
         } else {
             val canCreate = spec?.name?.isNotBlank() == true
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = onBack) { Text("Start over") }
+                OutlinedButton(onClick = onBack) { Text("Back") }
                 Button(onClick = onConfirm, enabled = canCreate) { Text("Create agent") }
             }
         }

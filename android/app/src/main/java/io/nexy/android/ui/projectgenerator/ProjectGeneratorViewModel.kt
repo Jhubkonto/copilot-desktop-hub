@@ -119,6 +119,16 @@ class ProjectGeneratorViewModel(
         _uiState.value = _uiState.value.copy(pendingSpec = spec)
     }
 
+    fun backToChat() {
+        _uiState.value = _uiState.value.copy(phase = ProjectGenPhase.CHAT, error = null)
+    }
+
+    fun retryLastMessage() {
+        val lastUserMsg = _uiState.value.messages.lastOrNull { it.role == "user" }?.content ?: return
+        _uiState.value = _uiState.value.copy(error = null)
+        sendMessage(lastUserMsg)
+    }
+
     fun dismissError() {
         _uiState.value = _uiState.value.copy(error = null)
     }
