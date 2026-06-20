@@ -8,8 +8,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
@@ -88,6 +90,7 @@ fun HomeScreen(
     var showNewChatSheet by remember { mutableStateOf(false) }
     var showCreateProjectSheet by remember { mutableStateOf(false) }
     var showCreateAgentSheet by remember { mutableStateOf(false) }
+    var showOverflowMenu by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState()
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -215,23 +218,28 @@ fun HomeScreen(
                 },
                 actions = {
                     ConnectionChip(connectionState)
-                    IconButton(onClick = {
-                        when (selectedTab) {
-                            0 -> vm.refreshConversations()
-                            1 -> vm.requestProjects()
-                            2 -> vm.requestAgents()
-                        }
-                    }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh")
-                    }
-                    IconButton(onClick = onOpenArtifacts) {
-                        Icon(Icons.Default.Folder, contentDescription = "Artifacts")
-                    }
-                    IconButton(onClick = onOpenSkills) {
-                        Icon(Icons.Default.Build, contentDescription = "Skills")
-                    }
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")
+                    }
+                    Box {
+                        IconButton(onClick = { showOverflowMenu = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "More options")
+                        }
+                        DropdownMenu(
+                            expanded = showOverflowMenu,
+                            onDismissRequest = { showOverflowMenu = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Artifacts") },
+                                leadingIcon = { Icon(Icons.Default.Folder, contentDescription = null) },
+                                onClick = { showOverflowMenu = false; onOpenArtifacts() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Skills") },
+                                leadingIcon = { Icon(Icons.Default.Build, contentDescription = null) },
+                                onClick = { showOverflowMenu = false; onOpenSkills() },
+                            )
+                        }
                     }
                 },
             )
