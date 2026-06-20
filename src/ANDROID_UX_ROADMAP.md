@@ -163,11 +163,11 @@ Remove the known recomposition hot-spots. The app should be smooth at 60 fps on 
 
 ### Checklist
 
-- [ ] **Markwon `CompositionLocal`** (`ChatScreenBubbles.kt:252–264`): highest-priority fix — `Markwon.create(ctx)` is recreated on every recomposition; create `val LocalMarkwon = staticCompositionLocalOf<Markwon>` in `ChatScreen.kt`; provide via `CompositionLocalProvider(LocalMarkwon provides remember { Markwon.create(context) })`; consume via `LocalMarkwon.current` in `MessageBubble`
-- [ ] **Search debouncing** (`ArtifactsScreen.kt`, `SkillsScreen.kt`): `filteredX` recomputes on every keystroke; move to ViewModel with `debounce(300)` on a `MutableStateFlow<String>` (pairs with Phase C `NexySearchField` debouncing)
-- [ ] **`Column` → `LazyColumn` for AgentConfig skills list**: (overlaps Phase D — pull forward if the screen has many skills)
-- [ ] **Hoist `ModalBottomSheet` state** (`ChatScreen.kt`): three sheet states created inside conditional blocks — hoist to composable scope (pairs with Phase B)
-- [ ] **Guard auto-scroll to bottom** (`ChatScreen.kt:226–229`): check `listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index` before calling `animateScrollToItem` to avoid interrupting the user when they have scrolled up to read history
+- [x] **Markwon `CompositionLocal`** (`ChatScreenBubbles.kt:252–264`): done in Phase B — `LocalMarkwon` defined in `ChatScreenBubbles.kt:64`; provided via `CompositionLocalProvider` in `ChatScreen.kt:493–494`; consumed via `LocalMarkwon.current` in `MessageBubble` — `Done`
+- [x] **Search debouncing** (`ArtifactsScreen.kt`, `SkillsScreen.kt`): done in Phase C — `NexySearchField` gained `debounceMs` parameter; both screens pass `debounceMs = 300L` — `Done`
+- [x] **`Column` → `LazyColumn` for AgentConfig skills list**: done in Phase D — kept `Column`; nesting `LazyColumn` inside `verticalScroll` conflicts; items collapse under `NexyExpandableSection` — `Done`
+- [x] **Hoist `ModalBottomSheet` state** (`ChatScreen.kt`): done in Phase B — `promptSheetState` and `inspectorSheetState` hoisted to composable scope at `ChatScreen.kt:114,116` — `Done`
+- [x] **Guard auto-scroll to bottom** (`ChatScreen.kt`): check `listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index >= itemCount - 2` before calling `animateScrollToItem`; only scrolls when user is at or near the bottom — `Done`
 
 ---
 
@@ -179,11 +179,11 @@ The CHAT → REVIEW → CONFIRM pattern is strong. Surface it clearly to users a
 
 ### Checklist
 
-- [ ] **Add `NexyStepIndicator` to all generators** (Phase C component): place below `NexyTopAppBar`, above content area; map each ViewModel's phase enum to a step index; covers `AgentGeneratorScreen`, `ProjectGeneratorScreen`, `SkillGeneratorScreen`, `ArtifactGeneratorScreen`
-- [ ] **Add "Previous" button within generator flow**: REVIEW phase gets a "Back" button that returns to CHAT phase without clearing generated content; CONFIRM phase gets a "Back" to REVIEW; only "Start over" / reset dialog clears all state
-- [ ] **Error retry in generators** (`AgentGeneratorScreen.kt:62–68`): `NexyInfoDialog` with only "OK" leaves users stuck at the current phase; add a "Retry" button that re-invokes the last action (e.g., `vm.sendMessage(lastInput)`)
-- [ ] **Linear progress indicator**: verify `LinearProgressIndicator` (already imported) is shown only during active streaming/generation and hidden in idle phases
-- [ ] **Verify state survival across configuration change**: confirm `rememberLazyListState` in generator chat phases is correctly hoisted to outlast recomposition
+- [x] **Add `NexyStepIndicator` to all generators** (Phase C component): replaced all 4 custom `*GenPhaseHeader` composables with `NexyStepIndicator(steps = listOf("Describe", "Review", "Done"), currentStep = uiState.phase.ordinal)` + `HorizontalDivider` in `AgentGeneratorScreen`, `ProjectGeneratorScreen`, `SkillGeneratorScreen`, `ArtifactGeneratorScreen` — `Done`
+- [x] **Add "Previous" button within generator flow**: added `backToChat()` to all 4 ViewModels (sets `phase = CHAT` without clearing messages/spec); wired to SPEC_REVIEW "Back" `OutlinedButton` (was "Start over" → `reset()`); Reset dialog in top bar still performs full clear — `Done`
+- [x] **Error retry in generators**: added `retryLastMessage()` to all 4 ViewModels (re-sends last user message); added `actionLabel = "Retry"` + `onAction` to all 4 `NexyInfoDialog` error dialogs; `NexyInfoDialog` gained optional `actionLabel`/`onAction` parameters — `Done`
+- [x] **Linear progress indicator**: verified — `LinearProgressIndicator` shown only during `uiState.isLoading` in CHAT and SPEC_REVIEW phases; hidden in DONE phase and idle states — `Done`
+- [x] **Verify state survival across configuration change**: `rememberLazyListState` is inside `ChatPhase` composable scope, which is recreated on phase change (correct behavior); ViewModel survives config changes — `Done`
 
 ---
 

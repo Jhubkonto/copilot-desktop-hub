@@ -237,7 +237,11 @@ fun ChatScreen(
 
     LaunchedEffect(messages.size, isAwaitingResponse) {
         val itemCount = messages.size + if (isAwaitingResponse) 1 else 0
-        if (itemCount > 0) listState.animateScrollToItem(itemCount - 1)
+        if (itemCount > 0) {
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            val wasAtBottom = lastVisible >= itemCount - 2
+            if (wasAtBottom) listState.animateScrollToItem(itemCount - 1)
+        }
     }
 
     LaunchedEffect(conversation?.model) {
