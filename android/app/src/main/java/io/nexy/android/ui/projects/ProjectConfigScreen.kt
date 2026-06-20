@@ -1,5 +1,6 @@
 package io.nexy.android.ui.projects
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +14,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -29,6 +32,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -44,6 +50,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,7 +60,9 @@ import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.ProjectAgentEntry
 import io.nexy.android.data.model.ProjectSettingsConfig
 import io.nexy.android.data.model.WsEvent
+import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyConnectionBanner
+import io.nexy.android.ui.components.NexyExpandableSection
 import io.nexy.android.ui.components.NexyTopAppBar
 import kotlinx.coroutines.launch
 
@@ -63,6 +72,8 @@ private val instructionModeOptions = listOf(
     "replace" to "Replace",
     "standalone" to "Standalone",
 )
+
+private val milestoneStatuses = listOf("upcoming", "active", "completed")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -87,6 +98,16 @@ fun ProjectConfigScreen(
     var defaultModel by remember { mutableStateOf("") }
     var instructionModeExpanded by remember { mutableStateOf(false) }
 
+    // Snapshot variables for dirty-check
+    var loadedInstructions by remember { mutableStateOf("") }
+    var loadedRootDirectory by remember { mutableStateOf("") }
+    var loadedInstructionMode by remember { mutableStateOf("prepend") }
+    var loadedInstructionsEnabled by remember { mutableStateOf(true) }
+    var loadedOrchestrationEnabled by remember { mutableStateOf(false) }
+    var loadedMaxDelegationDepth by remember { mutableStateOf("5") }
+    var loadedShowTeamActivity by remember { mutableStateOf(true) }
+    var loadedDefaultModel by remember { mutableStateOf("") }
+
     val variables = remember { mutableStateListOf<Map<String, String>>() }
     val inScope = remember { mutableStateListOf<Map<String, String>>() }
     val outOfScope = remember { mutableStateListOf<Map<String, String>>() }
@@ -96,8 +117,19 @@ fun ProjectConfigScreen(
 
     var loaded by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
+    var showDiscardDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+
+    // Section expand state
+    var coreExpanded by rememberSaveable { mutableStateOf(true) }
+    var pathsExpanded by rememberSaveable { mutableStateOf(false) }
+    var variablesExpanded by rememberSaveable { mutableStateOf(false) }
+    var scopeExpanded by rememberSaveable { mutableStateOf(false) }
+    var milestonesExpanded by rememberSaveable { mutableStateOf(false) }
+    var modelExpanded by rememberSaveable { mutableStateOf(false) }
+    var orchestrationExpanded by rememberSaveable { mutableStateOf(false) }
+    var agentsExpanded by rememberSaveable { mutableStateOf(true) }
 
     LaunchedEffect(projectId) {
         loaded = false
@@ -121,10 +153,28 @@ fun ProjectConfigScreen(
                     inScope.replaceWith(event.config.inScope)
                     outOfScope.replaceWith(event.config.outOfScope)
                     milestones.replaceWith(event.config.milestones)
+                    // Sync snapshots
+                    loadedInstructions = event.config.instructions
+                    loadedRootDirectory = event.config.rootDirectory.orEmpty()
+                    loadedInstructionMode = event.config.instructionMode
+                    loadedInstructionsEnabled = event.config.instructionsEnabled
+                    loadedOrchestrationEnabled = event.config.orchestrationEnabled
+                    loadedMaxDelegationDepth = event.config.maxDelegationDepth.toString()
+                    loadedShowTeamActivity = event.config.showTeamActivity
+                    loadedDefaultModel = event.config.defaultModel.orEmpty()
                     loaded = true
                 }
                 is WsEvent.ProjectConfigUpdated -> if (event.id == projectId) {
                     saving = false
+                    // Reset snapshots so dirty flag clears
+                    loadedInstructions = instructions
+                    loadedRootDirectory = rootDirectory
+                    loadedInstructionMode = instructionMode
+                    loadedInstructionsEnabled = instructionsEnabled
+                    loadedOrchestrationEnabled = orchestrationEnabled
+                    loadedMaxDelegationDepth = maxDelegationDepth
+                    loadedShowTeamActivity = showTeamActivity
+                    loadedDefaultModel = defaultModel
                     scope.launch { snackbarHostState.showSnackbar("Settings saved.") }
                 }
                 is WsEvent.ProjectAgents -> if (event.id == projectId) {
@@ -134,6 +184,32 @@ fun ProjectConfigScreen(
                 else -> {}
             }
         }
+    }
+
+    val hasUnsavedChanges = loaded && (
+        instructions != loadedInstructions ||
+        rootDirectory != loadedRootDirectory ||
+        instructionMode != loadedInstructionMode ||
+        instructionsEnabled != loadedInstructionsEnabled ||
+        orchestrationEnabled != loadedOrchestrationEnabled ||
+        maxDelegationDepth != loadedMaxDelegationDepth ||
+        showTeamActivity != loadedShowTeamActivity ||
+        defaultModel != loadedDefaultModel
+    )
+
+    BackHandler(enabled = hasUnsavedChanges && !showDiscardDialog) {
+        showDiscardDialog = true
+    }
+
+    if (showDiscardDialog) {
+        NexyConfirmDialog(
+            title = "Discard changes?",
+            message = "You have unsaved changes. Leaving now will discard them.",
+            confirmLabel = "Discard",
+            onConfirm = { showDiscardDialog = false; onBack() },
+            onDismiss = { showDiscardDialog = false },
+            destructive = true,
+        )
     }
 
     val disconnected = connectionState != ConnectionState.CONNECTED
@@ -190,7 +266,7 @@ fun ProjectConfigScreen(
                         maxLines = 1,
                     )
                 },
-                onBack = onBack,
+                onBack = { if (hasUnsavedChanges) showDiscardDialog = true else onBack() },
             )
         },
     ) { padding ->
@@ -218,171 +294,236 @@ fun ProjectConfigScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             NexyConnectionBanner(connectionState)
 
-            SectionHeader("Instructions")
-
-            OutlinedTextField(
-                value = instructions,
-                onValueChange = { instructions = it },
-                label = { Text("Project instructions") },
-                placeholder = { Text("Guidelines appended to every chat in this project") },
-                enabled = !saving && !disconnected,
-                minLines = 4,
-                maxLines = 12,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+            // — Core Settings —
+            NexyExpandableSection(
+                title = "Core Settings",
+                expanded = coreExpanded,
+                onToggle = { coreExpanded = !coreExpanded },
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Enable instructions", style = MaterialTheme.typography.bodyMedium)
-                    Text(
-                        "Include these instructions in project chats",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+                    OutlinedTextField(
+                        value = instructions,
+                        onValueChange = { instructions = it },
+                        label = { Text("Project instructions") },
+                        placeholder = { Text("Guidelines appended to every chat in this project") },
+                        enabled = !saving && !disconnected,
+                        minLines = 4,
+                        maxLines = 12,
+                        modifier = Modifier.fillMaxWidth(),
                     )
-                }
-                Switch(
-                    checked = instructionsEnabled,
-                    onCheckedChange = { if (!saving && !disconnected) instructionsEnabled = it },
-                    enabled = !saving && !disconnected,
-                )
-            }
-
-            ExposedDropdownMenuBox(
-                expanded = instructionModeExpanded,
-                onExpandedChange = { if (!saving && !disconnected) instructionModeExpanded = it },
-            ) {
-                OutlinedTextField(
-                    value = instructionModeLabel,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("Instruction mode") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = instructionModeExpanded) },
-                    enabled = !saving && !disconnected,
-                    modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
-                )
-                ExposedDropdownMenu(
-                    expanded = instructionModeExpanded,
-                    onDismissRequest = { instructionModeExpanded = false },
-                ) {
-                    instructionModeOptions.forEach { (value, label) ->
-                        DropdownMenuItem(
-                            text = { Text(label) },
-                            onClick = { instructionMode = value; instructionModeExpanded = false },
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Enable instructions", style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                "Include these instructions in project chats",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = instructionsEnabled,
+                            onCheckedChange = { if (!saving && !disconnected) instructionsEnabled = it },
+                            enabled = !saving && !disconnected,
                         )
+                    }
+                    ExposedDropdownMenuBox(
+                        expanded = instructionModeExpanded,
+                        onExpandedChange = { if (!saving && !disconnected) instructionModeExpanded = it },
+                    ) {
+                        OutlinedTextField(
+                            value = instructionModeLabel,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Instruction mode") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = instructionModeExpanded) },
+                            enabled = !saving && !disconnected,
+                            modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+                        )
+                        ExposedDropdownMenu(
+                            expanded = instructionModeExpanded,
+                            onDismissRequest = { instructionModeExpanded = false },
+                        ) {
+                            instructionModeOptions.forEach { (value, label) ->
+                                DropdownMenuItem(
+                                    text = { Text(label) },
+                                    onClick = { instructionMode = value; instructionModeExpanded = false },
+                                )
+                            }
+                        }
                     }
                 }
             }
 
-            SectionHeader("Paths")
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-            OutlinedTextField(
-                value = rootDirectory,
-                onValueChange = { rootDirectory = it },
-                label = { Text("Root directory (optional)") },
-                placeholder = { Text("e.g. /home/user/my-project") },
-                singleLine = true,
-                enabled = !saving && !disconnected,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            SectionHeader("Variables")
-            EditableKeyValueList(
-                rows = variables,
-                keyLabel = "Key",
-                valueLabel = "Value",
-                addLabel = "Add variable",
-                enabled = !saving && !disconnected,
-            )
-
-            SectionHeader("Scope")
-            EditableScopeList(
-                title = "In scope",
-                rows = inScope,
-                addLabel = "Add in-scope rule",
-                enabled = !saving && !disconnected,
-            )
-            EditableScopeList(
-                title = "Out of scope",
-                rows = outOfScope,
-                addLabel = "Add out-of-scope rule",
-                enabled = !saving && !disconnected,
-            )
-
-            SectionHeader("Milestones")
-            EditableMilestonesList(
-                rows = milestones,
-                enabled = !saving && !disconnected,
-            )
-
-            SectionHeader("Model")
-
-            OutlinedTextField(
-                value = defaultModel,
-                onValueChange = { defaultModel = it },
-                label = { Text("Default model (optional)") },
-                placeholder = { Text("e.g. claude-sonnet-4-6") },
-                singleLine = true,
-                enabled = !saving && !disconnected,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            SectionHeader("Orchestration")
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+            // — Paths —
+            NexyExpandableSection(
+                title = "Paths",
+                expanded = pathsExpanded,
+                onToggle = { pathsExpanded = !pathsExpanded },
             ) {
-                Column {
-                    Text("Orchestration", style = MaterialTheme.typography.bodyMedium)
-                    Text(
-                        "Allow a leader agent to delegate tasks to others",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                Column(modifier = Modifier.padding(bottom = 12.dp)) {
+                    OutlinedTextField(
+                        value = rootDirectory,
+                        onValueChange = { rootDirectory = it },
+                        label = { Text("Root directory (optional)") },
+                        placeholder = { Text("e.g. /home/user/my-project") },
+                        singleLine = true,
+                        enabled = !saving && !disconnected,
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
-                Switch(
-                    checked = orchestrationEnabled,
-                    onCheckedChange = { if (!saving && !disconnected) orchestrationEnabled = it },
-                    enabled = !saving && !disconnected,
-                )
             }
-            if (orchestrationEnabled) {
-                OutlinedTextField(
-                    value = maxDelegationDepth,
-                    onValueChange = { maxDelegationDepth = it.filter(Char::isDigit).take(2) },
-                    label = { Text("Max delegation depth") },
-                    singleLine = true,
-                    enabled = !saving && !disconnected,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Show team activity", style = MaterialTheme.typography.bodyMedium)
-                        Text(
-                            "Show delegated agent activity in chat",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(
-                        checked = showTeamActivity,
-                        onCheckedChange = { if (!saving && !disconnected) showTeamActivity = it },
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            // — Variables —
+            NexyExpandableSection(
+                title = "Variables",
+                expanded = variablesExpanded,
+                onToggle = { variablesExpanded = !variablesExpanded },
+                badge = variables.size.takeIf { it > 0 }?.toString(),
+            ) {
+                Column(modifier = Modifier.padding(bottom = 12.dp)) {
+                    EditableKeyValueList(
+                        rows = variables,
+                        keyLabel = "Key",
+                        valueLabel = "Value",
+                        addLabel = "Add variable",
                         enabled = !saving && !disconnected,
                     )
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            // — Scope —
+            NexyExpandableSection(
+                title = "Scope",
+                expanded = scopeExpanded,
+                onToggle = { scopeExpanded = !scopeExpanded },
+                badge = (inScope.size + outOfScope.size).takeIf { it > 0 }?.toString(),
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+                    EditableScopeList(
+                        title = "In scope",
+                        rows = inScope,
+                        addLabel = "Add in-scope rule",
+                        enabled = !saving && !disconnected,
+                    )
+                    EditableScopeList(
+                        title = "Out of scope",
+                        rows = outOfScope,
+                        addLabel = "Add out-of-scope rule",
+                        enabled = !saving && !disconnected,
+                    )
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            // — Milestones —
+            NexyExpandableSection(
+                title = "Milestones",
+                expanded = milestonesExpanded,
+                onToggle = { milestonesExpanded = !milestonesExpanded },
+                badge = milestones.size.takeIf { it > 0 }?.toString(),
+            ) {
+                Column(modifier = Modifier.padding(bottom = 12.dp)) {
+                    EditableMilestonesList(
+                        rows = milestones,
+                        enabled = !saving && !disconnected,
+                    )
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            // — Model —
+            NexyExpandableSection(
+                title = "Model",
+                expanded = modelExpanded,
+                onToggle = { modelExpanded = !modelExpanded },
+            ) {
+                Column(modifier = Modifier.padding(bottom = 12.dp)) {
+                    OutlinedTextField(
+                        value = defaultModel,
+                        onValueChange = { defaultModel = it },
+                        label = { Text("Default model (optional)") },
+                        placeholder = { Text("e.g. claude-sonnet-4-6") },
+                        singleLine = true,
+                        enabled = !saving && !disconnected,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            // — Orchestration —
+            NexyExpandableSection(
+                title = "Orchestration",
+                expanded = orchestrationExpanded,
+                onToggle = { orchestrationExpanded = !orchestrationExpanded },
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column {
+                            Text("Orchestration", style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                "Allow a leader agent to delegate tasks to others",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = orchestrationEnabled,
+                            onCheckedChange = { if (!saving && !disconnected) orchestrationEnabled = it },
+                            enabled = !saving && !disconnected,
+                        )
+                    }
+                    if (orchestrationEnabled) {
+                        OutlinedTextField(
+                            value = maxDelegationDepth,
+                            onValueChange = { maxDelegationDepth = it.filter(Char::isDigit).take(2) },
+                            label = { Text("Max delegation depth") },
+                            singleLine = true,
+                            enabled = !saving && !disconnected,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Show team activity", style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    "Show delegated agent activity in chat",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Switch(
+                                checked = showTeamActivity,
+                                onCheckedChange = { if (!saving && !disconnected) showTeamActivity = it },
+                                enabled = !saving && !disconnected,
+                            )
+                        }
+                    }
                 }
             }
 
@@ -395,118 +536,148 @@ fun ProjectConfigScreen(
                     WsRepository.updateProjectConfig(
                         projectId,
                         ProjectSettingsConfig(
-                        instructions = instructions.trim(),
-                        rootDirectory = rootDirectory.trim().ifBlank { null },
-                        variables = variables.toList(),
-                        instructionMode = instructionMode,
-                        instructionsEnabled = instructionsEnabled,
-                        orchestrationEnabled = orchestrationEnabled,
-                        maxDelegationDepth = maxDelegationDepth.toIntOrNull()?.coerceIn(1, 10) ?: 5,
-                        showTeamActivity = showTeamActivity,
-                        inScope = inScope.toList(),
-                        outOfScope = outOfScope.toList(),
-                        milestones = milestones.toList(),
-                        defaultModel = defaultModel.trim().ifBlank { null },
+                            instructions = instructions.trim(),
+                            rootDirectory = rootDirectory.trim().ifBlank { null },
+                            variables = variables.toList(),
+                            instructionMode = instructionMode,
+                            instructionsEnabled = instructionsEnabled,
+                            orchestrationEnabled = orchestrationEnabled,
+                            maxDelegationDepth = maxDelegationDepth.toIntOrNull()?.coerceIn(1, 10) ?: 5,
+                            showTeamActivity = showTeamActivity,
+                            inScope = inScope.toList(),
+                            outOfScope = outOfScope.toList(),
+                            milestones = milestones.toList(),
+                            defaultModel = defaultModel.trim().ifBlank { null },
                         ),
                     )
                 },
                 enabled = !saving && !disconnected,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
             ) {
                 Text(if (saving) "Saving…" else "Save settings")
             }
 
-            // — Agents —
-            SectionHeader("Agents")
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-            if (projectAgents.isEmpty()) {
-                Text(
-                    "No agents assigned to this project.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            } else {
-                projectAgents.forEach { entry ->
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (entry.isPrimary)
-                                MaterialTheme.colorScheme.primaryContainer
-                            else
-                                MaterialTheme.colorScheme.surfaceVariant,
-                        ),
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    if (entry.agentIcon.isNotBlank()) "${entry.agentIcon}  ${entry.agentName}" else entry.agentName,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                )
-                                if (entry.isPrimary) {
-                                    Text(
-                                        "Primary",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.primary,
-                                    )
-                                }
-                            }
-                            if (!entry.isPrimary && !disconnected) {
-                                TextButton(
-                                    onClick = { WsRepository.setPrimaryProjectAgent(projectId, entry.agentId) },
+            // — Agents —
+            NexyExpandableSection(
+                title = "Agents",
+                expanded = agentsExpanded,
+                onToggle = { agentsExpanded = !agentsExpanded },
+                badge = projectAgents.size.takeIf { it > 0 }?.toString(),
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+                    if (projectAgents.isEmpty()) {
+                        Text(
+                            "No agents assigned to this project.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        projectAgents.forEach { entry ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (entry.isPrimary)
+                                        MaterialTheme.colorScheme.primaryContainer
+                                    else
+                                        MaterialTheme.colorScheme.surfaceVariant,
+                                ),
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    Text("Set primary", style = MaterialTheme.typography.labelSmall)
-                                }
-                            }
-                            if (!disconnected) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    TextButton(
-                                        onClick = {
-                                            val index = projectAgents.indexOf(entry)
-                                            if (index > 0) {
-                                                projectAgents.move(index, index - 1)
-                                                WsRepository.reorderProjectAgents(projectId, projectAgents.map { it.agentId })
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            if (entry.agentIcon.isNotBlank()) "${entry.agentIcon}  ${entry.agentName}" else entry.agentName,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                        )
+                                        if (entry.isPrimary) {
+                                            Text(
+                                                "Primary",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.primary,
+                                            )
+                                        }
+                                    }
+                                    if (!entry.isPrimary && !disconnected) {
+                                        TextButton(
+                                            onClick = { WsRepository.setPrimaryProjectAgent(projectId, entry.agentId) },
+                                        ) {
+                                            Text("Set primary", style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
+                                    if (!disconnected) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            IconButton(
+                                                onClick = {
+                                                    val index = projectAgents.indexOf(entry)
+                                                    if (index > 0) {
+                                                        projectAgents.move(index, index - 1)
+                                                        WsRepository.reorderProjectAgents(projectId, projectAgents.map { it.agentId })
+                                                    }
+                                                },
+                                                enabled = projectAgents.indexOf(entry) > 0,
+                                                modifier = Modifier.padding(0.dp),
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.KeyboardArrowUp,
+                                                    contentDescription = "Move ${entry.agentName} up",
+                                                    tint = if (projectAgents.indexOf(entry) > 0)
+                                                        MaterialTheme.colorScheme.onPrimaryContainer
+                                                    else
+                                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+                                                )
                                             }
-                                        },
-                                        enabled = projectAgents.indexOf(entry) > 0,
-                                    ) { Text("Up", style = MaterialTheme.typography.labelSmall) }
-                                    TextButton(
-                                        onClick = {
-                                            val index = projectAgents.indexOf(entry)
-                                            if (index in 0 until projectAgents.lastIndex) {
-                                                projectAgents.move(index, index + 1)
-                                                WsRepository.reorderProjectAgents(projectId, projectAgents.map { it.agentId })
+                                            IconButton(
+                                                onClick = {
+                                                    val index = projectAgents.indexOf(entry)
+                                                    if (index in 0 until projectAgents.lastIndex) {
+                                                        projectAgents.move(index, index + 1)
+                                                        WsRepository.reorderProjectAgents(projectId, projectAgents.map { it.agentId })
+                                                    }
+                                                },
+                                                enabled = projectAgents.indexOf(entry) < projectAgents.lastIndex,
+                                                modifier = Modifier.padding(0.dp),
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.KeyboardArrowDown,
+                                                    contentDescription = "Move ${entry.agentName} down",
+                                                    tint = if (projectAgents.indexOf(entry) < projectAgents.lastIndex)
+                                                        MaterialTheme.colorScheme.onPrimaryContainer
+                                                    else
+                                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+                                                )
                                             }
-                                        },
-                                        enabled = projectAgents.indexOf(entry) < projectAgents.lastIndex,
-                                    ) { Text("Down", style = MaterialTheme.typography.labelSmall) }
+                                        }
+                                    }
+                                    if (!disconnected) {
+                                        IconButton(onClick = { WsRepository.removeProjectAgent(projectId, entry.agentId) }) {
+                                            Icon(Icons.Default.Close, contentDescription = "Remove ${entry.agentName}")
+                                        }
+                                    }
                                 }
                             }
-                            if (!disconnected) {
-                                IconButton(onClick = { WsRepository.removeProjectAgent(projectId, entry.agentId) }) {
-                                    Icon(Icons.Default.Close, contentDescription = "Remove agent")
-                                }
-                            }
+                        }
+                    }
+
+                    if (!disconnected) {
+                        TextButton(
+                            onClick = { showAddAgentSheet = true },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
+                            Text("Add agent")
                         }
                     }
                 }
             }
 
-            if (!disconnected) {
-                TextButton(
-                    onClick = { showAddAgentSheet = true },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
-                    Text("Add agent")
-                }
-            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-            // — Wiki —
-            SectionHeader("Wiki")
+            // — Wiki & Artifacts quick links (not collapsible) —
             TextButton(
                 onClick = onOpenWiki,
                 modifier = Modifier.fillMaxWidth(),
@@ -514,7 +685,6 @@ fun ProjectConfigScreen(
                 Text("View project wiki")
             }
 
-            SectionHeader("Artifacts")
             TextButton(
                 onClick = onOpenArtifacts,
                 modifier = Modifier.fillMaxWidth(),
@@ -654,6 +824,7 @@ private fun EditableScopeList(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun EditableMilestonesList(
     rows: MutableList<Map<String, String>>,
@@ -687,20 +858,21 @@ private fun EditableMilestonesList(
                     enabled = enabled,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("Status: ${row["status"].orEmpty().ifBlank { "upcoming" }}", style = MaterialTheme.typography.bodySmall)
-                    Row {
-                        listOf("active", "upcoming", "completed").forEach { status ->
-                            TextButton(
-                                onClick = { rows[index] = row + ("status" to status) },
-                                enabled = enabled,
-                            ) {
-                                Text(status, style = MaterialTheme.typography.labelSmall)
-                            }
+                val currentStatus = row["status"].orEmpty().ifBlank { "upcoming" }
+                Text(
+                    "Status",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    milestoneStatuses.forEachIndexed { i, status ->
+                        SegmentedButton(
+                            selected = currentStatus == status,
+                            onClick = { rows[index] = row + ("status" to status) },
+                            shape = SegmentedButtonDefaults.itemShape(index = i, count = milestoneStatuses.size),
+                            enabled = enabled,
+                        ) {
+                            Text(status, style = MaterialTheme.typography.labelSmall)
                         }
                     }
                 }

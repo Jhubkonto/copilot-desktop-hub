@@ -112,12 +112,12 @@ Settings has duplicated entries and miscategorised items. ProjectConfig needs th
 
 ### Checklist
 
-- [ ] **Fix Settings duplication** (`SettingsScreen.kt:76–113`): "CLI Models" (line 79) and "MCP Servers" (line 109) both navigate to `McpAndCliScreen`; remove the duplicate row, rename the survivor to "MCP Servers & CLI Models"
-- [ ] **Reclassify settings sections**: move "Updates" → General section; move "Self-Heal Reports" → Developer section; move "Prompt Library" → Configuration section (alongside Global Settings and Models)
-- [ ] **Add subtitle breadcrumb to `NexyTopAppBar`**: add optional `subtitle: String?` parameter shown as secondary muted text under the title; apply `subtitle = "Settings"` on all settings detail screens
-- [ ] **ProjectConfigScreen collapsible sections + unsaved-changes guard**: same approach as Phase D; collapse all except Core Settings by default; add BackHandler guard
-- [ ] **Milestone status selection** (`ProjectConfigScreen.kt`): replace 3 `TextButton` items in a row with `MultiChoiceSegmentedButtonRow` or a compact `ExposedDropdownMenuBox`
-- [ ] **Model settings deduplication**: ensure `ModelsScreen` links to GlobalSettings for default-model selection rather than duplicating the picker
+- [x] **Fix Settings duplication** (`SettingsScreen.kt:76–113`): "CLI Models" (line 79) and "MCP Servers" (line 109) both navigate to `McpAndCliScreen`; remove the duplicate row, rename the survivor to "MCP Servers & CLI Models" — `Done`
+- [x] **Reclassify settings sections**: move "Updates" → General section; move "Self-Heal Reports" → Developer section; move "Prompt Library" → Configuration section (alongside Global Settings and Models) — `Done`
+- [x] **Add subtitle breadcrumb to `NexyTopAppBar`**: add optional `subtitle: String?` parameter shown as secondary muted text under the title; apply `subtitle = "Settings"` on all settings detail screens — `Done`
+- [x] **ProjectConfigScreen collapsible sections + unsaved-changes guard**: same approach as Phase D; collapse all except Core Settings by default; add BackHandler guard — `Done`
+- [x] **Milestone status selection** (`ProjectConfigScreen.kt`): replace 3 `TextButton` items in a row with `SingleChoiceSegmentedButtonRow` — `Done`
+- [x] **Model settings deduplication**: `ModelsScreen` shows the read-only available model list; `GlobalSettingsScreen` owns the default-model picker — no duplication exists; confirmed no picker was duplicated — `Done`
 
 ---
 
