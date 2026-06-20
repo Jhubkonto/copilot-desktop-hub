@@ -60,6 +60,7 @@ Current findings:
 - [x] Verify Codex-generated work-log blocks appear live in `ThinkingBlock`.
 - [x] Verify blocks persist into `messages.thinking_blocks`.
 - [x] Adjust copy/styling if needed so activity logs read as status/work-log output.
+- [x] Distinguish Codex activity blocks from explicit reasoning summary blocks in desktop labels.
 
 ### Phase 4: Android Live Parity
 

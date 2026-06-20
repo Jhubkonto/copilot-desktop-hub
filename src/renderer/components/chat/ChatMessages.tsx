@@ -42,6 +42,12 @@ interface RequestReference {
   preview: string
 }
 
+export function getThinkingBlockLabel(blockId: string): string {
+  if (blockId === 'codex-reasoning-summary') return 'Reasoning summary'
+  if (blockId.startsWith('codex-')) return 'Codex activity'
+  return 'Reasoning'
+}
+
 function getRequestPreview(content: string): string {
   return stripInjectedBlocks(content).replace(/\s+/g, ' ').trim()
 }
@@ -306,7 +312,7 @@ export function ChatMessagesBase({
                         key={block.blockId}
                         content={block.content}
                         done={block.done}
-                        label={block.blockId.startsWith('codex-') ? 'Codex activity' : 'Reasoning'}
+                        label={getThinkingBlockLabel(block.blockId)}
                       />
                     ))}
                   </div>
@@ -366,7 +372,7 @@ export function ChatMessagesBase({
                   key={block.blockId}
                   content={block.content}
                   done={block.done}
-                  label={block.blockId.startsWith('codex-') ? 'Codex activity' : 'Reasoning'}
+                  label={getThinkingBlockLabel(block.blockId)}
                 />
               ))}
             </div>
