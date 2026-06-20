@@ -111,7 +111,7 @@ fun ChatInputBar(
                             )
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(onClick = onAttachFile, modifier = Modifier.size(36.dp)) {
+                            IconButton(onClick = onAttachFile, modifier = Modifier.size(48.dp)) {
                                 Icon(
                                     Icons.Default.AttachFile,
                                     contentDescription = "Attach file",
@@ -119,7 +119,7 @@ fun ChatInputBar(
                                     modifier = Modifier.size(18.dp),
                                 )
                             }
-                            IconButton(onClick = onCaptureScreen, modifier = Modifier.size(36.dp)) {
+                            IconButton(onClick = onCaptureScreen, modifier = Modifier.size(48.dp)) {
                                 Icon(
                                     Icons.Default.Screenshot,
                                     contentDescription = "Attach latest screenshot",
@@ -127,7 +127,7 @@ fun ChatInputBar(
                                     modifier = Modifier.size(18.dp),
                                 )
                             }
-                            IconButton(onClick = onInsertPrompt, modifier = Modifier.size(36.dp)) {
+                            IconButton(onClick = onInsertPrompt, modifier = Modifier.size(48.dp)) {
                                 Icon(
                                     Icons.Default.TextFields,
                                     contentDescription = "Insert prompt",
@@ -135,7 +135,7 @@ fun ChatInputBar(
                                     modifier = Modifier.size(18.dp),
                                 )
                             }
-                            IconButton(onClick = onShowInspector, modifier = Modifier.size(36.dp)) {
+                            IconButton(onClick = onShowInspector, modifier = Modifier.size(48.dp)) {
                                 Icon(
                                     Icons.Default.Info,
                                     contentDescription = "Context inspector",

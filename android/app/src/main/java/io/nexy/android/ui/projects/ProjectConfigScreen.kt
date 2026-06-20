@@ -1,6 +1,7 @@
 package io.nexy.android.ui.projects
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,6 +55,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
@@ -379,6 +381,7 @@ fun ProjectConfigScreen(
                         placeholder = { Text("e.g. /home/user/my-project") },
                         singleLine = true,
                         enabled = !saving && !disconnected,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -462,6 +465,7 @@ fun ProjectConfigScreen(
                         placeholder = { Text("e.g. claude-sonnet-4-6") },
                         singleLine = true,
                         enabled = !saving && !disconnected,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -502,6 +506,7 @@ fun ProjectConfigScreen(
                             label = { Text("Max delegation depth") },
                             singleLine = true,
                             enabled = !saving && !disconnected,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                             modifier = Modifier.fillMaxWidth(),
                         )
                         Row(
@@ -738,6 +743,7 @@ private fun EditableKeyValueList(
                     label = { Text(keyLabel) },
                     singleLine = true,
                     enabled = enabled,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
@@ -746,6 +752,7 @@ private fun EditableKeyValueList(
                     label = { Text(valueLabel) },
                     singleLine = true,
                     enabled = enabled,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 TextButton(
@@ -802,6 +809,7 @@ private fun EditableScopeList(
                     label = { Text("Path glob (optional)") },
                     singleLine = true,
                     enabled = enabled,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 TextButton(
@@ -849,6 +857,7 @@ private fun EditableMilestonesList(
                     label = { Text("Title") },
                     singleLine = true,
                     enabled = enabled,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(

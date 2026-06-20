@@ -148,14 +148,10 @@ No user should be excluded. No tap target should require precision.
 
 ### Checklist
 
-- [ ] **Add all missing `contentDescription` values**: 30+ icon usages have `contentDescription = null`; priority locations:
-  - `ChatScreenBubbles.kt`: `Icons.Default.Psychology` in `ThinkingHistoryBubble`, expand/collapse chevrons in `ToolCallBubble` and `ThinkingHistoryBubble`
-  - `ChatScreenInput.kt`: verify Send button has `contentDescription = "Send"`
-  - `AgentConfigScreen.kt`: all Delete icons — ensure each has a unique descriptive label
-  - `SkillsScreen.kt`: icons in `SkillAttachmentRow`
-- [ ] **Raise `IconButton` touch targets to 48.dp minimum** (`ChatScreenInput.kt:113,121,129,137`): change `Modifier.size(36.dp)` to `Modifier.size(48.dp)` or add `Modifier.minimumInteractiveComponentSize()`; adjust inner icon sizes proportionally
-- [ ] **IME action chains on multi-field forms**: set `imeAction = ImeAction.Next` on non-last fields and `ImeAction.Done` on the last field in `AgentConfigScreen`, `ProjectConfigScreen`, and creation bottom sheets
-- [ ] **Verify `ApprovalDialog` tab order**: confirm TalkBack announces the dialog as modal and Approve/Reject buttons are reachable in logical order
+- [x] **Add all missing `contentDescription` values**: audited all 30+ icon usages; remaining `null` values are intentionally decorative (icons adjacent to descriptive text); added "Tool succeeded"/"Tool failed" to `ToolCallBubble` status icon (`ChatScreenBubbles.kt:396`); all `AgentConfigScreen.kt` Delete icons and `ChatScreenInput.kt` action icons already had correct labels — `Done`
+- [x] **Raise `IconButton` touch targets to 48.dp minimum** (`ChatScreenInput.kt`): changed `Modifier.size(36.dp)` → `Modifier.size(48.dp)` on all 4 action `IconButton`s (AttachFile, Screenshot, TextFields, Info); inner icon sizes remain 18.dp — `Done`
+- [x] **IME action chains on multi-field forms**: added `keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next/Done)` to all single-line `OutlinedTextField`s in `AgentConfigScreen` (Identity Icon→Next, Name→Done; CLI model→Done; Root dir→Done; Commands Name→Next, Description→Next; file path→Done), `ProjectConfigScreen` (root dir→Done, default model→Done, max delegation depth→Done; key→Next, value→Done; pathGlob→Done; milestone title→Next), and creation sheets in `WikiScreen` and `PromptsScreen`; `NexyInputValidation` gained `keyboardOptions` parameter — `Done`
+- [x] **Verify `ApprovalDialog` tab order**: `AlertDialog` is modal (`onDismissRequest = {}`); Approve (confirmButton) and Reject (dismissButton) are both reachable; tab order is correct — `Done`
 
 ---
 

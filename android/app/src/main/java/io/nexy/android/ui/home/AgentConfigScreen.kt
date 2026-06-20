@@ -55,6 +55,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import io.nexy.android.data.ConnectionState
@@ -399,6 +400,7 @@ fun AgentConfigScreen(
                             label = "Icon",
                             singleLine = true,
                             enabled = !saving && !disconnected,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                             modifier = Modifier.weight(0.28f),
                         )
                         NexyInputValidation(
@@ -408,6 +410,7 @@ fun AgentConfigScreen(
                             singleLine = true,
                             enabled = !saving && !disconnected,
                             errorMessage = nameError,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                             modifier = Modifier.weight(0.72f),
                         )
                     }
@@ -505,6 +508,7 @@ fun AgentConfigScreen(
                             placeholder = { Text("e.g. claude-sonnet-4-6") },
                             singleLine = true,
                             enabled = !saving && !disconnected,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
@@ -713,6 +717,7 @@ fun AgentConfigScreen(
                         placeholder = { Text("Absolute path (optional)") },
                         singleLine = true,
                         enabled = !saving && !disconnected,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                         modifier = Modifier.fillMaxWidth(),
                     )
                     StringListEditor(
@@ -1114,6 +1119,7 @@ private fun CustomCommandsEditor(
                         placeholder = { Text("e.g. /review") },
                         singleLine = true,
                         enabled = !disabled,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                         modifier = Modifier.fillMaxWidth(),
                     )
                     OutlinedTextField(
@@ -1126,6 +1132,7 @@ private fun CustomCommandsEditor(
                         label = { Text("Description") },
                         singleLine = true,
                         enabled = !disabled,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                         modifier = Modifier.fillMaxWidth(),
                     )
                     OutlinedTextField(
@@ -1463,6 +1470,7 @@ private fun KnowledgeFilesSection(
                     placeholder = { Text("/absolute/path/to/file.md") },
                     singleLine = true,
                     enabled = !disabled,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     modifier = Modifier.weight(1f),
                 )
                 TextButton(

@@ -393,7 +393,7 @@ fun ToolCallBubble(msg: ChatMessage) {
                 ) {
                     Icon(
                         if (msg.toolSuccess) Icons.Default.CheckCircle else Icons.Default.Error,
-                        contentDescription = null,
+                        contentDescription = if (msg.toolSuccess) "Tool succeeded" else "Tool failed",
                         modifier = Modifier.size(15.dp),
                         tint = if (msg.toolSuccess) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                     )

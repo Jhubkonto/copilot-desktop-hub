@@ -55,10 +55,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -448,6 +450,7 @@ fun NexyInputValidation(
     singleLine: Boolean = true,
     enabled: Boolean = true,
     placeholder: String? = null,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
 ) {
     Column(modifier = modifier) {
         OutlinedTextField(
@@ -458,6 +461,7 @@ fun NexyInputValidation(
             singleLine = singleLine,
             enabled = enabled,
             placeholder = placeholder?.let { { Text(it) } },
+            keyboardOptions = keyboardOptions,
             modifier = Modifier.fillMaxWidth(),
         )
         AnimatedVisibility(visible = errorMessage != null) {
