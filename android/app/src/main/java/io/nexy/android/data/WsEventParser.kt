@@ -37,6 +37,7 @@ import io.nexy.android.data.model.CompressionSections
 import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.ErrorReport
 import io.nexy.android.data.model.HistoryMessage
+import io.nexy.android.data.model.ThinkingBlock
 import io.nexy.android.data.model.McpServerInfo
 import io.nexy.android.data.model.McpServerWithStatus
 import io.nexy.android.data.model.McpToolInfo
@@ -269,10 +270,18 @@ fun parseWsEvent(
                         content = m.optString("content"),
                         timestamp = m.optLong("timestamp"),
                         attachments = attachmentsFromJson(m.nullableString("attachments")),
+                        thinkingBlocks = parseThinkingBlocks(m.nullableString("thinking_blocks")),
                     )
                 }
                 WsEvent.ConversationMessages(conversationId, messages)
             }
+
+            "chat:cost" -> WsEvent.ChatCost(
+                conversationId = data?.optString("conversationId") ?: "",
+                inputTokens = data?.optInt("inputTokens", 0) ?: 0,
+                outputTokens = data?.optInt("outputTokens", 0) ?: 0,
+                totalCostUsd = data?.optDouble("totalCostUsd", 0.0) ?: 0.0,
+            )
 
             "agent:list" -> {
                 val agentsArray = data?.optJSONArray("agents") ?: JSONArray()
@@ -1599,6 +1608,21 @@ private fun parseArtifactGeneratorSpec(data: JSONObject?): ArtifactGeneratorSpec
             referencedFiles = srcStrList("referencedFiles"),
         ),
     )
+}
+
+private fun parseThinkingBlocks(json: String?): List<ThinkingBlock> {
+    if (json.isNullOrBlank()) return emptyList()
+    return try {
+        val arr = JSONArray(json)
+        (0 until arr.length()).mapNotNull { i ->
+            val obj = arr.optJSONObject(i) ?: return@mapNotNull null
+            ThinkingBlock(
+                blockId = obj.optString("blockId"),
+                content = obj.optString("content"),
+                done = obj.optBoolean("done", true),
+            )
+        }
+    } catch (_: Exception) { emptyList() }
 }
 
 private fun parseConversationArray(arr: JSONArray): List<Conversation> =

@@ -9,6 +9,7 @@ sealed class WsEvent {
     ) : WsEvent()
     data class ChatStreamChunk(val conversationId: String, val text: String) : WsEvent()
     data class ChatStreamEnd(val conversationId: String) : WsEvent()
+    data class ChatCost(val conversationId: String, val inputTokens: Int, val outputTokens: Int, val totalCostUsd: Double) : WsEvent()
     data class ChatActivity(
         val conversationId: String,
         val state: String,
@@ -315,7 +316,10 @@ data class HistoryMessage(
     val content: String,
     val timestamp: Long,
     val attachments: List<AttachmentMeta> = emptyList(),
+    val thinkingBlocks: List<ThinkingBlock> = emptyList(),
 )
+
+data class ThinkingBlock(val blockId: String, val content: String, val done: Boolean)
 
 data class AttachmentMeta(
     val id: String,
