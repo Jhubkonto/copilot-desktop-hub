@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.ProjectAgentEntry
+import io.nexy.android.data.model.ProjectSettingsConfig
 import io.nexy.android.data.model.WsEvent
 import io.nexy.android.ui.components.NexyTopAppBar
 import kotlinx.coroutines.launch
@@ -68,6 +69,7 @@ fun ProjectConfigScreen(
     projectId: String,
     onBack: () -> Unit,
     onOpenWiki: () -> Unit = {},
+    onOpenArtifacts: () -> Unit = {},
 ) {
     val projects by WsRepository.projects.collectAsState()
     val allAgents by WsRepository.agents.collectAsState()
@@ -77,10 +79,17 @@ fun ProjectConfigScreen(
     var instructions by remember { mutableStateOf("") }
     var rootDirectory by remember { mutableStateOf("") }
     var instructionMode by remember { mutableStateOf("prepend") }
+    var instructionsEnabled by remember { mutableStateOf(true) }
     var orchestrationEnabled by remember { mutableStateOf(false) }
+    var maxDelegationDepth by remember { mutableStateOf("5") }
+    var showTeamActivity by remember { mutableStateOf(true) }
     var defaultModel by remember { mutableStateOf("") }
     var instructionModeExpanded by remember { mutableStateOf(false) }
 
+    val variables = remember { mutableStateListOf<Map<String, String>>() }
+    val inScope = remember { mutableStateListOf<Map<String, String>>() }
+    val outOfScope = remember { mutableStateListOf<Map<String, String>>() }
+    val milestones = remember { mutableStateListOf<Map<String, String>>() }
     val projectAgents = remember { mutableStateListOf<ProjectAgentEntry>() }
     var showAddAgentSheet by remember { mutableStateOf(false) }
 
@@ -102,8 +111,15 @@ fun ProjectConfigScreen(
                     instructions = event.config.instructions
                     rootDirectory = event.config.rootDirectory.orEmpty()
                     instructionMode = event.config.instructionMode
+                    instructionsEnabled = event.config.instructionsEnabled
                     orchestrationEnabled = event.config.orchestrationEnabled
+                    maxDelegationDepth = event.config.maxDelegationDepth.toString()
+                    showTeamActivity = event.config.showTeamActivity
                     defaultModel = event.config.defaultModel.orEmpty()
+                    variables.replaceWith(event.config.variables)
+                    inScope.replaceWith(event.config.inScope)
+                    outOfScope.replaceWith(event.config.outOfScope)
+                    milestones.replaceWith(event.config.milestones)
                     loaded = true
                 }
                 is WsEvent.ProjectConfigUpdated -> if (event.id == projectId) {
@@ -232,6 +248,26 @@ fun ProjectConfigScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
 
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Enable instructions", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "Include these instructions in project chats",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = instructionsEnabled,
+                    onCheckedChange = { if (!saving && !disconnected) instructionsEnabled = it },
+                    enabled = !saving && !disconnected,
+                )
+            }
+
             ExposedDropdownMenuBox(
                 expanded = instructionModeExpanded,
                 onExpandedChange = { if (!saving && !disconnected) instructionModeExpanded = it },
@@ -270,6 +306,35 @@ fun ProjectConfigScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
 
+            SectionHeader("Variables")
+            EditableKeyValueList(
+                rows = variables,
+                keyLabel = "Key",
+                valueLabel = "Value",
+                addLabel = "Add variable",
+                enabled = !saving && !disconnected,
+            )
+
+            SectionHeader("Scope")
+            EditableScopeList(
+                title = "In scope",
+                rows = inScope,
+                addLabel = "Add in-scope rule",
+                enabled = !saving && !disconnected,
+            )
+            EditableScopeList(
+                title = "Out of scope",
+                rows = outOfScope,
+                addLabel = "Add out-of-scope rule",
+                enabled = !saving && !disconnected,
+            )
+
+            SectionHeader("Milestones")
+            EditableMilestonesList(
+                rows = milestones,
+                enabled = !saving && !disconnected,
+            )
+
             SectionHeader("Model")
 
             OutlinedTextField(
@@ -303,6 +368,35 @@ fun ProjectConfigScreen(
                     enabled = !saving && !disconnected,
                 )
             }
+            if (orchestrationEnabled) {
+                OutlinedTextField(
+                    value = maxDelegationDepth,
+                    onValueChange = { maxDelegationDepth = it.filter(Char::isDigit).take(2) },
+                    label = { Text("Max delegation depth") },
+                    singleLine = true,
+                    enabled = !saving && !disconnected,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Show team activity", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "Show delegated agent activity in chat",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = showTeamActivity,
+                        onCheckedChange = { if (!saving && !disconnected) showTeamActivity = it },
+                        enabled = !saving && !disconnected,
+                    )
+                }
+            }
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
@@ -311,12 +405,21 @@ fun ProjectConfigScreen(
                     if (saving || disconnected) return@Button
                     saving = true
                     WsRepository.updateProjectConfig(
-                        id = projectId,
+                        projectId,
+                        ProjectSettingsConfig(
                         instructions = instructions.trim(),
                         rootDirectory = rootDirectory.trim().ifBlank { null },
+                        variables = variables.toList(),
                         instructionMode = instructionMode,
+                        instructionsEnabled = instructionsEnabled,
                         orchestrationEnabled = orchestrationEnabled,
+                        maxDelegationDepth = maxDelegationDepth.toIntOrNull()?.coerceIn(1, 10) ?: 5,
+                        showTeamActivity = showTeamActivity,
+                        inScope = inScope.toList(),
+                        outOfScope = outOfScope.toList(),
+                        milestones = milestones.toList(),
                         defaultModel = defaultModel.trim().ifBlank { null },
+                        ),
                     )
                 },
                 enabled = !saving && !disconnected,
@@ -371,6 +474,30 @@ fun ProjectConfigScreen(
                                 }
                             }
                             if (!disconnected) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    TextButton(
+                                        onClick = {
+                                            val index = projectAgents.indexOf(entry)
+                                            if (index > 0) {
+                                                projectAgents.move(index, index - 1)
+                                                WsRepository.reorderProjectAgents(projectId, projectAgents.map { it.agentId })
+                                            }
+                                        },
+                                        enabled = projectAgents.indexOf(entry) > 0,
+                                    ) { Text("Up", style = MaterialTheme.typography.labelSmall) }
+                                    TextButton(
+                                        onClick = {
+                                            val index = projectAgents.indexOf(entry)
+                                            if (index in 0 until projectAgents.lastIndex) {
+                                                projectAgents.move(index, index + 1)
+                                                WsRepository.reorderProjectAgents(projectId, projectAgents.map { it.agentId })
+                                            }
+                                        },
+                                        enabled = projectAgents.indexOf(entry) < projectAgents.lastIndex,
+                                    ) { Text("Down", style = MaterialTheme.typography.labelSmall) }
+                                }
+                            }
+                            if (!disconnected) {
                                 IconButton(onClick = { WsRepository.removeProjectAgent(projectId, entry.agentId) }) {
                                     Icon(Icons.Default.Close, contentDescription = "Remove agent")
                                 }
@@ -398,6 +525,14 @@ fun ProjectConfigScreen(
             ) {
                 Text("View project wiki")
             }
+
+            SectionHeader("Artifacts")
+            TextButton(
+                onClick = onOpenArtifacts,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("View project artifacts")
+            }
         }
     }
 }
@@ -406,4 +541,197 @@ fun ProjectConfigScreen(
 private fun SectionHeader(title: String) {
     Text(title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+}
+
+private fun MutableList<Map<String, String>>.replaceWith(next: List<Map<String, String>>) {
+    clear()
+    addAll(next)
+}
+
+private fun <T> MutableList<T>.move(from: Int, to: Int) {
+    val item = removeAt(from)
+    add(to, item)
+}
+
+@Composable
+private fun EditableKeyValueList(
+    rows: MutableList<Map<String, String>>,
+    keyLabel: String,
+    valueLabel: String,
+    addLabel: String,
+    enabled: Boolean,
+) {
+    if (rows.isEmpty()) {
+        Text(
+            "No entries.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    rows.forEachIndexed { index, row ->
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        ) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = row["key"].orEmpty(),
+                    onValueChange = { rows[index] = row + ("key" to it) },
+                    label = { Text(keyLabel) },
+                    singleLine = true,
+                    enabled = enabled,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = row["value"].orEmpty(),
+                    onValueChange = { rows[index] = row + ("value" to it) },
+                    label = { Text(valueLabel) },
+                    singleLine = true,
+                    enabled = enabled,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                TextButton(
+                    onClick = { rows.removeAt(index) },
+                    enabled = enabled,
+                    modifier = Modifier.align(Alignment.End),
+                ) {
+                    Text("Remove")
+                }
+            }
+        }
+    }
+    TextButton(
+        onClick = { rows.add(mapOf("key" to "", "value" to "")) },
+        enabled = enabled,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
+        Text(addLabel)
+    }
+}
+
+@Composable
+private fun EditableScopeList(
+    title: String,
+    rows: MutableList<Map<String, String>>,
+    addLabel: String,
+    enabled: Boolean,
+) {
+    Text(title, style = MaterialTheme.typography.bodyMedium)
+    if (rows.isEmpty()) {
+        Text(
+            "No rules.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    rows.forEachIndexed { index, row ->
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        ) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = row["description"].orEmpty(),
+                    onValueChange = { rows[index] = row + ("description" to it) },
+                    label = { Text("Description") },
+                    enabled = enabled,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = row["pathGlob"].orEmpty(),
+                    onValueChange = { rows[index] = row + ("pathGlob" to it) },
+                    label = { Text("Path glob (optional)") },
+                    singleLine = true,
+                    enabled = enabled,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                TextButton(
+                    onClick = { rows.removeAt(index) },
+                    enabled = enabled,
+                    modifier = Modifier.align(Alignment.End),
+                ) {
+                    Text("Remove")
+                }
+            }
+        }
+    }
+    TextButton(
+        onClick = { rows.add(mapOf("id" to rows.size.toString(), "description" to "", "pathGlob" to "")) },
+        enabled = enabled,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
+        Text(addLabel)
+    }
+}
+
+@Composable
+private fun EditableMilestonesList(
+    rows: MutableList<Map<String, String>>,
+    enabled: Boolean,
+) {
+    if (rows.isEmpty()) {
+        Text(
+            "No milestones.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    rows.forEachIndexed { index, row ->
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        ) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = row["title"].orEmpty(),
+                    onValueChange = { rows[index] = row + ("title" to it) },
+                    label = { Text("Title") },
+                    singleLine = true,
+                    enabled = enabled,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = row["description"].orEmpty(),
+                    onValueChange = { rows[index] = row + ("description" to it) },
+                    label = { Text("Description") },
+                    enabled = enabled,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Status: ${row["status"].orEmpty().ifBlank { "upcoming" }}", style = MaterialTheme.typography.bodySmall)
+                    Row {
+                        listOf("active", "upcoming", "completed").forEach { status ->
+                            TextButton(
+                                onClick = { rows[index] = row + ("status" to status) },
+                                enabled = enabled,
+                            ) {
+                                Text(status, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+                TextButton(
+                    onClick = { rows.removeAt(index) },
+                    enabled = enabled,
+                    modifier = Modifier.align(Alignment.End),
+                ) {
+                    Text("Remove")
+                }
+            }
+        }
+    }
+    TextButton(
+        onClick = { rows.add(mapOf("id" to rows.size.toString(), "title" to "", "description" to "", "status" to "upcoming")) },
+        enabled = enabled,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
+        Text("Add milestone")
+    }
 }

@@ -68,6 +68,7 @@ fun HomeScreen(
     onOpenProjectGenerator: () -> Unit,
     onOpenArtifacts: () -> Unit,
     onOpenSkills: () -> Unit,
+    onOpenSkillGenerator: () -> Unit,
     onDisconnected: () -> Unit,
     onOpenSettings: () -> Unit,
     vm: HomeViewModel = viewModel(),

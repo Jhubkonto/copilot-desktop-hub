@@ -284,6 +284,7 @@ fun NavGraph(onRequestNotificationPermission: () -> Unit = {}) {
                 projectId = projectId,
                 onBack = { navController.popBackStack() },
                 onOpenWiki = { navController.navigate("wiki/${Uri.encode(projectId)}") },
+                onOpenArtifacts = { navController.navigate("artifacts") },
             )
         }
 
