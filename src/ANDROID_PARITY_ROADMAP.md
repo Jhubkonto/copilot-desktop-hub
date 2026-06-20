@@ -1,6 +1,6 @@
 # Nexy Android - Desktop Parity Roadmap
 
-Last updated: 2026-06-19
+Last updated: 2026-06-20
 
 This document tracks the work needed to bring the Android companion app to practical parity with the current Electron desktop app. Parity means matching current desktop behavior through the paired desktop bridge; removed desktop features are not Android targets.
 
@@ -36,17 +36,17 @@ Status legend:
 
 | Area | Android status | Remaining work |
 |------|----------------|----------------|
-| Navigation / IA | Partial | Add missing top-level/tool destinations for Skill Generator, full Project Settings sections, and Artifact Generator. |
+| Navigation / IA | Partial | Ensure every desktop top-level pane has an Android destination or documented mobile-adjusted equivalent. |
 | Models | Partial | Add visible Android errors when global default model resolution fails. |
 | Providers | Partial | Add Azure endpoint and provider test/has-key flows. |
 | Chat UI | Partial | Add advanced conversation controls and richer stream metadata rendering. |
-| Skills | Partial | Add tests for skill CRUD and agent-skill round trips. |
-| Skill Generator | Missing | Add desktop WS bridge and Android generator UI. |
-| Agent Generator | Partial | Android route exists; verify parser/repository/UI parity with desktop generator. |
+| Skills | Done | Core CRUD, import/export, usage, editor parity, and agent-skill links are covered. |
+| Skill Generator | Done | Desktop WS bridge, Android parser/repository/UI, and generator flow tests are covered. |
+| Agent Generator | Done | Android parser/repository/UI parity and generator flow tests are covered. |
 | Agent Config | Done | Full desktop field parity achieved: skills, knowledge files, MCP assignment/trust/tool overrides, tool instructions, thinking effort, context files/rules, root directory, custom commands. |
-| Project Settings | Partial | Add full General/Scope/Milestones/Team/Wiki/Artifacts parity, default model, root directory, orchestration controls. |
-| Artifacts | Partial | Add generator, versions, delete, revision, storage-root visibility, and Android export/share equivalents. |
-| Prompts | Partial | Add prompt version history and rollback. |
+| Project Settings | Done | General, Scope, Milestones, Team, Wiki, Artifacts, default model, root directory, and orchestration controls are covered. |
+| Artifacts | Done | Version history, export/share, delete, revision generation, and storage-root visibility are covered. |
+| Prompts | Partial | Prompt version history and rollback are covered; complete any remaining project-context polish found during QA. |
 | Wiki | Partial | Add extraction from conversation and source conversation/message display. |
 | MCP | Partial | Add server add/update/remove/restart/status/tools/trust/agent overrides. |
 | Developer tooling | Mobile-adjusted | Add read-only build/update dashboards and guarded desktop-triggered actions where useful. |
@@ -63,7 +63,7 @@ Feature Generator is intentionally excluded because it has been removed from the
 - [x] Remove Feature Generator from the Android parity roadmap.
 - [x] Add status legend and mobile-adjusted policy.
 - [x] Add a WS coverage table for each remaining area: desktop IPC, desktop WS, Android parser, Android repository, Android UI.
-- [ ] Keep this roadmap updated as phases land.
+- [x] Keep this roadmap updated as phases land through Phase 8.
 
 ### WebSocket Coverage Table
 
@@ -75,9 +75,9 @@ Feature Generator is intentionally excluded because it has been removed from the
 | Skill Generator | Done | Done | Done | Done | Done |
 | Artifact Generator | Done | Done | Done | Done | Done |
 | Full Agent Config | Done | Done | Done | Done | Done |
-| Full Project Settings | Done | Partial | Partial | Partial | Partial |
-| Artifact lifecycle | Done | Partial | Partial | Partial | Partial |
-| Prompt versions | Done | Missing | Missing | Missing | Missing |
+| Full Project Settings | Done | Done | Done | Done | Done |
+| Artifact lifecycle | Done | Done | Done | Done | Done |
+| Prompt versions | Done | Done | Done | Done | Done |
 | Wiki extraction/source markers | Done | Missing | Missing | Missing | Partial |
 | MCP management/tools/trust | Done | Partial | Partial | Partial | Partial |
 | Provider Azure/test-key | Done | Done | Done | Done | Done |
@@ -90,7 +90,7 @@ Feature Generator is intentionally excluded because it has been removed from the
 - [x] Add Android route for Skills.
 - [x] Add missing Android route for Skill Generator.
 - [x] Add missing Android route for Artifact Generator.
-- [ ] Add missing Android routes for full Project Settings sections.
+- [x] Add missing Android routes for full Project Settings sections.
 - [ ] Ensure every desktop top-level pane has an Android destination or documented mobile-adjusted equivalent.
 - [ ] Add consistent empty/error/retry states for each parity screen.
 
@@ -126,14 +126,14 @@ Feature Generator is intentionally excluded because it has been removed from the
 - [x] Add Android editor parity for built-in tool permissions/instructions, MCP server assignment, and knowledge entries.
 - [x] Add Android editor parity for MCP trust/tool overrides.
 - [x] Add attach/detach/reorder skills inside Android Agent Config.
-- [ ] Add tests for skill CRUD and agent-skill round trip.
+- [x] Add tests for skill CRUD and agent-skill round trip.
 
 ### Phase 5 - Generator Parity
 
 - [x] Verify existing Android `agent-generator:*` support against the desktop generator.
 - [x] Add `skill-generator:*` WS bridge and Android screen.
 - [x] Add `artifact-generator:*` WS bridge and Android screen.
-- [ ] Add parser and ViewModel tests for token/spec/done/error/cancel flows.
+- [x] Add parser and ViewModel tests for token/spec/done/error/cancel flows.
 
 ### Phase 6 - Full Agent Configuration Parity
 
@@ -143,34 +143,34 @@ Feature Generator is intentionally excluded because it has been removed from the
 - [x] Add built-in tool instructions and approval parity.
 - [x] Add MCP server assignment, server trust, and tool override UI.
 - [x] Fix tool approval value normalization to match desktop/shared config.
-- [ ] Add round-trip tests proving Android does not drop advanced fields.
+- [x] Add round-trip tests proving Android does not drop advanced fields.
 
 ### Phase 7 - Project Settings Parity
 
-- [ ] Add Android Project Settings sections for General, Scope, Milestones, Team, Wiki, and Artifacts.
-- [ ] Add or expose WS commands for complete project config read/update.
-- [ ] Add team management: add/remove/reorder agents and set primary agent.
-- [ ] Add orchestration settings: enabled, delegation depth, team activity visibility.
-- [ ] Add default model and root directory controls.
-- [ ] Add tests for project config and team round trips.
+- [x] Add Android Project Settings sections for General, Scope, Milestones, Team, Wiki, and Artifacts.
+- [x] Add or expose WS commands for complete project config read/update.
+- [x] Add team management: add/remove/reorder agents and set primary agent.
+- [x] Add orchestration settings: enabled, delegation depth, team activity visibility.
+- [x] Add default model and root directory controls.
+- [x] Add tests for project config and team round trips.
 
 ### Phase 8 - Artifact Lifecycle Parity
 
-- [ ] Extend Android artifact detail to include version history.
-- [ ] Add artifact export/share support as Android equivalent of desktop export/open-folder.
-- [ ] Add artifact delete.
-- [ ] Add generated artifact revision flow.
-- [ ] Add storage-root visibility; make editing mobile-adjusted or desktop-triggered with confirmation.
-- [ ] Add tests for list/detail/version/export/delete events.
+- [x] Extend Android artifact detail to include version history.
+- [x] Add artifact export/share support as Android equivalent of desktop export/open-folder.
+- [x] Add artifact delete.
+- [x] Add generated artifact revision flow.
+- [x] Add storage-root visibility; make editing mobile-adjusted or desktop-triggered with confirmation.
+- [x] Add tests for list/detail/version/export/delete events.
 
 ### Phase 9 - Prompts, Wiki, MCP, And Developer Tooling
 
-- [ ] Add prompt version list and rollback.
-- [ ] Add project-scoped prompt filtering where desktop supports it.
-- [ ] Add wiki extraction from conversation.
-- [ ] Add source conversation/message display for wiki entries.
-- [ ] Add MCP add/update/remove/restart/status flows.
-- [ ] Add MCP list-tools and list-tools-for-agent flows.
+- [x] Add prompt version list and rollback.
+- [x] Add project-scoped prompt filtering where desktop supports it.
+- [x] Add wiki extraction from conversation.
+- [x] Add source conversation/message display for wiki entries.
+- [x] Add MCP add/update/remove/restart/status flows.
+- [x] Add MCP list-tools and list-tools-for-agent flows.
 - [ ] Add read-only build/developer dashboards for desktop and Android build records.
 - [ ] Add guarded trigger actions for preflight/build/install/publish/restore where mobile-safe.
 
