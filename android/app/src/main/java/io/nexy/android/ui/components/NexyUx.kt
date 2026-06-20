@@ -1,16 +1,35 @@
 package io.nexy.android.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
@@ -20,17 +39,29 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.nexy.android.data.ConnectionState
+import kotlinx.coroutines.delay
 
 @Composable
 fun NexyConfirmDialog(
@@ -122,18 +153,24 @@ fun NexySearchField(
     onQueryChange: (String) -> Unit,
     placeholder: String,
     modifier: Modifier = Modifier,
+    debounceMs: Long = 0L,
 ) {
+    var localQuery by remember(query) { mutableStateOf(query) }
+    LaunchedEffect(localQuery) {
+        if (debounceMs > 0L) delay(debounceMs)
+        if (localQuery != query) onQueryChange(localQuery)
+    }
     OutlinedTextField(
-        value = query,
-        onValueChange = onQueryChange,
+        value = localQuery,
+        onValueChange = { localQuery = it; if (debounceMs == 0L) onQueryChange(it) },
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 8.dp),
         singleLine = true,
         leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
         trailingIcon = {
-            if (query.isNotBlank()) {
-                IconButton(onClick = { onQueryChange("") }) {
+            if (localQuery.isNotBlank()) {
+                IconButton(onClick = { localQuery = ""; onQueryChange("") }) {
                     Icon(Icons.Default.Close, contentDescription = "Clear search")
                 }
             }
@@ -182,7 +219,7 @@ fun NexyFormSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     ) {
-        Column(modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 32.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 32.dp).imePadding()) {
             Text(
                 title,
                 style = MaterialTheme.typography.titleMedium,
@@ -218,6 +255,227 @@ fun NexyStatusBadge(
             color = contentColor,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
             maxLines = 1,
+        )
+    }
+}
+
+@Composable
+fun NexySkeletonLoader(
+    modifier: Modifier = Modifier,
+    lines: Int = 3,
+) {
+    val transition = rememberInfiniteTransition(label = "skeleton")
+    val progress by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1200, easing = LinearEasing),
+        ),
+        label = "skeleton-shimmer",
+    )
+    val shimmerColors = listOf(
+        MaterialTheme.colorScheme.surfaceVariant,
+        MaterialTheme.colorScheme.surface,
+        MaterialTheme.colorScheme.surfaceVariant,
+    )
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        repeat(lines) { i ->
+            val widthFraction = if (i == lines - 1) 0.6f else 1f
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(widthFraction)
+                    .height(14.dp)
+                    .clip(RoundedCornerShape(7.dp))
+                    .background(
+                        Brush.linearGradient(
+                            colors = shimmerColors,
+                            start = Offset(progress * 1000f - 400f, 0f),
+                            end = Offset(progress * 1000f, 0f),
+                        )
+                    ),
+            )
+        }
+    }
+}
+
+@Composable
+fun NexyExpandableSection(
+    title: String,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+    badge: String? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = onToggle,
+            color = Color.Transparent,
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 0.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+                if (badge != null) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                    ) {
+                        Text(
+                            badge,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        )
+                    }
+                }
+                Icon(
+                    if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (expanded) "Collapse $title" else "Expand $title",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        }
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(),
+            exit = shrinkVertically(),
+        ) {
+            Column(content = content)
+        }
+    }
+}
+
+@Composable
+fun NexyStepIndicator(
+    steps: List<String>,
+    currentStep: Int,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        steps.forEachIndexed { index, label ->
+            val isDone = index < currentStep
+            val isActive = index == currentStep
+            val circleColor = if (isDone || isActive) MaterialTheme.colorScheme.primary else Color.Transparent
+            val borderColor = if (isDone || isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+            val textColor = if (isDone || isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.weight(1f),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(24.dp)
+                        .clip(CircleShape)
+                        .background(circleColor)
+                        .border(1.5.dp, borderColor, CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        "${index + 1}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isDone || isActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = textColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                )
+            }
+            if (index < steps.lastIndex) {
+                Box(
+                    modifier = Modifier
+                        .weight(0.5f)
+                        .height(1.5.dp)
+                        .background(if (isDone) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline)
+                        .padding(bottom = 14.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun NexyInputValidation(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    errorMessage: String? = null,
+    singleLine: Boolean = true,
+    enabled: Boolean = true,
+    placeholder: String? = null,
+) {
+    Column(modifier = modifier) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            label = { Text(label) },
+            isError = errorMessage != null,
+            singleLine = singleLine,
+            enabled = enabled,
+            placeholder = placeholder?.let { { Text(it) } },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        AnimatedVisibility(visible = errorMessage != null) {
+            Text(
+                text = errorMessage.orEmpty(),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(start = 16.dp, top = 4.dp),
+            )
+        }
+    }
+}
+
+@Composable
+fun NexyConnectionBanner(
+    connectionState: ConnectionState,
+    lastError: String? = null,
+) {
+    val message = when (connectionState) {
+        ConnectionState.CONNECTED -> return
+        ConnectionState.CONNECTING -> "Reconnecting to desktop..."
+        ConnectionState.DISCONNECTED -> lastError?.let { "Disconnected: $it" } ?: "Disconnected from desktop"
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.errorContainer,
+    ) {
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onErrorContainer,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
