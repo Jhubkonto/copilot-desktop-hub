@@ -12,10 +12,10 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,9 +25,9 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -240,63 +240,48 @@ fun ChatsTab(
         } else {
             Column(modifier = Modifier.fillMaxSize()) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     OutlinedTextField(
                         value = searchQuery,
                         onValueChange = { onSearchQueryChange(it) },
-                        modifier = Modifier.weight(1f).height(56.dp),
+                        modifier = Modifier.weight(1f),
                         singleLine = true,
-                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
                         trailingIcon = {
                             if (searchQuery.isNotBlank()) {
-                                IconButton(onClick = { onSearchQueryChange("") }) {
-                                    Icon(Icons.Default.Close, contentDescription = "Clear search")
+                                IconButton(onClick = { onSearchQueryChange("") }, modifier = Modifier.size(36.dp)) {
+                                    Icon(Icons.Default.Close, contentDescription = "Clear search", modifier = Modifier.size(16.dp))
                                 }
                             }
                         },
-                        placeholder = { Text("Search chats", maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        shape = RoundedCornerShape(14.dp),
+                        placeholder = { Text("Search chats", style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        shape = RoundedCornerShape(12.dp),
+                        textStyle = MaterialTheme.typography.bodyMedium,
                     )
-                    Surface(
-                        modifier = Modifier
-                            .height(56.dp)
-                            .widthIn(min = 112.dp, max = 148.dp)
-                            .clickable(enabled = showFilters) { showFilterSheet = true },
-                        shape = RoundedCornerShape(14.dp),
-                        color = if (activeFilter is ChatFilter.All)
-                            MaterialTheme.colorScheme.surfaceVariant
-                        else
-                            MaterialTheme.colorScheme.primaryContainer,
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxHeight().padding(horizontal = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Icon(
-                                Icons.Default.FilterList,
-                                contentDescription = "Filter chats",
-                                modifier = Modifier.size(18.dp),
-                                tint = if (activeFilter is ChatFilter.All)
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                else
-                                    MaterialTheme.colorScheme.onPrimaryContainer,
-                            )
+                    FilterChip(
+                        selected = activeFilter !is ChatFilter.All,
+                        onClick = { if (showFilters) showFilterSheet = true },
+                        label = {
                             Text(
                                 activeFilterLabel,
                                 style = MaterialTheme.typography.labelMedium,
-                                color = if (activeFilter is ChatFilter.All)
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                else
-                                    MaterialTheme.colorScheme.onPrimaryContainer,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                        }
-                    }
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.FilterList,
+                                contentDescription = "Filter chats",
+                                modifier = Modifier.size(16.dp),
+                            )
+                        },
+                        enabled = showFilters,
+                        modifier = Modifier.heightIn(min = 56.dp),
+                    )
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 if (displayList.isEmpty()) {
@@ -359,6 +344,12 @@ fun ProjectsTab(
     var renameTarget by remember { mutableStateOf<Project?>(null) }
     var deleteTarget by remember { mutableStateOf<Project?>(null) }
     var renameText by remember { mutableStateOf("") }
+    var projectSearch by remember { mutableStateOf("") }
+
+    val filteredProjects = remember(projects, projectSearch) {
+        val q = projectSearch.trim()
+        if (q.isBlank()) projects else projects.filter { it.name.contains(q, ignoreCase = true) }
+    }
 
     if (showCreateSheet) {
         val disconnected = connectionState != ConnectionState.CONNECTED
@@ -467,26 +458,35 @@ fun ProjectsTab(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                NexyEmptyState(title = "No projects yet.", detail = "Create one manually or generate a full setup.")
-                TextButton(onClick = onOpenProjectGenerator) {
-                    Icon(Icons.Filled.Add, contentDescription = null)
-                    Spacer(Modifier.width(6.dp))
-                    Text("Generate project")
-                }
+                NexyEmptyState(title = "No projects yet.", detail = "Use the + button to create or generate a project.")
             }
         } else {
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
-                item {
-                    TextButton(
-                        onClick = onOpenProjectGenerator,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-                    ) {
-                        Icon(Icons.Filled.Add, contentDescription = null)
-                        Spacer(Modifier.width(6.dp))
-                        Text("Generate project")
-                    }
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedTextField(
+                        value = projectSearch,
+                        onValueChange = { projectSearch = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                        trailingIcon = {
+                            if (projectSearch.isNotBlank()) {
+                                IconButton(onClick = { projectSearch = "" }, modifier = Modifier.size(36.dp)) {
+                                    Icon(Icons.Default.Close, contentDescription = "Clear search", modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        },
+                        placeholder = { Text("Search projects", style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        shape = RoundedCornerShape(12.dp),
+                        textStyle = MaterialTheme.typography.bodyMedium,
+                    )
                 }
-                items(projects, key = { it.id }) { project ->
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                items(filteredProjects, key = { it.id }) { project ->
                     val accentColor = projectColor(project.color)
                     var menuExpanded by remember { mutableStateOf(false) }
                     Surface(
@@ -500,12 +500,12 @@ fun ProjectsTab(
                         color = MaterialTheme.colorScheme.surface,
                     ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).height(IntrinsicSize.Min),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Box(modifier = Modifier.width(4.dp).fillMaxHeight().background(accentColor))
                             Column(
-                                modifier = Modifier.weight(1f).padding(horizontal = 14.dp, vertical = 12.dp),
+                                modifier = Modifier.weight(1f).padding(horizontal = 14.dp, vertical = 10.dp),
                                 verticalArrangement = Arrangement.spacedBy(3.dp),
                             ) {
                                 Text(
@@ -582,6 +582,7 @@ fun ProjectsTab(
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
             }
+            } // end Column (search + list)
         }
     }
 }
@@ -608,6 +609,12 @@ fun AgentsTab(
     var deleteTarget by remember { mutableStateOf<Agent?>(null) }
     var renameText by remember { mutableStateOf("") }
     var renameIcon by remember { mutableStateOf("") }
+    var agentSearch by remember { mutableStateOf("") }
+
+    val filteredAgents = remember(agents, agentSearch) {
+        val q = agentSearch.trim()
+        if (q.isBlank()) agents else agents.filter { it.name.contains(q, ignoreCase = true) }
+    }
 
     if (showCreateSheet) {
         val disconnected = connectionState != ConnectionState.CONNECTED
@@ -722,26 +729,35 @@ fun AgentsTab(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                NexyEmptyState(title = "No agents yet.", detail = "Create one manually or generate a full setup.")
-                TextButton(onClick = onOpenAgentGenerator) {
-                    Icon(Icons.Filled.Add, contentDescription = null)
-                    Spacer(Modifier.width(6.dp))
-                    Text("Generate agent")
-                }
+                NexyEmptyState(title = "No agents yet.", detail = "Use the + button to create or generate an agent.")
             }
         } else {
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
-                item {
-                    TextButton(
-                        onClick = onOpenAgentGenerator,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-                    ) {
-                        Icon(Icons.Filled.Add, contentDescription = null)
-                        Spacer(Modifier.width(6.dp))
-                        Text("Generate agent")
-                    }
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedTextField(
+                        value = agentSearch,
+                        onValueChange = { agentSearch = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                        trailingIcon = {
+                            if (agentSearch.isNotBlank()) {
+                                IconButton(onClick = { agentSearch = "" }, modifier = Modifier.size(36.dp)) {
+                                    Icon(Icons.Default.Close, contentDescription = "Clear search", modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        },
+                        placeholder = { Text("Search agents", style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        shape = RoundedCornerShape(12.dp),
+                        textStyle = MaterialTheme.typography.bodyMedium,
+                    )
                 }
-                items(agents, key = { it.id }) { agent ->
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                items(filteredAgents, key = { it.id }) { agent ->
                     var menuExpanded by remember { mutableStateOf(false) }
                     Surface(
                         modifier = Modifier.fillMaxWidth().combinedClickable(
@@ -755,7 +771,7 @@ fun AgentsTab(
                         color = MaterialTheme.colorScheme.surface,
                     ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 16.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
@@ -814,6 +830,7 @@ fun AgentsTab(
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
             }
+            } // end Column (search + list)
         }
     }
 }

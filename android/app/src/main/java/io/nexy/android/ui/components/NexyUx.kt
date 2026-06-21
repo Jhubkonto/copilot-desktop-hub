@@ -177,20 +177,22 @@ fun NexySearchField(
     }
     OutlinedTextField(
         value = localQuery,
-        onValueChange = { localQuery = it; if (debounceMs == 0L) onQueryChange(it) },
+        onValueChange = { v -> localQuery = v; if (debounceMs == 0L) onQueryChange(v) },
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = 12.dp, vertical = 6.dp),
         singleLine = true,
-        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
         trailingIcon = {
             if (localQuery.isNotBlank()) {
-                IconButton(onClick = { localQuery = ""; onQueryChange("") }) {
-                    Icon(Icons.Default.Close, contentDescription = "Clear search")
+                IconButton(onClick = { localQuery = ""; onQueryChange("") }, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = "Clear search", modifier = Modifier.size(16.dp))
                 }
             }
         },
-        placeholder = { Text(placeholder) },
+        placeholder = { Text(placeholder, style = MaterialTheme.typography.bodyMedium) },
+        shape = RoundedCornerShape(12.dp),
+        textStyle = MaterialTheme.typography.bodyMedium,
     )
 }
 
@@ -544,5 +546,37 @@ fun NexySortSheet(
                 }
             }
         }
+    }
+}
+
+/**
+ * Standard list row with title, optional subtitle, and optional trailing action content.
+ * Use this instead of ad-hoc Row+Column patterns across list screens.
+ */
+@Composable
+fun NexyListRow(
+    title: String,
+    modifier: Modifier = Modifier,
+    subtitle: String? = null,
+    onClick: (() -> Unit)? = null,
+    trailing: @Composable (() -> Unit)? = null,
+) {
+    val rowModifier = if (onClick != null) {
+        modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp)
+    } else {
+        modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)
+    }
+    Row(
+        modifier = rowModifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+            if (!subtitle.isNullOrBlank()) {
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
+            }
+        }
+        trailing?.invoke()
     }
 }

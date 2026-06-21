@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -56,7 +55,6 @@ fun ConversationRow(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 92.dp)
             .combinedClickable(
                 onClick = { onOpenChat(conv.id) },
                 onLongClick = { onRename?.invoke(conv.id, conv.title) },
@@ -139,22 +137,26 @@ fun ConversationRow(
                 conv.agent_name?.takeIf { it.isNotBlank() }?.let { "Agent: $it" },
                 conv.project_name?.takeIf { it.isNotBlank() }?.let { "Project: $it" },
             )
-            Text(
-                text = contextParts.joinToString(" · "),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 2.dp),
-            )
-            Text(
-                text = preview,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 2.dp),
-            )
+            if (contextParts.isNotEmpty()) {
+                Text(
+                    text = contextParts.joinToString(" · "),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 1.dp),
+                )
+            }
+            if (preview.isNotBlank()) {
+                Text(
+                    text = preview,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 1.dp),
+                )
+            }
         }
     }
 }

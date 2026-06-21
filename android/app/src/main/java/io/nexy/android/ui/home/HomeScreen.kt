@@ -252,24 +252,54 @@ fun HomeScreen(
             )
         },
         floatingActionButton = {
-            val fabLabel = when (selectedTab) {
-                0 -> "New Chat"
-                1 -> "New Project"
-                else -> "New Agent"
-            }
-            FloatingActionButton(
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            var showFabMenu by remember { mutableStateOf(false) }
+            Box {
+                FloatingActionButton(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        when (selectedTab) {
+                            0 -> showNewChatSheet = true
+                            1 -> showFabMenu = true
+                            2 -> showFabMenu = true
+                        }
+                    },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ) {
+                    Icon(
+                        Icons.Default.Add,
+                        contentDescription = when (selectedTab) {
+                            0 -> "New Chat"; 1 -> "New Project"; else -> "New Agent"
+                        },
+                    )
+                }
+                DropdownMenu(
+                    expanded = showFabMenu,
+                    onDismissRequest = { showFabMenu = false },
+                ) {
                     when (selectedTab) {
-                        0 -> showNewChatSheet = true
-                        1 -> showCreateProjectSheet = true
-                        2 -> showCreateAgentSheet = true
+                        1 -> {
+                            DropdownMenuItem(
+                                text = { Text("Add project") },
+                                onClick = { showFabMenu = false; showCreateProjectSheet = true },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Generate project") },
+                                onClick = { showFabMenu = false; onOpenProjectGenerator() },
+                            )
+                        }
+                        2 -> {
+                            DropdownMenuItem(
+                                text = { Text("Add agent") },
+                                onClick = { showFabMenu = false; showCreateAgentSheet = true },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Generate agent") },
+                                onClick = { showFabMenu = false; onOpenAgentGenerator() },
+                            )
+                        }
                     }
-                },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-            ) {
-                Icon(Icons.Default.Add, contentDescription = fabLabel)
+                }
             }
         },
     ) { padding ->
