@@ -5,10 +5,12 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -580,6 +582,7 @@ fun ProjectConfigScreen(
                         )
                     } else {
                         projectAgents.forEach { entry ->
+                            val entryIndex = projectAgents.indexOf(entry)
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = CardDefaults.cardColors(
@@ -590,7 +593,7 @@ fun ProjectConfigScreen(
                                 ),
                             ) {
                                 Row(
-                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                                    modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
@@ -610,57 +613,49 @@ fun ProjectConfigScreen(
                                     if (!entry.isPrimary && !disconnected) {
                                         TextButton(
                                             onClick = { WsRepository.setPrimaryProjectAgent(projectId, entry.agentId) },
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                                         ) {
                                             Text("Set primary", style = MaterialTheme.typography.labelSmall)
                                         }
                                     }
                                     if (!disconnected) {
-                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                            IconButton(
-                                                onClick = {
-                                                    val index = projectAgents.indexOf(entry)
-                                                    if (index > 0) {
-                                                        projectAgents.move(index, index - 1)
-                                                        WsRepository.reorderProjectAgents(projectId, projectAgents.map { it.agentId })
-                                                    }
-                                                },
-                                                enabled = projectAgents.indexOf(entry) > 0,
-                                                modifier = Modifier.padding(0.dp),
-                                            ) {
-                                                Icon(
-                                                    Icons.Default.KeyboardArrowUp,
-                                                    contentDescription = "Move ${entry.agentName} up",
-                                                    tint = if (projectAgents.indexOf(entry) > 0)
-                                                        MaterialTheme.colorScheme.onPrimaryContainer
-                                                    else
-                                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
-                                                )
-                                            }
-                                            IconButton(
-                                                onClick = {
-                                                    val index = projectAgents.indexOf(entry)
-                                                    if (index in 0 until projectAgents.lastIndex) {
-                                                        projectAgents.move(index, index + 1)
-                                                        WsRepository.reorderProjectAgents(projectId, projectAgents.map { it.agentId })
-                                                    }
-                                                },
-                                                enabled = projectAgents.indexOf(entry) < projectAgents.lastIndex,
-                                                modifier = Modifier.padding(0.dp),
-                                            ) {
-                                                Icon(
-                                                    Icons.Default.KeyboardArrowDown,
-                                                    contentDescription = "Move ${entry.agentName} down",
-                                                    tint = if (projectAgents.indexOf(entry) < projectAgents.lastIndex)
-                                                        MaterialTheme.colorScheme.onPrimaryContainer
-                                                    else
-                                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
-                                                )
-                                            }
+                                        IconButton(
+                                            onClick = {
+                                                if (entryIndex > 0) {
+                                                    projectAgents.move(entryIndex, entryIndex - 1)
+                                                    WsRepository.reorderProjectAgents(projectId, projectAgents.map { it.agentId })
+                                                }
+                                            },
+                                            enabled = entryIndex > 0,
+                                            modifier = Modifier.size(36.dp),
+                                        ) {
+                                            Icon(
+                                                Icons.Default.KeyboardArrowUp,
+                                                contentDescription = "Move ${entry.agentName} up",
+                                                modifier = Modifier.size(18.dp),
+                                            )
                                         }
-                                    }
-                                    if (!disconnected) {
-                                        IconButton(onClick = { WsRepository.removeProjectAgent(projectId, entry.agentId) }) {
-                                            Icon(Icons.Default.Close, contentDescription = "Remove ${entry.agentName}")
+                                        IconButton(
+                                            onClick = {
+                                                if (entryIndex in 0 until projectAgents.lastIndex) {
+                                                    projectAgents.move(entryIndex, entryIndex + 1)
+                                                    WsRepository.reorderProjectAgents(projectId, projectAgents.map { it.agentId })
+                                                }
+                                            },
+                                            enabled = entryIndex < projectAgents.lastIndex,
+                                            modifier = Modifier.size(36.dp),
+                                        ) {
+                                            Icon(
+                                                Icons.Default.KeyboardArrowDown,
+                                                contentDescription = "Move ${entry.agentName} down",
+                                                modifier = Modifier.size(18.dp),
+                                            )
+                                        }
+                                        IconButton(
+                                            onClick = { WsRepository.removeProjectAgent(projectId, entry.agentId) },
+                                            modifier = Modifier.size(36.dp),
+                                        ) {
+                                            Icon(Icons.Default.Close, contentDescription = "Remove ${entry.agentName}", modifier = Modifier.size(18.dp))
                                         }
                                     }
                                 }
@@ -795,29 +790,36 @@ private fun EditableScopeList(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
         ) {
-            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = row["description"].orEmpty(),
-                    onValueChange = { rows[index] = row + ("description" to it) },
-                    label = { Text("Description") },
-                    enabled = enabled,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = row["pathGlob"].orEmpty(),
-                    onValueChange = { rows[index] = row + ("pathGlob" to it) },
-                    label = { Text("Path glob (optional)") },
-                    singleLine = true,
-                    enabled = enabled,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                TextButton(
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    OutlinedTextField(
+                        value = row["description"].orEmpty(),
+                        onValueChange = { rows[index] = row + ("description" to it) },
+                        label = { Text("Description") },
+                        singleLine = true,
+                        enabled = enabled,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = row["pathGlob"].orEmpty(),
+                        onValueChange = { rows[index] = row + ("pathGlob" to it) },
+                        label = { Text("Path glob (optional)") },
+                        singleLine = true,
+                        enabled = enabled,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                IconButton(
                     onClick = { rows.removeAt(index) },
                     enabled = enabled,
-                    modifier = Modifier.align(Alignment.End),
+                    modifier = Modifier.size(36.dp),
                 ) {
-                    Text("Remove")
+                    Icon(Icons.Default.Close, contentDescription = "Remove", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
