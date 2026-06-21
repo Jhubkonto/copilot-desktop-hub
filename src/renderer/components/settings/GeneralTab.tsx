@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useState } from 'react'
 import { Sun, Moon, Plug, Cpu } from 'lucide-react'
 import { getModelLabel } from '../../../shared/models'
 import { ToggleSwitch } from '../ui/primitives'
@@ -19,6 +19,10 @@ interface Props {
   modelIds: string[]
   temperature: number
   maxTokens: number
+  whisperCppPath: string
+  whisperModelPath: string
+  whisperInstalling: boolean
+  whisperReady: boolean
   catalogModels: import('@shared/types').CatalogModel[] | undefined
   onToggleAutoStart: () => void
   onToggleAutoClipboard: () => void
@@ -28,6 +32,10 @@ interface Props {
   onSetDefaultModelMenuRect: (rect: DOMRect | null) => void
   onSetTemperature: (t: number) => void
   onSetMaxTokens: (n: number) => void
+  onSetWhisperCppPath: (path: string) => void
+  onSetWhisperModelPath: (path: string) => void
+  onSaveWhisper: () => void
+  onInstallWhisper: () => void
   onSaveAdvanced: () => void
   onOpenMcp: () => void
   defaultModelMenuRef: React.RefObject<HTMLDivElement | null>
@@ -41,13 +49,16 @@ export function GeneralTab({
   defaultModel, defaultModelSearch, showDefaultModelMenu, defaultModelMenuRect,
   availableModelGroups, modelIds,
   temperature, maxTokens,
+  whisperCppPath, whisperModelPath, whisperInstalling, whisperReady,
   catalogModels,
   onToggleAutoStart, onToggleAutoClipboard,
   onSetDefaultModel, onSetDefaultModelSearch, onSetShowDefaultModelMenu, onSetDefaultModelMenuRect,
   onSetTemperature, onSetMaxTokens, onSaveAdvanced,
+  onSetWhisperCppPath, onSetWhisperModelPath, onSaveWhisper, onInstallWhisper,
   onOpenMcp,
   defaultModelMenuRef, defaultModelButtonRef,
 }: Props) {
+  const [showManualVoiceSetup, setShowManualVoiceSetup] = useState(false)
   return (
     <>
       {/* Theme */}
@@ -126,6 +137,38 @@ export function GeneralTab({
       </div>
 
       {/* Advanced generation settings */}
+      <div className="p-3 rounded-lg border border-gray-200 dark:border-gray-700 space-y-3">
+        <div>
+          <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Local voice input</p>
+          <p className="text-xs text-gray-500">Nexy downloads and configures whisper.cpp for you. Audio is never uploaded.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button onClick={onInstallWhisper} disabled={whisperInstalling} className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white font-medium disabled:opacity-50">
+            {whisperInstalling ? 'Downloading and installing…' : whisperReady ? 'Reinstall local Whisper' : 'Install local Whisper (~150 MB)'}
+          </button>
+          <span className={`text-xs ${whisperReady ? 'text-green-600 dark:text-green-400' : 'text-gray-500'}`}>
+            {whisperReady ? 'Ready' : 'Not installed'}
+          </span>
+        </div>
+        <p className="text-[11px] text-gray-500">This is a one-time download of the speech engine and English model. No separate setup is required.</p>
+        <button type="button" onClick={() => setShowManualVoiceSetup((shown) => !shown)} className="text-[11px] text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 underline">
+          {showManualVoiceSetup ? 'Hide manual setup' : 'Manual setup (advanced)'}
+        </button>
+        {showManualVoiceSetup && (
+          <div className="space-y-3 pt-1">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">whisper-cli executable</label>
+              <input value={whisperCppPath} onChange={(event) => onSetWhisperCppPath(event.target.value)} placeholder="Path to whisper-cli.exe" className="w-full px-3 py-2 text-xs rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Whisper model</label>
+              <input value={whisperModelPath} onChange={(event) => onSetWhisperModelPath(event.target.value)} placeholder="Path to a ggml model file" className="w-full px-3 py-2 text-xs rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100" />
+            </div>
+            <button onClick={onSaveWhisper} disabled={whisperInstalling} className="text-xs px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 font-medium disabled:opacity-50">Save manual paths</button>
+          </div>
+        )}
+      </div>
+
       <div className="p-3 rounded-lg border border-gray-200 dark:border-gray-700 space-y-3">
         <div>
           <p className="text-sm font-medium text-gray-800 dark:text-gray-100 flex items-center gap-1.5">

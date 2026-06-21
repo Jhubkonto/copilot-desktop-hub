@@ -9,6 +9,7 @@ import { useChatWindowActions } from '../hooks/useChatWindowActions'
 import { useFileInput } from '../hooks/useFileInput'
 import { useSlashMenu } from '../hooks/useSlashMenu'
 import { useRateLimitTimer } from '../hooks/useRateLimitTimer'
+import { useVoiceInput } from '../hooks/useVoiceInput'
 import { useAppStore } from '../store/app-store'
 import { ChatComposer } from './chat/ChatComposer'
 import { ChatMessages } from './chat/ChatMessages'
@@ -83,6 +84,12 @@ export function ChatWindow() {
   const [isForking, setIsForking] = useState(false)
   const [extractionCandidates, setExtractionCandidates] = useState<WikiCandidate[] | null>(null)
   const [showPromptLibrary, setShowPromptLibrary] = useState(false)
+  const handleVoiceText = useCallback((text: string) => {
+    setInput((current) => current.trim() ? `${current.trimEnd()} ${text}` : text)
+    requestAnimationFrame(() => inputRef.current?.focus())
+  }, [])
+  const handleVoiceError = useCallback((message: string) => addToast(message, 'error'), [addToast])
+  const { voiceState, toggleVoice } = useVoiceInput(handleVoiceText, handleVoiceError)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -905,6 +912,8 @@ export function ChatWindow() {
       onPasteClipboardImage={handlePasteClipboard}
       onOpenPromptLibrary={() => setShowPromptLibrary(true)}
       onAttachArtifact={conversationId ? () => setShowArtifactsPanel(true) : undefined}
+      voiceState={voiceState}
+      onToggleVoice={toggleVoice}
       onToggleContextInspector={() => setShowContextInspector((value) => !value)}
       onCloseContextInspector={() => setShowContextInspector(false)}
       onRemoveAttachment={fileInput.removeAttachment}

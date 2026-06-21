@@ -4,6 +4,7 @@ import { useAppStore } from '../store/app-store'
 import type { AgentGeneratorSpec, AgentGeneratorMessage, AvailableModelGroup, AvailableModelEntry } from '../../shared/types'
 import { PromptLibraryModal } from './PromptLibraryModal'
 import { ModelPicker } from './chat/ModelPicker'
+import { VoiceInputButton } from './chat/VoiceInputButton'
 
 // ─── Draft preview ────────────────────────────────────────────────────────────
 
@@ -664,6 +665,7 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
                               setGenModel(id)
                             }}
                           />
+                          <VoiceInputButton disabled={isStreaming} onText={(text) => setInputText((current) => current.trim() ? `${current.trimEnd()} ${text}` : text)} />
                           <button
                             type="button"
                             onClick={() => void sendMessage(inputText)}

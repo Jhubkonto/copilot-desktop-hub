@@ -135,6 +135,10 @@ export function SettingsPanel() {
   const defaultModelButtonRef = useRef<HTMLButtonElement | null>(null)
   const [temperature, setTemperature] = useState(0.7)
   const [maxTokens, setMaxTokens] = useState(4096)
+  const [whisperCppPath, setWhisperCppPath] = useState('')
+  const [whisperModelPath, setWhisperModelPath] = useState('')
+  const [whisperInstalling, setWhisperInstalling] = useState(false)
+  const [whisperReady, setWhisperReady] = useState(false)
 
   // Mobile companion state
   const [mobileEnabled, setMobileEnabled] = useState(false)
@@ -222,9 +226,12 @@ export function SettingsPanel() {
       setDefaultModel(settings['default_model'] || 'gpt-5-mini')
       setTemperature(Number.parseFloat(settings['temperature'] || '0.7') || 0.7)
       setMaxTokens(Number.parseInt(settings['max_tokens'] || '4096', 10) || 4096)
+      setWhisperCppPath(settings['whisper_cpp_path'] || '')
+      setWhisperModelPath(settings['whisper_model_path'] || '')
       setMobileExternalUrl(settings['ws_external_url'] || '')
     })
     window.api.listProviders().then(setProviders)
+    window.api.getVoiceStatus().then((status) => setWhisperReady(!('error' in status) && status.ready)).catch(() => setWhisperReady(false))
     window.api.getAzureEndpoint().then((ep: string | null) => {
       if (ep) setAzureEndpoint(ep)
     })
@@ -794,6 +801,39 @@ export function SettingsPanel() {
     }
   }
 
+  const handleSaveWhisper = async () => {
+    try {
+      await window.api.setSetting('whisper_cpp_path', whisperCppPath.trim())
+      await window.api.setSetting('whisper_model_path', whisperModelPath.trim())
+      const status = await window.api.getVoiceStatus()
+      const statusError = (status as { error?: string }).error
+      const ready = !statusError && status.ready
+      setWhisperReady(Boolean(ready))
+      addToast(statusError || (ready ? 'Local voice input configured' : 'Paths saved, but one or both files were not found'), ready ? 'success' : 'error')
+    } catch {
+      addToast('Failed to save voice settings', 'error')
+    }
+  }
+
+  const handleInstallWhisper = async () => {
+    setWhisperInstalling(true)
+    try {
+      const result = await window.api.installLocalVoice()
+      if ('error' in result) {
+        addToast(String(result.error), 'error')
+        return
+      }
+      setWhisperCppPath(result.executablePath)
+      setWhisperModelPath(result.modelPath)
+      setWhisperReady(true)
+      addToast('Local Whisper installed and ready', 'success')
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : 'Local Whisper installation failed', 'error')
+    } finally {
+      setWhisperInstalling(false)
+    }
+  }
+
   // suppress unused variable warning — activeAgent is computed for potential future use
   void activeAgent
 
@@ -844,6 +884,10 @@ export function SettingsPanel() {
             modelIds={modelIds}
             temperature={temperature}
             maxTokens={maxTokens}
+            whisperCppPath={whisperCppPath}
+            whisperModelPath={whisperModelPath}
+            whisperInstalling={whisperInstalling}
+            whisperReady={whisperReady}
             catalogModels={catalogModels}
             onToggleAutoStart={() => void handleAutoStartToggle()}
             onToggleAutoClipboard={() => void handleAutoClipboardToggle()}
@@ -853,6 +897,10 @@ export function SettingsPanel() {
             onSetDefaultModelMenuRect={setDefaultModelMenuRect}
             onSetTemperature={setTemperature}
             onSetMaxTokens={setMaxTokens}
+            onSetWhisperCppPath={setWhisperCppPath}
+            onSetWhisperModelPath={setWhisperModelPath}
+            onSaveWhisper={() => void handleSaveWhisper()}
+            onInstallWhisper={() => void handleInstallWhisper()}
             onSaveAdvanced={() => void handleSaveAdvanced()}
             onOpenMcp={onOpenMcp}
             defaultModelMenuRef={defaultModelMenuRef}

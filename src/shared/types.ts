@@ -1495,6 +1495,9 @@ export type IpcReturnMap = {
   'screen:capture-window': { dataUrl: string } | { error: string }
   'screen:check-permission': 'granted' | 'denied' | 'prompt'
   'screen:ocr-image': { text: string } | { error: string }
+  'voice:get-status': { executablePath: string; modelPath: string; ready: boolean }
+  'voice:install-local': { installed: boolean; executablePath: string; modelPath: string } | { error: string }
+  'voice:transcribe': { text: string } | { error: string }
   // Tool
   'tool:approval-response': boolean
   'tool:execute': ToolExecuteResult
@@ -1755,6 +1758,9 @@ export type IpcChannels =
   | 'screen:capture-window'
   | 'screen:check-permission'
   | 'screen:ocr-image'
+  | 'voice:get-status'
+  | 'voice:install-local'
+  | 'voice:transcribe'
   | 'tool:approval-response'
   | 'tool:execute'
   | 'tool:get-preferences'

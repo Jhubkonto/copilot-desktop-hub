@@ -1,5 +1,5 @@
 import { type ChangeEvent, type ClipboardEvent, type KeyboardEvent, type PointerEvent, type RefObject } from 'react'
-import { BookOpen, Camera, ClipboardPaste, Eye, Package, Paperclip, SendHorizontal, Square, X } from 'lucide-react'
+import { BookOpen, Camera, ClipboardPaste, Eye, Loader2, Mic, Package, Paperclip, SendHorizontal, Square, X } from 'lucide-react'
 import { ContextInspector } from '../ContextInspector'
 import { AttachmentBar } from './AttachmentBar'
 import { AtContextMenu } from './AtContextMenu'
@@ -46,6 +46,8 @@ interface ChatComposerProps {
   onPasteClipboardImage?: () => void | Promise<void>
   onOpenPromptLibrary?: () => void
   onAttachArtifact?: () => void
+  voiceState: 'idle' | 'recording' | 'transcribing'
+  onToggleVoice: () => void
   onToggleContextInspector: () => void
   onCloseContextInspector: () => void
   onRemoveAttachment: (id: string) => void
@@ -102,6 +104,8 @@ export function ChatComposer({
   onPasteClipboardImage,
   onOpenPromptLibrary,
   onAttachArtifact,
+  voiceState,
+  onToggleVoice,
   onToggleContextInspector,
   onCloseContextInspector,
   onRemoveAttachment,
@@ -346,6 +350,17 @@ export function ChatComposer({
                   />
                 )}
               </div>
+                <button
+                  type="button"
+                  onClick={onToggleVoice}
+                  disabled={isGenerating || voiceState === 'transcribing'}
+                  className={`p-1.5 rounded-md transition-colors disabled:opacity-50 ${voiceState === 'recording' ? 'text-red-600 bg-red-50 dark:bg-red-900/30' : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                  title={voiceState === 'recording' ? 'Stop recording' : voiceState === 'transcribing' ? 'Transcribing locally…' : 'Voice input'}
+                  aria-label={voiceState === 'recording' ? 'Stop voice recording' : 'Start voice input'}
+                  aria-pressed={voiceState === 'recording'}
+                >
+                  {voiceState === 'transcribing' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mic className="w-4 h-4" />}
+                </button>
                 {isGenerating ? (
                   <button
                     type="button"

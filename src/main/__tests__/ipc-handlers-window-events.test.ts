@@ -49,6 +49,7 @@ vi.mock('../providers', () => ({
   retrieveApiKey: vi.fn(() => null),
 }))
 vi.mock('../screen-capture-handlers', () => ({ registerScreenCaptureHandlers: vi.fn() }))
+vi.mock('../voice-handlers', () => ({ registerVoiceHandlers: vi.fn() }))
 vi.mock('../error-report-handlers', () => ({ registerErrorReportHandlers: vi.fn() }))
 vi.mock('../self-heal-handlers', () => ({ registerSelfHealHandlers: vi.fn() }))
 vi.mock('../self-heal/git-ops', () => ({ registerSelfHealGitHandlers: vi.fn() }))

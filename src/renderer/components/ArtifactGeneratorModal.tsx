@@ -3,6 +3,7 @@ import { X, Send, Loader2, Sparkles, Package } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import type { ArtifactSpec, ArtifactGeneratorMessage, AvailableModelGroup, AvailableModelEntry } from '../../shared/types'
 import { ModelPicker } from './chat/ModelPicker'
+import { VoiceInputButton } from './chat/VoiceInputButton'
 
 // ─── Spec preview ─────────────────────────────────────────────────────────────
 
@@ -396,6 +397,7 @@ export function ArtifactGeneratorModal({ projectId, onClose, onArtifactCreated }
                         setGenModel(id)
                       }}
                     />
+                    <VoiceInputButton disabled={isStreaming} onText={(text) => setInputText((current) => current.trim() ? `${current.trimEnd()} ${text}` : text)} />
                     <button
                       type="button"
                       onClick={() => void sendMessage(inputText)}

@@ -5,6 +5,7 @@ import type { ProjectGeneratorSpec, ProjectGeneratorAgentSpec, ProjectGeneratorM
 import { getAvailableModelIds, getModelLabel } from '../../shared/models'
 import { PromptLibraryModal } from './PromptLibraryModal'
 import { ModelPicker } from './chat/ModelPicker'
+import { VoiceInputButton } from './chat/VoiceInputButton'
 
 // ─── Draft preview ────────────────────────────────────────────────────────────
 
@@ -1022,6 +1023,7 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
                               setGenModel(id)
                             }}
                           />
+                          <VoiceInputButton disabled={isStreaming} onText={(text) => setInputText((current) => current.trim() ? `${current.trimEnd()} ${text}` : text)} />
                           <button
                             type="button"
                             onClick={() => {

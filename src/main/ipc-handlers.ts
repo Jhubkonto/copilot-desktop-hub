@@ -31,6 +31,7 @@ import { registerAgentGeneratorHandlers } from './agent-generator'
 import { registerArtifactHandlers } from './artifacts'
 import { registerArtifactGeneratorHandlers } from './artifact-generator'
 import { registerSkillGeneratorHandlers } from './skill-generator'
+import { registerVoiceHandlers } from './voice-handlers'
 
 export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerSettingsHandlers()
@@ -55,6 +56,7 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerCliHandlers()
   registerWsHandlers()
   registerScreenCaptureHandlers()
+  registerVoiceHandlers()
   registerModelCatalogHandlers()
   registerModelAvailabilityHandlers()
   registerErrorLogHandlers()

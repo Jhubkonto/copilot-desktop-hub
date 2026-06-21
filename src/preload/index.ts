@@ -76,6 +76,9 @@ const api = {
   getVersion: () => typedInvoke('app:get-version'),
   getRuntimeInfo: () => typedInvoke('app:get-runtime-info'),
   setDebugEnabled: (enabled: boolean) => typedInvoke('debug:set-enabled', enabled),
+  getVoiceStatus: () => typedInvoke('voice:get-status'),
+  installLocalVoice: () => typedInvoke('voice:install-local'),
+  transcribeVoice: (audio: Uint8Array) => typedInvoke('voice:transcribe', audio),
   onDebugLog: (callback: (entry: { prefix: string; message: string; timestamp: number }) => void) => {
     const handler = (
       _event: Electron.IpcRendererEvent,
