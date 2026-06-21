@@ -13,8 +13,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.ui.components.NexyTopAppBar
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -23,8 +27,16 @@ fun NotificationsScreen(
     vm: SettingsViewModel = viewModel(),
 ) {
     val notificationDiagnostics by vm.notificationDiagnostics.collectAsState()
+    var refreshed by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { vm.refreshNotificationDiagnostics() }
+
+    LaunchedEffect(refreshed) {
+        if (refreshed) {
+            delay(2000)
+            refreshed = false
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -44,7 +56,11 @@ fun NotificationsScreen(
             NotificationsSection(
                 notificationDiagnostics = notificationDiagnostics,
                 onOpenNotificationSettings = { vm.openNotificationSettings() },
-                onRefresh = { vm.refreshNotificationDiagnostics() },
+                onRefresh = {
+                    vm.refreshNotificationDiagnostics()
+                    refreshed = true
+                },
+                refreshed = refreshed,
             )
         }
     }

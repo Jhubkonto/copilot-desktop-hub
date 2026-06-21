@@ -1,7 +1,7 @@
 package io.nexy.android.ui.settings
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,19 +9,30 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import io.nexy.android.ui.components.NexyTopAppBar
@@ -214,6 +225,7 @@ private fun ProviderRow(
     onRemoveKey: () -> Unit,
     onTestKey: ((String) -> Unit)? = null,
 ) {
+    var showMenu by remember { mutableStateOf(false) }
     var showTestDialog by remember { mutableStateOf(false) }
     val rowColor = if (index % 2 == 0) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant
 
@@ -229,53 +241,77 @@ private fun ProviderRow(
         )
     }
 
-    Column(
+    Surface(
+        color = rowColor,
         modifier = Modifier
             .fillMaxWidth()
-            .background(rowColor)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+            .height(72.dp),
     ) {
-        // Line 1: provider name + configured badge
         Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(
-                provider.label,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.weight(1f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (provider.configured) {
-                Text(
-                    "● Configured",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
+            Surface(
+                shape = MaterialTheme.shapes.small,
+                color = if (provider.configured) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier.size(36.dp),
+            ) {
+                Icon(
+                    if (provider.configured) Icons.Default.Check else Icons.Default.Close,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(8.dp),
+                    tint = if (provider.configured) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-        }
-        // Line 2: action buttons
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            OutlinedButton(onClick = onSetKey) {
-                Text(if (provider.configured) "Update key" else "Set key")
+            Spacer(Modifier.width(12.dp))
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                Text(
+                    provider.label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    if (provider.configured) "Configured" else "No key set",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (provider.configured) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            if (provider.configured && onTestKey != null) {
-                OutlinedButton(onClick = { showTestDialog = true }, enabled = !isTesting) {
-                    Text(if (isTesting) "Testing…" else "Test")
+            Box {
+                IconButton(onClick = { showMenu = true }) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "Provider options", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-            }
-            if (provider.configured) {
-                OutlinedButton(
-                    onClick = onRemoveKey,
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                ) { Text("Remove") }
+                DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                    DropdownMenuItem(
+                        text = { Text(if (provider.configured) "Update key" else "Set key") },
+                        leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                        onClick = { showMenu = false; onSetKey() },
+                    )
+                    if (provider.configured && onTestKey != null) {
+                        DropdownMenuItem(
+                            text = { Text(if (isTesting) "Testing…" else "Test key") },
+                            leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                            enabled = !isTesting,
+                            onClick = { showMenu = false; showTestDialog = true },
+                        )
+                    }
+                    if (provider.configured) {
+                        DropdownMenuItem(
+                            text = { Text("Remove key", color = MaterialTheme.colorScheme.error) },
+                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                            onClick = { showMenu = false; onRemoveKey() },
+                        )
+                    }
+                }
             }
         }
     }
@@ -283,24 +319,35 @@ private fun ProviderRow(
 
 @Composable
 private fun AzureEndpointRow(endpoint: String, onEdit: () -> Unit) {
-    Row(
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
+            .height(72.dp),
     ) {
-        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-            Text("Azure endpoint", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(
-                endpoint.ifBlank { "Not set" },
-                style = MaterialTheme.typography.bodySmall,
-                color = if (endpoint.isBlank()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 32.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                Text("Azure endpoint", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    endpoint.ifBlank { "Not set" },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (endpoint.isBlank()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            IconButton(onClick = onEdit) {
+                Icon(Icons.Default.Edit, contentDescription = "Edit endpoint", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
-        OutlinedButton(onClick = onEdit) { Text("Edit") }
     }
 }
 

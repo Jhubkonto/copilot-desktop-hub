@@ -4,9 +4,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -14,6 +16,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -229,6 +232,7 @@ fun NotificationsSection(
     notificationDiagnostics: NotificationDiagnostics,
     onOpenNotificationSettings: () -> Unit,
     onRefresh: () -> Unit,
+    refreshed: Boolean = false,
 ) {
     SettingsSectionHeader("Notifications")
 
@@ -251,10 +255,26 @@ fun NotificationsSection(
                 SettingsInfoRow("Tool approvals channel", if (notificationDiagnostics.approvalChannelEnabled) "Enabled" else "Disabled")
             }
 
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onOpenNotificationSettings, modifier = Modifier.weight(1f), shape = MaterialTheme.shapes.small) { Text("Open Android settings") }
-                OutlinedButton(onClick = onRefresh, shape = MaterialTheme.shapes.small) { Text("Refresh") }
-            }
+            OutlinedButton(onClick = onOpenNotificationSettings, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small) { Text("Open Android settings") }
+        }
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (refreshed) {
+            Text("Status updated", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+        } else {
+            Spacer(Modifier.weight(1f))
+        }
+        FilledTonalButton(onClick = onRefresh) {
+            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("Refresh")
         }
     }
 
