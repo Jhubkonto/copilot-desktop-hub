@@ -30,9 +30,6 @@ function textFromClaudeContent(content: unknown): string {
 
 function buildConversationText(req: CliAdapterRequest): string {
   const parts: string[] = []
-  if (req.systemPrompt) {
-    parts.push(`[System]: ${req.systemPrompt}`)
-  }
   for (const msg of req.messages) {
     const role = msg.role === 'user' ? '[User]' : '[Assistant]'
     const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
@@ -43,7 +40,6 @@ function buildConversationText(req: CliAdapterRequest): string {
 
 function buildConversationJson(req: CliAdapterRequest): string {
   const lines: string[] = []
-  let systemPrepended = false
 
   for (let i = 0; i < req.messages.length; i++) {
     const msg = req.messages[i]
@@ -51,13 +47,7 @@ function buildConversationJson(req: CliAdapterRequest): string {
     const role = msg.role === 'user' ? 'user' : 'assistant'
     const isLast = i === req.messages.length - 1
 
-    let textContent = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
-
-    // Embed system prompt as a prefix on the first user message
-    if (role === 'user' && !systemPrepended && req.systemPrompt) {
-      textContent = `[System]: ${req.systemPrompt}\n\n${textContent}`
-      systemPrepended = true
-    }
+    const textContent = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
 
     const contentBlocks: unknown[] = [{ type: 'text', text: textContent }]
 
@@ -110,6 +100,9 @@ export const ClaudeAdapter: CliAgentAdapter = {
       // in the user's global ~/.claude.json. We control exactly which servers are
       // available via --mcp-config (or none at all when no servers are permitted).
       const args = ['--output-format', 'stream-json', '--print', '--verbose', '--strict-mcp-config']
+      if (req.systemPrompt) {
+        args.push('--system-prompt', req.systemPrompt)
+      }
       if (req.model && req.model !== 'default') {
         args.push('--model', req.model)
       }
@@ -276,9 +269,10 @@ export const ClaudeAdapter: CliAgentAdapter = {
           })
         }
         openToolIds.clear()
-        if (code !== 0 && fullText === '') {
+        if (fullText === '') {
           const detail = stderrText.trim() ? `: ${stderrText.trim()}` : ''
-          reject(new Error(`claude exited with code ${code}${detail}`))
+          const codeNote = code !== 0 ? ` (exit ${code})` : ''
+          reject(new Error(`claude returned an empty response${codeNote}${detail}`))
         } else {
           resolve(fullText)
         }

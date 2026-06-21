@@ -25,7 +25,7 @@ import { emitVerificationEvent, runVerification } from './self-heal/verifier'
 import { commitSelfHealFix, prepareSelfHealCommit, pushSelfHealFix } from './self-heal/git-ops'
 import { approveRelaunch, getRecoveryRuns, prepareReload, rollbackHeal, startReload } from './self-heal/recovery'
 import { runProjectGeneratorChatForAndroid, createProjectFromSpec, getProjectGeneratorAgentSummaries } from './project-generator'
-import { runAgentGeneratorChatForAndroid, createAgentFromSpec } from './agent-generator'
+import { runAgentGeneratorChatForAndroid, createAgentFromSpec, getAgentGeneratorModel } from './agent-generator'
 import { runSkillGeneratorChatForAndroid, createSkillFromSpec } from './skill-generator'
 import {
   createArtifactGeneratorRunRecord,
@@ -1649,7 +1649,14 @@ export function registerWsHandlers(): void {
       const sessionId = typeof data.sessionId === 'string' && data.sessionId.trim()
         ? data.sessionId.trim()
         : `android-agent-${Date.now()}`
-      void runAgentGeneratorChatForAndroid(messages, sessionId)
+      const modelOverride = typeof data.model === 'string' && data.model.trim() ? data.model.trim() : undefined
+      if (command === 'agent-generator:start') {
+        try {
+          const resolvedModel = modelOverride ?? getAgentGeneratorModel()
+          broadcastToMobile({ event: 'agent-generator:model', data: { sessionId, modelId: resolvedModel } })
+        } catch { /* no configured provider — error will surface from runAgentGeneratorChatForAndroid */ }
+      }
+      void runAgentGeneratorChatForAndroid(messages, sessionId, modelOverride)
         .catch((err: unknown) => {
           broadcastToMobile({ event: 'agent-generator:error', data: { sessionId, message: String(err) } })
         })

@@ -13,6 +13,9 @@ import {
 } from './providers'
 import { dispatchToProvider } from './chat-provider-dispatch'
 import { getAdapter } from './cli-adapters/registry'
+import { getCliModels } from './cli-detection'
+import { ClaudeAdapter } from './cli-adapters/claude'
+import { CodexAdapter } from './cli-adapters/codex'
 import type { ProviderMessage } from './provider-core-types'
 import type { AgentGeneratorMessage, AgentGeneratorSpec } from '../shared/types'
 import { getDatabase } from './database'
@@ -83,14 +86,23 @@ export function getAgentGeneratorModel(): string {
   const savedProvider = getProviderForAgent(savedModel)
   if (isProviderConfigured(savedProvider.provider)) return savedModel
 
+  // If the saved model ID matches a CLI model, route it via that CLI
+  if (ClaudeAdapter.isAvailable() && getCliModels('claude-cli').some((m) => m.id === savedModel)) {
+    return `claude-cli:${savedModel}`
+  }
+  if (CodexAdapter.isAvailable() && getCliModels('codex-cli').some((m) => m.id === savedModel)) {
+    return `codex-cli:${savedModel}`
+  }
+
   const fallbackProvider = PROVIDERS.find((p) => isProviderConfigured(p.name) && p.models.length > 0)
   if (fallbackProvider?.models[0]) {
-    return fallbackProvider.name === 'openai'
-      ? fallbackProvider.models[0]
-      : `${fallbackProvider.name}:${fallbackProvider.models[0]}`
+    const id = fallbackProvider.name === 'openai' ? fallbackProvider.models[0] : `${fallbackProvider.name}:${fallbackProvider.models[0]}`
+    return id
   }
   const openRouterModel = isProviderConfigured('openrouter') ? getOpenRouterModels()[0] : undefined
-  return openRouterModel ? `openrouter:${openRouterModel}` : savedModel
+  if (openRouterModel) return `openrouter:${openRouterModel}`
+
+  throw new Error('No provider is configured. Add an API key in Settings or select a specific model.')
 }
 
 function buildProviderMessages(messages: AgentGeneratorMessage[]): ProviderMessage[] {
@@ -98,7 +110,21 @@ function buildProviderMessages(messages: AgentGeneratorMessage[]): ProviderMessa
   const filtered = messages[0]?.role === 'assistant' ? messages.slice(1) : messages
   return [
     { role: 'system', content: AGENT_GENERATOR_SYSTEM_PROMPT },
-    ...filtered.map((m): ProviderMessage => ({ role: m.role, content: m.content })),
+    ...filtered.map((m): ProviderMessage => {
+      if (m.images && m.images.length > 0 && m.role === 'user') {
+        return {
+          role: 'user',
+          content: [
+            ...m.images.map((img) => ({
+              type: 'image_url' as const,
+              image_url: { url: img.dataUrl },
+            })),
+            { type: 'text' as const, text: m.content },
+          ],
+        }
+      }
+      return { role: m.role, content: m.content }
+    }),
   ]
 }
 
@@ -164,23 +190,35 @@ async function runAgentGeneratorProviderChat(
 ): Promise<string> {
   const selectedModel = modelOverride ?? getAgentGeneratorModel()
 
+  // Resolve CLI backend: explicit prefix OR bare model ID that belongs to a CLI
+  let cliBackend: 'claude-cli' | 'codex-cli' | undefined
+  let cliModel = selectedModel
   if (selectedModel.includes(':')) {
     const colonIdx = selectedModel.indexOf(':')
     const prefix = selectedModel.slice(0, colonIdx)
-    const cliModel = selectedModel.slice(colonIdx + 1)
     if (prefix === 'claude-cli' || prefix === 'codex-cli') {
-      const adapter = getAdapter(prefix)
-      if (!adapter?.isAvailable()) throw new Error(`${prefix} is not available`)
-      const systemMsg = typeof providerMessages[0]?.content === 'string' && providerMessages[0].role === 'system'
-        ? providerMessages[0].content
-        : AGENT_GENERATOR_SYSTEM_PROMPT
-      const conversationMessages = providerMessages.filter((m) => m.role !== 'system')
-      return adapter.send(
-        win,
-        { systemPrompt: systemMsg, messages: conversationMessages, cwd: process.cwd(), model: cliModel, conversationId: sessionId },
-        sendChunk,
-      )
+      cliBackend = prefix
+      cliModel = selectedModel.slice(colonIdx + 1)
     }
+  } else {
+    if (ClaudeAdapter.isAvailable() && getCliModels('claude-cli').some((m) => m.id === selectedModel)) {
+      cliBackend = 'claude-cli'
+    } else if (CodexAdapter.isAvailable() && getCliModels('codex-cli').some((m) => m.id === selectedModel)) {
+      cliBackend = 'codex-cli'
+    }
+  }
+  if (cliBackend) {
+    const adapter = getAdapter(cliBackend)
+    if (!adapter?.isAvailable()) throw new Error(`${cliBackend} is not available`)
+    const systemMsg = typeof providerMessages[0]?.content === 'string' && providerMessages[0].role === 'system'
+      ? providerMessages[0].content
+      : AGENT_GENERATOR_SYSTEM_PROMPT
+    const conversationMessages = providerMessages.filter((m) => m.role !== 'system')
+    return adapter.send(
+      win,
+      { systemPrompt: systemMsg, messages: conversationMessages, cwd: process.cwd(), model: cliModel, conversationId: sessionId },
+      sendChunk,
+    )
   }
 
   const { provider, model } = getProviderForAgent(selectedModel)
@@ -243,6 +281,7 @@ export async function runAgentGeneratorChat(
 export async function runAgentGeneratorChatForAndroid(
   messages: AgentGeneratorMessage[],
   sessionId = `agent-gen-android-${randomUUID()}`,
+  modelOverride?: string,
 ): Promise<void> {
   const providerMessages = buildProviderMessages(messages)
   const fakeWin = { isDestroyed: () => false, webContents: { send: () => {}, isDestroyed: () => false } } as unknown as BrowserWindow
@@ -258,9 +297,14 @@ export async function runAgentGeneratorChatForAndroid(
       accumulated += chunk
       broadcastToMobile({ event: 'agent-generator:token', data: { sessionId, chunk } })
     },
+    modelOverride,
   )
 
   accumulated = fullText || accumulated
+
+  if (!accumulated.trim()) {
+    throw new Error('The model returned an empty response. Check that a provider API key is configured and the selected model is available.')
+  }
 
   const spec = extractSpec(accumulated)
   const assistantText = accumulated.replace(/<agent-spec>[\s\S]*?<\/agent-spec>/g, '').trim()
