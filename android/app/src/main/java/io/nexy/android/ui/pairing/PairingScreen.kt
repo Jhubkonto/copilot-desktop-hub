@@ -17,9 +17,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -30,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import io.nexy.android.ui.components.NexyTopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -40,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -47,6 +51,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.journeyapps.barcodescanner.BarcodeCallback
 import com.journeyapps.barcodescanner.DecoratedBarcodeView
 import io.nexy.android.data.ConnectionState
+import io.nexy.android.data.DiscoveredNexyService
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,6 +63,7 @@ fun PairingScreen(
 ) {
     val connectionState by vm.connectionState.collectAsState()
     val error by vm.error.collectAsState()
+    val discoveredServices by vm.discoveredServices.collectAsState()
     var showManual by remember { mutableStateOf(initialShowManual) }
     var manualUrl by remember { mutableStateOf("") }
     var cameraPermissionGranted by remember { mutableStateOf(false) }
@@ -67,6 +73,11 @@ fun PairingScreen(
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted -> cameraPermissionGranted = granted }
+
+    DisposableEffect(Unit) {
+        vm.startMdnsDiscovery()
+        onDispose { vm.stopMdnsDiscovery() }
+    }
 
     LaunchedEffect(showManual) {
         if (!showManual) cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
@@ -193,6 +204,26 @@ fun PairingScreen(
                         color = MaterialTheme.colorScheme.primary,
                         style = MaterialTheme.typography.labelLarge,
                     )
+                }
+            }
+
+            if (discoveredServices.isNotEmpty()) {
+                Divider()
+                Text(
+                    "Found on network",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                discoveredServices.forEach { service ->
+                    OutlinedButton(
+                        onClick = { vm.connectDiscovered(service) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.small,
+                    ) {
+                        Text("${service.host}:${service.port}")
+                    }
                 }
             }
 
