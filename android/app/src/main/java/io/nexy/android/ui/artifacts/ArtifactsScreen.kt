@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Surface
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -37,6 +38,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -86,11 +88,14 @@ fun ArtifactsScreen(
     val revisioning by vm.revisioning.collectAsState()
     val context = LocalContext.current
     var searchQuery by remember { mutableStateOf("") }
+    var statusFilter by remember { mutableStateOf<String?>(null) }
     var sortOrder by remember { mutableStateOf(ArtifactSortOrder.TITLE_ASC) }
     var showSortSheet by remember { mutableStateOf(false) }
-    val filteredArtifacts = remember(artifacts, searchQuery, sortOrder) {
+    val statusOptions = remember(artifacts) { artifacts.map { it.status }.distinct().sorted() }
+    val filteredArtifacts = remember(artifacts, searchQuery, statusFilter, sortOrder) {
         val query = searchQuery.trim()
         artifacts
+            .let { list -> if (statusFilter != null) list.filter { it.status == statusFilter } else list }
             .let { list ->
                 if (query.isBlank()) list else list.filter { artifact ->
                     listOfNotNull(artifact.title, artifact.description, artifact.kind, artifact.status)
@@ -192,7 +197,28 @@ fun ArtifactsScreen(
                     placeholder = "Search artifacts",
                     debounceMs = 300L,
                 )
-                if (searchQuery.isNotBlank()) {
+                if (statusOptions.size > 1) {
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        item {
+                            FilterChip(
+                                selected = statusFilter == null,
+                                onClick = { statusFilter = null },
+                                label = { Text("All") },
+                            )
+                        }
+                        items(statusOptions) { status ->
+                            FilterChip(
+                                selected = statusFilter == status,
+                                onClick = { statusFilter = if (statusFilter == status) null else status },
+                                label = { Text(status.replaceFirstChar { it.uppercase() }) },
+                            )
+                        }
+                    }
+                }
+                if (searchQuery.isNotBlank() || statusFilter != null) {
                     Text(
                         "Showing ${filteredArtifacts.size} of ${artifacts.size}",
                         style = MaterialTheme.typography.labelSmall,
@@ -206,7 +232,7 @@ fun ArtifactsScreen(
                         title = "No matching artifacts.",
                         detail = "Try a different title, kind, or status.",
                         modifier = Modifier.weight(1f),
-                        action = { TextButton(onClick = { searchQuery = "" }) { Text("Clear search") } },
+                        action = { TextButton(onClick = { searchQuery = ""; statusFilter = null }) { Text("Clear filters") } },
                     )
                 } else {
                     LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
