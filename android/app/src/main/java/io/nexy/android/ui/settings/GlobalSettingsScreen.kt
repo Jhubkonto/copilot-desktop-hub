@@ -1,21 +1,26 @@
 package io.nexy.android.ui.settings
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.ArrowDropUp
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuAnchorType
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -107,28 +112,37 @@ fun GlobalSettingsScreen(onBack: () -> Unit) {
             // — Model —
             GlobalSettingsSectionHeader("Model")
 
-            ExposedDropdownMenuBox(
-                expanded = modelDropdownExpanded,
-                onExpandedChange = { expanded ->
-                    if (!disconnected) {
-                        modelDropdownExpanded = expanded
-                        if (!expanded) modelSearchQuery = ""
-                    }
-                },
-            ) {
+            Box(modifier = Modifier.fillMaxWidth()) {
                 OutlinedTextField(
                     value = modelOptions.find { it.id == defaultModel }?.label ?: defaultModel,
                     onValueChange = {},
                     readOnly = true,
                     label = { Text("Default model") },
                     placeholder = { Text("e.g. claude-sonnet-4-6") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelDropdownExpanded) },
+                    trailingIcon = {
+                        Icon(
+                            if (modelDropdownExpanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
+                            contentDescription = null,
+                        )
+                    },
                     enabled = !disconnected,
-                    modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+                    modifier = Modifier.fillMaxWidth(),
                 )
-                ExposedDropdownMenu(
+                // Invisible click overlay so the text field itself opens the dropdown
+                if (!disconnected) {
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .then(
+                                if (!modelDropdownExpanded) Modifier.clickable { modelDropdownExpanded = true }
+                                else Modifier
+                            ),
+                    )
+                }
+                DropdownMenu(
                     expanded = modelDropdownExpanded,
                     onDismissRequest = { modelDropdownExpanded = false; modelSearchQuery = "" },
+                    modifier = Modifier.fillMaxWidth(0.9f),
                 ) {
                     OutlinedTextField(
                         value = modelSearchQuery,
@@ -138,31 +152,34 @@ fun GlobalSettingsScreen(onBack: () -> Unit) {
                         singleLine = true,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                            .menuAnchor(ExposedDropdownMenuAnchorType.SecondaryEditable),
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
                     )
                     val filteredModels = remember(modelOptions, modelSearchQuery) {
                         val q = modelSearchQuery.trim()
                         if (q.isBlank()) modelOptions
                         else modelOptions.filter { it.label.contains(q, ignoreCase = true) || it.id.contains(q, ignoreCase = true) }
                     }
-                    filteredModels.forEach { option ->
-                        DropdownMenuItem(
-                            text = { Text(option.label) },
-                            onClick = {
-                                defaultModel = option.id
-                                WsRepository.setSetting("default_model", option.id)
-                                modelDropdownExpanded = false
-                                modelSearchQuery = ""
-                            },
-                        )
-                    }
-                    if (filteredModels.isEmpty()) {
-                        DropdownMenuItem(
-                            text = { Text("No models match", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) },
-                            onClick = {},
-                            enabled = false,
-                        )
+                    LazyColumn(modifier = Modifier.heightIn(max = 280.dp)) {
+                        items(filteredModels) { option ->
+                            DropdownMenuItem(
+                                text = { Text(option.label) },
+                                onClick = {
+                                    defaultModel = option.id
+                                    WsRepository.setSetting("default_model", option.id)
+                                    modelDropdownExpanded = false
+                                    modelSearchQuery = ""
+                                },
+                            )
+                        }
+                        if (filteredModels.isEmpty()) {
+                            item {
+                                DropdownMenuItem(
+                                    text = { Text("No models match", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                                    onClick = {},
+                                    enabled = false,
+                                )
+                            }
+                        }
                     }
                 }
             }

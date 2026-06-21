@@ -1,5 +1,6 @@
 package io.nexy.android.ui.settings
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,7 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -177,9 +178,10 @@ fun ProvidersScreen(
                     )
                 } else {
                     LazyColumn(modifier = Modifier.weight(1f)) {
-                        items(filteredProviders, key = { it.id }) { provider ->
+                        itemsIndexed(filteredProviders, key = { _, p -> p.id }) { index, provider ->
                             ProviderRow(
                                 provider = provider,
+                                index = index,
                                 isTesting = isTesting && testingProviderId == provider.id,
                                 onSetKey = { editingProvider = provider },
                                 onRemoveKey = { confirmRemoveProvider = provider },
@@ -206,12 +208,14 @@ fun ProvidersScreen(
 @Composable
 private fun ProviderRow(
     provider: ProviderInfo,
+    index: Int = 0,
     isTesting: Boolean = false,
     onSetKey: () -> Unit,
     onRemoveKey: () -> Unit,
     onTestKey: ((String) -> Unit)? = null,
 ) {
     var showTestDialog by remember { mutableStateOf(false) }
+    val rowColor = if (index % 2 == 0) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant
 
     if (showTestDialog) {
         TestKeyDialog(
@@ -225,25 +229,25 @@ private fun ProviderRow(
         )
     }
 
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
+            .background(rowColor)
             .padding(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        // Line 1: provider name + configured badge
         Row(
-            modifier = Modifier.weight(1f).padding(end = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
                 provider.label,
                 style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
             )
             if (provider.configured) {
                 Text(
@@ -254,14 +258,18 @@ private fun ProviderRow(
                 )
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (provider.configured && onTestKey != null) {
-                OutlinedButton(onClick = { showTestDialog = true }, enabled = !isTesting) {
-                    Text("Test")
-                }
-            }
+        // Line 2: action buttons
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             OutlinedButton(onClick = onSetKey) {
                 Text(if (provider.configured) "Update key" else "Set key")
+            }
+            if (provider.configured && onTestKey != null) {
+                OutlinedButton(onClick = { showTestDialog = true }, enabled = !isTesting) {
+                    Text(if (isTesting) "Testing…" else "Test")
+                }
             }
             if (provider.configured) {
                 OutlinedButton(
