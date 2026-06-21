@@ -6,7 +6,6 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -301,9 +301,11 @@ fun ChatsTab(
                     }
                 } else {
                     LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                        items(displayList, key = { it.id }) { conv ->
+                        itemsIndexed(displayList, key = { _, conv -> conv.id }) { index, conv ->
                             ConversationRow(
                                 conv = conv,
+                                index = index,
+                                projects = projects,
                                 onOpenChat = onOpenChat,
                                 onRename = { _, _ ->
                                     renameText = conv.title
@@ -486,9 +488,10 @@ fun ProjectsTab(
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                items(filteredProjects, key = { it.id }) { project ->
+                itemsIndexed(filteredProjects, key = { _, p -> p.id }) { index, project ->
                     val accentColor = projectColor(project.color)
                     var menuExpanded by remember { mutableStateOf(false) }
+                    val rowColor = if (index % 2 == 0) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant
                     Surface(
                         modifier = Modifier.fillMaxWidth().combinedClickable(
                             onClick = { onOpenProjectHistory(project.id) },
@@ -497,55 +500,79 @@ fun ProjectsTab(
                                 renameTarget = project
                             },
                         ),
-                        color = MaterialTheme.colorScheme.surface,
+                        color = rowColor,
                     ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).height(IntrinsicSize.Min),
+                            modifier = Modifier.fillMaxWidth().height(72.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            // Left color accent bar
                             Box(modifier = Modifier.width(4.dp).fillMaxHeight().background(accentColor))
+
+                            // Center: two-line content
+                            val agentCount = project.agentIcons.size
+                            val chatCount = project.chatCount
                             Column(
-                                modifier = Modifier.weight(1f).padding(horizontal = 14.dp, vertical = 10.dp),
-                                verticalArrangement = Arrangement.spacedBy(3.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
+                                // Line 1: project name
                                 Text(
                                     text = project.name,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = FontWeight.Medium,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
-                                val agentCount = project.agentIcons.size
-                                val chatCount = project.chatCount
-                                val subtitle = buildString {
-                                    append(if (agentCount == 0) "No agents" else "$agentCount agent${if (agentCount != 1) "s" else ""}")
-                                    append(" · ")
-                                    append(if (chatCount == 0) "No chats" else "$chatCount chat${if (chatCount != 1) "s" else ""}")
-                                }
-                                Text(
-                                    text = subtitle,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                if (project.agentIcons.isNotEmpty()) {
-                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        project.agentIcons.forEach { emoji ->
-                                            Text(text = emoji, style = MaterialTheme.typography.bodyMedium)
+                                // Line 2: emojis (if any) then counts
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    if (project.agentIcons.isNotEmpty()) {
+                                        project.agentIcons.take(4).forEach { emoji ->
+                                            Text(text = emoji, style = MaterialTheme.typography.labelMedium)
                                         }
+                                        if (project.agentIcons.size > 4) {
+                                            Text(
+                                                text = "+${project.agentIcons.size - 4}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                        Text(
+                                            text = "·",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
                                     }
+                                    Text(
+                                        text = buildString {
+                                            append(if (chatCount == 0) "No chats" else "$chatCount chat${if (chatCount != 1) "s" else ""}")
+                                            if (agentCount > 0 && project.agentIcons.isEmpty()) {
+                                                append("  ·  $agentCount agent${if (agentCount != 1) "s" else ""}")
+                                            }
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
                                 }
                             }
-                            Text(
-                                text = "View chats →",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(end = 4.dp),
-                            )
-                            Box(modifier = Modifier.padding(end = 8.dp)) {
-                                IconButton(onClick = { menuExpanded = true }) {
+
+                            // Right: ⋮ menu
+                            Box(modifier = Modifier.padding(end = 4.dp)) {
+                                IconButton(
+                                    onClick = { menuExpanded = true },
+                                    modifier = Modifier.size(36.dp),
+                                ) {
                                     Icon(
                                         Icons.Default.MoreVert,
                                         contentDescription = "Project actions",
+                                        modifier = Modifier.size(18.dp),
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
@@ -757,8 +784,9 @@ fun AgentsTab(
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                items(filteredAgents, key = { it.id }) { agent ->
+                itemsIndexed(filteredAgents, key = { _, a -> a.id }) { index, agent ->
                     var menuExpanded by remember { mutableStateOf(false) }
+                    val rowColor = if (index % 2 == 0) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant
                     Surface(
                         modifier = Modifier.fillMaxWidth().combinedClickable(
                             onClick = { onOpenAgentHistory(agent.id) },
@@ -768,31 +796,75 @@ fun AgentsTab(
                                 renameTarget = agent
                             },
                         ),
-                        color = MaterialTheme.colorScheme.surface,
+                        color = rowColor,
                     ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 16.dp, vertical = 10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(72.dp)
+                                .padding(start = 16.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
+                            // Icon badge or placeholder dot
                             if (agent.icon.isNotBlank()) {
-                                Text(text = agent.icon, style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    text = agent.icon,
+                                    style = MaterialTheme.typography.titleSmall,
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .background(
+                                            MaterialTheme.colorScheme.primaryContainer,
+                                            RoundedCornerShape(6.dp),
+                                        ),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        text = agent.name.take(1).uppercase(),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    )
+                                }
                             }
-                            Text(
-                                text = agent.name,
-                                style = MaterialTheme.typography.bodyLarge,
+
+                            // Two-line content
+                            Column(
                                 modifier = Modifier.weight(1f),
-                            )
-                            Text(
-                                text = "View chats →",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
+                                verticalArrangement = Arrangement.spacedBy(3.dp),
+                            ) {
+                                Text(
+                                    text = agent.name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                val meta = listOfNotNull(
+                                    agent.backend?.takeIf { it.isNotBlank() },
+                                    agent.cliModel?.takeIf { it.isNotBlank() },
+                                ).joinToString("  ·  ").ifBlank { "No model configured" }
+                                Text(
+                                    text = meta,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+
+                            // ⋮ menu
                             Box {
-                                IconButton(onClick = { menuExpanded = true }) {
+                                IconButton(
+                                    onClick = { menuExpanded = true },
+                                    modifier = Modifier.size(36.dp),
+                                ) {
                                     Icon(
                                         Icons.Default.MoreVert,
                                         contentDescription = "Agent actions",
+                                        modifier = Modifier.size(18.dp),
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
