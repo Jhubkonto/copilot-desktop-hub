@@ -74,15 +74,20 @@ fun PromptsScreen(
     val haptic = LocalHapticFeedback.current
     var searchQuery by remember { mutableStateOf("") }
     var scopeFilter by remember { mutableStateOf<String?>(null) }
+    var categoryFilter by remember { mutableStateOf<String?>(null) }
     var sortOrder by remember { mutableStateOf(PromptSortOrder.TITLE_ASC) }
     var showSortSheet by remember { mutableStateOf(false) }
     val scopeOptions = remember(state.entries) {
         state.entries.map { it.scope }.distinct().sorted()
     }
-    val filteredEntries = remember(state.entries, searchQuery, scopeFilter, sortOrder) {
+    val categoryOptions = remember(state.entries) {
+        state.entries.map { it.category }.distinct().sorted()
+    }
+    val filteredEntries = remember(state.entries, searchQuery, scopeFilter, categoryFilter, sortOrder) {
         val query = searchQuery.trim()
         state.entries
             .let { list -> if (scopeFilter != null) list.filter { it.scope == scopeFilter } else list }
+            .let { list -> if (categoryFilter != null) list.filter { it.category == categoryFilter } else list }
             .let { list ->
                 if (query.isBlank()) list else list.filter { entry ->
                     listOf(
@@ -241,7 +246,7 @@ fun PromptsScreen(
                                 FilterChip(
                                     selected = scopeFilter == null,
                                     onClick = { scopeFilter = null },
-                                    label = { Text("All") },
+                                    label = { Text("All scopes") },
                                 )
                             }
                             items(scopeOptions) { scope ->
@@ -253,13 +258,34 @@ fun PromptsScreen(
                             }
                         }
                     }
+                    if (categoryOptions.size > 1) {
+                        LazyRow(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            item {
+                                FilterChip(
+                                    selected = categoryFilter == null,
+                                    onClick = { categoryFilter = null },
+                                    label = { Text("All categories") },
+                                )
+                            }
+                            items(categoryOptions) { category ->
+                                FilterChip(
+                                    selected = categoryFilter == category,
+                                    onClick = { categoryFilter = if (categoryFilter == category) null else category },
+                                    label = { Text(category) },
+                                )
+                            }
+                        }
+                    }
                     NexySearchField(
                         query = searchQuery,
                         onQueryChange = { searchQuery = it },
                         placeholder = "Search prompts",
                         debounceMs = 300L,
                     )
-                    if (searchQuery.isNotBlank() || scopeFilter != null) {
+                    if (searchQuery.isNotBlank() || scopeFilter != null || categoryFilter != null) {
                         Text(
                             "Showing ${filteredEntries.size} of ${state.entries.size}",
                             style = MaterialTheme.typography.labelSmall,
@@ -273,7 +299,7 @@ fun PromptsScreen(
                             title = "No matching prompts.",
                             detail = "Try a different title, tag, category, or phrase.",
                             modifier = Modifier.weight(1f),
-                            action = { TextButton(onClick = { searchQuery = ""; scopeFilter = null }) { Text("Clear filters") } },
+                            action = { TextButton(onClick = { searchQuery = ""; scopeFilter = null; categoryFilter = null }) { Text("Clear filters") } },
                         )
                     } else {
                         val grouped = filteredEntries.groupBy { it.category }
