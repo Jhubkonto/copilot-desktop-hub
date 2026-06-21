@@ -670,7 +670,11 @@ object WsRepository : WsClient {
     fun exportConversationPack(conversationId: String, format: String = "json") {
         send("conversation:export-pack", mapOf("conversationId" to conversationId, "format" to format))
     }
-    fun forkConversation(conversationId: String) { send("conversation:fork", mapOf("conversationId" to conversationId)) }
+    fun forkConversation(conversationId: String, cutoffTimestamp: Long? = null) {
+        val data = mutableMapOf<String, Any>("conversationId" to conversationId)
+        if (cutoffTimestamp != null) data["cutoffTimestamp"] = cutoffTimestamp
+        send("conversation:fork", data)
+    }
     fun importConversationJson(json: String) { send("conversation:import-json", mapOf("json" to json)) }
 
     fun listKnowledgeFiles(agentId: String) { send("agent:list-knowledge-files", mapOf("agentId" to agentId)) }

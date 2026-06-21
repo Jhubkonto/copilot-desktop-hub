@@ -3,10 +3,13 @@ package io.nexy.android.ui.chat
 import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import android.speech.tts.TextToSpeech
+import java.util.Locale
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -29,6 +32,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -46,6 +50,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.rememberModalBottomSheetState
 import io.nexy.android.ui.components.NexyTopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -125,6 +130,9 @@ fun ChatScreen(
     val sendError by vm.sendError.collectAsState()
     var deletingMessage by remember { mutableStateOf<ChatMessage?>(null) }
     var deleteAfterMessage by remember { mutableStateOf<ChatMessage?>(null) }
+    var addToProjectMessage by remember { mutableStateOf<ChatMessage?>(null) }
+    var addToProjectTitle by remember { mutableStateOf("") }
+    var branchPending by remember { mutableStateOf(false) }
     val promptEntries by WsRepository.promptEntries.collectAsState()
     var relaunchFilePicker by remember { mutableStateOf(false) }
 
@@ -280,6 +288,20 @@ fun ChatScreen(
         val error = sendError ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(error)
         vm.clearSendError()
+    }
+
+    LaunchedEffect(Unit) {
+        WsRepository.events.collect { event ->
+            when (event) {
+                is io.nexy.android.data.model.WsEvent.ConversationForked -> {
+                    if (branchPending) {
+                        branchPending = false
+                        onOpenFork?.invoke(event.conversationId)
+                    }
+                }
+                else -> {}
+            }
+        }
     }
 
     val assistantBusy = isStreaming || isAwaitingResponse
@@ -544,6 +566,59 @@ fun ChatScreen(
         )
     }
 
+    addToProjectMessage?.let { message ->
+        val chatProjectId = conversation?.project_id ?: projectId
+        if (chatProjectId != null) {
+            AlertDialog(
+                onDismissRequest = { addToProjectMessage = null; addToProjectTitle = "" },
+                title = { Text("Add to project sources") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "Save this message as a wiki entry in the project.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        OutlinedTextField(
+                            value = addToProjectTitle,
+                            onValueChange = { addToProjectTitle = it },
+                            label = { Text("Title") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            val title = addToProjectTitle.trim().ifBlank { "From chat" }
+                            WsRepository.createWikiEntry(chatProjectId, title, message.text, emptyList())
+                            scope.launch { snackbarHostState.showSnackbar("Added to project sources.") }
+                            addToProjectMessage = null
+                            addToProjectTitle = ""
+                        },
+                    ) { Text("Add") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { addToProjectMessage = null; addToProjectTitle = "" }) { Text("Cancel") }
+                },
+            )
+        }
+    }
+
+    val tts = remember(context) {
+        var engine: TextToSpeech? = null
+        engine = TextToSpeech(context) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                engine?.language = Locale.getDefault()
+            }
+        }
+        engine
+    }
+    DisposableEffect(Unit) {
+        onDispose { tts.stop(); tts.shutdown() }
+    }
+
     val markwon = remember(context) { Markwon.create(context) }
     CompositionLocalProvider(LocalMarkwon provides markwon) {
     Scaffold(
@@ -638,7 +713,7 @@ fun ChatScreen(
                             EmptyChatContent(agentLabel = agentLabel, projectLabel = projectLabel)
                         }
                     }
-                    itemsIndexed(messages) { _, msg ->
+                    itemsIndexed(messages) { msgIndex, msg ->
                         if (msg.isToolCall) {
                             ToolCallBubble(msg)
                         } else {
@@ -648,6 +723,10 @@ fun ChatScreen(
                             if (!msg.isUser && msg.thinkingBlocks.isNotEmpty()) {
                                 ThinkingHistoryBubble(msg.thinkingBlocks)
                             }
+                            val precedingUserText = if (!msg.isUser) {
+                                messages.take(msgIndex).lastOrNull { it.isUser && !it.isToolCall }?.text
+                            } else null
+                            val chatProjectId = conversation?.project_id ?: projectId
                             MessageBubble(
                                 msg = msg,
                                 onCopy = { copyMessage(clipboardManager, msg.text) },
@@ -655,6 +734,33 @@ fun ChatScreen(
                                 onResend = if (msg.isUser) { { vm.sendMessage(msg.text) } } else null,
                                 onDelete = if (msg.id.isNotBlank()) { { deletingMessage = msg } } else null,
                                 onDeleteAfter = if (msg.id.isNotBlank() && msg.timestamp > 0L) { { deleteAfterMessage = msg } } else null,
+                                onRetry = if (!msg.isUser && precedingUserText != null) {
+                                    { vm.sendMessage(precedingUserText) }
+                                } else null,
+                                onEditAssistant = if (!msg.isUser && msg.text.isNotBlank()) {
+                                    { input = msg.text; vm.setDraft(msg.text) }
+                                } else null,
+                                onBranch = if (!msg.isUser && msg.timestamp > 0L) {
+                                    { branchPending = true; WsRepository.forkConversation(conversationId, msg.timestamp) }
+                                } else null,
+                                onAddToProject = if (!msg.isUser && chatProjectId != null && msg.text.isNotBlank()) {
+                                    { addToProjectMessage = msg; addToProjectTitle = "" }
+                                } else null,
+                                onShare = if (!msg.isUser && msg.text.isNotBlank()) {
+                                    {
+                                        val intent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_TEXT, msg.text)
+                                        }
+                                        context.startActivity(Intent.createChooser(intent, "Share message"))
+                                    }
+                                } else null,
+                                onReadAloud = if (!msg.isUser && msg.text.isNotBlank()) {
+                                    {
+                                        tts.stop()
+                                        tts.speak(msg.text, TextToSpeech.QUEUE_FLUSH, null, msg.id)
+                                    }
+                                } else null,
                             )
                         }
                     }

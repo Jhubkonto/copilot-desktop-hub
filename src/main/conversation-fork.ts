@@ -268,15 +268,16 @@ export function forkConversation(
     : source.model;
   const targetModel = validateForkTarget(db, targetAgentId, requestedModel);
 
+  const cutoff = typeof options.cutoffTimestamp === "number" ? options.cutoffTimestamp : null;
   const rows = db
     .prepare(
       `SELECT id, conversation_id, role, content, model, is_edited, previous_content,
               timestamp, attachments, context_snapshot
        FROM messages
-       WHERE conversation_id = ?
+       WHERE conversation_id = ?${cutoff !== null ? " AND timestamp <= ?" : ""}
        ORDER BY timestamp ASC`,
     )
-    .all(conversationId) as MessageExportRow[];
+    .all(...(cutoff !== null ? [conversationId, cutoff] : [conversationId])) as MessageExportRow[];
   const rewrittenForkMessages = rows.map((row) => rewriteMessageForTarget(row, now, conversationId));
   const compressionPlan = maybeCompressForkMessages(db, rewrittenForkMessages, conversationId, targetModel, now);
   const forkMessages = compressionPlan.messages;

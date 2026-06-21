@@ -1476,8 +1476,9 @@ export function registerWsHandlers(): void {
     if (command === 'conversation:fork') {
       const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
       if (!conversationId) return
+      const cutoffTimestamp = typeof data.cutoffTimestamp === 'number' ? data.cutoffTimestamp : null
       try {
-        const result = forkConversation(db, conversationId, {})
+        const result = forkConversation(db, conversationId, { cutoffTimestamp })
         broadcastToMobile({ event: 'conversation:forked', data: { conversationId: result.conversation.id, title: result.conversation.title, messageCount: result.message_count } })
       } catch (err) {
         reply({ event: 'conversation:fork-error', data: { message: String(err) } })

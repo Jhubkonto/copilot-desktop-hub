@@ -28,14 +28,20 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.CallSplit
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -57,7 +63,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.remember
 import io.nexy.android.data.model.ThinkingBlock
 import io.noties.markwon.Markwon
 
@@ -201,9 +206,16 @@ fun MessageBubble(
     onResend: (() -> Unit)?,
     onDelete: (() -> Unit)? = null,
     onDeleteAfter: (() -> Unit)? = null,
+    onRetry: (() -> Unit)? = null,
+    onEditAssistant: (() -> Unit)? = null,
+    onBranch: (() -> Unit)? = null,
+    onAddToProject: (() -> Unit)? = null,
+    onShare: (() -> Unit)? = null,
+    onReadAloud: (() -> Unit)? = null,
 ) {
     val isUser = msg.isUser
     var menuExpanded by remember { mutableStateOf(false) }
+    var overflowExpanded by remember { mutableStateOf(false) }
     val bubbleColor = if (isUser) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
     val textColor = if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
     val textColorArgb = textColor.toArgb()
@@ -233,6 +245,12 @@ fun MessageBubble(
                     text = { Text("Copy") },
                     onClick = { menuExpanded = false; onCopy() },
                 )
+                if (!isUser) {
+                    DropdownMenuItem(
+                        text = { Text("Select text") },
+                        onClick = { menuExpanded = false; onCopy() },
+                    )
+                }
                 if (onEdit != null) {
                     DropdownMenuItem(
                         text = { Text("Edit") },
@@ -243,6 +261,36 @@ fun MessageBubble(
                     DropdownMenuItem(
                         text = { Text("Resend") },
                         onClick = { menuExpanded = false; onResend() },
+                    )
+                }
+                if (onRetry != null) {
+                    DropdownMenuItem(
+                        text = { Text("Retry") },
+                        onClick = { menuExpanded = false; onRetry() },
+                    )
+                }
+                if (onEditAssistant != null) {
+                    DropdownMenuItem(
+                        text = { Text("Edit message") },
+                        onClick = { menuExpanded = false; onEditAssistant() },
+                    )
+                }
+                if (onBranch != null) {
+                    DropdownMenuItem(
+                        text = { Text("Branch in new chat") },
+                        onClick = { menuExpanded = false; onBranch() },
+                    )
+                }
+                if (onAddToProject != null) {
+                    DropdownMenuItem(
+                        text = { Text("Add to project sources") },
+                        onClick = { menuExpanded = false; onAddToProject() },
+                    )
+                }
+                if (onReadAloud != null) {
+                    DropdownMenuItem(
+                        text = { Text("Read aloud") },
+                        onClick = { menuExpanded = false; onReadAloud() },
                     )
                 }
                 if (onDelete != null) {
@@ -347,6 +395,82 @@ fun MessageBubble(
                         style = MaterialTheme.typography.labelSmall,
                         color = textColor.copy(alpha = 0.45f),
                     )
+                }
+            }
+        }
+        if (!isUser && !msg.isStreaming && msg.text.isNotBlank()) {
+            Row(
+                modifier = Modifier.padding(horizontal = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onCopy, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        Icons.Default.ContentCopy,
+                        contentDescription = "Copy message",
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (onShare != null) {
+                    IconButton(onClick = onShare, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            Icons.Default.Share,
+                            contentDescription = "Share message",
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                if (onReadAloud != null) {
+                    IconButton(onClick = onReadAloud, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            Icons.Default.RecordVoiceOver,
+                            contentDescription = "Read aloud",
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                Box {
+                    IconButton(onClick = { overflowExpanded = true }, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            Icons.Default.MoreVert,
+                            contentDescription = "More message actions",
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    DropdownMenu(expanded = overflowExpanded, onDismissRequest = { overflowExpanded = false }) {
+                        if (onRetry != null) {
+                            DropdownMenuItem(
+                                text = { Text("Retry") },
+                                onClick = { overflowExpanded = false; onRetry() },
+                            )
+                        }
+                        if (onEditAssistant != null) {
+                            DropdownMenuItem(
+                                text = { Text("Edit message") },
+                                onClick = { overflowExpanded = false; onEditAssistant() },
+                            )
+                        }
+                        if (onBranch != null) {
+                            DropdownMenuItem(
+                                text = { Text("Branch in new chat") },
+                                onClick = { overflowExpanded = false; onBranch() },
+                            )
+                        }
+                        if (onAddToProject != null) {
+                            DropdownMenuItem(
+                                text = { Text("Add to project sources") },
+                                onClick = { overflowExpanded = false; onAddToProject() },
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text("Delete") },
+                            onClick = { overflowExpanded = false; onDelete?.invoke() },
+                            enabled = onDelete != null,
+                        )
+                    }
                 }
             }
         }
