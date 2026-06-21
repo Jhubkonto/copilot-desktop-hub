@@ -39,6 +39,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -92,7 +93,7 @@ fun HomeScreen(
     val pendingApproval by vm.pendingApproval.collectAsState()
     val searchQuery by vm.searchQuery.collectAsState()
     val searchResults by vm.searchResults.collectAsState()
-    var selectedTab by remember { mutableIntStateOf(0) }
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var showNewChatSheet by remember { mutableStateOf(false) }
     var showCreateProjectSheet by remember { mutableStateOf(false) }
     var showCreateAgentSheet by remember { mutableStateOf(false) }
@@ -103,15 +104,15 @@ fun HomeScreen(
     val haptic = LocalHapticFeedback.current
 
     LaunchedEffect(Unit) {
-        vm.projectCreated.collect { name ->
+        vm.projectCreated.collect { projectId ->
             showCreateProjectSheet = false
-            snackbarHostState.showSnackbar("Project \"$name\" created.")
+            onOpenProjectConfig(projectId)
         }
     }
     LaunchedEffect(Unit) {
-        vm.agentCreated.collect { name ->
+        vm.agentCreated.collect { agentId ->
             showCreateAgentSheet = false
-            snackbarHostState.showSnackbar("Agent \"$name\" created.")
+            onOpenAgentConfig(agentId)
         }
     }
 
@@ -253,7 +254,7 @@ fun HomeScreen(
         },
         floatingActionButton = {
             var showFabMenu by remember { mutableStateOf(false) }
-            Box {
+            Box(modifier = Modifier.padding(end = 48.dp)) {
                 FloatingActionButton(
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)

@@ -52,7 +52,7 @@ class HomeViewModel(
     private val _searchResults = MutableStateFlow<List<Conversation>?>(null)
     val searchResults: StateFlow<List<Conversation>?> = _searchResults.asStateFlow()
 
-    // One-shot signals emitted when the desktop confirms creation
+    // One-shot signals emitted when the desktop confirms creation — carries the new item's ID
     private val _projectCreated = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val projectCreated: SharedFlow<String> = _projectCreated
 
@@ -72,8 +72,8 @@ class HomeViewModel(
                     is WsEvent.ProjectList -> _isRefreshingProjects.value = false
                     is WsEvent.ConversationCreated -> _newConversationId.value = event.id
                     is WsEvent.ConversationSearchResults -> _searchResults.value = event.conversations
-                    is WsEvent.ProjectCreated -> _projectCreated.tryEmit(event.project.name)
-                    is WsEvent.AgentCreated -> _agentCreated.tryEmit(event.agent.name)
+                    is WsEvent.ProjectCreated -> _projectCreated.tryEmit(event.project.id)
+                    is WsEvent.AgentCreated -> _agentCreated.tryEmit(event.agent.id)
                     else -> {}
                 }
             }

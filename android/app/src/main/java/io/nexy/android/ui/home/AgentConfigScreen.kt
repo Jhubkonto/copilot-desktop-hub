@@ -291,14 +291,13 @@ fun AgentConfigScreen(
             when {
                 event is WsEvent.AgentUpdated && event.agent.id == agentId -> {
                     saving = false
-                    // Update snapshots so dirty flag resets after save
                     loadedName = name; loadedIcon = icon
                     loadedSystemPrompt = systemPrompt; loadedMemory = memory
                     loadedAgenticMode = agenticMode; loadedBackend = backend
                     loadedCliModel = cliModel; loadedResponseFormat = responseFormat
                     loadedTemperature = temperature; loadedMaxTokensText = maxTokensText
                     loadedThinkingEffort = thinkingEffort
-                    scope.launch { snackbarHostState.showSnackbar("Agent saved.") }
+                    onBack()
                 }
                 event is WsEvent.SkillAgentLinks && event.agentId == agentId -> {
                     attachedSkillIds = event.links.sortedBy { it.sortOrder }.map { it.skillId }
