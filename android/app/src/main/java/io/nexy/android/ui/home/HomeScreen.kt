@@ -71,9 +71,11 @@ fun HomeScreen(
     onOpenDraftChat: (String, String?, String?) -> Unit,
     onOpenAgentHistory: (String) -> Unit,
     onOpenAgentConfig: (String) -> Unit,
+    onOpenAgentConfigNew: (String) -> Unit = onOpenAgentConfig,
     onOpenAgentGenerator: () -> Unit,
     onOpenProjectHistory: (String) -> Unit,
     onOpenProjectConfig: (String) -> Unit,
+    onOpenProjectConfigNew: (String) -> Unit = onOpenProjectConfig,
     onOpenProjectGenerator: () -> Unit,
     onOpenArtifacts: () -> Unit,
     onOpenSkills: () -> Unit,
@@ -93,6 +95,8 @@ fun HomeScreen(
     val pendingApproval by vm.pendingApproval.collectAsState()
     val searchQuery by vm.searchQuery.collectAsState()
     val searchResults by vm.searchResults.collectAsState()
+    val highlightProjectId by vm.highlightProjectId.collectAsState()
+    val highlightAgentId by vm.highlightAgentId.collectAsState()
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var showNewChatSheet by remember { mutableStateOf(false) }
     var showCreateProjectSheet by remember { mutableStateOf(false) }
@@ -106,13 +110,13 @@ fun HomeScreen(
     LaunchedEffect(Unit) {
         vm.projectCreated.collect { projectId ->
             showCreateProjectSheet = false
-            onOpenProjectConfig(projectId)
+            onOpenProjectConfigNew(projectId)
         }
     }
     LaunchedEffect(Unit) {
         vm.agentCreated.collect { agentId ->
             showCreateAgentSheet = false
-            onOpenAgentConfig(agentId)
+            onOpenAgentConfigNew(agentId)
         }
     }
 
@@ -254,7 +258,7 @@ fun HomeScreen(
         },
         floatingActionButton = {
             var showFabMenu by remember { mutableStateOf(false) }
-            Box(modifier = Modifier.padding(end = 48.dp)) {
+            Box(modifier = Modifier.padding(end = 20.dp)) {
                 FloatingActionButton(
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -362,6 +366,8 @@ fun HomeScreen(
                     isRefreshing = isRefreshingProjects,
                     showCreateSheet = showCreateProjectSheet,
                     connectionState = connectionState,
+                    highlightProjectId = highlightProjectId,
+                    onHighlightConsumed = { vm.clearHighlightProject() },
                     onDismissCreateSheet = { showCreateProjectSheet = false },
                     onRefresh = { vm.requestProjects() },
                     onOpenProjectHistory = onOpenProjectHistory,
@@ -376,6 +382,8 @@ fun HomeScreen(
                     isRefreshing = isRefreshingAgents,
                     showCreateSheet = showCreateAgentSheet,
                     connectionState = connectionState,
+                    highlightAgentId = highlightAgentId,
+                    onHighlightConsumed = { vm.clearHighlightAgent() },
                     onDismissCreateSheet = { showCreateAgentSheet = false },
                     onRefresh = { vm.requestAgents() },
                     onOpenAgentHistory = onOpenAgentHistory,

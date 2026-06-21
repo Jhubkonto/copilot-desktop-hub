@@ -84,6 +84,7 @@ private val milestoneStatuses = listOf("upcoming", "active", "completed")
 fun ProjectConfigScreen(
     projectId: String,
     onBack: () -> Unit,
+    isNew: Boolean = false,
     onOpenWiki: () -> Unit = {},
     onOpenArtifacts: () -> Unit = {},
 ) {
@@ -171,6 +172,7 @@ fun ProjectConfigScreen(
                     loadedOrchestrationEnabled = orchestrationEnabled
                     loadedMaxDelegationDepth = maxDelegationDepth
                     loadedShowTeamActivity = showTeamActivity
+                    if (isNew) WsRepository.pendingHighlightProjectId.value = projectId
                     onBack()
                 }
                 is WsEvent.ProjectAgents -> if (event.id == projectId) {

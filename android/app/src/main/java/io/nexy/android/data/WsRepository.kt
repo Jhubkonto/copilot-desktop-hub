@@ -105,6 +105,10 @@ object WsRepository : WsClient {
     private val _mcpServers = MutableStateFlow<List<McpServerInfo>>(emptyList())
     val mcpServers: StateFlow<List<McpServerInfo>> = _mcpServers
 
+    // One-shot highlight IDs set by config screens when saving a brand-new item
+    val pendingHighlightProjectId = MutableStateFlow<String?>(null)
+    val pendingHighlightAgentId = MutableStateFlow<String?>(null)
+
     private val _skills = MutableStateFlow<List<SkillConfig>>(emptyList())
     val skills: StateFlow<List<SkillConfig>> = _skills
 

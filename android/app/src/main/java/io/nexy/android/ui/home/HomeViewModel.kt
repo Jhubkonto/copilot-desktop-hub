@@ -59,6 +59,13 @@ class HomeViewModel(
     private val _agentCreated = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val agentCreated: SharedFlow<String> = _agentCreated
 
+    // ID to flash-highlight in the list after returning from a new-item config save
+    val highlightProjectId: StateFlow<String?> = WsRepository.pendingHighlightProjectId
+    val highlightAgentId: StateFlow<String?> = WsRepository.pendingHighlightAgentId
+
+    fun clearHighlightProject() { WsRepository.pendingHighlightProjectId.value = null }
+    fun clearHighlightAgent() { WsRepository.pendingHighlightAgentId.value = null }
+
     init {
         viewModelScope.launch {
             wsClient.events.collect { event ->

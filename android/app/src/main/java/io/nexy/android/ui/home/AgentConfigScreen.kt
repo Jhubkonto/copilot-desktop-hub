@@ -114,6 +114,7 @@ private val thinkingEffortOptions = listOf(
 fun AgentConfigScreen(
     agentId: String,
     onBack: () -> Unit,
+    isNew: Boolean = false,
 ) {
     val agents by WsRepository.agents.collectAsState()
     val connectionState by WsRepository.connectionState.collectAsState()
@@ -297,6 +298,7 @@ fun AgentConfigScreen(
                     loadedCliModel = cliModel; loadedResponseFormat = responseFormat
                     loadedTemperature = temperature; loadedMaxTokensText = maxTokensText
                     loadedThinkingEffort = thinkingEffort
+                    if (isNew) WsRepository.pendingHighlightAgentId.value = agentId
                     onBack()
                 }
                 event is WsEvent.SkillAgentLinks && event.agentId == agentId -> {

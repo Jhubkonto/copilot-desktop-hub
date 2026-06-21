@@ -1,6 +1,9 @@
 package io.nexy.android.ui.home
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -332,6 +335,8 @@ fun ProjectsTab(
     isRefreshing: Boolean,
     showCreateSheet: Boolean,
     connectionState: ConnectionState = ConnectionState.CONNECTED,
+    highlightProjectId: String? = null,
+    onHighlightConsumed: () -> Unit = {},
     onDismissCreateSheet: () -> Unit,
     onRefresh: () -> Unit,
     onOpenProjectHistory: (String) -> Unit,
@@ -492,14 +497,32 @@ fun ProjectsTab(
                     val accentColor = projectColor(project.color)
                     var menuExpanded by remember { mutableStateOf(false) }
                     val rowColor = if (index % 2 == 0) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant
+                    val isHighlighted = project.id == highlightProjectId
+                    val flashAlpha = remember(project.id) { Animatable(0f) }
+                    LaunchedEffect(isHighlighted) {
+                        if (isHighlighted) {
+                            repeat(3) {
+                                flashAlpha.animateTo(1f, tween(200))
+                                flashAlpha.animateTo(0f, tween(200))
+                            }
+                            onHighlightConsumed()
+                        }
+                    }
+                    val primaryColor = MaterialTheme.colorScheme.primary
                     Surface(
-                        modifier = Modifier.fillMaxWidth().combinedClickable(
-                            onClick = { onOpenProjectHistory(project.id) },
-                            onLongClick = {
-                                renameText = project.name
-                                renameTarget = project
-                            },
-                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(
+                                width = 2.dp,
+                                color = primaryColor.copy(alpha = flashAlpha.value),
+                            )
+                            .combinedClickable(
+                                onClick = { onOpenProjectHistory(project.id) },
+                                onLongClick = {
+                                    renameText = project.name
+                                    renameTarget = project
+                                },
+                            ),
                         color = rowColor,
                     ) {
                         Row(
@@ -621,6 +644,8 @@ fun AgentsTab(
     isRefreshing: Boolean,
     showCreateSheet: Boolean,
     connectionState: ConnectionState = ConnectionState.CONNECTED,
+    highlightAgentId: String? = null,
+    onHighlightConsumed: () -> Unit = {},
     onDismissCreateSheet: () -> Unit,
     onRefresh: () -> Unit,
     onOpenAgentHistory: (String) -> Unit,
@@ -787,15 +812,33 @@ fun AgentsTab(
                 itemsIndexed(filteredAgents, key = { _, a -> a.id }) { index, agent ->
                     var menuExpanded by remember { mutableStateOf(false) }
                     val rowColor = if (index % 2 == 0) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant
+                    val isHighlighted = agent.id == highlightAgentId
+                    val flashAlpha = remember(agent.id) { Animatable(0f) }
+                    LaunchedEffect(isHighlighted) {
+                        if (isHighlighted) {
+                            repeat(3) {
+                                flashAlpha.animateTo(1f, tween(200))
+                                flashAlpha.animateTo(0f, tween(200))
+                            }
+                            onHighlightConsumed()
+                        }
+                    }
+                    val primaryColor = MaterialTheme.colorScheme.primary
                     Surface(
-                        modifier = Modifier.fillMaxWidth().combinedClickable(
-                            onClick = { onOpenAgentHistory(agent.id) },
-                            onLongClick = {
-                                renameText = agent.name
-                                renameIcon = agent.icon
-                                renameTarget = agent
-                            },
-                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(
+                                width = 2.dp,
+                                color = primaryColor.copy(alpha = flashAlpha.value),
+                            )
+                            .combinedClickable(
+                                onClick = { onOpenAgentHistory(agent.id) },
+                                onLongClick = {
+                                    renameText = agent.name
+                                    renameIcon = agent.icon
+                                    renameTarget = agent
+                                },
+                            ),
                         color = rowColor,
                     ) {
                         Row(

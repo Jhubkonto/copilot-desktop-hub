@@ -4,6 +4,9 @@ import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -33,7 +36,8 @@ import io.nexy.android.ui.settings.ConnectionScreen
 import io.nexy.android.ui.settings.DiagnosticsScreen
 import io.nexy.android.ui.settings.GlobalSettingsScreen
 import io.nexy.android.ui.settings.BuildDashboardScreen
-import io.nexy.android.ui.settings.McpAndCliScreen
+import io.nexy.android.ui.settings.McpServersScreen
+import io.nexy.android.ui.settings.CliModelsScreen
 import io.nexy.android.ui.settings.ModelsScreen
 import io.nexy.android.ui.settings.NotificationsScreen
 import io.nexy.android.ui.settings.ProvidersScreen
@@ -46,6 +50,9 @@ import io.nexy.android.ui.splash.SplashScreen
 fun NavGraph(onRequestNotificationPermission: () -> Unit = {}) {
     val navController = rememberNavController()
     val connectionState by WsRepository.connectionState.collectAsState()
+    // Track IDs navigated to from a "create" flow so config screens know to animate on save
+    var newProjectId by remember { mutableStateOf<String?>(null) }
+    var newAgentId by remember { mutableStateOf<String?>(null) }
 
     // Track whether this was a brand-new pairing (no saved profiles before connecting).
     val wasFirstPairing = androidx.compose.runtime.remember {
@@ -114,10 +121,18 @@ fun NavGraph(onRequestNotificationPermission: () -> Unit = {}) {
                 onOpenAgentConfig = { agentId ->
                     navController.navigate("agent-config/${Uri.encode(agentId)}")
                 },
+                onOpenAgentConfigNew = { agentId ->
+                    newAgentId = agentId
+                    navController.navigate("agent-config/${Uri.encode(agentId)}")
+                },
                 onOpenProjectHistory = { projectId ->
                     navController.navigate("history/project/${Uri.encode(projectId)}")
                 },
                 onOpenProjectConfig = { projectId ->
+                    navController.navigate("project-config/${Uri.encode(projectId)}")
+                },
+                onOpenProjectConfigNew = { projectId ->
+                    newProjectId = projectId
                     navController.navigate("project-config/${Uri.encode(projectId)}")
                 },
                 onOpenProjectGenerator = {
@@ -216,7 +231,8 @@ fun NavGraph(onRequestNotificationPermission: () -> Unit = {}) {
                 onOpenProviders = { navController.navigate("providers") },
                 onOpenPromptLibrary = { navController.navigate("prompts") },
                 onOpenGlobalSettings = { navController.navigate("settings/global") },
-                onOpenMcpAndCli = { navController.navigate("settings/mcp-cli") },
+                onOpenMcpServers = { navController.navigate("settings/mcp-servers") },
+                onOpenCliModels = { navController.navigate("settings/cli-models") },
                 onOpenBuildDashboard = { navController.navigate("settings/build-dashboard") },
             )
         }
@@ -229,8 +245,12 @@ fun NavGraph(onRequestNotificationPermission: () -> Unit = {}) {
             GlobalSettingsScreen(onBack = { navController.popBackStack() })
         }
 
-        composable("settings/mcp-cli") {
-            McpAndCliScreen(onBack = { navController.popBackStack() })
+        composable("settings/mcp-servers") {
+            McpServersScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable("settings/cli-models") {
+            CliModelsScreen(onBack = { navController.popBackStack() })
         }
 
         composable("settings/appearance") {
@@ -291,6 +311,7 @@ fun NavGraph(onRequestNotificationPermission: () -> Unit = {}) {
             ProjectConfigScreen(
                 projectId = projectId,
                 onBack = { navController.popBackStack() },
+                isNew = projectId == newProjectId,
                 onOpenWiki = { navController.navigate("wiki/${Uri.encode(projectId)}") },
                 onOpenArtifacts = { navController.navigate("artifacts") },
             )
@@ -342,7 +363,11 @@ fun NavGraph(onRequestNotificationPermission: () -> Unit = {}) {
             arguments = listOf(navArgument("agentId") { type = NavType.StringType }),
         ) { backStackEntry ->
             val agentId = backStackEntry.arguments?.getString("agentId") ?: return@composable
-            AgentConfigScreen(agentId = agentId, onBack = { navController.popBackStack() })
+            AgentConfigScreen(
+                agentId = agentId,
+                onBack = { navController.popBackStack() },
+                isNew = agentId == newAgentId,
+            )
         }
 
         composable(
