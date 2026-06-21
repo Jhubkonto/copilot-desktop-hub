@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.nexy.android.data.WsRepository
+import io.nexy.android.data.model.Project
 import java.util.UUID
 
 enum class HistoryScope {
@@ -142,7 +143,7 @@ fun ScopedChatHistoryScreen(
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
                     items(filtered, key = { it.id }) { conversation ->
-                        ConversationRow(conv = conversation, onOpenChat = onOpenChat)
+                        ConversationRow(conv = conversation, projects = projects, onOpenChat = onOpenChat)
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     }
                 }

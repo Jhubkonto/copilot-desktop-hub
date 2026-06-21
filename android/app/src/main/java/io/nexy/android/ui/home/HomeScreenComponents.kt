@@ -7,12 +7,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
@@ -37,14 +39,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.nexy.android.data.model.Conversation
+import io.nexy.android.data.model.Project
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ConversationRow(
     conv: Conversation,
+    index: Int = 0,
+    projects: List<Project> = emptyList(),
     onOpenChat: (String) -> Unit,
     onRename: ((id: String, currentTitle: String) -> Unit)? = null,
     onDelete: ((id: String) -> Unit)? = null,
@@ -52,50 +60,132 @@ fun ConversationRow(
 ) {
     val preview = conv.last_message ?: ""
     var menuExpanded by remember { mutableStateOf(false) }
+    val rowColor = if (index % 2 == 0) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant
+    val agentColor = MaterialTheme.colorScheme.primary
+    val mutedColor = MaterialTheme.colorScheme.onSurfaceVariant
+
+    // Look up the project color for the left accent bar
+    val projectAccentColor = conv.project_id?.let { pid ->
+        projects.find { it.id == pid }?.color?.let { projectColor(it) }
+    }
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
+            .height(72.dp)
             .combinedClickable(
                 onClick = { onOpenChat(conv.id) },
                 onLongClick = { onRename?.invoke(conv.id, conv.title) },
             ),
-        color = MaterialTheme.colorScheme.surface,
+        color = rowColor,
     ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
+            // Left project accent bar (4dp, same as project rows)
+            if (projectAccentColor != null) {
+                Box(modifier = Modifier.width(4.dp).fillMaxHeight().background(projectAccentColor))
+            }
+
+            // Main content
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(
+                        start = if (projectAccentColor != null) 12.dp else 16.dp,
+                        end = 4.dp,
+                        top = 10.dp,
+                        bottom = 10.dp,
+                    ),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (conv.pinned) {
-                    Icon(
-                        Icons.Default.PushPin,
-                        contentDescription = "Pinned",
-                        modifier = Modifier.size(14.dp).padding(end = 2.dp),
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                }
-                Text(
-                    text = conv.title.ifBlank { "Untitled" },
-                    style = MaterialTheme.typography.bodyLarge,
+                // Left: two-line content
+                Column(
                     modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = timeAgo(conv.updated_at.toLongOrNull() ?: 0L),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 8.dp),
-                )
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    // Line 1: pin icon + title + timestamp
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        if (conv.pinned) {
+                            Icon(
+                                Icons.Default.PushPin,
+                                contentDescription = null,
+                                modifier = Modifier.size(11.dp),
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                        Text(
+                            text = conv.title.ifBlank { "Untitled" },
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = timeAgo(conv.updated_at.toLongOrNull() ?: 0L),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = mutedColor,
+                        )
+                    }
+                    // Line 2: colored agent name + optional project name + preview
+                    val agentName = conv.agent_name?.takeIf { it.isNotBlank() }
+                    val projectName = conv.project_name?.takeIf { it.isNotBlank() }
+                    val hasContext = agentName != null || projectName != null
+                    val hasPreview = preview.isNotBlank()
+                    if (hasContext || hasPreview) {
+                        val line2 = buildAnnotatedString {
+                            if (agentName != null) {
+                                pushStyle(SpanStyle(color = agentColor))
+                                append(agentName)
+                                pop()
+                            }
+                            if (agentName != null && projectName != null) {
+                                pushStyle(SpanStyle(color = mutedColor))
+                                append("  ·  ")
+                                pop()
+                            }
+                            if (projectName != null) {
+                                pushStyle(SpanStyle(color = mutedColor))
+                                append(projectName)
+                                pop()
+                            }
+                            if (hasContext && hasPreview) {
+                                pushStyle(SpanStyle(color = mutedColor))
+                                append("  ·  ")
+                                pop()
+                            }
+                            if (hasPreview) {
+                                pushStyle(SpanStyle(color = mutedColor))
+                                append(preview)
+                                pop()
+                            }
+                        }
+                        Text(
+                            text = line2,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+
+                // Right: compact ⋮ menu
                 if (onRename != null || onDelete != null || onTogglePin != null) {
                     Box {
-                        IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(48.dp)) {
+                        IconButton(
+                            onClick = { menuExpanded = true },
+                            modifier = Modifier.size(36.dp),
+                        ) {
                             Icon(
                                 Icons.Default.MoreVert,
                                 contentDescription = "Chat actions",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp),
+                                tint = mutedColor,
                             )
                         }
                         DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
@@ -132,30 +222,6 @@ fun ConversationRow(
                         }
                     }
                 }
-            }
-            val contextParts = listOfNotNull(
-                conv.agent_name?.takeIf { it.isNotBlank() }?.let { "Agent: $it" },
-                conv.project_name?.takeIf { it.isNotBlank() }?.let { "Project: $it" },
-            )
-            if (contextParts.isNotEmpty()) {
-                Text(
-                    text = contextParts.joinToString(" · "),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 1.dp),
-                )
-            }
-            if (preview.isNotBlank()) {
-                Text(
-                    text = preview,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 1.dp),
-                )
             }
         }
     }
