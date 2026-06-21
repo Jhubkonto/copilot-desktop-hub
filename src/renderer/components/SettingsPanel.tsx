@@ -144,6 +144,7 @@ export function SettingsPanel() {
   const [mobileLocalIp, setMobileLocalIp] = useState('')
   const [mobilePairingUrl, setMobilePairingUrl] = useState<string | null>(null)
   const [mobileExternalUrl, setMobileExternalUrl] = useState('')
+  const [autoStartEnabled, setAutoStartEnabled] = useState(false)
 
   // Developer / build orchestrator state
   const [workspaceInfo, setWorkspaceInfo] = useState<WorkspaceInfo | null>(null)
@@ -404,6 +405,7 @@ export function SettingsPanel() {
     if (!visible || category !== 'mobile') return
     void refreshMobileStatus()
     void window.api.androidGetFcmConfigStatus().then(setFcmStatus).catch(() => {})
+    void window.api.wsGetAutoStartEnabled().then(setAutoStartEnabled).catch(() => {})
   }, [visible, category, refreshMobileStatus])
 
   const refreshWorkspaceInfo = useCallback(async () => {
@@ -948,6 +950,11 @@ export function SettingsPanel() {
                   setFcmError(err instanceof Error ? err.message : 'Failed to save configuration')
                 })
                 .finally(() => setFcmSaving(false))
+            }}
+            autoStartEnabled={autoStartEnabled}
+            onToggleAutoStart={() => {
+              const next = !autoStartEnabled
+              void window.api.wsSetAutoStartEnabled(next).then(setAutoStartEnabled)
             }}
           />
         )}

@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -388,6 +390,10 @@ fun DiagnosticsSection(
             SettingsInfoRow("Client version", clientVersion)
             SettingsInfoRow("Server version", connectionDiagnostics.serverVersion ?: "Unknown")
             SettingsInfoRow("Last error", connectionDiagnostics.lastError ?: "None")
+            SettingsInfoRow("MAC address", connectionDiagnostics.macAddress ?: "Unknown")
+            SettingsInfoRow("Broadcast", connectionDiagnostics.broadcastAddress ?: "Unknown")
+            SettingsInfoRow("mDNS name", connectionDiagnostics.mDnsName ?: "Unknown")
+            SettingsInfoRow("WoL enabled", if (connectionDiagnostics.wolEnabled) "Yes" else "No")
             OutlinedButton(
                 onClick = onRequestBugReport,
                 modifier = Modifier.fillMaxWidth(),
@@ -510,4 +516,91 @@ internal fun SettingsNavRow(
         }
     }
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+}
+
+@Composable
+fun RemoteDesktopHelpSection() {
+    var expanded by remember { mutableStateOf(false) }
+
+    SettingsSectionHeader("Remote Desktop Mode")
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { expanded = !expanded },
+        color = MaterialTheme.colorScheme.surface,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    "How to wake your desktop remotely",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Medium,
+                )
+                Text(
+                    "Wake-on-LAN, auto-start, and reconnect requirements",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(
+                if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                contentDescription = if (expanded) "Collapse" else "Expand",
+                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+
+    if (expanded) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            HelpItem(
+                title = "Enable Wake-on-LAN on your desktop",
+                body = "On Windows: Device Manager → Network Adapters → right-click your LAN adapter → Power Management → check \"Allow this device to wake the computer\". Also enable Wake-on-LAN in BIOS/UEFI.\n\nOn macOS: System Settings → Energy Saver → enable \"Wake for network access\", or run: sudo pmset -a womp 1",
+            )
+            HelpItem(
+                title = "Use a wired (Ethernet) connection",
+                body = "Wake-on-LAN is unreliable over Wi-Fi — most routers do not forward UDP broadcast packets to sleeping wireless adapters. A wired Ethernet connection is strongly recommended.",
+            )
+            HelpItem(
+                title = "Enable auto-start on the desktop",
+                body = "In the Nexy desktop app → Settings → Mobile → turn on \"Launch at login\". This ensures the WebSocket server restarts automatically after a WoL wake or reboot, so your phone can reconnect without you opening the app.",
+            )
+            HelpItem(
+                title = "How reconnection works",
+                body = "When disconnected, Nexy retries with exponential backoff (1 s → 2 s → 4 s → … → 30 s), then switches to slow polling every 60 seconds indefinitely. In polling mode it also listens for the desktop's mDNS broadcast to reconnect automatically if the IP changed. You can also tap \"Wake it up\" in the banner on the home screen to send a magic packet.",
+            )
+        }
+    }
+
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+}
+
+@Composable
+private fun HelpItem(title: String, body: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            title,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            body,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }

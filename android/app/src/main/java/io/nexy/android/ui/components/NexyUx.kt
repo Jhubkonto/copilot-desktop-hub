@@ -494,6 +494,7 @@ fun NexyConnectionBanner(
     val message = when (connectionState) {
         ConnectionState.CONNECTED -> return
         ConnectionState.CONNECTING -> "Reconnecting to desktop..."
+        ConnectionState.POLLING -> "Looking for your desktop…"
         ConnectionState.DISCONNECTED -> lastError?.let { "Disconnected: $it" } ?: "Disconnected from desktop"
     }
     Surface(

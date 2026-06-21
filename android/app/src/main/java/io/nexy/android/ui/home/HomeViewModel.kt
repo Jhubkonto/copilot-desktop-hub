@@ -136,6 +136,10 @@ class HomeViewModel(
     fun updateAgent(id: String, name: String, icon: String) = WsRepository.updateAgent(id, name, icon)
     fun deleteAgent(id: String) = WsRepository.deleteAgent(id)
 
+    fun wakeDesktop() {
+        WsRepository.wakeDesktop()
+    }
+
     fun disconnect() {
         WsRepository.disconnect()
     }

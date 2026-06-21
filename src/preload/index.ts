@@ -305,6 +305,8 @@ const api = {
   wsRegenerateToken: () => typedInvoke('ws:regenerate-token'),
   wsGetWakelockEnabled: () => typedInvoke('ws:wakelock-enabled'),
   wsSetWakelockEnabled: (enabled: boolean) => typedInvoke('ws:set-wakelock-enabled', enabled),
+  wsGetAutoStartEnabled: () => typedInvoke('ws:auto-start-enabled'),
+  wsSetAutoStartEnabled: (enabled: boolean) => typedInvoke('ws:set-auto-start-enabled', enabled),
 
   // CLI
   checkCli: () => typedInvoke('cli:check'),

@@ -11,6 +11,10 @@ data class ConnectionDiagnostics(
     val connectionState: ConnectionState,
     val serverVersion: String?,
     val lastError: String?,
+    val macAddress: String?,
+    val broadcastAddress: String?,
+    val mDnsName: String?,
+    val wolEnabled: Boolean,
 )
 
 fun buildConnectionDiagnostics(
@@ -30,6 +34,10 @@ fun buildConnectionDiagnostics(
         connectionState = connectionState,
         serverVersion = serverVersion?.takeIf { it.isNotBlank() },
         lastError = lastError?.takeIf { it.isNotBlank() },
+        macAddress = activeProfile?.macAddress,
+        broadcastAddress = activeProfile?.broadcastAddress,
+        mDnsName = activeProfile?.mDnsName,
+        wolEnabled = activeProfile?.macAddress != null && activeProfile.broadcastAddress != null,
     )
 }
 

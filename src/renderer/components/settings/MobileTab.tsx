@@ -2,6 +2,9 @@ import { RefreshCw, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react'
 import { ToggleSwitch } from '../ui/primitives'
 import { useState } from 'react'
 
+const IS_MAC = navigator.userAgent.includes('Macintosh')
+const IS_WIN = navigator.userAgent.includes('Windows')
+
 interface Props {
   mobileEnabled: boolean
   mobileQr: string | null
@@ -22,6 +25,9 @@ interface Props {
   fcmError: string | null
   onSetFcmJsonDraft: (v: string) => void
   onSaveFcmServiceAccount: () => void
+  // Auto-start
+  autoStartEnabled: boolean
+  onToggleAutoStart: () => void
 }
 
 export function MobileTab({
@@ -29,8 +35,10 @@ export function MobileTab({
   mobileLocalIp, mobilePairingUrl, mobileExternalUrl,
   onSetMobileExternalUrl, onToggle, onRegenerateToken, onSaveExternalUrl, onRefreshStatus,
   fcmStatus, fcmJsonDraft, fcmSaving, fcmError, onSetFcmJsonDraft, onSaveFcmServiceAccount,
+  autoStartEnabled, onToggleAutoStart,
 }: Props) {
   const [fcmExpanded, setFcmExpanded] = useState(false)
+  const [wolGuideExpanded, setWolGuideExpanded] = useState(false)
   return (
     <>
       <div>
@@ -196,6 +204,62 @@ export function MobileTab({
               </>
             )}
           </div>
+          {/* Auto-start */}
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Launch at login</p>
+              <p className="text-xs text-gray-500">Start Nexy automatically when you log into your computer</p>
+            </div>
+            <ToggleSwitch
+              checked={autoStartEnabled}
+              onChange={onToggleAutoStart}
+              size="sm"
+              ariaLabel="Launch at login"
+            />
+          </div>
+
+          {/* WoL setup guide */}
+          {(IS_MAC || IS_WIN) && (
+            <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3">
+              <button
+                type="button"
+                className="flex items-center justify-between w-full text-left"
+                onClick={() => setWolGuideExpanded((v) => !v)}
+              >
+                <div>
+                  <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Wake on LAN setup</p>
+                  <p className="text-xs text-gray-500 mt-0.5">Allow your phone to wake this computer from sleep</p>
+                </div>
+                {wolGuideExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+              </button>
+
+              {wolGuideExpanded && (
+                <div className="text-xs text-gray-600 dark:text-gray-400 space-y-2">
+                  {IS_MAC && (
+                    <>
+                      <p className="font-medium text-gray-800 dark:text-gray-200">macOS</p>
+                      <ol className="list-decimal list-inside space-y-1">
+                        <li>Open <span className="font-mono">System Settings → Energy Saver</span></li>
+                        <li>Enable <span className="font-medium">Wake for network access</span></li>
+                        <li>Or run in Terminal: <span className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">sudo pmset -a womp 1</span></li>
+                      </ol>
+                    </>
+                  )}
+                  {IS_WIN && (
+                    <>
+                      <p className="font-medium text-gray-800 dark:text-gray-200">Windows</p>
+                      <ol className="list-decimal list-inside space-y-1">
+                        <li>Open <span className="font-medium">Device Manager</span></li>
+                        <li>Expand <span className="font-medium">Network Adapters</span>, right-click your LAN adapter</li>
+                        <li>Go to <span className="font-medium">Power Management</span> and enable <span className="font-medium">Allow this device to wake the computer</span></li>
+                        <li>In BIOS/UEFI, enable <span className="font-medium">Wake on LAN</span></li>
+                      </ol>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </>
       )}
     </>

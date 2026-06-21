@@ -1,8 +1,11 @@
 package io.nexy.android.ui.home
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -277,6 +280,32 @@ fun HomeScreen(
                         selected = selectedTab == index,
                         onClick = { selectedTab = index },
                         text = { Text(title, style = MaterialTheme.typography.labelLarge) },
+                    )
+                }
+            }
+
+            if (connectionState == ConnectionState.POLLING) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFFFFF3CD))
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Looking for your desktop…",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF856404),
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        "Wake it up",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF664D03),
+                        modifier = Modifier
+                            .clickable { vm.wakeDesktop() }
+                            .padding(start = 8.dp),
                     )
                 }
             }

@@ -1469,6 +1469,8 @@ export type IpcReturnMap = {
   'ws:regenerate-token': { token: string; qrDataUrl: string | null; pairingUrl?: string | null; secure?: boolean }
   'ws:wakelock-enabled': boolean
   'ws:set-wakelock-enabled': boolean
+  'ws:auto-start-enabled': boolean
+  'ws:set-auto-start-enabled': boolean
   // Wiki
   'wiki:create-entry': WikiEntry
   'wiki:delete-entry': boolean
@@ -1814,6 +1816,8 @@ export type IpcChannels =
   | 'ws:regenerate-token'
   | 'ws:wakelock-enabled'
   | 'ws:set-wakelock-enabled'
+  | 'ws:auto-start-enabled'
+  | 'ws:set-auto-start-enabled'
   | 'project-generator:chat'
   | 'project-generator:token'
   | 'project-generator:spec-ready'

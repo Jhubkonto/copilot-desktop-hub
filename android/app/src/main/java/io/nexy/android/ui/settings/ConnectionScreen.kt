@@ -74,6 +74,7 @@ fun ConnectionScreen(
                 showWakeDesktop = connectionState != io.nexy.android.data.ConnectionState.CONNECTED && vm.activeProfileHasWolInfo,
                 onWakeDesktop = { vm.wakeDesktop() },
             )
+            RemoteDesktopHelpSection()
         }
     }
 }
