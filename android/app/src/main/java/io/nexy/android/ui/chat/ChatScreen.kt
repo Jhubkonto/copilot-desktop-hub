@@ -20,10 +20,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -37,6 +40,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.material3.Text
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -109,6 +113,7 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val context = LocalContext.current
     var showModelSheet by remember { mutableStateOf(false) }
+    var modelQuery by remember { mutableStateOf("") }
     val modelSheetState = rememberModalBottomSheetState()
     var showActionsSheet by remember { mutableStateOf(false) }
     var showPromptSheet by remember { mutableStateOf(false) }
@@ -295,93 +300,129 @@ fun ChatScreen(
 
     if (showModelSheet) {
         ModalBottomSheet(
-            onDismissRequest = { showModelSheet = false },
+            onDismissRequest = { showModelSheet = false; modelQuery = "" },
             sheetState = modelSheetState,
             containerColor = MaterialTheme.colorScheme.surface,
         ) {
-            Text(
-                "Chat model",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-            )
-            modelSource?.let { source ->
-                Text(
-                    modelSourceDetail(source, models.size),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 12.dp),
-                )
-            }
-            Text(
-                activeModelDetail,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 12.dp),
-            )
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             val vendorUnavailable: (String) -> Boolean = { vendor ->
                 val cliKey = vendor.removeSuffix(" CLI").lowercase()
                 val info = cliStatus[cliKey]
                 info != null && !info.installed
             }
-            if (models.isEmpty()) {
-                Text(
-                    emptyModelListDetail(modelSource),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-                )
-                ModelSheetItem(
-                    label = "Default model",
-                    vendor = null,
-                    selected = activeModelId == "default",
-                ) {
-                    vm.setModel(null)
-                    scope.launch { modelSheetState.hide() }.invokeOnCompletion { showModelSheet = false }
-                }
-            } else {
-                val grouped = models.groupBy { it.vendor ?: "" }
+
+            data class ModelItem(val model: io.nexy.android.data.model.ModelOption, val unavailable: Boolean)
+            data class HeaderItem(val vendor: String, val unavailable: Boolean)
+
+            val query = modelQuery.trim().lowercase()
+            val sheetItems: List<Any> = buildList {
+                val grouped = models.filterNot { it.id == "default" }.groupBy { it.vendor ?: "" }
                 val hasVendorGroups = grouped.any { it.key.isNotBlank() }
                 if (hasVendorGroups) {
                     grouped.forEach { (vendor, vendorModels) ->
                         val groupUnavailable = vendor.isNotBlank() && vendorUnavailable(vendor)
-                        if (vendor.isNotBlank()) {
-                            Text(
-                                vendor,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = if (groupUnavailable) MaterialTheme.colorScheme.error
-                                        else MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-                            )
-                        }
-                        vendorModels.forEach { model ->
-                            ModelSheetItem(
-                                label = model.label,
-                                vendor = null,
-                                selected = model.id == activeModelId,
-                                unavailable = groupUnavailable,
-                            ) {
-                                vm.setModel(model.id)
-                                scope.launch { modelSheetState.hide() }.invokeOnCompletion { showModelSheet = false }
-                            }
+                        val filtered = if (query.isEmpty()) vendorModels
+                                       else vendorModels.filter { it.label.lowercase().contains(query) }
+                        if (filtered.isNotEmpty()) {
+                            if (vendor.isNotBlank()) add(HeaderItem(vendor, groupUnavailable))
+                            filtered.forEach { add(ModelItem(it, groupUnavailable)) }
                         }
                     }
                 } else {
                     models.forEach { model ->
-                        val modelUnavailable = model.vendor != null && vendorUnavailable(model.vendor)
-                        ModelSheetItem(
-                            label = model.label,
-                            vendor = model.vendor,
-                            selected = model.id == activeModelId,
-                            unavailable = modelUnavailable,
-                        ) {
-                            vm.setModel(model.id)
-                            scope.launch { modelSheetState.hide() }.invokeOnCompletion { showModelSheet = false }
+                        if (query.isEmpty() || model.label.lowercase().contains(query)) {
+                            val modelUnavailable = model.vendor != null && vendorUnavailable(model.vendor)
+                            add(ModelItem(model, modelUnavailable))
                         }
                     }
                 }
             }
-            Spacer(Modifier.padding(bottom = 16.dp))
+
+            val showDefault = query.isEmpty() || "default model".contains(query)
+
+            LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
+                item {
+                    Text(
+                        "Chat model",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                    )
+                    OutlinedTextField(
+                        value = modelQuery,
+                        onValueChange = { modelQuery = it },
+                        placeholder = { Text("Search models…", style = MaterialTheme.typography.bodyMedium) },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
+                        trailingIcon = {
+                            if (modelQuery.isNotEmpty()) {
+                                IconButton(onClick = { modelQuery = "" }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(18.dp))
+                                }
+                            }
+                        },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                        shape = MaterialTheme.shapes.medium,
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(top = 4.dp))
+                }
+
+                if (showDefault) {
+                    item {
+                        ModelSheetItem(
+                            label = "Default model",
+                            vendor = null,
+                            selected = activeModelId == "default",
+                        ) {
+                            vm.setModel(null)
+                            modelQuery = ""
+                            scope.launch { modelSheetState.hide() }.invokeOnCompletion { showModelSheet = false }
+                        }
+                    }
+                }
+
+                if (models.isEmpty()) {
+                    item {
+                        Text(
+                            emptyModelListDetail(modelSource),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                        )
+                    }
+                } else {
+                    items(sheetItems) { item ->
+                        when (item) {
+                            is HeaderItem -> Text(
+                                item.vendor,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (item.unavailable) MaterialTheme.colorScheme.error
+                                        else MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                            )
+                            is ModelItem -> ModelSheetItem(
+                                label = item.model.label,
+                                vendor = null,
+                                selected = item.model.id == activeModelId,
+                                unavailable = item.unavailable,
+                            ) {
+                                vm.setModel(item.model.id)
+                                modelQuery = ""
+                                scope.launch { modelSheetState.hide() }.invokeOnCompletion { showModelSheet = false }
+                            }
+                        }
+                    }
+
+                    if (sheetItems.isEmpty() && !showDefault) {
+                        item {
+                            Text(
+                                "No models match \"$modelQuery\"",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 
