@@ -482,6 +482,7 @@ export function registerWsHandlers(): void {
           SELECT c.id, c.title, c.created_at, c.updated_at,
             c.agent_id,
             c.model,
+            c.pinned,
             json_extract(a.config_json, '$.name') AS agent_name,
             json_extract(a.config_json, '$.icon') AS agent_icon,
             c.project_id,
@@ -490,7 +491,7 @@ export function registerWsHandlers(): void {
           FROM conversations c
           LEFT JOIN agents a ON c.agent_id = a.id
           LEFT JOIN projects p ON c.project_id = p.id
-          ORDER BY c.updated_at DESC
+          ORDER BY c.pinned DESC, c.updated_at DESC
           LIMIT 50
         `).all()
       reply({ event: 'conversation:list', data: rows })

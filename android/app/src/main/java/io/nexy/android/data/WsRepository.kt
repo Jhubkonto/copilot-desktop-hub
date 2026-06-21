@@ -422,7 +422,12 @@ object WsRepository : WsClient {
     fun renameConversation(id: String, title: String) { send("conversation:rename", mapOf("id" to id, "title" to title)) }
     fun deleteConversation(id: String) { send("conversation:delete", mapOf("id" to id)) }
     fun searchConversations(query: String) { send("conversation:search", mapOf("query" to query)) }
-    fun setPinnedConversation(id: String, pinned: Boolean) { send("conversation:set-pinned", mapOf("id" to id, "pinned" to pinned)) }
+    fun setPinnedConversation(id: String, pinned: Boolean) {
+        // Optimistic update so the pin icon and sort order reflect immediately,
+        // before the desktop echoes conversation:pinned back.
+        _conversations.value = _conversations.value.map { if (it.id == id) it.copy(pinned = pinned) else it }
+        send("conversation:set-pinned", mapOf("id" to id, "pinned" to pinned))
+    }
     fun updateConversationContext(conversationId: String, projectId: String?, agentId: String?) {
         val m = mutableMapOf<String, Any>("conversationId" to conversationId)
         if (projectId != null) m["projectId"] = projectId else m["projectId"] = ""
