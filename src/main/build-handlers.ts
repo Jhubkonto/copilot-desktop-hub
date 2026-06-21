@@ -199,8 +199,19 @@ export function registerBuildHandlers(mainWindow?: BrowserWindow): void {
 
     const logLines: string[] = []
     const MAX_LOG_CHARS = 4096
+    let lastUniqueLine = ''
+    let repeatCount = 0
 
     function appendLog(line: string, stream: 'stdout' | 'stderr'): void {
+      if (line === lastUniqueLine) {
+        repeatCount++
+        const summary = `  [repeated ${repeatCount + 1}×]`
+        logLines[logLines.length - 1] = summary
+        mainWindow?.webContents.send('build:log-chunk', { buildId, line: summary, stream, replace: true })
+        return
+      }
+      lastUniqueLine = line
+      repeatCount = 0
       logLines.push(line)
       mainWindow?.webContents.send('build:log-chunk', { buildId, line, stream })
     }

@@ -605,8 +605,8 @@ const api = {
   buildGetRecords: (limit?: number) => typedInvoke('build:get-records', limit),
   buildRunPreflight: () => typedInvoke('build:run-preflight'),
   buildLaunchDev: () => typedInvoke('build:launch-dev'),
-  onBuildLogChunk: (callback: (data: { buildId: string; line: string; stream: 'stdout' | 'stderr' }) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: { buildId: string; line: string; stream: 'stdout' | 'stderr' }) => callback(data)
+  onBuildLogChunk: (callback: (data: { buildId: string; line: string; stream: 'stdout' | 'stderr'; replace?: boolean }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { buildId: string; line: string; stream: 'stdout' | 'stderr'; replace?: boolean }) => callback(data)
     typedOn('build:log-chunk', handler)
     return () => typedOff('build:log-chunk', handler)
   },
@@ -640,8 +640,8 @@ const api = {
   androidRestoreVersion: (versionCode: number) => typedInvoke('android:restore-version', versionCode),
   androidSaveFcmServiceAccount: (json: string) => typedInvoke('android:save-fcm-service-account', json),
   androidGetFcmConfigStatus: () => typedInvoke('android:get-fcm-config-status'),
-  onAndroidLogChunk: (callback: (data: { buildId: string; line: string; stream: 'stdout' | 'stderr' }) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: { buildId: string; line: string; stream: 'stdout' | 'stderr' }) => callback(data)
+  onAndroidLogChunk: (callback: (data: { buildId: string; line: string; stream: 'stdout' | 'stderr'; replace?: boolean }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { buildId: string; line: string; stream: 'stdout' | 'stderr'; replace?: boolean }) => callback(data)
     typedOn('android:log-chunk', handler)
     return () => typedOff('android:log-chunk', handler)
   },

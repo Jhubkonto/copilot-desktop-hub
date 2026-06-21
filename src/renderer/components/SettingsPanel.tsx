@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Settings, Shield, Terminal, BookOpen, Smartphone, Wrench } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import { getAvailableModelIds } from '../../shared/models'
-import type { AdbDevice, AndroidBuildCommandName, AndroidSigningConfig, AndroidUpdateManifest, AndroidWorkspaceInfo, BuildCommandName, BuildRecord, BuildStatus, LocalUpdateFeed, PreflightCheck, PromptLibraryEntry, PromptLibraryInput, PromptLibraryVersion, PublishedEntry, WorkspaceInfo } from '../../shared/types'
+import type { AdbDevice, AndroidBuildCommandName, AndroidSigningConfig, AndroidUpdateManifest, AndroidWorkspaceInfo, BuildCommandName, BuildRecord, BuildStatus, LocalUpdateFeed, PreflightCheck, PromptLibraryEntry, PromptLibraryInput, PromptLibraryVersion, PublishedEntry, WorkspaceInfo, WsUrlProfile } from '../../shared/types'
 import { extractPromptVariables } from '../../shared/prompt-variables'
 import { ModalShell } from './ui/primitives'
 import { GeneralTab } from './settings/GeneralTab'
@@ -147,7 +147,7 @@ export function SettingsPanel() {
   const [mobileLoading, setMobileLoading] = useState(false)
   const [mobileLocalIp, setMobileLocalIp] = useState('')
   const [mobilePairingUrl, setMobilePairingUrl] = useState<string | null>(null)
-  const [mobileExternalUrl, setMobileExternalUrl] = useState('')
+  const [urlProfiles, setUrlProfiles] = useState<WsUrlProfile[]>([])
   const [autoStartEnabled, setAutoStartEnabled] = useState(false)
 
   // Developer / build orchestrator state
@@ -228,7 +228,12 @@ export function SettingsPanel() {
       setMaxTokens(Number.parseInt(settings['max_tokens'] || '4096', 10) || 4096)
       setWhisperCppPath(settings['whisper_cpp_path'] || '')
       setWhisperModelPath(settings['whisper_model_path'] || '')
-      setMobileExternalUrl(settings['ws_external_url'] || '')
+      try {
+        const parsed = settings['ws_url_profiles'] ? (JSON.parse(settings['ws_url_profiles']) as WsUrlProfile[]) : []
+        setUrlProfiles(Array.isArray(parsed) ? parsed : [])
+      } catch {
+        setUrlProfiles([])
+      }
     })
     window.api.listProviders().then(setProviders)
     window.api.getVoiceStatus().then((status) => setWhisperReady(!('error' in status) && status.ready)).catch(() => setWhisperReady(false))
@@ -451,9 +456,13 @@ export function SettingsPanel() {
 
   useEffect(() => {
     if (!visible) return
-    const offChunk = window.api.onBuildLogChunk(({ buildId, line }) => {
+    const offChunk = window.api.onBuildLogChunk(({ buildId, line, replace }) => {
       if (buildId === activeBuildId || activeBuildId === null) {
-        setBuildLogLines((prev) => [...prev.slice(-299), line])
+        setBuildLogLines((prev) => {
+          const trimmed = prev.slice(-299)
+          if (replace && trimmed.length > 0) return [...trimmed.slice(0, -1), line]
+          return [...trimmed, line]
+        })
       }
     })
     const offDone = window.api.onBuildCommandDone(({ buildId, status }) => {
@@ -464,9 +473,13 @@ export function SettingsPanel() {
         window.api.buildGetRecords(5).then(setBuildRecords).catch(() => {})
       }
     })
-    const offAndroidChunk = window.api.onAndroidLogChunk(({ buildId, line }) => {
+    const offAndroidChunk = window.api.onAndroidLogChunk(({ buildId, line, replace }) => {
       if (buildId === activeAndroidBuildId || activeAndroidBuildId === null) {
-        setAndroidLogLines((prev) => [...prev.slice(-299), line])
+        setAndroidLogLines((prev) => {
+          const trimmed = prev.slice(-299)
+          if (replace && trimmed.length > 0) return [...trimmed.slice(0, -1), line]
+          return [...trimmed, line]
+        })
       }
     })
     const offAndroidDone = window.api.onAndroidCommandDone(({ buildId, status }) => {
@@ -517,21 +530,13 @@ export function SettingsPanel() {
     }
   }
 
-  const handleSaveMobileExternalUrl = async () => {
-    const value = mobileExternalUrl.trim()
-    if (value && !value.startsWith('wss://')) {
-      addToast('Secure mobile URL must start with wss://', 'error')
-      return
-    }
-    setMobileLoading(true)
+  const handleSaveUrlProfiles = async (profiles: WsUrlProfile[]) => {
+    setUrlProfiles(profiles)
     try {
-      await window.api.setSetting('ws_external_url', value)
+      await window.api.setSetting('ws_url_profiles', JSON.stringify(profiles))
       await refreshMobileStatus()
-      addToast(value ? 'Secure mobile URL saved' : 'Secure mobile URL cleared', 'success')
     } catch {
-      addToast('Failed to save secure mobile URL', 'error')
-    } finally {
-      setMobileLoading(false)
+      addToast('Failed to save connection profiles', 'error')
     }
   }
 
@@ -975,11 +980,10 @@ export function SettingsPanel() {
             mobileLoading={mobileLoading}
             mobileLocalIp={mobileLocalIp}
             mobilePairingUrl={mobilePairingUrl}
-            mobileExternalUrl={mobileExternalUrl}
-            onSetMobileExternalUrl={setMobileExternalUrl}
+            urlProfiles={urlProfiles}
+            onSaveProfiles={(profiles) => void handleSaveUrlProfiles(profiles)}
             onToggle={() => void handleMobileToggle()}
             onRegenerateToken={() => void handleRegenerateToken()}
-            onSaveExternalUrl={() => void handleSaveMobileExternalUrl()}
             onRefreshStatus={() => void refreshMobileStatus()}
             fcmStatus={fcmStatus}
             fcmJsonDraft={fcmJsonDraft}
