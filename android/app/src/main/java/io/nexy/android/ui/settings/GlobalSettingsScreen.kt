@@ -7,10 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -61,6 +58,7 @@ fun GlobalSettingsScreen(onBack: () -> Unit) {
     var autoClipboard by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
+        WsRepository.send("model:list", emptyMap())
         WsRepository.getSetting("default_model")
         WsRepository.getSetting("default_temperature")
         WsRepository.getSetting("default_max_tokens")
@@ -154,33 +152,56 @@ fun GlobalSettingsScreen(onBack: () -> Unit) {
                             .fillMaxWidth()
                             .padding(horizontal = 8.dp, vertical = 4.dp),
                     )
-                    val filteredModels = remember(modelOptions, modelSearchQuery) {
-                        val q = modelSearchQuery.trim()
-                        if (q.isBlank()) modelOptions
-                        else modelOptions.filter { it.label.contains(q, ignoreCase = true) || it.id.contains(q, ignoreCase = true) }
-                    }
-                    LazyColumn(modifier = Modifier.heightIn(max = 280.dp)) {
-                        items(filteredModels) { option ->
+                    val filteredModels = if (modelSearchQuery.isBlank()) modelOptions
+                        else modelOptions.filter { it.label.contains(modelSearchQuery.trim(), ignoreCase = true) || it.id.contains(modelSearchQuery.trim(), ignoreCase = true) }
+                    if (filteredModels.isEmpty()) {
                             DropdownMenuItem(
-                                text = { Text(option.label) },
-                                onClick = {
-                                    defaultModel = option.id
-                                    WsRepository.setSetting("default_model", option.id)
-                                    modelDropdownExpanded = false
-                                    modelSearchQuery = ""
-                                },
+                                text = { Text("No models match", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                                onClick = {},
+                                enabled = false,
                             )
-                        }
-                        if (filteredModels.isEmpty()) {
-                            item {
+                        } else if (modelSearchQuery.isBlank()) {
+                            filteredModels
+                                .groupBy { it.vendor?.takeIf { v -> v.isNotBlank() } ?: "Other" }
+                                .toSortedMap()
+                                .forEach { (vendor, vendorModels) ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                vendor,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                                            )
+                                        },
+                                        onClick = {},
+                                        enabled = false,
+                                    )
+                                    vendorModels.forEach { option ->
+                                        DropdownMenuItem(
+                                            text = { Text(option.label) },
+                                            onClick = {
+                                                defaultModel = option.id
+                                                WsRepository.setSetting("default_model", option.id)
+                                                modelDropdownExpanded = false
+                                                modelSearchQuery = ""
+                                            },
+                                        )
+                                    }
+                                }
+                        } else {
+                            filteredModels.forEach { option ->
                                 DropdownMenuItem(
-                                    text = { Text("No models match", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) },
-                                    onClick = {},
-                                    enabled = false,
+                                    text = { Text(option.label) },
+                                    onClick = {
+                                        defaultModel = option.id
+                                        WsRepository.setSetting("default_model", option.id)
+                                        modelDropdownExpanded = false
+                                        modelSearchQuery = ""
+                                    },
                                 )
                             }
                         }
-                    }
                 }
             }
 

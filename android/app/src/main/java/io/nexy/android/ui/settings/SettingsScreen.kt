@@ -30,7 +30,8 @@ fun SettingsScreen(
     onOpenProviders: () -> Unit = {},
     onOpenPromptLibrary: () -> Unit = {},
     onOpenGlobalSettings: () -> Unit = {},
-    onOpenMcpAndCli: () -> Unit = {},
+    onOpenMcpServers: () -> Unit = {},
+    onOpenCliModels: () -> Unit = {},
     onOpenBuildDashboard: () -> Unit = {},
 ) {
     Scaffold(
@@ -83,9 +84,14 @@ fun SettingsScreen(
                 onClick = onOpenModels,
             )
             SettingsNavRow(
-                title = "MCP Servers & CLI Models",
-                detail = "Configured MCP servers and CLI model availability",
-                onClick = onOpenMcpAndCli,
+                title = "MCP Servers",
+                detail = "Manage MCP servers connected to your desktop",
+                onClick = onOpenMcpServers,
+            )
+            SettingsNavRow(
+                title = "CLI Models",
+                detail = "Claude CLI, Codex CLI and other installed backends",
+                onClick = onOpenCliModels,
             )
             SettingsNavRow(
                 title = "API Providers",
