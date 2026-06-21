@@ -1011,6 +1011,11 @@ fun parseWsEvent(
                 WsEvent.ProjectAgents(id = id, agents = agents)
             }
 
+            "agent-generator:model" -> WsEvent.AgentGeneratorModel(
+                sessionId = data?.nullableString("sessionId"),
+                modelId = data?.optString("modelId") ?: "",
+            )
+
             "agent-generator:token" -> WsEvent.AgentGeneratorToken(
                 sessionId = data?.nullableString("sessionId"),
                 chunk = data?.optString("chunk") ?: "",

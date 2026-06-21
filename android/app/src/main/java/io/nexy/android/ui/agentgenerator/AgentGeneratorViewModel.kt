@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import io.nexy.android.data.WsClient
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.AgentGeneratorSpec
+import io.nexy.android.data.model.AgentGeneratorTools
 import io.nexy.android.data.model.WsEvent
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -29,6 +30,9 @@ data class AgentGeneratorUiState(
     val createdAgentName: String? = null,
     val createdAgentId: String? = null,
     val activeSessionId: String = UUID.randomUUID().toString(),
+    val promptInsert: Pair<Int, String>? = null,
+    val selectedModel: String? = null,
+    val resolvedModel: String? = null,
 )
 
 class AgentGeneratorViewModel(
@@ -42,6 +46,10 @@ class AgentGeneratorViewModel(
         viewModelScope.launch {
             wsClient.events.collect { event ->
                 when (event) {
+                    is WsEvent.AgentGeneratorModel -> {
+                        if (!isActiveSession(event.sessionId)) return@collect
+                        _uiState.value = _uiState.value.copy(resolvedModel = event.modelId.ifBlank { null })
+                    }
                     is WsEvent.AgentGeneratorToken -> {
                         if (!isActiveSession(event.sessionId)) return@collect
                         _uiState.value = _uiState.value.copy(
@@ -77,7 +85,7 @@ class AgentGeneratorViewModel(
                             isLoading = false,
                         )
                     }
-                    is WsEvent.AgentGeneratorCancelled -> {
+                                    is WsEvent.AgentGeneratorCancelled -> {
                         if (!isActiveSession(event.sessionId)) return@collect
                         _uiState.value = AgentGeneratorUiState()
                     }
@@ -93,11 +101,20 @@ class AgentGeneratorViewModel(
         val next = current.messages + userMsg
         _uiState.value = current.copy(messages = next, isLoading = true, streamingText = "", missedSpec = false)
         val payload = next.map { mapOf("role" to it.role, "content" to it.content) }
-        if (current.messages.size <= 1) {
-            wsClient.send("agent-generator:start", mapOf("sessionId" to current.activeSessionId, "messages" to payload))
-        } else {
-            wsClient.send("agent-generator:message", mapOf("sessionId" to current.activeSessionId, "messages" to payload))
+        val baseData = buildMap<String, Any> {
+            put("sessionId", current.activeSessionId)
+            put("messages", payload)
+            current.selectedModel?.let { put("model", it) }
         }
+        if (current.messages.size <= 1) {
+            wsClient.send("agent-generator:start", baseData)
+        } else {
+            wsClient.send("agent-generator:message", baseData)
+        }
+    }
+
+    fun setModel(modelId: String?) {
+        _uiState.value = _uiState.value.copy(selectedModel = modelId)
     }
 
     fun confirmSpec() {
@@ -122,6 +139,24 @@ class AgentGeneratorViewModel(
         _uiState.value = _uiState.value.copy(phase = AgentGenPhase.CHAT, error = null)
     }
 
+    fun setupManually() {
+        _uiState.value = _uiState.value.copy(
+            phase = AgentGenPhase.SPEC_REVIEW,
+            pendingSpec = AgentGeneratorSpec(
+                name = "",
+                icon = "🤖",
+                systemPrompt = "",
+                temperature = 0.7,
+                responseFormat = "default",
+                agenticMode = false,
+                tools = AgentGeneratorTools(fileEdit = false, terminal = false, webFetch = false),
+                rootDirectory = null,
+                contextDirectories = emptyList(),
+                memory = null,
+            ),
+        )
+    }
+
     fun retryLastMessage() {
         val lastUserMsg = _uiState.value.messages.lastOrNull { it.role == "user" }?.content ?: return
         _uiState.value = _uiState.value.copy(error = null)
@@ -130,6 +165,12 @@ class AgentGeneratorViewModel(
 
     fun dismissError() {
         _uiState.value = _uiState.value.copy(error = null)
+    }
+
+    private var promptInsertCounter = 0
+
+    fun insertPromptText(body: String) {
+        _uiState.value = _uiState.value.copy(promptInsert = Pair(++promptInsertCounter, body))
     }
 
     private fun isActiveSession(sessionId: String?): Boolean =

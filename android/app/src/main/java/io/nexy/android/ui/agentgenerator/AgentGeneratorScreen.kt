@@ -1,5 +1,6 @@
 package io.nexy.android.ui.agentgenerator
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -8,49 +9,68 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import io.nexy.android.ui.chat.OnDeviceVoiceButton
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.AgentGeneratorSpec
 import io.nexy.android.data.model.AgentGeneratorTools
 import io.nexy.android.ui.components.NexyConfirmDialog
-import io.nexy.android.ui.components.NexyInfoDialog
 import io.nexy.android.ui.components.NexyStepIndicator
 import io.nexy.android.ui.components.NexyTopAppBar
+import io.nexy.android.ui.model.activeModelLabel
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,16 +79,43 @@ fun AgentGeneratorScreen(
     vm: AgentGeneratorViewModel = viewModel(),
 ) {
     val uiState by vm.uiState.collectAsState()
+    val models by WsRepository.models.collectAsState()
     var confirmReset by remember { mutableStateOf(false) }
+    var showPromptSheet by remember { mutableStateOf(false) }
+    var showModelSheet by remember { mutableStateOf(false) }
+    var modelQuery by remember { mutableStateOf("") }
+    val promptSheetState = rememberModalBottomSheetState()
+    val modelSheetState = rememberModalBottomSheetState()
+    val promptEntries by WsRepository.promptEntries.collectAsState()
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
 
-    uiState.error?.let { err ->
-        NexyInfoDialog(
-            title = "Error",
+    val displayModelId = uiState.selectedModel ?: uiState.resolvedModel
+    val activeModelLabel = if (displayModelId != null) activeModelLabel(displayModelId, models) else "Default model"
+    var input by remember { mutableStateOf("") }
+
+    LaunchedEffect(uiState.promptInsert) {
+        val (_, text) = uiState.promptInsert ?: return@LaunchedEffect
+        input = if (input.isBlank()) text else "$input\n$text"
+    }
+
+    // Request model list when screen opens
+    LaunchedEffect(Unit) {
+        WsRepository.send("model:list", emptyMap())
+    }
+
+    // Show errors as snackbar with retry action
+    LaunchedEffect(uiState.error) {
+        val err = uiState.error ?: return@LaunchedEffect
+        val result = snackbarHostState.showSnackbar(
             message = err,
-            onDismiss = { vm.dismissError() },
             actionLabel = "Retry",
-            onAction = { vm.retryLastMessage() },
+            withDismissAction = true,
         )
+        if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+            vm.retryLastMessage()
+        }
+        vm.dismissError()
     }
 
     if (confirmReset) {
@@ -86,16 +133,45 @@ fun AgentGeneratorScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             NexyTopAppBar(
                 titleContent = { Text("Agent Generator", style = MaterialTheme.typography.titleMedium) },
                 onBack = onBack,
                 actions = {
+                    // Model picker button
+                    TextButton(onClick = { WsRepository.send("model:list", emptyMap()); showModelSheet = true }) {
+                        Icon(
+                            Icons.Default.Tune,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            activeModelLabel,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.widthIn(max = 100.dp),
+                        )
+                    }
                     if (uiState.phase != AgentGenPhase.CHAT || uiState.messages.size > 1 || uiState.streamingText.isNotBlank()) {
                         TextButton(onClick = { confirmReset = true }) { Text("Reset") }
                     }
                 },
             )
+        },
+        bottomBar = {
+            if (uiState.phase == AgentGenPhase.CHAT) {
+                ChatInputArea(
+                    input = input,
+                    onInputChange = { input = it },
+                    isLoading = uiState.isLoading,
+                    onSend = { text -> vm.sendMessage(text); input = "" },
+                    onSetupManually = { vm.setupManually() },
+                    onInsertPrompt = { WsRepository.listPrompts(); showPromptSheet = true },
+                )
+            }
         },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
@@ -107,7 +183,6 @@ fun AgentGeneratorScreen(
             when (uiState.phase) {
                 AgentGenPhase.CHAT -> ChatPhase(
                     uiState = uiState,
-                    onSend = { vm.sendMessage(it) },
                     modifier = Modifier.weight(1f),
                 )
                 AgentGenPhase.SPEC_REVIEW -> SpecReviewPhase(
@@ -126,16 +201,157 @@ fun AgentGeneratorScreen(
             }
         }
     }
+
+    // Prompt insert sheet
+    if (showPromptSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showPromptSheet = false },
+            sheetState = promptSheetState,
+        ) {
+            Text(
+                "Insert prompt",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+            if (promptEntries.isEmpty()) {
+                Text(
+                    "No prompts saved yet.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(16.dp),
+                )
+            } else {
+                LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
+                    items(promptEntries) { prompt ->
+                        ListItem(
+                            headlineContent = { Text(prompt.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            supportingContent = {
+                                Text(prompt.body, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.bodySmall)
+                            },
+                            modifier = Modifier.clickable {
+                                vm.insertPromptText(prompt.body)
+                                showPromptSheet = false
+                            },
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    }
+                }
+            }
+        }
+    }
+
+    // Model picker sheet — same grouped layout as ChatScreen
+    if (showModelSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showModelSheet = false; modelQuery = "" },
+            sheetState = modelSheetState,
+            containerColor = MaterialTheme.colorScheme.surface,
+        ) {
+            data class ModelItem(val model: io.nexy.android.data.model.ModelOption)
+            data class HeaderItem(val vendor: String)
+
+            val query = modelQuery.trim().lowercase()
+            val showDefault = query.isEmpty() || "default model".contains(query)
+            val sheetItems: List<Any> = buildList {
+                val grouped = models.filterNot { it.id == "default" }.groupBy { it.vendor ?: "" }
+                val hasVendorGroups = grouped.any { it.key.isNotBlank() }
+                if (hasVendorGroups) {
+                    grouped.forEach { (vendor, vendorModels) ->
+                        val filtered = if (query.isEmpty()) vendorModels
+                                       else vendorModels.filter { it.label.lowercase().contains(query) }
+                        if (filtered.isNotEmpty()) {
+                            if (vendor.isNotBlank()) add(HeaderItem(vendor))
+                            filtered.forEach { add(ModelItem(it)) }
+                        }
+                    }
+                } else {
+                    models.filterNot { it.id == "default" }.forEach { model ->
+                        if (query.isEmpty() || model.label.lowercase().contains(query)) {
+                            add(ModelItem(model))
+                        }
+                    }
+                }
+            }
+
+            LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
+                item {
+                    Text(
+                        "Generation model",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                    )
+                    OutlinedTextField(
+                        value = modelQuery,
+                        onValueChange = { modelQuery = it },
+                        placeholder = { Text("Search models…", style = MaterialTheme.typography.bodyMedium) },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
+                        trailingIcon = {
+                            if (modelQuery.isNotEmpty()) {
+                                IconButton(onClick = { modelQuery = "" }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(18.dp))
+                                }
+                            }
+                        },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                        shape = MaterialTheme.shapes.medium,
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(top = 4.dp))
+                }
+                if (showDefault) {
+                    item {
+                        ListItem(
+                            headlineContent = { Text("Default model") },
+                            modifier = Modifier.clickable {
+                                vm.setModel(null)
+                                modelQuery = ""
+                                scope.launch { modelSheetState.hide() }.invokeOnCompletion { showModelSheet = false }
+                            },
+                            trailingContent = if (uiState.selectedModel == null) ({ Text("✓", color = MaterialTheme.colorScheme.primary) }) else null,
+                        )
+                    }
+                }
+                items(sheetItems) { item ->
+                    when (item) {
+                        is HeaderItem -> Text(
+                            item.vendor,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                        )
+                        is ModelItem -> ListItem(
+                            headlineContent = { Text(item.model.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            modifier = Modifier.clickable {
+                                vm.setModel(item.model.id)
+                                modelQuery = ""
+                                scope.launch { modelSheetState.hide() }.invokeOnCompletion { showModelSheet = false }
+                            },
+                            trailingContent = if (item.model.id == uiState.selectedModel) ({ Text("✓", color = MaterialTheme.colorScheme.primary) }) else null,
+                        )
+                    }
+                }
+                if (sheetItems.isEmpty() && !showDefault) {
+                    item {
+                        Text(
+                            "No models match \"$modelQuery\"",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
 private fun ChatPhase(
     uiState: AgentGeneratorUiState,
-    onSend: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
-    var input by remember { mutableStateOf("") }
 
     LaunchedEffect(uiState.messages.size, uiState.streamingText) {
         if (uiState.messages.size > 1 || uiState.streamingText.isNotBlank()) {
@@ -143,7 +359,7 @@ private fun ChatPhase(
         }
     }
 
-    Column(modifier = modifier.fillMaxSize().imePadding()) {
+    Column(modifier = modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
             modifier = Modifier.weight(1f),
@@ -165,37 +381,59 @@ private fun ChatPhase(
         if (uiState.missedSpec) {
             Surface(color = MaterialTheme.colorScheme.tertiaryContainer, modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    "No spec was generated — try asking me to configure the agent.",
+                    "No spec generated yet — try describing your agent in more detail.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onTertiaryContainer,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                 )
             }
         }
+    }
+}
 
+@Composable
+private fun ChatInputArea(
+    input: String,
+    onInputChange: (String) -> Unit,
+    isLoading: Boolean,
+    onSend: (String) -> Unit,
+    onSetupManually: () -> Unit,
+    onInsertPrompt: () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.Bottom,
         ) {
+            IconButton(onClick = onInsertPrompt, enabled = !isLoading) {
+                Icon(Icons.Default.TextFields, contentDescription = "Insert prompt")
+            }
             OutlinedTextField(
                 value = input,
-                onValueChange = { input = it },
+                onValueChange = onInputChange,
                 placeholder = { Text("Describe your agent…") },
                 modifier = Modifier.weight(1f),
                 maxLines = 4,
+                shape = RoundedCornerShape(24.dp),
             )
-            Spacer(Modifier.width(8.dp))
-            OnDeviceVoiceButton(onText = { text -> input = if (input.isBlank()) text else "${input.trimEnd()} $text" }, enabled = !uiState.isLoading)
+            Spacer(Modifier.width(2.dp))
+            OnDeviceVoiceButton(
+                onText = { text -> onInputChange(if (input.isBlank()) text else "${input.trimEnd()} $text") },
+                enabled = !isLoading,
+            )
             IconButton(
-                onClick = {
-                    val text = input.trim()
-                    if (text.isNotBlank()) { onSend(text); input = "" }
-                },
-                enabled = input.isNotBlank() && !uiState.isLoading,
+                onClick = { val text = input.trim(); if (text.isNotBlank()) onSend(text) },
+                enabled = input.isNotBlank() && !isLoading,
             ) {
                 Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
             }
+        }
+        TextButton(
+            onClick = onSetupManually,
+            modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 4.dp),
+        ) {
+            Text("Set up manually")
         }
     }
 }
@@ -222,6 +460,7 @@ private fun ChatBubble(role: String, text: String, streaming: Boolean = false) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SpecReviewPhase(
     spec: AgentGeneratorSpec?,
@@ -269,13 +508,19 @@ private fun SpecReviewPhase(
                 maxLines = 10,
             )
             Spacer(Modifier.height(8.dp))
-            if (!spec.rootDirectory.isNullOrBlank()) {
-                SpecField("Root directory", spec.rootDirectory)
-            }
+            OutlinedTextField(
+                value = spec.rootDirectory ?: "",
+                onValueChange = { onSpecChange(spec.copy(rootDirectory = it.ifBlank { null })) },
+                label = { Text("Root directory") },
+                placeholder = { Text("/path/to/project (optional)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
             if (!spec.memory.isNullOrBlank()) {
+                Spacer(Modifier.height(4.dp))
                 SpecField("Memory", spec.memory)
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(12.dp))
             Text("Tools", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             ToolToggleRow("File Edit", spec.tools.fileEdit) {
                 onSpecChange(spec.copy(tools = AgentGeneratorTools(it, spec.tools.terminal, spec.tools.webFetch)))
@@ -286,8 +531,47 @@ private fun SpecReviewPhase(
             ToolToggleRow("Web Fetch", spec.tools.webFetch) {
                 onSpecChange(spec.copy(tools = AgentGeneratorTools(spec.tools.fileEdit, spec.tools.terminal, it)))
             }
+            Spacer(Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Agentic mode", style = MaterialTheme.typography.bodyMedium)
+                Switch(checked = spec.agenticMode, onCheckedChange = { onSpecChange(spec.copy(agenticMode = it)) })
+            }
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "Temperature: ${"%.1f".format(spec.temperature)}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Slider(
+                value = spec.temperature.toFloat(),
+                onValueChange = { onSpecChange(spec.copy(temperature = it.toDouble())) },
+                valueRange = 0f..2f,
+                steps = 19,
+                modifier = Modifier.fillMaxWidth(),
+            )
             Spacer(Modifier.height(8.dp))
-            SpecField("Agentic mode", if (spec.agenticMode) "Enabled" else "Disabled")
+            Text(
+                "Response format",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(4.dp))
+            val formats = listOf("default", "concise", "detailed", "code-only")
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                formats.forEachIndexed { index, fmt ->
+                    SegmentedButton(
+                        selected = spec.responseFormat == fmt,
+                        onClick = { onSpecChange(spec.copy(responseFormat = fmt)) },
+                        shape = SegmentedButtonDefaults.itemShape(index = index, count = formats.size),
+                    ) {
+                        Text(fmt, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
         }
 
         Spacer(Modifier.height(24.dp))

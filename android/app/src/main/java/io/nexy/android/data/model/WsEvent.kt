@@ -158,6 +158,7 @@ sealed class WsEvent {
     data class ProjectConfigUpdated(val id: String) : WsEvent()
     data class ProjectConfig(val id: String, val config: ProjectSettingsConfig) : WsEvent()
     data class ProjectAgents(val id: String, val agents: List<ProjectAgentEntry>) : WsEvent()
+    data class AgentGeneratorModel(val sessionId: String?, val modelId: String) : WsEvent()
     data class AgentGeneratorToken(val sessionId: String?, val chunk: String) : WsEvent()
     data class AgentGeneratorTurnComplete(val sessionId: String?, val content: String, val hasSpec: Boolean = false) : WsEvent()
     data class AgentGeneratorSpecReady(val sessionId: String?, val spec: AgentGeneratorSpec) : WsEvent()
