@@ -66,14 +66,11 @@ Allow Android to wake a sleeping desktop over LAN.
 
 Let the desktop push a wake signal to Android via FCM when it comes online, so Android can reconnect automatically without the user having to open the app.
 
-- [ ] **P5.1** In `ws-server.ts` (or a new `fcm-push.ts` helper), implement `sendFcmPush(deviceTokens: string[], payload: object)` — POST to `https://fcm.googleapis.com/fcm/send` with `priority: "high"` using the existing Firebase server key stored in `settings`
-- [ ] **P5.2** On `powerMonitor.on('resume')` and on app startup, call `sendFcmPush` with `{ type: 'desktop:online', wsUrl: currentPairingUrl }` to all `fcm_token`s in the `mobile_clients` table
-- [ ] **P5.3** In `NexyFcmService.kt`, handle `type == 'desktop:online'`:
-  - Update the stored `endpoint` in `PairedServerStore` if `wsUrl` differs from the current one
-  - Call `WsRepository.connect()` if not already connected
-  - No notification shown — this is a silent background reconnect trigger
-- [ ] **P5.4** Ensure this FCM message is sent as `content_available: true` (iOS) / `priority: "high"` (Android) to bypass Doze mode
-- [ ] **P5.5** Add a `desktop:ip-changed` FCM message type that carries a new `wsUrl` without triggering an immediate connect — just updates the stored profile. Sent by the desktop when `os.networkInterfaces()` detects an IP change (see Phase 6)
+- [x] **P5.1** In `fcm-sender.ts`, implement `sendDesktopOnlinePush(db, wsUrl)` and `sendIpChangedPush(db, wsUrl)` using FCM v1 API with GoogleAuth
+- [x] **P5.2** On `powerMonitor.on('resume')` and on app startup, call `sendDesktopOnlinePush` with `wsUrl` to all registered FCM tokens
+- [x] **P5.3** In `NexyFcmService.kt`, handle `type == 'desktop:online'`: update stored endpoint if changed, call `WsRepository.connectFromStore()` if not already connected
+- [x] **P5.4** FCM messages sent with `android: { priority: 'high' }` to bypass Doze mode
+- [x] **P5.5** Add `desktop:ip-changed` FCM type handled in `NexyFcmService.kt` — updates stored profile URL without connecting
 
 ---
 
@@ -81,21 +78,11 @@ Let the desktop push a wake signal to Android via FCM when it comes online, so A
 
 Handle DHCP IP reassignment so Android doesn't need a re-scan of the QR code.
 
-- [ ] **P6.1** In `ws-server.ts`, poll `os.networkInterfaces()` every 30 seconds and compare to the last-known LAN IP
-- [ ] **P6.2** If the IP changes:
-  - Update the pairing URL
-  - Regenerate / re-serve the QR code (already handled by `getQrCode()`)
-  - Send `desktop:ip-changed` FCM push (Phase 5.5) to all registered `device_id`s with the new `wsUrl`
-- [ ] **P6.3** Register an mDNS service advertisement on the desktop using the `bonjour` npm package (or `mdns`):
-  - Service type: `_nexy._tcp`
-  - Service name: `Nexy Desktop`
-  - Port: `16717`
-  - TXT record: `token=<token>` (allows Android to re-pair without QR)
-- [ ] **P6.4** In `PairingScreen.kt`, add a "Discover on Network" section below the QR scanner:
-  - Use Android `NsdManager` to browse `_nexy._tcp.local`
-  - Show discovered desktops as tappable list items
-  - On tap, fetch the pairing token from the TXT record and call `WsRepository.connect()`
-- [ ] **P6.5** Store `mDnsName: String?` (e.g. `nexy-desktop.local`) in `PairedServerProfile` for use as a hostname fallback when the stored IP fails
+- [x] **P6.1** In `ws-server.ts`, poll `os.networkInterfaces()` every 30 seconds and compare to the last-known LAN IP
+- [x] **P6.2** If IP changes: call `sendIpChangedPush` FCM push with the new `wsUrl` to all registered tokens
+- [x] **P6.3** Register an mDNS service advertisement on the desktop using the `bonjour-service` npm package: type `_nexy._tcp`, name `Nexy Desktop`, port 16717, TXT record `token=<token>`
+- [x] **P6.4** In `PairingScreen.kt`, add a "Found on network" section using `MdnsDiscovery` (wraps `NsdManager`), shows discovered services as tappable buttons
+- [x] **P6.5** Store `mDnsName: String?` in `PairedServerProfile`; sent in `connected` WS event payload, persisted via `WsEventParser` and `PairedServerStore`
 
 ---
 
@@ -110,9 +97,7 @@ Replace the current hard-stop reconnect exhaustion with an indefinitely resilien
   - After 6 attempts, transition to "slow polling" mode: retry every 60 seconds indefinitely
   - Remove `reconnectExhausted` as a terminal state — replace with a `ConnectionState.POLLING` state
 - [x] **P7.4** Add `ConnectionState.POLLING` to the `ConnectionState` enum and update `ConnectionChip` in `HomeScreenHelpers.kt` to show "Searching…" in amber for this state
-- [ ] **P7.5** On each reconnect attempt in slow polling mode, try:
-  1. Stored `endpoint` IP first
-  2. Resolve `mDnsName` via `NsdManager` if stored IP fails
+- [x] **P7.5** On each reconnect attempt in slow polling mode, try stored `endpoint` first; if it fails, spin up temporary `MdnsDiscovery`, wait 3s for matching token, then connect to discovered host
 - [x] **P7.6** When Android app comes to foreground (`onResume` in the main Activity), immediately trigger a reconnect attempt if not already connected — don't wait for the next polling interval
 
 ---
@@ -121,11 +106,11 @@ Replace the current hard-stop reconnect exhaustion with an indefinitely resilien
 
 Ensure the desktop WS server is running when Android tries to reconnect after a WoL wake.
 
-- [ ] **P8.1** On first successful pairing, call `app.setLoginItemSettings({ openAtLogin: true })` in Electron (Windows + macOS) so Nexy starts automatically on login/boot
-- [ ] **P8.2** Show a prompt to the user on first pairing: "Start Nexy automatically when your computer starts? This allows your phone to wake your desktop remotely." — with Accept / Not Now
-- [ ] **P8.3** Store the user's preference in `settings` as `auto_start_enabled`; respect it in subsequent calls
-- [ ] **P8.4** On macOS, call `sudo pmset womp 1` (or surface instructions) after pairing to enable WoL — show a one-time informational dialog
-- [ ] **P8.5** On Windows, surface a one-time "Enable Wake-on-LAN" guide dialog after pairing — pointing to Device Manager → NIC → Power Management → "Allow this device to wake the computer"
+- [x] **P8.1** On first successful FCM token pairing, auto-call `app.setLoginItemSettings({ openAtLogin: true })` in `ws-handlers.ts` `mobile:fcm-token` handler
+- [x] **P8.2** (merged with P8.4/P8.5) WoL setup guide collapsible section in `MobileTab.tsx` shown when server is enabled — platform-specific macOS and Windows instructions
+- [x] **P8.3** Expose `ws:auto-start-enabled` / `ws:set-auto-start-enabled` IPC; "Launch at login" toggle in `MobileTab.tsx`; reads from `app.getLoginItemSettings()`
+- [x] **P8.4** macOS WoL guide in `MobileTab.tsx`: `System Settings → Energy Saver` and `sudo pmset -a womp 1` terminal command
+- [x] **P8.5** Windows WoL guide in `MobileTab.tsx`: Device Manager → NIC → Power Management → "Allow this device to wake the computer" + BIOS step
 
 ---
 
@@ -133,15 +118,11 @@ Ensure the desktop WS server is running when Android tries to reconnect after a 
 
 Surface the new capabilities to the user cleanly.
 
-- [ ] **P9.1** Add a "Desktop Connection" section to Android Settings screen showing:
-  - Current profile name, endpoint, connection state
-  - "Wake Desktop" button (Phase 4)
-  - "Forget Desktop" button (existing)
-  - "WoL enabled" toggle (per-profile)
-- [ ] **P9.2** Add a wakelock status indicator to the desktop tray icon tooltip: "Nexy — Android connected (wakelock active)" vs "Nexy — No mobile clients"
-- [ ] **P9.3** Show a non-intrusive banner in `HomeScreen` when `connectionState == POLLING`: "Looking for your desktop… [Wake it up]"
-- [ ] **P9.4** Add connection diagnostics to the existing `ConnectionDiagnostics` data class: `macAddress`, `wolEnabled`, `mDnsName`, `lastWolSentAt`
-- [ ] **P9.5** Write a brief "Remote Desktop Mode" help section in the in-app settings explaining WoL requirements (wired ethernet recommended, BIOS setting, auto-start)
+- [x] **P9.1** "Desktop Connection" section already exists in Android Settings — shows profile, endpoint, state, Wake Desktop button, Forget button
+- [x] **P9.2** Tray tooltip updated dynamically via `setClientCountChangeCallback` in `ws-server.ts`; `index.ts` sets "Nexy — N Android devices connected (wakelock active)" or "Nexy — No mobile clients"
+- [x] **P9.3** POLLING banner in `HomeScreen.kt`: amber strip "Looking for your desktop… Wake it up" with clickable "Wake it up" calling `vm.wakeDesktop()`
+- [x] **P9.4** Expanded `ConnectionDiagnostics` data class with `macAddress`, `broadcastAddress`, `mDnsName`, `wolEnabled`; rendered in `DiagnosticsSection`
+- [x] **P9.5** "Remote Desktop Mode" collapsible help section in `ConnectionScreen.kt` (`RemoteDesktopHelpSection`): WoL setup, wired Ethernet caveat, auto-start instructions, reconnect backoff explanation
 
 ---
 
@@ -161,3 +142,7 @@ Surface the new capabilities to the user cleanly.
 **WoL reliability caveat:** WoL over Wi-Fi is unreliable on many home routers — broadcast packets may not reach sleeping wireless NICs. Wired ethernet is required for reliable WoL. The UI should surface this caveat (Phase 8 / Phase 9).
 
 **FCM dependency:** Phases 5 requires a Firebase project with a server key. This is already a manual step noted in the Android README. If FCM is not configured, the system degrades gracefully — WoL + manual reconnect still work.
+
+---
+
+--COMPLETE
