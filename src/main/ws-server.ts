@@ -176,6 +176,16 @@ function releaseWakeLock(): void {
 
 function getExternalWssUrl(): string | null {
   const db = getDatabase()
+  // Try new profiles setting first
+  const profilesRow = db.prepare("SELECT value FROM settings WHERE key = 'ws_url_profiles'").get() as { value: string } | undefined
+  if (profilesRow?.value) {
+    try {
+      const profiles = JSON.parse(profilesRow.value) as { url: string; active: boolean }[]
+      const active = profiles.find((p) => p.active)
+      if (active?.url?.trim()) return active.url.trim()
+    } catch { /* fall through */ }
+  }
+  // Legacy single-URL fallback
   const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(EXTERNAL_WSS_URL_SETTING) as { value: string } | undefined
   return row?.value?.trim() || null
 }

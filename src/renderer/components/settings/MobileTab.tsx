@@ -1,6 +1,7 @@
-import { RefreshCw, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react'
+import { RefreshCw, CheckCircle2, ChevronDown, ChevronUp, Plus, Trash2, Globe, Wifi, Pencil, Check, X } from 'lucide-react'
 import { ToggleSwitch } from '../ui/primitives'
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
+import type { WsUrlProfile } from '@shared/types'
 
 const IS_MAC = navigator.userAgent.includes('Macintosh')
 const IS_WIN = navigator.userAgent.includes('Windows')
@@ -12,11 +13,10 @@ interface Props {
   mobileLoading: boolean
   mobileLocalIp: string
   mobilePairingUrl: string | null
-  mobileExternalUrl: string
-  onSetMobileExternalUrl: (v: string) => void
+  urlProfiles: WsUrlProfile[]
+  onSaveProfiles: (profiles: WsUrlProfile[]) => void
   onToggle: () => void
   onRegenerateToken: () => void
-  onSaveExternalUrl: () => void
   onRefreshStatus: () => void
   // FCM (moved from DeveloperTab)
   fcmStatus: { configured: boolean; projectId?: string } | null
@@ -30,15 +30,174 @@ interface Props {
   onToggleAutoStart: () => void
 }
 
+interface EditingProfile {
+  id: string
+  label: string
+  url: string
+}
+
+function UrlProfileRow({
+  profile,
+  onActivate,
+  onDelete,
+  onUpdate,
+  disabled,
+}: {
+  profile: WsUrlProfile
+  onActivate: () => void
+  onDelete: () => void
+  onUpdate: (label: string, url: string) => void
+  disabled: boolean
+}) {
+  const [editing, setEditing] = useState<EditingProfile | null>(null)
+  const labelRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (editing) labelRef.current?.focus()
+  }, [editing])
+
+  function startEdit() {
+    setEditing({ id: profile.id, label: profile.label, url: profile.url })
+  }
+
+  function commitEdit() {
+    if (!editing) return
+    const url = editing.url.trim()
+    if (url && !url.startsWith('wss://')) return // keep editing, show error inline
+    onUpdate(editing.label.trim() || 'Unnamed', url)
+    setEditing(null)
+  }
+
+  function cancelEdit() {
+    setEditing(null)
+  }
+
+  const urlError = editing && editing.url.trim() && !editing.url.trim().startsWith('wss://')
+
+  return (
+    <div className={`rounded-lg border px-3 py-2.5 transition-colors ${profile.active ? 'border-blue-500/60 bg-blue-50/50 dark:bg-blue-900/20' : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/40'}`}>
+      {editing ? (
+        <div className="space-y-1.5">
+          <input
+            ref={labelRef}
+            value={editing.label}
+            onChange={(e) => setEditing((prev) => prev && { ...prev, label: e.target.value })}
+            placeholder="Profile label (e.g. Tailscale)"
+            className="w-full px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-xs text-gray-800 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500/50"
+          />
+          <input
+            value={editing.url}
+            onChange={(e) => setEditing((prev) => prev && { ...prev, url: e.target.value })}
+            onKeyDown={(e) => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') cancelEdit() }}
+            placeholder="wss://your-host.example/mobile"
+            className={`w-full px-2 py-1 rounded border text-xs bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-1 ${urlError ? 'border-red-400 focus:ring-red-400/50' : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500/50'}`}
+          />
+          {urlError && <p className="text-[10px] text-red-500">URL must start with wss://</p>}
+          <div className="flex items-center gap-1.5 pt-0.5">
+            <button
+              type="button"
+              onClick={commitEdit}
+              disabled={!!urlError || !editing.url.trim()}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40"
+            >
+              <Check className="w-3 h-3" /> Save
+            </button>
+            <button
+              type="button"
+              onClick={cancelEdit}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+            >
+              <X className="w-3 h-3" /> Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onActivate}
+            disabled={disabled || profile.active}
+            title={profile.active ? 'Active profile' : 'Set as active'}
+            className={`w-3.5 h-3.5 rounded-full border-2 flex-shrink-0 transition-colors ${profile.active ? 'border-blue-500 bg-blue-500' : 'border-gray-300 dark:border-gray-600 hover:border-blue-400'}`}
+          />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-medium text-gray-800 dark:text-gray-100 truncate">{profile.label}</span>
+              {profile.active && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 font-medium">active</span>
+              )}
+            </div>
+            <p className="text-[11px] font-mono text-gray-400 truncate">{profile.url || <span className="text-gray-400 italic">no URL set</span>}</p>
+          </div>
+          <div className="flex items-center gap-0.5 flex-shrink-0">
+            <button
+              type="button"
+              onClick={startEdit}
+              disabled={disabled}
+              className="p-1 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
+            >
+              <Pencil className="w-3 h-3" />
+            </button>
+            <button
+              type="button"
+              onClick={onDelete}
+              disabled={disabled}
+              className="p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function MobileTab({
   mobileEnabled, mobileQr, mobileClients, mobileLoading,
-  mobileLocalIp, mobilePairingUrl, mobileExternalUrl,
-  onSetMobileExternalUrl, onToggle, onRegenerateToken, onSaveExternalUrl, onRefreshStatus,
+  mobileLocalIp, mobilePairingUrl, urlProfiles,
+  onSaveProfiles, onToggle, onRegenerateToken, onRefreshStatus,
   fcmStatus, fcmJsonDraft, fcmSaving, fcmError, onSetFcmJsonDraft, onSaveFcmServiceAccount,
   autoStartEnabled, onToggleAutoStart,
 }: Props) {
   const [fcmExpanded, setFcmExpanded] = useState(false)
   const [wolGuideExpanded, setWolGuideExpanded] = useState(false)
+
+  const activeProfile = urlProfiles.find((p) => p.active)
+  const isUsingLan = !activeProfile
+
+  function addProfile() {
+    const newProfile: WsUrlProfile = {
+      id: crypto.randomUUID(),
+      label: 'New profile',
+      url: '',
+      active: urlProfiles.length === 0,
+    }
+    onSaveProfiles([...urlProfiles, newProfile])
+  }
+
+  function activateProfile(id: string) {
+    onSaveProfiles(urlProfiles.map((p) => ({ ...p, active: p.id === id })))
+  }
+
+  function deleteProfile(id: string) {
+    const next = urlProfiles.filter((p) => p.id !== id)
+    // If we deleted the active one, deactivate all (fall back to LAN)
+    const hadActive = urlProfiles.find((p) => p.id === id)?.active
+    if (hadActive && next.length > 0) {
+      // keep all inactive — LAN fallback
+    }
+    onSaveProfiles(next)
+  }
+
+  function updateProfile(id: string, label: string, url: string) {
+    onSaveProfiles(urlProfiles.map((p) => p.id === id ? { ...p, label, url } : p))
+  }
+
+  function useLocalLan() {
+    onSaveProfiles(urlProfiles.map((p) => ({ ...p, active: false })))
+  }
+
   return (
     <>
       <div>
@@ -64,10 +223,20 @@ export function MobileTab({
 
       {mobileEnabled && (
         <>
+          {/* Status card */}
           <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 px-4 py-3 text-xs space-y-1">
             <div className="flex items-center justify-between">
               <span className="text-gray-500">Local IP</span>
               <span className="font-mono text-gray-800 dark:text-gray-200">{mobileLocalIp}</span>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-gray-500">Connection</span>
+              <span className="flex items-center gap-1 text-gray-800 dark:text-gray-200">
+                {isUsingLan
+                  ? <><Wifi className="w-3 h-3 text-blue-500" /> Local LAN</>
+                  : <><Globe className="w-3 h-3 text-indigo-500" /> {activeProfile?.label}</>
+                }
+              </span>
             </div>
             <div className="flex items-start justify-between gap-3">
               <span className="text-gray-500">Pairing URL</span>
@@ -81,30 +250,59 @@ export function MobileTab({
             </div>
           </div>
 
-          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/40 px-4 py-3 space-y-2">
-            <div>
-              <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Secure external URL</p>
-              <p className="text-xs text-gray-500">
-                Optional. Use a public TLS endpoint such as Tailscale Funnel or a reverse proxy that forwards to this mobile server.
-              </p>
+          {/* URL Profiles */}
+          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/40 px-4 py-3 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Connection profiles</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Save multiple endpoints — Tailscale Funnel, reverse proxy, etc. One profile is active at a time; the QR code points to it.
+                </p>
+              </div>
             </div>
-            <input
-              value={mobileExternalUrl}
-              onChange={(e) => onSetMobileExternalUrl(e.target.value)}
-              placeholder="wss://your-host.example/mobile"
-              className="w-full px-3 py-2 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-800 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
-            />
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-xs text-gray-500">Leave blank for local LAN pairing over ws://.</p>
+
+            {/* LAN option */}
+            <div className={`rounded-lg border px-3 py-2 flex items-center gap-2 ${isUsingLan ? 'border-blue-500/60 bg-blue-50/50 dark:bg-blue-900/20' : 'border-gray-200 dark:border-gray-700'}`}>
               <button
                 type="button"
-                onClick={onSaveExternalUrl}
-                disabled={mobileLoading}
-                className="px-3 py-1.5 rounded-md text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50"
-              >
-                Save URL
-              </button>
+                onClick={useLocalLan}
+                disabled={mobileLoading || isUsingLan}
+                title={isUsingLan ? 'Active' : 'Use local LAN'}
+                className={`w-3.5 h-3.5 rounded-full border-2 flex-shrink-0 transition-colors ${isUsingLan ? 'border-blue-500 bg-blue-500' : 'border-gray-300 dark:border-gray-600 hover:border-blue-400'}`}
+              />
+              <Wifi className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-medium text-gray-800 dark:text-gray-100">Local LAN</span>
+                  {isUsingLan && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 font-medium">active</span>
+                  )}
+                </div>
+                <p className="text-[11px] font-mono text-gray-400">{mobileLocalIp}:16717</p>
+              </div>
             </div>
+
+            {/* External profiles */}
+            {urlProfiles.map((profile) => (
+              <UrlProfileRow
+                key={profile.id}
+                profile={profile}
+                onActivate={() => activateProfile(profile.id)}
+                onDelete={() => deleteProfile(profile.id)}
+                onUpdate={(label, url) => updateProfile(profile.id, label, url)}
+                disabled={mobileLoading}
+              />
+            ))}
+
+            <button
+              type="button"
+              onClick={addProfile}
+              disabled={mobileLoading}
+              className="inline-flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 disabled:opacity-40"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Add external profile
+            </button>
           </div>
 
           {mobileClients === 0 && (
@@ -154,7 +352,7 @@ export function MobileTab({
             Refresh status
           </button>
 
-          {/* FCM Push Notifications — only relevant when server is enabled */}
+          {/* FCM Push Notifications */}
           <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3">
             <button
               type="button"
@@ -204,6 +402,7 @@ export function MobileTab({
               </>
             )}
           </div>
+
           {/* Auto-start */}
           <div className="flex items-center justify-between">
             <div>

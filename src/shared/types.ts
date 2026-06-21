@@ -557,9 +557,17 @@ export interface AgentGeneratorSpec {
   customCommands?: { name: string; description: string; prompt: string }[]
 }
 
+export interface WsUrlProfile {
+  id: string
+  label: string
+  url: string
+  active: boolean
+}
+
 export interface AgentGeneratorMessage {
   role: 'user' | 'assistant'
   content: string
+  images?: { dataUrl: string; name: string }[]
 }
 
 export interface SkillGeneratorSpec {
