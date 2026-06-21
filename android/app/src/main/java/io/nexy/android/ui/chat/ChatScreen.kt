@@ -127,6 +127,10 @@ fun ChatScreen(
     val inspectorSheetState = rememberModalBottomSheetState()
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val voiceInput = rememberOnDeviceVoiceInput(
+        onText = { text -> input = if (input.isBlank()) text else "${input.trimEnd()} $text"; vm.setDraft(input) },
+        onError = { message -> scope.launch { snackbarHostState.showSnackbar(message) } },
+    )
     val sendError by vm.sendError.collectAsState()
     var deletingMessage by remember { mutableStateOf<ChatMessage?>(null) }
     var deleteAfterMessage by remember { mutableStateOf<ChatMessage?>(null) }
@@ -690,6 +694,8 @@ fun ChatScreen(
                     showPromptSheet = true
                 },
                 onShowInspector = { showInspectorSheet = true },
+                isListening = voiceInput.listening,
+                onVoiceInput = voiceInput.toggle,
             )
         },
     ) { padding ->

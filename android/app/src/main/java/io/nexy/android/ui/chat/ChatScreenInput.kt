@@ -24,6 +24,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Screenshot
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -61,6 +62,8 @@ fun ChatInputBar(
     onCaptureScreen: () -> Unit = {},
     onInsertPrompt: () -> Unit = {},
     onShowInspector: () -> Unit = {},
+    isListening: Boolean = false,
+    onVoiceInput: () -> Unit = {},
 ) {
     val attachSheetState = rememberModalBottomSheetState()
     var showAttachSheet by remember { mutableStateOf(false) }
@@ -160,6 +163,13 @@ fun ChatInputBar(
                         )
                     }
                     Spacer(Modifier.weight(1f))
+                    IconButton(onClick = onVoiceInput, modifier = Modifier.size(36.dp)) {
+                        Icon(
+                            Icons.Default.Mic,
+                            contentDescription = if (isListening) "Stop voice input" else "Start voice input",
+                            tint = if (isListening) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     Box(
                         modifier = Modifier
                             .size(40.dp)

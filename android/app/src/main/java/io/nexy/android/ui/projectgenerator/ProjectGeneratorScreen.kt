@@ -38,6 +38,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import io.nexy.android.ui.chat.OnDeviceVoiceButton
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -192,6 +193,7 @@ private fun ChatPhase(
                 maxLines = 4,
             )
             Spacer(Modifier.width(8.dp))
+            OnDeviceVoiceButton(onText = { text -> input = if (input.isBlank()) text else "${input.trimEnd()} $text" }, enabled = !uiState.isLoading)
             IconButton(
                 onClick = {
                     val text = input.trim()
