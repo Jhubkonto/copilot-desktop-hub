@@ -62,6 +62,7 @@ import {
 } from './skills'
 import { readFileSync, writeFileSync, existsSync } from 'fs'
 import { parseConversationExport } from './conversation-serialization'
+import { app } from 'electron'
 import {
   startWsServer,
   stopWsServer,
@@ -126,6 +127,11 @@ export function registerWsHandlers(): void {
         db.prepare(
           'INSERT OR REPLACE INTO mobile_clients (device_id, fcm_token, registered_at) VALUES (?, ?, ?)'
         ).run(deviceId, token, Date.now())
+        // Enable auto-start on first successful pairing if not already set
+        const settings = app.getLoginItemSettings()
+        if (!settings.openAtLogin) {
+          app.setLoginItemSettings({ openAtLogin: true })
+        }
       }
       return
     }
@@ -450,7 +456,17 @@ export function registerWsHandlers(): void {
         content,
         images: images.length > 0 ? images : undefined,
       })
-      void dispatchChatSend(wins[0], conversationId, content, { model, agentId, projectId, images: images.length > 0 ? images : undefined })
+      // If the requested model belongs to a CLI backend, tell the dispatcher so it
+      // routes through that CLI instead of falling through to a BYOK provider.
+      let inferredCliBackend: 'codex-cli' | 'claude-cli' | undefined
+      if (model && model !== 'default') {
+        if (CodexAdapter.isAvailable() && getCliModels('codex-cli').some((m) => m.id === model)) {
+          inferredCliBackend = 'codex-cli'
+        } else if (ClaudeAdapter.isAvailable() && getCliModels('claude-cli').some((m) => m.id === model)) {
+          inferredCliBackend = 'claude-cli'
+        }
+      }
+      void dispatchChatSend(wins[0], conversationId, content, { model, agentId, projectId, images: images.length > 0 ? images : undefined, cliBackend: inferredCliBackend })
       return
     }
 
@@ -1970,5 +1986,14 @@ export function registerWsHandlers(): void {
   safeHandle('ws:set-wakelock-enabled', (_event, enabled: boolean) => {
     setWakelockEnabled(enabled)
     return getWakelockEnabled()
+  })
+
+  safeHandle('ws:auto-start-enabled', () => {
+    return app.getLoginItemSettings().openAtLogin
+  })
+
+  safeHandle('ws:set-auto-start-enabled', (_event, enabled: boolean) => {
+    app.setLoginItemSettings({ openAtLogin: enabled })
+    return app.getLoginItemSettings().openAtLogin
   })
 }
