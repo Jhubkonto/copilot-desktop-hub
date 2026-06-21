@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -20,8 +21,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -40,6 +39,7 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.foundation.background
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -99,7 +99,6 @@ fun ProjectConfigScreen(
     var orchestrationEnabled by remember { mutableStateOf(false) }
     var maxDelegationDepth by remember { mutableStateOf("5") }
     var showTeamActivity by remember { mutableStateOf(true) }
-    var defaultModel by remember { mutableStateOf("") }
     var instructionModeExpanded by remember { mutableStateOf(false) }
 
     // Snapshot variables for dirty-check
@@ -110,8 +109,6 @@ fun ProjectConfigScreen(
     var loadedOrchestrationEnabled by remember { mutableStateOf(false) }
     var loadedMaxDelegationDepth by remember { mutableStateOf("5") }
     var loadedShowTeamActivity by remember { mutableStateOf(true) }
-    var loadedDefaultModel by remember { mutableStateOf("") }
-
     val variables = remember { mutableStateListOf<Map<String, String>>() }
     val inScope = remember { mutableStateListOf<Map<String, String>>() }
     val outOfScope = remember { mutableStateListOf<Map<String, String>>() }
@@ -131,7 +128,6 @@ fun ProjectConfigScreen(
     var variablesExpanded by rememberSaveable { mutableStateOf(false) }
     var scopeExpanded by rememberSaveable { mutableStateOf(false) }
     var milestonesExpanded by rememberSaveable { mutableStateOf(false) }
-    var modelExpanded by rememberSaveable { mutableStateOf(false) }
     var orchestrationExpanded by rememberSaveable { mutableStateOf(false) }
     var agentsExpanded by rememberSaveable { mutableStateOf(true) }
 
@@ -152,7 +148,6 @@ fun ProjectConfigScreen(
                     orchestrationEnabled = event.config.orchestrationEnabled
                     maxDelegationDepth = event.config.maxDelegationDepth.toString()
                     showTeamActivity = event.config.showTeamActivity
-                    defaultModel = event.config.defaultModel.orEmpty()
                     variables.replaceWith(event.config.variables)
                     inScope.replaceWith(event.config.inScope)
                     outOfScope.replaceWith(event.config.outOfScope)
@@ -165,12 +160,10 @@ fun ProjectConfigScreen(
                     loadedOrchestrationEnabled = event.config.orchestrationEnabled
                     loadedMaxDelegationDepth = event.config.maxDelegationDepth.toString()
                     loadedShowTeamActivity = event.config.showTeamActivity
-                    loadedDefaultModel = event.config.defaultModel.orEmpty()
                     loaded = true
                 }
                 is WsEvent.ProjectConfigUpdated -> if (event.id == projectId) {
                     saving = false
-                    // Reset snapshots so dirty flag clears
                     loadedInstructions = instructions
                     loadedRootDirectory = rootDirectory
                     loadedInstructionMode = instructionMode
@@ -178,8 +171,7 @@ fun ProjectConfigScreen(
                     loadedOrchestrationEnabled = orchestrationEnabled
                     loadedMaxDelegationDepth = maxDelegationDepth
                     loadedShowTeamActivity = showTeamActivity
-                    loadedDefaultModel = defaultModel
-                    scope.launch { snackbarHostState.showSnackbar("Settings saved.") }
+                    onBack()
                 }
                 is WsEvent.ProjectAgents -> if (event.id == projectId) {
                     projectAgents.clear()
@@ -197,8 +189,7 @@ fun ProjectConfigScreen(
         instructionsEnabled != loadedInstructionsEnabled ||
         orchestrationEnabled != loadedOrchestrationEnabled ||
         maxDelegationDepth != loadedMaxDelegationDepth ||
-        showTeamActivity != loadedShowTeamActivity ||
-        defaultModel != loadedDefaultModel
+        showTeamActivity != loadedShowTeamActivity
     )
 
     BackHandler(enabled = hasUnsavedChanges && !showDiscardDialog) {
@@ -453,28 +444,6 @@ fun ProjectConfigScreen(
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-            // — Model —
-            NexyExpandableSection(
-                title = "Model",
-                expanded = modelExpanded,
-                onToggle = { modelExpanded = !modelExpanded },
-            ) {
-                Column(modifier = Modifier.padding(bottom = 12.dp)) {
-                    OutlinedTextField(
-                        value = defaultModel,
-                        onValueChange = { defaultModel = it },
-                        label = { Text("Default model (optional)") },
-                        placeholder = { Text("e.g. claude-sonnet-4-6") },
-                        singleLine = true,
-                        enabled = !saving && !disconnected,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            }
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
             // — Orchestration —
             NexyExpandableSection(
                 title = "Orchestration",
@@ -554,7 +523,7 @@ fun ProjectConfigScreen(
                             inScope = inScope.toList(),
                             outOfScope = outOfScope.toList(),
                             milestones = milestones.toList(),
-                            defaultModel = defaultModel.trim().ifBlank { null },
+                            defaultModel = null,
                         ),
                     )
                 },
@@ -581,82 +550,75 @@ fun ProjectConfigScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     } else {
-                        projectAgents.forEach { entry ->
-                            val entryIndex = projectAgents.indexOf(entry)
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = if (entry.isPrimary)
-                                        MaterialTheme.colorScheme.primaryContainer
-                                    else
-                                        MaterialTheme.colorScheme.surfaceVariant,
-                                ),
+                        projectAgents.forEachIndexed { entryIndex, entry ->
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(56.dp)
+                                    .background(
+                                        if (entry.isPrimary) MaterialTheme.colorScheme.primaryContainer
+                                        else MaterialTheme.colorScheme.surface
+                                    ),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically,
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(start = 12.dp),
+                                    verticalArrangement = Arrangement.Center,
                                 ) {
-                                    Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        if (entry.agentIcon.isNotBlank()) "${entry.agentIcon}  ${entry.agentName}" else entry.agentName,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        maxLines = 1,
+                                    )
+                                    if (entry.isPrimary) {
                                         Text(
-                                            if (entry.agentIcon.isNotBlank()) "${entry.agentIcon}  ${entry.agentName}" else entry.agentName,
-                                            style = MaterialTheme.typography.bodyMedium,
+                                            "Primary",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary,
                                         )
-                                        if (entry.isPrimary) {
-                                            Text(
-                                                "Primary",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.primary,
-                                            )
-                                        }
                                     }
-                                    if (!entry.isPrimary && !disconnected) {
-                                        TextButton(
-                                            onClick = { WsRepository.setPrimaryProjectAgent(projectId, entry.agentId) },
-                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                                        ) {
-                                            Text("Set primary", style = MaterialTheme.typography.labelSmall)
-                                        }
+                                }
+                                if (!entry.isPrimary && !disconnected) {
+                                    TextButton(
+                                        onClick = { WsRepository.setPrimaryProjectAgent(projectId, entry.agentId) },
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                    ) {
+                                        Text("Set primary", style = MaterialTheme.typography.labelSmall)
                                     }
-                                    if (!disconnected) {
-                                        IconButton(
-                                            onClick = {
-                                                if (entryIndex > 0) {
-                                                    projectAgents.move(entryIndex, entryIndex - 1)
-                                                    WsRepository.reorderProjectAgents(projectId, projectAgents.map { it.agentId })
-                                                }
-                                            },
-                                            enabled = entryIndex > 0,
-                                            modifier = Modifier.size(36.dp),
-                                        ) {
-                                            Icon(
-                                                Icons.Default.KeyboardArrowUp,
-                                                contentDescription = "Move ${entry.agentName} up",
-                                                modifier = Modifier.size(18.dp),
-                                            )
-                                        }
-                                        IconButton(
-                                            onClick = {
-                                                if (entryIndex in 0 until projectAgents.lastIndex) {
-                                                    projectAgents.move(entryIndex, entryIndex + 1)
-                                                    WsRepository.reorderProjectAgents(projectId, projectAgents.map { it.agentId })
-                                                }
-                                            },
-                                            enabled = entryIndex < projectAgents.lastIndex,
-                                            modifier = Modifier.size(36.dp),
-                                        ) {
-                                            Icon(
-                                                Icons.Default.KeyboardArrowDown,
-                                                contentDescription = "Move ${entry.agentName} down",
-                                                modifier = Modifier.size(18.dp),
-                                            )
-                                        }
-                                        IconButton(
-                                            onClick = { WsRepository.removeProjectAgent(projectId, entry.agentId) },
-                                            modifier = Modifier.size(36.dp),
-                                        ) {
-                                            Icon(Icons.Default.Close, contentDescription = "Remove ${entry.agentName}", modifier = Modifier.size(18.dp))
-                                        }
+                                }
+                                if (!disconnected) {
+                                    IconButton(
+                                        onClick = {
+                                            if (entryIndex > 0) {
+                                                projectAgents.move(entryIndex, entryIndex - 1)
+                                                WsRepository.reorderProjectAgents(projectId, projectAgents.map { it.agentId })
+                                            }
+                                        },
+                                        enabled = entryIndex > 0,
+                                        modifier = Modifier.size(36.dp),
+                                    ) {
+                                        Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Move up", modifier = Modifier.size(18.dp))
+                                    }
+                                    IconButton(
+                                        onClick = {
+                                            if (entryIndex < projectAgents.lastIndex) {
+                                                projectAgents.move(entryIndex, entryIndex + 1)
+                                                WsRepository.reorderProjectAgents(projectId, projectAgents.map { it.agentId })
+                                            }
+                                        },
+                                        enabled = entryIndex < projectAgents.lastIndex,
+                                        modifier = Modifier.size(36.dp),
+                                    ) {
+                                        Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Move down", modifier = Modifier.size(18.dp))
+                                    }
+                                    IconButton(
+                                        onClick = { WsRepository.removeProjectAgent(projectId, entry.agentId) },
+                                        modifier = Modifier.size(36.dp),
+                                    ) {
+                                        Icon(Icons.Default.Close, contentDescription = "Remove ${entry.agentName}", modifier = Modifier.size(18.dp))
                                     }
                                 }
                             }
@@ -724,39 +686,39 @@ private fun EditableKeyValueList(
             "No entries.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(vertical = 4.dp),
         )
     }
     rows.forEachIndexed { index, row ->
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = row["key"].orEmpty(),
-                    onValueChange = { rows[index] = row + ("key" to it) },
-                    label = { Text(keyLabel) },
-                    singleLine = true,
-                    enabled = enabled,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = row["value"].orEmpty(),
-                    onValueChange = { rows[index] = row + ("value" to it) },
-                    label = { Text(valueLabel) },
-                    singleLine = true,
-                    enabled = enabled,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                TextButton(
-                    onClick = { rows.removeAt(index) },
-                    enabled = enabled,
-                    modifier = Modifier.align(Alignment.End),
-                ) {
-                    Text("Remove")
-                }
+            OutlinedTextField(
+                value = row["key"].orEmpty(),
+                onValueChange = { rows[index] = row + ("key" to it) },
+                label = { Text(keyLabel) },
+                singleLine = true,
+                enabled = enabled,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                modifier = Modifier.weight(1f),
+            )
+            OutlinedTextField(
+                value = row["value"].orEmpty(),
+                onValueChange = { rows[index] = row + ("value" to it) },
+                label = { Text(valueLabel) },
+                singleLine = true,
+                enabled = enabled,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(
+                onClick = { rows.removeAt(index) },
+                enabled = enabled,
+                modifier = Modifier.size(36.dp),
+            ) {
+                Icon(Icons.Default.Close, contentDescription = "Remove", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -777,50 +739,44 @@ private fun EditableScopeList(
     addLabel: String,
     enabled: Boolean,
 ) {
-    Text(title, style = MaterialTheme.typography.bodyMedium)
+    Text(title, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     if (rows.isEmpty()) {
         Text(
             "No rules.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(vertical = 4.dp),
         )
     }
     rows.forEachIndexed { index, row ->
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            OutlinedTextField(
+                value = row["description"].orEmpty(),
+                onValueChange = { rows[index] = row + ("description" to it) },
+                label = { Text("Description") },
+                singleLine = true,
+                enabled = enabled,
+                modifier = Modifier.weight(1f),
+            )
+            OutlinedTextField(
+                value = row["pathGlob"].orEmpty(),
+                onValueChange = { rows[index] = row + ("pathGlob" to it) },
+                label = { Text("Glob") },
+                singleLine = true,
+                enabled = enabled,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(
+                onClick = { rows.removeAt(index) },
+                enabled = enabled,
+                modifier = Modifier.size(36.dp),
             ) {
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    OutlinedTextField(
-                        value = row["description"].orEmpty(),
-                        onValueChange = { rows[index] = row + ("description" to it) },
-                        label = { Text("Description") },
-                        singleLine = true,
-                        enabled = enabled,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    OutlinedTextField(
-                        value = row["pathGlob"].orEmpty(),
-                        onValueChange = { rows[index] = row + ("pathGlob" to it) },
-                        label = { Text("Path glob (optional)") },
-                        singleLine = true,
-                        enabled = enabled,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                IconButton(
-                    onClick = { rows.removeAt(index) },
-                    enabled = enabled,
-                    modifier = Modifier.size(36.dp),
-                ) {
-                    Icon(Icons.Default.Close, contentDescription = "Remove", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+                Icon(Icons.Default.Close, contentDescription = "Remove", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -845,14 +801,18 @@ private fun EditableMilestonesList(
             "No milestones.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(vertical = 4.dp),
         )
     }
     rows.forEachIndexed { index, row ->
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        val currentStatus = row["status"].orEmpty().ifBlank { "upcoming" }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 OutlinedTextField(
                     value = row["title"].orEmpty(),
                     onValueChange = { rows[index] = row + ("title" to it) },
@@ -865,15 +825,11 @@ private fun EditableMilestonesList(
                 OutlinedTextField(
                     value = row["description"].orEmpty(),
                     onValueChange = { rows[index] = row + ("description" to it) },
-                    label = { Text("Description") },
+                    label = { Text("Description (optional)") },
+                    singleLine = true,
                     enabled = enabled,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     modifier = Modifier.fillMaxWidth(),
-                )
-                val currentStatus = row["status"].orEmpty().ifBlank { "upcoming" }
-                Text(
-                    "Status",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                     milestoneStatuses.forEachIndexed { i, status ->
@@ -887,13 +843,13 @@ private fun EditableMilestonesList(
                         }
                     }
                 }
-                TextButton(
-                    onClick = { rows.removeAt(index) },
-                    enabled = enabled,
-                    modifier = Modifier.align(Alignment.End),
-                ) {
-                    Text("Remove")
-                }
+            }
+            IconButton(
+                onClick = { rows.removeAt(index) },
+                enabled = enabled,
+                modifier = Modifier.size(36.dp).align(Alignment.Top),
+            ) {
+                Icon(Icons.Default.Close, contentDescription = "Remove milestone", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
