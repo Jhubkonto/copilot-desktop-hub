@@ -1472,6 +1472,7 @@ export type IpcReturnMap = {
   'ws:set-wakelock-enabled': boolean
   'ws:auto-start-enabled': boolean
   'ws:set-auto-start-enabled': boolean
+  'ws:client-count': number
   // Wiki
   'wiki:create-entry': WikiEntry
   'wiki:delete-entry': boolean
@@ -1825,6 +1826,7 @@ export type IpcChannels =
   | 'ws:set-wakelock-enabled'
   | 'ws:auto-start-enabled'
   | 'ws:set-auto-start-enabled'
+  | 'ws:client-count'
   | 'project-generator:chat'
   | 'project-generator:token'
   | 'project-generator:spec-ready'

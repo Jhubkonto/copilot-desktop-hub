@@ -415,6 +415,10 @@ export function SettingsPanel() {
     void window.api.wsGetAutoStartEnabled().then(setAutoStartEnabled).catch(() => {})
   }, [visible, category, refreshMobileStatus])
 
+  useEffect(() => {
+    return window.api.onMobileClientCount((count) => setMobileClients(count))
+  }, [])
+
   const refreshWorkspaceInfo = useCallback(async () => {
     const info = await window.api.buildGetWorkspaceInfo()
     setWorkspaceInfo(info)

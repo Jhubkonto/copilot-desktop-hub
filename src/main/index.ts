@@ -205,12 +205,14 @@ app.whenReady().then(() => {
   })
 
   setClientCountChangeCallback((count) => {
-    if (!tray) return
-    tray.setToolTip(
-      count > 0
-        ? `Nexy — ${count} Android ${count === 1 ? 'device' : 'devices'} connected (wakelock active)`
-        : 'Nexy — No mobile clients'
-    )
+    if (tray) {
+      tray.setToolTip(
+        count > 0
+          ? `Nexy — ${count} Android ${count === 1 ? 'device' : 'devices'} connected (wakelock active)`
+          : 'Nexy — No mobile clients'
+      )
+    }
+    mainWindow?.webContents.send('ws:client-count', count)
   })
 
   void autoStartWsServerIfEnabled().then(() => {

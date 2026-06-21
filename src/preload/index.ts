@@ -310,6 +310,11 @@ const api = {
   wsSetWakelockEnabled: (enabled: boolean) => typedInvoke('ws:set-wakelock-enabled', enabled),
   wsGetAutoStartEnabled: () => typedInvoke('ws:auto-start-enabled'),
   wsSetAutoStartEnabled: (enabled: boolean) => typedInvoke('ws:set-auto-start-enabled', enabled),
+  onMobileClientCount: (callback: (count: number) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, count: number) => callback(count)
+    typedOn('ws:client-count', handler)
+    return () => typedOff('ws:client-count', handler)
+  },
 
   // CLI
   checkCli: () => typedInvoke('cli:check'),
