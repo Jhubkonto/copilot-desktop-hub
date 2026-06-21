@@ -66,7 +66,9 @@ fun NavGraph(onRequestNotificationPermission: () -> Unit = {}) {
     NavHost(navController = navController, startDestination = "splash") {
         composable("splash") {
             SplashScreen(onFinished = {
-                val dest = if (connectionState == ConnectionState.CONNECTED) "home" else "pairing"
+                // Go to home if we have a saved server (reconnect runs in the background),
+                // or if already connected. Only show pairing when there's nothing paired.
+                val dest = if (connectionState == ConnectionState.CONNECTED || WsRepository.hasPairedServer()) "home" else "pairing"
                 navController.navigate(dest) {
                     popUpTo("splash") { inclusive = true }
                 }

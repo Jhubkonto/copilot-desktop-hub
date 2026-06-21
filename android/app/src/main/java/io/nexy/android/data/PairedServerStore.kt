@@ -50,6 +50,7 @@ data class PairedServerProfile(
     val certFingerprint: String? = null,
     val macAddress: String? = null,
     val broadcastAddress: String? = null,
+    val mDnsName: String? = null,
 ) {
     val connectUrl: String
         get() = buildString {
@@ -114,7 +115,22 @@ class PairedServerStore(context: Context) {
 
     fun save(config: PairedServerConfig) {
         runCatching {
-            val nextProfile = PairedServerProfile.fromConfig(config)
+            val existing = readProfiles().firstOrNull { it.id == config.id }
+            val nextProfile = PairedServerProfile(
+                id = config.id,
+                endpoint = config.endpoint,
+                token = config.token,
+                name = existing?.name ?: config.displayName,
+                lastUsedAt = System.currentTimeMillis(),
+                // Prefer the new fingerprint, fall back to whatever was stored so we
+                // never silently wipe a fingerprint that the new config omits.
+                certFingerprint = config.certFingerprint ?: existing?.certFingerprint,
+                // Preserve WoL / mDNS fields — they come in via the "connected" event,
+                // not via the pairing URL, so they would be lost if we recreated fresh.
+                macAddress = existing?.macAddress,
+                broadcastAddress = existing?.broadcastAddress,
+                mDnsName = existing?.mDnsName,
+            )
             val nextProfiles = (readProfiles().filterNot { it.id == nextProfile.id } + nextProfile)
                 .sortedByDescending { it.lastUsedAt }
             prefs.edit()
@@ -183,6 +199,16 @@ class PairedServerStore(context: Context) {
         val updated = profiles().map { profile ->
             if (profile.id == activeId) profile.copy(macAddress = macAddress, broadcastAddress = broadcastAddress)
             else profile
+        }
+        runCatching {
+            prefs.edit().putString(KEY_PROFILES, profilesToJson(updated)).apply()
+        }
+    }
+
+    fun updateActiveProfileMdnsName(mDnsName: String?) {
+        val activeId = activeProfile()?.id ?: return
+        val updated = profiles().map { profile ->
+            if (profile.id == activeId) profile.copy(mDnsName = mDnsName) else profile
         }
         runCatching {
             prefs.edit().putString(KEY_PROFILES, profilesToJson(updated)).apply()
