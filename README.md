@@ -1,33 +1,90 @@
 # Nexy
 
-A provider-agnostic native AI workspace — locally-first, with custom agents, multi-provider LLM support (BYOK or CLI), MCP server integration, built-in tools, and project-scoped workspaces.
+A provider-agnostic native AI workspace — locally-first, with custom agents, multi-provider LLM support (BYOK or CLI), MCP server integration, built-in tools, project-scoped workspaces, and a full-featured Android companion app.
 
 <!-- TODO: add screenshot -->
 
 ## Features
 
-- Native Electron desktop shell with React 19 + TypeScript UI
+### Chat & Composition
+
 - Multi-conversation chat with streaming responses and per-conversation abort
 - **No account required** — connect your own API keys (OpenAI, Anthropic, Azure, Gemini, Mistral, Groq, xAI) or point at a local CLI (Claude CLI, Codex CLI)
+- Agentic mode: up to 20 tool-call iterations per request with automatic inspection-step recovery
+- Slash commands and `@`-context references for model switching, context injection, and chat management
+- Screen capture overlay with rubber-band region selection and clipboard image injection
+- Voice input via local Whisper.cpp (ggml-base.en model auto-downloaded on first use)
+- Conversation compression: rolling summarization with preview and custom summary generation for long sessions
+- Conversation portability: export/import JSON packs, fork to another provider, and generate markdown transcripts
+
+### Agents & Orchestration
+
 - Custom agent builder: system prompt, model, temperature, tools, memory, context rules, and custom slash commands
 - Agent knowledge files with always/on-demand injection and inline editing
-- Multi-agent orchestration: leader delegates sub-tasks to specialist team agents
-- MCP (Model Context Protocol) server management and tool discovery
+- Skill library: reusable instruction modules attachable to any agent, with tool presets and approval rules
+- Multi-agent orchestration: leader agent delegates sub-tasks to specialist team agents via `delegate_to_agent` (capped at 5 levels)
+- Agent and skill generators: structured conversation-driven wizards that emit a full spec and create the resource
+- Agent export/import (JSON)
+
+### Projects & Knowledge
+
+- Project workspaces with per-project agent config, orchestration settings, scope rules, milestones, and workspace variables
+- Project wiki: manual and AI-extracted knowledge entries, `@wiki` context references, queryable via `search_project_wiki` MCP tool
+- Prompt library with versioning, variable substitution, categories, tags, and per-version rollback
+- Project and agent generators: guided multi-turn wizards for scaffolding new workspaces and teams
+
+### MCP & Tools
+
+- MCP (Model Context Protocol) server management: add, enable/disable, inspect discovered tools, and configure per-agent trust
 - Built-in tools: file editing and web fetch — with per-tool approval controls
-- Slash commands and @-context references for chat management, model switching, and context injection
-- Project workspaces with per-project agent config, orchestration settings, and a project wiki
-- Project wiki: manual and AI-extracted knowledge entries, `@wiki` context refs, model-queryable via `search_project_wiki` tool
-- Prompt library with versioning, variable substitution, and per-version rollback
-- Conversation portability: export/import, fork to another provider, and context compression for long sessions
-- Screen capture overlay with rubber-band region selection and clipboard image injection
-- Android companion app (Kotlin + Jetpack Compose): approves tool calls, monitors live output, receives OTA updates from the desktop, and sends FCM push notifications for offline approval requests
-- Desktop build pipeline: typecheck, test, package, and publish releases to a local update feed from inside the app
-- Android build pipeline: Gradle commands, APK signing config, ADB device install, and Android update feed
-- SQLite-backed persistence for all settings, conversations, agents, projects, and tool overrides
+- Desktop Navigator MCP (built-in): list windows, screenshot, OCR, clipboard read/write, mouse movement and clicks, keyboard input, window focus, and scroll — full desktop automation for agents using `@nut-tree-fork/nut-js`
+
+### Artifacts
+
+- Artifact generator: create multi-file documents, code, UI, data, prompts, and plans with version history and export (markdown, raw files)
+
+### Self-Healing
+
+- Error capture with source context (main process, renderer, unhandled rejections)
+- AI-powered error investigation using an MCP tool loop (file reads, directory listing, git operations, grep)
+- Automated fix staging with multi-file diff and hunk inspection
+- Fix verification: typecheck, lint, test, and build checks before committing
+- Git integration: prepare and push fix commits, with rollback on failed verification
+
+### Build & Deployment Pipelines
+
+- Desktop build dashboard: typecheck, test, package, and publish workflows with build history
+- Local update feed server (HTTP) for self-hosting releases on LAN
+- Android build dashboard: Gradle commands, APK signing config, ADB device install, and Android OTA feed
+- Workspace path configuration and rollback to previous build versions
+
+### Android Companion App
+
+Full-featured Kotlin + Jetpack Compose companion that mirrors most desktop capabilities over a local WebSocket connection:
+
+- Pairing via QR code scan or manual token entry (mDNS/Bonjour auto-discovery, optional TLS with self-signed cert)
+- Home screen with scoped conversation history (filter by project or agent)
+- Chat screen with live streaming output and voice input (on-device speech-to-text)
+- Tool call approval with real-time activity feed (thinking, tool execution)
+- FCM push notifications for offline approval requests (requires Firebase service account)
+- Agent, skill, prompt, wiki, project, and artifact browsers — all remotely managed from desktop
+- Agent and project generator wizards
+- MCP server and CLI management
+- Global and per-agent settings, model browser, provider configuration
+- Connection diagnostics, notification diagnostics, and model availability checks
+- Self-heal report browser with detail navigation
+- OTA update installer: receives builds from the desktop local feed server
+- Android build dashboard
+- Appearance settings (theme)
+- Live connected-device count shown in desktop Settings → Mobile tab
+
+### Desktop Experience
+
+- SQLite-backed persistence for all settings, conversations, agents, projects, skills, prompts, and tool overrides
 - Versioned database migrations (no data loss on upgrades)
-- Theming, zoom, global hotkey, auto-start, toast notifications, and auto-updates
-- WCAG 2.1 AA accessible: focus-trapped modals, listbox/option ARIA on command menus, tablist/tab roles, aria-activedescendant on chat composer
-- 714 Vitest tests across main-process and renderer
+- Theming, zoom, global hotkey, auto-start, toast notifications, and auto-updates (electron-updater)
+- Debug mode with timestamped logging and Gist sharing for bug reports
+- WCAG 2.1 AA accessible: focus-trapped modals, listbox/option ARIA on command menus, tablist/tab roles, `aria-activedescendant` on chat composer
 
 ## Tech Stack
 
@@ -43,6 +100,7 @@ A provider-agnostic native AI workspace — locally-first, with custom agents, m
 | Build     | electron-vite, Vite 6                          |
 | Packaging | electron-builder                               |
 | Tests     | Vitest 4, Testing Library, happy-dom           |
+| Android   | Kotlin, Jetpack Compose, Material 3            |
 
 ## Prerequisites
 
@@ -79,12 +137,12 @@ npm run build
 npm run package
 
 # Platform-specific packages
-npm run package:win    # Windows NSIS installer
+npm run package:win    # Windows NSIS installer + win-unpacked/
 npm run package:mac    # macOS DMG
 npm run package:linux  # Linux AppImage / deb
 ```
 
-Packaged distributable files are written to the `release/` directory.
+Packaged distributable files are written to the `release/` directory. The unpacked folder (`win-unpacked/`, etc.) can be run directly without installing.
 
 ## Scripts
 
@@ -103,45 +161,51 @@ Packaged distributable files are written to the `release/` directory.
 ```text
 .
 ├── src/
-│   ├── main/             # Main process: IPC handlers, database, auth, providers, MCP, tools
+│   ├── main/             # Main process: IPC handlers, database, providers, MCP, tools,
+│   │                     #   self-heal, build/android pipelines, WS server, local feed
 │   ├── preload/          # Secure contextBridge preload (window.api)
 │   ├── renderer/         # React SPA: components, hooks, Zustand store, slash commands
-│   │   ├── components/   # UI components (ChatWindow, Sidebar, AgentPanel, …)
+│   │   ├── components/   # UI panels (Chat, Sidebar, AgentPanel, SkillPanel, SelfHealPanel, …)
 │   │   ├── components/chat/  # ChatWindow sub-components
 │   │   ├── hooks/        # Custom React hooks (useChat, useFileInput, …)
 │   │   └── store/        # Zustand store root + domain slices
 │   ├── shared/           # Cross-boundary types, models, utilities
 │   └── test/             # Test helpers and renderer environment mocks
-├── resources/            # Bundled app resources (icons, assets)
+├── android/              # Kotlin + Compose companion app
+├── resources/            # App icons (icon.png, icon.ico, icon.icns)
+├── scripts/              # Utility scripts (generate-icons.py)
+├── roadmap/              # Feature roadmaps (scheduler, agent generator, …)
 ├── docs/                 # Mobile setup notes, agent presets, and feature plans
 ├── src/docs/             # Architecture and technical reference docs
-├── android/ROADMAP.md    # Active roadmap
 ├── electron.vite.config.ts
 ├── electron-builder.yml
-├── tsconfig.typecheck.json   # Standalone typecheck config (no project-ref noise)
+├── tsconfig.typecheck.json
 └── vitest.config.ts
 ```
 
-For a detailed breakdown of modules, data flows, database schema, IPC model, auth flow, and security model, see [ARCHITECTURE.md](src/docs/ARCHITECTURE.md). The active roadmap lives in [android/ROADMAP.md](android/ROADMAP.md).
+For a detailed breakdown of modules, data flows, database schema, IPC model, and security model, see [ARCHITECTURE.md](src/docs/ARCHITECTURE.md).
 
 ## Troubleshooting
 
-**App crashes with `NODE_MODULE_VERSION` error**  
+**App crashes with `NODE_MODULE_VERSION` error**
 `better-sqlite3` was compiled against the wrong Node ABI. Fix with:
 
 ```bash
 npx electron-rebuild -f -w better-sqlite3
 ```
 
-**Blank window / white screen on dev start**  
+**Blank window / white screen on dev start**
 Wait for Vite to finish its initial bundle — the renderer URL loads before the Vite dev server is ready on the first cold start. The window will populate automatically.
 
-**Backend unavailable**  
+**Backend unavailable**
 If chats cannot start, open Settings and verify that at least one backend is ready: a configured BYOK provider key, Claude CLI, or Codex CLI.
+
+**Windows installer closes without installing**
+Run `Nexy Setup x.x.x.exe` as Administrator, or install to a user-owned path (e.g. `C:\Users\<you>\Apps\Nexy`) instead of `C:\Program Files\`. Alternatively run `win-unpacked\Nexy.exe` directly — no installation needed.
 
 ## Contributing
 
-Contributions are welcome. Before making major changes, review [android/ROADMAP.md](android/ROADMAP.md) for current priorities and expected coverage. Run `npm test` and `npm run typecheck` before submitting a PR.
+Contributions are welcome. Before making major changes, review the roadmaps in `roadmap/` for current priorities. Run `npm test` and `npm run typecheck` before submitting a PR.
 
 ## License
 

@@ -1,4 +1,4 @@
-# Agent Generator — Feature Roadmap
+# Agent Generator — Feature Roadmap --COMPLETE
 
 ## What it is
 
@@ -17,8 +17,8 @@ Works with any LLM provider configured in Nexy (BYOK or CLI) because the spec is
 | Agent creation (manual) | ✅ Exists | `AgentPanel.tsx` — Settings / Skills / Knowledge / JSON tabs |
 | Agent stored in DB | ✅ Exists | `agent:create` in `src/main/agents.ts` |
 | Conversational project setup | ✅ Exists | `ProjectGeneratorModal.tsx` + `project-generator.ts` — pattern to replicate |
-| Conversational agent setup | ❌ Missing | This feature |
-| Android agent generator | ❌ Missing | Parity with desktop |
+| Conversational agent setup | ✅ Complete | `AgentGeneratorModal.tsx` + `agent-generator.ts` |
+| Android agent generator | ✅ Complete | `AgentGeneratorScreen.kt` + `AgentGeneratorViewModel.kt` — missing "Set up manually" shortcut (P1 polish) |
 
 ---
 
@@ -238,43 +238,59 @@ data class AgentGeneratorTools(val fileEdit: Boolean, val terminal: Boolean, val
 
 ## Roadmap — Prioritised
 
+### Bug Fixes
+
+| # | Bug | File(s) | Status |
+|---|---|---|---|
+| B1 | Anthropic streaming handler silently swallows HTTP 4xx errors → blank LLM response → "No spec was generated" on Android | `src/main/providers/anthropic-provider.ts` | ✅ |
+
 ### P0 — Core desktop feature
 
 | # | Task | File(s) | Status |
 |---|---|---|---|
-| 1 | Add `AgentGeneratorSpec`, `AgentGeneratorMessage` + IPC channel entries | `src/shared/types.ts` | ❌ |
-| 2 | Create `agent-generator.ts` — system prompt, spec extraction, `runAgentGeneratorChat`, `createAgentFromSpec`, IPC handlers | `src/main/agent-generator.ts` *(new)* | ❌ |
-| 3 | Register handlers; wire preload channels | `src/main/ipc-handlers.ts`, `src/preload/index.ts` | ❌ |
-| 4 | Build `AgentGeneratorModal.tsx` — chat + draft preview + manual edit form + creation overlay | `src/renderer/components/AgentGeneratorModal.tsx` *(new)* | ❌ |
-| 5 | Add `+ Generate` entry point button in agents pane | Sidebar / agents pane | ❌ |
+| 1 | Add `AgentGeneratorSpec`, `AgentGeneratorMessage` + IPC channel entries | `src/shared/types.ts` | ✅ |
+| 2 | Create `agent-generator.ts` — system prompt, spec extraction, `runAgentGeneratorChat`, `createAgentFromSpec`, IPC handlers | `src/main/agent-generator.ts` | ✅ |
+| 3 | Register handlers; wire preload channels | `src/main/ipc-handlers.ts`, `src/preload/index.ts` | ✅ |
+| 4 | Build `AgentGeneratorModal.tsx` — chat + draft preview + manual edit form + creation overlay | `src/renderer/components/AgentGeneratorModal.tsx` | ✅ |
+| 5 | Add `+ Generate` entry point button in agents pane | `src/renderer/components/section-pane/AgentsPane.tsx` | ✅ |
 
 ### P1 — Android parity
 
 | # | Task | File(s) | Status |
 |---|---|---|---|
-| 6 | Add WsEvent types + parser for agent generator events | `android/.../WsEvent.kt`, `WsEventParser.kt` | ❌ |
-| 7 | Handle `agent-generator:*` WS commands; add `runAgentGeneratorChatForAndroid` | `src/main/ws-handlers.ts`, `agent-generator.ts` | ❌ |
-| 8 | Create `AgentGeneratorViewModel.kt` | Android new file | ❌ |
-| 9 | Create `AgentGeneratorScreen.kt` + wire into nav graph | Android new files | ❌ |
+| 6 | Add WsEvent types + parser for agent generator events | `android/.../WsEvent.kt`, `WsEventParser.kt` | ✅ |
+| 7 | Handle `agent-generator:*` WS commands; add `runAgentGeneratorChatForAndroid` | `src/main/ws-handlers.ts`, `agent-generator.ts` | ✅ |
+| 8 | Create `AgentGeneratorViewModel.kt` | `android/.../agentgenerator/AgentGeneratorViewModel.kt` | ✅ |
+| 9 | Create `AgentGeneratorScreen.kt` + wire into nav graph | `android/.../agentgenerator/AgentGeneratorScreen.kt`, `NavGraph.kt` | ✅ |
+| 10 | "Set up manually" button in chat phase → SPEC_REVIEW with blank spec | `AgentGeneratorScreen.kt`, `AgentGeneratorViewModel.kt` | ✅ |
+| 11 | "Insert prompt" button in chat input (ModalBottomSheet via `WsRepository.promptEntries`) | `AgentGeneratorScreen.kt` | ✅ |
+| 12 | Editable temperature slider in SPEC_REVIEW (was missing) | `AgentGeneratorScreen.kt` | ✅ |
+| 13 | Editable response format segmented buttons in SPEC_REVIEW (was missing) | `AgentGeneratorScreen.kt` | ✅ |
+| 14 | Agentic mode Switch in SPEC_REVIEW (was read-only display) | `AgentGeneratorScreen.kt` | ✅ |
+| 15 | Editable root directory field in SPEC_REVIEW (was read-only display) | `AgentGeneratorScreen.kt` | ✅ |
 
 ### P2 — Polish
 
 | # | Task | Notes | Status |
 |---|---|---|---|
-| 10 | "Add to project" option on creation | Offer to add the new agent to the currently open project | ❌ |
-| 11 | Multi-modal input (paste screenshot) | Ctrl+V paste of UI screenshots to inform agent design | ❌ |
-| 12 | Prompt library button in input bar | Same `BookOpen` button pattern as project generator | ❌ |
+| 16 | "Add to project" option on creation | After creation: `DoneOverlay` shows active project + other projects; `project:add-agent` IPC; non-blocking | ✅ |
+| 17 | Multi-modal input (paste screenshot) | Ctrl+V in input → thumbnail strip; images sent as `image_url` parts in `AgentGeneratorMessage`; displayed in chat bubbles | ✅ |
 
 ---
 
 ## Verification
 
-1. Open agent generator modal → greeting bubble appears, model badge shown in header
-2. Type "I need a coding assistant that can edit files and run tests" → tokens stream → assistant bubble appears
-3. After 2–3 turns, spec is emitted → left draft panel shows name, icon, tool badges
-4. Click "Create agent" → progress overlay → agent appears in agent list
-5. Click "Edit manually" before any spec → blank form opens → fill in manually → Create agent → works
-6. Repeat steps 2–4 with Claude CLI, Codex CLI, and BYOK (OpenRouter) models — all produce responses
-7. Android: open Agent Generator screen → greeting shown → send message → spec arrives → spec review form → confirm → "Agent Created!" phase
-8. Android "Set up manually" button → navigates to spec review with blank form → fill in → confirm → agent created
-9. Android reset mid-flow → confirmation dialog → returns to greeting
+1. ✅ Open agent generator modal → greeting bubble appears, model badge shown in header
+2. ✅ Type "I need a coding assistant that can edit files and run tests" → tokens stream → assistant bubble appears
+3. ✅ After 2–3 turns, spec is emitted → left draft panel shows name, icon, tool badges
+4. ✅ Click "Create agent" → progress overlay → agent appears in agent list
+5. ✅ Click "Edit manually" before any spec → blank form opens → fill in manually → Create agent → works
+6. ✅ Repeat steps 2–4 with Claude CLI, Codex CLI, and BYOK (OpenRouter) models — all produce responses
+7. ✅ Android: open Agent Generator screen → greeting shown → send message → spec arrives → spec review form → confirm → "Agent Created!" phase
+8. ✅ Android "Set up manually" → SPEC_REVIEW with blank form → fill in → confirm → agent created *(B1 + #10)*
+9. ✅ Android reset mid-flow → confirmation dialog → returns to greeting
+10. ✅ B1: invalid API key → error dialog (not silent blank)
+11. ✅ Android SPEC_REVIEW: temperature slider, response format buttons, agentic toggle, root dir field all editable
+12. ✅ Android chat input: "Insert prompt" → bottom sheet → tap prompt → inserted into field
+13. ✅ Desktop: Ctrl+V image into input → thumbnail strip appears → send → image shown in chat bubble → LLM receives it
+14. ✅ Desktop: Create agent → DoneOverlay shows agent name + active project button → click → "Added ✓" → Close or Generate another
