@@ -1,10 +1,25 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { X, Send, Loader2, Sparkles, Pencil, FolderOpen, BookOpen, ClipboardPaste } from 'lucide-react'
+import { X, Send, Loader2, Sparkles, Pencil, FolderOpen, BookOpen, ImageIcon } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import type { AgentGeneratorSpec, AgentGeneratorMessage, AvailableModelGroup, AvailableModelEntry } from '../../shared/types'
 import { PromptLibraryModal } from './PromptLibraryModal'
 import { ModelPicker } from './chat/ModelPicker'
 import { VoiceInputButton } from './chat/VoiceInputButton'
+
+interface PastedImage {
+  id: string
+  dataUrl: string
+  name: string
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result ?? ''))
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
+}
 
 // ─── Draft preview ────────────────────────────────────────────────────────────
 
@@ -290,15 +305,22 @@ function EditForm({ spec, onChange, onConfirm, onCancel }: EditFormProps) {
 
 // ─── Chat bubble ──────────────────────────────────────────────────────────────
 
-function ChatBubble({ role, content }: { role: 'user' | 'assistant'; content: string }) {
+function ChatBubble({ role, content, images }: { role: 'user' | 'assistant'; content: string; images?: { dataUrl: string; name: string }[] }) {
   const displayContent = content.replace(/<agent-spec>[\s\S]*?<\/agent-spec>/g, '').trim()
-  if (!displayContent) return null
+  if (!displayContent && (!images || images.length === 0)) return null
 
   if (role === 'user') {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[80%] bg-blue-500 text-white rounded-2xl rounded-tr-sm px-3 py-2 text-sm whitespace-pre-wrap">
-          {displayContent}
+        <div className="max-w-[80%] bg-blue-500 text-white rounded-2xl rounded-tr-sm px-3 py-2 text-sm space-y-1.5">
+          {images && images.length > 0 && (
+            <div className="flex gap-1.5 flex-wrap">
+              {images.map((img, i) => (
+                <img key={i} src={img.dataUrl} alt={img.name} className="w-14 h-14 object-cover rounded-lg opacity-90" />
+              ))}
+            </div>
+          )}
+          {displayContent && <p className="whitespace-pre-wrap">{displayContent}</p>}
         </div>
       </div>
     )
@@ -310,6 +332,108 @@ function ChatBubble({ role, content }: { role: 'user' | 'assistant'; content: st
       </div>
       <div className="max-w-[85%] bg-gray-100 dark:bg-gray-800 rounded-2xl rounded-tl-sm px-3 py-2 text-sm text-gray-800 dark:text-gray-100 whitespace-pre-wrap">
         {displayContent}
+      </div>
+    </div>
+  )
+}
+
+// ─── Done overlay (P2#16 — add to project) ───────────────────────────────────
+
+interface DoneOverlayProps {
+  agentName: string
+  agentId: string | null
+  projects: { id: string; name: string }[]
+  activeProjectId: string | null
+  onAddToProject: (projectId: string) => Promise<void>
+  onClose: () => void
+  onGenerateAnother: () => void
+}
+
+function DoneOverlay({ agentName, agentId, projects, activeProjectId, onAddToProject, onClose, onGenerateAnother }: DoneOverlayProps) {
+  const [addingToProject, setAddingToProject] = useState<string | null>(null)
+  const [addedToProject, setAddedToProject] = useState<string | null>(null)
+
+  const activeProject = projects.find((p) => p.id === activeProjectId)
+
+  const handleAdd = async (projectId: string) => {
+    if (!agentId) return
+    setAddingToProject(projectId)
+    try {
+      await onAddToProject(projectId)
+      setAddedToProject(projectId)
+    } finally {
+      setAddingToProject(null)
+    }
+  }
+
+  return (
+    <div className="absolute inset-0 z-10 bg-white/95 dark:bg-gray-900/95 flex flex-col items-center justify-center gap-5 px-8">
+      <div className="w-12 h-12 rounded-full bg-green-100 dark:bg-green-900/40 flex items-center justify-center">
+        <span className="text-xl">✓</span>
+      </div>
+      <div className="text-center space-y-1">
+        <p className="text-base font-semibold text-gray-900 dark:text-gray-100">Agent Created!</p>
+        {agentName && (
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            &ldquo;{agentName}&rdquo; is ready to use.
+          </p>
+        )}
+      </div>
+      {agentId && projects.length > 0 && (
+        <div className="w-full max-w-sm space-y-2">
+          <p className="text-[10px] uppercase tracking-wider text-gray-400 text-center font-medium">Add to project</p>
+          {activeProject && (
+            <button
+              onClick={() => void handleAdd(activeProject.id)}
+              disabled={addingToProject !== null || addedToProject === activeProject.id}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border text-sm transition-colors ${
+                addedToProject === activeProject.id
+                  ? 'border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400'
+                  : 'border-indigo-200 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/40'
+              } disabled:opacity-50`}
+            >
+              <span className="truncate">{activeProject.name}</span>
+              {addingToProject === activeProject.id ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+              ) : addedToProject === activeProject.id ? (
+                <span className="text-xs shrink-0">Added ✓</span>
+              ) : (
+                <span className="text-xs shrink-0">Active project</span>
+              )}
+            </button>
+          )}
+          {projects.filter((p) => p.id !== activeProjectId).length > 0 && (
+            <details className="text-xs text-gray-400">
+              <summary className="cursor-pointer hover:text-gray-600 dark:hover:text-gray-300 select-none text-center">Other projects…</summary>
+              <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
+                {projects.filter((p) => p.id !== activeProjectId).map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => void handleAdd(p.id)}
+                    disabled={addingToProject !== null || addedToProject === p.id}
+                    className="w-full text-left px-3 py-1.5 rounded border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 truncate transition-colors"
+                  >
+                    {addedToProject === p.id ? `${p.name} ✓` : p.name}
+                  </button>
+                ))}
+              </div>
+            </details>
+          )}
+        </div>
+      )}
+      <div className="flex items-center gap-3 mt-2">
+        <button
+          onClick={onGenerateAnother}
+          className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+        >
+          Generate another
+        </button>
+        <button
+          onClick={onClose}
+          className="px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-xs font-medium hover:bg-gray-800 dark:hover:bg-gray-200 transition-colors"
+        >
+          Done
+        </button>
       </div>
     </div>
   )
@@ -360,6 +484,9 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
   const globalDefaultModel = useAppStore((s) => s.globalDefaultModel)
   const addToast = useAppStore((s) => s.addToast)
   const loadAgents = useAppStore((s) => s.loadAgents)
+  const projects = useAppStore((s) => s.projects)
+  const activeProjectId = useAppStore((s) => s.activeProjectId)
+  const addAgentToProject = useAppStore((s) => s.addAgentToProject)
 
   const [messages, setMessages] = useState<AgentGeneratorMessage[]>(() => getSession().messages)
   const [streamingText, setStreamingText] = useState('')
@@ -374,6 +501,10 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
   const [availableGroups, setAvailableGroups] = useState<AvailableModelGroup[]>([])
   const [missedSpec, setMissedSpec] = useState(false)
   const [showPromptLibrary, setShowPromptLibrary] = useState(false)
+  const [pendingImages, setPendingImages] = useState<PastedImage[]>([])
+  const [createdAgentId, setCreatedAgentId] = useState<string | null>(null)
+  const [createdAgentName, setCreatedAgentName] = useState<string | null>(null)
+  const [isDone, setIsDone] = useState(false)
 
   const chatEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -416,10 +547,16 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
   const sendMessage = useCallback(async (userText: string) => {
     if (isStreaming || !userText.trim()) return
 
-    const userMsg: AgentGeneratorMessage = { role: 'user', content: userText.trim() }
+    const imagesToSend = [...pendingImages]
+    const userMsg: AgentGeneratorMessage = {
+      role: 'user',
+      content: userText.trim(),
+      ...(imagesToSend.length > 0 ? { images: imagesToSend.map((img) => ({ dataUrl: img.dataUrl, name: img.name })) } : {}),
+    }
     const nextMessages = [...messages, userMsg]
     setMessages(nextMessages)
     setInputText('')
+    setPendingImages([])
     setIsStreaming(true)
     setStreamingText('')
     streamingTextRef.current = ''
@@ -437,7 +574,7 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
       setStreamingText('')
       streamingTextRef.current = ''
     }
-  }, [isStreaming, messages, addToast, genModel])
+  }, [isStreaming, messages, addToast, genModel, pendingImages])
 
   useEffect(() => { saveSession({ messages, spec }) }, [messages, spec])
 
@@ -445,13 +582,21 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
     const items = Array.from(e.clipboardData.items).filter((item) => item.type.startsWith('image/'))
     if (items.length === 0) return
     e.preventDefault()
-    addToast('Image paste is not yet supported in agent generator', 'info')
-  }, [addToast])
+    for (const item of items) {
+      const file = item.getAsFile()
+      if (!file) continue
+      const dataUrl = await readFileAsDataUrl(file)
+      setPendingImages((prev) => [
+        ...prev,
+        { id: crypto.randomUUID(), dataUrl, name: `image.${item.type.split('/')[1] ?? 'png'}` },
+      ])
+    }
+  }, [])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      void sendMessage(inputText)
+      void sendMessage(inputText || (pendingImages.length > 0 ? 'Here is a screenshot for context.' : ''))
     }
   }
 
@@ -461,10 +606,9 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
 
     try {
       setCreationStep(1)
-      // Call createAgent so the renderer store refreshes
       setCreationStep(2)
       const t = specToCreate.tools
-      await window.api.createAgent({
+      const created = await window.api.createAgent({
         name: specToCreate.name,
         icon: specToCreate.icon,
         systemPrompt: specToCreate.systemPrompt,
@@ -484,13 +628,14 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
           terminal: { enabled: t.terminal, approval: 'always-ask', instructions: '' },
           webFetch: { enabled: t.webFetch, approval: 'always-ask', instructions: '' },
         },
-      })
+      }) as { id?: string } | null
 
       setCreationStep(3)
       await loadAgents()
       clearSession()
-      onClose()
-      addToast(`Agent "${specToCreate.name}" created`, 'success')
+      setCreatedAgentId(created?.id ?? null)
+      setCreatedAgentName(specToCreate.name)
+      setIsDone(true)
     } catch (err) {
       setCreationError(err instanceof Error ? err.message : 'Creation failed')
       setCreationStep(-1)
@@ -582,7 +727,7 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
                 {/* Messages */}
                 <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
                   {messages.map((msg, i) => (
-                    <ChatBubble key={i} role={msg.role} content={msg.content} />
+                    <ChatBubble key={i} role={msg.role} content={msg.content} images={msg.images} />
                   ))}
                   {isStreaming && streamingText && (
                     <ChatBubble role="assistant" content={streamingText} />
@@ -627,6 +772,26 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
                   )}
                   <div className="px-4 pb-4 pt-2">
                     <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus-within:ring-2 focus-within:ring-gray-400 dark:focus-within:ring-gray-500 focus-within:border-transparent transition-colors">
+                      {pendingImages.length > 0 && (
+                        <div className="flex gap-2 flex-wrap px-3 pt-2">
+                          {pendingImages.map((img) => (
+                            <div key={img.id} className="relative group">
+                              <img
+                                src={img.dataUrl}
+                                alt={img.name}
+                                className="w-14 h-14 object-cover rounded-lg border border-gray-200 dark:border-gray-700"
+                              />
+                              <button
+                                onClick={() => setPendingImages((prev) => prev.filter((i) => i.id !== img.id))}
+                                className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-gray-700 text-white text-[9px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                aria-label="Remove image"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       <textarea
                         ref={inputRef}
                         value={inputText}
@@ -650,6 +815,21 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
                           >
                             <BookOpen className="w-4 h-4" />
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => inputRef.current?.focus()}
+                            onPaste={(e) => void handlePaste(e as unknown as React.ClipboardEvent<HTMLTextAreaElement>)}
+                            disabled={isStreaming}
+                            className={`p-1.5 rounded-md transition-colors ${
+                              pendingImages.length > 0
+                                ? 'text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/30'
+                                : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                            } disabled:opacity-50 disabled:cursor-not-allowed`}
+                            title="Paste image (Ctrl+V)"
+                            aria-label="Paste image from clipboard"
+                          >
+                            <ImageIcon className="w-4 h-4" />
+                          </button>
                         </div>
                         <div className="flex items-center gap-1">
                           <ModelPicker
@@ -668,10 +848,10 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
                           <VoiceInputButton disabled={isStreaming} onText={(text) => setInputText((current) => current.trim() ? `${current.trimEnd()} ${text}` : text)} />
                           <button
                             type="button"
-                            onClick={() => void sendMessage(inputText)}
-                            disabled={isStreaming || !inputText.trim()}
+                            onClick={() => void sendMessage(inputText || (pendingImages.length > 0 ? 'Here is a screenshot for context.' : ''))}
+                            disabled={isStreaming || (!inputText.trim() && pendingImages.length === 0)}
                             className={`p-1.5 rounded-md flex items-center justify-center transition-colors ${
-                              inputText.trim() && !isStreaming
+                              (inputText.trim() || pendingImages.length > 0) && !isStreaming
                                 ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-300'
                                 : 'bg-transparent text-gray-400 dark:text-gray-500 cursor-not-allowed'
                             }`}
@@ -700,13 +880,40 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
         </div>
 
         {/* Creation progress overlay */}
-        {isCreating && (
+        {isCreating && !isDone && (
           <CreationOverlay
             step={creationStep}
             error={creationError}
             onRetry={() => {
               const target = editSpec ?? spec
               if (target) void handleCreate(target)
+            }}
+          />
+        )}
+
+        {/* Done overlay with add-to-project option */}
+        {isDone && (
+          <DoneOverlay
+            agentName={createdAgentName ?? ''}
+            agentId={createdAgentId}
+            projects={projects}
+            activeProjectId={activeProjectId}
+            onAddToProject={(projectId) => addAgentToProject(projectId, createdAgentId!)}
+            onClose={() => {
+              setIsDone(false)
+              onClose()
+            }}
+            onGenerateAnother={() => {
+              setIsDone(false)
+              setCreatedAgentId(null)
+              setCreatedAgentName(null)
+              setCreationStep(-1)
+              clearSession()
+              setMessages([GREETING])
+              setSpec(null)
+              setMissedSpec(false)
+              setInputText('')
+              setPendingImages([])
             }}
           />
         )}
