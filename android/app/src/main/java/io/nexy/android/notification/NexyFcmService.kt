@@ -4,6 +4,8 @@ import android.content.Context
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import io.nexy.android.data.ConnectionState
+import io.nexy.android.data.PairedServerConfig
+import io.nexy.android.data.PairedServerStore
 import io.nexy.android.data.WsRepository
 import org.json.JSONObject
 import java.util.UUID
@@ -17,20 +19,45 @@ class NexyFcmService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         val data = message.data
-        if (data["type"] != "tool:approval-request") return
-        val requestId = data["requestId"] ?: return
-        val toolName = data["toolName"] ?: return
-        val args: Map<String, Any> = runCatching {
-            val obj = JSONObject(data["args"] ?: "{}")
-            val map = mutableMapOf<String, Any>()
-            val keys = obj.keys()
-            while (keys.hasNext()) {
-                val key = keys.next()
-                map[key] = obj.get(key)
+        when (data["type"]) {
+            "tool:approval-request" -> {
+                val requestId = data["requestId"] ?: return
+                val toolName = data["toolName"] ?: return
+                ApprovalNotificationManager.show(this, requestId, toolName)
             }
-            map
-        }.getOrDefault(emptyMap())
-        ApprovalNotificationManager.show(this, requestId, toolName)
+
+            "desktop:online" -> {
+                val wsUrl = data["wsUrl"]?.takeIf { it.isNotBlank() } ?: return
+                handleDesktopOnline(wsUrl)
+            }
+
+            "desktop:ip-changed" -> {
+                val wsUrl = data["wsUrl"]?.takeIf { it.isNotBlank() } ?: return
+                handleIpChanged(wsUrl)
+            }
+        }
+    }
+
+    private fun handleDesktopOnline(wsUrl: String) {
+        val store = runCatching { PairedServerStore(this) }.getOrNull() ?: return
+        val active = store.activeProfile()
+        val newConfig = PairedServerConfig.fromUrl(wsUrl)
+        if (newConfig != null && active != null && newConfig.endpoint != active.endpoint) {
+            store.save(newConfig.copy(certFingerprint = active.certFingerprint))
+        }
+        if (WsRepository.connectionState.value != ConnectionState.CONNECTED &&
+            WsRepository.connectionState.value != ConnectionState.CONNECTING) {
+            WsRepository.connectFromStore()
+        }
+    }
+
+    private fun handleIpChanged(wsUrl: String) {
+        val store = runCatching { PairedServerStore(this) }.getOrNull() ?: return
+        val active = store.activeProfile() ?: return
+        val newConfig = PairedServerConfig.fromUrl(wsUrl) ?: return
+        if (newConfig.endpoint != active.endpoint) {
+            store.save(newConfig.copy(certFingerprint = active.certFingerprint))
+        }
     }
 
     companion object {

@@ -11,7 +11,8 @@ import { validateSender } from './safe-handle'
 import { initDebugMode } from './debug-mode'
 import { initErrorLogCapture } from './error-log-handlers'
 import { confirmStartupAfterRelaunch, rollbackHeal } from './self-heal/recovery'
-import { broadcastToMobile, autoStartWsServerIfEnabled, startWsServerIfNeeded } from './ws-server'
+import { broadcastToMobile, autoStartWsServerIfEnabled, startWsServerIfNeeded, getCurrentPairingUrl, setIpChangeCallback, setClientCountChangeCallback } from './ws-server'
+import { sendDesktopOnlinePush, sendIpChangedPush } from './fcm-sender'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -199,10 +200,29 @@ app.whenReady().then(() => {
 
   createWindow()
   registerIpcHandlers(mainWindow ?? undefined)
-  void autoStartWsServerIfEnabled()
+  setIpChangeCallback((newUrl) => {
+    void sendIpChangedPush(getDatabase(), newUrl).catch(() => {})
+  })
+
+  setClientCountChangeCallback((count) => {
+    if (!tray) return
+    tray.setToolTip(
+      count > 0
+        ? `Nexy — ${count} Android ${count === 1 ? 'device' : 'devices'} connected (wakelock active)`
+        : 'Nexy — No mobile clients'
+    )
+  })
+
+  void autoStartWsServerIfEnabled().then(() => {
+    const url = getCurrentPairingUrl()
+    if (url) void sendDesktopOnlinePush(getDatabase(), url).catch(() => {})
+  })
 
   powerMonitor.on('resume', () => {
-    void startWsServerIfNeeded()
+    void startWsServerIfNeeded().then(() => {
+      const url = getCurrentPairingUrl()
+      if (url) void sendDesktopOnlinePush(getDatabase(), url).catch(() => {})
+    })
   })
   createTray()
   registerGlobalHotkey()
