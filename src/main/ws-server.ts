@@ -6,6 +6,7 @@ import type { AddressInfo } from 'net'
 import QRCode from 'qrcode'
 import selfsigned from 'selfsigned'
 import { powerSaveBlocker } from 'electron'
+import Bonjour from 'bonjour-service'
 import { getDatabase } from './database'
 import { isFeedRunning, getFeedLanUrl } from './local-feed-server'
 
@@ -33,6 +34,12 @@ let commandHandler: CommandHandler | null = null
 const EXTERNAL_WSS_URL_SETTING = 'ws_external_url'
 let wakeLockId: number | null = null
 let pingInterval: ReturnType<typeof setInterval> | null = null
+let ipPollInterval: ReturnType<typeof setInterval> | null = null
+let lastKnownIp: string | null = null
+let onIpChange: ((newUrl: string) => void) | null = null
+let bonjourInstance: Bonjour | null = null
+let mdnsService: ReturnType<Bonjour['publish']> | null = null
+let onClientCountChange: ((count: number) => void) | null = null
 
 function ipScore(addr: string): number {
   if (addr.startsWith('192.168.')) return 0  // WiFi / home LAN — best
@@ -181,6 +188,10 @@ function getPairingUrl(): string | null {
   return `wss://${getLocalIp()}:${currentPort}?token=${currentToken}${fp}`
 }
 
+export function getCurrentPairingUrl(): string | null {
+  return getPairingUrl()
+}
+
 export async function getQrDataUrl(): Promise<string | null> {
   const url = getPairingUrl()
   if (!url) return null
@@ -189,6 +200,22 @@ export async function getQrDataUrl(): Promise<string | null> {
 
 export function setWsCommandHandler(handler: CommandHandler): void {
   commandHandler = handler
+}
+
+export function setIpChangeCallback(cb: (newPairingUrl: string) => void): void {
+  onIpChange = cb
+}
+
+export function setClientCountChangeCallback(cb: (count: number) => void): void {
+  onClientCountChange = cb
+}
+
+export function getMobileClientCount(): number {
+  return connectedClients.size
+}
+
+export function getMdnsName(): string {
+  return 'nexy-desktop.local'
 }
 
 export async function autoStartWsServerIfEnabled(): Promise<void> {
@@ -217,10 +244,11 @@ export async function startWsServer(): Promise<{ port: number; token: string }> 
 
     connectedClients.add(ws)
     if (connectedClients.size === 1) acquireWakeLock()
+    onClientCountChange?.(connectedClients.size)
     const localIp = getLocalIp()
     const feedUrl = isFeedRunning() ? getFeedLanUrl(localIp) : null
     const { macAddress, broadcastAddress } = getMacAndBroadcast(localIp)
-    ws.send(JSON.stringify({ event: 'connected', data: { version: '0.9.0', feedUrl, macAddress, broadcastAddress } }))
+    ws.send(JSON.stringify({ event: 'connected', data: { version: '0.9.0', feedUrl, macAddress, broadcastAddress, mDnsName: getMdnsName() } }))
 
     ws.on('message', (raw) => {
       try {
@@ -235,10 +263,12 @@ export async function startWsServer(): Promise<{ port: number; token: string }> 
     ws.on('close', () => {
       connectedClients.delete(ws)
       if (connectedClients.size === 0) releaseWakeLock()
+      onClientCountChange?.(connectedClients.size)
     })
     ws.on('error', () => {
       connectedClients.delete(ws)
       if (connectedClients.size === 0) releaseWakeLock()
+      onClientCountChange?.(connectedClients.size)
     })
   })
 
@@ -255,6 +285,30 @@ export async function startWsServer(): Promise<{ port: number; token: string }> 
           if (client.readyState === WebSocket.OPEN) client.ping()
         }
       }, 30_000)
+
+      lastKnownIp = getLocalIp()
+      ipPollInterval = setInterval(() => {
+        const newIp = getLocalIp()
+        if (newIp !== lastKnownIp) {
+          lastKnownIp = newIp
+          const newUrl = getPairingUrl()
+          if (newUrl) onIpChange?.(newUrl)
+        }
+      }, 30_000)
+
+      try {
+        bonjourInstance = new Bonjour()
+        mdnsService = bonjourInstance.publish({
+          name: 'Nexy Desktop',
+          type: 'nexy',
+          protocol: 'tcp',
+          port: currentPort!,
+          txt: { token: currentToken! },
+        })
+      } catch {
+        // mDNS is best-effort; don't fail startup if it errors
+      }
+
       resolve({ port: currentPort, token: currentToken! })
     })
 
@@ -268,6 +322,9 @@ export async function startWsServer(): Promise<{ port: number; token: string }> 
 
 export function stopWsServer(): void {
   if (pingInterval !== null) { clearInterval(pingInterval); pingInterval = null }
+  if (ipPollInterval !== null) { clearInterval(ipPollInterval); ipPollInterval = null }
+  try { mdnsService?.stop(); mdnsService = null } catch { /* best-effort */ }
+  try { bonjourInstance?.destroy(); bonjourInstance = null } catch { /* best-effort */ }
   for (const client of connectedClients) client.close(1001, 'Server stopping')
   connectedClients.clear()
   releaseWakeLock()

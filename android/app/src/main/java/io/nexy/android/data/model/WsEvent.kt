@@ -5,6 +5,7 @@ sealed class WsEvent {
         val version: String,
         val macAddress: String? = null,
         val broadcastAddress: String? = null,
+        val mDnsName: String? = null,
     ) : WsEvent()
     data class ToolApprovalRequest(
         val requestId: String,

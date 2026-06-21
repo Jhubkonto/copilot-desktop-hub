@@ -229,7 +229,7 @@ object WsRepository : WsClient {
                 val endpoint = currentUrl?.substringBefore("?token=")
                 val token = currentToken
                 if (!endpoint.isNullOrBlank() && !token.isNullOrBlank()) {
-                    pairedServerStore?.save(PairedServerConfig(endpoint, token))
+                    pairedServerStore?.save(PairedServerConfig(endpoint, token, currentCertFingerprint))
                     refreshProfiles()
                 }
                 synchronized(pendingCommands) {
@@ -306,17 +306,35 @@ object WsRepository : WsClient {
             }
             delay(delayMs)
             reconnectAttempts++
+
+            // In slow-polling mode try mDNS first; if we find the service and
+            // the token matches, use that URL — it may have a different IP.
+            if (isPolling) {
+                val appCtx = app
+                val token = currentToken
+                if (appCtx != null && !token.isNullOrBlank()) {
+                    val mdns = MdnsDiscovery(appCtx)
+                    mdns.startDiscovery()
+                    delay(3_000L)
+                    val hit = mdns.discovered.value.firstOrNull { it.token == token }
+                    mdns.stopDiscovery()
+                    if (hit != null) {
+                        val mdnsUrl = "wss://${hit.host}:${hit.port}?token=${hit.token}"
+                        doConnect(mdnsUrl)
+                        return@launch
+                    }
+                }
+            }
+
             doConnect(url)
         }
     }
 
-    companion object {
-        private val BACKOFF_DELAYS = longArrayOf(1_000, 2_000, 4_000, 8_000, 16_000, 30_000)
-        private const val POLLING_DELAY_MS = 60_000L
+    private val BACKOFF_DELAYS = longArrayOf(1_000, 2_000, 4_000, 8_000, 16_000, 30_000)
+    private const val POLLING_DELAY_MS = 60_000L
 
-        private fun reconnectDelayMs(attempt: Int): Long =
-            if (attempt < BACKOFF_DELAYS.size) BACKOFF_DELAYS[attempt] else POLLING_DELAY_MS
-    }
+    private fun reconnectDelayMs(attempt: Int): Long =
+        if (attempt < BACKOFF_DELAYS.size) BACKOFF_DELAYS[attempt] else POLLING_DELAY_MS
 
     fun disconnect() {
         reconnectJob?.cancel()

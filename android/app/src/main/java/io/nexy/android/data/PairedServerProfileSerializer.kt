@@ -15,7 +15,8 @@ internal fun profilesToJson(profiles: List<PairedServerProfile>): String {
                 .put("lastUsedAt", profile.lastUsedAt)
                 .put("certFingerprint", profile.certFingerprint)
                 .put("macAddress", profile.macAddress)
-                .put("broadcastAddress", profile.broadcastAddress),
+                .put("broadcastAddress", profile.broadcastAddress)
+                .put("mDnsName", profile.mDnsName),
         )
     }
     return array.toString()
@@ -36,6 +37,7 @@ internal fun profilesFromJson(raw: String): List<PairedServerProfile> {
             certFingerprint = obj.optString("certFingerprint").takeIf { it.isNotBlank() },
             macAddress = obj.optString("macAddress").takeIf { it.isNotBlank() },
             broadcastAddress = obj.optString("broadcastAddress").takeIf { it.isNotBlank() },
+            mDnsName = obj.optString("mDnsName").takeIf { it.isNotBlank() },
         )
     }.sortedByDescending { it.lastUsedAt }
 }

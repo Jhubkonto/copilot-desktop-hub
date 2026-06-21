@@ -101,10 +101,14 @@ fun parseWsEvent(
                 serverVersion.value = version.takeIf { it.isNotBlank() }
                 val macAddress = data?.optString("macAddress")?.takeIf { it.isNotBlank() }
                 val broadcastAddress = data?.optString("broadcastAddress")?.takeIf { it.isNotBlank() }
+                val mDnsName = data?.optString("mDnsName")?.takeIf { it.isNotBlank() }
                 if (macAddress != null || broadcastAddress != null) {
                     pairedServerStore?.updateActiveProfileWolInfo(macAddress, broadcastAddress)
                 }
-                WsEvent.Connected(version, macAddress, broadcastAddress)
+                if (mDnsName != null) {
+                    pairedServerStore?.updateActiveProfileMdnsName(mDnsName)
+                }
+                WsEvent.Connected(version, macAddress, broadcastAddress, mDnsName)
             }
 
             "tool:approval-request" -> WsEvent.ToolApprovalRequest(
