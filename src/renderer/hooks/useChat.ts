@@ -210,7 +210,12 @@ export function useChat({
   useEffect(() => {
     const unsubscribeRemoteMessage = window.api.onRemoteMessage(({ conversationId: remoteId, content, images }) => {
       if (remoteId !== activeConversationRef.current) {
+        // Stream is for a background conversation — suppress all chunks but still
+        // mark the streaming conversation so the stream-end handler can fire
+        // loadConversations() and update the sidebar without touching the current view.
+        streamingConversationRef.current = remoteId
         ignoreRemoteStreamRef.current = true
+        markConversationGenerating(remoteId)
         return
       }
       ignoreRemoteStreamRef.current = false
@@ -230,9 +235,22 @@ export function useChat({
 
     const unsubscribeStream = window.api.onStreamResponse((chunk: string | null) => {
       if (chunk === null) {
+        const wasBackground = ignoreRemoteStreamRef.current
         ignoreRemoteStreamRef.current = false
         const doneConvId = streamingConversationRef.current ?? activeConversationRef.current ?? ''
         streamingConversationRef.current = null
+        markConversationDoneGenerating(doneConvId)
+        void loadConversations()
+
+        if (wasBackground) {
+          // Stream ran for a background conversation — don't touch current view state.
+          streamingContentRef.current = ''
+          streamModelRef.current = null
+          liveToolCallsRef.current = []
+          setLiveThinkingBlocks(new Map())
+          return
+        }
+
         const finalContent = streamingContentRef.current
         const hadToolCalls = liveToolCallsRef.current.length > 0
         const displayContent = finalContent || (!hadToolCalls ? '_(no response)_' : '')
@@ -267,14 +285,12 @@ export function useChat({
         setLiveTeamActivity([])
         setCurrentActivity(null)
         liveToolCallsRef.current = []
-        markConversationDoneGenerating(doneConvId)
         // Now that the new response arrived, delete the old assistant message from DB.
         if (pendingDeleteMessageRef.current) {
           void window.api.deleteMessage(pendingDeleteMessageRef.current.id)
           pendingDeleteMessageRef.current = null
         }
         preRegenMessagesRef.current = null
-        void loadConversations()
         return
       }
 
@@ -285,18 +301,28 @@ export function useChat({
     })
 
     const unsubscribeError = window.api.onStreamError((error: StreamError) => {
+      const wasBackground = ignoreRemoteStreamRef.current
+      ignoreRemoteStreamRef.current = false
       const errorConvId = streamingConversationRef.current ?? activeConversationRef.current ?? ''
       streamingConversationRef.current = null
       streamingContentRef.current = ''
       streamModelRef.current = null
+      liveToolCallsRef.current = []
+      setLiveThinkingBlocks(new Map())
+      markConversationDoneGenerating(errorConvId)
+      void loadConversations()
+
+      if (wasBackground) {
+        // Error from a background conversation — don't pollute the current view.
+        return
+      }
+
       setStreamingContent('')
       setIsGenerating(false)
       setLoadingFailed(false)
       setGenerationStartedAt(null)
       setCurrentActivity(null)
       setCliCost(null)
-      liveToolCallsRef.current = []
-      markConversationDoneGenerating(errorConvId)
 
       if (preRegenMessagesRef.current) {
         // Restore the conversation to its state before the failed regeneration
