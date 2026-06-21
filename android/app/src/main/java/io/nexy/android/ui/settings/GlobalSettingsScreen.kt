@@ -9,12 +9,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -37,8 +45,11 @@ import io.nexy.android.ui.components.NexyTopAppBar
 fun GlobalSettingsScreen(onBack: () -> Unit) {
     val connectionState by WsRepository.connectionState.collectAsState()
     val disconnected = connectionState != ConnectionState.CONNECTED
+    val modelOptions by WsRepository.models.collectAsState()
 
     var defaultModel by remember { mutableStateOf("") }
+    var modelDropdownExpanded by remember { mutableStateOf(false) }
+    var modelSearchQuery by remember { mutableStateOf("") }
     var temperature by remember { mutableStateOf("") }
     var maxTokens by remember { mutableStateOf("") }
     var autoStart by remember { mutableStateOf(false) }
@@ -96,18 +107,65 @@ fun GlobalSettingsScreen(onBack: () -> Unit) {
             // — Model —
             GlobalSettingsSectionHeader("Model")
 
-            OutlinedTextField(
-                value = defaultModel,
-                onValueChange = {
-                    defaultModel = it
-                    WsRepository.setSetting("default_model", it.trim())
+            ExposedDropdownMenuBox(
+                expanded = modelDropdownExpanded,
+                onExpandedChange = { expanded ->
+                    if (!disconnected) {
+                        modelDropdownExpanded = expanded
+                        if (!expanded) modelSearchQuery = ""
+                    }
                 },
-                label = { Text("Default model") },
-                placeholder = { Text("e.g. claude-sonnet-4-6") },
-                singleLine = true,
-                enabled = !disconnected,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            ) {
+                OutlinedTextField(
+                    value = modelOptions.find { it.id == defaultModel }?.label ?: defaultModel,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Default model") },
+                    placeholder = { Text("e.g. claude-sonnet-4-6") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelDropdownExpanded) },
+                    enabled = !disconnected,
+                    modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+                )
+                ExposedDropdownMenu(
+                    expanded = modelDropdownExpanded,
+                    onDismissRequest = { modelDropdownExpanded = false; modelSearchQuery = "" },
+                ) {
+                    OutlinedTextField(
+                        value = modelSearchQuery,
+                        onValueChange = { modelSearchQuery = it },
+                        placeholder = { Text("Search models", style = MaterialTheme.typography.bodyMedium) },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                            .menuAnchor(ExposedDropdownMenuAnchorType.SecondaryEditable),
+                    )
+                    val filteredModels = remember(modelOptions, modelSearchQuery) {
+                        val q = modelSearchQuery.trim()
+                        if (q.isBlank()) modelOptions
+                        else modelOptions.filter { it.label.contains(q, ignoreCase = true) || it.id.contains(q, ignoreCase = true) }
+                    }
+                    filteredModels.forEach { option ->
+                        DropdownMenuItem(
+                            text = { Text(option.label) },
+                            onClick = {
+                                defaultModel = option.id
+                                WsRepository.setSetting("default_model", option.id)
+                                modelDropdownExpanded = false
+                                modelSearchQuery = ""
+                            },
+                        )
+                    }
+                    if (filteredModels.isEmpty()) {
+                        DropdownMenuItem(
+                            text = { Text("No models match", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                            onClick = {},
+                            enabled = false,
+                        )
+                    }
+                }
+            }
 
             // — Generation —
             GlobalSettingsSectionHeader("Generation")
@@ -199,6 +257,15 @@ private fun GlobalSettingsToggleRow(
             Text(title, style = MaterialTheme.typography.bodyMedium)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Switch(checked = checked, onCheckedChange = { if (enabled) onCheckedChange(it) }, enabled = enabled)
+        Switch(
+            checked = checked,
+            onCheckedChange = { if (enabled) onCheckedChange(it) },
+            enabled = enabled,
+            colors = SwitchDefaults.colors(
+                uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+                uncheckedBorderColor = MaterialTheme.colorScheme.outline,
+                uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+            ),
+        )
     }
 }

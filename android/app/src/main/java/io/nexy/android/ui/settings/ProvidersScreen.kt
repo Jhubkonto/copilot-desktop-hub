@@ -8,11 +8,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Badge
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -43,6 +41,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.model.ProviderInfo
 import io.nexy.android.ui.components.NexyConfirmDialog
+import io.nexy.android.ui.components.NexyEmptyState
+import io.nexy.android.ui.components.NexySearchField
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -62,8 +62,15 @@ fun ProvidersScreen(
     var confirmRemoveProvider by remember { mutableStateOf<ProviderInfo?>(null) }
     var editingAzureEndpoint by remember { mutableStateOf(false) }
     var testingProviderId by remember { mutableStateOf<String?>(null) }
+    var searchQuery by remember { mutableStateOf("") }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+
+    val filteredProviders = remember(providers, searchQuery) {
+        val q = searchQuery.trim()
+        if (q.isBlank()) providers
+        else providers.filter { it.label.contains(q, ignoreCase = true) || it.id.contains(q, ignoreCase = true) }
+    }
 
     LaunchedEffect(Unit) { vm.refresh() }
 
@@ -134,8 +141,7 @@ fun ProvidersScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState()),
+                .padding(padding),
         ) {
             Text(
                 "Configure API keys for BYOK (Bring Your Own Key) providers. Keys are stored encrypted on the desktop.",
@@ -157,24 +163,40 @@ fun ProvidersScreen(
                     TextButton(onClick = { vm.refresh() }) { Text("Retry") }
                 }
             } else {
-                providers.forEach { provider ->
-                    ProviderRow(
-                        provider = provider,
-                        isTesting = isTesting && testingProviderId == provider.id,
-                        onSetKey = { editingProvider = provider },
-                        onRemoveKey = { confirmRemoveProvider = provider },
-                        onTestKey = { key ->
-                            testingProviderId = provider.id
-                            vm.testKey(provider.id, key, if (provider.id == "azure") azureEndpoint.takeIf { it.isNotBlank() } else null)
-                        },
+                NexySearchField(
+                    query = searchQuery,
+                    onQueryChange = { searchQuery = it },
+                    placeholder = "Search providers",
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                if (filteredProviders.isEmpty()) {
+                    NexyEmptyState(
+                        title = "No matching providers.",
+                        detail = "Try a different name.",
+                        modifier = Modifier.padding(24.dp),
                     )
-                    if (provider.id == "azure" && provider.configured) {
-                        AzureEndpointRow(
-                            endpoint = azureEndpoint,
-                            onEdit = { editingAzureEndpoint = true },
-                        )
+                } else {
+                    LazyColumn(modifier = Modifier.weight(1f)) {
+                        items(filteredProviders, key = { it.id }) { provider ->
+                            ProviderRow(
+                                provider = provider,
+                                isTesting = isTesting && testingProviderId == provider.id,
+                                onSetKey = { editingProvider = provider },
+                                onRemoveKey = { confirmRemoveProvider = provider },
+                                onTestKey = { key ->
+                                    testingProviderId = provider.id
+                                    vm.testKey(provider.id, key, if (provider.id == "azure") azureEndpoint.takeIf { it.isNotBlank() } else null)
+                                },
+                            )
+                            if (provider.id == "azure" && provider.configured) {
+                                AzureEndpointRow(
+                                    endpoint = azureEndpoint,
+                                    onEdit = { editingAzureEndpoint = true },
+                                )
+                            }
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        }
                     }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
             }
         }
@@ -224,18 +246,12 @@ private fun ProviderRow(
                 modifier = Modifier.weight(1f, fill = false),
             )
             if (provider.configured) {
-                Badge(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    modifier = Modifier.widthIn(min = 88.dp),
-                ) {
-                    Text(
-                        "Configured",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        maxLines = 1,
-                        softWrap = false,
-                    )
-                }
+                Text(
+                    "● Configured",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                )
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {

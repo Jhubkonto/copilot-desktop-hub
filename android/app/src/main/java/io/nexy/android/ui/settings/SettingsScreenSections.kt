@@ -12,6 +12,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -57,17 +58,18 @@ fun SettingsInfoRow(label: String, value: String) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             label,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f).padding(end = 12.dp),
         )
         Text(
             value,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(start = 12.dp).weight(1f),
             maxLines = 2,
         )
     }
@@ -376,6 +378,8 @@ fun DiagnosticsSection(
     bugReportState: BugReportRequestState,
     onRequestBugReport: () -> Unit,
 ) {
+    var techExpanded by rememberSaveable { mutableStateOf(false) }
+
     SettingsSectionHeader("Diagnostics")
 
     Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth()) {
@@ -385,15 +389,42 @@ fun DiagnosticsSection(
         ) {
             SettingsInfoRow("Profile", connectionDiagnostics.profileName)
             SettingsInfoRow("Endpoint", connectionDiagnostics.endpoint)
-            SettingsInfoRow("Scheme", "${connectionDiagnostics.scheme} · ${connectionSchemeDetail(connectionDiagnostics.scheme)}")
             SettingsInfoRow("State", connectionStateLabel(connectionDiagnostics.connectionState))
-            SettingsInfoRow("Client version", clientVersion)
-            SettingsInfoRow("Server version", connectionDiagnostics.serverVersion ?: "Unknown")
             SettingsInfoRow("Last error", connectionDiagnostics.lastError ?: "None")
-            SettingsInfoRow("MAC address", connectionDiagnostics.macAddress ?: "Unknown")
-            SettingsInfoRow("Broadcast", connectionDiagnostics.broadcastAddress ?: "Unknown")
-            SettingsInfoRow("mDNS name", connectionDiagnostics.mDnsName ?: "Unknown")
-            SettingsInfoRow("WoL enabled", if (connectionDiagnostics.wolEnabled) "Yes" else "No")
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { techExpanded = !techExpanded }
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    "Technical details",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Icon(
+                    if (techExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (techExpanded) "Collapse technical details" else "Expand technical details",
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+
+            if (techExpanded) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SettingsInfoRow("Scheme", "${connectionDiagnostics.scheme} · ${connectionSchemeDetail(connectionDiagnostics.scheme)}")
+                    SettingsInfoRow("Client version", clientVersion)
+                    SettingsInfoRow("Server version", connectionDiagnostics.serverVersion ?: "Unknown")
+                    SettingsInfoRow("MAC address", connectionDiagnostics.macAddress ?: "Unknown")
+                    SettingsInfoRow("Broadcast", connectionDiagnostics.broadcastAddress ?: "Unknown")
+                    SettingsInfoRow("mDNS name", connectionDiagnostics.mDnsName ?: "Unknown")
+                    SettingsInfoRow("WoL enabled", if (connectionDiagnostics.wolEnabled) "Yes" else "No")
+                }
+            }
+
             OutlinedButton(
                 onClick = onRequestBugReport,
                 modifier = Modifier.fillMaxWidth(),
