@@ -372,21 +372,17 @@ export async function dispatchChatSend(
   const agentHasAssignedMcpServers = assignedAgentMcpServerIds.length > 0
   const byokKeyForModel = getApiKey(providerName)
   let fallbackCliBackend: 'claude-cli' | 'codex-cli' | undefined
-  if (retrieveAuthMode() === 'none') {
-    switch (cliBackend) {
-      case 'codex-cli':
-        fallbackCliBackend = CodexAdapter.isAvailable() ? 'codex-cli' : undefined
-        break
-      case 'claude-cli':
-        fallbackCliBackend = ClaudeAdapter.isAvailable() ? 'claude-cli' : undefined
-        break
-      default:
-        // Only fall back to CLI when no BYOK key is available for the selected model.
-        // If the user has a key for an OpenRouter/BYOK model, let it route to BYOK instead.
-        if (!byokKeyForModel) {
-          if (ClaudeAdapter.isAvailable()) fallbackCliBackend = 'claude-cli'
-          else if (CodexAdapter.isAvailable()) fallbackCliBackend = 'codex-cli'
-        }
+  // An explicit cliBackend request (e.g. from the Android WS path) always wins,
+  // regardless of auth mode or BYOK key availability.
+  if (cliBackend === 'codex-cli' && CodexAdapter.isAvailable()) {
+    fallbackCliBackend = 'codex-cli'
+  } else if (cliBackend === 'claude-cli' && ClaudeAdapter.isAvailable()) {
+    fallbackCliBackend = 'claude-cli'
+  } else if (retrieveAuthMode() === 'none') {
+    // No explicit backend — fall back to CLI only when there's no BYOK key.
+    if (!byokKeyForModel) {
+      if (ClaudeAdapter.isAvailable()) fallbackCliBackend = 'claude-cli'
+      else if (CodexAdapter.isAvailable()) fallbackCliBackend = 'codex-cli'
     }
   }
   const effectiveBackend = agentBackend ?? fallbackCliBackend
