@@ -209,6 +209,21 @@ export async function sendAnthropicMessage(
         }
       },
       (res) => {
+        if (res.statusCode && res.statusCode >= 400) {
+          let errBody = ''
+          res.on('data', (chunk: Buffer) => { errBody += chunk.toString() })
+          res.on('end', () => {
+            cleanupActiveRequest(req)
+            let message = `Anthropic API error (HTTP ${res.statusCode})`
+            try {
+              const parsed = JSON.parse(errBody)
+              if (parsed.error?.message) message = parsed.error.message
+            } catch { /* use default */ }
+            reject(new Error(message))
+          })
+          return
+        }
+
         let fullContent = ''
         let buffer = ''
         let activeThinkingBlockId: string | null = null
