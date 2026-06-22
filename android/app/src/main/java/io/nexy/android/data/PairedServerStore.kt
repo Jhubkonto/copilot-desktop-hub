@@ -10,6 +10,9 @@ data class PairedServerConfig(
     val endpoint: String,
     val token: String,
     val certFingerprint: String? = null,
+    // Additional endpoints to try in parallel when connecting (e.g. Tailscale IP).
+    // Populated from v1 QR payloads; not persisted — they are transient connection hints.
+    val fallbackEndpoints: List<String> = emptyList(),
 ) {
     val id: String
         get() = profileIdForEndpoint(endpoint)
@@ -22,6 +25,13 @@ data class PairedServerConfig(
             append("$endpoint?token=$token")
             if (!certFingerprint.isNullOrBlank()) append("&certFP=$certFingerprint")
         }
+
+    fun fallbackConnectUrls(): List<String> = fallbackEndpoints.map { ep ->
+        buildString {
+            append("$ep?token=$token")
+            if (!certFingerprint.isNullOrBlank()) append("&certFP=$certFingerprint")
+        }
+    }
 
     companion object {
         fun profileIdForEndpoint(endpoint: String): String {

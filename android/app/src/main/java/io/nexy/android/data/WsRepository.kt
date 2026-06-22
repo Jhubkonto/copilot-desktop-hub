@@ -29,6 +29,7 @@ import io.nexy.android.notification.ApprovalNotificationManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -143,6 +144,7 @@ object WsRepository : WsClient {
 
     private var app: Application? = null
     private var pairedServerStore: PairedServerStore? = null
+    private var networkMonitor: NetworkReconnectMonitor? = null
 
     private val pendingCommands = mutableListOf<Pair<String, Map<String, Any>>>()
 
@@ -172,11 +174,14 @@ object WsRepository : WsClient {
             currentUrl = config.connectUrl
             currentToken = config.token
             currentCertFingerprint = config.certFingerprint
-            if (!doConnect(config.connectUrl)) {
+            if (runCatching { Request.Builder().url(config.connectUrl).build() }.isFailure) {
                 pairedServerStore?.clear()
                 refreshProfiles()
+            } else {
+                doConnectWithFallbacks(listOf(config.connectUrl))
             }
         }
+        networkMonitor = NetworkReconnectMonitor(application).also { it.start() }
     }
 
     fun connect(config: PairedServerConfig) {
@@ -188,7 +193,8 @@ object WsRepository : WsClient {
         currentCertFingerprint = config.certFingerprint
         reconnectAttempts = 0
         _reconnectExhausted.value = false
-        doConnect(config.connectUrl)
+        val allUrls = listOf(config.connectUrl) + config.fallbackConnectUrls()
+        doConnectWithFallbacks(allUrls)
     }
 
     private fun buildPinnedClient(fingerprint: String): OkHttpClient {
@@ -213,6 +219,71 @@ object WsRepository : WsClient {
             .build()
     }
 
+    // Race all candidate URLs in parallel; the first to open wins and the others are cancelled.
+    // Falls back to the single-URL path when there is only one candidate.
+    private fun doConnectWithFallbacks(urls: List<String>) {
+        if (urls.size <= 1) {
+            doConnect(urls.firstOrNull() ?: return)
+            return
+        }
+        _connectionState.value = ConnectionState.CONNECTING
+        val raceScope = CoroutineScope(Dispatchers.IO)
+        val winner = java.util.concurrent.atomic.AtomicBoolean(false)
+        // Track losing WebSockets so we ignore their subsequent callbacks.
+        val losers = mutableListOf<WebSocket>()
+        val loserLock = Any()
+        // Count failures so we only scheduleReconnect once after all candidates fail.
+        val failCount = java.util.concurrent.atomic.AtomicInteger(0)
+        val candidateCount = urls.size
+
+        for (wsUrl in urls) {
+            val request = runCatching { Request.Builder().url(wsUrl).build() }.getOrNull() ?: run {
+                if (failCount.incrementAndGet() == candidateCount && !winner.get()) {
+                    _connectionState.value = ConnectionState.DISCONNECTED
+                    scheduleReconnect()
+                }
+                continue
+            }
+            val fp = currentCertFingerprint
+            val activeClient = fp?.takeIf { it.isNotBlank() }?.let { buildPinnedClient(it) } ?: client
+            activeClient.newWebSocket(request, object : WebSocketListener() {
+                override fun onOpen(webSocket: WebSocket, response: Response) {
+                    if (!winner.compareAndSet(false, true)) {
+                        // Another URL won the race — close this connection immediately.
+                        synchronized(loserLock) { losers.add(webSocket) }
+                        webSocket.cancel()
+                        return
+                    }
+                    raceScope.cancel()
+                    // Update currentUrl to the winning URL so reconnects reuse it.
+                    currentUrl = wsUrl
+                    onWsOpen(webSocket)
+                }
+
+                override fun onMessage(webSocket: WebSocket, text: String) {
+                    synchronized(loserLock) { if (losers.contains(webSocket)) return }
+                    onWsMessage(text)
+                }
+
+                override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                    synchronized(loserLock) { if (losers.contains(webSocket)) return }
+                    _lastError.value = t.message
+                    if (!winner.get() && failCount.incrementAndGet() == candidateCount) {
+                        _connectionState.value = ConnectionState.DISCONNECTED
+                        scheduleReconnect()
+                    }
+                }
+
+                override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                    synchronized(loserLock) { if (losers.contains(webSocket)) return }
+                    if (!winner.get()) return
+                    _connectionState.value = ConnectionState.DISCONNECTED
+                    if (code != 4001 && code != 4002) scheduleReconnect()
+                }
+            })
+        }
+    }
+
     private fun doConnect(wsUrl: String): Boolean {
         _connectionState.value = ConnectionState.CONNECTING
         val request = runCatching { Request.Builder().url(wsUrl).build() }
@@ -224,78 +295,79 @@ object WsRepository : WsClient {
         val activeClient = currentCertFingerprint?.takeIf { it.isNotBlank() }
             ?.let { buildPinnedClient(it) } ?: client
         ws = activeClient.newWebSocket(request, object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) {
-                reconnectAttempts = 0
-                _reconnectExhausted.value = false
-                _connectionState.value = ConnectionState.CONNECTED
-                _lastError.value = null
-                _serverVersion.value = null
-                val endpoint = currentUrl?.substringBefore("?token=")
-                val token = currentToken
-                if (!endpoint.isNullOrBlank() && !token.isNullOrBlank()) {
-                    pairedServerStore?.save(PairedServerConfig(endpoint, token, currentCertFingerprint))
-                    refreshProfiles()
-                }
-                synchronized(pendingCommands) {
-                    pendingCommands.forEach { (cmd, data) -> send(cmd, data) }
-                    pendingCommands.clear()
-                }
-                // If the desktop doesn't send the "connected" event within 15s, treat it as a failure.
-                handshakeTimeoutJob?.cancel()
-                handshakeTimeoutJob = scope.launch {
-                    // Wait up to 15s for serverVersion to be set (happens on "connected" event).
-                    var elapsed = 0
-                    while (_serverVersion.value == null && elapsed < 15_000) {
-                        delay(500L)
-                        elapsed += 500
-                    }
-                    if (_serverVersion.value == null) {
-                        _lastError.value = "Desktop did not respond — check that Nexy is open and on the same network."
-                        webSocket.cancel()
-                        _connectionState.value = ConnectionState.DISCONNECTED
-                        scheduleReconnect()
-                    }
-                }
-            }
-
-            override fun onMessage(webSocket: WebSocket, text: String) {
-                parseWsEvent(
-                    text = text,
-                    scope = scope,
-                    events = _events,
-                    serverVersion = _serverVersion,
-                    conversations = _conversations,
-                    projects = _projects,
-                    agents = _agents,
-                    agentFullConfig = agentFullConfig,
-                    models = _models,
-                    modelSource = _modelSource,
-                    androidUpdateManifest = _androidUpdateManifest,
-                    errorReports = _errorReports,
-                    providers = _providers,
-                    mcpServers = _mcpServers,
-                    skills = _skills,
-                    skillAgentUsage = _skillAgentUsage,
-                    artifacts = _artifacts,
-                    wikiEntries = _wikiEntries,
-                    promptEntries = _promptEntries,
-                    cliStatus = _cliStatus,
-                    pairedServerStore = pairedServerStore,
-                )
-            }
-
+            override fun onOpen(webSocket: WebSocket, response: Response) = onWsOpen(webSocket)
+            override fun onMessage(webSocket: WebSocket, text: String) = onWsMessage(text)
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 _lastError.value = t.message
                 _connectionState.value = ConnectionState.DISCONNECTED
                 scheduleReconnect()
             }
-
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 _connectionState.value = ConnectionState.DISCONNECTED
                 if (code != 4001 && code != 4002) scheduleReconnect()
             }
         })
         return true
+    }
+
+    private fun onWsOpen(webSocket: WebSocket) {
+        ws = webSocket
+        reconnectAttempts = 0
+        _reconnectExhausted.value = false
+        _connectionState.value = ConnectionState.CONNECTED
+        _lastError.value = null
+        _serverVersion.value = null
+        val endpoint = currentUrl?.substringBefore("?token=")
+        val token = currentToken
+        if (!endpoint.isNullOrBlank() && !token.isNullOrBlank()) {
+            pairedServerStore?.save(PairedServerConfig(endpoint, token, currentCertFingerprint))
+            refreshProfiles()
+        }
+        synchronized(pendingCommands) {
+            pendingCommands.forEach { (cmd, data) -> send(cmd, data) }
+            pendingCommands.clear()
+        }
+        // If the desktop doesn't send the "connected" event within 15s, treat it as a failure.
+        handshakeTimeoutJob?.cancel()
+        handshakeTimeoutJob = scope.launch {
+            var elapsed = 0
+            while (_serverVersion.value == null && elapsed < 15_000) {
+                delay(500L)
+                elapsed += 500
+            }
+            if (_serverVersion.value == null) {
+                _lastError.value = "Desktop did not respond — check that Nexy is open and on the same network."
+                webSocket.cancel()
+                _connectionState.value = ConnectionState.DISCONNECTED
+                scheduleReconnect()
+            }
+        }
+    }
+
+    private fun onWsMessage(text: String) {
+        parseWsEvent(
+            text = text,
+            scope = scope,
+            events = _events,
+            serverVersion = _serverVersion,
+            conversations = _conversations,
+            projects = _projects,
+            agents = _agents,
+            agentFullConfig = agentFullConfig,
+            models = _models,
+            modelSource = _modelSource,
+            androidUpdateManifest = _androidUpdateManifest,
+            errorReports = _errorReports,
+            providers = _providers,
+            mcpServers = _mcpServers,
+            skills = _skills,
+            skillAgentUsage = _skillAgentUsage,
+            artifacts = _artifacts,
+            wikiEntries = _wikiEntries,
+            promptEntries = _promptEntries,
+            cliStatus = _cliStatus,
+            pairedServerStore = pairedServerStore,
+        )
     }
 
     private fun scheduleReconnect() {
@@ -332,6 +404,22 @@ object WsRepository : WsClient {
 
             doConnect(url)
         }
+    }
+
+    // Called by NetworkReconnectMonitor when a new network interface becomes available
+    // (e.g. WireGuard VPN comes up, Wi-Fi switches). If we're not already connected,
+    // cancel any pending retry and attempt immediately.
+    fun onNetworkAvailable() {
+        if (currentUrl == null || currentToken == null) return
+        val state = _connectionState.value
+        if (state == ConnectionState.CONNECTED) return
+        // Reset backoff so the retry is immediate (1 s) rather than waiting 60 s.
+        reconnectAttempts = 0
+        _reconnectExhausted.value = false
+        reconnectJob?.cancel()
+        ws?.cancel()
+        _connectionState.value = ConnectionState.DISCONNECTED
+        scheduleReconnect()
     }
 
     private val BACKOFF_DELAYS = longArrayOf(1_000, 2_000, 4_000, 8_000, 16_000, 30_000)
