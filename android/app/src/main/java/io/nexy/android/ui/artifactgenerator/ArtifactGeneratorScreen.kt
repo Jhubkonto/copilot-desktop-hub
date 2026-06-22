@@ -6,8 +6,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,13 +17,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -39,6 +34,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import io.nexy.android.ui.chat.ChatInputBar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
@@ -54,7 +50,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import io.nexy.android.ui.chat.OnDeviceVoiceButton
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -181,12 +176,17 @@ fun ArtifactGeneratorScreen(
                 )
             }
             if (uiState.phase == ArtifactGenPhase.CHAT) {
-                ChatInputArea(
+                ChatInputBar(
                     input = input,
                     onInputChange = { input = it },
-                    isLoading = uiState.isLoading,
-                    onSend = { text -> vm.sendMessage(text); input = "" },
+                    attachments = emptyList(),
+                    onRemoveAttachment = {},
+                    canSend = input.isNotBlank() && !uiState.isLoading,
+                    onSend = { vm.sendMessage(input.trim()); input = "" },
+                    onAttachFile = {},
                     onInsertPrompt = { WsRepository.listPrompts(); showPromptSheet = true },
+                    placeholder = "Describe your artifact…",
+                    showAttachOptions = false,
                 )
             }
         }
@@ -374,46 +374,6 @@ private fun ChatPhase(
                     color = MaterialTheme.colorScheme.onTertiaryContainer,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                 )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ChatInputArea(
-    input: String,
-    onInputChange: (String) -> Unit,
-    isLoading: Boolean,
-    onSend: (String) -> Unit,
-    onInsertPrompt: () -> Unit,
-) {
-    Column(modifier = Modifier.fillMaxWidth().imePadding().navigationBarsPadding()) {
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            IconButton(onClick = onInsertPrompt, enabled = !isLoading) {
-                Icon(Icons.Default.TextFields, contentDescription = "Insert prompt")
-            }
-            OutlinedTextField(
-                value = input,
-                onValueChange = onInputChange,
-                placeholder = { Text("Describe your artifact…") },
-                modifier = Modifier.weight(1f),
-                maxLines = 4,
-                shape = RoundedCornerShape(24.dp),
-            )
-            Spacer(Modifier.width(2.dp))
-            OnDeviceVoiceButton(
-                onText = { text -> onInputChange(if (input.isBlank()) text else "${input.trimEnd()} $text") },
-                enabled = !isLoading,
-            )
-            IconButton(
-                onClick = { val text = input.trim(); if (text.isNotBlank()) onSend(text) },
-                enabled = input.isNotBlank() && !isLoading,
-            ) {
-                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
             }
         }
     }
