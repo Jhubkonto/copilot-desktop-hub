@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -25,6 +26,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
@@ -185,9 +188,6 @@ fun SkillsScreen(
                 titleContent = { Text("Skills", style = MaterialTheme.typography.titleMedium) },
                 onBack = onBack,
                 actions = {
-                    if (onOpenSkillGenerator != null) {
-                        TextButton(onClick = onOpenSkillGenerator) { Text("Generate") }
-                    }
                     TextButton(onClick = { vm.showImport() }) {
                         Text("Import")
                     }
@@ -203,11 +203,33 @@ fun SkillsScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                vm.showCreate()
-            }) {
-                Icon(Icons.Default.Add, contentDescription = "New skill")
+            var showFabMenu by remember { mutableStateOf(false) }
+            Box(modifier = Modifier.padding(end = 20.dp)) {
+                FloatingActionButton(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        if (onOpenSkillGenerator != null) showFabMenu = true else vm.showCreate()
+                    },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "New skill")
+                }
+                if (onOpenSkillGenerator != null) {
+                    DropdownMenu(
+                        expanded = showFabMenu,
+                        onDismissRequest = { showFabMenu = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Add skill") },
+                            onClick = { showFabMenu = false; vm.showCreate() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Generate skill") },
+                            onClick = { showFabMenu = false; onOpenSkillGenerator() },
+                        )
+                    }
+                }
             }
         },
     ) { padding ->
