@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -161,18 +163,6 @@ fun AgentGeneratorScreen(
                 },
             )
         },
-        bottomBar = {
-            if (uiState.phase == AgentGenPhase.CHAT) {
-                ChatInputArea(
-                    input = input,
-                    onInputChange = { input = it },
-                    isLoading = uiState.isLoading,
-                    onSend = { text -> vm.sendMessage(text); input = "" },
-                    onSetupManually = { vm.setupManually() },
-                    onInsertPrompt = { WsRepository.listPrompts(); showPromptSheet = true },
-                )
-            }
-        },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             NexyStepIndicator(
@@ -197,6 +187,16 @@ fun AgentGeneratorScreen(
                     agentName = uiState.createdAgentName.orEmpty(),
                     onReset = { vm.reset() },
                     modifier = Modifier.weight(1f),
+                )
+            }
+            if (uiState.phase == AgentGenPhase.CHAT) {
+                ChatInputArea(
+                    input = input,
+                    onInputChange = { input = it },
+                    isLoading = uiState.isLoading,
+                    onSend = { text -> vm.sendMessage(text); input = "" },
+                    onSetupManually = { vm.setupManually() },
+                    onInsertPrompt = { WsRepository.listPrompts(); showPromptSheet = true },
                 )
             }
         }
@@ -400,7 +400,7 @@ private fun ChatInputArea(
     onSetupManually: () -> Unit,
     onInsertPrompt: () -> Unit,
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
+    Column(modifier = Modifier.fillMaxWidth().imePadding().navigationBarsPadding()) {
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
