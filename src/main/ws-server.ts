@@ -36,6 +36,8 @@ let wakeLockId: number | null = null
 let pingInterval: ReturnType<typeof setInterval> | null = null
 let ipPollInterval: ReturnType<typeof setInterval> | null = null
 let lastKnownIp: string | null = null
+let lastKnownTailscaleIp: string | null = null
+let lastKnownAllIps: string = ''
 let onIpChange: ((newUrl: string) => void) | null = null
 let bonjourInstance: Bonjour | null = null
 let mdnsService: ReturnType<Bonjour['publish']> | null = null
@@ -59,6 +61,33 @@ function getLocalIp(): string {
   }
   candidates.sort((a, b) => ipScore(a) - ipScore(b))
   return candidates[0] ?? '127.0.0.1'
+}
+
+// Returns a sorted, joined snapshot of all non-internal IPv4 addresses.
+// Used to detect any interface change (LAN, WireGuard, Tailscale, etc.) quickly.
+function getAllIpSnapshot(): string {
+  const ifaces = networkInterfaces()
+  const addrs: string[] = []
+  for (const iface of Object.values(ifaces)) {
+    if (!iface) continue
+    for (const info of iface) {
+      if (info.family === 'IPv4' && !info.internal) addrs.push(info.address)
+    }
+  }
+  return addrs.sort().join(',')
+}
+
+// Detect the Tailscale interface by name (ts0 on Linux/Mac, "Tailscale" on Windows)
+// and return its IPv4 address, or null if Tailscale is not active.
+function getTailscaleIp(): string | null {
+  const ifaces = networkInterfaces()
+  for (const [name, iface] of Object.entries(ifaces)) {
+    if (!iface || !/tailscale|ts0|utun/i.test(name)) continue
+    for (const info of iface) {
+      if (info.family === 'IPv4' && !info.internal) return info.address
+    }
+  }
+  return null
 }
 
 function getMacAndBroadcast(boundIp: string): { macAddress: string | null; broadcastAddress: string | null } {
@@ -130,6 +159,7 @@ export function getWsStatus() {
     port: currentPort,
     token: currentToken,
     localIp: getLocalIp(),
+    tailscaleIp: getTailscaleIp(),
     pairingUrl,
     externalUrl: getExternalWssUrl(),
     secure: pairingUrl?.startsWith('wss://') ?? false,
@@ -198,14 +228,37 @@ function getPairingUrl(): string | null {
   return `wss://${getLocalIp()}:${currentPort}?token=${currentToken}${fp}`
 }
 
+// Returns all URLs that should be tried in order: LAN first, Tailscale second.
+// Manual external profiles override auto-detection and return a single URL.
+function getPairingUrls(): string[] | null {
+  if (!currentPort || !currentToken) return null
+  const external = normalizeExternalWssUrl(getExternalWssUrl(), currentToken)
+  if (external) return [external]
+  const fp = currentCertFingerprint ? `&certFP=${currentCertFingerprint}` : ''
+  const lanUrl = `wss://${getLocalIp()}:${currentPort}?token=${currentToken}${fp}`
+  const tsIp = getTailscaleIp()
+  const tsUrl = tsIp ? `wss://${tsIp}:${currentPort}?token=${currentToken}${fp}` : null
+  return tsUrl ? [lanUrl, tsUrl] : [lanUrl]
+}
+
+// v1 QR payload: JSON with urls array so Android can race-connect.
+// Falls back to the bare URL string when only one URL is available,
+// keeping the payload small and compatible with older scanners.
+function getPairingQrString(): string | null {
+  const urls = getPairingUrls()
+  if (!urls || urls.length === 0) return null
+  if (urls.length === 1) return urls[0]!
+  return JSON.stringify({ v: 1, urls })
+}
+
 export function getCurrentPairingUrl(): string | null {
   return getPairingUrl()
 }
 
 export async function getQrDataUrl(): Promise<string | null> {
-  const url = getPairingUrl()
-  if (!url) return null
-  return QRCode.toDataURL(url, { width: 240, margin: 2 })
+  const payload = getPairingQrString()
+  if (!payload) return null
+  return QRCode.toDataURL(payload, { width: 240, margin: 2 })
 }
 
 export function setWsCommandHandler(handler: CommandHandler): void {
@@ -297,14 +350,20 @@ export async function startWsServer(): Promise<{ port: number; token: string }> 
       }, 30_000)
 
       lastKnownIp = getLocalIp()
+      lastKnownTailscaleIp = getTailscaleIp()
+      lastKnownAllIps = getAllIpSnapshot()
       ipPollInterval = setInterval(() => {
         const newIp = getLocalIp()
-        if (newIp !== lastKnownIp) {
+        const newTsIp = getTailscaleIp()
+        const newAllIps = getAllIpSnapshot()
+        if (newIp !== lastKnownIp || newTsIp !== lastKnownTailscaleIp || newAllIps !== lastKnownAllIps) {
           lastKnownIp = newIp
+          lastKnownTailscaleIp = newTsIp
+          lastKnownAllIps = newAllIps
           const newUrl = getPairingUrl()
           if (newUrl) onIpChange?.(newUrl)
         }
-      }, 30_000)
+      }, 5_000)
 
       try {
         bonjourInstance = new Bonjour()
@@ -344,6 +403,8 @@ export function stopWsServer(): void {
   httpServer = null
   currentPort = null
   currentCertFingerprint = null
+  lastKnownTailscaleIp = null
+  lastKnownAllIps = ''
   try {
     const db = getDatabase()
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ws_enabled', 'false')").run()
