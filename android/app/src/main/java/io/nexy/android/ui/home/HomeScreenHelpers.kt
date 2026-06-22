@@ -4,17 +4,20 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.layout.padding
 import io.nexy.android.data.ConnectionState
 
 @Composable
-fun ConnectionChip(state: ConnectionState) {
+fun ConnectionChip(state: ConnectionState, onClick: (() -> Unit)? = null) {
     AnimatedContent(
         targetState = state,
         transitionSpec = { fadeIn() togetherWith fadeOut() },
@@ -26,11 +29,16 @@ fun ConnectionChip(state: ConnectionState) {
             ConnectionState.POLLING -> "Searching…" to Color(0xFFF59E0B)
             ConnectionState.DISCONNECTED -> "Disconnected" to Color(0xFFEF4444)
         }
+        val clickMod = if (onClick != null) {
+            Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .clickable(onClick = onClick)
+        } else Modifier
         Text(
             text = "● $label",
             color = color,
             style = MaterialTheme.typography.labelMedium,
-            modifier = Modifier.padding(end = 4.dp),
+            modifier = clickMod.padding(horizontal = 6.dp, vertical = 4.dp),
         )
     }
 }

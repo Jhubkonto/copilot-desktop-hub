@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.nexy.android.data.WsClient
 import io.nexy.android.data.ConnectionState
+import io.nexy.android.data.PairedServerProfile
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.Agent
 import io.nexy.android.data.model.Conversation
@@ -30,6 +31,8 @@ class HomeViewModel(
     val conversations: StateFlow<List<Conversation>> = WsRepository.conversations
     val agents: StateFlow<List<Agent>> = WsRepository.agents
     val projects: StateFlow<List<Project>> = WsRepository.projects
+    val profiles: StateFlow<List<PairedServerProfile>> = WsRepository.profiles
+    val activeProfileId: StateFlow<String?> = WsRepository.activeProfileId
 
     private val _pendingApproval = MutableStateFlow<WsEvent.ToolApprovalRequest?>(null)
     val pendingApproval: StateFlow<WsEvent.ToolApprovalRequest?> = _pendingApproval
@@ -149,5 +152,9 @@ class HomeViewModel(
 
     fun disconnect() {
         WsRepository.disconnect()
+    }
+
+    fun switchProfile(profileId: String) {
+        WsRepository.switchProfile(profileId)
     }
 }

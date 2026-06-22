@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material3.ButtonDefaults
@@ -87,6 +88,7 @@ fun ConnectionSection(
     onSwitchProfile: (String) -> Unit,
     onForgetProfile: (String) -> Boolean,
     onForgetServer: () -> Unit,
+    onOpenPairingScan: () -> Unit = {},
 ) {
     var profileToForget by remember { mutableStateOf<PairedServerProfile?>(null) }
 
@@ -165,6 +167,25 @@ fun ConnectionSection(
                 ConnectionState.DISCONNECTED -> "Disconnected" to Color(0xFFEF4444)
             }
             Text("● $label", color = color, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+    Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth()) {
+        OutlinedButton(
+            onClick = onOpenPairingScan,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            shape = MaterialTheme.shapes.small,
+        ) {
+            Icon(
+                Icons.Default.QrCodeScanner,
+                contentDescription = null,
+                modifier = Modifier.padding(end = 8.dp),
+            )
+            Text("Scan QR / Add server")
         }
     }
 

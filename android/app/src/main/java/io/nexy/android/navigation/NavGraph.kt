@@ -158,6 +158,16 @@ fun NavGraph(onRequestNotificationPermission: () -> Unit = {}) {
                 onOpenSettings = {
                     navController.navigate("settings")
                 },
+                onOpenPairingScan = {
+                    navController.navigate("home/add-server")
+                },
+            )
+        }
+
+        composable("home/add-server") {
+            PairingScreen(
+                onBack = { navController.popBackStack() },
+                onConnected = { navController.popBackStack() },
             )
         }
 
@@ -264,6 +274,9 @@ fun NavGraph(onRequestNotificationPermission: () -> Unit = {}) {
                     navController.navigate("pairing") {
                         popUpTo(0) { inclusive = true }
                     }
+                },
+                onOpenPairingScan = {
+                    navController.navigate("home/add-server")
                 },
             )
         }

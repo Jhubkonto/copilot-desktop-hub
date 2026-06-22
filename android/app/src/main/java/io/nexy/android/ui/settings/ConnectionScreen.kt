@@ -25,6 +25,7 @@ import io.nexy.android.ui.components.NexyTopAppBar
 fun ConnectionScreen(
     onBack: () -> Unit,
     onForgetServer: () -> Unit,
+    onOpenPairingScan: () -> Unit = {},
     vm: SettingsViewModel = viewModel(),
 ) {
     val profiles by vm.profiles.collectAsState()
@@ -65,6 +66,7 @@ fun ConnectionScreen(
                 onSwitchProfile = { vm.switchProfile(it) },
                 onForgetProfile = { vm.forgetProfile(it) },
                 onForgetServer = onForgetServer,
+                onOpenPairingScan = onOpenPairingScan,
             )
             ActionsSection(
                 connectionState = connectionState,
