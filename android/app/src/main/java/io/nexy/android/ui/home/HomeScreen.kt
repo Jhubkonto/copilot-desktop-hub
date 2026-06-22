@@ -4,14 +4,18 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -22,6 +26,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -30,6 +35,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import io.nexy.android.ui.components.NexySearchField
 import io.nexy.android.ui.components.NexyTopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -99,10 +109,11 @@ fun HomeScreen(
     val highlightAgentId by vm.highlightAgentId.collectAsState()
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var showNewChatSheet by remember { mutableStateOf(false) }
+    var newChatQuery by remember { mutableStateOf("") }
     var showCreateProjectSheet by remember { mutableStateOf(false) }
     var showCreateAgentSheet by remember { mutableStateOf(false) }
     var showOverflowMenu by remember { mutableStateOf(false) }
-    val sheetState = rememberModalBottomSheetState()
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val haptic = LocalHapticFeedback.current
@@ -156,8 +167,14 @@ fun HomeScreen(
     }
 
     if (showNewChatSheet) {
+        val filteredAgents = agents.filter { a ->
+            newChatQuery.isBlank() || a.name.contains(newChatQuery, ignoreCase = true)
+        }
+        val filteredProjects = projects.filter { p ->
+            newChatQuery.isBlank() || p.name.contains(newChatQuery, ignoreCase = true)
+        }
         ModalBottomSheet(
-            onDismissRequest = { showNewChatSheet = false },
+            onDismissRequest = { showNewChatSheet = false; newChatQuery = "" },
             sheetState = sheetState,
             containerColor = MaterialTheme.colorScheme.surface,
         ) {
@@ -166,43 +183,83 @@ fun HomeScreen(
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
             )
+            NexySearchField(
+                query = newChatQuery,
+                onQueryChange = { newChatQuery = it },
+                placeholder = "Search agents or projects…",
+            )
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            NewChatItem(label = "No agent / No project") {
-                scope.launch { sheetState.hide() }.invokeOnCompletion { showNewChatSheet = false }
-                onOpenDraftChat(UUID.randomUUID().toString(), null, null)
-            }
-            if (agents.isNotEmpty()) {
-                Text(
-                    "Agents",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
-                )
-                agents.forEach { agent ->
-                    NewChatItem(label = if (agent.icon.isNotBlank()) "${agent.icon}  ${agent.name}" else agent.name) {
-                        scope.launch { sheetState.hide() }.invokeOnCompletion { showNewChatSheet = false }
-                        onOpenDraftChat(UUID.randomUUID().toString(), agent.id, null)
-                    }
+            val consumeDownScroll = remember {
+                object : NestedScrollConnection {
+                    override fun onPostScroll(
+                        consumed: Offset,
+                        available: Offset,
+                        source: NestedScrollSource,
+                    ): Offset = available.copy(y = available.y.coerceAtMost(0f))
                 }
             }
-            if (projects.isNotEmpty()) {
-                Text(
-                    "Projects",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
-                )
-                projects.forEach { project ->
-                    NewChatItem(
-                        label = project.name,
-                        dotColor = projectColor(project.color),
-                    ) {
-                        scope.launch { sheetState.hide() }.invokeOnCompletion { showNewChatSheet = false }
-                        onOpenDraftChat(UUID.randomUUID().toString(), null, project.id)
+            LazyColumn(modifier = Modifier.fillMaxHeight(0.85f).nestedScroll(consumeDownScroll)) {
+                if (newChatQuery.isBlank()) {
+                    item {
+                        NewChatItem(label = "No agent / No project") {
+                            scope.launch { sheetState.hide() }.invokeOnCompletion {
+                                showNewChatSheet = false; newChatQuery = ""
+                            }
+                            onOpenDraftChat(UUID.randomUUID().toString(), null, null)
+                        }
                     }
                 }
+                if (filteredAgents.isNotEmpty()) {
+                    item {
+                        Text(
+                            "Agents",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+                        )
+                    }
+                    items(filteredAgents, key = { it.id }) { agent ->
+                        NewChatItem(label = if (agent.icon.isNotBlank()) "${agent.icon}  ${agent.name}" else agent.name) {
+                            scope.launch { sheetState.hide() }.invokeOnCompletion {
+                                showNewChatSheet = false; newChatQuery = ""
+                            }
+                            onOpenDraftChat(UUID.randomUUID().toString(), agent.id, null)
+                        }
+                    }
+                }
+                if (filteredProjects.isNotEmpty()) {
+                    item {
+                        Text(
+                            "Projects",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+                        )
+                    }
+                    items(filteredProjects, key = { it.id }) { project ->
+                        NewChatItem(
+                            label = project.name,
+                            dotColor = projectColor(project.color),
+                        ) {
+                            scope.launch { sheetState.hide() }.invokeOnCompletion {
+                                showNewChatSheet = false; newChatQuery = ""
+                            }
+                            onOpenDraftChat(UUID.randomUUID().toString(), null, project.id)
+                        }
+                    }
+                }
+                if (filteredAgents.isEmpty() && filteredProjects.isEmpty() && newChatQuery.isNotBlank()) {
+                    item {
+                        Text(
+                            "No results for \"$newChatQuery\"",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp),
+                        )
+                    }
+                }
+                item { Spacer(Modifier.padding(bottom = 16.dp)) }
             }
-            Spacer(Modifier.padding(bottom = 16.dp))
         }
     }
 
