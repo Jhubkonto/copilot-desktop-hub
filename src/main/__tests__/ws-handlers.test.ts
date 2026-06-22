@@ -103,6 +103,21 @@ vi.mock('../ws-server', () => ({
   setWsCommandHandler: vi.fn((handler) => { state.commandHandler = handler }),
 }))
 
+vi.mock('../scheduler-engine', () => ({
+  dbListTasks: vi.fn(() => []),
+  dbGetTask: vi.fn(() => null),
+  dbCreateTask: vi.fn((input: Record<string, unknown>) => ({ id: 'task-1', ...input })),
+  dbUpdateTask: vi.fn(() => null),
+  dbDeleteTask: vi.fn(),
+  dbSetTaskEnabled: vi.fn(() => null),
+  dbListRuns: vi.fn(() => []),
+  schedulerEngine: {
+    scheduleTask: vi.fn(),
+    unscheduleTask: vi.fn(),
+    triggerRun: vi.fn().mockResolvedValue({ id: 'run-1' }),
+  },
+}))
+
 import { registerWsHandlers, registerApprovalResolver } from '../ws-handlers'
 import { retrieveAuthMode } from '../auth'
 import { getAndroidUpdateManifest } from '../android-handlers'

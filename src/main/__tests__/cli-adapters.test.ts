@@ -105,10 +105,10 @@ describe('CLI adapters', () => {
     })
     expect(mockSpawn).toHaveBeenCalledWith(
       'C:\\claude.exe',
-      ['--output-format', 'stream-json', '--print', '--verbose', '--strict-mcp-config'],
+      ['--output-format', 'stream-json', '--print', '--verbose', '--strict-mcp-config', '--system-prompt', 'system'],
       expect.objectContaining({ cwd: 'C:\\workspace' })
     )
-    expect(proc.stdin.end).toHaveBeenCalledWith('[System]: system\n\n[User]: hello', 'utf8')
+    expect(proc.stdin.end).toHaveBeenCalledWith('[User]: hello', 'utf8')
   })
 
   it('ClaudeAdapter falls back to content_block_delta format', async () => {
@@ -147,6 +147,7 @@ describe('CLI adapters', () => {
       type: 'assistant',
       message: {
         content: [
+          { type: 'text', text: 'Navigating...' },
           { type: 'tool_use', id: 'toolu_mcp', name: 'mcp__playwright_chromium__browser_navigate', input: { url: 'https://www.google.com' } },
         ],
       },
@@ -191,6 +192,7 @@ describe('CLI adapters', () => {
       type: 'assistant',
       message: {
         content: [
+          { type: 'text', text: 'Searching...' },
           { type: 'tool_use', id: 'toolu_dangling', name: 'ToolSearch', input: { query: 'playwright navigate click' } },
         ],
       },
@@ -252,10 +254,10 @@ describe('CLI adapters', () => {
 
     await expect(sendPromise).resolves.toBe('I see a screenshot.')
 
-    // Must add --input-format stream-json when images are present
+    // Must add --system-prompt before --input-format stream-json when images are present
     expect(mockSpawn).toHaveBeenCalledWith(
       'C:\\claude.exe',
-      ['--output-format', 'stream-json', '--print', '--verbose', '--strict-mcp-config', '--input-format', 'stream-json'],
+      ['--output-format', 'stream-json', '--print', '--verbose', '--strict-mcp-config', '--system-prompt', 'You are helpful', '--input-format', 'stream-json'],
       expect.objectContaining({ cwd: 'C:\\workspace' })
     )
 
@@ -266,7 +268,6 @@ describe('CLI adapters', () => {
     expect(parsed.message.content).toHaveLength(2)
     expect((parsed.message.content[0] as { type: string; text: string }).type).toBe('text')
     expect((parsed.message.content[0] as { type: string; text: string }).text).toContain('what is this?')
-    expect((parsed.message.content[0] as { type: string; text: string }).text).toContain('You are helpful')
     const imgBlock = parsed.message.content[1] as { type: string; source: { type: string; media_type: string; data: string } }
     expect(imgBlock.type).toBe('image')
     expect(imgBlock.source.type).toBe('base64')
@@ -285,6 +286,7 @@ describe('CLI adapters', () => {
       conversationId: 'conv-1',
     }, () => {})
 
+    proc.stdout.emit('data', Buffer.from(JSON.stringify({ type: 'content_block_delta', delta: { text: 'hi' } }) + '\n'))
     proc.emit('close', 0)
     await sendPromise
 
@@ -316,6 +318,7 @@ describe('CLI adapters', () => {
       allowedTools: ['mcp__playwright_chromium__browser_navigate'],
     }, () => {})
 
+    proc.stdout.emit('data', Buffer.from(JSON.stringify({ type: 'content_block_delta', delta: { text: 'done' } }) + '\n'))
     proc.emit('close', 0)
     await sendPromise
 
@@ -353,6 +356,7 @@ describe('CLI adapters', () => {
       images: [{ id: 'img-1', name: 'img.png', dataUrl: 'data:image/jpeg;base64,/9j/abc' }],
     }, () => {})
 
+    proc.stdout.emit('data', Buffer.from(JSON.stringify({ type: 'content_block_delta', delta: { text: 'done' } }) + '\n'))
     proc.emit('close', 0)
     await sendPromise
 

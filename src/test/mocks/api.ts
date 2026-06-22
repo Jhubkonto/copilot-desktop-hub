@@ -339,6 +339,10 @@ export function createMockApi() {
     restartMcpServer: vi.fn().mockResolvedValue(true),
     onMcpServerStatusChanged: vi.fn().mockReturnValue(() => {}),
 
+    // Voice
+    getVoiceStatus: vi.fn().mockResolvedValue({ ready: false }),
+    onMobileClientCount: vi.fn().mockReturnValue(() => {}),
+
     // Providers
     listProviders: vi.fn().mockResolvedValue([]),
     setProviderKey: vi.fn().mockResolvedValue(undefined),
@@ -512,6 +516,19 @@ export function createMockApi() {
     readClipboardContent: vi.fn().mockResolvedValue(null),
     readClipboardImage: vi.fn().mockResolvedValue(null),
     ocrImage: vi.fn().mockResolvedValue({ text: '' }),
+
+    // Scheduler
+    schedulerList: vi.fn().mockResolvedValue([]),
+    schedulerGet: vi.fn().mockResolvedValue(null),
+    schedulerCreate: vi.fn().mockResolvedValue({ task: null, warnings: [] }),
+    schedulerUpdate: vi.fn().mockResolvedValue({ task: null, warnings: [] }),
+    schedulerDelete: vi.fn().mockResolvedValue(true),
+    schedulerSetEnabled: vi.fn().mockResolvedValue(null),
+    schedulerRunNow: vi.fn().mockResolvedValue(null),
+    schedulerListRuns: vi.fn().mockResolvedValue([]),
+    onSchedulerTaskUpdated: vi.fn().mockReturnValue(() => {}),
+    onSchedulerTaskDeleted: vi.fn().mockReturnValue(() => {}),
+    onSchedulerRunUpdated: vi.fn().mockReturnValue(() => {}),
 
     // Android build and distribution
     androidGetWorkspaceInfo: vi.fn().mockResolvedValue({ path: '', branch: 'main', commitSha: 'abc1234', dirty: false, versionCode: 1, versionName: '1.0', isGitRepo: true }),
