@@ -11,6 +11,9 @@ import {
 } from './providers'
 import { dispatchToProvider } from './chat-provider-dispatch'
 import { getAdapter } from './cli-adapters/registry'
+import { ClaudeAdapter } from './cli-adapters/claude'
+import { CodexAdapter } from './cli-adapters/codex'
+import { getCliModels } from './cli-detection'
 import type { ProviderMessage } from './provider-core-types'
 import type { SkillGeneratorMessage, SkillGeneratorSpec } from '../shared/types'
 import { getDatabase } from './database'
@@ -67,6 +70,13 @@ export function getSkillGeneratorModel(): string {
   const savedProvider = getProviderForAgent(savedModel)
   if (isProviderConfigured(savedProvider.provider)) return savedModel
 
+  if (ClaudeAdapter.isAvailable() && getCliModels('claude-cli').some((m) => m.id === savedModel)) {
+    return `claude-cli:${savedModel}`
+  }
+  if (CodexAdapter.isAvailable() && getCliModels('codex-cli').some((m) => m.id === savedModel)) {
+    return `codex-cli:${savedModel}`
+  }
+
   const fallbackProvider = PROVIDERS.find((p) => isProviderConfigured(p.name) && p.models.length > 0)
   if (fallbackProvider?.models[0]) {
     return fallbackProvider.name === 'openai'
@@ -74,7 +84,8 @@ export function getSkillGeneratorModel(): string {
       : `${fallbackProvider.name}:${fallbackProvider.models[0]}`
   }
   const openRouterModel = isProviderConfigured('openrouter') ? getOpenRouterModels()[0] : undefined
-  return openRouterModel ? `openrouter:${openRouterModel}` : savedModel
+  if (openRouterModel) return `openrouter:${openRouterModel}`
+  throw new Error('No provider is configured. Add an API key in Settings or select a specific model.')
 }
 
 function buildProviderMessages(messages: SkillGeneratorMessage[]): ProviderMessage[] {
@@ -234,6 +245,7 @@ export async function runSkillGeneratorChat(
 export async function runSkillGeneratorChatForAndroid(
   messages: SkillGeneratorMessage[],
   sessionId = `skill-gen-android-${randomUUID()}`,
+  modelOverride?: string,
 ): Promise<void> {
   const providerMessages = buildProviderMessages(messages)
   const fakeWin = { isDestroyed: () => false, webContents: { send: () => {}, isDestroyed: () => false } } as unknown as BrowserWindow
@@ -249,6 +261,7 @@ export async function runSkillGeneratorChatForAndroid(
       accumulated += chunk
       broadcastToMobile({ event: 'skill-generator:token', data: { sessionId, chunk } })
     },
+    modelOverride,
   )
 
   accumulated = fullText || accumulated

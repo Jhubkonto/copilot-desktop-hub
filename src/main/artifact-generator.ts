@@ -7,6 +7,9 @@ import { safeHandle } from './safe-handle'
 import { getProviderForAgent, getApiKey, DEFAULT_PROVIDER_MODEL, PROVIDERS, isProviderConfigured, getOpenRouterModels } from './providers'
 import { dispatchToProvider } from './chat-provider-dispatch'
 import { getAdapter } from './cli-adapters/registry'
+import { ClaudeAdapter } from './cli-adapters/claude'
+import { CodexAdapter } from './cli-adapters/codex'
+import { getCliModels } from './cli-detection'
 import type { ProviderMessage } from './provider-core-types'
 import type { ArtifactSpec, ArtifactGeneratorMessage, ArtifactGeneratorRun, ArtifactKind, ArtifactExportFormat } from '../shared/types'
 import { getDatabase } from './database'
@@ -192,12 +195,19 @@ function buildGenerationMessages(spec: ArtifactSpec): ProviderMessage[] {
 // LLM caller helper
 // ---------------------------------------------------------------------------
 
-function getArtifactGeneratorModel(): string {
+export function getArtifactGeneratorModel(): string {
   const db = getDatabase()
   const row = db.prepare("SELECT value FROM settings WHERE key = 'default_model'").get() as { value: string } | undefined
   const savedModel = row?.value && row.value !== 'default' ? row.value : DEFAULT_PROVIDER_MODEL
   const savedProvider = getProviderForAgent(savedModel)
   if (isProviderConfigured(savedProvider.provider)) return savedModel
+
+  if (ClaudeAdapter.isAvailable() && getCliModels('claude-cli').some((m) => m.id === savedModel)) {
+    return `claude-cli:${savedModel}`
+  }
+  if (CodexAdapter.isAvailable() && getCliModels('codex-cli').some((m) => m.id === savedModel)) {
+    return `codex-cli:${savedModel}`
+  }
 
   const fallbackProvider = PROVIDERS.find((p) => isProviderConfigured(p.name) && p.models.length > 0)
   if (fallbackProvider?.models[0]) {
@@ -206,7 +216,8 @@ function getArtifactGeneratorModel(): string {
       : `${fallbackProvider.name}:${fallbackProvider.models[0]}`
   }
   const openRouterModel = isProviderConfigured('openrouter') ? getOpenRouterModels()[0] : undefined
-  return openRouterModel ? `openrouter:${openRouterModel}` : savedModel
+  if (openRouterModel) return `openrouter:${openRouterModel}`
+  throw new Error('No provider is configured. Add an API key in Settings or select a specific model.')
 }
 
 async function runProviderChat(
@@ -480,6 +491,7 @@ export async function runArtifactGeneration(
 export async function runArtifactGeneratorChatForAndroid(
   messages: ArtifactGeneratorMessage[],
   sessionId: string,
+  modelOverride?: string,
 ): Promise<void> {
   const { broadcastToMobile } = await import('./ws-server')
   const fakeWin = {
@@ -499,6 +511,7 @@ export async function runArtifactGeneratorChatForAndroid(
       accumulated += chunk
       broadcastToMobile({ event: 'artifact-generator:token', data: { sessionId, chunk } })
     },
+    modelOverride,
   )
   accumulated = fullText || accumulated
 

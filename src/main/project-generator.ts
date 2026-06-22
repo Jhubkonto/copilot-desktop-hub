@@ -10,6 +10,9 @@ import {
 } from './providers'
 import { dispatchToProvider } from './chat-provider-dispatch'
 import { getAdapter } from './cli-adapters/registry'
+import { ClaudeAdapter } from './cli-adapters/claude'
+import { CodexAdapter } from './cli-adapters/codex'
+import { getCliModels } from './cli-detection'
 import type { ProviderMessage } from './provider-core-types'
 import type { ProjectGeneratorMessage, ProjectGeneratorSpec, AgentConfig } from '../shared/types'
 import { DEFAULT_PROJECT_CONFIG } from '../shared/types'
@@ -176,13 +179,18 @@ function isAgentSpec(v: unknown): boolean {
   return typeof v === 'object' && v !== null && typeof (v as Record<string, unknown>).role === 'string'
 }
 
-function getProjectGeneratorModel(): string {
+export function getProjectGeneratorModel(): string {
   const db = getDatabase()
   const row = db.prepare("SELECT value FROM settings WHERE key = 'default_model'").get() as { value: string } | undefined
   const savedModel = row?.value && row.value !== 'default' ? row.value : DEFAULT_PROVIDER_MODEL
   const savedProvider = getProviderForAgent(savedModel)
-  if (isProviderConfigured(savedProvider.provider)) {
-    return savedModel
+  if (isProviderConfigured(savedProvider.provider)) return savedModel
+
+  if (ClaudeAdapter.isAvailable() && getCliModels('claude-cli').some((m) => m.id === savedModel)) {
+    return `claude-cli:${savedModel}`
+  }
+  if (CodexAdapter.isAvailable() && getCliModels('codex-cli').some((m) => m.id === savedModel)) {
+    return `codex-cli:${savedModel}`
   }
 
   const fallbackProvider = PROVIDERS.find((provider) => isProviderConfigured(provider.name) && provider.models.length > 0)
@@ -192,7 +200,8 @@ function getProjectGeneratorModel(): string {
       : `${fallbackProvider.name}:${fallbackProvider.models[0]}`
   }
   const openRouterModel = isProviderConfigured('openrouter') ? getOpenRouterModels()[0] : undefined
-  return openRouterModel ? `openrouter:${openRouterModel}` : savedModel
+  if (openRouterModel) return `openrouter:${openRouterModel}`
+  throw new Error('No provider is configured. Add an API key in Settings or select a specific model.')
 }
 
 async function runProjectGeneratorProviderChat(
@@ -293,6 +302,7 @@ export async function runProjectGeneratorChatForAndroid(
   messages: ProjectGeneratorMessage[],
   existingAgents: { id: string; name: string; icon: string; systemPrompt: string }[],
   sessionId = `project-gen-android-${randomUUID()}`,
+  modelOverride?: string,
 ): Promise<void> {
   const providerMessages = buildProviderMessages(messages, existingAgents)
 
@@ -308,6 +318,7 @@ export async function runProjectGeneratorChatForAndroid(
       accumulated += chunk
       broadcastToMobile({ event: 'project-generator:token', data: { sessionId, chunk } })
     },
+    modelOverride,
   )
 
   accumulated = fullText || accumulated

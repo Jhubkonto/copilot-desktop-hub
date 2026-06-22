@@ -33,6 +33,9 @@ data class ArtifactGeneratorUiState(
     val createdArtifactId: String? = null,
     val createdArtifactTitle: String? = null,
     val sessionId: String = "android-artifact-${UUID.randomUUID()}",
+    val promptInsert: Pair<Int, String>? = null,
+    val selectedModel: String? = null,
+    val resolvedModel: String? = null,
 )
 
 class ArtifactGeneratorViewModel(
@@ -47,6 +50,11 @@ class ArtifactGeneratorViewModel(
             wsClient.events.collect { event ->
                 val state = _uiState.value
                 when (event) {
+                    is WsEvent.ArtifactGeneratorModel -> {
+                        if (event.sessionId == null || event.sessionId == state.sessionId) {
+                            _uiState.value = _uiState.value.copy(resolvedModel = event.modelId.ifBlank { null })
+                        }
+                    }
                     is WsEvent.ArtifactGeneratorToken -> {
                         if (event.sessionId == null || event.sessionId == state.sessionId) {
                             _uiState.value = state.copy(streamingText = state.streamingText + event.chunk)
@@ -115,11 +123,26 @@ class ArtifactGeneratorViewModel(
         val payload = updatedMessages
             .filter { it.role != "assistant" || it != updatedMessages.first() }
             .map { mapOf("role" to it.role, "content" to it.content) }
-        if (state.messages.size <= 1) {
-            wsClient.send("artifact-generator:start", mapOf("sessionId" to state.sessionId, "messages" to payload))
-        } else {
-            wsClient.send("artifact-generator:message", mapOf("sessionId" to state.sessionId, "messages" to payload))
+        val baseData = buildMap<String, Any> {
+            put("sessionId", state.sessionId)
+            put("messages", payload)
+            state.selectedModel?.let { put("model", it) }
         }
+        if (state.messages.size <= 1) {
+            wsClient.send("artifact-generator:start", baseData)
+        } else {
+            wsClient.send("artifact-generator:message", baseData)
+        }
+    }
+
+    fun setModel(modelId: String?) {
+        _uiState.value = _uiState.value.copy(selectedModel = modelId)
+    }
+
+    private var promptInsertCounter = 0
+
+    fun insertPromptText(body: String) {
+        _uiState.value = _uiState.value.copy(promptInsert = Pair(++promptInsertCounter, body))
     }
 
     fun updateSpec(spec: ArtifactGeneratorSpec) {

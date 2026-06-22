@@ -29,6 +29,9 @@ data class ProjectGeneratorUiState(
     val createdProjectName: String? = null,
     val createdProjectId: String? = null,
     val activeSessionId: String = UUID.randomUUID().toString(),
+    val promptInsert: Pair<Int, String>? = null,
+    val selectedModel: String? = null,
+    val resolvedModel: String? = null,
 )
 
 class ProjectGeneratorViewModel(
@@ -42,6 +45,10 @@ class ProjectGeneratorViewModel(
         viewModelScope.launch {
             wsClient.events.collect { event ->
                 when (event) {
+                    is WsEvent.ProjectGeneratorModel -> {
+                        if (!isActiveSession(event.sessionId)) return@collect
+                        _uiState.value = _uiState.value.copy(resolvedModel = event.modelId.ifBlank { null })
+                    }
                     is WsEvent.ProjectGeneratorToken -> {
                         if (!isActiveSession(event.sessionId)) return@collect
                         _uiState.value = _uiState.value.copy(
@@ -94,11 +101,26 @@ class ProjectGeneratorViewModel(
         val next = current.messages + userMsg
         _uiState.value = current.copy(messages = next, isLoading = true, streamingText = "", missedSpec = false)
         val payload = next.map { mapOf("role" to it.role, "content" to it.content) }
-        if (current.messages.isEmpty()) {
-            wsClient.send("project-generator:start", mapOf("sessionId" to current.activeSessionId, "messages" to payload))
-        } else {
-            wsClient.send("project-generator:message", mapOf("sessionId" to current.activeSessionId, "messages" to payload))
+        val baseData = buildMap<String, Any> {
+            put("sessionId", current.activeSessionId)
+            put("messages", payload)
+            current.selectedModel?.let { put("model", it) }
         }
+        if (current.messages.size <= 1) {
+            wsClient.send("project-generator:start", baseData)
+        } else {
+            wsClient.send("project-generator:message", baseData)
+        }
+    }
+
+    fun setModel(modelId: String?) {
+        _uiState.value = _uiState.value.copy(selectedModel = modelId)
+    }
+
+    private var promptInsertCounter = 0
+
+    fun insertPromptText(body: String) {
+        _uiState.value = _uiState.value.copy(promptInsert = Pair(++promptInsertCounter, body))
     }
 
     fun confirmSpec() {
@@ -121,6 +143,26 @@ class ProjectGeneratorViewModel(
 
     fun backToChat() {
         _uiState.value = _uiState.value.copy(phase = ProjectGenPhase.CHAT, error = null)
+    }
+
+    fun setupManually() {
+        _uiState.value = _uiState.value.copy(
+            phase = ProjectGenPhase.SPEC_REVIEW,
+            pendingSpec = ProjectGeneratorSpec(
+                name = "",
+                color = "#6366f1",
+                instructions = "",
+                rootDirectory = null,
+                instructionMode = "prepend",
+                variables = emptyList(),
+                inScope = emptyList(),
+                outOfScope = emptyList(),
+                milestones = emptyList(),
+                orchestrationEnabled = false,
+                defaultModel = null,
+                agents = emptyList(),
+            ),
+        )
     }
 
     fun retryLastMessage() {

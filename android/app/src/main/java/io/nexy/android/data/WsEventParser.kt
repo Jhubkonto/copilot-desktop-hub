@@ -1011,6 +1011,21 @@ fun parseWsEvent(
                 WsEvent.ProjectAgents(id = id, agents = agents)
             }
 
+            "project-generator:model" -> WsEvent.ProjectGeneratorModel(
+                sessionId = data?.nullableString("sessionId"),
+                modelId = data?.optString("modelId") ?: "",
+            )
+
+            "skill-generator:model" -> WsEvent.SkillGeneratorModel(
+                sessionId = data?.nullableString("sessionId"),
+                modelId = data?.optString("modelId") ?: "",
+            )
+
+            "artifact-generator:model" -> WsEvent.ArtifactGeneratorModel(
+                sessionId = data?.nullableString("sessionId"),
+                modelId = data?.optString("modelId") ?: "",
+            )
+
             "agent-generator:model" -> WsEvent.AgentGeneratorModel(
                 sessionId = data?.nullableString("sessionId"),
                 modelId = data?.optString("modelId") ?: "",

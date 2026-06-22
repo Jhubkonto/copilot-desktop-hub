@@ -24,14 +24,15 @@ import { runFix, emitFixEvent } from './self-heal/fix-agent'
 import { emitVerificationEvent, runVerification } from './self-heal/verifier'
 import { commitSelfHealFix, prepareSelfHealCommit, pushSelfHealFix } from './self-heal/git-ops'
 import { approveRelaunch, getRecoveryRuns, prepareReload, rollbackHeal, startReload } from './self-heal/recovery'
-import { runProjectGeneratorChatForAndroid, createProjectFromSpec, getProjectGeneratorAgentSummaries } from './project-generator'
+import { runProjectGeneratorChatForAndroid, createProjectFromSpec, getProjectGeneratorAgentSummaries, getProjectGeneratorModel } from './project-generator'
 import { runAgentGeneratorChatForAndroid, createAgentFromSpec, getAgentGeneratorModel } from './agent-generator'
-import { runSkillGeneratorChatForAndroid, createSkillFromSpec } from './skill-generator'
+import { runSkillGeneratorChatForAndroid, createSkillFromSpec, getSkillGeneratorModel } from './skill-generator'
 import {
   createArtifactGeneratorRunRecord,
   runArtifactGeneration,
   runArtifactGeneratorChatForAndroid,
   updateArtifactGeneratorRunRecord,
+  getArtifactGeneratorModel,
 } from './artifact-generator'
 import type { ProjectGeneratorSpec, AgentGeneratorSpec, SkillConfig, SkillGeneratorSpec, ArtifactGeneratorMessage, ArtifactSpec, PromptLibraryEntry, PromptLibraryVersion } from '../shared/types'
 import { storeApiKey, removeApiKey, getAzureEndpoint, setAzureEndpoint } from './provider-secrets'
@@ -1615,10 +1616,17 @@ export function registerWsHandlers(): void {
       const sessionId = typeof data.sessionId === 'string' && data.sessionId.trim()
         ? data.sessionId.trim()
         : `android-${Date.now()}`
+      const modelOverride = typeof data.model === 'string' && data.model.trim() ? data.model.trim() : undefined
       const existingAgents = Array.isArray(data.existingAgents) && data.existingAgents.length > 0
         ? data.existingAgents
         : getProjectGeneratorAgentSummaries()
-      void runProjectGeneratorChatForAndroid(messages, existingAgents, sessionId)
+      if (command === 'project-generator:start') {
+        try {
+          const resolvedModel = modelOverride ?? getProjectGeneratorModel()
+          broadcastToMobile({ event: 'project-generator:model', data: { sessionId, modelId: resolvedModel } })
+        } catch { /* no configured provider — error will surface from runProjectGeneratorChatForAndroid */ }
+      }
+      void runProjectGeneratorChatForAndroid(messages, existingAgents, sessionId, modelOverride)
         .catch((err: unknown) => {
           broadcastToMobile({ event: 'project-generator:error', data: { sessionId, message: String(err) } })
         })
@@ -1687,7 +1695,14 @@ export function registerWsHandlers(): void {
       const sessionId = typeof data.sessionId === 'string' && data.sessionId.trim()
         ? data.sessionId.trim()
         : `android-skill-${Date.now()}`
-      void runSkillGeneratorChatForAndroid(messages, sessionId)
+      const modelOverride = typeof data.model === 'string' && data.model.trim() ? data.model.trim() : undefined
+      if (command === 'skill-generator:start') {
+        try {
+          const resolvedModel = modelOverride ?? getSkillGeneratorModel()
+          broadcastToMobile({ event: 'skill-generator:model', data: { sessionId, modelId: resolvedModel } })
+        } catch { /* no configured provider — error will surface from runSkillGeneratorChatForAndroid */ }
+      }
+      void runSkillGeneratorChatForAndroid(messages, sessionId, modelOverride)
         .catch((err: unknown) => {
           broadcastToMobile({ event: 'skill-generator:error', data: { sessionId, message: String(err) } })
         })
@@ -1724,7 +1739,14 @@ export function registerWsHandlers(): void {
       const sessionId = typeof data.sessionId === 'string' && data.sessionId.trim()
         ? data.sessionId.trim()
         : `android-artifact-${Date.now()}`
-      void runArtifactGeneratorChatForAndroid(messages, sessionId)
+      const modelOverride = typeof data.model === 'string' && data.model.trim() ? data.model.trim() : undefined
+      if (command === 'artifact-generator:start') {
+        try {
+          const resolvedModel = modelOverride ?? getArtifactGeneratorModel()
+          broadcastToMobile({ event: 'artifact-generator:model', data: { sessionId, modelId: resolvedModel } })
+        } catch { /* no configured provider — error will surface from runArtifactGeneratorChatForAndroid */ }
+      }
+      void runArtifactGeneratorChatForAndroid(messages, sessionId, modelOverride)
         .catch((err: unknown) => {
           broadcastToMobile({ event: 'artifact-generator:error', data: { sessionId, message: String(err) } })
         })

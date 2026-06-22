@@ -32,6 +32,7 @@ import io.nexy.android.ui.agentgenerator.AgentGeneratorViewModel
 import io.nexy.android.ui.artifactgenerator.ArtifactGenMessage
 import io.nexy.android.ui.artifactgenerator.ArtifactGenPhase
 import io.nexy.android.ui.artifactgenerator.ArtifactGeneratorViewModel
+import io.nexy.android.ui.projectgenerator.ProjectGeneratorViewModel
 import io.nexy.android.ui.skillgenerator.SkillGenMessage
 import io.nexy.android.ui.skillgenerator.SkillGenPhase
 import io.nexy.android.ui.skillgenerator.SkillGeneratorViewModel
@@ -339,6 +340,182 @@ class GeneratorViewModelParityTest {
             referencedFiles = listOf("CHANGELOG.md"),
         ),
     )
+
+    // ── New parity tests ────────────────────────────────────────────────────────
+
+    @Test
+    fun projectGeneratorModelEventUpdatesResolvedModel() = runTest {
+        val fakeWs = FakeWsClient()
+        val vm = ProjectGeneratorViewModel(fakeWs)
+        advanceUntilIdle()
+        val sessionId = vm.uiState.value.activeSessionId
+
+        fakeWs.emit(WsEvent.ProjectGeneratorModel(sessionId, "anthropic:claude-sonnet-4-6"))
+        advanceUntilIdle()
+        assertEquals("anthropic:claude-sonnet-4-6", vm.uiState.value.resolvedModel)
+        assertEquals(null, vm.uiState.value.selectedModel)
+
+        vm.setModel("openai:gpt-4o")
+        assertEquals("openai:gpt-4o", vm.uiState.value.selectedModel)
+        vm.setModel(null)
+        assertEquals(null, vm.uiState.value.selectedModel)
+
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
+    fun projectGeneratorSendsModelInPayloadWhenSelected() = runTest {
+        val fakeWs = FakeWsClient()
+        val vm = ProjectGeneratorViewModel(fakeWs)
+        advanceUntilIdle()
+
+        vm.setModel("openai:gpt-4o")
+        vm.sendMessage("Hello")
+        advanceUntilIdle()
+
+        val cmd = fakeWs.sentCommands.last()
+        assertEquals("project-generator:start", cmd.command)
+        assertEquals("openai:gpt-4o", cmd.data["model"])
+
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
+    fun projectGeneratorInsertPromptAndRetry() = runTest {
+        val fakeWs = FakeWsClient()
+        val vm = ProjectGeneratorViewModel(fakeWs)
+        advanceUntilIdle()
+        val sessionId = vm.uiState.value.activeSessionId
+
+        vm.insertPromptText("Use TDD")
+        assertEquals("Use TDD", vm.uiState.value.promptInsert?.second)
+
+        vm.sendMessage("Build a todo app")
+        fakeWs.emit(WsEvent.ProjectGeneratorError(sessionId, "Provider error"))
+        advanceUntilIdle()
+        assertEquals("Provider error", vm.uiState.value.error)
+
+        vm.retryLastMessage()
+        advanceUntilIdle()
+        assertEquals(null, vm.uiState.value.error)
+        assertEquals("project-generator:message", fakeWs.sentCommands.last().command)
+
+        vm.dismissError()
+        assertEquals(null, vm.uiState.value.error)
+
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
+    fun skillGeneratorModelEventUpdatesResolvedModel() = runTest {
+        val fakeWs = FakeWsClient()
+        val vm = SkillGeneratorViewModel(fakeWs)
+        advanceUntilIdle()
+        val sessionId = vm.uiState.value.activeSessionId
+
+        fakeWs.emit(WsEvent.SkillGeneratorModel(sessionId, "anthropic:claude-haiku-4-5"))
+        advanceUntilIdle()
+        assertEquals("anthropic:claude-haiku-4-5", vm.uiState.value.resolvedModel)
+
+        vm.setModel("claude-cli:claude-sonnet-4-6")
+        assertEquals("claude-cli:claude-sonnet-4-6", vm.uiState.value.selectedModel)
+
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
+    fun skillGeneratorSendsModelInPayloadAndInsertPrompt() = runTest {
+        val fakeWs = FakeWsClient()
+        val vm = SkillGeneratorViewModel(fakeWs)
+        advanceUntilIdle()
+        val sessionId = vm.uiState.value.activeSessionId
+
+        vm.setModel("openai:gpt-4o-mini")
+        vm.sendMessage("Create a coding skill")
+        advanceUntilIdle()
+
+        val cmd = fakeWs.sentCommands.last()
+        assertEquals("skill-generator:start", cmd.command)
+        assertEquals("openai:gpt-4o-mini", cmd.data["model"])
+
+        vm.insertPromptText("Focus on Python")
+        assertEquals("Focus on Python", vm.uiState.value.promptInsert?.second)
+
+        fakeWs.emit(WsEvent.SkillGeneratorError(sessionId, "Timeout"))
+        advanceUntilIdle()
+        assertEquals("Timeout", vm.uiState.value.error)
+
+        vm.retryLastMessage()
+        advanceUntilIdle()
+        assertEquals(null, vm.uiState.value.error)
+
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
+    fun artifactGeneratorModelEventUpdatesResolvedModel() = runTest {
+        val fakeWs = FakeWsClient()
+        val vm = ArtifactGeneratorViewModel(fakeWs)
+        advanceUntilIdle()
+        val sessionId = vm.uiState.value.sessionId
+
+        fakeWs.emit(WsEvent.ArtifactGeneratorModel(sessionId, "openai:gpt-4o"))
+        advanceUntilIdle()
+        assertEquals("openai:gpt-4o", vm.uiState.value.resolvedModel)
+
+        fakeWs.emit(WsEvent.ArtifactGeneratorModel(null, "anthropic:claude-opus-4-8"))
+        advanceUntilIdle()
+        assertEquals("anthropic:claude-opus-4-8", vm.uiState.value.resolvedModel)
+
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
+    fun artifactGeneratorSendsModelInPayloadAndInsertPrompt() = runTest {
+        val fakeWs = FakeWsClient()
+        val vm = ArtifactGeneratorViewModel(fakeWs)
+        advanceUntilIdle()
+        val sessionId = vm.uiState.value.sessionId
+
+        vm.setModel("openai:gpt-4o")
+        vm.sendMessage("Create release notes")
+        advanceUntilIdle()
+
+        val cmd = fakeWs.sentCommands.last()
+        assertEquals("artifact-generator:start", cmd.command)
+        assertEquals("openai:gpt-4o", cmd.data["model"])
+
+        vm.insertPromptText("Keep it concise")
+        assertEquals("Keep it concise", vm.uiState.value.promptInsert?.second)
+
+        fakeWs.emit(WsEvent.ArtifactGeneratorError(sessionId, "Model error"))
+        advanceUntilIdle()
+        assertEquals("Model error", vm.uiState.value.error)
+
+        vm.retryLastMessage()
+        advanceUntilIdle()
+        assertEquals(null, vm.uiState.value.error)
+
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
+    fun allGeneratorsParseModelEventsFromJson() = runTest {
+        val pgModel = parseEvent(
+            """{"event":"project-generator:model","data":{"sessionId":"pg-1","modelId":"anthropic:claude-sonnet-4-6"}}"""
+        )
+        assertEquals(WsEvent.ProjectGeneratorModel("pg-1", "anthropic:claude-sonnet-4-6"), pgModel)
+
+        val sgModel = parseEvent(
+            """{"event":"skill-generator:model","data":{"sessionId":"sg-1","modelId":"openai:gpt-4o"}}"""
+        )
+        assertEquals(WsEvent.SkillGeneratorModel("sg-1", "openai:gpt-4o"), sgModel)
+
+        val agModel = parseEvent(
+            """{"event":"artifact-generator:model","data":{"sessionId":"ag-1","modelId":"claude-cli:claude-haiku-4-5-20251001"}}"""
+        )
+        assertEquals(WsEvent.ArtifactGeneratorModel("ag-1", "claude-cli:claude-haiku-4-5-20251001"), agModel)
+    }
 
     private data class SentCommand(val command: String, val data: Map<String, Any>)
 
