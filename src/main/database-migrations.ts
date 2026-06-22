@@ -499,6 +499,57 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
         ON agent_skills(agent_id, sort_order);
     `,
   },
+  {
+    version: 38,
+    sql: `
+      CREATE TABLE IF NOT EXISTS scheduled_tasks (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        prompt TEXT NOT NULL DEFAULT '',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        agent_id TEXT,
+        project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+        model TEXT,
+        conversation_id TEXT,
+        schedule_type TEXT NOT NULL CHECK (schedule_type IN ('one-time', 'daily', 'weekdays', 'weekly', 'monthly')),
+        local_time TEXT NOT NULL,
+        weekday INTEGER,
+        month_day INTEGER,
+        timezone TEXT NOT NULL DEFAULT 'UTC',
+        tool_policy_json TEXT NOT NULL DEFAULT '{"preApproved":[],"alwaysAsk":[],"neverAllow":[]}',
+        notification_pref TEXT NOT NULL DEFAULT 'failures_only' CHECK (notification_pref IN ('always', 'failures_only', 'off')),
+        next_run_at INTEGER,
+        last_run_at INTEGER,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+      );
+      CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_enabled
+        ON scheduled_tasks(enabled, next_run_at);
+    `,
+  },
+  {
+    version: 39,
+    sql: `
+      CREATE TABLE IF NOT EXISTS scheduled_runs (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES scheduled_tasks(id) ON DELETE CASCADE,
+        scheduled_at INTEGER,
+        started_at INTEGER,
+        finished_at INTEGER,
+        status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'approval_required', 'success', 'failed', 'skipped')) DEFAULT 'pending',
+        error TEXT,
+        conversation_id TEXT,
+        message_id TEXT,
+        trigger_source TEXT NOT NULL CHECK (trigger_source IN ('scheduled', 'manual')) DEFAULT 'scheduled',
+        created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+        UNIQUE(task_id, scheduled_at)
+      );
+      CREATE INDEX IF NOT EXISTS idx_scheduled_runs_task
+        ON scheduled_runs(task_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_scheduled_runs_status
+        ON scheduled_runs(status, created_at DESC);
+    `,
+  },
 ];
 
 
@@ -742,6 +793,52 @@ export function initializeBaseSchema(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_conversation_summaries_updated
       ON conversation_summaries(updated_at);
+
+    CREATE TABLE IF NOT EXISTS scheduled_tasks (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      prompt TEXT NOT NULL DEFAULT '',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      agent_id TEXT,
+      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+      model TEXT,
+      conversation_id TEXT,
+      schedule_type TEXT NOT NULL CHECK (schedule_type IN ('one-time', 'daily', 'weekdays', 'weekly', 'monthly')),
+      local_time TEXT NOT NULL,
+      weekday INTEGER,
+      month_day INTEGER,
+      timezone TEXT NOT NULL DEFAULT 'UTC',
+      tool_policy_json TEXT NOT NULL DEFAULT '{"preApproved":[],"alwaysAsk":[],"neverAllow":[]}',
+      notification_pref TEXT NOT NULL DEFAULT 'failures_only' CHECK (notification_pref IN ('always', 'failures_only', 'off')),
+      next_run_at INTEGER,
+      last_run_at INTEGER,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_enabled
+      ON scheduled_tasks(enabled, next_run_at);
+
+    CREATE TABLE IF NOT EXISTS scheduled_runs (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL REFERENCES scheduled_tasks(id) ON DELETE CASCADE,
+      scheduled_at INTEGER,
+      started_at INTEGER,
+      finished_at INTEGER,
+      status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'approval_required', 'success', 'failed', 'skipped')) DEFAULT 'pending',
+      error TEXT,
+      conversation_id TEXT,
+      message_id TEXT,
+      trigger_source TEXT NOT NULL CHECK (trigger_source IN ('scheduled', 'manual')) DEFAULT 'scheduled',
+      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      UNIQUE(task_id, scheduled_at)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scheduled_runs_task
+      ON scheduled_runs(task_id, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_scheduled_runs_status
+      ON scheduled_runs(status, created_at DESC);
   `);
 }
 

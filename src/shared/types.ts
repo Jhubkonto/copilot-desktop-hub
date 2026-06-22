@@ -1016,6 +1016,88 @@ export interface AndroidUpdateManifest {
 }
 
 // ---------------------------------------------------------------------------
+// Scheduler
+// ---------------------------------------------------------------------------
+
+export type ScheduleType = 'one-time' | 'daily' | 'weekdays' | 'weekly' | 'monthly'
+export type ScheduledRunStatus = 'pending' | 'running' | 'approval_required' | 'success' | 'failed' | 'skipped'
+export type ScheduledRunTrigger = 'scheduled' | 'manual'
+export type SchedulerNotificationPref = 'always' | 'failures_only' | 'off'
+
+export interface ScheduledTaskToolPolicy {
+  preApproved: string[]
+  alwaysAsk: string[]
+  neverAllow: string[]
+}
+
+export interface ScheduledTask {
+  id: string
+  name: string
+  prompt: string
+  enabled: boolean
+  agentId: string | null
+  projectId: string | null
+  model: string | null
+  conversationId: string | null
+  scheduleType: ScheduleType
+  localTime: string
+  weekday: number | null
+  monthDay: number | null
+  timezone: string
+  toolPolicy: ScheduledTaskToolPolicy
+  notificationPref: SchedulerNotificationPref
+  nextRunAt: number | null
+  lastRunAt: number | null
+  createdAt: number
+  updatedAt: number
+}
+
+export interface ScheduledRun {
+  id: string
+  taskId: string
+  scheduledAt: number | null
+  startedAt: number | null
+  finishedAt: number | null
+  status: ScheduledRunStatus
+  error: string | null
+  conversationId: string | null
+  messageId: string | null
+  triggerSource: ScheduledRunTrigger
+  createdAt: number
+}
+
+export interface ScheduledTaskCreateInput {
+  name: string
+  prompt: string
+  enabled?: boolean
+  agentId?: string | null
+  projectId?: string | null
+  model?: string | null
+  scheduleType: ScheduleType
+  localTime: string
+  weekday?: number | null
+  monthDay?: number | null
+  timezone: string
+  toolPolicy?: Partial<ScheduledTaskToolPolicy>
+  notificationPref?: SchedulerNotificationPref
+}
+
+export interface ScheduledTaskUpdateInput {
+  name?: string
+  prompt?: string
+  agentId?: string | null
+  projectId?: string | null
+  model?: string | null
+  scheduleType?: ScheduleType
+  localTime?: string
+  weekday?: number | null
+  monthDay?: number | null
+  timezone?: string
+  toolPolicy?: Partial<ScheduledTaskToolPolicy>
+  notificationPref?: SchedulerNotificationPref
+}
+
+// ---------------------------------------------------------------------------
 // Prompt library
 // ---------------------------------------------------------------------------
 
@@ -1430,6 +1512,18 @@ export type IpcReturnMap = {
   'project:set-default-model': boolean
   'project:set-primary-agent': boolean
   'project:update-config': boolean
+  // Scheduler
+  'scheduler:list': ScheduledTask[]
+  'scheduler:get': ScheduledTask | null
+  'scheduler:create': { task: ScheduledTask; warnings: string[] }
+  'scheduler:update': { task: ScheduledTask; warnings: string[] }
+  'scheduler:delete': boolean
+  'scheduler:set-enabled': ScheduledTask
+  'scheduler:run-now': ScheduledRun
+  'scheduler:list-runs': ScheduledRun[]
+  'scheduler:task-updated': void
+  'scheduler:task-deleted': void
+  'scheduler:run-updated': void
   // Prompt library
   'prompt:create': PromptLibraryEntry
   'prompt:delete': boolean
@@ -1749,6 +1843,17 @@ export type IpcChannels =
   | 'project:set-default-model'
   | 'project:set-primary-agent'
   | 'project:update-config'
+  | 'scheduler:list'
+  | 'scheduler:get'
+  | 'scheduler:create'
+  | 'scheduler:update'
+  | 'scheduler:delete'
+  | 'scheduler:set-enabled'
+  | 'scheduler:run-now'
+  | 'scheduler:list-runs'
+  | 'scheduler:task-updated'
+  | 'scheduler:task-deleted'
+  | 'scheduler:run-updated'
   | 'prompt:create'
   | 'prompt:delete'
   | 'prompt:list-versions'
