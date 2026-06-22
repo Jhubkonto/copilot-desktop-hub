@@ -38,15 +38,15 @@ The same fix needs to be applied to project-generator, skill-generator, and arti
 
 Both likely use their own `getProjectGeneratorModel()` / `getSkillGeneratorModel()` (or delegate to `getAgentGeneratorModel()`). Verify the same CLI routing fix is in place:
 
-- [ ] **PG-D1** Check `getProjectGeneratorModel()` has the CLI model ID routing before BYOK/OpenRouter fallback (same fix as `getAgentGeneratorModel()`)
-- [ ] **SG-D1** Check `getSkillGeneratorModel()` has the same fix
-- [ ] **AG-D1** Check `artifact-generator.ts` has equivalent model resolution with CLI routing fix
+- [x] **PG-D1** Check `getProjectGeneratorModel()` has the CLI model ID routing before BYOK/OpenRouter fallback (same fix as `getAgentGeneratorModel()`)
+- [x] **SG-D1** Check `getSkillGeneratorModel()` has the same fix
+- [x] **AG-D1** Check `artifact-generator.ts` has equivalent model resolution with CLI routing fix
 
 ### `ws-handlers.ts`
 
-- [ ] **WS-1** On `project-generator:start`: resolve model, broadcast `project-generator:model { sessionId, modelId }` before running chat
-- [ ] **WS-2** On `skill-generator:start`: resolve model, broadcast `skill-generator:model { sessionId, modelId }`
-- [ ] **WS-3** On `artifact-generator:start`: resolve model, broadcast `artifact-generator:model { sessionId, modelId }`
+- [x] **WS-1** On `project-generator:start`: resolve model, broadcast `project-generator:model { sessionId, modelId }` before running chat
+- [x] **WS-2** On `skill-generator:start`: resolve model, broadcast `skill-generator:model { sessionId, modelId }`
+- [x] **WS-3** On `artifact-generator:start`: resolve model, broadcast `artifact-generator:model { sessionId, modelId }`
 
 Pattern (copy from agent-generator block in ws-handlers.ts):
 ```typescript
@@ -64,15 +64,15 @@ if (command === 'project-generator:start') {
 
 ### WsEvent.kt — add `*Model` events
 
-- [ ] **PG-A1** Add `data class ProjectGeneratorModel(val sessionId: String?, val modelId: String) : WsEvent()`
-- [ ] **SG-A1** Add `data class SkillGeneratorModel(val sessionId: String?, val modelId: String) : WsEvent()`
-- [ ] **AG-A1** Add `data class ArtifactGeneratorModel(val sessionId: String?, val modelId: String) : WsEvent()`
+- [x] **PG-A1** Add `data class ProjectGeneratorModel(val sessionId: String?, val modelId: String) : WsEvent()`
+- [x] **SG-A1** Add `data class SkillGeneratorModel(val sessionId: String?, val modelId: String) : WsEvent()`
+- [x] **AG-A1** Add `data class ArtifactGeneratorModel(val sessionId: String?, val modelId: String) : WsEvent()`
 
 ### WsEventParser.kt — parse new events
 
-- [ ] **PG-A2** Add parser case for `"project-generator:model"` → `WsEvent.ProjectGeneratorModel`
-- [ ] **SG-A2** Add parser case for `"skill-generator:model"` → `WsEvent.SkillGeneratorModel`
-- [ ] **AG-A2** Add parser case for `"artifact-generator:model"` → `WsEvent.ArtifactGeneratorModel`
+- [x] **PG-A2** Add parser case for `"project-generator:model"` → `WsEvent.ProjectGeneratorModel`
+- [x] **SG-A2** Add parser case for `"skill-generator:model"` → `WsEvent.SkillGeneratorModel`
+- [x] **AG-A2** Add parser case for `"artifact-generator:model"` → `WsEvent.ArtifactGeneratorModel`
 
 ---
 
@@ -80,23 +80,23 @@ if (command === 'project-generator:start') {
 
 ### ProjectGeneratorViewModel.kt
 
-- [ ] **PG-V1** Add `selectedModel: String? = null` and `resolvedModel: String? = null` to `ProjectGeneratorUiState`
-- [ ] **PG-V2** Handle `WsEvent.ProjectGeneratorModel` → `_uiState.value = _uiState.value.copy(resolvedModel = event.modelId.ifBlank { null })`
-- [ ] **PG-V3** Add `fun setModel(modelId: String?)` — sets `selectedModel`
-- [ ] **PG-V4** Add `fun retryLastMessage()` — re-sends the last user message (same as AgentGeneratorViewModel)
-- [ ] **PG-V5** Add `fun dismissError()` — clears `error`
-- [ ] **PG-V6** Pass `model` in WS payload when `selectedModel != null` (in `sendMessage`)
+- [x] **PG-V1** Add `selectedModel: String? = null` and `resolvedModel: String? = null` to `ProjectGeneratorUiState`
+- [x] **PG-V2** Handle `WsEvent.ProjectGeneratorModel` → `_uiState.value = _uiState.value.copy(resolvedModel = event.modelId.ifBlank { null })`
+- [x] **PG-V3** Add `fun setModel(modelId: String?)` — sets `selectedModel`
+- [x] **PG-V4** Add `fun retryLastMessage()` — re-sends the last user message (same as AgentGeneratorViewModel)
+- [x] **PG-V5** Add `fun dismissError()` — clears `error`
+- [x] **PG-V6** Pass `model` in WS payload when `selectedModel != null` (in `sendMessage`)
 
 ### ProjectGeneratorScreen.kt
 
-- [ ] **PG-S1** Collect `models` from `WsRepository.models` and send `model:list` on `LaunchedEffect(Unit)`
-- [ ] **PG-S2** Compute `activeModelLabel` using `uiState.selectedModel ?: uiState.resolvedModel` (same pattern as AgentGeneratorScreen)
-- [ ] **PG-S3** Add model picker `TextButton` in top bar (Tune icon + label, opens `showModelSheet`)
-- [ ] **PG-S4** Add model picker `ModalBottomSheet` with grouped vendor layout + search (copy from AgentGeneratorScreen lines 244–345)
-- [ ] **PG-S5** Add `SnackbarHost` + `LaunchedEffect(uiState.error)` that shows error with "Retry" action calling `vm.retryLastMessage()` then `vm.dismissError()`
-- [ ] **PG-S6** Add `IconButton(TextFields)` in chat input row to open prompt bottom sheet
-- [ ] **PG-S7** Add prompt `ModalBottomSheet` (copy from AgentGeneratorScreen lines 205–241)
-- [ ] **PG-S8** Add `promptInsert` / `insertPromptText` flow to ViewModel and Screen (collect `uiState.promptInsert` in `LaunchedEffect`)
+- [x] **PG-S1** Collect `models` from `WsRepository.models` and send `model:list` on `LaunchedEffect(Unit)`
+- [x] **PG-S2** Compute `activeModelLabel` using `uiState.selectedModel ?: uiState.resolvedModel` (same pattern as AgentGeneratorScreen)
+- [x] **PG-S3** Add model picker `TextButton` in top bar (Tune icon + label, opens `showModelSheet`)
+- [x] **PG-S4** Add model picker `ModalBottomSheet` with grouped vendor layout + search (copy from AgentGeneratorScreen lines 244–345)
+- [x] **PG-S5** Add `SnackbarHost` + `LaunchedEffect(uiState.error)` that shows error with "Retry" action calling `vm.retryLastMessage()` then `vm.dismissError()`
+- [x] **PG-S6** Add `IconButton(TextFields)` in chat input row to open prompt bottom sheet
+- [x] **PG-S7** Add prompt `ModalBottomSheet` (copy from AgentGeneratorScreen lines 205–241)
+- [x] **PG-S8** Add `promptInsert` / `insertPromptText` flow to ViewModel and Screen (collect `uiState.promptInsert` in `LaunchedEffect`)
 
 ---
 
@@ -104,22 +104,22 @@ if (command === 'project-generator:start') {
 
 ### SkillGeneratorViewModel.kt
 
-- [ ] **SG-V1** Add `selectedModel: String? = null` and `resolvedModel: String? = null` to `SkillGeneratorUiState`
-- [ ] **SG-V2** Handle `WsEvent.SkillGeneratorModel` → update `resolvedModel`
-- [ ] **SG-V3** Add `fun setModel(modelId: String?)`
-- [ ] **SG-V4** Add `fun retryLastMessage()`
-- [ ] **SG-V5** Add `fun dismissError()`
-- [ ] **SG-V6** Pass `model` in WS payload when `selectedModel != null`
-- [ ] **SG-V7** Add `promptInsert: Pair<Int, String>? = null` to state + `fun insertPromptText(body: String)`
+- [x] **SG-V1** Add `selectedModel: String? = null` and `resolvedModel: String? = null` to `SkillGeneratorUiState`
+- [x] **SG-V2** Handle `WsEvent.SkillGeneratorModel` → update `resolvedModel`
+- [x] **SG-V3** Add `fun setModel(modelId: String?)`
+- [x] **SG-V4** Add `fun retryLastMessage()`
+- [x] **SG-V5** Add `fun dismissError()`
+- [x] **SG-V6** Pass `model` in WS payload when `selectedModel != null`
+- [x] **SG-V7** Add `promptInsert: Pair<Int, String>? = null` to state + `fun insertPromptText(body: String)`
 
 ### SkillGeneratorScreen.kt
 
-- [ ] **SG-S1** Collect `models`, send `model:list` on enter
-- [ ] **SG-S2** Compute `activeModelLabel` from `selectedModel ?: resolvedModel`
-- [ ] **SG-S3** Add model picker `TextButton` in top bar
-- [ ] **SG-S4** Add model picker `ModalBottomSheet`
-- [ ] **SG-S5** Add `SnackbarHost` + error `LaunchedEffect` with retry
-- [ ] **SG-S6** Add prompt insert `IconButton` + `ModalBottomSheet`
+- [x] **SG-S1** Collect `models`, send `model:list` on enter
+- [x] **SG-S2** Compute `activeModelLabel` from `selectedModel ?: resolvedModel`
+- [x] **SG-S3** Add model picker `TextButton` in top bar
+- [x] **SG-S4** Add model picker `ModalBottomSheet`
+- [x] **SG-S5** Add `SnackbarHost` + error `LaunchedEffect` with retry
+- [x] **SG-S6** Add prompt insert `IconButton` + `ModalBottomSheet`
 
 ---
 
@@ -129,22 +129,22 @@ if (command === 'project-generator:start') {
 
 ### ArtifactGeneratorViewModel.kt
 
-- [ ] **AG-V1** Add `selectedModel: String? = null` and `resolvedModel: String? = null` to `ArtifactGeneratorUiState`
-- [ ] **AG-V2** Handle `WsEvent.ArtifactGeneratorModel` → update `resolvedModel`
-- [ ] **AG-V3** Add `fun setModel(modelId: String?)`
-- [ ] **AG-V4** Add `fun retryLastMessage()`
-- [ ] **AG-V5** Add `fun dismissError()`
-- [ ] **AG-V6** Pass `model` in WS payload when `selectedModel != null`
-- [ ] **AG-V7** Add `promptInsert: Pair<Int, String>? = null` to state + `fun insertPromptText(body: String)`
+- [x] **AG-V1** Add `selectedModel: String? = null` and `resolvedModel: String? = null` to `ArtifactGeneratorUiState`
+- [x] **AG-V2** Handle `WsEvent.ArtifactGeneratorModel` → update `resolvedModel`
+- [x] **AG-V3** Add `fun setModel(modelId: String?)`
+- [x] **AG-V4** Add `fun retryLastMessage()`
+- [x] **AG-V5** Add `fun dismissError()`
+- [x] **AG-V6** Pass `model` in WS payload when `selectedModel != null`
+- [x] **AG-V7** Add `promptInsert: Pair<Int, String>? = null` to state + `fun insertPromptText(body: String)`
 
 ### ArtifactGeneratorScreen.kt
 
-- [ ] **AG-S1** Collect `models`, send `model:list` on enter
-- [ ] **AG-S2** Compute `activeModelLabel` from `selectedModel ?: resolvedModel`
-- [ ] **AG-S3** Add model picker `TextButton` in top bar
-- [ ] **AG-S4** Add model picker `ModalBottomSheet`
-- [ ] **AG-S5** Add `SnackbarHost` + error `LaunchedEffect` with retry
-- [ ] **AG-S6** Add prompt insert `IconButton` + `ModalBottomSheet`
+- [x] **AG-S1** Collect `models`, send `model:list` on enter
+- [x] **AG-S2** Compute `activeModelLabel` from `selectedModel ?: resolvedModel`
+- [x] **AG-S3** Add model picker `TextButton` in top bar
+- [x] **AG-S4** Add model picker `ModalBottomSheet`
+- [x] **AG-S5** Add `SnackbarHost` + error `LaunchedEffect` with retry
+- [x] **AG-S6** Add prompt insert `IconButton` + `ModalBottomSheet`
 
 ---
 
