@@ -2,6 +2,7 @@ package io.nexy.android.navigation
 
 import android.net.Uri
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,11 +44,17 @@ import io.nexy.android.ui.settings.NotificationsScreen
 import io.nexy.android.ui.settings.ProvidersScreen
 import io.nexy.android.ui.settings.SettingsScreen
 import io.nexy.android.ui.settings.UpdatesScreen
+import io.nexy.android.ui.scheduler.ScheduledScreen
+import io.nexy.android.ui.scheduler.SchedulerTaskDetailScreen
+import io.nexy.android.ui.scheduler.SchedulerTaskConfigScreen
 import io.nexy.android.ui.skills.SkillsScreen
 import io.nexy.android.ui.splash.SplashScreen
 
 @Composable
-fun NavGraph(onRequestNotificationPermission: () -> Unit = {}) {
+fun NavGraph(
+    onRequestNotificationPermission: () -> Unit = {},
+    initialDeeplink: String? = null,
+) {
     val navController = rememberNavController()
     val connectionState by WsRepository.connectionState.collectAsState()
     // Track IDs navigated to from a "create" flow so config screens know to animate on save
@@ -66,6 +73,19 @@ fun NavGraph(onRequestNotificationPermission: () -> Unit = {}) {
             }
             navController.navigate("home") {
                 popUpTo("pairing") { inclusive = true }
+            }
+        }
+    }
+
+    // Navigate to deeplink once home is loaded (e.g. from a notification tap)
+    var deeplinkConsumed by remember { mutableStateOf(false) }
+    LaunchedEffect(navController) {
+        if (initialDeeplink != null && !deeplinkConsumed) {
+            navController.addOnDestinationChangedListener { _, destination, _ ->
+                if (destination.route == "home" && !deeplinkConsumed) {
+                    deeplinkConsumed = true
+                    navController.navigate(initialDeeplink)
+                }
             }
         }
     }
@@ -146,6 +166,9 @@ fun NavGraph(onRequestNotificationPermission: () -> Unit = {}) {
                 },
                 onOpenSkills = {
                     navController.navigate("skills")
+                },
+                onOpenScheduled = {
+                    navController.navigate("scheduled")
                 },
                 onOpenSkillGenerator = {
                     navController.navigate("skill-generator")
@@ -350,6 +373,44 @@ fun NavGraph(onRequestNotificationPermission: () -> Unit = {}) {
 
         composable("skill-generator") {
             SkillGeneratorScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable("scheduled") {
+            ScheduledScreen(
+                onBack = { navController.popBackStack() },
+                onNewTask = { navController.navigate("scheduled/new") },
+                onTaskDetail = { taskId -> navController.navigate("scheduled/$taskId") },
+            )
+        }
+
+        composable("scheduled/new") {
+            SchedulerTaskConfigScreen(
+                taskId = null,
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(
+            route = "scheduled/{taskId}",
+            arguments = listOf(navArgument("taskId") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val taskId = backStackEntry.arguments?.getString("taskId") ?: return@composable
+            SchedulerTaskDetailScreen(
+                taskId = taskId,
+                onBack = { navController.popBackStack() },
+                onEdit = { id -> navController.navigate("scheduled/$id/edit") },
+            )
+        }
+
+        composable(
+            route = "scheduled/{taskId}/edit",
+            arguments = listOf(navArgument("taskId") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val taskId = backStackEntry.arguments?.getString("taskId") ?: return@composable
+            SchedulerTaskConfigScreen(
+                taskId = taskId,
+                onBack = { navController.popBackStack() },
+            )
         }
 
         composable("prompts") {

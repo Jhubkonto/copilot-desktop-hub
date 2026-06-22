@@ -36,7 +36,11 @@ class MainActivity : ComponentActivity() {
                 ThemePreference.Dark -> true
             }
             NexyTheme(darkTheme = darkTheme) {
-                NavGraph(onRequestNotificationPermission = ::requestNotificationPermissionIfNeeded)
+                val initialDeeplink = intent?.getStringExtra("deeplink")
+                NavGraph(
+                    onRequestNotificationPermission = ::requestNotificationPermissionIfNeeded,
+                    initialDeeplink = initialDeeplink,
+                )
             }
         }
     }

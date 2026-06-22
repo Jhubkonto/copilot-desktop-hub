@@ -26,6 +26,18 @@ class NexyFcmService : FirebaseMessagingService() {
                 ApprovalNotificationManager.show(this, requestId, toolName)
             }
 
+            "scheduler:run-completed" -> {
+                val taskId = data["taskId"] ?: return
+                val taskName = data["taskName"] ?: "Scheduled task"
+                SchedulerNotificationManager.show(this, taskId, taskName, success = true)
+            }
+
+            "scheduler:run-failed" -> {
+                val taskId = data["taskId"] ?: return
+                val taskName = data["taskName"] ?: "Scheduled task"
+                SchedulerNotificationManager.show(this, taskId, taskName, success = false)
+            }
+
             "desktop:online" -> {
                 val wsUrl = data["wsUrl"]?.takeIf { it.isNotBlank() } ?: return
                 handleDesktopOnline(wsUrl)

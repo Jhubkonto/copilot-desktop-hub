@@ -9,6 +9,7 @@ import { getCachedCatalog } from './model-catalog'
 import { retrieveAuthMode } from './auth'
 import { getAndroidUpdateManifest, getAndroidWorkspaceInfo, computeSha256 } from './android-handlers'
 import { getWorkspaceInfo } from './build-handlers'
+import { dbListTasks, dbGetTask, dbCreateTask, dbUpdateTask, dbDeleteTask, dbSetTaskEnabled, dbListRuns, schedulerEngine } from './scheduler-engine'
 import { existsSync as fsExistsSync, copyFileSync as fsCopyFileSync, mkdirSync as fsMkdirSync, readdirSync as fsReaddirSync, statSync as fsStatSync } from 'fs'
 import { writeFile as fsWriteFile, readFile as fsReadFile } from 'fs/promises'
 import pathModule from 'path'
@@ -1981,6 +1982,79 @@ export function registerWsHandlers(): void {
       void testProviderKey(provider, key, endpoint)
         .then((result) => reply({ event: 'provider:test-result', data: { provider, valid: result.valid, error: result.error } }))
         .catch((err: unknown) => reply({ event: 'provider:test-result', data: { provider, valid: false, error: String(err) } }))
+      return
+    }
+
+    // ─── Scheduler WebSocket commands ───────────────────────────────────────
+
+    if (command === 'scheduler:list') {
+      reply({ event: 'scheduler:list', data: { tasks: dbListTasks() } })
+      return
+    }
+
+    if (command === 'scheduler:get') {
+      const id = typeof data.id === 'string' ? data.id : ''
+      if (!id) return
+      reply({ event: 'scheduler:get', data: { task: dbGetTask(id) } })
+      return
+    }
+
+    if (command === 'scheduler:create') {
+      const input = data as import('../shared/types').ScheduledTaskCreateInput
+      if (!input?.name || !input?.scheduleType || !input?.localTime || !input?.timezone) return
+      const task = dbCreateTask(input)
+      schedulerEngine.scheduleTask(task)
+      reply({ event: 'scheduler:task-updated', data: task })
+      return
+    }
+
+    if (command === 'scheduler:update') {
+      const id = typeof data.id === 'string' ? data.id : ''
+      if (!id) return
+      const input = data.input as import('../shared/types').ScheduledTaskUpdateInput
+      const task = dbUpdateTask(id, input)
+      if (!task) return
+      if (task.enabled) schedulerEngine.scheduleTask(task)
+      else schedulerEngine.unscheduleTask(id)
+      reply({ event: 'scheduler:task-updated', data: task })
+      return
+    }
+
+    if (command === 'scheduler:delete') {
+      const id = typeof data.id === 'string' ? data.id : ''
+      if (!id) return
+      schedulerEngine.unscheduleTask(id)
+      dbDeleteTask(id)
+      reply({ event: 'scheduler:task-deleted', data: { taskId: id } })
+      return
+    }
+
+    if (command === 'scheduler:set-enabled') {
+      const id = typeof data.id === 'string' ? data.id : ''
+      const enabled = typeof data.enabled === 'boolean' ? data.enabled : false
+      if (!id) return
+      const task = dbSetTaskEnabled(id, enabled)
+      if (!task) return
+      if (task.enabled) schedulerEngine.scheduleTask(task)
+      else schedulerEngine.unscheduleTask(id)
+      reply({ event: 'scheduler:task-updated', data: task })
+      return
+    }
+
+    if (command === 'scheduler:run-now') {
+      const id = typeof data.id === 'string' ? data.id : ''
+      if (!id) return
+      void schedulerEngine.triggerRun(id, 'manual')
+        .then((run) => reply({ event: 'scheduler:run-updated', data: run }))
+        .catch((err: unknown) => reply({ event: 'scheduler:run-error', data: { taskId: id, error: String(err) } }))
+      return
+    }
+
+    if (command === 'scheduler:list-runs') {
+      const taskId = typeof data.taskId === 'string' ? data.taskId : ''
+      const limit = typeof data.limit === 'number' ? data.limit : 50
+      if (!taskId) return
+      reply({ event: 'scheduler:runs', data: { taskId, runs: dbListRuns(taskId, limit) } })
       return
     }
   })

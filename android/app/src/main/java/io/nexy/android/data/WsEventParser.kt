@@ -57,6 +57,8 @@ import io.nexy.android.data.model.SkillKnowledge
 import io.nexy.android.data.model.SkillMcpServerTrust
 import io.nexy.android.data.model.SkillMcpToolOverride
 import io.nexy.android.data.model.SkillToolConfig
+import io.nexy.android.data.model.ScheduledTask
+import io.nexy.android.data.model.ScheduledRun
 import io.nexy.android.data.model.SkillTools
 import io.nexy.android.data.model.WsEvent
 import kotlinx.coroutines.CoroutineScope
@@ -89,6 +91,8 @@ fun parseWsEvent(
     promptEntries: MutableStateFlow<List<PromptEntry>>,
     pairedServerStore: PairedServerStore? = null,
     cliStatus: MutableStateFlow<Map<String, CliInstallInfo>>,
+    scheduledTasks: MutableStateFlow<List<ScheduledTask>>,
+    scheduledRuns: MutableStateFlow<Map<String, List<ScheduledRun>>>,
 ) {
     try {
         val obj = JSONObject(text)
@@ -1300,6 +1304,64 @@ fun parseWsEvent(
                 manifest = data?.optJSONObject("manifest")?.let { parseAndroidPublishManifest(it) },
             )
 
+            // ── Scheduler ──────────────────────────────────────────────────
+            "scheduler:list" -> {
+                val arr = data?.optJSONArray("tasks") ?: return
+                val tasks = (0 until arr.length()).map { parseScheduledTask(arr.getJSONObject(it)) }
+                scheduledTasks.value = tasks
+                WsEvent.SchedulerTaskList(tasks)
+            }
+
+            "scheduler:get" -> {
+                val taskObj = data?.optJSONObject("task") ?: return
+                val task = parseScheduledTask(taskObj)
+                scheduledTasks.value = scheduledTasks.value
+                    .map { if (it.id == task.id) task else it }
+                    .let { list -> if (list.none { it.id == task.id }) list + task else list }
+                WsEvent.SchedulerTaskUpdated(task)
+            }
+
+            "scheduler:task-updated" -> {
+                val taskObj = data?.optJSONObject("task") ?: return
+                val task = parseScheduledTask(taskObj)
+                scheduledTasks.value = scheduledTasks.value
+                    .map { if (it.id == task.id) task else it }
+                    .let { list -> if (list.none { it.id == task.id }) list + task else list }
+                WsEvent.SchedulerTaskUpdated(task)
+            }
+
+            "scheduler:task-deleted" -> {
+                val taskId = data?.optString("taskId") ?: return
+                scheduledTasks.value = scheduledTasks.value.filter { it.id != taskId }
+                scheduledRuns.value = scheduledRuns.value - taskId
+                WsEvent.SchedulerTaskDeleted(taskId)
+            }
+
+            "scheduler:run-updated" -> {
+                val runObj = data?.optJSONObject("run") ?: return
+                val run = parseScheduledRun(runObj)
+                scheduledRuns.value = scheduledRuns.value.toMutableMap().apply {
+                    val existing = getOrDefault(run.taskId, emptyList())
+                    val updated = existing.map { if (it.id == run.id) run else it }
+                    put(run.taskId, if (updated.none { it.id == run.id }) listOf(run) + updated else updated)
+                }
+                WsEvent.SchedulerRunUpdated(run)
+            }
+
+            "scheduler:runs" -> {
+                val taskId = data?.optString("taskId") ?: return
+                val arr = data.optJSONArray("runs") ?: return
+                val runs = (0 until arr.length()).map { parseScheduledRun(arr.getJSONObject(it)) }
+                scheduledRuns.value = scheduledRuns.value.toMutableMap().apply { put(taskId, runs) }
+                WsEvent.SchedulerRunList(taskId, runs)
+            }
+
+            "scheduler:run-error" -> {
+                val taskId = data?.optString("taskId") ?: return
+                val errorMsg = data.optString("error")
+                WsEvent.SchedulerRunError(taskId, errorMsg)
+            }
+
             else -> return
         }
         scope.launch { events.emit(wsEvent) }
@@ -1684,3 +1746,38 @@ private fun parseConversationArray(arr: JSONArray): List<Conversation> =
             pinned = row.optInt("pinned", 0) != 0,
         )
     }
+
+private fun parseScheduledTask(obj: JSONObject) = ScheduledTask(
+    id = obj.optString("id"),
+    name = obj.optString("name"),
+    prompt = obj.optString("prompt"),
+    enabled = obj.optBoolean("enabled", true),
+    agentId = obj.nullableString("agentId"),
+    projectId = obj.nullableString("projectId"),
+    model = obj.nullableString("model"),
+    conversationId = obj.nullableString("conversationId"),
+    scheduleType = obj.optString("scheduleType", "daily"),
+    localTime = obj.optString("localTime", "09:00"),
+    weekday = if (obj.has("weekday") && !obj.isNull("weekday")) obj.optInt("weekday") else null,
+    monthDay = if (obj.has("monthDay") && !obj.isNull("monthDay")) obj.optInt("monthDay") else null,
+    timezone = obj.optString("timezone", "UTC"),
+    notificationPref = obj.optString("notificationPref", "failures_only"),
+    nextRunAt = if (obj.has("nextRunAt") && !obj.isNull("nextRunAt")) obj.optLong("nextRunAt") else null,
+    lastRunAt = if (obj.has("lastRunAt") && !obj.isNull("lastRunAt")) obj.optLong("lastRunAt") else null,
+    createdAt = obj.optLong("createdAt"),
+    updatedAt = obj.optLong("updatedAt"),
+)
+
+private fun parseScheduledRun(obj: JSONObject) = ScheduledRun(
+    id = obj.optString("id"),
+    taskId = obj.optString("taskId"),
+    scheduledAt = if (obj.has("scheduledAt") && !obj.isNull("scheduledAt")) obj.optLong("scheduledAt") else null,
+    startedAt = if (obj.has("startedAt") && !obj.isNull("startedAt")) obj.optLong("startedAt") else null,
+    finishedAt = if (obj.has("finishedAt") && !obj.isNull("finishedAt")) obj.optLong("finishedAt") else null,
+    status = obj.optString("status", "pending"),
+    error = obj.nullableString("error"),
+    conversationId = obj.nullableString("conversationId"),
+    messageId = obj.nullableString("messageId"),
+    triggerSource = obj.optString("triggerSource", "scheduled"),
+    createdAt = obj.optLong("createdAt"),
+)

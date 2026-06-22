@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
@@ -95,6 +96,7 @@ fun HomeScreen(
     onOpenProjectGenerator: () -> Unit,
     onOpenArtifacts: () -> Unit,
     onOpenSkills: () -> Unit,
+    onOpenScheduled: () -> Unit,
     onOpenSkillGenerator: () -> Unit,
     onDisconnected: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -442,6 +444,11 @@ fun HomeScreen(
                                 text = { Text("Skills") },
                                 leadingIcon = { Icon(Icons.Default.Build, contentDescription = null) },
                                 onClick = { showOverflowMenu = false; onOpenSkills() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Scheduled") },
+                                leadingIcon = { Icon(Icons.Default.DateRange, contentDescription = null) },
+                                onClick = { showOverflowMenu = false; onOpenScheduled() },
                             )
                         }
                     }

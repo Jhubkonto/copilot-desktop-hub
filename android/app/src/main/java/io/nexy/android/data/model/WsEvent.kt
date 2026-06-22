@@ -205,6 +205,13 @@ sealed class WsEvent {
     data class AndroidSigningValidation(val valid: Boolean, val checks: List<PreflightCheck>) : WsEvent()
     data class AndroidPublishResult(val published: Boolean, val error: String?, val manifest: AndroidPublishManifest?) : WsEvent()
     data class AndroidRestoreResult(val restored: Boolean, val error: String?, val manifest: AndroidPublishManifest?) : WsEvent()
+    // Scheduler
+    data class SchedulerTaskList(val tasks: List<ScheduledTask>) : WsEvent()
+    data class SchedulerTaskUpdated(val task: ScheduledTask) : WsEvent()
+    data class SchedulerTaskDeleted(val taskId: String) : WsEvent()
+    data class SchedulerRunUpdated(val run: ScheduledRun) : WsEvent()
+    data class SchedulerRunList(val taskId: String, val runs: List<ScheduledRun>) : WsEvent()
+    data class SchedulerRunError(val taskId: String, val error: String) : WsEvent()
 }
 
 data class BuildRecord(

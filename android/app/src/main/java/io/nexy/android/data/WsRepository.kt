@@ -4,6 +4,8 @@ import android.app.Application
 import android.app.NotificationManager
 import io.nexy.android.data.model.Agent
 import io.nexy.android.data.model.AgentFullConfig
+import io.nexy.android.data.model.ScheduledTask
+import io.nexy.android.data.model.ScheduledRun
 import io.nexy.android.data.model.AgentKnowledgeFile
 import io.nexy.android.data.model.AgentMcpServerTrust
 import io.nexy.android.data.model.AgentMcpToolOverride
@@ -127,6 +129,12 @@ object WsRepository : WsClient {
 
     private val _cliStatus = MutableStateFlow<Map<String, CliInstallInfo>>(emptyMap())
     val cliStatus: StateFlow<Map<String, CliInstallInfo>> = _cliStatus
+
+    private val _scheduledTasks = MutableStateFlow<List<ScheduledTask>>(emptyList())
+    val scheduledTasks: StateFlow<List<ScheduledTask>> = _scheduledTasks
+
+    private val _scheduledRuns = MutableStateFlow<Map<String, List<ScheduledRun>>>(emptyMap())
+    val scheduledRuns: StateFlow<Map<String, List<ScheduledRun>>> = _scheduledRuns
 
     private val _profiles = MutableStateFlow<List<PairedServerProfile>>(emptyList())
     val profiles: StateFlow<List<PairedServerProfile>> = _profiles
@@ -366,6 +374,8 @@ object WsRepository : WsClient {
             wikiEntries = _wikiEntries,
             promptEntries = _promptEntries,
             cliStatus = _cliStatus,
+            scheduledTasks = _scheduledTasks,
+            scheduledRuns = _scheduledRuns,
             pairedServerStore = pairedServerStore,
         )
     }
@@ -453,6 +463,8 @@ object WsRepository : WsClient {
         _wikiEntries.value = emptyList()
         _promptEntries.value = emptyList()
         _cliStatus.value = emptyMap()
+        _scheduledTasks.value = emptyList()
+        _scheduledRuns.value = emptyMap()
     }
 
     fun forgetServer() {
@@ -848,4 +860,15 @@ object WsRepository : WsClient {
         app?.getSystemService(NotificationManager::class.java)
             ?.cancel(ApprovalNotificationManager.NOTIFICATION_ID)
     }
+
+    // ─── Scheduler ─────────────────────────────────────────────────────────────
+
+    fun schedulerList() { send("scheduler:list", emptyMap()) }
+    fun schedulerGet(taskId: String) { send("scheduler:get", mapOf("id" to taskId)) }
+    fun schedulerCreate(input: Map<String, Any?>) { send("scheduler:create", input.filterValues { it != null }.mapValues { it.value!! }) }
+    fun schedulerUpdate(taskId: String, input: Map<String, Any?>) { send("scheduler:update", mapOf("id" to taskId, "input" to input.filterValues { it != null }.mapValues { it.value!! })) }
+    fun schedulerDelete(taskId: String) { send("scheduler:delete", mapOf("id" to taskId)) }
+    fun schedulerSetEnabled(taskId: String, enabled: Boolean) { send("scheduler:set-enabled", mapOf("id" to taskId, "enabled" to enabled)) }
+    fun schedulerRunNow(taskId: String) { send("scheduler:run-now", mapOf("id" to taskId)) }
+    fun schedulerListRuns(taskId: String, limit: Int = 50) { send("scheduler:list-runs", mapOf("taskId" to taskId, "limit" to limit)) }
 }
