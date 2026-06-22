@@ -24,6 +24,8 @@ import {
   createUiSlice,
   type UiSlice
 } from './slices/uiSlice'
+import type { ScheduledTask } from '../../shared/types'
+import { isApiError } from '../../shared/types'
 
 export type {
   ActiveSectionPane,
@@ -52,6 +54,8 @@ export type AppState =
   & AgentSlice
   & UiSlice
   & {
+    schedulerTasks: ScheduledTask[]
+    setSchedulerTasks: (tasks: ScheduledTask[]) => void
     hydrate: () => Promise<void>
   }
 
@@ -63,6 +67,12 @@ export const useAppStore = create<AppState>()(
     ...createSkillSlice(set, get, store),
     ...createAgentSlice(set, get, store),
     ...createUiSlice(set, get, store),
+
+    schedulerTasks: [] as ScheduledTask[],
+
+    setSchedulerTasks: (tasks: ScheduledTask[]) => {
+      set((s) => { s.schedulerTasks = tasks })
+    },
 
     hydrate: async () => {
       try {
@@ -99,6 +109,9 @@ export const useAppStore = create<AppState>()(
         get().loadProjects(),
         get().loadSkills(),
         get().refreshAvailableModels(),
+        window.api.schedulerList().then((result) => {
+          if (!isApiError(result)) get().setSchedulerTasks(result)
+        }).catch(() => {}),
         window.api
           .listModelCatalog()
           .then((models) => {

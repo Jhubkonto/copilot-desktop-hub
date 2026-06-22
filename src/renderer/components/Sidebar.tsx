@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, type ReactNode } from 'react'
-import { Plus, MessageSquare, Settings, FolderOpen, Bot, Wrench, Package, Bug, SquareArrowOutUpRight, Loader2 } from 'lucide-react'
+import { Plus, MessageSquare, Settings, FolderOpen, Bot, Wrench, Package, Bug, SquareArrowOutUpRight, Loader2, Clock } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import { ResizeHandle } from './ResizeHandle'
 import { Button } from './ui/primitives'
@@ -170,6 +170,13 @@ export function Sidebar() {
           onClick={() => openSectionPane('skills')}
           active={activeSectionPane === 'skills'}
           ariaLabel="Open skills"
+        />
+        <NavButton
+          icon={<Clock className="w-3.5 h-3.5" />}
+          label="Scheduled"
+          onClick={() => openSectionPane('scheduled')}
+          active={activeSectionPane === 'scheduled'}
+          ariaLabel="Open scheduled tasks"
         />
         <hr className="border-gray-200 dark:border-gray-700/80" />
         <NavButton
