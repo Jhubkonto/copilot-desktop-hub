@@ -49,6 +49,7 @@ export async function runProviderMcpToolLoop(
   toolDirective?: string,
   onActivity?: (event: { type: 'thinking' } | { type: 'tool'; name: string; server: string }) => void,
   autoApproveTools?: boolean,
+  toolPolicy?: { preApproved: string[]; alwaysAsk: string[]; neverAllow: string[] },
 ): Promise<string> {
   const toolNames = [...new Set(toolDefs.map((t) => t.function.name.split('__').pop()))].join(', ')
   const directive = toolDirective ??
@@ -142,6 +143,48 @@ export async function runProviderMcpToolLoop(
       const inlineHandler = inlineHandlers?.get(call.name)
       let toolResultContent: string
       let toolImages: { dataUrl: string }[] | undefined
+
+      // Tool policy enforcement for scheduled runs
+      if (toolPolicy) {
+        const isNeverAllow = toolPolicy.neverAllow.some(
+          (n) => call.name === n || toolShortName === n
+        )
+        const isPreApproved = toolPolicy.preApproved.some(
+          (p) => call.name === p || toolShortName === p
+        )
+        if (isNeverAllow) {
+          toolResultContent = `Error: Tool "${toolShortName}" is not permitted by the task's tool policy (neverAllow).`
+          if (!webContents.isDestroyed()) {
+            webContents.send('chat:tool-call-event', {
+              toolName: toolShortName,
+              serverName: call.name.split('__')[0] ?? '',
+              args: call.arguments as Record<string, unknown>,
+              result: toolResultContent,
+              success: false,
+              conversationId,
+            })
+          }
+          loopMessages.push({ role: 'tool' as const, tool_call_id: call.id, content: toolResultContent })
+          continue
+        }
+        if (!isPreApproved && !inlineHandler) {
+          // Tool is not pre-approved and not an inline handler — block it
+          toolResultContent = `Error: Tool "${toolShortName}" is not in the pre-approved list for this scheduled task. Add it to the task's tool policy to allow it.`
+          if (!webContents.isDestroyed()) {
+            webContents.send('chat:tool-call-event', {
+              toolName: toolShortName,
+              serverName: call.name.split('__')[0] ?? '',
+              args: call.arguments as Record<string, unknown>,
+              result: toolResultContent,
+              success: false,
+              conversationId,
+            })
+          }
+          loopMessages.push({ role: 'tool' as const, tool_call_id: call.id, content: toolResultContent })
+          continue
+        }
+      }
+
       if (!resolved && !inlineHandler) {
         toolResultContent = `Error: Unknown tool "${call.name}"`
         sendActivity({ type: 'tool', name: toolShortName, server: call.name.split('__')[0] ?? '' })

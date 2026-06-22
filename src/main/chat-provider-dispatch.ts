@@ -45,6 +45,7 @@ export type ProviderDispatchOptions = {
   systemPrompt: string
   onThinkingChunk?: (blockId: string, chunk: string) => void
   onThinkingEnd?: (blockId: string) => void
+  toolPolicy?: { preApproved: string[]; alwaysAsk: string[]; neverAllow: string[] }
 }
 
 function makeActivityHandler(sendActivity: (a: MobileChatActivity) => void) {
@@ -78,6 +79,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
     systemPrompt,
     onThinkingChunk: callerOnThinkingChunk,
     onThinkingEnd: callerOnThinkingEnd,
+    toolPolicy,
   } = opts
 
   const catalog = getCachedCatalog()
@@ -129,6 +131,8 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
         inlineHandlers,
         toolDirective,
         onActivity,
+        undefined,
+        toolPolicy,
       )
     }
     sendActivity({ state: 'thinking', label: 'Generating response' })
@@ -160,6 +164,8 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
         inlineHandlers,
         toolDirective,
         onActivity,
+        undefined,
+        toolPolicy,
       )
     }
     sendActivity({ state: 'thinking', label: 'Generating response' })
@@ -208,6 +214,8 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
         inlineHandlers,
         toolDirective,
         onActivity,
+        undefined,
+        toolPolicy,
       )
     }
     sendActivity({ state: 'thinking', label: 'Generating response' })
@@ -245,6 +253,8 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
       inlineHandlers,
       toolDirective,
       onActivity,
+      undefined,
+      toolPolicy,
     )
   }
   sendActivity({ state: 'thinking', label: 'Generating response' })

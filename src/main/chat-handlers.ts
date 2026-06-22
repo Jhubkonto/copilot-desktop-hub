@@ -39,6 +39,7 @@ type ChatSendOptions = {
   messageId?: string
   projectId?: string
   contextSnapshot?: string
+  toolPolicy?: { preApproved: string[]; alwaysAsk: string[]; neverAllow: string[] }
 }
 
 type AgentToolPolicy = { enabled?: boolean; approval?: string }
@@ -135,6 +136,7 @@ export async function dispatchChatSend(
   const cliBackend = options?.cliBackend
   const projectId = options?.projectId
   const contextSnapshot = options?.contextSnapshot ?? null
+  const toolPolicy = options?.toolPolicy ?? null
 
   sendActivity({ state: 'thinking', label: 'Preparing context' })
 
@@ -840,6 +842,7 @@ export async function dispatchChatSend(
       sendActivity,
       onModel: handleStreamModel,
       systemPrompt,
+      toolPolicy: toolPolicy ?? undefined,
       onThinkingChunk: (blockId, chunk) => {
         const existing = byokThinkingBuffer.get(blockId) ?? { blockId, content: '', done: false }
         byokThinkingBuffer.set(blockId, { ...existing, content: existing.content + chunk })

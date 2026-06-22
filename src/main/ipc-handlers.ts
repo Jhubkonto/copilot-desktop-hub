@@ -32,6 +32,7 @@ import { registerArtifactHandlers } from './artifacts'
 import { registerArtifactGeneratorHandlers } from './artifact-generator'
 import { registerSkillGeneratorHandlers } from './skill-generator'
 import { registerVoiceHandlers } from './voice-handlers'
+import { registerSchedulerHandlers } from './scheduler-handlers'
 
 export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerSettingsHandlers()
@@ -72,6 +73,7 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerSkillGeneratorHandlers(mainWindow)
   registerArtifactHandlers()
   registerArtifactGeneratorHandlers(mainWindow)
+  registerSchedulerHandlers()
   if (mainWindow) {
     mainWindow.on('blur', () => {
       cacheExternalWindowLabel(mainWindow.getTitle()).catch(() => {})

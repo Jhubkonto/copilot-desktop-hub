@@ -13,6 +13,7 @@ import { initErrorLogCapture } from './error-log-handlers'
 import { confirmStartupAfterRelaunch, rollbackHeal } from './self-heal/recovery'
 import { broadcastToMobile, autoStartWsServerIfEnabled, startWsServerIfNeeded, getCurrentPairingUrl, setIpChangeCallback, setClientCountChangeCallback } from './ws-server'
 import { sendDesktopOnlinePush, sendIpChangedPush } from './fcm-sender'
+import { schedulerEngine } from './scheduler-engine'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -194,6 +195,9 @@ app.whenReady().then(() => {
 
   // Initialize database
   getDatabase()
+
+  // Start scheduler after DB is ready
+  schedulerEngine.start()
 
   registerAuthHandlers()
   registerUpdaterHandlers()

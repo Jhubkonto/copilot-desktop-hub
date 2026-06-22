@@ -761,6 +761,31 @@ const api = {
     typedOn('artifact-generator:done', handler)
     return () => typedOff('artifact-generator:done', handler)
   },
+
+  // Scheduler
+  schedulerList: () => typedInvoke('scheduler:list'),
+  schedulerGet: (id: string) => typedInvoke('scheduler:get', id),
+  schedulerCreate: (input: import('../shared/types').ScheduledTaskCreateInput) => typedInvoke('scheduler:create', input),
+  schedulerUpdate: (id: string, input: import('../shared/types').ScheduledTaskUpdateInput) => typedInvoke('scheduler:update', id, input),
+  schedulerDelete: (id: string) => typedInvoke('scheduler:delete', id),
+  schedulerSetEnabled: (id: string, enabled: boolean) => typedInvoke('scheduler:set-enabled', id, enabled),
+  schedulerRunNow: (id: string) => typedInvoke('scheduler:run-now', id),
+  schedulerListRuns: (taskId: string, limit?: number) => typedInvoke('scheduler:list-runs', taskId, limit),
+  onSchedulerTaskUpdated: (callback: (task: import('../shared/types').ScheduledTask) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, task: import('../shared/types').ScheduledTask) => callback(task)
+    typedOn('scheduler:task-updated', handler)
+    return () => typedOff('scheduler:task-updated', handler)
+  },
+  onSchedulerTaskDeleted: (callback: (taskId: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, taskId: string) => callback(taskId)
+    typedOn('scheduler:task-deleted', handler)
+    return () => typedOff('scheduler:task-deleted', handler)
+  },
+  onSchedulerRunUpdated: (callback: (run: import('../shared/types').ScheduledRun) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, run: import('../shared/types').ScheduledRun) => callback(run)
+    typedOn('scheduler:run-updated', handler)
+    return () => typedOff('scheduler:run-updated', handler)
+  },
 }
 
 contextBridge.exposeInMainWorld('api', api)
