@@ -34,6 +34,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -63,6 +64,9 @@ fun ChatInputBar(
     onShowInspector: () -> Unit = {},
     isListening: Boolean = false,
     onVoiceInput: () -> Unit = {},
+    placeholder: String = "Message…",
+    onSetupManually: (() -> Unit)? = null,
+    showAttachOptions: Boolean = true,
 ) {
     val attachSheetState = rememberModalBottomSheetState()
     var showAttachSheet by remember { mutableStateOf(false) }
@@ -72,26 +76,30 @@ fun ChatInputBar(
             onDismissRequest = { showAttachSheet = false },
             sheetState = attachSheetState,
         ) {
-            ListItem(
-                headlineContent = { Text("Attach File") },
-                leadingContent = { Icon(Icons.Default.AttachFile, contentDescription = null) },
-                modifier = Modifier.clickable { showAttachSheet = false; onAttachFile() },
-            )
-            ListItem(
-                headlineContent = { Text("Latest Screenshot") },
-                leadingContent = { Icon(Icons.Default.Screenshot, contentDescription = null) },
-                modifier = Modifier.clickable { showAttachSheet = false; onCaptureScreen() },
-            )
+            if (showAttachOptions) {
+                ListItem(
+                    headlineContent = { Text("Attach File") },
+                    leadingContent = { Icon(Icons.Default.AttachFile, contentDescription = null) },
+                    modifier = Modifier.clickable { showAttachSheet = false; onAttachFile() },
+                )
+                ListItem(
+                    headlineContent = { Text("Latest Screenshot") },
+                    leadingContent = { Icon(Icons.Default.Screenshot, contentDescription = null) },
+                    modifier = Modifier.clickable { showAttachSheet = false; onCaptureScreen() },
+                )
+            }
             ListItem(
                 headlineContent = { Text("Insert Prompt") },
                 leadingContent = { Icon(Icons.Default.TextFields, contentDescription = null) },
                 modifier = Modifier.clickable { showAttachSheet = false; onInsertPrompt() },
             )
-            ListItem(
-                headlineContent = { Text("Context Inspector") },
-                leadingContent = { Icon(Icons.Default.Info, contentDescription = null) },
-                modifier = Modifier.clickable { showAttachSheet = false; onShowInspector() },
-            )
+            if (showAttachOptions) {
+                ListItem(
+                    headlineContent = { Text("Context Inspector") },
+                    leadingContent = { Icon(Icons.Default.Info, contentDescription = null) },
+                    modifier = Modifier.clickable { showAttachSheet = false; onShowInspector() },
+                )
+            }
             Spacer(Modifier.padding(bottom = 8.dp))
         }
     }
@@ -103,6 +111,14 @@ fun ChatInputBar(
             .navigationBarsPadding()
             .padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
     ) {
+        if (onSetupManually != null) {
+            TextButton(
+                onClick = onSetupManually,
+                modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 2.dp),
+            ) {
+                Text("Set up manually")
+            }
+        }
         Surface(
             shape = RoundedCornerShape(20.dp),
             tonalElevation = 2.dp,
@@ -131,7 +147,7 @@ fun ChatInputBar(
                         .padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 4.dp),
                 ) {
                     if (input.isEmpty()) {
-                        Text("Message…", style = MaterialTheme.typography.bodyMedium, color = hintColor)
+                        Text(placeholder, style = MaterialTheme.typography.bodyMedium, color = hintColor)
                     }
                     BasicTextField(
                         value = input,
