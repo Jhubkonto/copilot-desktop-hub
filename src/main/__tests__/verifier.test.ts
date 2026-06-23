@@ -17,7 +17,7 @@ vi.mock('../ws-server', () => ({
   broadcastToMobile: vi.fn(),
 }))
 
-vi.mock('../self-heal/investigator', () => ({
+vi.mock('../remote-edit/investigator', () => ({
   getWorkspacePath: () => workspacePath.value,
   loadInvestigationSettings: () => ({
     backend: 'byok',
@@ -65,7 +65,7 @@ function mockExitCodes(exitCodes: number[]) {
   })
 }
 
-describe('self-heal verifier', () => {
+describe('remote-edit verifier', () => {
   beforeEach(() => {
     vi.resetModules()
     spawnMock.mockReset()
@@ -81,7 +81,7 @@ describe('self-heal verifier', () => {
   it('runs typecheck, lint, test, and build for a passing fix', async () => {
     mockExitCodes([0, 0, 0, 0])
     const emit = vi.fn()
-    const { runVerification, getVerificationRuns } = await import('../self-heal/verifier')
+    const { runVerification, getVerificationRuns } = await import('../remote-edit/verifier')
 
     const result = await runVerification('report-1', emit, 'run-pass')
 
@@ -107,7 +107,7 @@ describe('self-heal verifier', () => {
     mockExitCodes([1, 1])
     const emit = vi.fn()
     const reinvestigate = vi.fn().mockResolvedValue(undefined)
-    const { runVerification, getVerificationRuns } = await import('../self-heal/verifier')
+    const { runVerification, getVerificationRuns } = await import('../remote-edit/verifier')
 
     const result = await runVerification('report-1', emit, 'run-fail', reinvestigate)
 

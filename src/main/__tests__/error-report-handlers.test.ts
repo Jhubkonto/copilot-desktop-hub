@@ -99,7 +99,7 @@ describe('error report handlers', () => {
     expect(reports).toEqual([expect.objectContaining({ id: result.reportId, title: 'Bug report' })])
   })
 
-  it('deletes a report, its self-heal rows, and its artifact folders', async () => {
+  it('deletes a report, its remote-edit rows, and its artifact folders', async () => {
     const { registerErrorReportHandlers } = await import('../error-report-handlers')
     registerErrorReportHandlers()
 
@@ -109,36 +109,36 @@ describe('error report handlers', () => {
       includeScreenshot: true,
       screenshotDataUrl: 'data:image/png;base64,aGVsbG8=',
     })
-    mkdirSync(`${testRoot.value}/self-heal/staging/${result.reportId}`, { recursive: true })
-    mkdirSync(`${testRoot.value}/self-heal/backups/${result.reportId}`, { recursive: true })
-    db.prepare('INSERT INTO self_heal_diffs (report_id, relative_path, diff_json, created_at) VALUES (?, ?, ?, ?)')
+    mkdirSync(`${testRoot.value}/remote-edit/staging/${result.reportId}`, { recursive: true })
+    mkdirSync(`${testRoot.value}/remote-edit/backups/${result.reportId}`, { recursive: true })
+    db.prepare('INSERT INTO remote_edit_diffs (report_id, relative_path, diff_json, created_at) VALUES (?, ?, ?, ?)')
       .run(result.reportId, 'src/App.tsx', '{}', 1)
     db.prepare(
-      `INSERT INTO self_heal_verification_runs
+      `INSERT INTO remote_edit_verification_runs
        (id, report_id, status, steps_json, started_at, completed_at, retry_count)
        VALUES ('verify-1', ?, 'success', '[]', 1, 2, 0)`,
     ).run(result.reportId)
     db.prepare(
-      `INSERT INTO self_heal_recovery_runs
+      `INSERT INTO remote_edit_recovery_runs
        (id, report_id, status, backup_manifest_json, pre_reload_state_json, created_at, updated_at)
        VALUES ('recovery-1', ?, 'prepared', '[]', '{}', 1, 1)`,
     ).run(result.reportId)
     db.prepare(
-      `INSERT INTO self_heal_history (id, report_id, report_title, status, created_at, updated_at)
+      `INSERT INTO remote_edit_history (id, report_id, report_title, status, created_at, updated_at)
        VALUES ('history-1', ?, 'Delete me', 'investigating', 1, 1)`,
     ).run(result.reportId)
-    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('self_heal_pending_recovery_id', 'recovery-1')").run()
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('remote_edit_pending_recovery_id', 'recovery-1')").run()
 
     expect(invoke<boolean>('error-report:delete', result.reportId)).toBe(true)
 
     expect(db.prepare('SELECT COUNT(*) AS count FROM error_reports WHERE id = ?').get(result.reportId)).toEqual({ count: 0 })
-    expect(db.prepare('SELECT COUNT(*) AS count FROM self_heal_diffs WHERE report_id = ?').get(result.reportId)).toEqual({ count: 0 })
-    expect(db.prepare('SELECT COUNT(*) AS count FROM self_heal_verification_runs WHERE report_id = ?').get(result.reportId)).toEqual({ count: 0 })
-    expect(db.prepare('SELECT COUNT(*) AS count FROM self_heal_recovery_runs WHERE report_id = ?').get(result.reportId)).toEqual({ count: 0 })
-    expect(db.prepare('SELECT COUNT(*) AS count FROM self_heal_history WHERE report_id = ?').get(result.reportId)).toEqual({ count: 0 })
-    expect(db.prepare("SELECT value FROM settings WHERE key = 'self_heal_pending_recovery_id'").get()).toBeUndefined()
+    expect(db.prepare('SELECT COUNT(*) AS count FROM remote_edit_diffs WHERE report_id = ?').get(result.reportId)).toEqual({ count: 0 })
+    expect(db.prepare('SELECT COUNT(*) AS count FROM remote_edit_verification_runs WHERE report_id = ?').get(result.reportId)).toEqual({ count: 0 })
+    expect(db.prepare('SELECT COUNT(*) AS count FROM remote_edit_recovery_runs WHERE report_id = ?').get(result.reportId)).toEqual({ count: 0 })
+    expect(db.prepare('SELECT COUNT(*) AS count FROM remote_edit_history WHERE report_id = ?').get(result.reportId)).toEqual({ count: 0 })
+    expect(db.prepare("SELECT value FROM settings WHERE key = 'remote_edit_pending_recovery_id'").get()).toBeUndefined()
     expect(existsSync(`${testRoot.value}/error-reports/${result.reportId}`)).toBe(false)
-    expect(existsSync(`${testRoot.value}/self-heal/staging/${result.reportId}`)).toBe(false)
-    expect(existsSync(`${testRoot.value}/self-heal/backups/${result.reportId}`)).toBe(false)
+    expect(existsSync(`${testRoot.value}/remote-edit/staging/${result.reportId}`)).toBe(false)
+    expect(existsSync(`${testRoot.value}/remote-edit/backups/${result.reportId}`)).toBe(false)
   })
 })

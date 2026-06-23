@@ -34,7 +34,7 @@ vi.mock('../database', () => ({
   getDatabase: () => db,
 }))
 
-const testRoot = path.join(process.cwd(), '.test-self-heal-recovery')
+const testRoot = path.join(process.cwd(), '.test-remote-edit-recovery')
 const workspacePath = path.join(testRoot, 'workspace')
 
 function git(args: string[]) {
@@ -58,14 +58,14 @@ function createDatabase() {
     JSON.stringify([{ relativePath: 'src/example.ts', stagingPath: '', backupPath: path.join(testRoot, 'backup.ts'), diffLineCount: 1, reviewed: true }]),
   )
   database.prepare(
-    `INSERT INTO self_heal_verification_runs
+    `INSERT INTO remote_edit_verification_runs
       (id, report_id, status, steps_json, started_at, completed_at, retry_count, error)
      VALUES ('verify-1', 'report-1', 'success', '[]', 1, 2, 0, NULL)`,
   ).run()
   return database
 }
 
-describe('self-heal recovery preparation', () => {
+describe('remote-edit recovery preparation', () => {
   beforeEach(() => {
     vi.resetModules()
     spawnMock.mockReset()
@@ -79,7 +79,7 @@ describe('self-heal recovery preparation', () => {
     writeFileSync(path.join(workspacePath, 'package.json'), JSON.stringify({ version: '0.9.1' }), 'utf8')
     writeFileSync(path.join(workspacePath, 'src', 'example.ts'), 'export const value = 2\n', 'utf8')
     git(['add', '.'])
-    git(['commit', '-m', 'fix: self-heal recovery test'])
+    git(['commit', '-m', 'fix: remote-edit recovery test'])
     db = createDatabase()
   })
 
@@ -89,7 +89,7 @@ describe('self-heal recovery preparation', () => {
   })
 
   it('persists reload preparation metadata for an applied, verified, clean fix', async () => {
-    const { prepareReload, getRecoveryRuns } = await import('../self-heal/recovery')
+    const { prepareReload, getRecoveryRuns } = await import('../remote-edit/recovery')
 
     const result = await prepareReload('report-1')
     const runs = getRecoveryRuns('report-1')
@@ -109,7 +109,7 @@ describe('self-heal recovery preparation', () => {
 
   it('blocks reload preparation while the workspace is dirty', async () => {
     writeFileSync(path.join(workspacePath, 'src', 'example.ts'), 'export const value = 3\n', 'utf8')
-    const { prepareReload } = await import('../self-heal/recovery')
+    const { prepareReload } = await import('../remote-edit/recovery')
 
     const result = await prepareReload('report-1')
 
@@ -124,7 +124,7 @@ describe('self-heal recovery preparation', () => {
     child.stderr = new EventEmitter()
     spawnMock.mockReturnValue(child)
     const emit = vi.fn()
-    const { prepareReload, startReload, getRecoveryRuns } = await import('../self-heal/recovery')
+    const { prepareReload, startReload, getRecoveryRuns } = await import('../remote-edit/recovery')
     const prepared = await prepareReload('report-1')
 
     const result = await startReload(prepared.recovery!.id, emit)
@@ -147,7 +147,7 @@ describe('self-heal recovery preparation', () => {
     child.stdout = new EventEmitter()
     child.stderr = new EventEmitter()
     spawnMock.mockReturnValue(child)
-    const { prepareReload, startReload, approveRelaunch } = await import('../self-heal/recovery')
+    const { prepareReload, startReload, approveRelaunch } = await import('../remote-edit/recovery')
     const prepared = await prepareReload('report-1')
     await startReload(prepared.recovery!.id)
 
@@ -156,7 +156,7 @@ describe('self-heal recovery preparation', () => {
     expect(result.scheduled).toBe(true)
     expect(relaunchMock).toHaveBeenCalled()
     expect(exitMock).toHaveBeenCalledWith(0)
-    expect(db.prepare("SELECT value FROM settings WHERE key = 'self_heal_pending_recovery_id'").get()).toEqual({
+    expect(db.prepare("SELECT value FROM settings WHERE key = 'remote_edit_pending_recovery_id'").get()).toEqual({
       value: prepared.recovery!.id,
     })
   })
@@ -167,7 +167,7 @@ describe('self-heal recovery preparation', () => {
     child.stderr = new EventEmitter()
     spawnMock.mockReturnValue(child)
     const emit = vi.fn()
-    const { prepareReload, startReload, approveRelaunch, confirmStartupAfterRelaunch, getRecoveryRuns } = await import('../self-heal/recovery')
+    const { prepareReload, startReload, approveRelaunch, confirmStartupAfterRelaunch, getRecoveryRuns } = await import('../remote-edit/recovery')
     const prepared = await prepareReload('report-1')
     await startReload(prepared.recovery!.id)
     approveRelaunch(prepared.recovery!.id)
@@ -177,16 +177,16 @@ describe('self-heal recovery preparation', () => {
     expect(result.confirmed).toBe(true)
     expect(result.recovery).toEqual(expect.objectContaining({ status: 'confirmed', confirmedAt: expect.any(Number) }))
     expect(getRecoveryRuns('report-1')[0].status).toBe('confirmed')
-    expect(db.prepare("SELECT value FROM settings WHERE key = 'self_heal_pending_recovery_id'").get()).toBeUndefined()
+    expect(db.prepare("SELECT value FROM settings WHERE key = 'remote_edit_pending_recovery_id'").get()).toBeUndefined()
     expect(emit).toHaveBeenCalledWith(expect.objectContaining({
       type: 'confirm',
-      label: 'Startup confirmed after self-heal reload',
+      label: 'Startup confirmed after remote-edit reload',
       status: 'confirmed',
     }))
   })
 
   it('returns not-confirmed when no pending recovery key exists', async () => {
-    const { confirmStartupAfterRelaunch } = await import('../self-heal/recovery')
+    const { confirmStartupAfterRelaunch } = await import('../remote-edit/recovery')
     const result = confirmStartupAfterRelaunch()
     expect(result.confirmed).toBe(false)
     expect(result.recovery).toBeNull()
@@ -198,7 +198,7 @@ describe('self-heal recovery preparation', () => {
     child.stderr = new EventEmitter()
     spawnMock.mockReturnValue(child)
     const emit = vi.fn()
-    const { prepareReload, startReload, rollbackHeal, getRecoveryRuns } = await import('../self-heal/recovery')
+    const { prepareReload, startReload, rollbackHeal, getRecoveryRuns } = await import('../remote-edit/recovery')
     const prepared = await prepareReload('report-1')
     await startReload(prepared.recovery!.id)
     // Create a backup file to restore
@@ -223,7 +223,7 @@ describe('self-heal recovery preparation', () => {
     db.prepare("UPDATE error_reports SET fix_staged_files = ? WHERE id = 'report-1'").run(
       JSON.stringify([{ relativePath: 'src/example.ts', stagingPath: '', backupPath: null, diffLineCount: 1, reviewed: true }]),
     )
-    const { prepareReload, startReload, rollbackHeal, getRecoveryRuns } = await import('../self-heal/recovery')
+    const { prepareReload, startReload, rollbackHeal, getRecoveryRuns } = await import('../remote-edit/recovery')
     const prepared = await prepareReload('report-1')
     await startReload(prepared.recovery!.id)
 
@@ -234,14 +234,14 @@ describe('self-heal recovery preparation', () => {
   })
 
   it('returns error when rolling back a non-existent recovery run', async () => {
-    const { rollbackHeal } = await import('../self-heal/recovery')
+    const { rollbackHeal } = await import('../remote-edit/recovery')
     const result = await rollbackHeal('nonexistent-id')
     expect(result.rolledBack).toBe(false)
     expect(result.error).toMatch(/not found/)
   })
 
   it('returns error when rolling back a run in wrong status', async () => {
-    const { prepareReload, rollbackHeal } = await import('../self-heal/recovery')
+    const { prepareReload, rollbackHeal } = await import('../remote-edit/recovery')
     const prepared = await prepareReload('report-1')
     // 'prepared' status cannot be rolled back
     const result = await rollbackHeal(prepared.recovery!.id)

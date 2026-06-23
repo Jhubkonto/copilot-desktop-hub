@@ -30,13 +30,13 @@ function createDatabase() {
   return database
 }
 
-describe('self-heal investigator', () => {
+describe('remote-edit investigator', () => {
   beforeEach(() => {
     vi.resetModules()
     sendProviderWithToolsMock.mockReset()
     db = createDatabase()
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('build_workspace_path', ?)").run(process.cwd())
-    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('self_heal_backend', 'byok')").run()
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('remote_edit_backend', 'byok')").run()
     db.prepare(
       `INSERT INTO error_reports (
         id, title, description, screenshot_path, log_snapshot, status,
@@ -71,7 +71,7 @@ describe('self-heal investigator', () => {
         toolCalls: [],
         model: 'gpt-5-mini',
       })
-    const { runInvestigation } = await import('../self-heal/investigator')
+    const { runInvestigation } = await import('../remote-edit/investigator')
     const chunks: string[] = []
     const result = await runInvestigation(
       { isDestroyed: () => false, webContents: { isDestroyed: () => false, send: vi.fn() } } as never,
@@ -130,7 +130,7 @@ describe('self-heal investigator', () => {
         toolCalls: [],
         model: 'hermes-4-70b',
       })
-    const { runInvestigation } = await import('../self-heal/investigator')
+    const { runInvestigation } = await import('../remote-edit/investigator')
     const result = await runInvestigation(
       { isDestroyed: () => false, webContents: { isDestroyed: () => false, send: vi.fn() } } as never,
       'report-1',
@@ -175,7 +175,7 @@ describe('self-heal investigator', () => {
         toolCalls: [],
         model: 'hermes-4-70b',
       })
-    const { runInvestigation } = await import('../self-heal/investigator')
+    const { runInvestigation } = await import('../remote-edit/investigator')
     const result = await runInvestigation(
       { isDestroyed: () => false, webContents: { isDestroyed: () => false, send: vi.fn() } } as never,
       'report-1',
@@ -194,7 +194,7 @@ describe('self-heal investigator', () => {
       toolCalls: [],
       model: 'gpt-5-mini',
     })
-    const { runInvestigation } = await import('../self-heal/investigator')
+    const { runInvestigation } = await import('../remote-edit/investigator')
     const result = await runInvestigation(
       { isDestroyed: () => false, webContents: { isDestroyed: () => false, send: vi.fn() } } as never,
       'report-1',
@@ -228,7 +228,7 @@ describe('self-heal investigator', () => {
         toolCalls: [],
         model: 'hermes-4-70b',
       })
-    const { runInvestigation } = await import('../self-heal/investigator')
+    const { runInvestigation } = await import('../remote-edit/investigator')
     const result = await runInvestigation(
       { isDestroyed: () => false, webContents: { isDestroyed: () => false, send: vi.fn() } } as never,
       'report-1',
@@ -239,7 +239,7 @@ describe('self-heal investigator', () => {
 
   it('wraps the markdown when no front matter block is found anywhere', async () => {
     sendProviderWithToolsMock.mockResolvedValue({ content: '# Just prose, no yaml at all.', toolCalls: [], model: 'gpt-5-mini' })
-    const { runInvestigation } = await import('../self-heal/investigator')
+    const { runInvestigation } = await import('../remote-edit/investigator')
     const result = await runInvestigation(
       { isDestroyed: () => false, webContents: { isDestroyed: () => false, send: vi.fn() } } as never,
       'report-1',
@@ -255,7 +255,7 @@ describe('self-heal investigator', () => {
       toolCalls: [],
       model: 'gpt-5-mini',
     })
-    const { runInvestigation } = await import('../self-heal/investigator')
+    const { runInvestigation } = await import('../remote-edit/investigator')
     await runInvestigation(
       { isDestroyed: () => false, webContents: { isDestroyed: () => false, send: vi.fn() } } as never,
       'report-1',
@@ -295,7 +295,7 @@ describe('self-heal investigator', () => {
         toolCalls: [],
         model: 'hermes-4-70b',
       })
-    const { runInvestigation } = await import('../self-heal/investigator')
+    const { runInvestigation } = await import('../remote-edit/investigator')
     const result = await runInvestigation(
       { isDestroyed: () => false, webContents: { isDestroyed: () => false, send: vi.fn() } } as never,
       'report-1',
@@ -331,7 +331,7 @@ describe('self-heal investigator', () => {
         toolCalls: [],
         model: 'hermes-4-70b',
       })
-    const { runInvestigation } = await import('../self-heal/investigator')
+    const { runInvestigation } = await import('../remote-edit/investigator')
     const result = await runInvestigation(
       { isDestroyed: () => false, webContents: { isDestroyed: () => false, send: vi.fn() } } as never,
       'report-1',

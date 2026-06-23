@@ -13,8 +13,8 @@ vi.mock('../safe-handle', () => ({
   }),
 }))
 
-vi.mock('../self-heal/investigator', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../self-heal/investigator')>()
+vi.mock('../remote-edit/investigator', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../remote-edit/investigator')>()
   return {
     ...actual,
     runInvestigation: mockRunInvestigation,
@@ -41,7 +41,7 @@ function invoke<T>(channel: string, ...args: unknown[]): T {
   return handler({}, ...args) as T
 }
 
-describe('self-heal handlers', () => {
+describe('remote-edit handlers', () => {
   beforeEach(() => {
     safeHandlers.clear()
     vi.resetModules()
@@ -54,16 +54,16 @@ describe('self-heal handlers', () => {
   })
 
   it('persists and reads investigation settings', async () => {
-    const { registerSelfHealHandlers } = await import('../self-heal-handlers')
-    registerSelfHealHandlers()
+    const { registerRemoteEditHandlers } = await import('../remote-edit-handlers')
+    registerRemoteEditHandlers()
 
-    const saved = invoke('self-heal:set-investigation-settings', {
+    const saved = invoke('remote-edit:set-investigation-settings', {
       backend: 'claude-cli',
       model: 'claude-sonnet-4-6',
       retryLimit: 3,
       autoApproveTools: false,
     })
-    const loaded = invoke('self-heal:get-investigation-settings')
+    const loaded = invoke('remote-edit:get-investigation-settings')
 
     expect(saved).toEqual({
       backend: 'claude-cli',
@@ -75,16 +75,16 @@ describe('self-heal handlers', () => {
   })
 
   it('persists codex-cli investigation settings', async () => {
-    const { registerSelfHealHandlers } = await import('../self-heal-handlers')
-    registerSelfHealHandlers()
+    const { registerRemoteEditHandlers } = await import('../remote-edit-handlers')
+    registerRemoteEditHandlers()
 
-    const saved = invoke('self-heal:set-investigation-settings', {
+    const saved = invoke('remote-edit:set-investigation-settings', {
       backend: 'codex-cli',
       model: 'gpt-5.5',
       retryLimit: 2,
       autoApproveTools: true,
     })
-    const loaded = invoke('self-heal:get-investigation-settings')
+    const loaded = invoke('remote-edit:get-investigation-settings')
 
     expect(saved).toEqual({
       backend: 'codex-cli',
@@ -110,15 +110,15 @@ describe('self-heal handlers', () => {
       isDestroyed: () => false,
       webContents: { send: (channel: string, payload: unknown) => sends.push([channel, payload]) },
     }
-    const { registerSelfHealHandlers } = await import('../self-heal-handlers')
-    registerSelfHealHandlers(mainWindow as never)
+    const { registerRemoteEditHandlers } = await import('../remote-edit-handlers')
+    registerRemoteEditHandlers(mainWindow as never)
 
-    expect(await invoke('self-heal:start-investigation', 'report-1')).toEqual({ reportId: 'report-1' })
+    expect(await invoke('remote-edit:start-investigation', 'report-1')).toEqual({ reportId: 'report-1' })
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(mockRunInvestigation).toHaveBeenCalled()
     expect(sends).toContainEqual([
-      'self-heal:investigation-done',
+      'remote-edit:investigation-done',
       expect.objectContaining({ reportId: 'report-1', status: 'done' }),
     ])
   })
@@ -130,10 +130,10 @@ describe('self-heal handlers', () => {
         app_version, platform, os_version, created_at, updated_at
       ) VALUES ('report-1', 'Bug', '', NULL, NULL, 'investigated', NULL, NULL, NULL, 1, 1)`,
     ).run()
-    const { registerSelfHealHandlers } = await import('../self-heal-handlers')
-    registerSelfHealHandlers()
+    const { registerRemoteEditHandlers } = await import('../remote-edit-handlers')
+    registerRemoteEditHandlers()
 
-    const updated = invoke<{ id: string; status: string } | null>('self-heal:set-report-status', 'report-1', 'rejected')
+    const updated = invoke<{ id: string; status: string } | null>('remote-edit:set-report-status', 'report-1', 'rejected')
 
     expect(updated).toEqual(expect.objectContaining({ id: 'report-1', status: 'rejected' }))
   })

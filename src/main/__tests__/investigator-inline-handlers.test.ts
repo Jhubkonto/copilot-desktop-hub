@@ -23,7 +23,7 @@ vi.mock('../database', () => ({ getDatabase: vi.fn() }))
 vi.mock('../providers', () => ({ getProviderForAgent: vi.fn(), getApiKey: vi.fn(), sendProviderWithTools: vi.fn() }))
 vi.mock('../ws-server', () => ({ broadcastToMobile: vi.fn() }))
 
-import { buildInlineHandlers } from '../self-heal/investigator'
+import { buildInlineHandlers } from '../remote-edit/investigator'
 
 describe('investigator grep inline handler', () => {
   beforeEach(() => {

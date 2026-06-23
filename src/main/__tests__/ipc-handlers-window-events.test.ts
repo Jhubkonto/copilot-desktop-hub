@@ -51,9 +51,9 @@ vi.mock('../providers', () => ({
 vi.mock('../screen-capture-handlers', () => ({ registerScreenCaptureHandlers: vi.fn() }))
 vi.mock('../voice-handlers', () => ({ registerVoiceHandlers: vi.fn() }))
 vi.mock('../error-report-handlers', () => ({ registerErrorReportHandlers: vi.fn() }))
-vi.mock('../self-heal-handlers', () => ({ registerSelfHealHandlers: vi.fn() }))
-vi.mock('../self-heal/git-ops', () => ({ registerSelfHealGitHandlers: vi.fn() }))
-vi.mock('../self-heal/recovery', () => ({ registerSelfHealRecoveryHandlers: vi.fn() }))
+vi.mock('../self-heal-handlers', () => ({ registerRemoteEditHandlers: vi.fn() }))
+vi.mock('../remote-edit/git-ops', () => ({ registerRemoteEditGitHandlers: vi.fn() }))
+vi.mock('../remote-edit/recovery', () => ({ registerRemoteEditRecoveryHandlers: vi.fn() }))
 vi.mock('../screen-capture', () => ({
   cacheExternalWindowLabel: mockCacheExternalWindowLabel,
   consumeSuppressFocusEvent: mockConsumeSuppressFocusEvent,

@@ -32,6 +32,18 @@ vi.mock('../local-feed-server', () => ({
   getFeedDir: vi.fn().mockReturnValue(''),
 }))
 
+vi.mock('../ws-server', () => ({
+  broadcastToMobile: vi.fn(),
+  startWsServer: vi.fn(),
+  stopWsServer: vi.fn(),
+  getWsStatus: vi.fn(),
+  getQrDataUrl: vi.fn(),
+  regenerateToken: vi.fn(),
+  setWsCommandHandler: vi.fn(),
+  getWakelockEnabled: vi.fn(),
+  setWakelockEnabled: vi.fn(),
+}))
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -180,5 +192,29 @@ describe('build_records migration', () => {
     db.prepare("UPDATE build_records SET status = 'success', exit_code = 0, finished_at = ? WHERE id = ?").run(Date.now(), 'build-1')
     const updated = db.prepare('SELECT status FROM build_records WHERE id = ?').get('build-1') as { status: string }
     expect(updated.status).toBe('success')
+  })
+
+  it('migration 40 adds mobile_initiated column with default 0', () => {
+    const db = createDatabase()
+    openDatabases.push(db)
+
+    const columns = db.prepare('PRAGMA table_info(build_records)').all() as { name: string; dflt_value: string | null }[]
+    const col = columns.find((c) => c.name === 'mobile_initiated')
+    expect(col).toBeDefined()
+    expect(col?.dflt_value).toBe('0')
+  })
+
+  it('can insert a mobile-initiated build record', () => {
+    const db = createDatabase()
+    openDatabases.push(db)
+
+    db.prepare(
+      `INSERT INTO build_records
+        (id, workspace_path, platform, command, status, started_at, mobile_initiated)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run('mob-1', '/ws', 'win32', 'typecheck', 'running', Date.now(), 1)
+
+    const row = db.prepare('SELECT mobile_initiated FROM build_records WHERE id = ?').get('mob-1') as { mobile_initiated: number }
+    expect(row.mobile_initiated).toBe(1)
   })
 })

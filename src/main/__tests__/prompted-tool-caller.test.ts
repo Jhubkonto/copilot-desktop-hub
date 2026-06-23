@@ -14,7 +14,7 @@ import {
   buildPromptedToolSystemAddendum,
   injectPromptedToolSystemPrompt,
   createPromptedToolCaller,
-} from '../self-heal/prompted-tool-caller'
+} from '../remote-edit/prompted-tool-caller'
 
 const TOOLS: ToolDefinition[] = [
   {

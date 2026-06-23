@@ -6,7 +6,7 @@ import { initializeBaseSchema, runMigrations } from '../database-migrations'
 
 const { safeHandlers, testRoot, sendProviderWithToolsMock } = vi.hoisted(() => ({
   safeHandlers: new Map<string, (...args: unknown[]) => unknown>(),
-  testRoot: { value: '.test-self-heal-fix' },
+  testRoot: { value: '.test-remote-edit-fix' },
   sendProviderWithToolsMock: vi.fn(),
 }))
 
@@ -53,7 +53,7 @@ function invoke<T>(channel: string, ...args: unknown[]): T {
   return handler({}, ...args) as T
 }
 
-describe('self-heal fix staging', () => {
+describe('remote-edit fix staging', () => {
   const workspacePath = path.join(testRoot.value, 'workspace')
   const sourcePath = path.join(workspacePath, 'src', 'example.ts')
 
@@ -66,7 +66,7 @@ describe('self-heal fix staging', () => {
     writeFileSync(sourcePath, 'export const value = 1\n', 'utf8')
     db = createDatabase()
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('build_workspace_path', ?)").run(workspacePath)
-    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('self_heal_backend', 'byok')").run()
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('remote_edit_backend', 'byok')").run()
     db.prepare(
       `INSERT INTO error_reports (
         id, title, description, screenshot_path, log_snapshot, status,
@@ -98,7 +98,7 @@ describe('self-heal fix staging', () => {
       toolCalls: [],
       model: 'gpt-5-mini',
     })
-    const { runFix, getStagingDir, getBackupDir } = await import('../self-heal/fix-agent')
+    const { runFix, getStagingDir, getBackupDir } = await import('../remote-edit/fix-agent')
 
     const result = await runFix(
       { isDestroyed: () => false, webContents: { isDestroyed: () => false, send: vi.fn() } } as never,
@@ -110,11 +110,11 @@ describe('self-heal fix staging', () => {
     expect(result.status).toBe('done')
     expect(readFileSync(sourcePath, 'utf8')).toBe('export const value = 1\n')
     expect(readFileSync(stagedPath, 'utf8')).toBe('export const value = 2')
-    expect(db.prepare('SELECT COUNT(*) AS count FROM self_heal_diffs WHERE report_id = ?').get('report-1')).toEqual({ count: 1 })
+    expect(db.prepare('SELECT COUNT(*) AS count FROM remote_edit_diffs WHERE report_id = ?').get('report-1')).toEqual({ count: 1 })
 
-    const { registerSelfHealHandlers } = await import('../self-heal-handlers')
-    registerSelfHealHandlers()
-    const applied = invoke<{ appliedFiles: string[]; backupPaths: string[] } | null>('self-heal:commit-to-workspace', 'report-1')
+    const { registerRemoteEditHandlers } = await import('../remote-edit-handlers')
+    registerRemoteEditHandlers()
+    const applied = invoke<{ appliedFiles: string[]; backupPaths: string[] } | null>('remote-edit:commit-to-workspace', 'report-1')
 
     expect(applied?.appliedFiles).toEqual(['src/example.ts'])
     expect(readFileSync(sourcePath, 'utf8')).toBe('export const value = 2')

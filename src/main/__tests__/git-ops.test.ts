@@ -15,7 +15,7 @@ vi.mock('../database', () => ({
   getDatabase: () => db,
 }))
 
-const testRoot = path.join(process.cwd(), '.test-self-heal-git')
+const testRoot = path.join(process.cwd(), '.test-remote-edit-git')
 const workspacePath = path.join(testRoot, 'workspace')
 
 function git(args: string[]) {
@@ -36,14 +36,14 @@ function createDatabase() {
     ) VALUES (?, 'Renderer crash', '', NULL, NULL, 'fixed', NULL, NULL, NULL, 'done', 'applied', ?, 1, 1)`,
   ).run('report-1', JSON.stringify([{ relativePath: 'src/example.ts', stagingPath: '', action: 'modified' }]))
   database.prepare(
-    `INSERT INTO self_heal_verification_runs
+    `INSERT INTO remote_edit_verification_runs
       (id, report_id, status, steps_json, started_at, completed_at, retry_count, error)
      VALUES ('verify-1', 'report-1', 'success', '[]', 1, 2, 0, NULL)`,
   ).run()
   return database
 }
 
-describe('self-heal git operations', () => {
+describe('remote-edit git operations', () => {
   beforeEach(() => {
     vi.resetModules()
     rmSync(testRoot, { recursive: true, force: true })
@@ -64,24 +64,24 @@ describe('self-heal git operations', () => {
   })
 
   it('prepares a commit only after an applied and verified fix', async () => {
-    const { prepareSelfHealCommit } = await import('../self-heal/git-ops')
+    const { prepareRemoteEditCommit } = await import('../remote-edit/git-ops')
 
-    const prepared = await prepareSelfHealCommit('report-1')
+    const prepared = await prepareRemoteEditCommit('report-1')
 
     expect(prepared.canCommit).toBe(true)
     expect(prepared.files).toEqual(['src/example.ts'])
-    expect(prepared.suggestedMessage).toBe('fix: self-heal Renderer crash')
+    expect(prepared.suggestedMessage).toBe('fix: remote-edit Renderer crash')
     expect(prepared.status.files).toEqual([
       expect.objectContaining({ path: 'src/example.ts', status: 'modified' }),
     ])
   })
 
-  it('commits only the applied self-heal files', async () => {
+  it('commits only the applied remote-edit files', async () => {
     writeFileSync(path.join(workspacePath, 'unrelated.txt'), 'leave me unstaged\n', 'utf8')
-    const { commitSelfHealFix, getSelfHealGitStatus } = await import('../self-heal/git-ops')
+    const { commitRemoteEditFix, getRemoteEditGitStatus } = await import('../remote-edit/git-ops')
 
-    const result = await commitSelfHealFix('report-1', 'fix: self-heal renderer crash')
-    const status = await getSelfHealGitStatus('report-1')
+    const result = await commitRemoteEditFix('report-1', 'fix: remote-edit renderer crash')
+    const status = await getRemoteEditGitStatus('report-1')
 
     expect(result.committed).toBe(true)
     expect(result.commitSha).toMatch(/[0-9a-f]+/)
@@ -91,10 +91,10 @@ describe('self-heal git operations', () => {
   })
 
   it('blocks commit before verification passes', async () => {
-    db.prepare("UPDATE self_heal_verification_runs SET status = 'failed' WHERE id = 'verify-1'").run()
-    const { commitSelfHealFix } = await import('../self-heal/git-ops')
+    db.prepare("UPDATE remote_edit_verification_runs SET status = 'failed' WHERE id = 'verify-1'").run()
+    const { commitRemoteEditFix } = await import('../remote-edit/git-ops')
 
-    const result = await commitSelfHealFix('report-1', 'fix: should not commit')
+    const result = await commitRemoteEditFix('report-1', 'fix: should not commit')
 
     expect(result.committed).toBe(false)
     expect(result.error).toBe('Verification must pass before committing')

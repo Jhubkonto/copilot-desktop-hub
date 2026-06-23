@@ -22,7 +22,7 @@ let db: Database.Database
 
 vi.mock('../database', () => ({ getDatabase: () => db }))
 
-const testRoot = path.join(process.cwd(), '.test-self-heal-history')
+const testRoot = path.join(process.cwd(), '.test-remote-edit-history')
 const workspacePath = path.join(testRoot, 'workspace')
 
 function createDatabase(): Database.Database {
@@ -40,7 +40,7 @@ function createDatabase(): Database.Database {
   return database
 }
 
-describe('self_heal_history table', () => {
+describe('remote_edit_history table', () => {
   beforeEach(() => {
     vi.resetModules()
     rmSync(testRoot, { recursive: true, force: true })
@@ -60,7 +60,7 @@ describe('self_heal_history table', () => {
   })
 
   it('creates a new history entry for a report', async () => {
-    const { getOrCreateHistoryEntry } = await import('../self-heal/history')
+    const { getOrCreateHistoryEntry } = await import('../remote-edit/history')
     const entry = getOrCreateHistoryEntry('report-h1')
 
     expect(entry.reportId).toBe('report-h1')
@@ -73,14 +73,14 @@ describe('self_heal_history table', () => {
   })
 
   it('returns the same entry on repeated getOrCreate calls', async () => {
-    const { getOrCreateHistoryEntry } = await import('../self-heal/history')
+    const { getOrCreateHistoryEntry } = await import('../remote-edit/history')
     const first = getOrCreateHistoryEntry('report-h1')
     const second = getOrCreateHistoryEntry('report-h1')
     expect(first.id).toBe(second.id)
   })
 
   it('updates history fields via updateHistoryEntry', async () => {
-    const { getOrCreateHistoryEntry, updateHistoryEntry, listHistory } = await import('../self-heal/history')
+    const { getOrCreateHistoryEntry, updateHistoryEntry, listHistory } = await import('../remote-edit/history')
     getOrCreateHistoryEntry('report-h1')
 
     updateHistoryEntry('report-h1', {
@@ -104,7 +104,7 @@ describe('self_heal_history table', () => {
   })
 
   it('updateHistoryEntry creates entry if none exists', async () => {
-    const { updateHistoryEntry, listHistory } = await import('../self-heal/history')
+    const { updateHistoryEntry, listHistory } = await import('../remote-edit/history')
 
     updateHistoryEntry('report-h1', { status: 'verified', verificationPassed: true })
 
@@ -121,13 +121,13 @@ describe('self_heal_history table', () => {
        VALUES ('report-h2', 'Second report', '', 'investigated', 'none', '[]', '[]', 2, 2)`,
     ).run()
 
-    const { getOrCreateHistoryEntry, listHistory } = await import('../self-heal/history')
+    const { getOrCreateHistoryEntry, listHistory } = await import('../remote-edit/history')
     // Insert in order: h2 first (older timestamp hack), then h1
     getOrCreateHistoryEntry('report-h2')
     // Bump updated_at to make h1 more recent
-    db.prepare("UPDATE self_heal_history SET created_at = 999 WHERE report_id = 'report-h2'").run()
+    db.prepare("UPDATE remote_edit_history SET created_at = 999 WHERE report_id = 'report-h2'").run()
     getOrCreateHistoryEntry('report-h1')
-    db.prepare("UPDATE self_heal_history SET created_at = 1000 WHERE report_id = 'report-h1'").run()
+    db.prepare("UPDATE remote_edit_history SET created_at = 1000 WHERE report_id = 'report-h1'").run()
 
     const entries = listHistory()
     expect(entries.length).toBeGreaterThanOrEqual(2)
@@ -159,7 +159,7 @@ describe('self_heal_history table', () => {
 
     // Insert recovery run manually
     db.prepare(
-      `INSERT INTO self_heal_recovery_runs
+      `INSERT INTO remote_edit_recovery_runs
        (id, report_id, status, backup_manifest_json, pre_reload_state_json, created_at, updated_at)
        VALUES ('rec-1', 'report-h1', 'reloading',
          ?, '{}', 1, 1)`,
@@ -168,12 +168,12 @@ describe('self_heal_history table', () => {
       stagingPath: '',
       backupPath: path.join(testRoot, 'backup-file.ts'),
     }]))
-    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('self_heal_pending_recovery_id', 'rec-1')").run()
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('remote_edit_pending_recovery_id', 'rec-1')").run()
 
-    const { getOrCreateHistoryEntry, listHistory } = await import('../self-heal/history')
+    const { getOrCreateHistoryEntry, listHistory } = await import('../remote-edit/history')
     getOrCreateHistoryEntry('report-h1')
 
-    const { rollbackHeal } = await import('../self-heal/recovery')
+    const { rollbackHeal } = await import('../remote-edit/recovery')
     const result = await rollbackHeal('rec-1')
 
     expect(result.rolledBack).toBe(true)
