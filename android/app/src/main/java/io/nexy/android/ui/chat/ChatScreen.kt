@@ -13,21 +13,38 @@ import java.util.Locale
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Stop
@@ -69,7 +86,13 @@ import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.PromptEntry
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.derivedStateOf
 import io.noties.markwon.Markwon
+import io.noties.markwon.ext.tables.TablePlugin
+import io.noties.markwon.linkify.LinkifyPlugin
+import io.noties.markwon.syntax.Prism4jThemeDarkula
+import io.noties.markwon.syntax.SyntaxHighlightPlugin
+import io.noties.prism4j.Prism4j
 import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyConnectionBanner
 import io.nexy.android.ui.model.activeModelDetail
@@ -78,7 +101,7 @@ import io.nexy.android.ui.model.emptyModelListDetail
 import io.nexy.android.ui.model.modelSourceDetail
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ChatScreen(
     conversationId: String,
@@ -98,6 +121,7 @@ fun ChatScreen(
     val isRefreshing by vm.isRefreshing.collectAsState()
     val activityLabel by vm.activityLabel.collectAsState()
     val liveThinkingBlocks by vm.liveThinkingBlocks.collectAsState()
+    val generationStartedAt by vm.generationStartedAt.collectAsState()
     val selectedModel by vm.selectedModel.collectAsState()
     val attachments by vm.attachments.collectAsState()
     val conversations by WsRepository.conversations.collectAsState()
@@ -116,6 +140,7 @@ fun ChatScreen(
     val draftFromVm by vm.draft.collectAsState()
     var input by remember { mutableStateOf(draftFromVm) }
     val listState = rememberLazyListState()
+    var userScrolledUp by remember { mutableStateOf(false) }
     val context = LocalContext.current
     var showModelSheet by remember { mutableStateOf(false) }
     var modelQuery by remember { mutableStateOf("") }
@@ -261,13 +286,41 @@ fun ChatScreen(
         else screenshotPermissionLauncher.launch(screenshotPermission)
     }
 
-    LaunchedEffect(messages.size, isAwaitingResponse) {
-        val itemCount = messages.size + if (isAwaitingResponse) 1 else 0
-        if (itemCount > 0) {
-            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
-            val wasAtBottom = lastVisible >= itemCount - 2
-            if (wasAtBottom) listState.animateScrollToItem(itemCount - 1)
+    // Track whether the user is scrolled away from the bottom using live layout info.
+    val isAtBottom by remember {
+        derivedStateOf {
+            val layoutInfo = listState.layoutInfo
+            val itemCount = layoutInfo.totalItemsCount
+            if (itemCount == 0) return@derivedStateOf true
+            val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            val lastItem = layoutInfo.visibleItemsInfo.lastOrNull()
+            // Also check that the last item's bottom edge is within the viewport
+            val lastItemClipped = lastItem != null &&
+                lastItem.offset + lastItem.size > layoutInfo.viewportEndOffset
+            itemCount > 0 && lastVisible >= itemCount - 1 && !lastItemClipped
         }
+    }
+    LaunchedEffect(isAtBottom) {
+        if (isAtBottom) userScrolledUp = false
+        else userScrolledUp = true
+    }
+
+    // Auto-scroll on new whole messages or awaiting-response toggle.
+    // scrollOffset = Int.MAX_VALUE causes Compose to clamp to the actual content bottom,
+    // so the last item's bottom edge is visible rather than its top.
+    LaunchedEffect(messages.size, isAwaitingResponse) {
+        if (userScrolledUp) return@LaunchedEffect
+        val itemCount = listState.layoutInfo.totalItemsCount
+        if (itemCount > 0) listState.scrollToItem(itemCount - 1, scrollOffset = Int.MAX_VALUE)
+    }
+
+    // Auto-scroll while streaming text within the last message (chunks don't change messages.size).
+    // Use scrollToItem (instant) to avoid animation jitter from rapid successive calls.
+    val streamingTextLength = remember(messages) { messages.lastOrNull { it.isStreaming }?.text?.length ?: 0 }
+    LaunchedEffect(streamingTextLength, isStreaming) {
+        if (!isStreaming || userScrolledUp) return@LaunchedEffect
+        val itemCount = listState.layoutInfo.totalItemsCount
+        if (itemCount > 0) listState.scrollToItem(itemCount - 1, scrollOffset = Int.MAX_VALUE)
     }
 
     LaunchedEffect(conversation?.model) {
@@ -306,6 +359,14 @@ fun ChatScreen(
                 else -> {}
             }
         }
+    }
+
+    var highlightedMessageId by remember { mutableStateOf<String?>(null) }
+
+    DisposableEffect(conversationId) {
+        WsRepository.activelyViewedConversationId.value = conversationId
+        WsRepository.clearCompletedAway(conversationId)
+        onDispose { WsRepository.activelyViewedConversationId.value = null }
     }
 
     val assistantBusy = isStreaming || isAwaitingResponse
@@ -623,7 +684,14 @@ fun ChatScreen(
         onDispose { tts.stop(); tts.shutdown() }
     }
 
-    val markwon = remember(context) { Markwon.create(context) }
+    val markwon = remember(context) {
+        val prism4j = Prism4j(io.nexy.android.GrammarLocatorDef())
+        Markwon.builder(context)
+            .usePlugin(TablePlugin.create(context))
+            .usePlugin(LinkifyPlugin.create())
+            .usePlugin(SyntaxHighlightPlugin.create(prism4j, Prism4jThemeDarkula.create()))
+            .build()
+    }
     CompositionLocalProvider(LocalMarkwon provides markwon) {
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -669,7 +737,20 @@ fun ChatScreen(
                         )
                     }
                     if (assistantBusy) {
-                        IconButton(onClick = { vm.stopStream() }) {
+                        val stopPulse = rememberInfiniteTransition(label = "stop-pulse")
+                        val stopAlpha by stopPulse.animateFloat(
+                            initialValue = 1f,
+                            targetValue = 0.4f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(700, easing = FastOutSlowInEasing),
+                                repeatMode = RepeatMode.Reverse,
+                            ),
+                            label = "stop-alpha",
+                        )
+                        IconButton(
+                            onClick = { vm.stopStream() },
+                            modifier = Modifier.graphicsLayer { alpha = stopAlpha },
+                        ) {
                             Icon(Icons.Default.Stop, contentDescription = "Stop")
                         }
                     }
@@ -704,33 +785,154 @@ fun ChatScreen(
             onRefresh = { vm.refreshMessages() },
             modifier = Modifier.fillMaxSize().padding(padding),
         ) {
+            Box(modifier = Modifier.fillMaxSize()) {
             Column(modifier = Modifier.fillMaxSize()) {
                 if (connectionBanner) {
                     NexyConnectionBanner(connectionState, lastError)
                 }
+                // Group consecutive isToolCall messages into the assistant message that follows them.
+                // This gives one animateItem() animation per response turn instead of one per block.
+                val groupedMessages = remember(messages) {
+                    val result = mutableListOf<ChatMessage>()
+                    val pending = mutableListOf<ChatMessage>()
+                    for (msg in messages) {
+                        if (msg.isToolCall) {
+                            pending.add(msg)
+                        } else {
+                            result.add(
+                                if (!msg.isUser && pending.isNotEmpty())
+                                    msg.copy(toolCalls = pending.toList())
+                                else msg
+                            )
+                            pending.clear()
+                        }
+                    }
+                    result
+                }
+
+                // Map each assistant group index → the user message that immediately preceded it
+                val requestByGroupIndex = remember(groupedMessages) {
+                    val map = mutableMapOf<Int, ChatMessage>()
+                    var lastUser: ChatMessage? = null
+                    groupedMessages.forEachIndexed { idx, msg ->
+                        if (msg.isUser) {
+                            lastUser = msg
+                        } else if (!msg.isToolCall && lastUser != null) {
+                            map[idx] = lastUser!!
+                        }
+                    }
+                    map
+                }
+
+                // LazyColumn item index offset: item 0 = ChatStartHeader, items 1..N = groupedMessages
+                val lazyHeaderOffset = if (messages.isNotEmpty() || isAwaitingResponse) 1 else 0
+
+                // Sticky "In reply to" banner: show when the topmost visible assistant message's
+                // user request is scrolled above the viewport.
+                val bannerRequest by remember(groupedMessages, requestByGroupIndex, lazyHeaderOffset) {
+                    derivedStateOf {
+                        val visibleItems = listState.layoutInfo.visibleItemsInfo
+                        val firstVisibleIdx = visibleItems.firstOrNull()?.index ?: return@derivedStateOf null
+                        // Find topmost visible assistant item
+                        val topAssistantGroupIdx = visibleItems
+                            .map { it.index - lazyHeaderOffset }
+                            .filter { gi -> gi >= 0 && gi < groupedMessages.size && !groupedMessages[gi].isUser && !groupedMessages[gi].isToolCall }
+                            .firstOrNull() ?: return@derivedStateOf null
+                        val userMsg = requestByGroupIndex[topAssistantGroupIdx] ?: return@derivedStateOf null
+                        // Only show banner if the user message itself is not visible
+                        val userGroupIdx = groupedMessages.indexOf(userMsg)
+                        val userLazyIdx = userGroupIdx + lazyHeaderOffset
+                        val userIsVisible = visibleItems.any { it.index == userLazyIdx }
+                        if (userIsVisible) return@derivedStateOf null
+                        // Only show when scrolled past (user message is above the viewport)
+                        if (userLazyIdx >= firstVisibleIdx) return@derivedStateOf null
+                        val preview = userMsg.text.replace('\n', ' ').trim()
+                        if (preview.isBlank()) null else Pair(userGroupIdx, if (preview.length > 120) preview.take(117) + "…" else preview)
+                    }
+                }
+
+                val handleScrollToRequest: suspend (Int) -> Unit = { groupIdx ->
+                    val lazyIdx = groupIdx + lazyHeaderOffset
+                    listState.animateScrollToItem(lazyIdx)
+                    val msgId = groupedMessages.getOrNull(groupIdx)?.id
+                    if (msgId != null) {
+                        highlightedMessageId = msgId
+                        kotlinx.coroutines.delay(1600)
+                        highlightedMessageId = null
+                    }
+                }
+
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = bannerRequest != null,
+                    enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically(),
+                    exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkVertically(),
+                ) {
+                    bannerRequest?.let { (groupIdx, preview) ->
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { scope.launch { handleScrollToRequest(groupIdx) } },
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            shadowElevation = 2.dp,
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(
+                                    "In reply to",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Text(
+                                    preview,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Icon(
+                                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(vertical = 8.dp),
                 ) {
                     if (messages.isEmpty() && !isAwaitingResponse) {
                         item {
                             EmptyChatContent(agentLabel = agentLabel, projectLabel = projectLabel)
                         }
+                    } else {
+                        item { ChatStartHeader() }
                     }
-                    itemsIndexed(messages) { msgIndex, msg ->
-                        if (msg.isToolCall) {
-                            ToolCallBubble(msg)
-                        } else {
+                    itemsIndexed(groupedMessages, key = { _, msg -> msg.id.ifBlank { "${msg.isUser}_${msg.timestamp}" } }) { msgIndex, msg ->
+                        androidx.compose.foundation.layout.Column(modifier = Modifier.animateItem()) {
                             if (!msg.isUser && msg.isStreaming && liveThinkingBlocks.isNotEmpty()) {
-                                ThinkingHistoryBubble(liveThinkingBlocks)
+                                ThinkingHistoryBubble(liveThinkingBlocks, isLive = true, responseIsStreaming = msg.text.isNotEmpty())
                             }
                             if (!msg.isUser && msg.thinkingBlocks.isNotEmpty()) {
-                                ThinkingHistoryBubble(msg.thinkingBlocks)
+                                ThinkingHistoryBubble(msg.thinkingBlocks, isLive = false, responseIsStreaming = msg.isStreaming)
+                            }
+                            // Tool calls grouped inline above the response text
+                            msg.toolCalls.forEach { tc ->
+                                ToolCallBubble(tc, inProgress = tc.isStreaming)
                             }
                             val precedingUserText = if (!msg.isUser) {
-                                messages.take(msgIndex).lastOrNull { it.isUser && !it.isToolCall }?.text
+                                groupedMessages.take(msgIndex).lastOrNull { it.isUser }?.text
                             } else null
                             val chatProjectId = conversation?.project_id ?: projectId
                             MessageBubble(
@@ -740,6 +942,7 @@ fun ChatScreen(
                                 onResend = if (msg.isUser) { { vm.sendMessage(msg.text) } } else null,
                                 onDelete = if (msg.id.isNotBlank()) { { deletingMessage = msg } } else null,
                                 onDeleteAfter = if (msg.id.isNotBlank() && msg.timestamp > 0L) { { deleteAfterMessage = msg } } else null,
+                                isHighlighted = msg.isUser && msg.id == highlightedMessageId,
                                 onRetry = if (!msg.isUser && precedingUserText != null) {
                                     { vm.sendMessage(precedingUserText) }
                                 } else null,
@@ -768,16 +971,37 @@ fun ChatScreen(
                                     }
                                 } else null,
                             )
-                        }
+                        } // animateItem Column
                     }
                     if (isAwaitingResponse) {
                         if (liveThinkingBlocks.isNotEmpty()) {
-                            item { ThinkingHistoryBubble(liveThinkingBlocks) }
+                            item { ThinkingHistoryBubble(liveThinkingBlocks, isLive = true) }
                         }
-                        item { ThinkingBubble(activityLabel) }
+                        item { ThinkingBubble(activityLabel, generationStartedAt) }
                     }
                 }
             }
+            // Scroll-to-bottom button shown whenever the user is scrolled above the bottom
+            AnimatedVisibility(
+                visible = userScrolledUp,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp),
+                enter = fadeIn(),
+                exit = fadeOut(),
+            ) {
+                FloatingActionButton(
+                    onClick = {
+                        userScrolledUp = false
+                        val itemCount = listState.layoutInfo.totalItemsCount
+                        if (itemCount > 0) scope.launch { listState.scrollToItem(itemCount - 1, scrollOffset = Int.MAX_VALUE) }
+                    },
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(40.dp),
+                ) {
+                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Scroll to bottom", modifier = Modifier.size(20.dp))
+                }
+            }
+            } // Box
         }
     }
     } // CompositionLocalProvider

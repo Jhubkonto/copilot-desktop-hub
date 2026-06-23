@@ -1,11 +1,14 @@
 package io.nexy.android.ui.chat
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -21,14 +24,18 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 
 @Composable
 fun AttachmentChip(attachment: PendingAttachment, onRemove: () -> Unit) {
@@ -142,6 +149,28 @@ fun ModelSheetItem(
 
 @Composable
 fun EmptyChatContent(agentLabel: String?, projectLabel: String?) {
+    // Sequenced entrance: title fades in (0ms), detail slides up (300ms delay), hint at 450ms
+    val titleAlpha = remember { Animatable(0f) }
+    val detailAlpha = remember { Animatable(0f) }
+    val detailOffsetPx = remember { Animatable(40f) }
+    val hintAlpha = remember { Animatable(0f) }
+    val hintOffsetPx = remember { Animatable(40f) }
+
+    LaunchedEffect(Unit) {
+        titleAlpha.animateTo(1f, animationSpec = tween(durationMillis = 300))
+        detailAlpha.animateTo(1f, animationSpec = tween(durationMillis = 250))
+        detailOffsetPx.animateTo(0f, animationSpec = tween(durationMillis = 250))
+        hintAlpha.animateTo(1f, animationSpec = tween(durationMillis = 250))
+        hintOffsetPx.animateTo(0f, animationSpec = tween(durationMillis = 250))
+    }
+
+    val detail = when {
+        agentLabel != null && projectLabel != null -> "$agentLabel · $projectLabel"
+        agentLabel != null -> agentLabel
+        projectLabel != null -> projectLabel
+        else -> null
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -153,17 +182,25 @@ fun EmptyChatContent(agentLabel: String?, projectLabel: String?) {
             "Start a new conversation",
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.alpha(titleAlpha.value),
         )
-        val detail = when {
-            agentLabel != null && projectLabel != null -> "$agentLabel · $projectLabel"
-            agentLabel != null -> agentLabel
-            projectLabel != null -> projectLabel
-            else -> "Ask a question or attach a file to begin."
+        if (detail != null) {
+            Text(
+                detail,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .alpha(detailAlpha.value)
+                    .offset { IntOffset(0, detailOffsetPx.value.roundToInt()) },
+            )
         }
         Text(
-            detail,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            "Ask a question or attach a file to begin.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            modifier = Modifier
+                .alpha(hintAlpha.value)
+                .offset { IntOffset(0, hintOffsetPx.value.roundToInt()) },
         )
     }
 }
