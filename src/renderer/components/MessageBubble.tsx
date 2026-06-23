@@ -114,167 +114,220 @@ export function MessageBubbleBase({
     }, 400)
   }
 
+  const isAssistant = role === 'assistant'
+  const isUser = role === 'user'
+  const isSystem = role === 'system'
+
   return (
     <div
       className={`group flex ${
-        role === 'user' ? 'justify-end' : role === 'system' ? 'justify-center' : 'justify-start'
+        isUser ? 'justify-end' : isSystem ? 'justify-center' : 'justify-start'
       }`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      onDoubleClick={role === 'user' && onEdit ? () => onEdit(messageIndex) : undefined}
+      onDoubleClick={isUser && onEdit ? () => onEdit(messageIndex) : undefined}
     >
-      <div className="relative max-w-[80%]">
-        <div
-          className={`rounded-lg px-4 py-3 text-sm ${
-            isError
-              ? 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 text-red-800 dark:text-red-200'
-              : role === 'system'
-                ? 'bg-gray-50 dark:bg-gray-800/60 border border-dashed border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-300 italic'
-              : role === 'user'
-                ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
-              : 'bg-gray-50 dark:bg-gray-800/50 text-gray-900 dark:text-gray-100'
-          } transition-shadow ${isHighlighted ? 'ring-2 ring-blue-400/70 dark:ring-blue-300/70 shadow-md' : ''}`}
-        >
-          {attachments && attachments.length > 0 && (
-            <div className="flex flex-col gap-1.5 mb-2">
-              {attachments.filter(a => a.type === 'image' && a.thumbnailDataUrl).length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {attachments.filter(a => a.type === 'image' && a.thumbnailDataUrl).map(att => (
-                    <img
-                      key={att.id}
-                      src={att.thumbnailDataUrl}
-                      alt={att.name}
-                      className="h-32 max-w-[240px] object-cover rounded-lg border border-gray-200 dark:border-gray-700"
-                    />
-                  ))}
-                </div>
-              )}
-              {attachments.filter(a => a.type !== 'image' || !a.thumbnailDataUrl).length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {attachments.filter(a => a.type !== 'image' || !a.thumbnailDataUrl).map(att => (
-                    <span
-                      key={att.id}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-200/60 dark:bg-gray-700/60 text-xs text-gray-600 dark:text-gray-400"
-                    >
-                      {att.name}
-                      <span className="opacity-60">({formatFileSize(att.size)})</span>
-                    </span>
-                  ))}
-                </div>
-              )}
+      {/* Assistant: full-width, no background bubble — left-border accent only */}
+      {isAssistant && !isError && (
+        <div className={`relative w-full pl-3 border-l-2 text-sm text-gray-900 dark:text-gray-100 transition-shadow ${
+          isHighlighted ? 'border-blue-400/70 dark:border-blue-300/70' : 'border-gray-200 dark:border-gray-700'
+        }`}>
+          <MarkdownRenderer content={content} />
+          {isStopped && (
+            <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-400 dark:text-gray-500">
+              <StopCircle className="w-3 h-3" />
+              Generation stopped
             </div>
           )}
-
-          {images && images.length > 0 && (
-            <div className="flex flex-wrap gap-2 mb-2">
-              {images.map((img) => (
-                <img
-                  key={img.id}
-                  src={img.dataUrl}
-                  alt={img.name}
-                  className="h-32 max-w-[240px] object-cover rounded-lg border border-gray-200 dark:border-gray-700"
+          <div className="flex items-center justify-between gap-2 mt-2">
+            {modelLabel ? (
+              <span className="text-[11px] text-gray-400 dark:text-gray-500">Model: {modelLabel}</span>
+            ) : (
+              <span />
+            )}
+            <div className="flex items-center gap-1.5 shrink-0">
+              {hasWikiEntry && (
+                <span title="Saved to wiki" aria-label="Saved to wiki">
+                  <BookOpen className="w-3 h-3 text-blue-400 dark:text-blue-500" />
+                </span>
+              )}
+              {timestamp != null && (
+                <span className="text-[10px] text-gray-400 dark:text-gray-500">
+                  {new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              )}
+            </div>
+          </div>
+          {!isGenerating && (
+            <div
+              className={`absolute -bottom-7 left-0 flex gap-1 z-20 transition-opacity duration-200 ${showActions ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+            >
+              <ActionButton
+                icon={copied ? CheckCircle : Copy}
+                label="Copy"
+                onClick={() => {
+                  onCopy(content)
+                  setCopied(true)
+                  if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
+                  copiedTimerRef.current = setTimeout(() => setCopied(false), 1200)
+                }}
+                highlight={copied}
+              />
+              {onSaveToWiki && (
+                <ActionButton
+                  icon={BookOpen}
+                  label={hasWikiEntry ? 'Saved' : 'Save to wiki'}
+                  onClick={() => onSaveToWiki(id, content)}
+                  highlight={hasWikiEntry}
                 />
-              ))}
+              )}
+              {isLastAssistant && onRegenerate && (
+                <div className="relative flex items-center gap-1">
+                  <ActionButton icon={RotateCcw} label="Regenerate" onClick={() => onRegenerate()} />
+                  {onRegenerateWithModel && (
+                    <>
+                      <button
+                        ref={regenBtnRef}
+                        type="button"
+                        aria-label="Regenerate with model"
+                        className="self-stretch flex items-center px-1.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-200 transition-colors shadow-sm"
+                        onClick={() => {
+                          if (!showRegenMenu && regenBtnRef.current) {
+                            const rect = regenBtnRef.current.getBoundingClientRect()
+                            const dropdownHeight = 280
+                            setRegenMenuAbove(rect.bottom + dropdownHeight > window.innerHeight)
+                          }
+                          setShowRegenMenu((prev) => !prev)
+                        }}
+                      >
+                        <ChevronDown className="w-3 h-3" />
+                      </button>
+                      {showRegenMenu && (
+                        <div className={`absolute left-0 z-20 w-56 max-h-64 overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg p-1 ${regenMenuAbove ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
+                          {modelIds.filter((model) => model !== 'default').map((model) => (
+                            <button
+                              key={model}
+                              type="button"
+                              className="w-full text-left px-2 py-1.5 rounded text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center justify-between gap-2"
+                              onClick={() => {
+                                setShowRegenMenu(false)
+                                onRegenerateWithModel(model)
+                              }}
+                            >
+                              <span>{getModelLabel(model, catalogModels)}</span>
+                              {getModelMultiplier(model, catalogModels) && (
+                                <span className="text-gray-400 dark:text-gray-500 shrink-0">{getModelMultiplier(model, catalogModels)}</span>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           )}
+        </div>
+      )}
 
-          {isError && (
+      {/* Error assistant: keep a subtle error card */}
+      {isAssistant && isError && (
+        <div className="relative w-full">
+          <div className="rounded-lg px-4 py-3 text-sm bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 text-red-800 dark:text-red-200">
             <div className="flex items-start gap-2">
               <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-red-500 dark:text-red-400" />
               <div className="flex-1">
                 <div className="whitespace-pre-wrap break-words">{content}</div>
                 <div className="flex gap-2 mt-3">
                   {retryable && onRetry && (
-                    <button
-                      onClick={onRetry}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/60 transition-colors"
-                    >
-                      <RefreshCw className="w-3 h-3" />
-                      Retry
+                    <button onClick={onRetry} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/60 transition-colors">
+                      <RefreshCw className="w-3 h-3" />Retry
                     </button>
                   )}
                   {errorType === 'auth' && onSignIn && (
-                    <button
-                      onClick={onSignIn}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors"
-                    >
-                      <LogIn className="w-3 h-3" />
-                      Sign in again
+                    <button onClick={onSignIn} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors">
+                      <LogIn className="w-3 h-3" />Sign in again
                     </button>
                   )}
                   {errorType === 'model_not_available' && onPickModel && (
-                    <button
-                      onClick={onPickModel}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-                    >
+                    <button onClick={onPickModel} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
                       Choose model
                     </button>
                   )}
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* User / system messages: retain existing bubble layout */}
+      {!isAssistant && (
+      <div className="relative max-w-[80%]">
+        <div
+          className={`rounded-lg px-4 py-3 text-sm ${
+            isError
+              ? 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 text-red-800 dark:text-red-200'
+              : isSystem
+                ? 'bg-gray-50 dark:bg-gray-800/60 border border-dashed border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-300 italic'
+              : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+          } transition-shadow ${isHighlighted ? 'ring-2 ring-blue-400/70 dark:ring-blue-300/70 shadow-md' : ''}`}
+        >
+          {/* User image attachments */}
+          {attachments && attachments.length > 0 && (
+            <div className="flex flex-col gap-1.5 mb-2">
+              {attachments.filter(a => a.type === 'image' && a.thumbnailDataUrl).length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {attachments.filter(a => a.type === 'image' && a.thumbnailDataUrl).map(att => (
+                    <img key={att.id} src={att.thumbnailDataUrl} alt={att.name}
+                      className="h-32 max-w-[240px] object-cover rounded-lg border border-gray-200 dark:border-gray-700" />
+                  ))}
+                </div>
+              )}
+              {attachments.filter(a => a.type !== 'image' || !a.thumbnailDataUrl).length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {attachments.filter(a => a.type !== 'image' || !a.thumbnailDataUrl).map(att => (
+                    <span key={att.id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-200/60 dark:bg-gray-700/60 text-xs text-gray-600 dark:text-gray-400">
+                      {att.name}<span className="opacity-60">({formatFileSize(att.size)})</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          {images && images.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-2">
+              {images.map((img) => (
+                <img key={img.id} src={img.dataUrl} alt={img.name}
+                  className="h-32 max-w-[240px] object-cover rounded-lg border border-gray-200 dark:border-gray-700" />
+              ))}
+            </div>
           )}
 
-          {!isError && role === 'assistant' ? (
-            <>
-              <MarkdownRenderer content={content} />
-              {isStopped && (
-                <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-400 dark:text-gray-500">
-                  <StopCircle className="w-3 h-3" />
-                  Generation stopped
-                </div>
-              )}
-              <div className="flex items-center justify-between gap-2 mt-2">
-                {modelLabel ? (
-                  <span className="text-[11px] text-gray-400 dark:text-gray-500">Model: {modelLabel}</span>
-                ) : (
-                  <span />
-                )}
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {hasWikiEntry && (
-                    <span title="Saved to wiki" aria-label="Saved to wiki">
-                      <BookOpen className="w-3 h-3 text-blue-400 dark:text-blue-500" />
-                    </span>
-                  )}
-                  {timestamp != null && (
-                    <span className="text-[10px] text-gray-400 dark:text-gray-500">
-                      {new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  )}
-                </div>
-              </div>
-            </>
-          ) : !isError ? (
-            <>
-              <div className="whitespace-pre-wrap break-words">{role === 'user' ? stripInjectedBlocks(content) : content}</div>
-              {role === 'user' && isEdited && (
-                <div className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">edited</div>
-              )}
-              <div className="flex items-end justify-between gap-2 mt-2">
-                <span className="min-w-0">
-                  {role === 'user' && contextSnapshot && (() => {
-                    try {
-                      const snap: ContextSnapshot = JSON.parse(contextSnapshot)
-                      return <ContextSnapshotBadge snapshot={snap} />
-                    } catch {
-                      return null
-                    }
-                  })()}
-                </span>
-                {timestamp != null && (
-                  <span className="text-[10px] text-gray-400 dark:text-gray-500 shrink-0">
-                    {new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                )}
-              </div>
-            </>
-          ) : null}
+          <div className="whitespace-pre-wrap break-words">{isUser ? stripInjectedBlocks(content) : content}</div>
+          {isUser && isEdited && (
+            <div className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">edited</div>
+          )}
+          <div className="flex items-end justify-between gap-2 mt-2">
+            <span className="min-w-0">
+              {isUser && contextSnapshot && (() => {
+                try {
+                  const snap: ContextSnapshot = JSON.parse(contextSnapshot)
+                  return <ContextSnapshotBadge snapshot={snap} />
+                } catch { return null }
+              })()}
+            </span>
+            {timestamp != null && (
+              <span className="text-[10px] text-gray-400 dark:text-gray-500 shrink-0">
+                {new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            )}
+          </div>
         </div>
 
         {!isGenerating && !isError && (
-          <div
-            className={`absolute -bottom-7 ${role === 'user' ? 'right-0' : 'left-0'} flex gap-1 z-20 transition-opacity duration-200 ${showActions ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-          >
+          <div className={`absolute -bottom-7 right-0 flex gap-1 z-20 transition-opacity duration-200 ${showActions ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
             <ActionButton
               icon={copied ? CheckCircle : Copy}
               label="Copy"
@@ -286,65 +339,13 @@ export function MessageBubbleBase({
               }}
               highlight={copied}
             />
-            {role === 'assistant' && onSaveToWiki && (
-              <ActionButton
-                icon={BookOpen}
-                label={hasWikiEntry ? 'Saved' : 'Save to wiki'}
-                onClick={() => onSaveToWiki(id, content)}
-                highlight={hasWikiEntry}
-              />
-            )}
-            {role === 'assistant' && isLastAssistant && onRegenerate && (
-              <div className="relative flex items-center gap-1">
-                <ActionButton icon={RotateCcw} label="Regenerate" onClick={() => onRegenerate()} />
-                {onRegenerateWithModel && (
-                  <>
-                    <button
-                      ref={regenBtnRef}
-                      type="button"
-                      aria-label="Regenerate with model"
-                      className="self-stretch flex items-center px-1.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-200 transition-colors shadow-sm"
-                      onClick={() => {
-                        if (!showRegenMenu && regenBtnRef.current) {
-                          const rect = regenBtnRef.current.getBoundingClientRect()
-                          const dropdownHeight = 280 // max-h-64 (256px) + padding
-                          setRegenMenuAbove(rect.bottom + dropdownHeight > window.innerHeight)
-                        }
-                        setShowRegenMenu((prev) => !prev)
-                      }}
-                    >
-                      <ChevronDown className="w-3 h-3" />
-                    </button>
-                    {showRegenMenu && (
-                      <div className={`absolute left-0 z-20 w-56 max-h-64 overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg p-1 ${regenMenuAbove ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
-                        {modelIds.filter((model) => model !== 'default').map((model) => (
-                          <button
-                            key={model}
-                            type="button"
-                            className="w-full text-left px-2 py-1.5 rounded text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center justify-between gap-2"
-                            onClick={() => {
-                              setShowRegenMenu(false)
-                              onRegenerateWithModel(model)
-                            }}
-                          >
-                            <span>{getModelLabel(model, catalogModels)}</span>
-                            {getModelMultiplier(model, catalogModels) && (
-                              <span className="text-gray-400 dark:text-gray-500 shrink-0">{getModelMultiplier(model, catalogModels)}</span>
-                            )}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-            {role === 'user' && onEdit && (
+            {isUser && onEdit && (
               <ActionButton icon={Pencil} label="Edit" onClick={() => onEdit(messageIndex)} />
             )}
           </div>
         )}
       </div>
+      )}
     </div>
   )
 }

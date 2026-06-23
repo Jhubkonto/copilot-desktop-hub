@@ -1,4 +1,5 @@
 import type { ProviderInfo } from './types'
+import { TabHeader } from './TabHeader'
 
 interface Props {
   authMode: string
@@ -25,6 +26,8 @@ export function ProvidersTab({
 }: Props) {
   return (
     <>
+      <TabHeader title="API Providers" description="Configure API keys for OpenAI, Anthropic, and other providers." />
+
       {authMode === 'byok' && providers.every((p) => !p.configured) && (
         <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 mb-1">
           <span className="text-blue-500 shrink-0 mt-0.5">🔑</span>

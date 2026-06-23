@@ -79,6 +79,61 @@ body {
   cursor: default;
 }
 
+/* ── Message entrance animation ── */
+@keyframes message-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.message-enter {
+  animation: message-enter 200ms ease-out both;
+}
+
+/* ── Shimmer skeleton ── */
+@keyframes shimmer {
+  from { background-position: -400px 0; }
+  to   { background-position:  400px 0; }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    theme('colors.gray.100') 25%,
+    theme('colors.gray.200') 50%,
+    theme('colors.gray.100') 75%
+  );
+  background-size: 800px 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+.dark .skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    theme('colors.gray.800') 25%,
+    theme('colors.gray.700') 50%,
+    theme('colors.gray.800') 75%
+  );
+  background-size: 800px 100%;
+}
+
+/* ── Streaming cursor blink ── */
+@keyframes stream-cursor {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
+/* ── Chat start divider fade mask ── */
+.chat-start-divider {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 70%);
+  mask-image: linear-gradient(to bottom, transparent 0%, black 70%);
+}
+
 .markdown-body > :first-child {
   margin-top: 0 !important;
 }

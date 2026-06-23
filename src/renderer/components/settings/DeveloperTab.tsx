@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { RefreshCw, CheckCircle, AlertTriangle, XCircle, ChevronDown, ChevronRight } from 'lucide-react'
+import { TabHeader } from './TabHeader'
 import type {
   AdbDevice,
   AndroidBuildCommandName,
@@ -395,10 +396,7 @@ export function DeveloperTab({
 
   return (
     <>
-      <div>
-        <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Developer</p>
-        <p className="text-xs text-gray-500 mt-0.5">Build, test, and package the app from within Nexy.</p>
-      </div>
+      <TabHeader title="Developer" description="Build, test, and package the app from within Nexy." />
 
       <SegmentedTabs
         value={developerTab}

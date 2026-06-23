@@ -73,8 +73,11 @@ export function Sidebar() {
   const agents = useAppStore((s) => s.agents)
   const generatingConversationIds = useAppStore((s) => s.generatingConversationIds)
   const unreadConversationIds = useAppStore((s) => s.unreadConversationIds)
+  const pendingConversationIds = useAppStore((s) => s.pendingConversationIds)
 
-  const recentConvs = conversations.slice(0, 5)
+  const existingConvIds = new Set(conversations.map((c) => c.id))
+  const pendingNew = pendingConversationIds.filter((id) => !existingConvIds.has(id))
+  const recentConvs = conversations.slice(0, Math.max(0, 5 - pendingNew.length))
 
   const [openReportCount, setOpenReportCount] = useState(0)
   const [newArtifactCount, setNewArtifactCount] = useState(0)
@@ -206,12 +209,24 @@ export function Sidebar() {
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-2">
-        {recentConvs.length > 0 && (
+        {(recentConvs.length > 0 || pendingNew.length > 0) && (
           <div className="mt-2">
             <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider px-1 mb-1">
               Recent
             </p>
             <div className="space-y-0.5">
+              {pendingNew.map((id) => (
+                <button
+                  key={id}
+                  onClick={() => selectConversation(id)}
+                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-colors hover:bg-gray-100 dark:hover:bg-gray-800"
+                >
+                  <span title="Sending…"><Loader2 className="w-3 h-3 text-purple-500 animate-spin shrink-0" /></span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-xs text-gray-700 dark:text-gray-200 truncate">New chat</span>
+                  </span>
+                </button>
+              ))}
               {recentConvs.map((conv) => {
                 const isActive = currentConversationId === conv.id
                 const isGenerating = generatingConversationIds.includes(conv.id)

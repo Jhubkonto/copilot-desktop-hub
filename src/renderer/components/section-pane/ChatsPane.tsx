@@ -16,6 +16,7 @@ export function ChatsPane() {
   const newChat = useAppStore((s) => s.newChat)
   const unreadConversationIds = useAppStore((s) => s.unreadConversationIds)
   const generatingConversationIds = useAppStore((s) => s.generatingConversationIds)
+  const pendingConversationIds = useAppStore((s) => s.pendingConversationIds)
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
   const [pendingDeleteConv, setPendingDeleteConv] = useState<{ id: string; title: string } | null>(null)
@@ -110,10 +111,30 @@ export function ChatsPane() {
       </div>
 
       <div className="flex-1 overflow-y-auto mr-1.5 p-2 space-y-4">
-        {filtered.length === 0 && (
+        {filtered.length === 0 && pendingConversationIds.length === 0 && (
           <p className="text-center text-xs text-gray-400 dark:text-gray-500 pt-8 italic">
             {deferredQuery ? 'No matching conversations' : 'No conversations yet'}
           </p>
+        )}
+
+        {pendingConversationIds.length > 0 && !deferredQuery && (
+          <div>
+            {pendingConversationIds
+              .filter((id) => !conversations.some((c) => c.id === id))
+              .map((id) => (
+                <div
+                  key={id}
+                  onClick={() => selectConversation(id)}
+                  className="group flex items-start gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors hover:bg-gray-100 dark:hover:bg-gray-800"
+                >
+                  <Loader2 className="w-3.5 h-3.5 text-purple-500 animate-spin shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-gray-800 dark:text-gray-100 truncate">New chat</p>
+                    <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">Sending…</p>
+                  </div>
+                </div>
+              ))}
+          </div>
         )}
 
         {pinned.length > 0 && (

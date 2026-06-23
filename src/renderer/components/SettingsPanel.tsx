@@ -99,6 +99,8 @@ export function SettingsPanel() {
   const refreshAvailableModels = useAppStore((s) => s.refreshAvailableModels)
   const debugLogging = useAppStore((s) => s.debugLogging)
   const setDebugLogging = useAppStore((s) => s.setDebugLogging)
+  const androidDebugLog = useAppStore((s) => s.androidDebugLog)
+  const setAndroidDebugLog = useAppStore((s) => s.setAndroidDebugLog)
 
   const authMode = useAppStore((s) => s.authState.mode)
   const installedClis = useAppStore((s) => s.authState.clis ?? { claude: s.authState.cliInstalled, codex: false })
@@ -1012,6 +1014,8 @@ export function SettingsPanel() {
               const next = !autoStartEnabled
               void window.api.wsSetAutoStartEnabled(next).then(setAutoStartEnabled)
             }}
+            androidDebugLog={androidDebugLog}
+            onToggleAndroidDebugLog={() => setAndroidDebugLog(!androidDebugLog)}
           />
         )}
 

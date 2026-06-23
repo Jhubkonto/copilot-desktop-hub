@@ -1,4 +1,5 @@
 import { RefreshCw } from 'lucide-react'
+import { TabHeader } from './TabHeader'
 
 interface InstalledClis {
   claude: boolean
@@ -14,12 +15,7 @@ interface Props {
 export function CliTab({ installedClis, cliRefreshing, onRefresh }: Props) {
   return (
     <>
-      <div>
-        <p className="text-sm font-medium text-gray-800 dark:text-gray-100">CLI Tools</p>
-        <p className="text-xs text-gray-500 mt-0.5">
-          Install CLI tools to chat without an API key. Each tool authenticates with its own provider.
-        </p>
-      </div>
+      <TabHeader title="CLI Tools" description="Install CLI tools to chat without an API key. Each tool authenticates with its own provider." />
 
       {/* Claude CLI */}
       <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3">

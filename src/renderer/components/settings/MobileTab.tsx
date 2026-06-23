@@ -2,6 +2,7 @@ import { RefreshCw, CheckCircle2, ChevronDown, ChevronUp, Plus, Trash2, Globe, W
 import { ToggleSwitch } from '../ui/primitives'
 import { useState, useRef, useEffect } from 'react'
 import type { WsUrlProfile } from '@shared/types'
+import { TabHeader } from './TabHeader'
 
 const IS_MAC = navigator.userAgent.includes('Macintosh')
 const IS_WIN = navigator.userAgent.includes('Windows')
@@ -18,22 +19,31 @@ interface Props {
   onToggle: () => void
   onRegenerateToken: () => void
   onRefreshStatus: () => void
-  // FCM (moved from DeveloperTab)
   fcmStatus: { configured: boolean; projectId?: string } | null
   fcmJsonDraft: string
   fcmSaving: boolean
   fcmError: string | null
   onSetFcmJsonDraft: (v: string) => void
   onSaveFcmServiceAccount: () => void
-  // Auto-start
   autoStartEnabled: boolean
   onToggleAutoStart: () => void
+  androidDebugLog: boolean
+  onToggleAndroidDebugLog: () => void
 }
 
 interface EditingProfile {
   id: string
   label: string
   url: string
+}
+
+function SectionHeader({ title, description }: { title: string; description?: string }) {
+  return (
+    <div className="pb-1">
+      <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">{title}</p>
+      {description && <p className="text-xs text-gray-500 mt-0.5">{description}</p>}
+    </div>
+  )
 }
 
 function UrlProfileRow({
@@ -63,7 +73,7 @@ function UrlProfileRow({
   function commitEdit() {
     if (!editing) return
     const url = editing.url.trim()
-    if (url && !url.startsWith('wss://')) return // keep editing, show error inline
+    if (url && !url.startsWith('wss://')) return
     onUpdate(editing.label.trim() || 'Unnamed', url)
     setEditing(null)
   }
@@ -159,6 +169,7 @@ export function MobileTab({
   onSaveProfiles, onToggle, onRegenerateToken, onRefreshStatus,
   fcmStatus, fcmJsonDraft, fcmSaving, fcmError, onSetFcmJsonDraft, onSaveFcmServiceAccount,
   autoStartEnabled, onToggleAutoStart,
+  androidDebugLog, onToggleAndroidDebugLog,
 }: Props) {
   const [fcmExpanded, setFcmExpanded] = useState(false)
   const [wolGuideExpanded, setWolGuideExpanded] = useState(false)
@@ -182,10 +193,9 @@ export function MobileTab({
 
   function deleteProfile(id: string) {
     const next = urlProfiles.filter((p) => p.id !== id)
-    // If we deleted the active one, deactivate all (fall back to LAN)
     const hadActive = urlProfiles.find((p) => p.id === id)?.active
     if (hadActive && next.length > 0) {
-      // keep all inactive — LAN fallback
+      // deactivate all — fall back to LAN
     }
     onSaveProfiles(next)
   }
@@ -200,37 +210,52 @@ export function MobileTab({
 
   return (
     <>
-      <div>
-        <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Android companion app</p>
-        <p className="text-xs text-gray-500 mt-0.5">
-          Let your phone approve tool calls and monitor agent output over local WiFi.
-        </p>
-      </div>
+      <TabHeader title="Mobile" description="Connect your Android phone to approve tool calls and monitor agent output over your local network." />
 
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Enable mobile server</p>
-          <p className="text-xs text-gray-500">Starts a local WebSocket server on your network</p>
+      {/* ── Server ── */}
+      <SectionHeader title="Server" />
+
+      <div className="rounded-lg border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-700/60">
+        {/* Enable toggle */}
+        <div className="flex items-center justify-between px-4 py-3">
+          <div>
+            <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Enable mobile server</p>
+            <p className="text-xs text-gray-500">Starts a local WebSocket server on your network</p>
+          </div>
+          <ToggleSwitch
+            checked={mobileEnabled}
+            onChange={() => onToggle()}
+            disabled={mobileLoading}
+            size="sm"
+            ariaLabel="Enable mobile server"
+          />
         </div>
-        <ToggleSwitch
-          checked={mobileEnabled}
-          onChange={() => onToggle()}
-          disabled={mobileLoading}
-          size="sm"
-          ariaLabel="Enable mobile server"
-        />
+
+        {/* Auto-start toggle */}
+        <div className="flex items-center justify-between px-4 py-3">
+          <div>
+            <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Auto-start with app</p>
+            <p className="text-xs text-gray-500">Start the mobile server automatically when Nexy opens</p>
+          </div>
+          <ToggleSwitch
+            checked={autoStartEnabled}
+            onChange={onToggleAutoStart}
+            size="sm"
+            ariaLabel="Auto-start mobile server"
+          />
+        </div>
       </div>
 
       {mobileEnabled && (
         <>
           {/* Status card */}
-          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 px-4 py-3 text-xs space-y-1">
+          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 px-4 py-3 text-xs space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="text-gray-500">Local IP</span>
               <span className="font-mono text-gray-800 dark:text-gray-200">{mobileLocalIp}</span>
             </div>
             <div className="flex items-center justify-between gap-3">
-              <span className="text-gray-500">Connection</span>
+              <span className="text-gray-500">Active endpoint</span>
               <span className="flex items-center gap-1 text-gray-800 dark:text-gray-200">
                 {isUsingLan
                   ? <><Wifi className="w-3 h-3 text-blue-500" /> Local LAN</>
@@ -239,7 +264,7 @@ export function MobileTab({
               </span>
             </div>
             <div className="flex items-start justify-between gap-3">
-              <span className="text-gray-500">Pairing URL</span>
+              <span className="text-gray-500 shrink-0">Pairing URL</span>
               <span className="font-mono text-right text-gray-800 dark:text-gray-200 break-all">
                 {mobilePairingUrl ?? 'Not available'}
               </span>
@@ -248,19 +273,21 @@ export function MobileTab({
               <span className="text-gray-500">Connected devices</span>
               <span className="font-mono text-gray-800 dark:text-gray-200">{mobileClients}</span>
             </div>
+            <div className="pt-0.5">
+              <button
+                type="button"
+                onClick={onRefreshStatus}
+                className="text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex items-center gap-1"
+              >
+                <RefreshCw className="w-3 h-3" /> Refresh status
+              </button>
+            </div>
           </div>
 
-          {/* URL Profiles */}
-          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/40 px-4 py-3 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Connection profiles</p>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  Save multiple endpoints — Tailscale Funnel, reverse proxy, etc. One profile is active at a time; the QR code points to it.
-                </p>
-              </div>
-            </div>
+          {/* ── Connection profiles ── */}
+          <SectionHeader title="Connection" description="Switch between LAN and an external endpoint — Tailscale, reverse proxy, etc. The active profile determines what the QR code points to." />
 
+          <div className="space-y-2">
             {/* LAN option */}
             <div className={`rounded-lg border px-3 py-2 flex items-center gap-2 ${isUsingLan ? 'border-blue-500/60 bg-blue-50/50 dark:bg-blue-900/20' : 'border-gray-200 dark:border-gray-700'}`}>
               <button
@@ -282,7 +309,6 @@ export function MobileTab({
               </div>
             </div>
 
-            {/* External profiles */}
             {urlProfiles.map((profile) => (
               <UrlProfileRow
                 key={profile.id}
@@ -304,6 +330,9 @@ export function MobileTab({
               Add external profile
             </button>
           </div>
+
+          {/* ── Pairing ── */}
+          <SectionHeader title="Pairing" />
 
           {mobileClients === 0 && (
             <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 px-4 py-3">
@@ -344,15 +373,9 @@ export function MobileTab({
             </div>
           )}
 
-          <button
-            type="button"
-            onClick={onRefreshStatus}
-            className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-          >
-            Refresh status
-          </button>
+          {/* ── Push notifications ── */}
+          <SectionHeader title="Push Notifications" />
 
-          {/* FCM Push Notifications */}
           <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3">
             <button
               type="button"
@@ -361,7 +384,7 @@ export function MobileTab({
             >
               <div>
                 <p className="text-sm font-medium text-gray-800 dark:text-gray-100 flex items-center gap-2">
-                  FCM Push Notifications
+                  Firebase Cloud Messaging
                   {fcmStatus?.configured && (
                     <CheckCircle2 className="w-4 h-4 text-green-500" />
                   )}
@@ -378,7 +401,7 @@ export function MobileTab({
             {fcmExpanded && (
               <>
                 <p className="text-xs text-gray-500">
-                  Sends push notifications to offline devices when tool approvals are requested. Paste your Firebase service account JSON key below. Get it from Firebase Console → Project Settings → Service accounts → Generate new private key.
+                  Sends push notifications to offline devices when tool approvals are requested or a response is ready. Paste your Firebase service account JSON key below — get it from Firebase Console → Project Settings → Service accounts → Generate new private key.
                 </p>
                 <textarea
                   value={fcmJsonDraft}
@@ -403,62 +426,67 @@ export function MobileTab({
             )}
           </div>
 
-          {/* Auto-start */}
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Launch at login</p>
-              <p className="text-xs text-gray-500">Start Nexy automatically when you log into your computer</p>
+          {/* ── Advanced ── */}
+          <SectionHeader title="Advanced" />
+
+          <div className="rounded-lg border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-700/60">
+            {/* Android debug log */}
+            <div className="flex items-center justify-between px-4 py-3">
+              <div>
+                <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Android debug log</p>
+                <p className="text-xs text-gray-500">Show a live log panel with messages sent from the Android app</p>
+              </div>
+              <ToggleSwitch
+                checked={androidDebugLog}
+                onChange={onToggleAndroidDebugLog}
+                size="sm"
+                ariaLabel="Android debug log"
+              />
             </div>
-            <ToggleSwitch
-              checked={autoStartEnabled}
-              onChange={onToggleAutoStart}
-              size="sm"
-              ariaLabel="Launch at login"
-            />
+
+            {/* WoL setup guide */}
+            {(IS_MAC || IS_WIN) && (
+              <div className="px-4 py-3 space-y-3">
+                <button
+                  type="button"
+                  className="flex items-center justify-between w-full text-left"
+                  onClick={() => setWolGuideExpanded((v) => !v)}
+                >
+                  <div>
+                    <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Wake on LAN setup</p>
+                    <p className="text-xs text-gray-500 mt-0.5">Allow your phone to wake this computer from sleep</p>
+                  </div>
+                  {wolGuideExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+                </button>
+
+                {wolGuideExpanded && (
+                  <div className="text-xs text-gray-600 dark:text-gray-400 space-y-2">
+                    {IS_MAC && (
+                      <>
+                        <p className="font-medium text-gray-800 dark:text-gray-200">macOS</p>
+                        <ol className="list-decimal list-inside space-y-1">
+                          <li>Open <span className="font-mono">System Settings → Energy Saver</span></li>
+                          <li>Enable <span className="font-medium">Wake for network access</span></li>
+                          <li>Or run in Terminal: <span className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">sudo pmset -a womp 1</span></li>
+                        </ol>
+                      </>
+                    )}
+                    {IS_WIN && (
+                      <>
+                        <p className="font-medium text-gray-800 dark:text-gray-200">Windows</p>
+                        <ol className="list-decimal list-inside space-y-1">
+                          <li>Open <span className="font-medium">Device Manager</span></li>
+                          <li>Expand <span className="font-medium">Network Adapters</span>, right-click your LAN adapter</li>
+                          <li>Go to <span className="font-medium">Power Management</span> and enable <span className="font-medium">Allow this device to wake the computer</span></li>
+                          <li>In BIOS/UEFI, enable <span className="font-medium">Wake on LAN</span></li>
+                        </ol>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
-
-          {/* WoL setup guide */}
-          {(IS_MAC || IS_WIN) && (
-            <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3">
-              <button
-                type="button"
-                className="flex items-center justify-between w-full text-left"
-                onClick={() => setWolGuideExpanded((v) => !v)}
-              >
-                <div>
-                  <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Wake on LAN setup</p>
-                  <p className="text-xs text-gray-500 mt-0.5">Allow your phone to wake this computer from sleep</p>
-                </div>
-                {wolGuideExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
-              </button>
-
-              {wolGuideExpanded && (
-                <div className="text-xs text-gray-600 dark:text-gray-400 space-y-2">
-                  {IS_MAC && (
-                    <>
-                      <p className="font-medium text-gray-800 dark:text-gray-200">macOS</p>
-                      <ol className="list-decimal list-inside space-y-1">
-                        <li>Open <span className="font-mono">System Settings → Energy Saver</span></li>
-                        <li>Enable <span className="font-medium">Wake for network access</span></li>
-                        <li>Or run in Terminal: <span className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">sudo pmset -a womp 1</span></li>
-                      </ol>
-                    </>
-                  )}
-                  {IS_WIN && (
-                    <>
-                      <p className="font-medium text-gray-800 dark:text-gray-200">Windows</p>
-                      <ol className="list-decimal list-inside space-y-1">
-                        <li>Open <span className="font-medium">Device Manager</span></li>
-                        <li>Expand <span className="font-medium">Network Adapters</span>, right-click your LAN adapter</li>
-                        <li>Go to <span className="font-medium">Power Management</span> and enable <span className="font-medium">Allow this device to wake the computer</span></li>
-                        <li>In BIOS/UEFI, enable <span className="font-medium">Wake on LAN</span></li>
-                      </ol>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
         </>
       )}
     </>

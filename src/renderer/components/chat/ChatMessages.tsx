@@ -42,9 +42,14 @@ interface RequestReference {
   preview: string
 }
 
+interface MsgGroup {
+  main: ChatMessage
+  toolCalls: ChatMessage[]
+  index: number
+}
+
 export function getThinkingBlockLabel(blockId: string): string {
   if (blockId === 'codex-reasoning-summary') return 'Reasoning summary'
-  if (blockId.startsWith('codex-')) return 'Codex activity'
   return 'Reasoning'
 }
 
@@ -107,6 +112,26 @@ export function ChatMessagesBase({
       }
     }
     return mapping
+  }, [messages])
+
+  // Group consecutive tool-call messages with the assistant message that follows them.
+  // This ensures one message-enter animation per turn rather than one per block.
+  const msgGroups = useMemo<MsgGroup[]>(() => {
+    const groups: MsgGroup[] = []
+    let pendingToolCalls: ChatMessage[] = []
+    messages.forEach((msg, index) => {
+      if (msg.role === 'tool-call') {
+        pendingToolCalls.push(msg)
+      } else {
+        groups.push({ main: msg, toolCalls: pendingToolCalls, index })
+        pendingToolCalls = []
+      }
+    })
+    // Flush trailing tool-calls (edge case: tool calls without a following assistant message)
+    for (const tc of pendingToolCalls) {
+      groups.push({ main: tc, toolCalls: [], index: groups.length })
+    }
+    return groups
   }, [messages])
 
   const updateVisibleMessages = useCallback(() => {
@@ -219,6 +244,15 @@ export function ChatMessagesBase({
         </div>
       )}
       <div className="max-w-3xl mx-auto space-y-8 pt-6">
+        {/* Conversation start marker — decorative top treatment */}
+        {!isLoadingMessages && messages.length > 0 && (
+          <div className="chat-start-divider pb-6 pt-2">
+            <div className="flex flex-col gap-2">
+              <div className="h-px w-full bg-gray-200 dark:bg-gray-700" />
+              <div className="h-px w-full bg-gray-200 dark:bg-gray-700" />
+            </div>
+          </div>
+        )}
         {isLoadingMessages && (
           <>
             {[0, 1, 2].map((index) => (
@@ -226,45 +260,45 @@ export function ChatMessagesBase({
                 key={index}
                 className={`flex ${index % 2 === 0 ? 'justify-start' : 'justify-end'}`}
               >
-                <div className="max-w-[80%] rounded-lg px-4 py-3 bg-gray-100 dark:bg-gray-800 animate-pulse">
-                  <div className="h-3 w-48 bg-gray-200 dark:bg-gray-700 rounded mb-2" />
-                  <div className="h-3 w-36 bg-gray-200 dark:bg-gray-700 rounded" />
+                <div className={`max-w-[80%] rounded-lg px-4 py-3 overflow-hidden ${index % 2 === 0 ? 'w-64' : 'w-48'}`}>
+                  <div className="h-3 rounded mb-2 skeleton-shimmer" />
+                  <div className="h-3 rounded w-4/5 skeleton-shimmer" />
                 </div>
               </div>
             ))}
           </>
         )}
-        {messages.map((message, index) => {
-          if (message.role === 'team-activity') {
+        {msgGroups.map(({ main, toolCalls, index }) => {
+          if (main.role === 'team-activity') {
             let steps: TeamActivityStep[] = []
             try {
-              steps = (JSON.parse(message.content) as { steps: TeamActivityStep[] }).steps ?? []
+              steps = (JSON.parse(main.content) as { steps: TeamActivityStep[] }).steps ?? []
             } catch {
               // ignore malformed stored team activity payloads
             }
             return (
               <div
-                key={message.id}
-                ref={registerMessageElement(message.id)}
-                className="max-w-3xl mx-auto"
-                data-message-id={message.id}
-                data-message-role={message.role}
+                key={main.id}
+                ref={registerMessageElement(main.id)}
+                className="max-w-3xl mx-auto message-enter"
+                data-message-id={main.id}
+                data-message-role={main.role}
               >
                 <TeamActivityBlock steps={steps} isLive={false} />
               </div>
             )
           }
 
-          if (message.content.startsWith('__artifact-ref:')) {
+          if (main.content.startsWith('__artifact-ref:')) {
             try {
-              const ref = JSON.parse(message.content.slice('__artifact-ref:'.length)) as { artifactId: string; versionId?: string }
+              const ref = JSON.parse(main.content.slice('__artifact-ref:'.length)) as { artifactId: string; versionId?: string }
               return (
                 <div
-                  key={message.id}
-                  ref={registerMessageElement(message.id)}
-                  className="max-w-3xl mx-auto px-4 pb-2"
-                  data-message-id={message.id}
-                  data-message-role={message.role}
+                  key={main.id}
+                  ref={registerMessageElement(main.id)}
+                  className="max-w-3xl mx-auto px-4 pb-2 message-enter"
+                  data-message-id={main.id}
+                  data-message-role={main.role}
                 >
                   <ArtifactCard artifactId={ref.artifactId} versionId={ref.versionId} />
                 </div>
@@ -274,84 +308,102 @@ export function ChatMessagesBase({
             }
           }
 
-          if (message.role === 'tool-call') {
+          // Standalone tool-call (edge case: flushed trailing tool-call with no following assistant message)
+          if (main.role === 'tool-call' && toolCalls.length === 0) {
             return (
               <div
-                key={message.id}
-                ref={registerMessageElement(message.id)}
-                className="max-w-3xl mx-auto"
-                data-message-id={message.id}
-                data-message-role={message.role}
+                key={main.id}
+                ref={registerMessageElement(main.id)}
+                className="max-w-3xl mx-auto message-enter"
+                data-message-id={main.id}
+                data-message-role={main.role}
               >
                 <ToolCallBlock
-                  toolName={message.toolName ?? message.content}
-                  serverName={message.serverName}
-                  args={message.toolArgs}
-                  result={message.toolResult}
-                  success={message.toolSuccess ?? true}
-                  inProgress={message.toolInProgress}
-                  resultImages={message.toolResultImages}
+                  toolName={main.toolName ?? main.content}
+                  serverName={main.serverName}
+                  args={main.toolArgs}
+                  result={main.toolResult}
+                  success={main.toolSuccess ?? true}
+                  inProgress={main.toolInProgress}
+                  resultImages={main.toolResultImages}
                   onUseImageAsContext={onUseImageAsContext}
                 />
               </div>
             )
           }
 
+          // Normal message (user / assistant) — tool calls that preceded it are grouped in.
           return (
             <div
-              key={message.id}
-              ref={registerMessageElement(message.id)}
-              data-message-id={message.id}
-              data-message-role={message.role}
+              key={main.id}
+              ref={registerMessageElement(main.id)}
+              className="message-enter"
+              data-message-id={main.id}
+              data-message-role={main.role}
             >
-              {message.role === 'assistant' && message.thinkingBlocks && message.thinkingBlocks.size > 0 && (
-                <div className="flex justify-start mb-1">
-                  <div className="w-full max-w-[80%]">
-                    {Array.from(message.thinkingBlocks.values()).map((block) => (
-                      <ThinkingBlock
-                        key={block.blockId}
-                        content={block.content}
-                        done={block.done}
-                        label={getThinkingBlockLabel(block.blockId)}
-                      />
-                    ))}
-                  </div>
+              {main.role === 'assistant' && main.thinkingBlocks && main.thinkingBlocks.size > 0 && (
+                <div className="mb-1">
+                  {Array.from(main.thinkingBlocks.values()).map((block) => (
+                    <ThinkingBlock
+                      key={block.blockId}
+                      content={block.content}
+                      done={block.done}
+                      label={getThinkingBlockLabel(block.blockId)}
+                    />
+                  ))}
+                </div>
+              )}
+              {toolCalls.length > 0 && (
+                <div className="mb-1">
+                  {toolCalls.map((tc) => (
+                    <ToolCallBlock
+                      key={tc.id}
+                      toolName={tc.toolName ?? tc.content}
+                      serverName={tc.serverName}
+                      args={tc.toolArgs}
+                      result={tc.toolResult}
+                      success={tc.toolSuccess ?? true}
+                      inProgress={tc.toolInProgress}
+                      resultImages={tc.toolResultImages}
+                      onUseImageAsContext={onUseImageAsContext}
+                    />
+                  ))}
                 </div>
               )}
               <MessageBubble
-                id={message.id}
-                role={message.role}
-                content={message.content}
-                isEdited={message.isEdited}
+                id={main.id}
+                role={main.role}
+                content={main.content}
+                isEdited={main.isEdited}
                 modelLabel={
-                  message.role === 'assistant' && message.model
-                    ? getModelLabel(message.model, catalogModels)
+                  main.role === 'assistant' && main.model
+                    ? getModelLabel(main.model, catalogModels)
                     : undefined
                 }
-                attachments={message.attachments}
-                images={message.images}
-                contextSnapshot={message.contextSnapshot}
+                attachments={main.attachments}
+                images={main.images}
+                contextSnapshot={main.contextSnapshot}
                 isLastAssistant={index === lastAssistantIndex}
                 isGenerating={isGenerating}
-                isError={message.isError}
-                errorType={message.errorType}
-                retryable={message.retryable}
-                isStopped={message.isStopped}
+                isError={main.isError}
+                errorType={main.errorType}
+                retryable={main.retryable}
+                isStopped={main.isStopped}
                 messageIndex={index}
-                timestamp={message.timestamp}
-                isHighlighted={message.id === highlightedRequestId}
+                timestamp={main.timestamp}
+                isHighlighted={main.id === highlightedRequestId}
                 onCopy={onCopy}
-                onSaveToWiki={message.role === 'assistant' ? onSaveToWiki : undefined}
-                hasWikiEntry={wikiMessageIds.has(message.id)}
+                onSaveToWiki={main.role === 'assistant' ? onSaveToWiki : undefined}
+                hasWikiEntry={wikiMessageIds.has(main.id)}
                 onRegenerate={index === lastAssistantIndex ? onRegenerate : undefined}
                 onRegenerateWithModel={index === lastAssistantIndex ? onRegenerateWithModel : undefined}
-                onEdit={message.role === 'user' ? onEdit : undefined}
-                onRetry={message.isError && message.retryable ? onRetry : undefined}
+                onEdit={main.role === 'user' ? onEdit : undefined}
+                onRetry={main.isError && main.retryable ? onRetry : undefined}
                 onSignIn={
-                  message.isError && message.errorType === 'auth' ? onSignIn : undefined
+                  main.isError && main.errorType === 'auth' ? onSignIn : undefined
                 }
                 onPickModel={
-                  message.isError && message.errorType === 'model_not_available'
+                  main.isError && main.errorType === 'model_not_available'
                     ? onPickModel
                     : undefined
                 }
@@ -364,50 +416,50 @@ export function ChatMessagesBase({
             <TeamActivityBlock steps={liveTeamActivity} isLive={true} />
           </div>
         )}
-        {liveThinkingBlocks && liveThinkingBlocks.size > 0 && (
-          <div className="flex justify-start">
-            <div className="w-full max-w-[80%]">
-              {Array.from(liveThinkingBlocks.values()).map((block) => (
-                <ThinkingBlock
-                  key={block.blockId}
-                  content={block.content}
-                  done={block.done}
-                  label={getThinkingBlockLabel(block.blockId)}
-                />
-              ))}
-            </div>
-          </div>
-        )}
-        {isGenerating && streamingContent && (
-          <div className="flex justify-start">
-            <div className="max-w-[80%] bg-gray-100 dark:bg-gray-800 rounded-lg px-4 py-3 text-sm text-gray-900 dark:text-gray-100">
-              <MarkdownRenderer content={streamingContent} />
-              <span className="animate-pulse text-gray-400">▊</span>
-            </div>
-          </div>
-        )}
-        {isGenerating && !streamingContent && (
-          <div className="flex justify-start">
-            <div className="bg-gray-100 dark:bg-gray-800 rounded-2xl px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-              <div className="flex items-center gap-2 mb-2">
-                {currentActivity?.type === 'tool' ? (
-                  <Wrench className="w-3.5 h-3.5 animate-pulse shrink-0 text-blue-500 dark:text-blue-400" />
-                ) : (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-                )}
-                <span>
-                  {currentActivity?.type === 'tool'
-                    ? <>Using <span className="font-mono text-blue-600 dark:text-blue-400">{currentActivity.name}</span>{currentActivity.server ? <span className="text-gray-400 dark:text-gray-500"> · {currentActivity.server}</span> : null}</>
-                    : <>Thinking{generationElapsedSec > 0 ? ` · ${generationElapsedSec}s` : '...'}</>
-                  }
-                </span>
+        {/* Live generation area: thinking + streaming text + activity dots in one container */}
+        {(liveThinkingBlocks && liveThinkingBlocks.size > 0 || isGenerating) && (
+          <div>
+            {liveThinkingBlocks && liveThinkingBlocks.size > 0 && (
+              <div>
+                {Array.from(liveThinkingBlocks.values()).map((block) => (
+                  <ThinkingBlock
+                    key={block.blockId}
+                    content={block.content}
+                    done={block.done}
+                    label={getThinkingBlockLabel(block.blockId)}
+                    isResponseStreaming={!!streamingContent}
+                  />
+                ))}
               </div>
-              <div className="flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce [animation-delay:-0.3s]" />
-                <span className="w-1.5 h-1.5 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce [animation-delay:-0.15s]" />
-                <span className="w-1.5 h-1.5 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce" />
+            )}
+            {isGenerating && streamingContent && (
+              <div className="pl-3 border-l-2 border-gray-200 dark:border-gray-700 text-sm text-gray-900 dark:text-gray-100">
+                <MarkdownRenderer content={streamingContent} />
+                <span className="animate-pulse text-gray-400">▊</span>
               </div>
-            </div>
+            )}
+            {isGenerating && !streamingContent && (
+              <div className="pl-3 border-l-2 border-gray-200 dark:border-gray-700 text-sm text-gray-500 dark:text-gray-400">
+                <div className="flex items-center gap-2 mb-2">
+                  {currentActivity?.type === 'tool' ? (
+                    <Wrench className="w-3.5 h-3.5 animate-pulse shrink-0 text-blue-500 dark:text-blue-400" />
+                  ) : (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                  )}
+                  <span>
+                    {currentActivity?.type === 'tool'
+                      ? <>Using <span className="font-mono text-blue-600 dark:text-blue-400">{currentActivity.name}</span>{currentActivity.server ? <span className="text-gray-400 dark:text-gray-500"> · {currentActivity.server}</span> : null}</>
+                      : <>Thinking{generationElapsedSec > 0 ? ` · ${generationElapsedSec}s` : '...'}</>
+                    }
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce [animation-delay:-0.3s]" />
+                  <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce [animation-delay:-0.15s]" />
+                  <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce" />
+                </div>
+              </div>
+            )}
           </div>
         )}
         {cliCost && !isGenerating && (

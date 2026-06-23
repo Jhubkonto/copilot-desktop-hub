@@ -3,6 +3,7 @@ import { Sun, Moon, Plug, Cpu } from 'lucide-react'
 import { getModelLabel } from '../../../shared/models'
 import { ToggleSwitch } from '../ui/primitives'
 import type { AvailableModelGroup } from '@shared/types'
+import { TabHeader } from './TabHeader'
 
 interface Props {
   theme: string
@@ -61,6 +62,8 @@ export function GeneralTab({
   const [showManualVoiceSetup, setShowManualVoiceSetup] = useState(false)
   return (
     <>
+      <TabHeader title="General" description="Appearance, default model, and app behaviour." />
+
       {/* Theme */}
       <div className="flex items-center justify-between">
         <div>

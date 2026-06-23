@@ -1,6 +1,7 @@
 import { Plus, Trash2 } from 'lucide-react'
 import { SelectField, TextareaField, TextField } from '../ui/primitives'
 import type { PromptLibraryEntry, PromptLibraryInput, PromptLibraryVersion } from '@shared/types'
+import { TabHeader } from './TabHeader'
 
 interface Props {
   prompts: PromptLibraryEntry[]
@@ -34,17 +35,12 @@ export function PromptsTab({
 }: Props) {
   return (
     <div className="h-full min-h-[520px] flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Prompt library</p>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Save reusable prompts by category. Project prompts are shown with global prompts when a project is active.
-          </p>
-        </div>
+      <div className="flex items-end justify-between gap-4">
+        <TabHeader title="Prompts" description="Save reusable prompts by category. Project prompts appear when a project is active." />
         <button
           type="button"
           onClick={onNewPrompt}
-          className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 font-medium"
+          className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 font-medium shrink-0 mb-1"
         >
           <Plus className="w-3.5 h-3.5" />
           New

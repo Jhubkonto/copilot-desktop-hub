@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight, Globe, Loader2, Pin } from 'lucide-react'
 
 interface ToolCallBlockProps {
@@ -12,52 +12,85 @@ interface ToolCallBlockProps {
   onUseImageAsContext?: (dataUrl: string) => void
 }
 
+const AUTO_COLLAPSE_DELAY = 2000
+
 export function ToolCallBlock({
   toolName, serverName, args, result, success = true, inProgress = false, resultImages, onUseImageAsContext
 }: ToolCallBlockProps) {
   const [expanded, setExpanded] = useState(false)
+  const userCollapsedRef = useRef(false)
+  const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const hasDetails = (args && Object.keys(args).length > 0) || result || resultImages?.length
   const resultPreview = result?.replace(/\s+/g, ' ').trim()
+
+  // Auto-expand while in progress; auto-collapse after completion
+  useEffect(() => {
+    if (inProgress) {
+      if (!userCollapsedRef.current && hasDetails) {
+        setExpanded(true)
+      }
+    } else if (hasDetails) {
+      if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current)
+      collapseTimerRef.current = setTimeout(() => {
+        setExpanded(false)
+      }, AUTO_COLLAPSE_DELAY)
+    }
+
+    return () => {
+      if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current)
+    }
+  }, [inProgress, hasDetails])
+
+  const handleToggle = () => {
+    if (!hasDetails) return
+    const next = !expanded
+    setExpanded(next)
+    if (!next && inProgress) {
+      userCollapsedRef.current = true
+    }
+    if (next) {
+      userCollapsedRef.current = false
+    }
+  }
 
   return (
     <div className="my-1 overflow-hidden rounded-lg border border-gray-200 bg-gray-50 text-xs shadow-sm dark:border-gray-700 dark:bg-gray-800/60">
       <button
         type="button"
-        onClick={() => hasDetails && setExpanded((value) => !value)}
-        className="flex w-full items-start gap-2 px-3 py-2 text-left transition-colors hover:bg-gray-100 dark:hover:bg-gray-700/60"
+        onClick={handleToggle}
+        className="flex w-full items-center gap-2 px-2.5 py-2 text-left transition-colors hover:bg-gray-100 dark:hover:bg-gray-700/60"
         aria-expanded={expanded}
         disabled={!hasDetails}
       >
-        <Globe className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-500 dark:text-blue-400" />
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-2">
-            <span className="truncate font-mono font-medium text-gray-800 dark:text-gray-100">{toolName}</span>
-            {serverName && (
-              <span className="shrink-0 rounded bg-gray-200 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300">
-                {serverName}
-              </span>
-            )}
-          </span>
-          <span className="mt-0.5 block truncate text-[11px] text-gray-500 dark:text-gray-400">
+        <Globe className="h-3.5 w-3.5 shrink-0 text-blue-500 dark:text-blue-400" />
+        <span className="min-w-0 flex-1 flex items-center gap-1.5 overflow-hidden">
+          <span className="shrink-0 font-mono font-medium text-gray-800 dark:text-gray-100 truncate max-w-[40%]">{toolName}</span>
+          {serverName && (
+            <span className="shrink-0 rounded bg-gray-200 px-1 py-0 text-[10px] font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+              {serverName}
+            </span>
+          )}
+          <span className="truncate text-[11px] text-gray-500 dark:text-gray-400">
             {inProgress
               ? 'Running...'
               : success
-                ? (resultPreview || 'Completed')
+                ? (resultPreview || 'Done')
                 : (resultPreview || 'Failed')}
           </span>
         </span>
         {inProgress ? (
-          <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-blue-400" />
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-blue-400" />
         ) : success ? (
-          <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-green-500" />
+          <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-500" />
         ) : (
-          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-400" />
+          <AlertCircle className="h-3.5 w-3.5 shrink-0 text-red-400" />
         )}
         {hasDetails && (expanded
-          ? <ChevronDown className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-400" />
-          : <ChevronRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-400" />)}
+          ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400" />
+          : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-gray-400" />)}
       </button>
+
       {expanded && hasDetails && (
         <div className="space-y-2 border-t border-gray-200 px-3 py-2 dark:border-gray-700">
           {args && Object.keys(args).length > 0 && (
