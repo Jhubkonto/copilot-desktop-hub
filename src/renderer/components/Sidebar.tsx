@@ -60,7 +60,7 @@ export function Sidebar() {
   const newChat = useAppStore((s) => s.newChat)
   const logout = useAppStore((s) => s.logout)
   const setShowSettings = useAppStore((s) => s.setShowSettings)
-  const setShowSelfHealPanel = useAppStore((s) => s.setShowSelfHealPanel)
+  const setShowRemoteEditPanel = useAppStore((s) => s.setShowRemoteEditPanel)
   const setShowArtifactsPanel = useAppStore((s) => s.setShowArtifactsPanel)
   const openBugReport = useAppStore((s) => s.openBugReport)
   const activeSectionPane = useAppStore((s) => s.activeSectionPane)
@@ -83,7 +83,7 @@ export function Sidebar() {
   const [newArtifactCount, setNewArtifactCount] = useState(0)
   const [configuredProviderLabel, setConfiguredProviderLabel] = useState('')
 
-  const showSelfHealPanel = useAppStore((s) => s.showSelfHealPanel)
+  const showRemoteEditPanel = useAppStore((s) => s.showRemoteEditPanel)
   const showArtifactsPanel = useAppStore((s) => s.showArtifactsPanel)
   const showSettings = useAppStore((s) => s.showSettings)
 
@@ -99,7 +99,7 @@ export function Sidebar() {
     refresh()
     const interval = setInterval(refresh, 30000)
     return () => clearInterval(interval)
-  }, [showSelfHealPanel])
+  }, [showRemoteEditPanel])
 
   useEffect(() => {
     const refresh = async () => {
@@ -193,10 +193,10 @@ export function Sidebar() {
         <hr className="border-gray-200 dark:border-gray-700/80" />
         <NavButton
           icon={<Wrench className="w-3.5 h-3.5" />}
-          label="Self-Heal"
-          onClick={() => setShowSelfHealPanel(true)}
+          label="Remote Edit"
+          onClick={() => setShowRemoteEditPanel(true)}
           badgeCount={openReportCount}
-          ariaLabel={`Open Self-Heal${openReportCount > 0 ? ` (${openReportCount} new report${openReportCount === 1 ? '' : 's'})` : ''}`}
+          ariaLabel={`Open Remote Edit${openReportCount > 0 ? ` (${openReportCount} new report${openReportCount === 1 ? '' : 's'})` : ''}`}
           modal
         />
         <NavButton

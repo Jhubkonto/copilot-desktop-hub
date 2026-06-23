@@ -88,9 +88,9 @@ interface Props {
   // Debug
   debugLogging: boolean
   onToggleDebugLogging: () => void
-  selfHealReportingBuildId: string | null
+  remoteEditReportingBuildId: string | null
   desktopPackagingBlocked: boolean
-  onFixBuildWithSelfHeal: (record: BuildRecord) => void
+  onFixBuildWithRemoteEdit: (record: BuildRecord) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -296,7 +296,7 @@ export function DeveloperTab({
   androidPublishResult, androidUpdateManifest, androidPublishHistory, androidRestoring,
   onAndroidPublishUpdate, onAndroidRestoreVersion,
   debugLogging, onToggleDebugLogging,
-  selfHealReportingBuildId, desktopPackagingBlocked, onFixBuildWithSelfHeal,
+  remoteEditReportingBuildId, desktopPackagingBlocked, onFixBuildWithRemoteEdit,
 }: Props) {
   const [developerTab, setDeveloperTab] = useState<DeveloperInnerTab>('desktop')
 
@@ -526,11 +526,11 @@ export function DeveloperTab({
                 {latestDesktopBuild?.status === 'failed' && isDesktopCommand(latestDesktopBuild.command) && (
                   <button
                     type="button"
-                    onClick={() => onFixBuildWithSelfHeal(latestDesktopBuild)}
-                    disabled={selfHealReportingBuildId === latestDesktopBuild.id}
+                    onClick={() => onFixBuildWithRemoteEdit(latestDesktopBuild)}
+                    disabled={remoteEditReportingBuildId === latestDesktopBuild.id}
                     className="rounded border border-current/25 px-2 py-0.5 text-[11px] font-medium hover:bg-white/40 disabled:opacity-50 dark:hover:bg-white/10"
                   >
-                    {selfHealReportingBuildId === latestDesktopBuild.id ? 'Creating report...' : 'Fix with Self-Heal'}
+                    {remoteEditReportingBuildId === latestDesktopBuild.id ? 'Creating report...' : 'Fix with Remote Edit'}
                   </button>
                 )}
               </div>
@@ -583,11 +583,11 @@ export function DeveloperTab({
                           </button>
                           {rec.status === 'failed' && isDesktopCommand(rec.command) && (
                             <button
-                              onClick={() => onFixBuildWithSelfHeal(rec)}
-                              disabled={selfHealReportingBuildId === rec.id}
+                              onClick={() => onFixBuildWithRemoteEdit(rec)}
+                              disabled={remoteEditReportingBuildId === rec.id}
                               className="text-[11px] px-2 py-1 rounded border border-blue-300 text-blue-700 hover:bg-blue-50 disabled:opacity-50 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-950/30"
                             >
-                              {selfHealReportingBuildId === rec.id ? 'Creating report...' : 'Fix with Self-Heal'}
+                              {remoteEditReportingBuildId === rec.id ? 'Creating report...' : 'Fix with Remote Edit'}
                             </button>
                           )}
                         </div>

@@ -72,7 +72,7 @@ export function BugReportModal({ draft, onClose, onSubmitted }: BugReportModalPr
   return (
     <ModalShell
       title="Report Bug"
-      description="Capture a local report with the context needed for self-healing."
+      description="Capture a local report with the context needed for remote-editing."
       icon={<Bug className="h-4 w-4 text-red-500" />}
       maxWidth="max-w-2xl"
       height="max-h-[88vh]"

@@ -54,7 +54,7 @@ function formatBuildFailureReport(record: BuildRecord): { title: string; descrip
   return {
     title: `Build failed: ${record.command}`,
     description: [
-      'A Developer build command failed and was sent to Self-Heal.',
+      'A Developer build command failed and was sent to Remote Edit.',
       '',
       '## Build context',
       `- Source: developer-build`,
@@ -90,8 +90,8 @@ export function SettingsPanel() {
   const toggleTheme = useAppStore((s) => s.toggleTheme)
   const setShowSettings = useAppStore((s) => s.setShowSettings)
   const setShowMcpPanel = useAppStore((s) => s.setShowMcpPanel)
-  const setShowSelfHealPanel = useAppStore((s) => s.setShowSelfHealPanel)
-  const setPendingSelfHealReportId = useAppStore((s) => s.setPendingSelfHealReportId)
+  const setShowRemoteEditPanel = useAppStore((s) => s.setShowRemoteEditPanel)
+  const setPendingRemoteEditReportId = useAppStore((s) => s.setPendingRemoteEditReportId)
   const addToast = useAppStore((s) => s.addToast)
   const setGlobalDefaultModel = useAppStore((s) => s.setGlobalDefaultModel)
   const catalogModels = useAppStore((s) => s.catalogModels)
@@ -163,7 +163,7 @@ export function SettingsPanel() {
   const [preflightRunning, setPreflightRunning] = useState(false)
   const [lastBuildStatus, setLastBuildStatus] = useState<BuildStatus | null>(null)
   const [launchDevError, setLaunchDevError] = useState<string | null>(null)
-  const [selfHealReportingBuildId, setSelfHealReportingBuildId] = useState<string | null>(null)
+  const [remoteEditReportingBuildId, setRemoteEditReportingBuildId] = useState<string | null>(null)
   const [runtimeInfo, setRuntimeInfo] = useState<{ isPackaged: boolean } | null>(null)
   // Local update feed state
   const [feedInfo, setFeedInfo] = useState<LocalUpdateFeed | null>(null)
@@ -567,8 +567,8 @@ export function SettingsPanel() {
     window.api.buildGetRecords(5).then(setBuildRecords).catch(() => {})
   }
 
-  const handleFixBuildWithSelfHeal = async (record: BuildRecord) => {
-    setSelfHealReportingBuildId(record.id)
+  const handleFixBuildWithRemoteEdit = async (record: BuildRecord) => {
+    setRemoteEditReportingBuildId(record.id)
     try {
       const report = formatBuildFailureReport(record)
       const result = await window.api.captureErrorReport({
@@ -577,14 +577,14 @@ export function SettingsPanel() {
         includeLog: true,
         includeScreenshot: false,
       })
-      setPendingSelfHealReportId(result.reportId)
+      setPendingRemoteEditReportId(result.reportId)
       setShowSettings(false)
-      setShowSelfHealPanel(true)
-      addToast('Self-Heal report created from build failure', 'success')
+      setShowRemoteEditPanel(true)
+      addToast('Remote Edit report created from build failure', 'success')
     } catch {
-      addToast('Failed to create Self-Heal report from build failure', 'error')
+      addToast('Failed to create Remote Edit report from build failure', 'error')
     } finally {
-      setSelfHealReportingBuildId(null)
+      setRemoteEditReportingBuildId(null)
     }
   }
 
@@ -1078,9 +1078,9 @@ export function SettingsPanel() {
             onAndroidRestoreVersion={(vc) => void handleAndroidRestoreVersion(vc)}
             debugLogging={debugLogging}
             onToggleDebugLogging={() => setDebugLogging(!debugLogging)}
-            selfHealReportingBuildId={selfHealReportingBuildId}
+            remoteEditReportingBuildId={remoteEditReportingBuildId}
             desktopPackagingBlocked={runtimeInfo?.isPackaged === false}
-            onFixBuildWithSelfHeal={(record) => void handleFixBuildWithSelfHeal(record)}
+            onFixBuildWithRemoteEdit={(record) => void handleFixBuildWithRemoteEdit(record)}
           />
         )}
       </div>

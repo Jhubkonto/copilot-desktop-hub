@@ -2,19 +2,19 @@ import { useEffect, useRef } from 'react'
 import { Trash2 } from 'lucide-react'
 import { Button, ModalShell } from './ui/primitives'
 
-interface DeleteSelfHealReportDialogProps {
+interface DeleteRemoteEditReportDialogProps {
   reportTitle: string
   deleting: boolean
   onConfirm: () => void
   onCancel: () => void
 }
 
-export function DeleteSelfHealReportDialog({
+export function DeleteRemoteEditReportDialog({
   reportTitle,
   deleting,
   onConfirm,
   onCancel,
-}: DeleteSelfHealReportDialogProps) {
+}: DeleteRemoteEditReportDialogProps) {
   const cancelRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {

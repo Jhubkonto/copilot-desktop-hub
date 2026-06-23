@@ -68,7 +68,7 @@ describe('SettingsPanel', () => {
     expect(mockApi.setSetting).toHaveBeenCalledWith('max_tokens', '4096')
   })
 
-  it('creates a self-heal report from a failed desktop build', async () => {
+  it('creates a remote-edit report from a failed desktop build', async () => {
     mockApi.buildGetRecords = vi.fn().mockResolvedValue([
       {
         id: 'build-failed-1',
@@ -91,7 +91,7 @@ describe('SettingsPanel', () => {
 
     render(<SettingsPanel />)
     await user.click(screen.getByText('Developer'))
-    await user.click(await screen.findByText('Fix with Self-Heal'))
+    await user.click(await screen.findByText('Fix with Remote Edit'))
 
     await waitFor(() => {
       expect(mockApi.captureErrorReport).toHaveBeenCalledWith(expect.objectContaining({
@@ -100,8 +100,8 @@ describe('SettingsPanel', () => {
         includeScreenshot: false,
       }))
     })
-    expect(mockStore.setPendingSelfHealReportId).toHaveBeenCalledWith('report-1')
+    expect(mockStore.setPendingRemoteEditReportId).toHaveBeenCalledWith('report-1')
     expect(mockStore.setShowSettings).toHaveBeenCalledWith(false)
-    expect(mockStore.setShowSelfHealPanel).toHaveBeenCalledWith(true)
+    expect(mockStore.setShowRemoteEditPanel).toHaveBeenCalledWith(true)
   })
 })

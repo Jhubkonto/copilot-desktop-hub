@@ -19,8 +19,8 @@ export interface UiSlice {
   showMcpPanel: boolean
   showSettings: boolean
   showOnboarding: boolean
-  showSelfHealPanel: boolean
-  pendingSelfHealReportId: string | null
+  showRemoteEditPanel: boolean
+  pendingRemoteEditReportId: string | null
   showArtifactsPanel: boolean
   pendingArtifactGeneration: { title: string; kind: string; startedAt: number } | null
   pendingArtifactAttach: { artifactId: string; versionId?: string } | null
@@ -48,8 +48,8 @@ export interface UiSlice {
   toggleAgentPanel: () => void
   setShowMcpPanel: (show: boolean) => void
   setShowSettings: (show: boolean) => void
-  setShowSelfHealPanel: (show: boolean) => void
-  setPendingSelfHealReportId: (reportId: string | null) => void
+  setShowRemoteEditPanel: (show: boolean) => void
+  setPendingRemoteEditReportId: (reportId: string | null) => void
   setShowArtifactsPanel: (show: boolean) => void
   setPendingArtifactGeneration: (v: { title: string; kind: string; startedAt: number } | null) => void
   requestArtifactAttach: (artifactId: string, versionId?: string) => void
@@ -96,8 +96,8 @@ export const createUiSlice: StateCreator<
   showSettings: false,
   settingsInitialTab: null,
   showOnboarding: false,
-  showSelfHealPanel: false,
-  pendingSelfHealReportId: null,
+  showRemoteEditPanel: false,
+  pendingRemoteEditReportId: null,
   showArtifactsPanel: false,
   pendingArtifactGeneration: null,
   pendingArtifactAttach: null,
@@ -170,15 +170,15 @@ export const createUiSlice: StateCreator<
     })
   },
 
-  setShowSelfHealPanel: (show) => {
+  setShowRemoteEditPanel: (show) => {
     set((s) => {
-      s.showSelfHealPanel = show
+      s.showRemoteEditPanel = show
     })
   },
 
-  setPendingSelfHealReportId: (reportId) => {
+  setPendingRemoteEditReportId: (reportId) => {
     set((s) => {
-      s.pendingSelfHealReportId = reportId
+      s.pendingRemoteEditReportId = reportId
     })
   },
 

@@ -4,46 +4,46 @@ import type {
   AvailableModelEntry,
   AvailableModelGroup,
   ErrorReportEntry,
-  SelfHealBackend,
-  SelfHealFixDone,
-  SelfHealFixEvent,
-  SelfHealGitEvent,
-  SelfHealGitPrepareResult,
-  SelfHealHistoryEntry,
-  SelfHealInvestigationActivity,
-  SelfHealInvestigationSettings,
-  SelfHealRecoveryEvent,
-  SelfHealRecoveryRun,
-  SelfHealStagedFileDiff,
-  SelfHealStagedFileEntry,
-  SelfHealVerificationDone,
-  SelfHealVerificationEvent,
-  SelfHealVerificationRun,
-  SelfHealVerificationStep,
+  RemoteEditBackend,
+  RemoteEditFixDone,
+  RemoteEditFixEvent,
+  RemoteEditGitEvent,
+  RemoteEditGitPrepareResult,
+  RemoteEditHistoryEntry,
+  RemoteEditInvestigationActivity,
+  RemoteEditInvestigationSettings,
+  RemoteEditRecoveryEvent,
+  RemoteEditRecoveryRun,
+  RemoteEditStagedFileDiff,
+  RemoteEditStagedFileEntry,
+  RemoteEditVerificationDone,
+  RemoteEditVerificationEvent,
+  RemoteEditVerificationRun,
+  RemoteEditVerificationStep,
 } from '@shared/types'
 import { useAppStore } from '../store/app-store'
 import { Button, ModalShell, PhaseBar } from './ui/primitives'
 import { ModelPicker } from './chat/ModelPicker'
-import { DeleteSelfHealReportDialog } from './DeleteSelfHealReportDialog'
+import { DeleteRemoteEditReportDialog } from './DeleteRemoteEditReportDialog'
 
 // ---------------------------------------------------------------------------
-// Self-Heal Diff Viewer sub-component
+// Remote Edit Diff Viewer sub-component
 // ---------------------------------------------------------------------------
 
 interface DiffViewerProps {
   report: ErrorReportEntry
   fixRunning: string | null
   fixStatus: string | null
-  verificationRun: SelfHealVerificationRun | null
+  verificationRun: RemoteEditVerificationRun | null
   verificationRunning: string | null
   expandedVerifyCommand: string | null
-  gitPrepare: SelfHealGitPrepareResult | null
+  gitPrepare: RemoteEditGitPrepareResult | null
   gitMessage: string
   gitRunning: string | null
-  recoveryRun: SelfHealRecoveryRun | null
+  recoveryRun: RemoteEditRecoveryRun | null
   recoveryRunning: boolean
   reloadRunning: boolean
-  stagedDiffs: Record<string, SelfHealStagedFileDiff | null>
+  stagedDiffs: Record<string, RemoteEditStagedFileDiff | null>
   reviewedFiles: Record<string, boolean>
   expandedDiffFile: string | null
   committingFix: boolean
@@ -65,7 +65,7 @@ interface DiffViewerProps {
   onExpandDiff: (relativePath: string | null) => void
 }
 
-function SelfHealDiffViewer({
+function RemoteEditDiffViewer({
   report, fixRunning, fixStatus, verificationRun, verificationRunning, expandedVerifyCommand,
   gitPrepare, gitMessage, gitRunning, recoveryRun, recoveryRunning, reloadRunning,
   stagedDiffs, reviewedFiles, expandedDiffFile,
@@ -73,13 +73,13 @@ function SelfHealDiffViewer({
   onPrepareGitCommit, onCommitGitFix, onPushGitFix, onSetGitMessage, onPrepareReload, onStartReload, onApproveRelaunch, onRollbackHeal,
   onLoadDiff, onRevertFile, onMarkReviewed, onCommitFix, onExpandDiff,
 }: DiffViewerProps) {
-  const stagedFiles: SelfHealStagedFileEntry[] = (() => {
+  const stagedFiles: RemoteEditStagedFileEntry[] = (() => {
     try { return JSON.parse(report.fix_staged_files || '[]') } catch { return [] }
   })()
 
   const allReviewed = stagedFiles.length > 0 && stagedFiles.every((f) => reviewedFiles[f.relativePath])
   const canApply = report.fix_status === 'staged' && allReviewed && !committingFix
-  const verificationCommands: SelfHealVerificationStep['command'][] = ['typecheck', 'lint', 'test', 'build']
+  const verificationCommands: RemoteEditVerificationStep['command'][] = ['typecheck', 'lint', 'test', 'build']
   const verificationSteps = verificationCommands.map((command) => {
     return verificationRun?.steps.find((step) => step.command === command) ?? {
       command,
@@ -91,7 +91,7 @@ function SelfHealDiffViewer({
     }
   })
   const verificationPassed = verificationRun?.status === 'success'
-  const statusClass = (status: SelfHealVerificationStep['status']) => {
+  const statusClass = (status: RemoteEditVerificationStep['status']) => {
     if (status === 'success') return 'text-green-600 dark:text-green-400'
     if (status === 'failed') return 'text-red-600 dark:text-red-400'
     if (status === 'running') return 'text-blue-600 dark:text-blue-400'
@@ -414,7 +414,7 @@ function SelfHealDiffViewer({
 // Phase progress bar
 // ---------------------------------------------------------------------------
 
-type SelfHealPhase =
+type RemoteEditPhase =
   | 'captured'
   | 'investigating'
   | 'plan-accepted'
@@ -424,16 +424,16 @@ type SelfHealPhase =
   | 'committed'
   | 'reloaded'
 
-const SELF_HEAL_PHASE_ORDER: SelfHealPhase[] = [
+const REMOTE_EDIT_PHASE_ORDER: RemoteEditPhase[] = [
   'captured', 'investigating', 'plan-accepted', 'fixing', 'verifying', 'committed', 'reloaded',
 ]
 
-function deriveSelfHealPhase(
+function deriveRemoteEditPhase(
   report: ErrorReportEntry,
-  verificationRun: SelfHealVerificationRun | null,
-  recoveryRun: SelfHealRecoveryRun | null,
+  verificationRun: RemoteEditVerificationRun | null,
+  recoveryRun: RemoteEditRecoveryRun | null,
   gitCommitted: boolean,
-): SelfHealPhase {
+): RemoteEditPhase {
   if (recoveryRun?.status === 'reloading' || recoveryRun?.status === 'confirmed') return 'reloaded'
   if (gitCommitted) return 'committed'
   if (verificationRun?.status === 'failed') return 'verify-failed'
@@ -445,7 +445,7 @@ function deriveSelfHealPhase(
   return 'captured'
 }
 
-const SELF_HEAL_PHASE_STEPS: { id: SelfHealPhase; label: string }[] = [
+const REMOTE_EDIT_PHASE_STEPS: { id: RemoteEditPhase; label: string }[] = [
   { id: 'captured', label: 'Captured' },
   { id: 'investigating', label: 'Investigating' },
   { id: 'plan-accepted', label: 'Plan accepted' },
@@ -455,11 +455,11 @@ const SELF_HEAL_PHASE_STEPS: { id: SelfHealPhase; label: string }[] = [
   { id: 'reloaded', label: 'Reloaded' },
 ]
 
-function SelfHealPhaseBar({ phase }: { phase: SelfHealPhase }) {
+function RemoteEditPhaseBar({ phase }: { phase: RemoteEditPhase }) {
   const currentIndex = phase === 'verify-failed'
-    ? SELF_HEAL_PHASE_ORDER.indexOf('verifying')
-    : SELF_HEAL_PHASE_ORDER.indexOf(phase)
-  const steps = SELF_HEAL_PHASE_STEPS.map((step) =>
+    ? REMOTE_EDIT_PHASE_ORDER.indexOf('verifying')
+    : REMOTE_EDIT_PHASE_ORDER.indexOf(phase)
+  const steps = REMOTE_EDIT_PHASE_STEPS.map((step) =>
     step.id === 'verifying' && phase === 'verify-failed' ? { ...step, label: 'Verify failed' } : step,
   )
 
@@ -476,21 +476,21 @@ function SelfHealPhaseBar({ phase }: { phase: SelfHealPhase }) {
 // Main panel
 // ---------------------------------------------------------------------------
 
-export function SelfHealPanel() {
-  const visible = useAppStore((s) => s.showSelfHealPanel)
-  const setShowSelfHealPanel = useAppStore((s) => s.setShowSelfHealPanel)
-  const pendingSelfHealReportId = useAppStore((s) => s.pendingSelfHealReportId)
-  const setPendingSelfHealReportId = useAppStore((s) => s.setPendingSelfHealReportId)
+export function RemoteEditPanel() {
+  const visible = useAppStore((s) => s.showRemoteEditPanel)
+  const setShowRemoteEditPanel = useAppStore((s) => s.setShowRemoteEditPanel)
+  const pendingRemoteEditReportId = useAppStore((s) => s.pendingRemoteEditReportId)
+  const setPendingRemoteEditReportId = useAppStore((s) => s.setPendingRemoteEditReportId)
   const debugLogging = useAppStore((s) => s.debugLogging)
   const setDebugLogging = useAppStore((s) => s.setDebugLogging)
   const catalogModels = useAppStore((s) => s.catalogModels)
   const addToast = useAppStore((s) => s.addToast)
-  const onClose = () => setShowSelfHealPanel(false)
+  const onClose = () => setShowRemoteEditPanel(false)
   const onToggleDebugLogging = () => setDebugLogging(!debugLogging)
 
   const [reports, setReports] = useState<ErrorReportEntry[]>([])
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null)
-  const [investigationSettings, setInvestigationSettings] = useState<SelfHealInvestigationSettings>({
+  const [investigationSettings, setInvestigationSettings] = useState<RemoteEditInvestigationSettings>({
     backend: 'byok',
     model: 'gpt-5-mini',
     retryLimit: 1,
@@ -498,25 +498,25 @@ export function SelfHealPanel() {
   })
   const [availableModelGroups, setAvailableModelGroups] = useState<AvailableModelGroup[]>([])
   const [investigationOutput, setInvestigationOutput] = useState<Record<string, string>>({})
-  const [investigationActivity, setInvestigationActivity] = useState<Record<string, SelfHealInvestigationActivity[]>>({})
+  const [investigationActivity, setInvestigationActivity] = useState<Record<string, RemoteEditInvestigationActivity[]>>({})
   const [runningReportId, setRunningReportId] = useState<string | null>(null)
   const [investigationStatus, setInvestigationStatus] = useState<string | null>(null)
   const [fixRunning, setFixRunning] = useState<string | null>(null)
   const [fixStatus, setFixStatus] = useState<string | null>(null)
-  const [stagedDiffs, setStagedDiffs] = useState<Record<string, SelfHealStagedFileDiff | null>>({})
+  const [stagedDiffs, setStagedDiffs] = useState<Record<string, RemoteEditStagedFileDiff | null>>({})
   const [reviewedFiles, setReviewedFiles] = useState<Record<string, boolean>>({})
   const [committingFix, setCommittingFix] = useState(false)
   const [expandedDiffFile, setExpandedDiffFile] = useState<string | null>(null)
-  const [verificationRuns, setVerificationRuns] = useState<Record<string, SelfHealVerificationRun[]>>({})
+  const [verificationRuns, setVerificationRuns] = useState<Record<string, RemoteEditVerificationRun[]>>({})
   const [verificationRunning, setVerificationRunning] = useState<string | null>(null)
   const [expandedVerifyCommand, setExpandedVerifyCommand] = useState<string | null>(null)
-  const [gitPrepare, setGitPrepare] = useState<Record<string, SelfHealGitPrepareResult | null>>({})
+  const [gitPrepare, setGitPrepare] = useState<Record<string, RemoteEditGitPrepareResult | null>>({})
   const [gitMessage, setGitMessage] = useState<Record<string, string>>({})
   const [gitRunning, setGitRunning] = useState<string | null>(null)
-  const [recoveryRuns, setRecoveryRuns] = useState<Record<string, SelfHealRecoveryRun[]>>({})
+  const [recoveryRuns, setRecoveryRuns] = useState<Record<string, RemoteEditRecoveryRun[]>>({})
   const [recoveryRunning, setRecoveryRunning] = useState<string | null>(null)
   const [reloadRunning, setReloadRunning] = useState<string | null>(null)
-  const [selfHealHistory, setSelfHealHistory] = useState<SelfHealHistoryEntry[]>([])
+  const [remoteEditHistory, setRemoteEditHistory] = useState<RemoteEditHistoryEntry[]>([])
   const [investigationCollapsed, setInvestigationCollapsed] = useState(false)
   const [historyCollapsed, setHistoryCollapsed] = useState(true)
   const [reportsRefreshing, setReportsRefreshing] = useState(false)
@@ -526,12 +526,12 @@ export function SelfHealPanel() {
   const [pendingDeleteReport, setPendingDeleteReport] = useState<ErrorReportEntry | null>(null)
 
   const selectedReport = reports.find((report) => report.id === selectedReportId) ?? reports[0] ?? null
-  const selfHealModelGroups = availableModelGroups.filter((group) => {
+  const remoteEditModelGroups = availableModelGroups.filter((group) => {
     if (investigationSettings.backend === 'claude-cli') return group.sourceKey === 'claude-cli'
     if (investigationSettings.backend === 'codex-cli') return group.sourceKey === 'codex-cli'
     return group.sourceType === 'provider'
   })
-  const selectedModelSourceLabel = selfHealModelGroups.find((group) =>
+  const selectedModelSourceLabel = remoteEditModelGroups.find((group) =>
     group.models.some((model) => model.id === investigationSettings.model)
   )?.sourceLabel
   const isReportBusy = (reportId: string): boolean => (
@@ -545,8 +545,8 @@ export function SelfHealPanel() {
     recoveryRuns[reportId]?.some((run) => run.id === reloadRunning) === true
   )
 
-  const hasBackendGroup = (backend: SelfHealBackend) => availableModelGroups.some((group) => group.sourceKey === backend)
-  const backendOptions: Array<{ value: SelfHealBackend; label: string }> = [
+  const hasBackendGroup = (backend: RemoteEditBackend) => availableModelGroups.some((group) => group.sourceKey === backend)
+  const backendOptions: Array<{ value: RemoteEditBackend; label: string }> = [
     { value: 'byok', label: 'BYOK' },
     ...(hasBackendGroup('claude-cli') || investigationSettings.backend === 'claude-cli'
       ? [{ value: 'claude-cli' as const, label: 'Claude CLI' }]
@@ -560,9 +560,9 @@ export function SelfHealPanel() {
     if (typeof window.api.listErrorReports !== 'function') return
     const nextReports = await window.api.listErrorReports(25)
     setReports(nextReports)
-    if (pendingSelfHealReportId && nextReports.some((report) => report.id === pendingSelfHealReportId)) {
-      setSelectedReportId(pendingSelfHealReportId)
-      setPendingSelfHealReportId(null)
+    if (pendingRemoteEditReportId && nextReports.some((report) => report.id === pendingRemoteEditReportId)) {
+      setSelectedReportId(pendingRemoteEditReportId)
+      setPendingRemoteEditReportId(null)
     } else if (selectedIdOverride !== undefined) {
       setSelectedReportId(selectedIdOverride ?? nextReports[0]?.id ?? null)
     } else if (!selectedReportId && nextReports[0]) {
@@ -570,10 +570,10 @@ export function SelfHealPanel() {
     }
   }
 
-  const loadSelfHealHistory = async () => {
-    if (typeof window.api.getSelfHealHistory !== 'function') return
-    const entries = await window.api.getSelfHealHistory()
-    setSelfHealHistory(entries)
+  const loadRemoteEditHistory = async () => {
+    if (typeof window.api.getRemoteEditHistory !== 'function') return
+    const entries = await window.api.getRemoteEditHistory()
+    setRemoteEditHistory(entries)
   }
 
   const handleRefreshReports = async () => {
@@ -593,7 +593,7 @@ export function SelfHealPanel() {
     setHistoryRefreshing(true)
     setInvestigationStatus('Refreshing history...')
     try {
-      await loadSelfHealHistory()
+      await loadRemoteEditHistory()
       setInvestigationStatus('History refreshed')
     } catch (error) {
       setInvestigationStatus(error instanceof Error ? error.message : String(error))
@@ -608,7 +608,7 @@ export function SelfHealPanel() {
     setAvailableModelGroups(groups)
   }
 
-  const handleSetBackend = (backend: SelfHealBackend) => {
+  const handleSetBackend = (backend: RemoteEditBackend) => {
     setInvestigationSettings((settings) => {
       const nextGroups = availableModelGroups.filter((group) => {
         if (backend === 'claude-cli') return group.sourceKey === 'claude-cli'
@@ -624,7 +624,7 @@ export function SelfHealPanel() {
     })
   }
 
-  const handleSelectSelfHealModel = (_group: AvailableModelGroup, model: AvailableModelEntry) => {
+  const handleSelectRemoteEditModel = (_group: AvailableModelGroup, model: AvailableModelEntry) => {
     setInvestigationSettings((settings) => ({ ...settings, model: model.id }))
   }
 
@@ -635,8 +635,8 @@ export function SelfHealPanel() {
   }
 
   const loadRecoveryRuns = async (reportId: string) => {
-    if (typeof window.api.getSelfHealRecoveryRuns !== 'function') return
-    const runs = await window.api.getSelfHealRecoveryRuns(reportId)
+    if (typeof window.api.getRemoteEditRecoveryRuns !== 'function') return
+    const runs = await window.api.getRemoteEditRecoveryRuns(reportId)
     setRecoveryRuns((prev) => ({ ...prev, [reportId]: runs }))
   }
 
@@ -649,11 +649,11 @@ export function SelfHealPanel() {
       return
     }
     void loadReports()
-    void loadSelfHealHistory()
+    void loadRemoteEditHistory()
     void loadAvailableModels()
     window.api.getInvestigationSettings().then(setInvestigationSettings).catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, pendingSelfHealReportId])
+  }, [visible, pendingRemoteEditReportId])
 
   useEffect(() => {
     if (
@@ -697,10 +697,10 @@ export function SelfHealPanel() {
     ) {
       return
     }
-    const offEvent = window.api.onFixEvent((event: SelfHealFixEvent) => {
+    const offEvent = window.api.onFixEvent((event: RemoteEditFixEvent) => {
       setFixStatus(event.label)
     })
-    const offDone = window.api.onFixDone((result: SelfHealFixDone) => {
+    const offDone = window.api.onFixDone((result: RemoteEditFixDone) => {
       setFixRunning(null)
       setFixStatus(result.status === 'done' ? 'Fix staging complete' : result.error ?? 'Fix failed')
       void loadReports()
@@ -727,7 +727,7 @@ export function SelfHealPanel() {
     ) {
       return
     }
-    const offEvent = window.api.onVerificationEvent((event: SelfHealVerificationEvent) => {
+    const offEvent = window.api.onVerificationEvent((event: RemoteEditVerificationEvent) => {
       setVerificationRunning(event.status === 'running' ? event.reportId : null)
       setVerificationRuns((prev) => {
         const runs = prev[event.reportId] ?? []
@@ -739,7 +739,7 @@ export function SelfHealPanel() {
               reportId: event.reportId,
               status: 'running' as const,
               steps: ['typecheck', 'lint', 'test', 'build'].map((command) => ({
-                command: command as SelfHealVerificationStep['command'],
+                command: command as RemoteEditVerificationStep['command'],
                 status: 'pending' as const,
                 exitCode: null,
                 log: '',
@@ -773,11 +773,11 @@ export function SelfHealPanel() {
         return { ...prev, [event.reportId]: nextRuns }
       })
     })
-    const offDone = window.api.onVerificationDone((result: SelfHealVerificationDone) => {
+    const offDone = window.api.onVerificationDone((result: RemoteEditVerificationDone) => {
       setVerificationRunning(null)
       setVerificationRuns((prev) => {
         const runs = prev[result.reportId] ?? []
-        const run: SelfHealVerificationRun = {
+        const run: RemoteEditVerificationRun = {
           id: result.runId,
           reportId: result.reportId,
           status: result.status,
@@ -798,8 +798,8 @@ export function SelfHealPanel() {
   }, [])
 
   useEffect(() => {
-    if (typeof window.api.onSelfHealGitEvent !== 'function') return
-    const off = window.api.onSelfHealGitEvent((event: SelfHealGitEvent) => {
+    if (typeof window.api.onRemoteEditGitEvent !== 'function') return
+    const off = window.api.onRemoteEditGitEvent((event: RemoteEditGitEvent) => {
       if (event.type === 'commit' || event.type === 'push') {
         setGitRunning(null)
       }
@@ -823,8 +823,8 @@ export function SelfHealPanel() {
   }, [])
 
   useEffect(() => {
-    if (typeof window.api.onSelfHealRecoveryEvent !== 'function') return
-    const off = window.api.onSelfHealRecoveryEvent((event: SelfHealRecoveryEvent) => {
+    if (typeof window.api.onRemoteEditRecoveryEvent !== 'function') return
+    const off = window.api.onRemoteEditRecoveryEvent((event: RemoteEditRecoveryEvent) => {
       if (event.type === 'prepare') {
         setRecoveryRunning(null)
         void loadRecoveryRuns(event.reportId)
@@ -898,7 +898,7 @@ export function SelfHealPanel() {
           reportId,
           status: 'running',
           steps: ['typecheck', 'lint', 'test', 'build'].map((command) => ({
-            command: command as SelfHealVerificationStep['command'],
+            command: command as RemoteEditVerificationStep['command'],
             status: 'pending' as const,
             exitCode: null,
             log: '',
@@ -916,7 +916,7 @@ export function SelfHealPanel() {
 
   const handlePrepareGitCommit = async (reportId: string) => {
     setGitRunning('prepare')
-    const result = await window.api.prepareSelfHealCommit(reportId)
+    const result = await window.api.prepareRemoteEditCommit(reportId)
     setGitPrepare((prev) => ({ ...prev, [reportId]: result }))
     setGitMessage((prev) => ({ ...prev, [reportId]: prev[reportId] ?? result.suggestedMessage }))
     setGitRunning(null)
@@ -924,7 +924,7 @@ export function SelfHealPanel() {
 
   const handleCommitGitFix = async (reportId: string) => {
     setGitRunning('commit')
-    const result = await window.api.commitSelfHealFix(reportId, gitMessage[reportId] ?? '')
+    const result = await window.api.commitRemoteEditFix(reportId, gitMessage[reportId] ?? '')
     setGitPrepare((prev) => ({
       ...prev,
       [reportId]: prev[reportId]
@@ -936,7 +936,7 @@ export function SelfHealPanel() {
 
   const handlePushGitFix = async (reportId: string) => {
     setGitRunning('push')
-    const result = await window.api.pushSelfHealFix(reportId)
+    const result = await window.api.pushRemoteEditFix(reportId)
     setGitPrepare((prev) => ({
       ...prev,
       [reportId]: prev[reportId]
@@ -948,7 +948,7 @@ export function SelfHealPanel() {
 
   const handlePrepareReload = async (reportId: string) => {
     setRecoveryRunning(reportId)
-    const result = await window.api.prepareSelfHealReload(reportId)
+    const result = await window.api.prepareRemoteEditReload(reportId)
     if (result.recovery) {
       setRecoveryRuns((prev) => ({
         ...prev,
@@ -960,7 +960,7 @@ export function SelfHealPanel() {
 
   const handleStartReload = async (recoveryId: string) => {
     setReloadRunning(recoveryId)
-    const result = await window.api.startSelfHealReload(recoveryId)
+    const result = await window.api.startRemoteEditReload(recoveryId)
     if (result.recovery) {
       setRecoveryRuns((prev) => ({
         ...prev,
@@ -971,13 +971,13 @@ export function SelfHealPanel() {
   }
 
   const handleApproveRelaunch = async (recoveryId: string) => {
-    await window.api.approveSelfHealRelaunch(recoveryId)
+    await window.api.approveRemoteEditRelaunch(recoveryId)
   }
 
   const handleRollbackHeal = async (recoveryId: string) => {
-    await window.api.rollbackSelfHeal(recoveryId)
+    await window.api.rollbackRemoteEdit(recoveryId)
     void loadReports()
-    void loadSelfHealHistory()
+    void loadRemoteEditHistory()
   }
 
   const persistInvestigationSettings = async () => {
@@ -1011,7 +1011,7 @@ export function SelfHealPanel() {
     setReviewAction(action)
     setInvestigationStatus(status === 'investigated' ? 'Accepting investigation...' : 'Rejecting investigation...')
     try {
-      await window.api.setSelfHealReportStatus(reportId, status)
+      await window.api.setRemoteEditReportStatus(reportId, status)
       const message = status === 'investigated' ? 'Investigation accepted' : 'Investigation rejected'
       setInvestigationStatus(message)
       addToast(message, 'success')
@@ -1045,7 +1045,7 @@ export function SelfHealPanel() {
       setInvestigationStatus('Report deleted')
       setPendingDeleteReport(null)
       await loadReports(null)
-      await loadSelfHealHistory()
+      await loadRemoteEditHistory()
     } catch (error) {
       setInvestigationStatus(error instanceof Error ? error.message : String(error))
     } finally {
@@ -1062,8 +1062,8 @@ export function SelfHealPanel() {
   return (
     <>
     <ModalShell
-      title="Self-Heal"
-      description="Investigate, fix, verify, and recover from captured bug reports."
+      title="Remote Edit"
+      description="Describe a change or problem, apply an AI fix, review the diff, and commit."
       icon={<Wrench className="w-3.5 h-3.5" />}
       maxWidth="max-w-7xl"
       onClose={onClose}
@@ -1085,12 +1085,12 @@ export function SelfHealPanel() {
           </button>
         </div>
 
-        {/* Self-heal investigation */}
+        {/* Remote Edit investigation */}
         <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
             <div>
-              <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Self-heal investigations</p>
-              <p className="text-[11px] text-gray-500">Review bug reports and generate root-cause investigation notes.</p>
+              <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Remote Edit investigations</p>
+              <p className="text-[11px] text-gray-500">Review edit requests and run AI analysis and fixes.</p>
               {investigationStatus && (
                 <p className="mt-1 text-[11px] text-blue-600 dark:text-blue-300">{investigationStatus}</p>
               )}
@@ -1112,7 +1112,7 @@ export function SelfHealPanel() {
                     Backend
                     <select
                       value={investigationSettings.backend}
-                      onChange={(event) => handleSetBackend(event.target.value as SelfHealBackend)}
+                      onChange={(event) => handleSetBackend(event.target.value as RemoteEditBackend)}
                       className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                     >
                       {backendOptions.map((option) => (
@@ -1137,7 +1137,7 @@ export function SelfHealPanel() {
                   <ModelPicker
                     value={investigationSettings.model}
                     sourceLabel={selectedModelSourceLabel}
-                    availableGroups={selfHealModelGroups}
+                    availableGroups={remoteEditModelGroups}
                     catalogModels={catalogModels}
                     includeDefault={false}
                     emptyLabel={
@@ -1149,7 +1149,7 @@ export function SelfHealPanel() {
                     }
                     buttonClassName="mt-1 flex w-full items-center justify-between gap-2 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-800 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                     menuClassName="left-0 right-auto"
-                    onSelectAvailableModel={handleSelectSelfHealModel}
+                    onSelectAvailableModel={handleSelectRemoteEditModel}
                   />
                 </div>
                 <label className="flex items-center gap-2 text-[11px] text-gray-500">
@@ -1170,7 +1170,7 @@ export function SelfHealPanel() {
               </div>
               <div className="max-h-72 overflow-y-auto">
                 {reports.length === 0 ? (
-                  <p className="p-3 text-xs text-gray-400">No bug reports captured.</p>
+                  <p className="p-3 text-xs text-gray-400">No edit requests yet.</p>
                 ) : (
                   reports.map((report) => {
                     const reportBusy = isReportBusy(report.id)
@@ -1199,7 +1199,7 @@ export function SelfHealPanel() {
                           }}
                           disabled={reportBusy}
                           className="invisible shrink-0 rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-40 group-hover:visible dark:hover:bg-red-900/20"
-                          title={reportBusy ? 'Wait for the current Self-Heal action to finish before deleting' : 'Delete report'}
+                          title={reportBusy ? 'Wait for the current Remote Edit action to finish before deleting' : 'Delete report'}
                           aria-label={`Delete ${report.title}`}
                         >
                           <Trash2 className="h-3 w-3" />
@@ -1213,8 +1213,8 @@ export function SelfHealPanel() {
             <div className="min-h-72 p-3">
               {selectedReport ? (
                 <div className="space-y-3">
-                  <SelfHealPhaseBar
-                    phase={deriveSelfHealPhase(
+                  <RemoteEditPhaseBar
+                    phase={deriveRemoteEditPhase(
                       selectedReport,
                       verificationRuns[selectedReport.id]?.[0] ?? null,
                       recoveryRuns[selectedReport.id]?.[0] ?? null,
@@ -1232,14 +1232,14 @@ export function SelfHealPanel() {
                         onClick={() => void handleStartInvestigation(selectedReport.id)}
                         disabled={runningReportId !== null}
                       >
-                        {runningReportId === selectedReport.id && reviewAction !== 'revise' ? 'Investigating...' : 'Investigate'}
+                        {runningReportId === selectedReport.id && reviewAction !== 'revise' ? 'Analysing...' : 'Analyse'}
                       </Button>
                       <Button
                         variant="danger"
                         onClick={() => setPendingDeleteReport(selectedReport)}
                         disabled={selectedReportBusy}
                         className="px-2"
-                        title={selectedReportBusy ? 'Wait for the current Self-Heal action to finish before deleting' : 'Delete report'}
+                        title={selectedReportBusy ? 'Wait for the current Remote Edit action to finish before deleting' : 'Delete report'}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                         {deletingReportId === selectedReport.id ? 'Deleting...' : 'Delete'}
@@ -1300,7 +1300,7 @@ export function SelfHealPanel() {
                         </div>
                       )}
                       <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-gray-50 p-3 text-xs text-gray-700 dark:bg-gray-950/50 dark:text-gray-300">
-                        {investigationOutput[selectedReport.id] || selectedReport.investigation_markdown || 'No investigation has been generated yet.'}
+                        {investigationOutput[selectedReport.id] || selectedReport.investigation_markdown || 'No analysis has been run yet.'}
                       </pre>
                       {investigationStatus && <p className="text-[11px] text-gray-400">{investigationStatus}</p>}
                     </>
@@ -1319,7 +1319,7 @@ export function SelfHealPanel() {
                   )}
 
                   {['staging', 'staged', 'applying', 'applied', 'failed'].includes(selectedReport.fix_status) && (
-                    <SelfHealDiffViewer
+                    <RemoteEditDiffViewer
                       report={selectedReport}
                       fixRunning={fixRunning}
                       fixStatus={fixStatus}
@@ -1356,13 +1356,13 @@ export function SelfHealPanel() {
                   )}
                 </div>
               ) : (
-                <p className="text-xs text-gray-400">Select a bug report to investigate.</p>
+                <p className="text-xs text-gray-400">Select an edit request to review.</p>
               )}
             </div>
           </div>
         </div>
 
-        {/* Self-heal history */}
+        {/* Remote Edit history */}
         <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
             <button
@@ -1370,8 +1370,8 @@ export function SelfHealPanel() {
               onClick={() => setHistoryCollapsed((collapsed) => !collapsed)}
               className="text-left"
             >
-              <p className="text-xs font-medium text-gray-700 dark:text-gray-300">{historyCollapsed ? '▸' : '▾'} Self-heal history</p>
-              <p className="text-[11px] text-gray-500">Audit trail of all self-heal runs.</p>
+              <p className="text-xs font-medium text-gray-700 dark:text-gray-300">{historyCollapsed ? '▸' : '▾'} Remote Edit history</p>
+              <p className="text-[11px] text-gray-500">Audit trail of all remote-edit runs.</p>
             </button>
             <Button
               variant="secondary"
@@ -1384,8 +1384,8 @@ export function SelfHealPanel() {
           </div>
           {!historyCollapsed && (
           <div className="max-h-52 overflow-y-auto">
-            {selfHealHistory.length === 0 ? (
-              <p className="p-3 text-xs text-gray-400">No self-heal history yet.</p>
+            {remoteEditHistory.length === 0 ? (
+              <p className="p-3 text-xs text-gray-400">No remote-edit history yet.</p>
             ) : (
               <table className="w-full text-[11px]">
                 <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800/70">
@@ -1398,7 +1398,7 @@ export function SelfHealPanel() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                  {selfHealHistory.map((entry) => (
+                  {remoteEditHistory.map((entry) => (
                     <tr key={entry.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/40">
                       <td className="px-3 py-1.5 max-w-[140px]">
                         <span className="block truncate text-gray-700 dark:text-gray-300 font-medium">{entry.reportTitle || entry.reportId.slice(0, 8)}</span>
@@ -1438,7 +1438,7 @@ export function SelfHealPanel() {
       </div>
     </ModalShell>
     {pendingDeleteReport && (
-      <DeleteSelfHealReportDialog
+      <DeleteRemoteEditReportDialog
         reportTitle={pendingDeleteReport.title}
         deleting={deletingReportId === pendingDeleteReport.id}
         onConfirm={() => void handleDeleteReport(pendingDeleteReport.id)}

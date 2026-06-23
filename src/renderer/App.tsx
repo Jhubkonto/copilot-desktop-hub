@@ -35,8 +35,8 @@ const SkillPanel = lazy(() =>
 const SkillGeneratorModal = lazy(() =>
   import('./components/SkillGeneratorModal').then((m) => ({ default: m.SkillGeneratorModal }))
 )
-const SelfHealPanel = lazy(() =>
-  import('./components/SelfHealPanel').then((m) => ({ default: m.SelfHealPanel }))
+const RemoteEditPanel = lazy(() =>
+  import('./components/RemoteEditPanel').then((m) => ({ default: m.RemoteEditPanel }))
 )
 const ArtifactsPanel = lazy(() =>
   import('./components/ArtifactsPanel').then((m) => ({ default: m.ArtifactsPanel }))
@@ -76,8 +76,8 @@ export default function App() {
   const pendingErrorCount = useAppStore((s) => s.pendingErrorCount)
   const openBugReport = useAppStore((s) => s.openBugReport)
   const closeBugReport = useAppStore((s) => s.closeBugReport)
-  const setShowSelfHealPanel = useAppStore((s) => s.setShowSelfHealPanel)
-  const setPendingSelfHealReportId = useAppStore((s) => s.setPendingSelfHealReportId)
+  const setShowRemoteEditPanel = useAppStore((s) => s.setShowRemoteEditPanel)
+  const setPendingRemoteEditReportId = useAppStore((s) => s.setPendingRemoteEditReportId)
   const incrementPendingErrorCount = useAppStore((s) => s.incrementPendingErrorCount)
 
   const markConversationGenerating = useAppStore((s) => s.markConversationGenerating)
@@ -95,7 +95,7 @@ export default function App() {
     []
   )
 
-  const createCrashSelfHealReport = useCallback(async (draft: { title: string; description: string }) => {
+  const createCrashRemoteEditReport = useCallback(async (draft: { title: string; description: string }) => {
     let screenshotDataUrl: string | null = null
     try {
       const screenshot = await window.api.captureWindowScreenshot()
@@ -116,16 +116,16 @@ export default function App() {
     return result.reportId
   }, [])
 
-  const openCrashSelfHealReport = useCallback((reportId: string) => {
-    setPendingSelfHealReportId(reportId)
-    setShowSelfHealPanel(true)
-    addToast(`Bug report captured (${reportId.slice(0, 8)}) - now in Self-Heal`, 'success')
-  }, [addToast, setPendingSelfHealReportId, setShowSelfHealPanel])
+  const openCrashRemoteEditReport = useCallback((reportId: string) => {
+    setPendingRemoteEditReportId(reportId)
+    setShowRemoteEditPanel(true)
+    addToast(`Bug report captured (${reportId.slice(0, 8)}) - now in Remote Edit`, 'success')
+  }, [addToast, setPendingRemoteEditReportId, setShowRemoteEditPanel])
 
   // Hydrate store on mount
   useEffect(() => {
     hydrate()
-      .then(() => window.api.confirmSelfHealStartup?.())
+      .then(() => window.api.confirmRemoteEditStartup?.())
       .catch(() => {})
   }, [hydrate])
 
@@ -239,8 +239,8 @@ export default function App() {
   return (
     <ErrorBoundary
       onReportBug={openBugReport}
-      onCreateSelfHealReport={createCrashSelfHealReport}
-      onOpenSelfHealReport={openCrashSelfHealReport}
+      onCreateRemoteEditReport={createCrashRemoteEditReport}
+      onOpenRemoteEditReport={openCrashRemoteEditReport}
     >
     <div className={`flex flex-col h-full w-full overflow-hidden ${theme === 'dark' ? 'dark' : ''}`} role="application">
       {/* Custom frameless titlebar */}
@@ -305,7 +305,7 @@ export default function App() {
 
         <SettingsPanel />
 
-        <SelfHealPanel />
+        <RemoteEditPanel />
 
         <ArtifactsPanel />
 
@@ -345,11 +345,11 @@ export default function App() {
           onClose={closeBugReport}
           onSubmitted={(reportId) => {
             closeBugReport()
-            addToast(`Bug report captured (${reportId.slice(0, 8)}) — now in Self-Heal`, 'success', {
+            addToast(`Bug report captured (${reportId.slice(0, 8)}) — now in Remote Edit`, 'success', {
               label: 'View',
               onClick: () => {
-                setPendingSelfHealReportId(reportId)
-                setShowSelfHealPanel(true)
+                setPendingRemoteEditReportId(reportId)
+                setShowRemoteEditPanel(true)
               },
             })
           }}

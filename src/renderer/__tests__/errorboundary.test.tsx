@@ -13,30 +13,30 @@ describe('ErrorBoundary', () => {
     vi.restoreAllMocks()
   })
 
-  it('can create and open a Self-Heal report from the crash fallback', async () => {
+  it('can create and open a Remote Edit report from the crash fallback', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const user = userEvent.setup()
-    const onCreateSelfHealReport = vi.fn().mockResolvedValue('report-123456')
-    const onOpenSelfHealReport = vi.fn()
+    const onCreateRemoteEditReport = vi.fn().mockResolvedValue('report-123456')
+    const onOpenRemoteEditReport = vi.fn()
 
     render(
       <ErrorBoundary
         onReportBug={vi.fn()}
-        onCreateSelfHealReport={onCreateSelfHealReport}
-        onOpenSelfHealReport={onOpenSelfHealReport}
+        onCreateRemoteEditReport={onCreateRemoteEditReport}
+        onOpenRemoteEditReport={onOpenRemoteEditReport}
       >
         <Boom />
       </ErrorBoundary>,
     )
 
     expect(screen.getByText('Something went wrong')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /create self-heal report/i }))
+    await user.click(screen.getByRole('button', { name: /create remote-edit report/i }))
 
-    expect(onCreateSelfHealReport).toHaveBeenCalledWith(expect.objectContaining({
+    expect(onCreateRemoteEditReport).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Rendered fewer hooks than expected',
     }))
 
-    await user.click(await screen.findByRole('button', { name: /open self-heal/i }))
-    expect(onOpenSelfHealReport).toHaveBeenCalledWith('report-123456')
+    await user.click(await screen.findByRole('button', { name: /open remote-edit/i }))
+    expect(onOpenRemoteEditReport).toHaveBeenCalledWith('report-123456')
   })
 })
