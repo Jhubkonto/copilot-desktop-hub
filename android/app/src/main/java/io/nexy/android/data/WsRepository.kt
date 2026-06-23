@@ -103,6 +103,10 @@ object WsRepository : WsClient {
     private val _errorReports = MutableStateFlow<List<ErrorReport>>(emptyList())
     val errorReports: StateFlow<List<ErrorReport>> = _errorReports
 
+    data class DebugLogEntry(val tag: String, val message: String, val ts: Long)
+    private val _debugLog = MutableStateFlow<List<DebugLogEntry>>(emptyList())
+    val debugLog: StateFlow<List<DebugLogEntry>> = _debugLog
+
     private val _providers = MutableStateFlow<List<ProviderInfo>>(emptyList())
     val providers: StateFlow<List<ProviderInfo>> = _providers
 
@@ -668,8 +672,20 @@ object WsRepository : WsClient {
 
     fun sendLog(tag: String, message: String) {
         android.util.Log.d("NexyDebug[$tag]", message)
-        send("android:log", mapOf("tag" to tag, "message" to message, "ts" to System.currentTimeMillis()))
+        val entry = DebugLogEntry(tag = tag, message = message, ts = System.currentTimeMillis())
+        val current = _debugLog.value
+        _debugLog.value = if (current.size >= 500) current.drop(1) + entry else current + entry
+        send("android:log", mapOf("tag" to tag, "message" to message, "ts" to entry.ts))
     }
+
+    fun appendDebugLog(tag: String, message: String) {
+        android.util.Log.d("NexyDebug[$tag]", message)
+        val entry = DebugLogEntry(tag = tag, message = message, ts = System.currentTimeMillis())
+        val current = _debugLog.value
+        _debugLog.value = if (current.size >= 500) current.drop(1) + entry else current + entry
+    }
+
+    fun clearDebugLog() { _debugLog.value = emptyList() }
 
     fun renameConversation(id: String, title: String) { send("conversation:rename", mapOf("id" to id, "title" to title)) }
     fun deleteConversation(id: String) { send("conversation:delete", mapOf("id" to id)) }

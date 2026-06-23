@@ -210,6 +210,13 @@ fun parseWsEvent(
                 WsEvent.ModelList(list, source)
             }
 
+            "android:log" -> {
+                val tag = data?.optString("tag") ?: "Desktop"
+                val message = data?.optString("message") ?: ""
+                WsRepository.appendDebugLog(tag, message)
+                return
+            }
+
             "android:update-manifest" -> {
                 val manifest = data?.let {
                     AndroidUpdateManifest(
