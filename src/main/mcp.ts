@@ -7,6 +7,7 @@ import { safeHandle } from './safe-handle'
 import { requestApproval } from './tools'
 import { DESKTOP_NAVIGATOR_ID, DESKTOP_NAVIGATOR_TOOLS, createDesktopNavigatorHandler } from './desktop-navigator-mcp'
 import { startDesktopNavigatorBridge, getDesktopNavigatorCliConfig } from './desktop-navigator-bridge'
+import { debugLog } from './debug-mode'
 
 interface McpServerConfig {
   id: string
@@ -108,8 +109,10 @@ function scheduleReconnect(id: string): void {
     const config = configs.find((c) => c.id === id)
     if (!config || !config.enabled) return
 
+    debugLog('mcp', `auto-reconnect: attempting ${config.name} (${config.id})`)
     await connectServer(config).catch((err) => {
-      console.error(`MCP auto-reconnect failed for ${config.name}:`, err)
+      debugLog('mcp', `auto-reconnect failed for ${config.name}: ${err instanceof Error ? err.message : String(err)}`)
+      console.error(`[mcp] auto-reconnect failed for ${config.name}:`, err)
       scheduleReconnect(id)
     })
   }, RECONNECT_DELAY_MS)
@@ -152,6 +155,7 @@ async function connectServer(config: McpServerConfig): Promise<void> {
 
   servers.set(config.id, instance)
 
+  debugLog('mcp', `connecting: ${config.name} (${config.id}) cmd="${config.command}"`)
   try {
     await client.connect(transport)
     instance.status = 'connected'
@@ -159,6 +163,7 @@ async function connectServer(config: McpServerConfig): Promise<void> {
     transport.onclose = () => {
       const inst = servers.get(config.id)
       if (inst && inst.status === 'connected') {
+        debugLog('mcp', `transport closed unexpectedly: ${config.name} — scheduling reconnect`)
         inst.status = 'disconnected'
         servers.delete(config.id)
         scheduleReconnect(config.id)
@@ -176,19 +181,24 @@ async function connectServer(config: McpServerConfig): Promise<void> {
         serverId: config.id,
         serverName: config.name
       }))
+      debugLog('mcp', `connected: ${config.name} tools=[${instance.tools.map((t) => t.name).join(', ')}]`)
     } catch {
       // Server may not support tools
       instance.tools = []
+      debugLog('mcp', `connected: ${config.name} (no tools listed)`)
     }
   } catch (error) {
     instance.status = 'error'
     instance.error = (error as Error).message
+    debugLog('mcp', `connect failed: ${config.name} — ${instance.error}`)
+    console.error(`[mcp] failed to start ${config.name}:`, error)
   }
 
   broadcastServerStatus(config.id)
 }
 
 export async function disconnectServer(id: string): Promise<void> {
+  debugLog('mcp', `disconnecting: ${id}`)
   intentionallyDisconnected.add(id)
 
   const existing = reconnectTimers.get(id)
@@ -233,7 +243,8 @@ export async function ensureMcpServersReady(serverIds: string[]): Promise<void> 
     const config = configs.find((c) => c.id === serverId)
     if (!config || !config.enabled) continue
     await connectServer(config).catch((err) => {
-      console.error(`Failed to prepare MCP server ${config.name}:`, err)
+      debugLog('mcp', `ensureReady failed for ${config.name}: ${err instanceof Error ? err.message : String(err)}`)
+      console.error(`[mcp] failed to prepare ${config.name}:`, err)
     })
   }
 }
@@ -331,6 +342,7 @@ export async function callMcpTool(
     if (!approved) return { success: false, error: 'Tool execution denied by user' }
   }
 
+  debugLog('mcp', `tool-call: server=${serverId} tool=${toolName} approval=${approval} bypass=${String(bypassApproval)}`)
   try {
     if (instance.inProcessHandler) {
       return await instance.inProcessHandler(toolName, args)
@@ -377,7 +389,8 @@ export async function initMcpServers(): Promise<void> {
   for (const config of configs) {
     if (config.enabled) {
       await connectServer(config).catch((err) => {
-        console.error(`Failed to start MCP server ${config.name}:`, err)
+        debugLog('mcp', `init failed for ${config.name}: ${err instanceof Error ? err.message : String(err)}`)
+        console.error(`[mcp] failed to start ${config.name}:`, err)
       })
     }
   }
@@ -392,7 +405,8 @@ export async function shutdownMcpServers(): Promise<void> {
   const ids = [...servers.keys()]
   for (const id of ids) {
     await disconnectServer(id).catch((err) => {
-      console.error(`Failed to disconnect MCP server ${id}:`, err)
+      debugLog('mcp', `shutdown disconnect failed for ${id}: ${err instanceof Error ? err.message : String(err)}`)
+      console.error(`[mcp] failed to disconnect ${id}:`, err)
     })
   }
 }
@@ -415,7 +429,8 @@ export function initDesktopNavigatorMcp(win: BrowserWindow): void {
   // Start the HTTP bridge so CLI adapters (claude, codex) can also reach Desktop
   // Navigator tools via the stdio bridge worker script.
   startDesktopNavigatorBridge(handler).catch((err) => {
-    console.error('[Desktop Navigator] Failed to start CLI bridge:', err)
+    debugLog('mcp', `Desktop Navigator CLI bridge failed to start: ${err instanceof Error ? err.message : String(err)}`)
+    console.error('[mcp] Desktop Navigator CLI bridge failed to start:', err)
   })
 }
 

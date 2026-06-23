@@ -10,6 +10,7 @@ import { getRelevantWikiEntries, formatWikiSection } from './wiki-context'
 import { insertWikiEntry } from './wiki-handlers'
 import { requestApproval } from './tools'
 import type { ToolDefinition } from './provider-types'
+import { debugLog } from './debug-mode'
 
 export type InlineHandler = (
   args: Record<string, unknown>
@@ -295,7 +296,7 @@ export async function buildChatContext(
 
     if (projCfg.rootDirectory && existsSync(projCfg.rootDirectory)) {
       injectedRootDirectory = projCfg.rootDirectory
-      console.log('[chat] Injecting directory listing for:', projCfg.rootDirectory)
+      debugLog('chat', `context-builder: injecting directory listing for ${projCfg.rootDirectory}`)
       const cached = dirListingCache.get(convProjectId)
       let structureBlock: string
       if (cached && cached.rootDirectory === projCfg.rootDirectory) {
@@ -316,9 +317,9 @@ export async function buildChatContext(
       }
       augmentedContent = `${structureBlock}\n\n${augmentedContent}`
     } else if (projCfg.rootDirectory) {
-      console.log('[chat] rootDirectory set but path not found on disk:', JSON.stringify(projCfg.rootDirectory))
+      debugLog('chat', `context-builder: rootDirectory set but path not found on disk: ${JSON.stringify(projCfg.rootDirectory)}`)
     } else {
-      console.log('[chat] No rootDirectory configured for project:', convProjectId)
+      debugLog('chat', `context-builder: no rootDirectory configured for project ${convProjectId}`)
     }
 
     const inScopeRules = projCfg.inScope ?? []

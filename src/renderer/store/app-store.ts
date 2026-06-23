@@ -137,6 +137,14 @@ export const useAppStore = create<AppState>()(
               s.debugLogging = val === 'true'
             })
           })
+          .catch(() => {}),
+        window.api
+          .getSetting('android_debug_log')
+          .then((val) => {
+            set((s) => {
+              s.androidDebugLog = val === 'true'
+            })
+          })
           .catch(() => {})
       ])
     }

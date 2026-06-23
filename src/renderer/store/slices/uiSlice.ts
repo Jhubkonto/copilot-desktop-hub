@@ -33,12 +33,16 @@ export interface UiSlice {
   toolApprovalRequests: ToolApprovalRequest[]
   unreadConversationIds: string[]
   generatingConversationIds: string[]
+  generatingStartTimes: Record<string, number>
+  pendingConversationIds: string[]
   catalogModels: CatalogModel[]
   availableModelGroups: AvailableModelGroup[]
   globalDefaultModel: string
   debugLogging: boolean
+  androidDebugLog: boolean
   setTheme: (theme: Theme) => void
   setDebugLogging: (enabled: boolean) => void
+  setAndroidDebugLog: (enabled: boolean) => void
   toggleTheme: () => void
   toggleSidebar: () => void
   toggleAgentPanel: () => void
@@ -76,6 +80,8 @@ export interface UiSlice {
   markConversationRead: (id: string) => void
   markConversationGenerating: (id: string) => void
   markConversationDoneGenerating: (id: string) => void
+  markConversationPending: (id: string) => void
+  clearConversationPending: (id: string) => void
 }
 
 export const createUiSlice: StateCreator<
@@ -104,10 +110,13 @@ export const createUiSlice: StateCreator<
   toolApprovalRequests: [],
   unreadConversationIds: [],
   generatingConversationIds: [],
+  generatingStartTimes: {},
+  pendingConversationIds: [],
   catalogModels: [],
   availableModelGroups: [],
   globalDefaultModel: 'default',
   debugLogging: false,
+  androidDebugLog: false,
 
   setTheme: (theme) => {
     set((s) => {
@@ -122,6 +131,13 @@ export const createUiSlice: StateCreator<
     })
     void window.api.setSetting('debug_logging', String(enabled)).catch(() => {})
     void window.api.setDebugEnabled(enabled).catch(() => {})
+  },
+
+  setAndroidDebugLog: (enabled) => {
+    set((s) => {
+      s.androidDebugLog = enabled
+    })
+    void window.api.setSetting('android_debug_log', String(enabled)).catch(() => {})
   },
 
   toggleTheme: () => {
@@ -324,6 +340,7 @@ export const createUiSlice: StateCreator<
     set((s) => {
       if (!s.generatingConversationIds.includes(id)) {
         s.generatingConversationIds.push(id)
+        s.generatingStartTimes[id] = Date.now()
       }
     })
   },
@@ -331,6 +348,21 @@ export const createUiSlice: StateCreator<
   markConversationDoneGenerating: (id) => {
     set((s) => {
       s.generatingConversationIds = s.generatingConversationIds.filter((cid) => cid !== id)
+      delete s.generatingStartTimes[id]
+    })
+  },
+
+  markConversationPending: (id) => {
+    set((s) => {
+      if (!s.pendingConversationIds.includes(id)) {
+        s.pendingConversationIds.push(id)
+      }
+    })
+  },
+
+  clearConversationPending: (id) => {
+    set((s) => {
+      s.pendingConversationIds = s.pendingConversationIds.filter((cid) => cid !== id)
     })
   },
 })

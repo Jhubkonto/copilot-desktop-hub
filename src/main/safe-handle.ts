@@ -1,5 +1,6 @@
 import { ipcMain } from 'electron'
 import type { IpcChannels } from '../shared/types'
+import { debugLog } from './debug-mode'
 
 /**
  * Validates that an IPC invocation originates from a trusted frame.
@@ -24,13 +25,16 @@ export function validateSender(event: Electron.IpcMainInvokeEvent): boolean {
 export function safeHandle(channel: IpcChannels, handler: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => any): void {
   ipcMain.handle(channel, async (event, ...args) => {
     if (!validateSender(event)) {
-      console.warn(`IPC rejected [${channel}]: unauthorized sender`)
+      debugLog('ipc', `rejected [${channel}]: unauthorized sender`)
+      console.warn(`[ipc] rejected [${channel}]: unauthorized sender`)
       return { error: 'Unauthorized sender' }
     }
     try {
       return await handler(event, ...args)
     } catch (err) {
-      console.error(`IPC error [${channel}]:`, err)
+      const msg = err instanceof Error ? err.message : String(err)
+      debugLog('ipc', `error [${channel}]: ${msg}`)
+      console.error(`[ipc] error [${channel}]:`, err)
       return { error: err instanceof Error ? err.message : 'Unknown error' }
     }
   })

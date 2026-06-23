@@ -236,6 +236,18 @@ const api = {
     typedOn('chat:activity', handler)
     return () => typedOff('chat:activity', handler)
   },
+  onActivityGlobal: (callback: (data: { conversationId: string; state: string; label: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { conversationId: string; state: string; label: string }) =>
+      callback(data)
+    typedOn('chat:activity-global', handler)
+    return () => typedOff('chat:activity-global', handler)
+  },
+  onAndroidLog: (callback: (data: { tag: string; message: string; ts: number }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { tag: string; message: string; ts: number }) =>
+      callback(data)
+    typedOn('android:log', handler)
+    return () => typedOff('android:log', handler)
+  },
   onStreamModel: (callback: (model: string) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, model: string) => callback(model)
     typedOn('chat:stream-model', handler)

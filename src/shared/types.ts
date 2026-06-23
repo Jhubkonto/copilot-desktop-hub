@@ -1382,6 +1382,8 @@ export type IpcReturnMap = {
   'chat:team-activity': void
   'chat:team-step-stream': void
   'chat:activity': void
+  'chat:activity-global': void
+  'android:log': void
   'chat:stream-model': void
   'chat:thinking-delta': void
   'chat:thinking-end': void
@@ -1728,6 +1730,8 @@ export type IpcChannels =
   | 'chat:team-activity'
   | 'chat:team-step-stream'
   | 'chat:activity'
+  | 'chat:activity-global'
+  | 'android:log'
   | 'chat:stream-model'
   | 'chat:thinking-delta'
   | 'chat:thinking-end'

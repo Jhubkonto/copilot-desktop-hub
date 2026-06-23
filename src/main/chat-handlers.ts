@@ -17,6 +17,7 @@ import { ensureMcpServersReady, getAvailableMcpTools, getMcpServerConfigsForCli,
 import { requestApproval } from './tools'
 import { getAdapter } from './cli-adapters/registry'
 import { broadcastToMobile } from './ws-server'
+import { sendChatCompleteNotification } from './fcm-sender'
 import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
 import { getCliModels } from './cli-detection'
@@ -26,6 +27,7 @@ import { getAgentConfig } from './agents'
 import { buildChatContext, buildStoredAttachments } from './chat-context-builder'
 import { dispatchToProvider } from './chat-provider-dispatch'
 import type { MobileChatActivity } from './chat-context-builder'
+import { debugLog } from './debug-mode'
 
 export { clearDirListingCache } from './chat-context-builder'
 
@@ -87,20 +89,22 @@ async function getClaudeCliAllowedBuiltInTools(
 
   for (const tool of CLAUDE_CLI_BUILT_IN_TOOLS) {
     const policy = tools[tool.key]
-    if (policy?.enabled !== true) continue
-    const approval = policy.approval === 'disabled' ? 'always-ask' : policy.approval
-
-    let approved = approval === 'auto'
-    if (!approved) {
-      sendActivity({ state: 'approval', label: `Waiting for ${tool.label} approval`, toolName: tool.label })
-      approved = await requestApproval(
-        window.webContents,
-        tool.approvalTool,
-        {},
-        tool.description,
-        { noRemember: true },
-      )
+    // Explicitly disabled → skip entirely, no prompt
+    if (policy?.enabled === false) continue
+    // Enabled: true + auto → allow immediately without prompting
+    if (policy?.enabled === true && policy.approval === 'auto') {
+      allowedTools.push(...tool.claudeTools)
+      continue
     }
+    // All other cases (enabled: true + always-ask, or not configured at all) → prompt
+    sendActivity({ state: 'approval', label: `Waiting for ${tool.label} approval`, toolName: tool.label })
+    const approved = await requestApproval(
+      window.webContents,
+      tool.approvalTool,
+      {},
+      tool.description,
+      { noRemember: true },
+    )
     if (approved) allowedTools.push(...tool.claudeTools)
   }
 
@@ -117,6 +121,9 @@ export async function dispatchChatSend(
 
   const sendActivity = (activity: MobileChatActivity) => {
     broadcastToMobile({ event: 'chat:activity', data: { conversationId, ...activity } })
+    if (!window.webContents.isDestroyed()) {
+      window.webContents.send('chat:activity-global', { conversationId, ...activity })
+    }
   }
   const sendChunk = (chunk: string) => {
     if (!window.webContents.isDestroyed()) window.webContents.send('chat:stream-response', chunk)
@@ -126,6 +133,9 @@ export async function dispatchChatSend(
     if (!window.webContents.isDestroyed()) window.webContents.send('chat:stream-response', null)
     broadcastToMobile({ event: 'chat:stream-end', data: { conversationId } })
     sendActivity({ state: 'complete', label: 'Complete' })
+    const db = getDatabase()
+    const convTitle = (db.prepare('SELECT title FROM conversations WHERE id = ?').get(conversationId) as { title: string } | undefined)?.title ?? 'Chat'
+    void sendChatCompleteNotification(db, { conversationId, title: convTitle })
   }
 
   const attachments = options?.attachments
@@ -138,6 +148,7 @@ export async function dispatchChatSend(
   const contextSnapshot = options?.contextSnapshot ?? null
   const toolPolicy = options?.toolPolicy ?? null
 
+  debugLog('chat', `dispatch: conv=${conversationId} agent=${agentId ?? 'none'} regenerate=${regenerate} cliBackend=${cliBackend ?? 'none'} model=${options?.model ?? 'default'} content="${content.slice(0, 60)}${content.length > 60 ? '…' : ''}"`)
   sendActivity({ state: 'thinking', label: 'Preparing context' })
 
   if (!regenerate) {
@@ -212,6 +223,7 @@ export async function dispatchChatSend(
           ? defaultModel
           : DEFAULT_PROVIDER_MODEL
   const { provider: providerName, model: providerModel } = getProviderForAgent(selectedModel)
+  debugLog('chat', `model resolved: selectedModel=${selectedModel} provider=${providerName} providerModel=${providerModel} agent=${effectiveAgentId ?? 'none'}`)
   const modelIdentityInstruction =
     `Runtime model for this conversation: ${selectedModel}. ` +
     'If the user asks which model or language model is running this chat, answer with this exact value.'
@@ -266,6 +278,7 @@ export async function dispatchChatSend(
       const primaryRow = agentRows.find((r) => r.is_primary === 1)
 
       if (primaryRow && agentRows.length >= 2) {
+        debugLog('chat', `orchestration: project=${orchProjId} leader=${primaryRow.agent_id} teamSize=${agentRows.length} maxDepth=${typeof projConfig.maxDelegationDepth === 'number' ? projConfig.maxDelegationDepth : 5}`)
         const teamAgents: OrchestratorAgent[] = agentRows.map((r) => {
           const cfg = (() => {
             try {
@@ -388,6 +401,7 @@ export async function dispatchChatSend(
     }
   }
   const effectiveBackend = agentBackend ?? fallbackCliBackend
+  debugLog('chat', `routing: authMode=${retrieveAuthMode()} byokKey=${byokKeyForModel ? 'yes' : 'no'} agentBackend=${agentBackend ?? 'none'} fallbackCli=${fallbackCliBackend ?? 'none'} effectiveBackend=${effectiveBackend ?? 'byok'}`)
 
   if (effectiveBackend) {
     const adapter = getAdapter(effectiveBackend)
@@ -587,6 +601,7 @@ export async function dispatchChatSend(
           ? await getClaudeCliAllowedBuiltInTools(window, agentCfg2, sendActivity)
           : []
         const cliAllowedTools = [...cliAllowedBuiltInTools, ...(cliAllowedMcpTools ?? [])]
+        debugLog('chat', `cli-adapter: starting ${effectiveBackend} model=${cliModelForRequest || 'default'} mcpServers=${cliMcpServersFiltered?.length ?? 0} builtInTools=${cliAllowedBuiltInTools.length} mcpTools=${cliAllowedMcpTools?.length ?? 0}`)
 
         const cliAbortController = new AbortController()
         activeCliAbortControllers.set(conversationId, cliAbortController)
@@ -607,6 +622,7 @@ export async function dispatchChatSend(
           (event) => {
             if (window.webContents.isDestroyed()) return
             if (event.type === 'tool_start') {
+              debugLog('chat', `cli-tool-start: id=${event.id} name=${event.name}`)
               pendingTools.set(event.id, { name: event.name, input: event.input, startTime: Date.now() })
               window.webContents.send('chat:cli-tool-start', { id: event.id, name: event.name, input: event.input })
               sendActivity({
@@ -616,10 +632,22 @@ export async function dispatchChatSend(
                 serverName: effectiveBackend,
               })
             } else if (event.type === 'tool_end') {
+              debugLog('chat', `cli-tool-end: id=${event.id} isError=${event.isError} resultLen=${event.content.length}`)
               const pending = pendingTools.get(event.id)
               if (pending) {
                 completedToolCalls.push({ id: event.id, ...pending, content: event.content, isError: event.isError })
                 pendingTools.delete(event.id)
+                broadcastToMobile({
+                  event: 'chat:tool-call-event',
+                  data: {
+                    conversationId,
+                    toolName: pending.name,
+                    serverName: effectiveBackend,
+                    args: pending.input,
+                    result: event.content,
+                    success: !event.isError,
+                  },
+                })
               }
               window.webContents.send('chat:cli-tool-end', { id: event.id, content: event.content, isError: event.isError })
               sendActivity({ state: 'thinking', label: 'Processing tool result' })
@@ -646,6 +674,7 @@ export async function dispatchChatSend(
         )
         activeCliAbortControllers.delete(conversationId)
 
+        debugLog('chat', `cli-adapter: stream done toolCallsPersisted=${completedToolCalls.length} thinkingBlocks=${cliThinkingBuffer.size}`)
         persistCompletedCliToolCalls()
 
         const cliThinkingJson = cliThinkingBuffer.size > 0
@@ -669,7 +698,8 @@ export async function dispatchChatSend(
         sendStreamEnd()
         return { assistantMsgId }
       } catch (err) {
-        console.error(`[cli-adapter] ${effectiveBackend} failed:`, err)
+        debugLog('chat', `cli-adapter error: ${effectiveBackend} failed — ${err instanceof Error ? err.message : String(err)}`)
+        console.error(`[chat] cli-adapter ${effectiveBackend} failed:`, err)
         persistCompletedCliToolCalls()
         const message = err instanceof Error ? err.message : 'CLI backend failed'
         for (const [blockId, block] of cliThinkingBuffer) {
@@ -818,6 +848,7 @@ export async function dispatchChatSend(
   let responseContent: string
 
   try {
+    debugLog('chat', `byok: dispatching to ${providerName}/${providerModel} mcpTools=${mcpTools.length} wikiTools=${wikiToolDefs.length} contextMsgs=${effectiveContextMessages.length}`)
     sendActivity({ state: 'thinking', label: 'Contacting model' })
 
     if (!byokKey) {
@@ -855,9 +886,11 @@ export async function dispatchChatSend(
       },
     })
 
+    debugLog('chat', `byok: stream complete provider=${providerName} responseLen=${responseContent.length}`)
     sendStreamEnd()
   } catch (error) {
-    console.error(`${providerName} error:`, error)
+    debugLog('chat', `byok error: ${providerName} — ${error instanceof Error ? error.message : String(error)}`)
+    console.error(`[chat] ${providerName} error:`, error)
     const message = error instanceof Error ? error.message : 'Unexpected provider error'
     window.webContents.send('chat:stream-error', {
       type: 'api',

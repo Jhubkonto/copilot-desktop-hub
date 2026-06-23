@@ -4,6 +4,7 @@ import { safeHandle } from './safe-handle'
 import { getDatabase } from './database'
 import { abortActiveStream, PROVIDERS, getOpenRouterModels, isProviderConfigured } from './providers'
 import { dispatchChatSend } from './chat-handlers'
+import { debugLog } from './debug-mode'
 import { getCliModels } from './cli-detection'
 import { getCachedCatalog } from './model-catalog'
 import { retrieveAuthMode } from './auth'
@@ -117,9 +118,27 @@ function mobilePromptVersion(version: PromptLibraryVersion): Record<string, unkn
   }
 }
 
+// Tracks conversationIds currently being dispatched from Android to prevent
+// duplicate streams when the Android client reconnects mid-send (race-connect).
+const activeAndroidDispatches = new Set<string>()
+
 export function registerWsHandlers(): void {
   setWsCommandHandler((command, data, reply) => {
     if (command === 'ping') return
+
+    debugLog('ws', `command: ${command}`)
+
+    if (command === 'android:log') {
+      const tag = typeof data.tag === 'string' ? data.tag : 'Android'
+      const message = typeof data.message === 'string' ? data.message : ''
+      const ts = typeof data.ts === 'number' ? data.ts : Date.now()
+      debugLog('android', `[${tag}] ${message}`)
+      console.log(`[android][${tag}] ${message}`)
+      BrowserWindow.getAllWindows().forEach((w) => {
+        if (!w.isDestroyed()) w.webContents.send('android:log', { tag, message, ts })
+      })
+      return
+    }
 
     if (command === 'mobile:fcm-token') {
       const deviceId = typeof data.deviceId === 'string' ? data.deviceId : null
@@ -451,6 +470,13 @@ export function registerWsHandlers(): void {
           typeof (img as Record<string, unknown>).dataUrl === 'string'
       )
       if (!conversationId || (!content && images.length === 0)) return
+      // Deduplicate: Android race-connect can open multiple sockets simultaneously,
+      // causing the same chat:send-message to arrive multiple times. Skip if we're
+      // already dispatching this conversation.
+      if (activeAndroidDispatches.has(conversationId)) {
+        debugLog('ws', `chat:send-message duplicate ignored for conv=${conversationId}`)
+        return
+      }
       const wins = BrowserWindow.getAllWindows()
       if (wins.length === 0) return
       wins[0].webContents.send('chat:remote-message', {
@@ -468,7 +494,17 @@ export function registerWsHandlers(): void {
           inferredCliBackend = 'claude-cli'
         }
       }
+      activeAndroidDispatches.add(conversationId)
       void dispatchChatSend(wins[0], conversationId, content, { model, agentId, projectId, images: images.length > 0 ? images : undefined, cliBackend: inferredCliBackend })
+        ?.then(() => { activeAndroidDispatches.delete(conversationId) })
+        ?.catch((err: unknown) => {
+          activeAndroidDispatches.delete(conversationId)
+          const message = err instanceof Error ? err.message : 'Unexpected error'
+          broadcastToMobile({ event: 'chat:activity', data: { conversationId, state: 'error', label: message } })
+          broadcastToMobile({ event: 'chat:stream-end', data: { conversationId } })
+          // Notify the renderer so it clears the generating spinner for this conversation
+          if (!wins[0].isDestroyed()) wins[0].webContents.send('chat:activity-global', { conversationId, state: 'error', label: message })
+        })
       return
     }
 

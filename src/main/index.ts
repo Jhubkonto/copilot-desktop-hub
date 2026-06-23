@@ -8,7 +8,7 @@ import { initAutoUpdater, registerUpdaterHandlers, checkForUpdatesOnStartup } fr
 import { loadModelCatalog } from './model-catalog'
 import { initLogger } from './logger'
 import { validateSender } from './safe-handle'
-import { initDebugMode } from './debug-mode'
+import { initDebugMode, debugLog } from './debug-mode'
 import { initErrorLogCapture } from './error-log-handlers'
 import { confirmStartupAfterRelaunch, rollbackHeal } from './self-heal/recovery'
 import { broadcastToMobile, autoStartWsServerIfEnabled, startWsServerIfNeeded, getCurrentPairingUrl, setIpChangeCallback, setClientCountChangeCallback } from './ws-server'
@@ -170,7 +170,8 @@ function handleDeepLink(url: string): void {
     mainWindow?.show()
     mainWindow?.focus()
   } catch {
-    console.warn('Invalid deep link URL:', url)
+    debugLog('app', `invalid deep link URL: ${url}`)
+    console.warn('[app] invalid deep link URL:', url)
   }
 }
 
@@ -347,9 +348,10 @@ app.whenReady().then(() => {
   }
 
   // Initialize MCP servers
-  initMcpServers().catch((err) =>
-    console.error('Failed to init MCP servers:', err)
-  )
+  initMcpServers().catch((err) => {
+    debugLog('mcp', `init failed at startup: ${err instanceof Error ? err.message : String(err)}`)
+    console.error('[mcp] failed to init servers at startup:', err)
+  })
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

@@ -1,4 +1,5 @@
 import { callMcpTool, servers } from './mcp'
+import { broadcastToMobile } from './ws-server'
 import type { ProviderNonStreamResult, ToolChoice, ToolDefinition } from './provider-types'
 import type { ProviderMessage } from './providers'
 
@@ -154,32 +155,32 @@ export async function runProviderMcpToolLoop(
         )
         if (isNeverAllow) {
           toolResultContent = `Error: Tool "${toolShortName}" is not permitted by the task's tool policy (neverAllow).`
-          if (!webContents.isDestroyed()) {
-            webContents.send('chat:tool-call-event', {
-              toolName: toolShortName,
-              serverName: call.name.split('__')[0] ?? '',
-              args: call.arguments as Record<string, unknown>,
-              result: toolResultContent,
-              success: false,
-              conversationId,
-            })
+          const neverAllowPayload = {
+            toolName: toolShortName,
+            serverName: call.name.split('__')[0] ?? '',
+            args: call.arguments as Record<string, unknown>,
+            result: toolResultContent,
+            success: false,
+            conversationId,
           }
+          if (!webContents.isDestroyed()) webContents.send('chat:tool-call-event', neverAllowPayload)
+          broadcastToMobile({ event: 'chat:tool-call-event', data: neverAllowPayload })
           loopMessages.push({ role: 'tool' as const, tool_call_id: call.id, content: toolResultContent })
           continue
         }
         if (!isPreApproved && !inlineHandler) {
           // Tool is not pre-approved and not an inline handler — block it
           toolResultContent = `Error: Tool "${toolShortName}" is not in the pre-approved list for this scheduled task. Add it to the task's tool policy to allow it.`
-          if (!webContents.isDestroyed()) {
-            webContents.send('chat:tool-call-event', {
-              toolName: toolShortName,
-              serverName: call.name.split('__')[0] ?? '',
-              args: call.arguments as Record<string, unknown>,
-              result: toolResultContent,
-              success: false,
-              conversationId,
-            })
+          const notApprovedPayload = {
+            toolName: toolShortName,
+            serverName: call.name.split('__')[0] ?? '',
+            args: call.arguments as Record<string, unknown>,
+            result: toolResultContent,
+            success: false,
+            conversationId,
           }
+          if (!webContents.isDestroyed()) webContents.send('chat:tool-call-event', notApprovedPayload)
+          broadcastToMobile({ event: 'chat:tool-call-event', data: notApprovedPayload })
           loopMessages.push({ role: 'tool' as const, tool_call_id: call.id, content: toolResultContent })
           continue
         }
@@ -188,32 +189,32 @@ export async function runProviderMcpToolLoop(
       if (!resolved && !inlineHandler) {
         toolResultContent = `Error: Unknown tool "${call.name}"`
         sendActivity({ type: 'tool', name: toolShortName, server: call.name.split('__')[0] ?? '' })
-        if (!webContents.isDestroyed()) {
-          webContents.send('chat:tool-call-event', {
-            toolName: toolShortName,
-            serverName: call.name.split('__')[0] ?? '',
-            args: call.arguments as Record<string, unknown>,
-            result: toolResultContent,
-            success: false,
-            conversationId
-          })
+        const unknownPayload = {
+          toolName: toolShortName,
+          serverName: call.name.split('__')[0] ?? '',
+          args: call.arguments as Record<string, unknown>,
+          result: toolResultContent,
+          success: false,
+          conversationId,
         }
+        if (!webContents.isDestroyed()) webContents.send('chat:tool-call-event', unknownPayload)
+        broadcastToMobile({ event: 'chat:tool-call-event', data: unknownPayload })
       } else if (inlineHandler) {
         sendActivity({ type: 'tool', name: call.name, server: 'Project Wiki' })
         const toolResult = await inlineHandler(call.arguments as Record<string, unknown>)
         toolResultContent = toolResult.success
           ? (toolResult.result ?? '(no output)')
           : `Error: ${toolResult.error ?? 'Tool execution failed'}`
-        if (!webContents.isDestroyed()) {
-          webContents.send('chat:tool-call-event', {
-            toolName: call.name,
-            serverName: 'Project Wiki',
-            args: call.arguments as Record<string, unknown>,
-            result: toolResultContent,
-            success: toolResult.success,
-            conversationId
-          })
+        const inlinePayload = {
+          toolName: call.name,
+          serverName: 'Project Wiki',
+          args: call.arguments as Record<string, unknown>,
+          result: toolResultContent,
+          success: toolResult.success,
+          conversationId,
         }
+        if (!webContents.isDestroyed()) webContents.send('chat:tool-call-event', inlinePayload)
+        broadcastToMobile({ event: 'chat:tool-call-event', data: inlinePayload })
       } else {
         // resolved is guaranteed non-null: the first branch handles !resolved && !inlineHandler
         const mcpResolved = resolved!
@@ -236,17 +237,17 @@ export async function runProviderMcpToolLoop(
         if (toolResult.images?.length) {
           toolImages = toolResult.images.map(img => ({ dataUrl: img.dataUrl }))
         }
-        if (!webContents.isDestroyed()) {
-          webContents.send('chat:tool-call-event', {
-            toolName: toolShortName,
-            serverName,
-            args: call.arguments as Record<string, unknown>,
-            result: toolResultContent,
-            success: toolResult.success,
-            conversationId,
-            ...(toolImages?.length && { resultImages: toolImages })
-          })
+        const mcpPayload = {
+          toolName: toolShortName,
+          serverName,
+          args: call.arguments as Record<string, unknown>,
+          result: toolResultContent,
+          success: toolResult.success,
+          conversationId,
+          ...(toolImages?.length && { resultImages: toolImages }),
         }
+        if (!webContents.isDestroyed()) webContents.send('chat:tool-call-event', mcpPayload)
+        broadcastToMobile({ event: 'chat:tool-call-event', data: mcpPayload })
       }
 
       // Truncate large results for the model context to prevent inspection tools

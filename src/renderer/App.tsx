@@ -8,6 +8,7 @@ import { ToastContainer } from './components/Toast'
 import { DeleteAgentDialog } from './components/DeleteAgentDialog'
 import { BugReportModal } from './components/BugReportModal'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { AndroidLogPanel } from './components/AndroidLogPanel'
 import { useAppStore } from './store/app-store'
 
 const AgentPanel = lazy(() =>
@@ -71,12 +72,17 @@ export default function App() {
   const addToast = useAppStore((s) => s.addToast)
   const setCatalogModels = useAppStore((s) => s.setCatalogModels)
   const bugReportDraft = useAppStore((s) => s.bugReportDraft)
+  const androidDebugLog = useAppStore((s) => s.androidDebugLog)
   const pendingErrorCount = useAppStore((s) => s.pendingErrorCount)
   const openBugReport = useAppStore((s) => s.openBugReport)
   const closeBugReport = useAppStore((s) => s.closeBugReport)
   const setShowSelfHealPanel = useAppStore((s) => s.setShowSelfHealPanel)
   const setPendingSelfHealReportId = useAppStore((s) => s.setPendingSelfHealReportId)
   const incrementPendingErrorCount = useAppStore((s) => s.incrementPendingErrorCount)
+
+  const markConversationGenerating = useAppStore((s) => s.markConversationGenerating)
+  const markConversationDoneGenerating = useAppStore((s) => s.markConversationDoneGenerating)
+  const loadConversations = useAppStore((s) => s.loadConversations)
 
   const hydrate = useAppStore((s) => s.hydrate)
 
@@ -177,6 +183,28 @@ export default function App() {
     })
     return () => { unsubscribe() }
   }, [])
+
+  // Track globally active conversations (e.g. Android-initiated chats with no open window)
+  useEffect(() => {
+    if (typeof window.api.onActivityGlobal !== 'function') return
+    // Track which conversations we've already fetched during this generation so we
+    // don't call loadConversations() on every streaming activity event.
+    const seenGenerating = new Set<string>()
+    const unsubscribe = window.api.onActivityGlobal((data) => {
+      if (data.state === 'complete' || data.state === 'error') {
+        seenGenerating.delete(data.conversationId)
+        markConversationDoneGenerating(data.conversationId)
+        void loadConversations()
+      } else {
+        markConversationGenerating(data.conversationId)
+        if (!seenGenerating.has(data.conversationId)) {
+          seenGenerating.add(data.conversationId)
+          void loadConversations()
+        }
+      }
+    })
+    return () => { unsubscribe() }
+  }, [markConversationGenerating, markConversationDoneGenerating, loadConversations])
 
   // Zoom: Ctrl+scroll and Ctrl+Plus/Minus/0
   useEffect(() => {
@@ -329,6 +357,7 @@ export default function App() {
       )}
 
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+      <AndroidLogPanel enabled={androidDebugLog} />
     </div>
     </ErrorBoundary>
   )

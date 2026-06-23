@@ -9,6 +9,7 @@ import { powerSaveBlocker } from 'electron'
 import Bonjour from 'bonjour-service'
 import { getDatabase } from './database'
 import { isFeedRunning, getFeedLanUrl } from './local-feed-server'
+import { debugLog } from './debug-mode'
 
 export interface WsPushEvent {
   event: string
@@ -301,6 +302,7 @@ export async function startWsServer(): Promise<{ port: number; token: string }> 
   wss.on('connection', (ws, req) => {
     const url = new URL(req.url ?? '/', 'http://localhost')
     if (url.searchParams.get('token') !== currentToken) {
+      debugLog('ws', `connection rejected: invalid token from ${req.socket.remoteAddress}`)
       ws.close(4001, 'Unauthorized')
       return
     }
@@ -308,6 +310,7 @@ export async function startWsServer(): Promise<{ port: number; token: string }> 
     connectedClients.add(ws)
     if (connectedClients.size === 1) acquireWakeLock()
     onClientCountChange?.(connectedClients.size)
+    debugLog('ws', `client connected: ${req.socket.remoteAddress} total=${connectedClients.size}`)
     const localIp = getLocalIp()
     const feedUrl = isFeedRunning() ? getFeedLanUrl(localIp) : null
     const { macAddress, broadcastAddress } = getMacAndBroadcast(localIp)
@@ -323,15 +326,17 @@ export async function startWsServer(): Promise<{ port: number; token: string }> 
       } catch { /* ignore malformed */ }
     })
 
-    ws.on('close', () => {
+    ws.on('close', (code, reason) => {
       connectedClients.delete(ws)
       if (connectedClients.size === 0) releaseWakeLock()
       onClientCountChange?.(connectedClients.size)
+      debugLog('ws', `client disconnected: code=${code} reason=${reason.toString() || 'none'} remaining=${connectedClients.size}`)
     })
-    ws.on('error', () => {
+    ws.on('error', (err) => {
       connectedClients.delete(ws)
       if (connectedClients.size === 0) releaseWakeLock()
       onClientCountChange?.(connectedClients.size)
+      debugLog('ws', `client error: ${err.message} remaining=${connectedClients.size}`)
     })
   })
 
@@ -341,6 +346,7 @@ export async function startWsServer(): Promise<{ port: number; token: string }> 
   return new Promise((resolve, reject) => {
     httpServer!.listen(FIXED_PORT, '0.0.0.0', () => {
       currentPort = (httpServer!.address() as AddressInfo).port
+      debugLog('ws', `server started: port=${currentPort} ip=${getLocalIp()} tailscale=${getTailscaleIp() ?? 'none'}`)
       db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ws_port', ?)").run(String(currentPort))
       db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ws_enabled', 'true')").run()
       pingInterval = setInterval(() => {
@@ -361,6 +367,7 @@ export async function startWsServer(): Promise<{ port: number; token: string }> 
           lastKnownTailscaleIp = newTsIp
           lastKnownAllIps = newAllIps
           const newUrl = getPairingUrl()
+          debugLog('ws', `IP changed: lan=${newIp} tailscale=${newTsIp ?? 'none'} newUrl=${newUrl ?? 'none'}`)
           if (newUrl) onIpChange?.(newUrl)
         }
       }, 5_000)
@@ -382,6 +389,8 @@ export async function startWsServer(): Promise<{ port: number; token: string }> 
     })
 
     httpServer!.on('error', (err) => {
+      debugLog('ws', `server start failed: ${err.message}`)
+      console.error('[ws] server start failed:', err)
       wss = null
       httpServer = null
       reject(err)
@@ -416,8 +425,11 @@ export async function startWsServerIfNeeded(): Promise<void> {
   const db = getDatabase()
   const row = db.prepare("SELECT value FROM settings WHERE key = 'ws_enabled'").get() as { value: string } | undefined
   if (row?.value === 'true') {
-    await startWsServer().catch((err) => console.warn('[ws-server] resumed from sleep, restart failed:', err))
-    console.log('[ws-server] resumed from sleep, server listening')
+    await startWsServer().catch((err) => {
+      debugLog('ws', `resume from sleep: restart failed — ${err instanceof Error ? err.message : String(err)}`)
+      console.warn('[ws] resumed from sleep, restart failed:', err)
+    })
+    debugLog('ws', 'resume from sleep: server listening')
   }
 }
 
