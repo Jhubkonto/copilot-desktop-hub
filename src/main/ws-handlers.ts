@@ -492,14 +492,32 @@ export function registerWsHandlers(): void {
       })
       // If the requested model belongs to a CLI backend, tell the dispatcher so it
       // routes through that CLI instead of falling through to a BYOK provider.
+      // When Android sends no model or "default", resolve against the desktop's
+      // default_model setting so CLI-default setups work correctly.
       let inferredCliBackend: 'codex-cli' | 'claude-cli' | undefined
-      if (model && model !== 'default') {
-        if (CodexAdapter.isAvailable() && getCliModels('codex-cli').some((m) => m.id === model)) {
+      const effectiveModel = (model && model !== 'default')
+        ? model
+        : (() => {
+            const row = getDatabase().prepare("SELECT value FROM settings WHERE key = 'default_model'").get() as { value: string } | undefined
+            return row?.value || undefined
+          })()
+      const codexModels = CodexAdapter.isAvailable() ? getCliModels('codex-cli').map((m) => m.id) : []
+      const claudeModels = ClaudeAdapter.isAvailable() ? getCliModels('claude-cli').map((m) => m.id) : []
+      const routeLog = (msg: string): void => {
+        debugLog('ws', msg)
+        broadcastToMobile({ event: 'android:log', data: { tag: 'WsRoute', message: msg, ts: Date.now() } })
+      }
+      routeLog(`chat:send model=${model ?? 'none'} effectiveModel=${effectiveModel ?? 'none'}`)
+      routeLog(`codexAvail=${CodexAdapter.isAvailable()} codexModels=[${codexModels.join(',')}]`)
+      routeLog(`claudeAvail=${ClaudeAdapter.isAvailable()} claudeModels=[${claudeModels.join(',')}]`)
+      if (effectiveModel && effectiveModel !== 'default') {
+        if (CodexAdapter.isAvailable() && codexModels.some((id) => id === effectiveModel)) {
           inferredCliBackend = 'codex-cli'
-        } else if (ClaudeAdapter.isAvailable() && getCliModels('claude-cli').some((m) => m.id === model)) {
+        } else if (ClaudeAdapter.isAvailable() && claudeModels.some((id) => id === effectiveModel)) {
           inferredCliBackend = 'claude-cli'
         }
       }
+      routeLog(`inferredCliBackend=${inferredCliBackend ?? 'none'}`)
       activeAndroidDispatches.add(conversationId)
       void dispatchChatSend(wins[0], conversationId, content, { model, agentId, projectId, images: images.length > 0 ? images : undefined, cliBackend: inferredCliBackend })
         ?.then(() => { activeAndroidDispatches.delete(conversationId) })

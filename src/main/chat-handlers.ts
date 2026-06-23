@@ -261,7 +261,7 @@ export async function dispatchChatSend(
           }
         })()
       : {}
-    const orchEnabled = projConfig.orchestrationEnabled === true
+    const orchEnabled = projConfig.orchestrationEnabled === true && !cliBackend
 
     if (orchEnabled) {
       const agentRows = db
