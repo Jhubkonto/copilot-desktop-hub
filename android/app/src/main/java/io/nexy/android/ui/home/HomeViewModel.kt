@@ -33,6 +33,11 @@ class HomeViewModel(
     val projects: StateFlow<List<Project>> = WsRepository.projects
     val profiles: StateFlow<List<PairedServerProfile>> = WsRepository.profiles
     val activeProfileId: StateFlow<String?> = WsRepository.activeProfileId
+    val activeConversationIds: StateFlow<Set<String>> = WsRepository.activeConversationIds
+    val pendingConversationIds: StateFlow<Set<String>> = WsRepository.pendingConversationIds
+    val completedWhileAwayIds: StateFlow<Set<String>> = WsRepository.completedWhileAwayIds
+
+    fun clearCompletedAway(id: String) = WsRepository.clearCompletedAway(id)
 
     private val _pendingApproval = MutableStateFlow<WsEvent.ToolApprovalRequest?>(null)
     val pendingApproval: StateFlow<WsEvent.ToolApprovalRequest?> = _pendingApproval
@@ -71,11 +76,37 @@ class HomeViewModel(
 
     init {
         viewModelScope.launch {
+            WsRepository.approvalResolvedViaNotification.collect { _ ->
+                if (_pendingApproval.value != null) {
+                    _pendingApproval.value = null
+                    approvalEffects.cancelApproval()
+                }
+            }
+        }
+        viewModelScope.launch {
             wsClient.events.collect { event ->
                 when (event) {
                     is WsEvent.ToolApprovalRequest -> {
                         _pendingApproval.value = event
                         approvalEffects.showApproval(event)
+                    }
+                    is WsEvent.ChatToolCallEvent -> {
+                        // Tool ran — means any pending approval was resolved (possibly via
+                        // notification while the app was backgrounded). Clear the dialog.
+                        val pending = _pendingApproval.value
+                        if (pending != null) {
+                            _pendingApproval.value = null
+                            approvalEffects.cancelApproval()
+                        }
+                    }
+                    is WsEvent.ChatActivity -> {
+                        // A complete/error state also means the tool approval request is stale.
+                        if (event.state == "complete" || event.state == "error") {
+                            if (_pendingApproval.value != null) {
+                                _pendingApproval.value = null
+                                approvalEffects.cancelApproval()
+                            }
+                        }
                     }
                     is WsEvent.ConversationList -> _isRefreshingConversations.value = false
                     is WsEvent.AgentList -> _isRefreshingAgents.value = false

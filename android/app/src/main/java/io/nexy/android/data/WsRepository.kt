@@ -26,6 +26,7 @@ import io.nexy.android.data.model.Project
 import io.nexy.android.data.model.ProjectSettingsConfig
 import io.nexy.android.data.model.ProviderInfo
 import io.nexy.android.data.model.SkillConfig
+import io.nexy.android.data.model.ThinkingBlock
 import io.nexy.android.data.model.WsEvent
 import io.nexy.android.notification.ApprovalNotificationManager
 import kotlinx.coroutines.CoroutineScope
@@ -112,6 +113,10 @@ object WsRepository : WsClient {
     val pendingHighlightProjectId = MutableStateFlow<String?>(null)
     val pendingHighlightAgentId = MutableStateFlow<String?>(null)
 
+    // Emits requestIds resolved via notification (approve or reject) so HomeViewModel
+    // can clear the in-app approval dialog immediately, before the tool finishes.
+    val approvalResolvedViaNotification = MutableSharedFlow<String>(extraBufferCapacity = 4)
+
     private val _skills = MutableStateFlow<List<SkillConfig>>(emptyList())
     val skills: StateFlow<List<SkillConfig>> = _skills
 
@@ -142,6 +147,41 @@ object WsRepository : WsClient {
     private val _activeProfileId = MutableStateFlow<String?>(null)
     val activeProfileId: StateFlow<String?> = _activeProfileId
 
+    private val _activeConversationIds = MutableStateFlow<Set<String>>(emptySet())
+    val activeConversationIds: StateFlow<Set<String>> = _activeConversationIds
+
+    private val _pendingConversationIds = MutableStateFlow<Set<String>>(emptySet())
+    val pendingConversationIds: StateFlow<Set<String>> = _pendingConversationIds
+
+    fun markConversationPending(id: String) {
+        _pendingConversationIds.value = _pendingConversationIds.value + id
+    }
+
+    data class LiveToolCall(
+        val toolName: String,
+        val serverName: String?,
+        val args: String?,
+        val result: String?,
+        val success: Boolean,
+    )
+
+    data class ActiveChatSnapshot(
+        val activityLabel: String = "Assistant is thinking",
+        val liveThinkingBlocks: List<ThinkingBlock> = emptyList(),
+        val completedToolCalls: List<LiveToolCall> = emptyList(),
+        val isStreaming: Boolean = false,
+        val generationStartedAt: Long = 0L,
+    )
+
+    private val _activeChatSnapshots = MutableStateFlow<Map<String, ActiveChatSnapshot>>(emptyMap())
+    val activeChatSnapshots: StateFlow<Map<String, ActiveChatSnapshot>> = _activeChatSnapshots
+
+    val activelyViewedConversationId = MutableStateFlow<String?>(null)
+
+    private val _completedWhileAwayIds = MutableStateFlow<Set<String>>(emptySet())
+    val completedWhileAwayIds: StateFlow<Set<String>> = _completedWhileAwayIds
+    fun clearCompletedAway(id: String) { _completedWhileAwayIds.value = _completedWhileAwayIds.value - id }
+
     private var ws: WebSocket? = null
     private var currentUrl: String? = null
     private var currentToken: String? = null
@@ -155,6 +195,95 @@ object WsRepository : WsClient {
     private var networkMonitor: NetworkReconnectMonitor? = null
 
     private val pendingCommands = mutableListOf<Pair<String, Map<String, Any>>>()
+
+    init {
+        scope.launch {
+            events.collect { event ->
+                when (event) {
+                    is WsEvent.ChatActivity -> {
+                        val activeStates = setOf("active", "thinking", "tool")
+                        val doneStates = setOf("complete", "error")
+                        _activeConversationIds.value = when (event.state) {
+                            in activeStates -> _activeConversationIds.value + event.conversationId
+                            in doneStates -> _activeConversationIds.value - event.conversationId
+                            else -> _activeConversationIds.value
+                        }
+                        // Remove from pending once the desktop has acknowledged the conversation
+                        if (_pendingConversationIds.value.contains(event.conversationId)) {
+                            _pendingConversationIds.value = _pendingConversationIds.value - event.conversationId
+                        }
+                        // Track conversations that completed while not being viewed
+                        if (event.state == "complete" && activelyViewedConversationId.value != event.conversationId) {
+                            _completedWhileAwayIds.value = _completedWhileAwayIds.value + event.conversationId
+                        }
+                        // Maintain in-flight snapshot for re-entry restoration
+                        if (event.state in doneStates) {
+                            _activeChatSnapshots.value = _activeChatSnapshots.value - event.conversationId
+                        } else {
+                            val existing = _activeChatSnapshots.value[event.conversationId]
+                            val startedAt = if (existing != null) existing.generationStartedAt else System.currentTimeMillis()
+                            _activeChatSnapshots.value = _activeChatSnapshots.value + (event.conversationId to
+                                (existing ?: ActiveChatSnapshot()).copy(
+                                    activityLabel = event.label.ifBlank { "Assistant is thinking" },
+                                    generationStartedAt = startedAt,
+                                ))
+                        }
+                    }
+                    is WsEvent.ChatThinkingDelta -> {
+                        val snapshots = _activeChatSnapshots.value
+                        val existing = snapshots[event.conversationId] ?: ActiveChatSnapshot()
+                        val blocks = existing.liveThinkingBlocks.toMutableList()
+                        val idx = blocks.indexOfFirst { it.blockId == event.blockId }
+                        if (idx >= 0) {
+                            blocks[idx] = blocks[idx].copy(content = blocks[idx].content + event.chunk)
+                        } else {
+                            blocks.add(ThinkingBlock(blockId = event.blockId, content = event.chunk, done = false))
+                        }
+                        _activeChatSnapshots.value = snapshots + (event.conversationId to existing.copy(liveThinkingBlocks = blocks))
+                    }
+                    is WsEvent.ChatThinkingEnd -> {
+                        val snapshots = _activeChatSnapshots.value
+                        val existing = snapshots[event.conversationId] ?: return@collect
+                        val blocks = existing.liveThinkingBlocks.map {
+                            if (it.blockId == event.blockId) it.copy(done = true) else it
+                        }
+                        _activeChatSnapshots.value = snapshots + (event.conversationId to existing.copy(liveThinkingBlocks = blocks))
+                    }
+                    is WsEvent.ChatToolCallEvent -> {
+                        val snapshots = _activeChatSnapshots.value
+                        val existing = snapshots[event.conversationId] ?: ActiveChatSnapshot()
+                        val tc = LiveToolCall(
+                            toolName = event.toolName,
+                            serverName = event.serverName,
+                            args = event.args,
+                            result = event.result,
+                            success = event.success,
+                        )
+                        _activeChatSnapshots.value = snapshots + (event.conversationId to
+                            existing.copy(completedToolCalls = existing.completedToolCalls + tc))
+                    }
+                    is WsEvent.ChatStreamChunk -> {
+                        val snapshots = _activeChatSnapshots.value
+                        val existing = snapshots[event.conversationId] ?: ActiveChatSnapshot()
+                        if (!existing.isStreaming) {
+                            _activeChatSnapshots.value = snapshots + (event.conversationId to existing.copy(isStreaming = true))
+                        }
+                    }
+                    is WsEvent.ChatStreamEnd -> {
+                        val snapshots = _activeChatSnapshots.value
+                        val existing = snapshots[event.conversationId] ?: return@collect
+                        _activeChatSnapshots.value = snapshots + (event.conversationId to existing.copy(isStreaming = false))
+                    }
+                    is WsEvent.ConversationList, is WsEvent.ConversationCreated -> {
+                        // Prune pending IDs now present in the conversation list
+                        val knownIds = _conversations.value.map { it.id }.toSet()
+                        _pendingConversationIds.value = _pendingConversationIds.value - knownIds
+                    }
+                    else -> {}
+                }
+            }
+        }
+    }
 
     fun sendOrQueue(command: String, data: Map<String, Any>) {
         if (connectionState.value == ConnectionState.CONNECTED) {
@@ -521,6 +650,11 @@ object WsRepository : WsClient {
         obj.put("command", command)
         obj.put("data", mapToJson(data))
         ws?.send(obj.toString())
+    }
+
+    fun sendLog(tag: String, message: String) {
+        android.util.Log.d("NexyDebug[$tag]", message)
+        send("android:log", mapOf("tag" to tag, "message" to message, "ts" to System.currentTimeMillis()))
     }
 
     fun renameConversation(id: String, title: String) { send("conversation:rename", mapOf("id" to id, "title" to title)) }

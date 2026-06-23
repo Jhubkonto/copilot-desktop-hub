@@ -38,6 +38,12 @@ class NexyFcmService : FirebaseMessagingService() {
                 SchedulerNotificationManager.show(this, taskId, taskName, success = false)
             }
 
+            "chat:complete" -> {
+                val convId = data["conversationId"] ?: return
+                val title = data["title"] ?: "Chat"
+                ChatCompleteNotificationManager.show(this, convId, title)
+            }
+
             "desktop:online" -> {
                 val wsUrl = data["wsUrl"]?.takeIf { it.isNotBlank() } ?: return
                 handleDesktopOnline(wsUrl)

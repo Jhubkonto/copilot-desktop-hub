@@ -19,6 +19,9 @@ class ApprovalActionReceiver : BroadcastReceiver() {
                 ApprovalNotificationManager.vibrateDecision(context, approved = false)
             }
         }
+        // Signal HomeViewModel to clear the in-app dialog immediately — before the
+        // tool finishes running and ChatToolCallEvent arrives.
+        WsRepository.approvalResolvedViaNotification.tryEmit(requestId)
         context.getSystemService(NotificationManager::class.java)
             ?.cancel(ApprovalNotificationManager.NOTIFICATION_ID)
     }

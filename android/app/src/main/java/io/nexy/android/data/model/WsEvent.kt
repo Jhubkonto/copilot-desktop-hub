@@ -12,6 +12,14 @@ sealed class WsEvent {
         val toolName: String,
         val args: Map<String, Any>,
     ) : WsEvent()
+    data class ChatToolCallEvent(
+        val conversationId: String,
+        val toolName: String,
+        val serverName: String?,
+        val args: String?,
+        val result: String,
+        val success: Boolean,
+    ) : WsEvent()
     data class ChatStreamChunk(val conversationId: String, val text: String) : WsEvent()
     data class ChatStreamEnd(val conversationId: String) : WsEvent()
     data class ChatThinkingDelta(val conversationId: String, val blockId: String, val chunk: String) : WsEvent()

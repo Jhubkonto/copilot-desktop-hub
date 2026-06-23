@@ -121,6 +121,15 @@ fun parseWsEvent(
                 args = jsonObjectToMap(data?.optJSONObject("args")),
             )
 
+            "chat:tool-call-event" -> WsEvent.ChatToolCallEvent(
+                conversationId = data?.optString("conversationId") ?: "",
+                toolName = data?.optString("toolName") ?: "Tool call",
+                serverName = data?.nullableString("serverName"),
+                args = data?.optJSONObject("args")?.toString(),
+                result = data?.optString("result") ?: "",
+                success = data?.optBoolean("success", true) ?: true,
+            )
+
             "chat:stream-chunk" -> WsEvent.ChatStreamChunk(
                 conversationId = data?.optString("conversationId") ?: "",
                 text = data?.optString("chunk") ?: "",
