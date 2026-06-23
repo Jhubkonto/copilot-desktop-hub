@@ -387,6 +387,7 @@ class ChatViewModel(
             }
         }
         if (wsClient === WsRepository) WsRepository.markConversationPending(conversationId)
+        WsRepository.sendLog("ChatSend", "chat:send-message conv=$conversationId model=${data["model"] ?: "none"} agentId=${data["agentId"] ?: "none"} projectId=${data["projectId"] ?: "none"}")
         wsClient.send("chat:send-message", data)
     }
 

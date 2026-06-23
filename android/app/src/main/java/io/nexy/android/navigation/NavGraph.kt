@@ -48,6 +48,7 @@ import io.nexy.android.ui.settings.ConnectionScreen
 import io.nexy.android.ui.settings.DiagnosticsScreen
 import io.nexy.android.ui.settings.GlobalSettingsScreen
 import io.nexy.android.ui.settings.BuildDashboardScreen
+import io.nexy.android.ui.settings.DebugLogScreen
 import io.nexy.android.ui.settings.McpServersScreen
 import io.nexy.android.ui.settings.CliModelsScreen
 import io.nexy.android.ui.settings.ModelsScreen
@@ -305,11 +306,16 @@ fun NavGraph(
                 onOpenMcpServers = { navController.navigate("settings/mcp-servers") },
                 onOpenCliModels = { navController.navigate("settings/cli-models") },
                 onOpenBuildDashboard = { navController.navigate("settings/build-dashboard") },
+                onOpenDebugLog = { navController.navigate("settings/debug-log") },
             )
         }
 
         composable("settings/build-dashboard") {
             BuildDashboardScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable("settings/debug-log") {
+            DebugLogScreen(onBack = { navController.popBackStack() })
         }
 
         composable("settings/global") {

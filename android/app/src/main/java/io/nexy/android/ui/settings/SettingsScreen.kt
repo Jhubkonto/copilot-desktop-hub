@@ -33,6 +33,7 @@ fun SettingsScreen(
     onOpenMcpServers: () -> Unit = {},
     onOpenCliModels: () -> Unit = {},
     onOpenBuildDashboard: () -> Unit = {},
+    onOpenDebugLog: () -> Unit = {},
 ) {
     Scaffold(
         topBar = {
@@ -120,6 +121,11 @@ fun SettingsScreen(
                 title = "Diagnostics",
                 detail = "Connection info and bug reports",
                 onClick = onOpenDiagnostics,
+            )
+            SettingsNavRow(
+                title = "Debug Log",
+                detail = "Live diagnostic messages from the app",
+                onClick = onOpenDebugLog,
             )
 
             HorizontalDivider(
