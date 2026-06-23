@@ -9,16 +9,16 @@ import type {
   CatalogModel,
   ConversationCompressionSaveInput,
   ErrorReportCaptureInput,
-  SelfHealInvestigationActivity,
-  SelfHealInvestigationChunk,
-  SelfHealInvestigationResult,
-  SelfHealInvestigationSettings,
-  SelfHealVerificationDone,
-  SelfHealVerificationEvent,
-  SelfHealGitEvent,
-  SelfHealRecoveryEvent,
-  SelfHealFixEvent,
-  SelfHealFixDone,
+  RemoteEditInvestigationActivity,
+  RemoteEditInvestigationChunk,
+  RemoteEditInvestigationResult,
+  RemoteEditInvestigationSettings,
+  RemoteEditVerificationDone,
+  RemoteEditVerificationEvent,
+  RemoteEditGitEvent,
+  RemoteEditRecoveryEvent,
+  RemoteEditFixEvent,
+  RemoteEditFixDone,
   ErrorLogEntry,
   IpcChannels,
   IpcReturn,
@@ -95,74 +95,74 @@ const api = {
   deleteErrorReport: (id: string) => typedInvoke('error-report:delete', id),
   getErrorReport: (id: string) => typedInvoke('error-report:get', id),
   listErrorReports: (limit?: number) => typedInvoke('error-report:list', limit),
-  getInvestigationSettings: () => typedInvoke('self-heal:get-investigation-settings'),
-  setInvestigationSettings: (input: SelfHealInvestigationSettings) => typedInvoke('self-heal:set-investigation-settings', input),
-  setSelfHealReportStatus: (reportId: string, status: 'open' | 'investigating' | 'investigated' | 'fixed' | 'rejected') =>
-    typedInvoke('self-heal:set-report-status', reportId, status),
-  startInvestigation: (reportId: string) => typedInvoke('self-heal:start-investigation', reportId),
-  onInvestigationActivity: (callback: (activity: SelfHealInvestigationActivity) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, activity: SelfHealInvestigationActivity) => callback(activity)
-    typedOn('self-heal:investigation-activity', handler)
-    return () => typedOff('self-heal:investigation-activity', handler)
+  getInvestigationSettings: () => typedInvoke('remote-edit:get-investigation-settings'),
+  setInvestigationSettings: (input: RemoteEditInvestigationSettings) => typedInvoke('remote-edit:set-investigation-settings', input),
+  setRemoteEditReportStatus: (reportId: string, status: 'open' | 'investigating' | 'investigated' | 'fixed' | 'rejected') =>
+    typedInvoke('remote-edit:set-report-status', reportId, status),
+  startInvestigation: (reportId: string) => typedInvoke('remote-edit:start-investigation', reportId),
+  onInvestigationActivity: (callback: (activity: RemoteEditInvestigationActivity) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, activity: RemoteEditInvestigationActivity) => callback(activity)
+    typedOn('remote-edit:investigation-activity', handler)
+    return () => typedOff('remote-edit:investigation-activity', handler)
   },
-  onInvestigationChunk: (callback: (chunk: SelfHealInvestigationChunk) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, chunk: SelfHealInvestigationChunk) => callback(chunk)
-    typedOn('self-heal:investigation-chunk', handler)
-    return () => typedOff('self-heal:investigation-chunk', handler)
+  onInvestigationChunk: (callback: (chunk: RemoteEditInvestigationChunk) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, chunk: RemoteEditInvestigationChunk) => callback(chunk)
+    typedOn('remote-edit:investigation-chunk', handler)
+    return () => typedOff('remote-edit:investigation-chunk', handler)
   },
-  onInvestigationDone: (callback: (result: SelfHealInvestigationResult) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, result: SelfHealInvestigationResult) => callback(result)
-    typedOn('self-heal:investigation-done', handler)
-    return () => typedOff('self-heal:investigation-done', handler)
+  onInvestigationDone: (callback: (result: RemoteEditInvestigationResult) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, result: RemoteEditInvestigationResult) => callback(result)
+    typedOn('remote-edit:investigation-done', handler)
+    return () => typedOff('remote-edit:investigation-done', handler)
   },
-  startFix: (reportId: string) => typedInvoke('self-heal:start-fix', reportId),
-  commitFixToWorkspace: (reportId: string) => typedInvoke('self-heal:commit-to-workspace', reportId),
+  startFix: (reportId: string) => typedInvoke('remote-edit:start-fix', reportId),
+  commitFixToWorkspace: (reportId: string) => typedInvoke('remote-edit:commit-to-workspace', reportId),
   revertStagedFile: (reportId: string, relativePath: string) =>
-    typedInvoke('self-heal:revert-staged-file', reportId, relativePath),
+    typedInvoke('remote-edit:revert-staged-file', reportId, relativePath),
   getStagedDiff: (reportId: string, relativePath: string) =>
-    typedInvoke('self-heal:get-staged-diff', reportId, relativePath),
-  onFixEvent: (callback: (event: SelfHealFixEvent) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: SelfHealFixEvent) => callback(data)
-    typedOn('self-heal:fix-event', handler)
-    return () => typedOff('self-heal:fix-event', handler)
+    typedInvoke('remote-edit:get-staged-diff', reportId, relativePath),
+  onFixEvent: (callback: (event: RemoteEditFixEvent) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: RemoteEditFixEvent) => callback(data)
+    typedOn('remote-edit:fix-event', handler)
+    return () => typedOff('remote-edit:fix-event', handler)
   },
-  onFixDone: (callback: (result: SelfHealFixDone) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: SelfHealFixDone) => callback(data)
-    typedOn('self-heal:fix-done', handler)
-    return () => typedOff('self-heal:fix-done', handler)
+  onFixDone: (callback: (result: RemoteEditFixDone) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: RemoteEditFixDone) => callback(data)
+    typedOn('remote-edit:fix-done', handler)
+    return () => typedOff('remote-edit:fix-done', handler)
   },
-  startVerification: (reportId: string) => typedInvoke('self-heal:start-verification', reportId),
-  getVerificationRuns: (reportId: string) => typedInvoke('self-heal:get-verification-runs', reportId),
-  onVerificationEvent: (callback: (event: SelfHealVerificationEvent) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: SelfHealVerificationEvent) => callback(data)
-    typedOn('self-heal:verification-event', handler)
-    return () => typedOff('self-heal:verification-event', handler)
+  startVerification: (reportId: string) => typedInvoke('remote-edit:start-verification', reportId),
+  getVerificationRuns: (reportId: string) => typedInvoke('remote-edit:get-verification-runs', reportId),
+  onVerificationEvent: (callback: (event: RemoteEditVerificationEvent) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: RemoteEditVerificationEvent) => callback(data)
+    typedOn('remote-edit:verification-event', handler)
+    return () => typedOff('remote-edit:verification-event', handler)
   },
-  onVerificationDone: (callback: (result: SelfHealVerificationDone) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: SelfHealVerificationDone) => callback(data)
-    typedOn('self-heal:verification-done', handler)
-    return () => typedOff('self-heal:verification-done', handler)
+  onVerificationDone: (callback: (result: RemoteEditVerificationDone) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: RemoteEditVerificationDone) => callback(data)
+    typedOn('remote-edit:verification-done', handler)
+    return () => typedOff('remote-edit:verification-done', handler)
   },
-  getSelfHealGitStatus: (reportId?: string) => typedInvoke('self-heal:git-status', reportId),
-  prepareSelfHealCommit: (reportId: string) => typedInvoke('self-heal:git-prepare-commit', reportId),
-  commitSelfHealFix: (reportId: string, message: string) => typedInvoke('self-heal:git-commit', reportId, message),
-  pushSelfHealFix: (reportId: string) => typedInvoke('self-heal:git-push', reportId),
-  onSelfHealGitEvent: (callback: (event: SelfHealGitEvent) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: SelfHealGitEvent) => callback(data)
-    typedOn('self-heal:git-event', handler)
-    return () => typedOff('self-heal:git-event', handler)
+  getRemoteEditGitStatus: (reportId?: string) => typedInvoke('remote-edit:git-status', reportId),
+  prepareRemoteEditCommit: (reportId: string) => typedInvoke('remote-edit:git-prepare-commit', reportId),
+  commitRemoteEditFix: (reportId: string, message: string) => typedInvoke('remote-edit:git-commit', reportId, message),
+  pushRemoteEditFix: (reportId: string) => typedInvoke('remote-edit:git-push', reportId),
+  onRemoteEditGitEvent: (callback: (event: RemoteEditGitEvent) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: RemoteEditGitEvent) => callback(data)
+    typedOn('remote-edit:git-event', handler)
+    return () => typedOff('remote-edit:git-event', handler)
   },
-  prepareSelfHealReload: (reportId: string) => typedInvoke('self-heal:prepare-reload', reportId),
-  getSelfHealRecoveryRuns: (reportId: string) => typedInvoke('self-heal:get-recovery-runs', reportId),
-  startSelfHealReload: (recoveryId: string) => typedInvoke('self-heal:start-reload', recoveryId),
-  approveSelfHealRelaunch: (recoveryId: string) => typedInvoke('self-heal:approve-relaunch', recoveryId),
-  confirmSelfHealStartup: () => typedInvoke('self-heal:confirm-startup'),
-  rollbackSelfHeal: (recoveryId: string) => typedInvoke('self-heal:rollback', recoveryId),
-  getSelfHealHistory: () => typedInvoke('self-heal:get-history'),
-  onSelfHealRecoveryEvent: (callback: (event: SelfHealRecoveryEvent) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: SelfHealRecoveryEvent) => callback(data)
-    typedOn('self-heal:recovery-event', handler)
-    return () => typedOff('self-heal:recovery-event', handler)
+  prepareRemoteEditReload: (reportId: string) => typedInvoke('remote-edit:prepare-reload', reportId),
+  getRemoteEditRecoveryRuns: (reportId: string) => typedInvoke('remote-edit:get-recovery-runs', reportId),
+  startRemoteEditReload: (recoveryId: string) => typedInvoke('remote-edit:start-reload', recoveryId),
+  approveRemoteEditRelaunch: (recoveryId: string) => typedInvoke('remote-edit:approve-relaunch', recoveryId),
+  confirmRemoteEditStartup: () => typedInvoke('remote-edit:confirm-startup'),
+  rollbackRemoteEdit: (recoveryId: string) => typedInvoke('remote-edit:rollback', recoveryId),
+  getRemoteEditHistory: () => typedInvoke('remote-edit:get-history'),
+  onRemoteEditRecoveryEvent: (callback: (event: RemoteEditRecoveryEvent) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: RemoteEditRecoveryEvent) => callback(data)
+    typedOn('remote-edit:recovery-event', handler)
+    return () => typedOff('remote-edit:recovery-event', handler)
   },
   onErrorLogEntry: (callback: (entry: ErrorLogEntry) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, entry: ErrorLogEntry) => callback(entry)

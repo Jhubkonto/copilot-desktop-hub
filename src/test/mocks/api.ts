@@ -39,7 +39,7 @@ export function createMockApi() {
       autoApproveTools: true,
     }),
     setInvestigationSettings: vi.fn().mockImplementation(async (input) => input),
-    setSelfHealReportStatus: vi.fn().mockResolvedValue(null),
+    setRemoteEditReportStatus: vi.fn().mockResolvedValue(null),
     startInvestigation: vi.fn().mockResolvedValue({ reportId: 'report-1' }),
     onInvestigationActivity: vi.fn().mockReturnValue(() => {}),
     onInvestigationChunk: vi.fn().mockReturnValue(() => {}),
@@ -48,7 +48,7 @@ export function createMockApi() {
     getVerificationRuns: vi.fn().mockResolvedValue([]),
     onVerificationEvent: vi.fn().mockReturnValue(() => {}),
     onVerificationDone: vi.fn().mockReturnValue(() => {}),
-    getSelfHealGitStatus: vi.fn().mockResolvedValue({
+    getRemoteEditGitStatus: vi.fn().mockResolvedValue({
       isRepo: true,
       branch: 'main',
       commitSha: 'abc123',
@@ -57,7 +57,7 @@ export function createMockApi() {
       behind: 0,
       files: [],
     }),
-    prepareSelfHealCommit: vi.fn().mockResolvedValue({
+    prepareRemoteEditCommit: vi.fn().mockResolvedValue({
       reportId: 'report-1',
       status: {
         isRepo: true,
@@ -68,11 +68,11 @@ export function createMockApi() {
         behind: 0,
         files: [],
       },
-      suggestedMessage: 'fix: self-heal update',
+      suggestedMessage: 'fix: remote-edit update',
       files: [],
       canCommit: true,
     }),
-    commitSelfHealFix: vi.fn().mockResolvedValue({
+    commitRemoteEditFix: vi.fn().mockResolvedValue({
       reportId: 'report-1',
       committed: true,
       commitSha: 'def456',
@@ -86,7 +86,7 @@ export function createMockApi() {
         files: [],
       },
     }),
-    pushSelfHealFix: vi.fn().mockResolvedValue({
+    pushRemoteEditFix: vi.fn().mockResolvedValue({
       reportId: 'report-1',
       pushed: true,
       status: {
@@ -99,8 +99,8 @@ export function createMockApi() {
         files: [],
       },
     }),
-    onSelfHealGitEvent: vi.fn().mockReturnValue(() => {}),
-    prepareSelfHealReload: vi.fn().mockResolvedValue({
+    onRemoteEditGitEvent: vi.fn().mockReturnValue(() => {}),
+    prepareRemoteEditReload: vi.fn().mockResolvedValue({
       reportId: 'report-1',
       canReload: true,
       recovery: {
@@ -117,24 +117,24 @@ export function createMockApi() {
         rollbackAt: null,
       },
     }),
-    getSelfHealRecoveryRuns: vi.fn().mockResolvedValue([]),
-    startSelfHealReload: vi.fn().mockResolvedValue({
+    getRemoteEditRecoveryRuns: vi.fn().mockResolvedValue([]),
+    startRemoteEditReload: vi.fn().mockResolvedValue({
       reportId: 'report-1',
       recoveryId: 'recovery-1',
       started: true,
       buildId: 'build-1',
       recovery: null,
     }),
-    approveSelfHealRelaunch: vi.fn().mockResolvedValue({
+    approveRemoteEditRelaunch: vi.fn().mockResolvedValue({
       reportId: 'report-1',
       recoveryId: 'recovery-1',
       scheduled: true,
     }),
-    confirmSelfHealStartup: vi.fn().mockResolvedValue({
+    confirmRemoteEditStartup: vi.fn().mockResolvedValue({
       confirmed: false,
       recovery: null,
     }),
-    onSelfHealRecoveryEvent: vi.fn().mockReturnValue(() => {}),
+    onRemoteEditRecoveryEvent: vi.fn().mockReturnValue(() => {}),
     onErrorLogEntry: vi.fn().mockReturnValue(() => {}),
 
     // Auth
