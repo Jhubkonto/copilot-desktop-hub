@@ -234,24 +234,24 @@ fun parseWsEvent(
                 message = data?.optString("message") ?: "Unable to capture report",
             )
 
-            "self-heal:investigation-activity" -> WsEvent.SelfHealInvestigationActivity(
+            "self-heal:investigation-activity" -> WsEvent.RemoteEditInvestigationActivity(
                 reportId = data?.optString("reportId") ?: "",
                 label = data?.optString("label") ?: "",
                 type = data?.optString("type") ?: "status",
             )
 
-            "self-heal:investigation-chunk" -> WsEvent.SelfHealInvestigationChunk(
+            "self-heal:investigation-chunk" -> WsEvent.RemoteEditInvestigationChunk(
                 reportId = data?.optString("reportId") ?: "",
                 chunk = data?.optString("chunk") ?: "",
             )
 
-            "self-heal:investigation-done" -> WsEvent.SelfHealInvestigationDone(
+            "self-heal:investigation-done" -> WsEvent.RemoteEditInvestigationDone(
                 reportId = data?.optString("reportId") ?: "",
                 status = data?.optString("status") ?: "",
                 error = data?.nullableString("error"),
             )
 
-            "self-heal:verification-event" -> WsEvent.SelfHealVerificationEvent(
+            "self-heal:verification-event" -> WsEvent.RemoteEditVerificationEvent(
                 reportId = data?.optString("reportId") ?: "",
                 runId = data?.optString("runId") ?: "",
                 command = data?.nullableString("command"),
@@ -260,14 +260,14 @@ fun parseWsEvent(
                 line = data?.nullableString("line"),
             )
 
-            "self-heal:verification-done" -> WsEvent.SelfHealVerificationDone(
+            "self-heal:verification-done" -> WsEvent.RemoteEditVerificationDone(
                 reportId = data?.optString("reportId") ?: "",
                 runId = data?.optString("runId") ?: "",
                 status = data?.optString("status") ?: "",
                 error = data?.nullableString("error"),
             )
 
-            "self-heal:git-event" -> WsEvent.SelfHealGitEvent(
+            "self-heal:git-event" -> WsEvent.RemoteEditGitEvent(
                 reportId = data?.optString("reportId") ?: "",
                 type = data?.optString("type") ?: "",
                 label = data?.optString("label") ?: "",
@@ -275,12 +275,55 @@ fun parseWsEvent(
                 error = data?.nullableString("error"),
             )
 
-            "self-heal:recovery-event" -> WsEvent.SelfHealRecoveryEvent(
+            "self-heal:recovery-event" -> WsEvent.RemoteEditRecoveryEvent(
                 reportId = data?.optString("reportId") ?: "",
                 recoveryId = data?.nullableString("recoveryId"),
                 type = data?.optString("type") ?: "",
                 label = data?.optString("label") ?: "",
                 status = data?.nullableString("status"),
+                error = data?.nullableString("error"),
+            )
+
+            "self-heal:fix-done" -> {
+                val filesArr = data?.optJSONArray("stagedFiles")
+                val files = if (filesArr != null) {
+                    (0 until filesArr.length()).map { i ->
+                        val f = filesArr.optJSONObject(i)
+                        f?.optString("relativePath") ?: filesArr.optString(i) ?: ""
+                    }.filter { it.isNotEmpty() }
+                } else emptyList()
+                WsEvent.RemoteEditFixDone(
+                    reportId = data?.optString("reportId") ?: "",
+                    status = data?.optString("status") ?: "",
+                    stagedFiles = files,
+                    error = data?.nullableString("error"),
+                )
+            }
+
+            "self-heal:staged-files" -> {
+                val filesArr = data?.optJSONArray("stagedFiles")
+                val files = if (filesArr != null) {
+                    (0 until filesArr.length()).map { i ->
+                        val f = filesArr.optJSONObject(i)
+                        f?.optString("relativePath") ?: filesArr.optString(i) ?: ""
+                    }.filter { it.isNotEmpty() }
+                } else emptyList()
+                WsEvent.RemoteEditStagedFiles(
+                    reportId = data?.optString("reportId") ?: "",
+                    fixStatus = data?.optString("fixStatus") ?: "",
+                    stagedFiles = files,
+                )
+            }
+
+            "self-heal:staged-diff" -> WsEvent.RemoteEditStagedDiff(
+                reportId = data?.optString("reportId") ?: "",
+                relativePath = data?.optString("relativePath") ?: "",
+                hunksJson = data?.optJSONArray("hunks")?.toString(),
+            )
+
+            "self-heal:git-commit-result" -> WsEvent.RemoteEditGitCommitResult(
+                reportId = data?.optString("reportId") ?: "",
+                sha = data?.nullableString("sha"),
                 error = data?.nullableString("error"),
             )
 
@@ -446,8 +489,9 @@ fun parseWsEvent(
                         createdAt = r.optLong("created_at", 0L),
                     )
                 }
+                WsRepository.sendLog("RemoteEdit", "self-heal:reports received: ${list.size} reports; ids=${list.take(5).map { it.id }}")
                 errorReports.value = list
-                WsEvent.SelfHealReports(list)
+                WsEvent.RemoteEditReports(list)
             }
 
             "project:created" -> {
@@ -1279,6 +1323,36 @@ fun parseWsEvent(
                     PreflightCheck(label = c.optString("label"), status = c.optString("status"), detail = c.optString("detail"))
                 })
             }
+
+            "build:started" -> WsEvent.BuildStarted(
+                buildId = data?.optString("buildId") ?: "",
+                command = data?.optString("command") ?: "",
+            )
+
+            "build:log-chunk" -> WsEvent.BuildLogChunk(
+                buildId = data?.optString("buildId") ?: "",
+                line = data?.optString("line") ?: "",
+                stream = data?.optString("stream") ?: "stdout",
+                replace = data?.optBoolean("replace", false) ?: false,
+            )
+
+            "build:command-done" -> WsEvent.BuildCommandDone(
+                buildId = data?.nullableString("buildId"),
+                status = data?.optString("status") ?: "failed",
+                exitCode = if (data?.isNull("exitCode") != false) null else data.optInt("exitCode"),
+                error = data?.nullableString("error"),
+            )
+
+            "build:cancelled" -> WsEvent.BuildCancelled(
+                buildId = data?.optString("buildId") ?: "",
+                cancelled = data?.optBoolean("cancelled", false) ?: false,
+            )
+
+            "update:restarting" -> WsEvent.UpdateRestarting(
+                eta = data?.optInt("eta") ?: 10,
+                version = data?.nullableString("version"),
+                error = data?.nullableString("error"),
+            )
 
             "android:workspace-info" -> WsEvent.AndroidWorkspaceInfo(
                 path = data?.optString("path") ?: "",

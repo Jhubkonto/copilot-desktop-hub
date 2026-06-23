@@ -105,6 +105,7 @@ fun HomeScreen(
 ) {
     val connectionState by vm.connectionState.collectAsState()
     val reconnectExhausted by vm.reconnectExhausted.collectAsState()
+    val intentionalRestartExpected by vm.intentionalRestartExpected.collectAsState()
     val conversations by vm.conversations.collectAsState()
     val agents by vm.agents.collectAsState()
     val projects by vm.projects.collectAsState()
@@ -425,6 +426,7 @@ fun HomeScreen(
                 actions = {
                     ConnectionChip(
                         state = connectionState,
+                        intentionalRestartExpected = intentionalRestartExpected,
                         onClick = { showConnectionSheet = true },
                     )
                     IconButton(onClick = onOpenSettings) {

@@ -109,6 +109,7 @@ fun ChatScreen(
     projectId: String? = null,
     onBack: () -> Unit,
     onOpenFork: ((String) -> Unit)? = null,
+    onOpenRemoteEditWithPrefill: ((String) -> Unit)? = null,
     vm: ChatViewModel = viewModel(factory = object : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>) =
@@ -162,6 +163,8 @@ fun ChatScreen(
     var addToProjectMessage by remember { mutableStateOf<ChatMessage?>(null) }
     var addToProjectTitle by remember { mutableStateOf("") }
     var branchPending by remember { mutableStateOf(false) }
+    var investigateMessage by remember { mutableStateOf<ChatMessage?>(null) }
+    var pendingApproval by remember { mutableStateOf<io.nexy.android.data.model.WsEvent.ToolApprovalRequest?>(null) }
     val promptEntries by WsRepository.promptEntries.collectAsState()
     var relaunchFilePicker by remember { mutableStateOf(false) }
 
@@ -356,12 +359,32 @@ fun ChatScreen(
                         onOpenFork?.invoke(event.conversationId)
                     }
                 }
+                is io.nexy.android.data.model.WsEvent.ToolApprovalRequest -> {
+                    pendingApproval = event
+                }
+                is io.nexy.android.data.model.WsEvent.ChatToolCallEvent -> {
+                    if (event.conversationId == conversationId) {
+                        pendingApproval = null
+                    }
+                }
+                is io.nexy.android.data.model.WsEvent.ChatActivity -> {
+                    if (event.conversationId == conversationId &&
+                        (event.state == "complete" || event.state == "error")) {
+                        pendingApproval = null
+                    }
+                }
                 else -> {}
             }
         }
     }
 
     var highlightedMessageId by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(investigateMessage) {
+        val msg = investigateMessage ?: return@LaunchedEffect
+        investigateMessage = null
+        onOpenRemoteEditWithPrefill?.invoke(msg.text)
+    }
 
     DisposableEffect(conversationId) {
         WsRepository.activelyViewedConversationId.value = conversationId
@@ -955,6 +978,9 @@ fun ChatScreen(
                                 onAddToProject = if (!msg.isUser && chatProjectId != null && msg.text.isNotBlank()) {
                                     { addToProjectMessage = msg; addToProjectTitle = "" }
                                 } else null,
+                            onInvestigateWithAi = if (!msg.isUser && msg.text.isNotBlank() && onOpenRemoteEditWithPrefill != null) {
+                                    { investigateMessage = msg }
+                                } else null,
                                 onShare = if (!msg.isUser && msg.text.isNotBlank()) {
                                     {
                                         val intent = Intent(Intent.ACTION_SEND).apply {
@@ -978,6 +1004,21 @@ fun ChatScreen(
                             item { ThinkingHistoryBubble(liveThinkingBlocks, isLive = true) }
                         }
                         item { ThinkingBubble(activityLabel, generationStartedAt) }
+                    }
+                    pendingApproval?.let { approval ->
+                        item(key = "approval-${approval.requestId}") {
+                            ToolApprovalCard(
+                                approval = approval,
+                                onApprove = {
+                                    WsRepository.send("tool:approve", mapOf("requestId" to approval.requestId))
+                                    pendingApproval = null
+                                },
+                                onDeny = {
+                                    WsRepository.send("tool:reject", mapOf("requestId" to approval.requestId))
+                                    pendingApproval = null
+                                },
+                            )
+                        }
                     }
                 }
             }

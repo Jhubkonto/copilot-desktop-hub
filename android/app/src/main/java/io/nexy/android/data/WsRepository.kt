@@ -190,6 +190,11 @@ object WsRepository : WsClient {
     private var handshakeTimeoutJob: Job? = null
     private var reconnectAttempts = 0
 
+    // Set to true when the desktop sends update:restarting so that a 4001/4002
+    // close code from the relaunch does not suppress auto-reconnect.
+    private val _intentionalRestartExpected = MutableStateFlow(false)
+    val intentionalRestartExpected: StateFlow<Boolean> = _intentionalRestartExpected
+
     private var app: Application? = null
     private var pairedServerStore: PairedServerStore? = null
     private var networkMonitor: NetworkReconnectMonitor? = null
@@ -278,6 +283,13 @@ object WsRepository : WsClient {
                         // Prune pending IDs now present in the conversation list
                         val knownIds = _conversations.value.map { it.id }.toSet()
                         _pendingConversationIds.value = _pendingConversationIds.value - knownIds
+                    }
+                    is WsEvent.UpdateRestarting -> {
+                        _intentionalRestartExpected.value = true
+                    }
+                    is WsEvent.Connected -> {
+                        // Desktop came back online — clear the restart-expected flag
+                        _intentionalRestartExpected.value = false
                     }
                     else -> {}
                 }
@@ -415,7 +427,8 @@ object WsRepository : WsClient {
                     synchronized(loserLock) { if (losers.contains(webSocket)) return }
                     if (!winner.get()) return
                     _connectionState.value = ConnectionState.DISCONNECTED
-                    if (code != 4001 && code != 4002) scheduleReconnect()
+                    val intentional = _intentionalRestartExpected.compareAndSet(expect = true, update = false)
+                    if ((code != 4001 && code != 4002) || intentional) scheduleReconnect()
                 }
             })
         }
@@ -441,7 +454,8 @@ object WsRepository : WsClient {
             }
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 _connectionState.value = ConnectionState.DISCONNECTED
-                if (code != 4001 && code != 4002) scheduleReconnect()
+                val intentional = _intentionalRestartExpected.compareAndSet(expect = true, update = false)
+                if ((code != 4001 && code != 4002) || intentional) scheduleReconnect()
             }
         })
         return true
@@ -684,7 +698,31 @@ object WsRepository : WsClient {
         send("conversation:save-compression-summary", mapOf("conversationId" to conversationId) + draft)
     }
     fun deleteMessage(id: String) { send("message:delete", mapOf("id" to id)) }
-    fun refreshReports() { send("self-heal:get-reports", emptyMap()) }
+    fun refreshReports() {
+        sendLog("RemoteEdit", "refreshReports: sending self-heal:get-reports")
+        send("self-heal:get-reports", emptyMap())
+    }
+    fun createRemoteEditReport(title: String, description: String) {
+        sendLog("RemoteEdit", "createRemoteEditReport: title=$title")
+        send("error-report:request-capture", mapOf("title" to title, "description" to description, "includeLog" to true))
+    }
+    fun startRemoteEditInvestigation(reportId: String) {
+        sendLog("RemoteEdit", "startRemoteEditInvestigation: reportId=$reportId")
+        send("self-heal:start-investigation", mapOf("reportId" to reportId))
+    }
+    fun startRemoteEditFix(reportId: String) {
+        sendLog("RemoteEdit", "startRemoteEditFix: reportId=$reportId")
+        send("self-heal:start-fix", mapOf("reportId" to reportId))
+    }
+    fun listStagedFiles(reportId: String) {
+        send("self-heal:list-staged-files", mapOf("reportId" to reportId))
+    }
+    fun getStagedDiff(reportId: String, relativePath: String) {
+        send("self-heal:get-staged-diff", mapOf("reportId" to reportId, "relativePath" to relativePath))
+    }
+    fun remoteEditGitCommit(reportId: String, message: String) {
+        send("self-heal:git-commit", mapOf("reportId" to reportId, "message" to message))
+    }
     fun createProject(name: String, color: String) { send("project:create", mapOf("name" to name, "color" to color)) }
     fun renameProject(id: String, name: String) { send("project:rename", mapOf("id" to id, "name" to name)) }
     fun deleteProject(id: String) { send("project:delete", mapOf("id" to id)) }
@@ -985,6 +1023,9 @@ object WsRepository : WsClient {
     }
     fun getBuildWorkspaceInfo() { send("build:get-workspace-info", emptyMap()) }
     fun runBuildPreflight() { send("build:run-preflight", emptyMap()) }
+    fun startDesktopBuild(command: String) { send("build:start-from-mobile", mapOf("command" to command)) }
+    fun cancelDesktopBuild(buildId: String) { send("build:cancel-from-mobile", mapOf("buildId" to buildId)) }
+    fun startUpdateFromArtifact() { send("build:update-from-artifact", emptyMap()) }
     fun getAndroidWorkspaceInfo() { send("android:get-workspace-info", emptyMap()) }
     fun validateAndroidSigning() { send("android:validate-signing", emptyMap()) }
     fun publishAndroidUpdate() { send("android:publish-update", emptyMap()) }

@@ -43,10 +43,10 @@ sealed class WsEvent {
     data class AndroidUpdateManifestResult(val manifest: AndroidUpdateManifest?) : WsEvent()
     data class ErrorReportCaptured(val reportId: String) : WsEvent()
     data class ErrorReportError(val message: String) : WsEvent()
-    data class SelfHealInvestigationActivity(val reportId: String, val label: String, val type: String) : WsEvent()
-    data class SelfHealInvestigationChunk(val reportId: String, val chunk: String) : WsEvent()
-    data class SelfHealInvestigationDone(val reportId: String, val status: String, val error: String?) : WsEvent()
-    data class SelfHealVerificationEvent(
+    data class RemoteEditInvestigationActivity(val reportId: String, val label: String, val type: String) : WsEvent()
+    data class RemoteEditInvestigationChunk(val reportId: String, val chunk: String) : WsEvent()
+    data class RemoteEditInvestigationDone(val reportId: String, val status: String, val error: String?) : WsEvent()
+    data class RemoteEditVerificationEvent(
         val reportId: String,
         val runId: String,
         val command: String?,
@@ -54,20 +54,41 @@ sealed class WsEvent {
         val label: String,
         val line: String?,
     ) : WsEvent()
-    data class SelfHealVerificationDone(
+    data class RemoteEditVerificationDone(
         val reportId: String,
         val runId: String,
         val status: String,
         val error: String?,
     ) : WsEvent()
-    data class SelfHealGitEvent(
+    data class RemoteEditFixDone(
+        val reportId: String,
+        val status: String,
+        val stagedFiles: List<String>,
+        val error: String?,
+    ) : WsEvent()
+    data class RemoteEditStagedFiles(
+        val reportId: String,
+        val fixStatus: String,
+        val stagedFiles: List<String>,
+    ) : WsEvent()
+    data class RemoteEditStagedDiff(
+        val reportId: String,
+        val relativePath: String,
+        val hunksJson: String?,
+    ) : WsEvent()
+    data class RemoteEditGitCommitResult(
+        val reportId: String,
+        val sha: String?,
+        val error: String?,
+    ) : WsEvent()
+    data class RemoteEditGitEvent(
         val reportId: String,
         val type: String,
         val label: String,
         val commitSha: String?,
         val error: String?,
     ) : WsEvent()
-    data class SelfHealRecoveryEvent(
+    data class RemoteEditRecoveryEvent(
         val reportId: String,
         val recoveryId: String?,
         val type: String,
@@ -86,7 +107,7 @@ sealed class WsEvent {
     data class ConversationDeleted(val id: String) : WsEvent()
     data class ConversationSearchResults(val conversations: List<Conversation>) : WsEvent()
     data class MessageDeleted(val id: String) : WsEvent()
-    data class SelfHealReports(val reports: List<ErrorReport>) : WsEvent()
+    data class RemoteEditReports(val reports: List<ErrorReport>) : WsEvent()
     data class ProjectCreated(val project: Project) : WsEvent()
     data class ProjectRenamed(val id: String, val name: String) : WsEvent()
     data class ProjectDeleted(val id: String) : WsEvent()
@@ -209,6 +230,11 @@ sealed class WsEvent {
     data class BuildRecords(val records: List<BuildRecord>) : WsEvent()
     data class BuildWorkspaceInfo(val path: String, val branch: String?, val commitSha: String?, val dirty: Boolean, val version: String?, val isGitRepo: Boolean) : WsEvent()
     data class BuildPreflightResult(val checks: List<PreflightCheck>) : WsEvent()
+    data class BuildStarted(val buildId: String, val command: String) : WsEvent()
+    data class BuildLogChunk(val buildId: String, val line: String, val stream: String, val replace: Boolean = false) : WsEvent()
+    data class BuildCommandDone(val buildId: String?, val status: String, val exitCode: Int?, val error: String? = null) : WsEvent()
+    data class BuildCancelled(val buildId: String, val cancelled: Boolean) : WsEvent()
+    data class UpdateRestarting(val eta: Int, val version: String?, val error: String? = null) : WsEvent()
     data class AndroidWorkspaceInfo(val path: String, val branch: String?, val commitSha: String?, val dirty: Boolean, val versionCode: Int?, val versionName: String?, val isGitRepo: Boolean) : WsEvent()
     data class AndroidSigningValidation(val valid: Boolean, val checks: List<PreflightCheck>) : WsEvent()
     data class AndroidPublishResult(val published: Boolean, val error: String?, val manifest: AndroidPublishManifest?) : WsEvent()

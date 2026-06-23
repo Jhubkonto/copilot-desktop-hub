@@ -1,19 +1,27 @@
 package io.nexy.android.ui.settings
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -27,12 +35,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.BuildRecord
@@ -40,6 +53,7 @@ import io.nexy.android.data.model.PreflightCheck
 import io.nexy.android.data.model.WsEvent
 import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyTopAppBar
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -62,6 +76,19 @@ fun BuildDashboardScreen(onBack: () -> Unit) {
     var confirmAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var confirmTitle by remember { mutableStateOf("") }
     var confirmMessage by remember { mutableStateOf("") }
+
+    // Desktop build trigger state
+    val buildCommands = listOf("typecheck", "test", "build", "package")
+    var selectedBuildCommand by remember { mutableStateOf("typecheck") }
+    var commandMenuExpanded by remember { mutableStateOf(false) }
+    var activeBuildId by remember { mutableStateOf<String?>(null) }
+    var buildStatus by remember { mutableStateOf<String?>(null) }
+    val buildLogLines = remember { mutableStateListOf<String>() }
+    val logListState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
+
+    // Phase 2: desktop self-update state
+    var updateRestartingEvent by remember { mutableStateOf<WsEvent.UpdateRestarting?>(null) }
 
     LaunchedEffect(Unit) {
         WsRepository.getBuildRecords(platform = null)
@@ -90,6 +117,38 @@ fun BuildDashboardScreen(onBack: () -> Unit) {
                 is WsEvent.AndroidRestoreResult -> {
                     isPublishing = false
                     publishResult = if (event.restored) "Restored v${event.manifest?.versionName}" else "Restore failed: ${event.error}"
+                }
+                is WsEvent.BuildStarted -> {
+                    if (event.buildId.isNotEmpty()) {
+                        activeBuildId = event.buildId
+                        buildStatus = "running"
+                        buildLogLines.clear()
+                    }
+                }
+                is WsEvent.BuildLogChunk -> {
+                    if (event.buildId == activeBuildId) {
+                        if (event.replace && buildLogLines.isNotEmpty()) {
+                            buildLogLines[buildLogLines.lastIndex] = event.line
+                        } else {
+                            buildLogLines.add(event.line)
+                        }
+                        coroutineScope.launch {
+                            logListState.animateScrollToItem(maxOf(0, buildLogLines.size - 1))
+                        }
+                    }
+                }
+                is WsEvent.BuildCommandDone -> {
+                    if (event.buildId == activeBuildId || activeBuildId == null) {
+                        buildStatus = event.status
+                        if (event.status != "running") activeBuildId = null
+                    }
+                }
+                is WsEvent.UpdateRestarting -> {
+                    updateRestartingEvent = event
+                }
+                is WsEvent.Connected -> {
+                    // Desktop came back — clear the banner once reconnected
+                    updateRestartingEvent = null
                 }
                 else -> {}
             }
@@ -160,6 +219,103 @@ fun BuildDashboardScreen(onBack: () -> Unit) {
             }
 
             item {
+                SectionHeader("Trigger Desktop Build")
+                Spacer(Modifier.height(8.dp))
+                val isBuilding = buildStatus == "running"
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        OutlinedButton(
+                            onClick = { commandMenuExpanded = true },
+                            enabled = !isBuilding,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(selectedBuildCommand) }
+                        DropdownMenu(
+                            expanded = commandMenuExpanded,
+                            onDismissRequest = { commandMenuExpanded = false },
+                        ) {
+                            buildCommands.forEach { cmd ->
+                                DropdownMenuItem(
+                                    text = { Text(cmd) },
+                                    onClick = { selectedBuildCommand = cmd; commandMenuExpanded = false },
+                                )
+                            }
+                        }
+                    }
+                    if (isBuilding) {
+                        Button(
+                            onClick = { activeBuildId?.let { WsRepository.cancelDesktopBuild(it) } },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                        ) { Text("Cancel") }
+                    } else {
+                        Button(
+                            onClick = {
+                                buildLogLines.clear()
+                                buildStatus = "running"
+                                WsRepository.startDesktopBuild(selectedBuildCommand)
+                            },
+                        ) { Text("Start") }
+                    }
+                }
+                buildStatus?.let { status ->
+                    Spacer(Modifier.height(4.dp))
+                    val statusColor = when (status) {
+                        "running" -> MaterialTheme.colorScheme.tertiary
+                        "success" -> MaterialTheme.colorScheme.primary
+                        else -> MaterialTheme.colorScheme.error
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (status == "running") CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.padding(end = 2.dp))
+                        Text(status.uppercase(), style = MaterialTheme.typography.labelSmall, color = statusColor)
+                    }
+                }
+                if (buildLogLines.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 200.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .padding(8.dp),
+                    ) {
+                        LazyColumn(state = logListState) {
+                            items(buildLogLines) { line ->
+                                Text(
+                                    text = line,
+                                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 10.sp),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+                updateRestartingEvent?.let { evt ->
+                    Spacer(Modifier.height(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.tertiaryContainer)
+                            .padding(12.dp),
+                    ) {
+                        Column {
+                            val vLabel = evt.version?.let { "v$it " } ?: ""
+                            Text(
+                                "Desktop is installing ${vLabel}and restarting — reconnecting automatically…",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            )
+                            if (evt.error != null) {
+                                Spacer(Modifier.height(4.dp))
+                                Text("Error: ${evt.error}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+
+            item {
                 SectionHeader("Android Build Actions")
                 Spacer(Modifier.height(8.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -211,7 +367,18 @@ fun BuildDashboardScreen(onBack: () -> Unit) {
                 item { Text("No desktop build records.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 8.dp)) }
             } else {
                 items(desktopRecords) { record ->
-                    BuildRecordCard(record)
+                    val canApplyUpdate = record.status == "success" && record.command == "package"
+                    BuildRecordCard(
+                        record = record,
+                        showApplyUpdate = canApplyUpdate,
+                        onApplyUpdate = if (canApplyUpdate) {
+                            {
+                                confirmTitle = "Apply desktop update?"
+                                confirmMessage = "This publishes the packaged installer to the local feed and restarts the desktop app."
+                                confirmAction = { WsRepository.startUpdateFromArtifact() }
+                            }
+                        } else null,
+                    )
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
             }
@@ -274,6 +441,8 @@ private fun BuildRecordCard(
     record: BuildRecord,
     showRestore: Boolean = false,
     onRestore: (() -> Unit)? = null,
+    showApplyUpdate: Boolean = false,
+    onApplyUpdate: (() -> Unit)? = null,
 ) {
     val statusColor = when (record.status) {
         "success" -> MaterialTheme.colorScheme.primary
@@ -302,6 +471,12 @@ private fun BuildRecordCard(
             Spacer(Modifier.height(2.dp))
             TextButton(onClick = onRestore, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
                 Text("Restore to feed", style = MaterialTheme.typography.labelSmall)
+            }
+        }
+        if (showApplyUpdate && onApplyUpdate != null) {
+            Spacer(Modifier.height(2.dp))
+            TextButton(onClick = onApplyUpdate, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                Text("Apply Update", style = MaterialTheme.typography.labelSmall)
             }
         }
     }

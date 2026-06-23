@@ -1,4 +1,4 @@
-package io.nexy.android.ui.selfheal
+package io.nexy.android.ui.remoteedit
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -43,10 +43,10 @@ import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SelfHealReportsScreen(
+fun RemoteEditReportsScreen(
     onBack: () -> Unit,
     onOpenReport: (String) -> Unit,
-    vm: SelfHealViewModel = viewModel(),
+    vm: RemoteEditViewModel = viewModel(),
 ) {
     val reports by vm.errorReports.collectAsState()
     val isRefreshing by vm.isRefreshing.collectAsState()
@@ -73,7 +73,7 @@ fun SelfHealReportsScreen(
     Scaffold(
         topBar = {
             NexyTopAppBar(
-                titleContent = { Text("Self-Heal Reports") },
+                titleContent = { Text("Remote Edit") },
                 onBack = onBack,
                 subtitle = "Settings › Developer",
             )
@@ -87,8 +87,8 @@ fun SelfHealReportsScreen(
             if (reports.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     NexyEmptyState(
-                        title = "No error reports yet.",
-                        detail = "Self-Heal reports from the desktop will appear here.",
+                        title = "No edit requests yet.",
+                        detail = "Start a remote edit from chat to describe a change or fix.",
                         action = {
                             TextButton(onClick = { vm.refresh() }) { Text("Refresh") }
                         },

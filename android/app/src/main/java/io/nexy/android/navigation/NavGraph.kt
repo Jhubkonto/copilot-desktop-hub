@@ -36,8 +36,9 @@ import io.nexy.android.ui.home.HomeScreen
 import io.nexy.android.ui.home.ScopedChatHistoryScreen
 import io.nexy.android.ui.pairing.PairingScreen
 import io.nexy.android.ui.pairing.PairingStartScreen
-import io.nexy.android.ui.selfheal.SelfHealReportDetailScreen
-import io.nexy.android.ui.selfheal.SelfHealReportsScreen
+import io.nexy.android.ui.remoteedit.RemoteEditReportDetailScreen
+import io.nexy.android.ui.remoteedit.RemoteEditReportsScreen
+import io.nexy.android.ui.remoteedit.RemoteEditStartScreen
 import io.nexy.android.ui.artifacts.ArtifactsScreen
 import io.nexy.android.ui.projectgenerator.ProjectGeneratorScreen
 import io.nexy.android.ui.prompts.PromptsScreen
@@ -277,6 +278,9 @@ fun NavGraph(
                 projectId = projectId,
                 onBack = { navController.popBackStack() },
                 onOpenFork = { forkedId -> navController.navigate("chat/$forkedId") },
+                onOpenRemoteEditWithPrefill = { prefill ->
+                    navController.navigate("remote-edit/start?prefill=${Uri.encode(prefill)}")
+                },
             )
         }
 
@@ -294,7 +298,7 @@ fun NavGraph(
                 onOpenNotifications = { navController.navigate("settings/notifications") },
                 onOpenUpdates = { navController.navigate("settings/updates") },
                 onOpenDiagnostics = { navController.navigate("settings/diagnostics") },
-                onOpenSelfHeal = { navController.navigate("self-heal") },
+                onOpenRemoteEdit = { navController.navigate("remote-edit") },
                 onOpenProviders = { navController.navigate("providers") },
                 onOpenPromptLibrary = { navController.navigate("prompts") },
                 onOpenGlobalSettings = { navController.navigate("settings/global") },
@@ -451,19 +455,36 @@ fun NavGraph(
             PromptsScreen(onBack = { navController.popBackStack() })
         }
 
-        composable("self-heal") {
-            SelfHealReportsScreen(
+        composable("remote-edit") {
+            RemoteEditReportsScreen(
                 onBack = { navController.popBackStack() },
-                onOpenReport = { id -> navController.navigate("self-heal/$id") },
+                onOpenReport = { id -> navController.navigate("remote-edit/$id") },
             )
         }
 
         composable(
-            route = "self-heal/{reportId}",
+            route = "remote-edit/start?prefill={prefill}",
+            arguments = listOf(
+                navArgument("prefill") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+            ),
+        ) { backStackEntry ->
+            val prefill = backStackEntry.arguments?.getString("prefill") ?: ""
+            RemoteEditStartScreen(
+                prefillDescription = prefill,
+                onBack = { navController.popBackStack() },
+                onReportCreated = { reportId -> navController.navigate("remote-edit/$reportId") },
+            )
+        }
+
+        composable(
+            route = "remote-edit/{reportId}",
             arguments = listOf(navArgument("reportId") { type = NavType.StringType }),
         ) { backStackEntry ->
             val reportId = backStackEntry.arguments?.getString("reportId") ?: return@composable
-            SelfHealReportDetailScreen(reportId = reportId, onBack = { navController.popBackStack() })
+            RemoteEditReportDetailScreen(reportId = reportId, onBack = { navController.popBackStack() })
         }
 
         composable(

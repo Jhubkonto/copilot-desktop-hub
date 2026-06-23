@@ -26,7 +26,7 @@ fun SettingsScreen(
     onOpenNotifications: () -> Unit = {},
     onOpenUpdates: () -> Unit = {},
     onOpenDiagnostics: () -> Unit = {},
-    onOpenSelfHeal: () -> Unit = {},
+    onOpenRemoteEdit: () -> Unit = {},
     onOpenProviders: () -> Unit = {},
     onOpenPromptLibrary: () -> Unit = {},
     onOpenGlobalSettings: () -> Unit = {},
@@ -112,9 +112,9 @@ fun SettingsScreen(
                 onClick = onOpenBuildDashboard,
             )
             SettingsNavRow(
-                title = "Self-Heal Reports",
-                detail = "Review investigation and fix reports",
-                onClick = onOpenSelfHeal,
+                title = "Remote Edit",
+                detail = "Review AI edit requests and apply fixes",
+                onClick = onOpenRemoteEdit,
             )
             SettingsNavRow(
                 title = "Diagnostics",

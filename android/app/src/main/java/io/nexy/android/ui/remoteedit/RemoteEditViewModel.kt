@@ -1,4 +1,4 @@
-package io.nexy.android.ui.selfheal
+package io.nexy.android.ui.remoteedit
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-class SelfHealViewModel(app: Application) : AndroidViewModel(app) {
+class RemoteEditViewModel(app: Application) : AndroidViewModel(app) {
     val errorReports: StateFlow<List<ErrorReport>> = WsRepository.errorReports
 
     private val _isRefreshing = MutableStateFlow(false)
@@ -19,11 +19,15 @@ class SelfHealViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         _isRefreshing.value = true
+        WsRepository.sendLog("RemoteEditVM", "init: requesting reports")
         WsRepository.refreshReports()
         viewModelScope.launch {
             WsRepository.events.collect { event ->
                 when (event) {
-                    is WsEvent.SelfHealReports -> _isRefreshing.value = false
+                    is WsEvent.RemoteEditReports -> {
+                        WsRepository.sendLog("RemoteEditVM", "RemoteEditReports received: ${event.reports.size} reports")
+                        _isRefreshing.value = false
+                    }
                     else -> {}
                 }
             }
@@ -32,6 +36,7 @@ class SelfHealViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refresh() {
         _isRefreshing.value = true
+        WsRepository.sendLog("RemoteEditVM", "refresh: requesting reports")
         WsRepository.refreshReports()
     }
 }

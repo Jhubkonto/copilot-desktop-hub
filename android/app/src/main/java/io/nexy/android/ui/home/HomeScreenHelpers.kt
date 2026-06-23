@@ -17,17 +17,24 @@ import androidx.compose.ui.unit.dp
 import io.nexy.android.data.ConnectionState
 
 @Composable
-fun ConnectionChip(state: ConnectionState, onClick: (() -> Unit)? = null) {
+fun ConnectionChip(
+    state: ConnectionState,
+    intentionalRestartExpected: Boolean = false,
+    onClick: (() -> Unit)? = null,
+) {
+    data class ChipState(val state: ConnectionState, val restartExpected: Boolean)
     AnimatedContent(
-        targetState = state,
+        targetState = ChipState(state, intentionalRestartExpected),
         transitionSpec = { fadeIn() togetherWith fadeOut() },
         label = "connection-chip",
-    ) { currentState ->
-        val (label, color) = when (currentState) {
-            ConnectionState.CONNECTED -> "Connected" to Color(0xFF22C55E)
-            ConnectionState.CONNECTING -> "Connecting…" to Color(0xFFF59E0B)
-            ConnectionState.POLLING -> "Searching…" to Color(0xFFF59E0B)
-            ConnectionState.DISCONNECTED -> "Disconnected" to Color(0xFFEF4444)
+    ) { (currentState, restartExpected) ->
+        val (label, color) = when {
+            restartExpected && currentState != ConnectionState.CONNECTED ->
+                "Reconnecting after update…" to Color(0xFF14B8A6)
+            currentState == ConnectionState.CONNECTED -> "Connected" to Color(0xFF22C55E)
+            currentState == ConnectionState.CONNECTING -> "Connecting…" to Color(0xFFF59E0B)
+            currentState == ConnectionState.POLLING -> "Searching…" to Color(0xFFF59E0B)
+            else -> "Disconnected" to Color(0xFFEF4444)
         }
         val clickMod = if (onClick != null) {
             Modifier
