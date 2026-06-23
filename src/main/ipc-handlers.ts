@@ -23,9 +23,9 @@ import { registerModelAvailabilityHandlers } from './model-availability'
 import { cacheExternalWindowLabel, consumeSuppressFocusEvent } from './screen-capture'
 import { registerErrorLogHandlers } from './error-log-handlers'
 import { registerErrorReportHandlers } from './error-report-handlers'
-import { registerSelfHealHandlers } from './self-heal-handlers'
-import { registerSelfHealGitHandlers } from './self-heal/git-ops'
-import { registerSelfHealRecoveryHandlers } from './self-heal/recovery'
+import { registerRemoteEditHandlers } from './remote-edit-handlers'
+import { registerRemoteEditGitHandlers } from './remote-edit/git-ops'
+import { registerRemoteEditRecoveryHandlers } from './remote-edit/recovery'
 import { registerProjectGeneratorHandlers } from './project-generator'
 import { registerAgentGeneratorHandlers } from './agent-generator'
 import { registerArtifactHandlers } from './artifacts'
@@ -62,9 +62,9 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerModelAvailabilityHandlers()
   registerErrorLogHandlers()
   registerErrorReportHandlers()
-  registerSelfHealHandlers(mainWindow)
-  registerSelfHealGitHandlers(mainWindow)
-  registerSelfHealRecoveryHandlers(mainWindow)
+  registerRemoteEditHandlers(mainWindow)
+  registerRemoteEditGitHandlers(mainWindow)
+  registerRemoteEditRecoveryHandlers(mainWindow)
   registerSystemHandlers()
   registerBuildHandlers(mainWindow)
   registerAndroidHandlers(mainWindow)

@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 import { getDatabase } from '../database'
-import type { SelfHealHistoryEntry } from '../../shared/types'
+import type { RemoteEditHistoryEntry } from '../../shared/types'
 
 interface HistoryRow {
   id: string
@@ -22,7 +22,7 @@ interface HistoryRow {
   updated_at: number
 }
 
-function rowToEntry(row: HistoryRow): SelfHealHistoryEntry {
+function rowToEntry(row: HistoryRow): RemoteEditHistoryEntry {
   return {
     id: row.id,
     reportId: row.report_id,
@@ -44,10 +44,10 @@ function rowToEntry(row: HistoryRow): SelfHealHistoryEntry {
   }
 }
 
-export function getOrCreateHistoryEntry(reportId: string): SelfHealHistoryEntry {
+export function getOrCreateHistoryEntry(reportId: string): RemoteEditHistoryEntry {
   const db = getDatabase()
   const existing = db
-    .prepare('SELECT * FROM self_heal_history WHERE report_id = ? ORDER BY created_at DESC LIMIT 1')
+    .prepare('SELECT * FROM remote_edit_history WHERE report_id = ? ORDER BY created_at DESC LIMIT 1')
     .get(reportId) as HistoryRow | undefined
   if (existing) return rowToEntry(existing)
 
@@ -57,23 +57,23 @@ export function getOrCreateHistoryEntry(reportId: string): SelfHealHistoryEntry 
   const now = Date.now()
   const id = randomUUID()
   db.prepare(
-    `INSERT INTO self_heal_history
+    `INSERT INTO remote_edit_history
      (id, report_id, report_title, status, created_at, updated_at)
      VALUES (?, ?, ?, 'investigating', ?, ?)`,
   ).run(id, reportId, reportRow?.title ?? '', now, now)
 
   return rowToEntry(
-    db.prepare('SELECT * FROM self_heal_history WHERE id = ?').get(id) as HistoryRow,
+    db.prepare('SELECT * FROM remote_edit_history WHERE id = ?').get(id) as HistoryRow,
   )
 }
 
 export function updateHistoryEntry(
   reportId: string,
-  fields: Partial<Omit<SelfHealHistoryEntry, 'id' | 'reportId' | 'createdAt'>>,
+  fields: Partial<Omit<RemoteEditHistoryEntry, 'id' | 'reportId' | 'createdAt'>>,
 ): void {
   const db = getDatabase()
   const existing = db
-    .prepare('SELECT id FROM self_heal_history WHERE report_id = ? ORDER BY created_at DESC LIMIT 1')
+    .prepare('SELECT id FROM remote_edit_history WHERE report_id = ? ORDER BY created_at DESC LIMIT 1')
     .get(reportId) as { id: string } | undefined
   if (!existing) {
     getOrCreateHistoryEntry(reportId)
@@ -99,12 +99,12 @@ export function updateHistoryEntry(
   if (fields.status !== undefined) { setClauses.push('status = ?'); values.push(fields.status) }
 
   values.push(existing.id)
-  db.prepare(`UPDATE self_heal_history SET ${setClauses.join(', ')} WHERE id = ?`).run(...values)
+  db.prepare(`UPDATE remote_edit_history SET ${setClauses.join(', ')} WHERE id = ?`).run(...values)
 }
 
-export function listHistory(limit = 50): SelfHealHistoryEntry[] {
+export function listHistory(limit = 50): RemoteEditHistoryEntry[] {
   const rows = getDatabase()
-    .prepare('SELECT * FROM self_heal_history ORDER BY created_at DESC LIMIT ?')
+    .prepare('SELECT * FROM remote_edit_history ORDER BY created_at DESC LIMIT ?')
     .all(limit) as HistoryRow[]
   return rows.map(rowToEntry)
 }

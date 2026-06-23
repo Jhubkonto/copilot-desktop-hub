@@ -7,22 +7,22 @@ import { getDatabase } from '../database'
 import { safeHandle } from '../safe-handle'
 import { broadcastToMobile } from '../ws-server'
 import { getWorkspacePath, resolveInsideWorkspace } from './investigator'
-import { getSelfHealGitStatus } from './git-ops'
+import { getRemoteEditGitStatus } from './git-ops'
 import { updateHistoryEntry } from './history'
 import type {
   ErrorReportEntry,
-  SelfHealRecoveryBackupFile,
-  SelfHealRecoveryEvent,
-  SelfHealRecoveryPreReloadState,
-  SelfHealRecoveryRun,
-  SelfHealRelaunchResult,
-  SelfHealReloadStartResult,
-  SelfHealReloadPrepareResult,
-  SelfHealStartupConfirmationResult,
-  SelfHealStagedFileEntry,
+  RemoteEditRecoveryBackupFile,
+  RemoteEditRecoveryEvent,
+  RemoteEditRecoveryPreReloadState,
+  RemoteEditRecoveryRun,
+  RemoteEditRelaunchResult,
+  RemoteEditReloadStartResult,
+  RemoteEditReloadPrepareResult,
+  RemoteEditStartupConfirmationResult,
+  RemoteEditStagedFileEntry,
 } from '../../shared/types'
 
-const PENDING_RECOVERY_SETTING = 'self_heal_pending_recovery_id'
+const PENDING_RECOVERY_SETTING = 'remote_edit_pending_recovery_id'
 
 function readReport(reportId: string): ErrorReportEntry | null {
   return getDatabase()
@@ -32,7 +32,7 @@ function readReport(reportId: string): ErrorReportEntry | null {
 
 function latestVerificationPassed(reportId: string): boolean {
   const row = getDatabase()
-    .prepare('SELECT status FROM self_heal_verification_runs WHERE report_id = ? ORDER BY started_at DESC LIMIT 1')
+    .prepare('SELECT status FROM remote_edit_verification_runs WHERE report_id = ? ORDER BY started_at DESC LIMIT 1')
     .get(reportId) as { status: string } | undefined
   return row?.status === 'success'
 }
@@ -48,15 +48,15 @@ function readWorkspaceVersion(): string | null {
   }
 }
 
-function rowToRecovery(row: Record<string, unknown>): SelfHealRecoveryRun {
+function rowToRecovery(row: Record<string, unknown>): RemoteEditRecoveryRun {
   return {
     id: String(row.id),
     reportId: String(row.report_id),
-    status: row.status as SelfHealRecoveryRun['status'],
+    status: row.status as RemoteEditRecoveryRun['status'],
     targetCommitSha: typeof row.target_commit_sha === 'string' ? row.target_commit_sha : null,
     targetVersion: typeof row.target_version === 'string' ? row.target_version : null,
-    backupManifest: JSON.parse(String(row.backup_manifest_json || '[]')) as SelfHealRecoveryBackupFile[],
-    preReloadState: JSON.parse(String(row.pre_reload_state_json || '{}')) as SelfHealRecoveryPreReloadState,
+    backupManifest: JSON.parse(String(row.backup_manifest_json || '[]')) as RemoteEditRecoveryBackupFile[],
+    preReloadState: JSON.parse(String(row.pre_reload_state_json || '{}')) as RemoteEditRecoveryPreReloadState,
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
     confirmedAt: typeof row.confirmed_at === 'number' ? row.confirmed_at : null,
@@ -65,10 +65,10 @@ function rowToRecovery(row: Record<string, unknown>): SelfHealRecoveryRun {
   }
 }
 
-function persistRecovery(run: SelfHealRecoveryRun): void {
+function persistRecovery(run: RemoteEditRecoveryRun): void {
   getDatabase()
     .prepare(
-      `INSERT OR REPLACE INTO self_heal_recovery_runs
+      `INSERT OR REPLACE INTO remote_edit_recovery_runs
        (id, report_id, status, target_commit_sha, target_version, backup_manifest_json,
         pre_reload_state_json, created_at, updated_at, confirmed_at, rollback_at, error)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -90,11 +90,11 @@ function persistRecovery(run: SelfHealRecoveryRun): void {
 }
 
 function updateRecoveryStatus(
-  run: SelfHealRecoveryRun,
-  status: SelfHealRecoveryRun['status'],
+  run: RemoteEditRecoveryRun,
+  status: RemoteEditRecoveryRun['status'],
   error?: string,
-): SelfHealRecoveryRun {
-  const updated: SelfHealRecoveryRun = {
+): RemoteEditRecoveryRun {
+  const updated: RemoteEditRecoveryRun = {
     ...run,
     status,
     updatedAt: Date.now(),
@@ -105,30 +105,30 @@ function updateRecoveryStatus(
   return updated
 }
 
-export function getRecoveryRuns(reportId: string): SelfHealRecoveryRun[] {
+export function getRecoveryRuns(reportId: string): RemoteEditRecoveryRun[] {
   const rows = getDatabase()
-    .prepare('SELECT * FROM self_heal_recovery_runs WHERE report_id = ? ORDER BY created_at DESC LIMIT 10')
+    .prepare('SELECT * FROM remote_edit_recovery_runs WHERE report_id = ? ORDER BY created_at DESC LIMIT 10')
     .all(reportId) as Record<string, unknown>[]
   return rows.map(rowToRecovery)
 }
 
-function getRecoveryRun(recoveryId: string): SelfHealRecoveryRun | null {
+function getRecoveryRun(recoveryId: string): RemoteEditRecoveryRun | null {
   const row = getDatabase()
-    .prepare('SELECT * FROM self_heal_recovery_runs WHERE id = ?')
+    .prepare('SELECT * FROM remote_edit_recovery_runs WHERE id = ?')
     .get(recoveryId) as Record<string, unknown> | undefined
   return row ? rowToRecovery(row) : null
 }
 
-export async function prepareReload(reportId: string): Promise<SelfHealReloadPrepareResult> {
+export async function prepareReload(reportId: string): Promise<RemoteEditReloadPrepareResult> {
   const report = readReport(reportId)
-  const gitStatus = await getSelfHealGitStatus(reportId)
-  const staged = report ? JSON.parse(report.fix_staged_files || '[]') as SelfHealStagedFileEntry[] : []
+  const gitStatus = await getRemoteEditGitStatus(reportId)
+  const staged = report ? JSON.parse(report.fix_staged_files || '[]') as RemoteEditStagedFileEntry[] : []
   const backupManifest = staged.map((file) => ({
     relativePath: file.relativePath,
     backupPath: file.backupPath ?? null,
   }))
   const targetVersion = readWorkspaceVersion()
-  const preReloadState: SelfHealRecoveryPreReloadState = {
+  const preReloadState: RemoteEditRecoveryPreReloadState = {
     branch: gitStatus.branch,
     commitSha: gitStatus.commitSha,
     dirty: gitStatus.dirty,
@@ -148,7 +148,7 @@ export async function prepareReload(reportId: string): Promise<SelfHealReloadPre
   }
 
   const now = Date.now()
-  const recovery: SelfHealRecoveryRun = {
+  const recovery: RemoteEditRecoveryRun = {
     id: randomUUID(),
     reportId,
     status: 'prepared',
@@ -165,7 +165,7 @@ export async function prepareReload(reportId: string): Promise<SelfHealReloadPre
   return { reportId, recovery, canReload: true }
 }
 
-function insertReloadBuildRecord(run: SelfHealRecoveryRun): string {
+function insertReloadBuildRecord(run: RemoteEditRecoveryRun): string {
   const buildId = randomUUID()
   const now = Date.now()
   getDatabase()
@@ -199,8 +199,8 @@ function finishReloadBuildRecord(buildId: string, exitCode: number, logTail: str
 
 export async function startReload(
   recoveryId: string,
-  emit?: (event: SelfHealRecoveryEvent) => void,
-): Promise<SelfHealReloadStartResult> {
+  emit?: (event: RemoteEditRecoveryEvent) => void,
+): Promise<RemoteEditReloadStartResult> {
   const run = getRecoveryRun(recoveryId)
   if (!run) {
     return { reportId: '', recoveryId, started: false, buildId: null, recovery: null, error: 'Recovery run was not found' }
@@ -264,7 +264,7 @@ export async function startReload(
   return { reportId: run.reportId, recoveryId, started: true, buildId, recovery: reloading }
 }
 
-export function approveRelaunch(recoveryId: string): SelfHealRelaunchResult {
+export function approveRelaunch(recoveryId: string): RemoteEditRelaunchResult {
   const run = getRecoveryRun(recoveryId)
   if (!run) return { reportId: '', recoveryId, scheduled: false, error: 'Recovery run was not found' }
   if (run.status !== 'reloading') {
@@ -273,15 +273,15 @@ export function approveRelaunch(recoveryId: string): SelfHealRelaunchResult {
   getDatabase()
     .prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
     .run(PENDING_RECOVERY_SETTING, recoveryId)
-  broadcastToMobile({ event: 'self-heal:reloading', data: { recoveryId } })
+  broadcastToMobile({ event: 'remote-edit:reloading', data: { recoveryId } })
   app.relaunch()
   app.exit(0)
   return { reportId: run.reportId, recoveryId, scheduled: true }
 }
 
 export function confirmStartupAfterRelaunch(
-  emit?: (event: SelfHealRecoveryEvent) => void,
-): SelfHealStartupConfirmationResult {
+  emit?: (event: RemoteEditRecoveryEvent) => void,
+): RemoteEditStartupConfirmationResult {
   const row = getDatabase()
     .prepare('SELECT value FROM settings WHERE key = ?')
     .get(PENDING_RECOVERY_SETTING) as { value: string } | undefined
@@ -305,7 +305,7 @@ export function confirmStartupAfterRelaunch(
     reportId: confirmed.reportId,
     recoveryId: confirmed.id,
     type: 'confirm',
-    label: 'Startup confirmed after self-heal reload',
+    label: 'Startup confirmed after remote-edit reload',
     status: confirmed.status,
   })
   updateHistoryEntry(confirmed.reportId, { reloaded: true, status: 'reloaded' })
@@ -314,7 +314,7 @@ export function confirmStartupAfterRelaunch(
 
 export async function rollbackHeal(
   recoveryId: string,
-  emit?: (event: SelfHealRecoveryEvent) => void,
+  emit?: (event: RemoteEditRecoveryEvent) => void,
 ): Promise<{ rolledBack: boolean; error?: string }> {
   const run = getRecoveryRun(recoveryId)
   if (!run) return { rolledBack: false, error: 'Recovery run not found' }
@@ -346,20 +346,20 @@ export async function rollbackHeal(
   return { rolledBack: true }
 }
 
-function emitRecoveryEvent(win: BrowserWindow | undefined, event: SelfHealRecoveryEvent): void {
+function emitRecoveryEvent(win: BrowserWindow | undefined, event: RemoteEditRecoveryEvent): void {
   if (win && !win.isDestroyed()) {
-    win.webContents.send('self-heal:recovery-event', event)
+    win.webContents.send('remote-edit:recovery-event', event)
   }
-  broadcastToMobile({ event: 'self-heal:recovery-event', data: event })
+  broadcastToMobile({ event: 'remote-edit:recovery-event', data: event })
 }
 
-export function registerSelfHealRecoveryHandlers(mainWindow?: BrowserWindow): void {
-  safeHandle('self-heal:get-recovery-runs', (_event, reportId: string) => {
+export function registerRemoteEditRecoveryHandlers(mainWindow?: BrowserWindow): void {
+  safeHandle('remote-edit:get-recovery-runs', (_event, reportId: string) => {
     if (!reportId) return []
     return getRecoveryRuns(reportId)
   })
 
-  safeHandle('self-heal:prepare-reload', async (_event, reportId: string) => {
+  safeHandle('remote-edit:prepare-reload', async (_event, reportId: string) => {
     const result = await prepareReload(reportId)
     emitRecoveryEvent(mainWindow, {
       reportId,
@@ -372,7 +372,7 @@ export function registerSelfHealRecoveryHandlers(mainWindow?: BrowserWindow): vo
     return result
   })
 
-  safeHandle('self-heal:start-reload', async (_event, recoveryId: string) => {
+  safeHandle('remote-edit:start-reload', async (_event, recoveryId: string) => {
     const result = await startReload(recoveryId, (event) => emitRecoveryEvent(mainWindow, event))
     if (!result.started) {
       emitRecoveryEvent(mainWindow, {
@@ -387,13 +387,13 @@ export function registerSelfHealRecoveryHandlers(mainWindow?: BrowserWindow): vo
     return result
   })
 
-  safeHandle('self-heal:approve-relaunch', (_event, recoveryId: string) => approveRelaunch(recoveryId))
+  safeHandle('remote-edit:approve-relaunch', (_event, recoveryId: string) => approveRelaunch(recoveryId))
 
-  safeHandle('self-heal:confirm-startup', () =>
+  safeHandle('remote-edit:confirm-startup', () =>
     confirmStartupAfterRelaunch((event) => emitRecoveryEvent(mainWindow, event)),
   )
 
-  safeHandle('self-heal:rollback', async (_event, recoveryId: string) => {
+  safeHandle('remote-edit:rollback', async (_event, recoveryId: string) => {
     return rollbackHeal(recoveryId, (event) => emitRecoveryEvent(mainWindow, event))
   })
 }

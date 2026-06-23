@@ -11,6 +11,7 @@ import type Database from 'better-sqlite3'
 import { safeHandle } from './safe-handle'
 import { getDatabase } from './database'
 import { startFeedServer, isFeedRunning, getFeedUrl, getFeedPort } from './local-feed-server'
+import { broadcastToMobile } from './ws-server'
 import { debugTime, debugTimeEnd } from './debug-mode'
 import type { BuildCommandName, BuildRecord, BuildStatus, LocalUpdateFeed, PreflightCheck, PublishedEntry, WorkspaceInfo } from '../shared/types'
 
@@ -107,6 +108,7 @@ function rowToRecord(row: Record<string, unknown>): BuildRecord {
     logTail: (row.log_tail as string | null) ?? '',
     startedAt: row.started_at as number,
     finishedAt: (row.finished_at as number | null) ?? null,
+    mobileInitiated: Boolean(row.mobile_initiated),
   }
 }
 
@@ -160,6 +162,176 @@ function scanArtifacts(releaseDir: string, beforeMtime: number): string[] {
     }
   }
   return found
+}
+
+// ---------------------------------------------------------------------------
+// Shared publish helper (used by IPC handler + mobile auto-update)
+// ---------------------------------------------------------------------------
+
+export async function publishArtifactToFeed(db: Database.Database): Promise<{ published: boolean; version?: string; error?: string }> {
+  const feedPath = getLocalFeedPath(db)
+  if (!feedPath) return { published: false, error: 'No local update feed path configured' }
+
+  const workspacePath = getWorkspacePath(db)
+  const releaseDir = path.join(workspacePath, 'release')
+  const ymlName = getYmlName()
+  const ymlSrc = path.join(releaseDir, ymlName)
+  const ext = getInstallerExt()
+
+  let installerSrc: string | null = null
+  if (existsSync(releaseDir)) {
+    let latestMtime = 0
+    for (const entry of readdirSync(releaseDir)) {
+      if (entry.endsWith(ext)) {
+        const full = path.join(releaseDir, entry)
+        try {
+          const st = statSync(full)
+          if (st.isFile() && st.mtimeMs > latestMtime) { installerSrc = full; latestMtime = st.mtimeMs }
+        } catch { /* skip */ }
+      }
+    }
+  }
+
+  if (!installerSrc) return { published: false, error: `No ${ext} installer found in release/` }
+  if (!existsSync(ymlSrc)) return { published: false, error: `${ymlName} not found in release/` }
+
+  const ymlContent = await readFile(ymlSrc, 'utf8')
+  const parsed = parseYmlMeta(ymlContent)
+  if (!parsed) return { published: false, error: 'Could not parse version from latest.yml' }
+
+  // Backup existing feed before overwriting
+  const existingYml = path.join(feedPath, ymlName)
+  if (existsSync(existingYml)) {
+    try {
+      const oldContent = await readFile(existingYml, 'utf8')
+      const oldParsed = parseYmlMeta(oldContent)
+      if (oldParsed) {
+        const backupDir = path.join(feedPath, '_backups', `v${oldParsed.version}`)
+        mkdirSync(backupDir, { recursive: true })
+        copyFileSync(existingYml, path.join(backupDir, ymlName))
+        const oldInstaller = path.join(feedPath, oldParsed.installerName)
+        if (existsSync(oldInstaller)) copyFileSync(oldInstaller, path.join(backupDir, oldParsed.installerName))
+      }
+    } catch { /* backup failure is non-fatal */ }
+  }
+
+  mkdirSync(feedPath, { recursive: true })
+  copyFileSync(ymlSrc, path.join(feedPath, ymlName))
+  copyFileSync(installerSrc, path.join(feedPath, parsed.installerName))
+
+  if (!isFeedRunning()) {
+    const port = await startFeedServer(feedPath)
+    try {
+      const pkg = await import('electron-updater')
+      pkg.default.autoUpdater.setFeedURL({ provider: 'generic', url: `http://127.0.0.1:${port}` } as never)
+    } catch { /* ignore */ }
+  }
+
+  return { published: true, version: parsed.version }
+}
+
+// ---------------------------------------------------------------------------
+// Mobile-initiated build API (called from ws-handlers.ts)
+// ---------------------------------------------------------------------------
+
+export async function startBuildFromMobile(command: BuildCommandName, mainWindow?: BrowserWindow): Promise<{ buildId: string }> {
+  const db = getDatabase()
+  const buildId = randomUUID()
+  const workspacePath = getWorkspacePath(db)
+  const wsInfo = await getWorkspaceInfo(db)
+  const now = Date.now()
+
+  db.prepare(
+    `INSERT INTO build_records
+      (id, workspace_path, commit_sha, branch, version, platform, command, status, started_at, mobile_initiated)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?, 1)`
+  ).run(buildId, workspacePath, wsInfo.commitSha, wsInfo.branch, wsInfo.version, process.platform, command, now)
+
+  const cmd = BUILD_COMMANDS[command]
+  const child = spawn(cmd, [], { shell: true, cwd: workspacePath })
+  activeBuildProcesses.set(buildId, child)
+
+  const logLines: string[] = []
+  const MAX_LOG_CHARS = 4096
+  let lastUniqueLine = ''
+  let repeatCount = 0
+
+  function appendLog(line: string, stream: 'stdout' | 'stderr'): void {
+    if (line === lastUniqueLine) {
+      repeatCount++
+      const summary = `  [repeated ${repeatCount + 1}×]`
+      logLines[logLines.length - 1] = summary
+      mainWindow?.webContents.send('build:log-chunk', { buildId, line: summary, stream, replace: true })
+      broadcastToMobile({ event: 'build:log-chunk', data: { buildId, line: summary, stream, replace: true } })
+      return
+    }
+    lastUniqueLine = line
+    repeatCount = 0
+    logLines.push(line)
+    mainWindow?.webContents.send('build:log-chunk', { buildId, line, stream })
+    broadcastToMobile({ event: 'build:log-chunk', data: { buildId, line, stream } })
+  }
+
+  function buildLogTail(): string {
+    const joined = logLines.join('\n')
+    return joined.length > MAX_LOG_CHARS ? joined.slice(-MAX_LOG_CHARS) : joined
+  }
+
+  child.stdout?.on('data', (data: Buffer) => {
+    for (const line of data.toString().split('\n')) {
+      if (line) appendLog(line, 'stdout')
+    }
+  })
+
+  child.stderr?.on('data', (data: Buffer) => {
+    for (const line of data.toString().split('\n')) {
+      if (line) appendLog(line, 'stderr')
+    }
+  })
+
+  child.on('close', (code) => {
+    activeBuildProcesses.delete(buildId)
+    const exitCode = code ?? -1
+    const status: BuildStatus = exitCode === 0 ? 'success' : 'failed'
+    const finishedAt = Date.now()
+    const logTail = buildLogTail()
+    const releaseDir = path.join(workspacePath, 'release')
+    const artifactPaths = command === 'package' ? scanArtifacts(releaseDir, now) : []
+
+    db.prepare(
+      `UPDATE build_records
+       SET status = ?, exit_code = ?, finished_at = ?, log_tail = ?, artifact_paths = ?
+       WHERE id = ?`
+    ).run(status, exitCode, finishedAt, logTail, JSON.stringify(artifactPaths), buildId)
+
+    mainWindow?.webContents.send('build:command-done', { buildId, status, exitCode })
+    broadcastToMobile({ event: 'build:command-done', data: { buildId, status, exitCode } })
+
+    // Phase 2: auto-publish + relaunch after a successful mobile-initiated package build
+    if (command === 'package' && status === 'success') {
+      void publishArtifactToFeed(db).then((result) => {
+        if (!result.published) return
+        broadcastToMobile({ event: 'update:restarting', data: { eta: 10, version: result.version ?? null } })
+        mainWindow?.webContents.send('update:restarting', { eta: 10, version: result.version ?? null })
+        setTimeout(() => { app.relaunch(); app.exit(0) }, 2000)
+      })
+    }
+  })
+
+  return { buildId }
+}
+
+export function cancelMobileBuild(buildId: string): boolean {
+  const child = activeBuildProcesses.get(buildId)
+  if (!child) return false
+  child.kill('SIGTERM')
+  activeBuildProcesses.delete(buildId)
+  const db = getDatabase()
+  db.prepare(
+    `UPDATE build_records SET status = 'cancelled', finished_at = ? WHERE id = ?`
+  ).run(Date.now(), buildId)
+  broadcastToMobile({ event: 'build:command-done', data: { buildId, status: 'cancelled', exitCode: null } })
+  return true
 }
 
 // ---------------------------------------------------------------------------
@@ -374,68 +546,7 @@ export function registerBuildHandlers(mainWindow?: BrowserWindow): void {
     return buildFeedInfo(newFeedPath)
   })
 
-  safeHandle('build:publish-update', async () => {
-    const feedPath = getLocalFeedPath(db)
-    if (!feedPath) return { published: false, error: 'No local update feed path configured' }
-
-    const workspacePath = getWorkspacePath(db)
-    const releaseDir = path.join(workspacePath, 'release')
-    const ymlName = getYmlName()
-    const ymlSrc = path.join(releaseDir, ymlName)
-    const ext = getInstallerExt()
-
-    // Find the most recently modified installer
-    let installerSrc: string | null = null
-    if (existsSync(releaseDir)) {
-      let latestMtime = 0
-      for (const entry of readdirSync(releaseDir)) {
-        if (entry.endsWith(ext)) {
-          const full = path.join(releaseDir, entry)
-          try {
-            const st = statSync(full)
-            if (st.isFile() && st.mtimeMs > latestMtime) { installerSrc = full; latestMtime = st.mtimeMs }
-          } catch { /* skip */ }
-        }
-      }
-    }
-
-    if (!installerSrc) return { published: false, error: `No ${ext} installer found in release/` }
-    if (!existsSync(ymlSrc)) return { published: false, error: `${ymlName} not found in release/` }
-
-    const ymlContent = await readFile(ymlSrc, 'utf8')
-    const parsed = parseYmlMeta(ymlContent)
-    if (!parsed) return { published: false, error: 'Could not parse version from latest.yml' }
-
-    // Backup existing feed before overwriting
-    const existingYml = path.join(feedPath, ymlName)
-    if (existsSync(existingYml)) {
-      try {
-        const oldContent = await readFile(existingYml, 'utf8')
-        const oldParsed = parseYmlMeta(oldContent)
-        if (oldParsed) {
-          const backupDir = path.join(feedPath, '_backups', `v${oldParsed.version}`)
-          mkdirSync(backupDir, { recursive: true })
-          copyFileSync(existingYml, path.join(backupDir, ymlName))
-          const oldInstaller = path.join(feedPath, oldParsed.installerName)
-          if (existsSync(oldInstaller)) copyFileSync(oldInstaller, path.join(backupDir, oldParsed.installerName))
-        }
-      } catch { /* backup failure is non-fatal */ }
-    }
-
-    mkdirSync(feedPath, { recursive: true })
-    copyFileSync(ymlSrc, path.join(feedPath, ymlName))
-    copyFileSync(installerSrc, path.join(feedPath, parsed.installerName))
-
-    if (!isFeedRunning()) {
-      const port = await startFeedServer(feedPath)
-      try {
-        const pkg = await import('electron-updater')
-        pkg.default.autoUpdater.setFeedURL({ provider: 'generic', url: `http://127.0.0.1:${port}` } as never)
-      } catch { /* ignore */ }
-    }
-
-    return { published: true, version: parsed.version }
-  })
+  safeHandle('build:publish-update', () => publishArtifactToFeed(db))
 
   safeHandle('build:list-published', async () => {
     debugTime('build:list-published')

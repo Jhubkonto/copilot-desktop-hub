@@ -71,7 +71,7 @@ function getAuth(saJson: string): GoogleAuth {
   return cachedAuth
 }
 
-export async function sendSelfHealNotification(
+export async function sendRemoteEditNotification(
   db: Database.Database,
   payload: { type: string; reportId: string; title: string; failedStep?: string | null },
 ): Promise<void> {
@@ -102,7 +102,7 @@ export async function sendSelfHealNotification(
         message: {
           token: fcm_token,
           data: {
-            type: `self-heal:${payload.type}`,
+            type: `remote-edit:${payload.type}`,
             reportId: payload.reportId,
             title: payload.title,
             ...(payload.failedStep ? { failedStep: payload.failedStep } : {}),

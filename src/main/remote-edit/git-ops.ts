@@ -8,14 +8,14 @@ import { getWorkspacePath, resolveInsideWorkspace } from './investigator'
 import { updateHistoryEntry } from './history'
 import type {
   ErrorReportEntry,
-  SelfHealGitCommitResult,
-  SelfHealGitEvent,
-  SelfHealGitFile,
-  SelfHealGitFileStatus,
-  SelfHealGitPrepareResult,
-  SelfHealGitPushResult,
-  SelfHealGitStatus,
-  SelfHealStagedFileEntry,
+  RemoteEditGitCommitResult,
+  RemoteEditGitEvent,
+  RemoteEditGitFile,
+  RemoteEditGitFileStatus,
+  RemoteEditGitPrepareResult,
+  RemoteEditGitPushResult,
+  RemoteEditGitStatus,
+  RemoteEditStagedFileEntry,
 } from '../../shared/types'
 
 const execFileAsync = promisify(execFile)
@@ -25,7 +25,7 @@ async function git(args: string[], cwd = getWorkspacePath()): Promise<string> {
   return stdout.trim()
 }
 
-function classifyStatus(indexStatus: string, worktreeStatus: string): SelfHealGitFileStatus {
+function classifyStatus(indexStatus: string, worktreeStatus: string): RemoteEditGitFileStatus {
   if (indexStatus === '?' || worktreeStatus === '?') return 'untracked'
   if (indexStatus === 'A' || worktreeStatus === 'A') return 'added'
   if (indexStatus === 'D' || worktreeStatus === 'D') return 'deleted'
@@ -34,12 +34,12 @@ function classifyStatus(indexStatus: string, worktreeStatus: string): SelfHealGi
   return 'unknown'
 }
 
-function parseStatusPorcelain(output: string): { branch: string | null; ahead: number; behind: number; files: SelfHealGitFile[] } {
+function parseStatusPorcelain(output: string): { branch: string | null; ahead: number; behind: number; files: RemoteEditGitFile[] } {
   const lines = output.split('\n').filter(Boolean)
   let branch: string | null = null
   let ahead = 0
   let behind = 0
-  const files: SelfHealGitFile[] = []
+  const files: RemoteEditGitFile[] = []
 
   for (const line of lines) {
     if (line.startsWith('## ')) {
@@ -67,7 +67,7 @@ function parseStatusPorcelain(output: string): { branch: string | null; ahead: n
   return { branch, ahead, behind, files }
 }
 
-export async function getSelfHealGitStatus(reportId?: string): Promise<SelfHealGitStatus> {
+export async function getRemoteEditGitStatus(reportId?: string): Promise<RemoteEditGitStatus> {
   const workspacePath = getWorkspacePath()
   try {
     await git(['rev-parse', '--show-toplevel'], workspacePath)
@@ -108,7 +108,7 @@ function readReport(reportId: string): ErrorReportEntry | null {
 }
 
 function getAppliedFiles(report: ErrorReportEntry): string[] {
-  const staged = JSON.parse(report.fix_staged_files || '[]') as SelfHealStagedFileEntry[]
+  const staged = JSON.parse(report.fix_staged_files || '[]') as RemoteEditStagedFileEntry[]
   return staged.map((file) => file.relativePath).filter(Boolean)
 }
 
@@ -121,16 +121,16 @@ function validateWorkspaceFiles(files: string[]): void {
 
 function latestVerificationPassed(reportId: string): boolean {
   const row = getDatabase()
-    .prepare('SELECT status FROM self_heal_verification_runs WHERE report_id = ? ORDER BY started_at DESC LIMIT 1')
+    .prepare('SELECT status FROM remote_edit_verification_runs WHERE report_id = ? ORDER BY started_at DESC LIMIT 1')
     .get(reportId) as { status: string } | undefined
   return row?.status === 'success'
 }
 
-export async function prepareSelfHealCommit(reportId: string): Promise<SelfHealGitPrepareResult> {
+export async function prepareRemoteEditCommit(reportId: string): Promise<RemoteEditGitPrepareResult> {
   const report = readReport(reportId)
-  const status = await getSelfHealGitStatus(reportId)
+  const status = await getRemoteEditGitStatus(reportId)
   const files = report ? getAppliedFiles(report) : []
-  const suggestedMessage = report ? `fix: self-heal ${report.title}` : 'fix: self-heal update'
+  const suggestedMessage = report ? `fix: remote-edit ${report.title}` : 'fix: remote-edit update'
 
   let reason: string | undefined
   if (!status.isRepo) reason = status.error ?? 'Workspace is not a git repository'
@@ -149,8 +149,8 @@ export async function prepareSelfHealCommit(reportId: string): Promise<SelfHealG
   }
 }
 
-export async function commitSelfHealFix(reportId: string, message: string): Promise<SelfHealGitCommitResult> {
-  const prepared = await prepareSelfHealCommit(reportId)
+export async function commitRemoteEditFix(reportId: string, message: string): Promise<RemoteEditGitCommitResult> {
+  const prepared = await prepareRemoteEditCommit(reportId)
   if (!prepared.canCommit) {
     return { reportId, committed: false, commitSha: null, status: prepared.status, error: prepared.reason }
   }
@@ -165,58 +165,58 @@ export async function commitSelfHealFix(reportId: string, message: string): Prom
     await git(['add', '--', ...prepared.files])
     await git(['commit', '-m', trimmedMessage])
     const commitSha = await git(['rev-parse', '--short', 'HEAD']).catch(() => null)
-    const status = await getSelfHealGitStatus(reportId)
+    const status = await getRemoteEditGitStatus(reportId)
     return { reportId, committed: true, commitSha, status }
   } catch (error) {
     return {
       reportId,
       committed: false,
       commitSha: null,
-      status: await getSelfHealGitStatus(reportId),
+      status: await getRemoteEditGitStatus(reportId),
       error: error instanceof Error ? error.message : String(error),
     }
   }
 }
 
-export async function pushSelfHealFix(reportId: string): Promise<SelfHealGitPushResult> {
+export async function pushRemoteEditFix(reportId: string): Promise<RemoteEditGitPushResult> {
   try {
     await git(['push'])
-    return { reportId, pushed: true, status: await getSelfHealGitStatus(reportId) }
+    return { reportId, pushed: true, status: await getRemoteEditGitStatus(reportId) }
   } catch (error) {
     return {
       reportId,
       pushed: false,
-      status: await getSelfHealGitStatus(reportId),
+      status: await getRemoteEditGitStatus(reportId),
       error: error instanceof Error ? error.message : String(error),
     }
   }
 }
 
-function emitGitEvent(win: BrowserWindow | undefined, event: SelfHealGitEvent): void {
+function emitGitEvent(win: BrowserWindow | undefined, event: RemoteEditGitEvent): void {
   if (win && !win.isDestroyed()) {
-    win.webContents.send('self-heal:git-event', event)
+    win.webContents.send('remote-edit:git-event', event)
   }
-  broadcastToMobile({ event: 'self-heal:git-event', data: event })
+  broadcastToMobile({ event: 'remote-edit:git-event', data: event })
 }
 
-export function registerSelfHealGitHandlers(mainWindow?: BrowserWindow): void {
-  safeHandle('self-heal:git-status', (_event, reportId?: string) => getSelfHealGitStatus(reportId))
+export function registerRemoteEditGitHandlers(mainWindow?: BrowserWindow): void {
+  safeHandle('remote-edit:git-status', (_event, reportId?: string) => getRemoteEditGitStatus(reportId))
 
-  safeHandle('self-heal:git-prepare-commit', async (_event, reportId: string) => {
-    const result = await prepareSelfHealCommit(reportId)
+  safeHandle('remote-edit:git-prepare-commit', async (_event, reportId: string) => {
+    const result = await prepareRemoteEditCommit(reportId)
     emitGitEvent(mainWindow, {
       reportId,
       type: 'prepare',
-      label: result.canCommit ? 'Ready to commit self-heal fix' : result.reason ?? 'Unable to prepare commit',
+      label: result.canCommit ? 'Ready to commit remote-edit fix' : result.reason ?? 'Unable to prepare commit',
       status: result.status,
       error: result.reason,
     })
     return result
   })
 
-  safeHandle('self-heal:git-commit', async (_event, reportId: string, message: string) => {
-    emitGitEvent(mainWindow, { reportId, type: 'commit', label: 'Committing self-heal fix' })
-    const result = await commitSelfHealFix(reportId, message)
+  safeHandle('remote-edit:git-commit', async (_event, reportId: string, message: string) => {
+    emitGitEvent(mainWindow, { reportId, type: 'commit', label: 'Committing remote-edit fix' })
+    const result = await commitRemoteEditFix(reportId, message)
     emitGitEvent(mainWindow, {
       reportId,
       type: 'commit',
@@ -231,9 +231,9 @@ export function registerSelfHealGitHandlers(mainWindow?: BrowserWindow): void {
     return result
   })
 
-  safeHandle('self-heal:git-push', async (_event, reportId: string) => {
-    emitGitEvent(mainWindow, { reportId, type: 'push', label: 'Pushing self-heal fix' })
-    const result = await pushSelfHealFix(reportId)
+  safeHandle('remote-edit:git-push', async (_event, reportId: string) => {
+    emitGitEvent(mainWindow, { reportId, type: 'push', label: 'Pushing remote-edit fix' })
+    const result = await pushRemoteEditFix(reportId)
     emitGitEvent(mainWindow, {
       reportId,
       type: 'push',

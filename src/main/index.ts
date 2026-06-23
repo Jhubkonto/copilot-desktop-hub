@@ -10,7 +10,7 @@ import { initLogger } from './logger'
 import { validateSender } from './safe-handle'
 import { initDebugMode, debugLog } from './debug-mode'
 import { initErrorLogCapture } from './error-log-handlers'
-import { confirmStartupAfterRelaunch, rollbackHeal } from './self-heal/recovery'
+import { confirmStartupAfterRelaunch, rollbackHeal } from './remote-edit/recovery'
 import { broadcastToMobile, autoStartWsServerIfEnabled, startWsServerIfNeeded, getCurrentPairingUrl, setIpChangeCallback, setClientCountChangeCallback } from './ws-server'
 import { sendDesktopOnlinePush, sendIpChangedPush } from './fcm-sender'
 import { schedulerEngine } from './scheduler-engine'
@@ -296,18 +296,18 @@ app.whenReady().then(() => {
     initAutoUpdater(mainWindow)
     checkForUpdatesOnStartup()
 
-    // Confirm startup after a self-heal reload (no-op if no pending recovery)
+    // Confirm startup after a remote-edit reload (no-op if no pending recovery)
     confirmStartupAfterRelaunch((event) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('self-heal:recovery-event', event)
+        mainWindow.webContents.send('remote-edit:recovery-event', event)
       }
-      broadcastToMobile({ event: 'self-heal:recovery-event', data: event })
+      broadcastToMobile({ event: 'remote-edit:recovery-event', data: event })
     })
 
-    // Open failsafe window if renderer fails to load during a self-heal recovery
+    // Open failsafe window if renderer fails to load during a remote-edit recovery
     mainWindow.webContents.on('did-fail-load', () => {
       const db = getDatabase()
-      const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('self_heal_pending_recovery_id') as { value: string } | undefined
+      const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('remote_edit_pending_recovery_id') as { value: string } | undefined
       if (!row?.value) return
       const failsafeWin = new BrowserWindow({
         width: 500,
@@ -321,22 +321,22 @@ app.whenReady().then(() => {
         },
       })
       void failsafeWin.loadFile(join(app.getAppPath(), 'resources', 'failsafe.html'))
-      broadcastToMobile({ event: 'self-heal:failsafe-active', data: {} })
+      broadcastToMobile({ event: 'remote-edit:failsafe-active', data: {} })
     })
 
-    // Failsafe IPC handlers (only meaningful during a self-heal recovery)
+    // Failsafe IPC handlers (only meaningful during a remote-edit recovery)
     ipcMain.handle('failsafe:rollback', async () => {
       const db = getDatabase()
-      const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('self_heal_pending_recovery_id') as { value: string } | undefined
+      const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('remote_edit_pending_recovery_id') as { value: string } | undefined
       if (row?.value) {
-        await rollbackHeal(row.value, (event) => broadcastToMobile({ event: 'self-heal:recovery-event', data: event }))
-        db.prepare('DELETE FROM settings WHERE key = ?').run('self_heal_pending_recovery_id')
+        await rollbackHeal(row.value, (event) => broadcastToMobile({ event: 'remote-edit:recovery-event', data: event }))
+        db.prepare('DELETE FROM settings WHERE key = ?').run('remote_edit_pending_recovery_id')
       }
       app.relaunch()
       app.exit(0)
     })
     ipcMain.handle('failsafe:dismiss', () => {
-      getDatabase().prepare('DELETE FROM settings WHERE key = ?').run('self_heal_pending_recovery_id')
+      getDatabase().prepare('DELETE FROM settings WHERE key = ?').run('remote_edit_pending_recovery_id')
     })
   }
 

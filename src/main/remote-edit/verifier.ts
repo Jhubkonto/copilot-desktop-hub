@@ -5,17 +5,17 @@ import { getDatabase } from '../database'
 import { broadcastToMobile } from '../ws-server'
 import { getWorkspacePath, loadInvestigationSettings } from './investigator'
 import type {
-  SelfHealVerificationCommand,
-  SelfHealVerificationDone,
-  SelfHealVerificationEvent,
-  SelfHealVerificationRun,
-  SelfHealVerificationStep,
+  RemoteEditVerificationCommand,
+  RemoteEditVerificationDone,
+  RemoteEditVerificationEvent,
+  RemoteEditVerificationRun,
+  RemoteEditVerificationStep,
 } from '../../shared/types'
 
-const VERIFY_COMMANDS: SelfHealVerificationCommand[] = ['typecheck', 'lint', 'test', 'build']
+const VERIFY_COMMANDS: RemoteEditVerificationCommand[] = ['typecheck', 'lint', 'test', 'build']
 const MAX_LOG_CHARS = 24000
 
-function createInitialSteps(): SelfHealVerificationStep[] {
+function createInitialSteps(): RemoteEditVerificationStep[] {
   return VERIFY_COMMANDS.map((command) => ({
     command,
     status: 'pending',
@@ -31,10 +31,10 @@ function appendLog(existing: string, line: string): string {
   return next.length > MAX_LOG_CHARS ? next.slice(next.length - MAX_LOG_CHARS) : next
 }
 
-function persistRun(run: SelfHealVerificationRun): void {
+function persistRun(run: RemoteEditVerificationRun): void {
   getDatabase()
     .prepare(
-      `INSERT OR REPLACE INTO self_heal_verification_runs
+      `INSERT OR REPLACE INTO remote_edit_verification_runs
        (id, report_id, status, steps_json, started_at, completed_at, retry_count, error)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
@@ -50,7 +50,7 @@ function persistRun(run: SelfHealVerificationRun): void {
     )
 }
 
-function appendFailureContext(reportId: string, run: SelfHealVerificationRun): void {
+function appendFailureContext(reportId: string, run: RemoteEditVerificationRun): void {
   const failedSteps = run.steps.filter((step) => step.status === 'failed')
   if (failedSteps.length === 0) return
 
@@ -70,12 +70,12 @@ function appendFailureContext(reportId: string, run: SelfHealVerificationRun): v
     .run(`\n\n## Verification failure context\n${context}\n`, reportId)
 }
 
-function rowToRun(row: Record<string, unknown>): SelfHealVerificationRun {
+function rowToRun(row: Record<string, unknown>): RemoteEditVerificationRun {
   return {
     id: String(row.id),
     reportId: String(row.report_id),
-    status: row.status as SelfHealVerificationRun['status'],
-    steps: JSON.parse(String(row.steps_json || '[]')) as SelfHealVerificationStep[],
+    status: row.status as RemoteEditVerificationRun['status'],
+    steps: JSON.parse(String(row.steps_json || '[]')) as RemoteEditVerificationStep[],
     startedAt: Number(row.started_at),
     completedAt: typeof row.completed_at === 'number' ? row.completed_at : null,
     retryCount: Number(row.retry_count ?? 0),
@@ -83,16 +83,16 @@ function rowToRun(row: Record<string, unknown>): SelfHealVerificationRun {
   }
 }
 
-export function getVerificationRuns(reportId: string): SelfHealVerificationRun[] {
+export function getVerificationRuns(reportId: string): RemoteEditVerificationRun[] {
   const rows = getDatabase()
-    .prepare('SELECT * FROM self_heal_verification_runs WHERE report_id = ? ORDER BY started_at DESC LIMIT 10')
+    .prepare('SELECT * FROM remote_edit_verification_runs WHERE report_id = ? ORDER BY started_at DESC LIMIT 10')
     .all(reportId) as Record<string, unknown>[]
   return rows.map(rowToRun)
 }
 
 function runNpmScript(
   workspacePath: string,
-  command: SelfHealVerificationCommand,
+  command: RemoteEditVerificationCommand,
   onLine: (line: string) => void,
 ): Promise<number> {
   return new Promise((resolve) => {
@@ -109,7 +109,7 @@ function runNpmScript(
 
 export function emitVerificationEvent(
   win: BrowserWindow | undefined,
-  channel: 'self-heal:verification-event' | 'self-heal:verification-done',
+  channel: 'remote-edit:verification-event' | 'remote-edit:verification-done',
   payload: unknown,
 ): void {
   if (win && !win.isDestroyed()) {
@@ -120,17 +120,17 @@ export function emitVerificationEvent(
 
 export async function runVerification(
   reportId: string,
-  emit: (event: SelfHealVerificationEvent) => void,
+  emit: (event: RemoteEditVerificationEvent) => void,
   initialRunId?: string,
   reinvestigate?: () => Promise<void>,
-): Promise<SelfHealVerificationDone> {
+): Promise<RemoteEditVerificationDone> {
   const workspacePath = getWorkspacePath()
   const settings = loadInvestigationSettings()
   const maxRetries = settings.retryLimit
-  let finalRun: SelfHealVerificationRun | null = null
+  let finalRun: RemoteEditVerificationRun | null = null
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const run: SelfHealVerificationRun = {
+    const run: RemoteEditVerificationRun = {
       id: attempt === 0 && initialRunId ? initialRunId : randomUUID(),
       reportId,
       status: 'running',
@@ -181,7 +181,7 @@ export async function runVerification(
     finalRun = run
 
     if (!failed) {
-      const done: SelfHealVerificationDone = {
+      const done: RemoteEditVerificationDone = {
         reportId,
         runId: run.id,
         status: 'success',

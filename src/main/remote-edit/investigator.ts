@@ -12,9 +12,9 @@ import { ClaudeAdapter } from '../cli-adapters/claude'
 import { CodexAdapter } from '../cli-adapters/codex'
 import type {
   ErrorReportEntry,
-  SelfHealInvestigationActivity,
-  SelfHealInvestigationResult,
-  SelfHealInvestigationSettings,
+  RemoteEditInvestigationActivity,
+  RemoteEditInvestigationResult,
+  RemoteEditInvestigationSettings,
 } from '../../shared/types'
 import { broadcastToMobile } from '../ws-server'
 import { parseAffectedFilesFromFrontMatter } from './yaml'
@@ -26,7 +26,7 @@ const MAX_GREP_RESULTS = 50
 
 interface InvestigationCallbacks {
   onChunk: (chunk: string) => void
-  onActivity: (activity: SelfHealInvestigationActivity) => void
+  onActivity: (activity: RemoteEditInvestigationActivity) => void
 }
 
 export function getWorkspacePath(): string {
@@ -247,7 +247,7 @@ function filterToConfirmedPaths(affectedFiles: string[], confirmedPaths?: Set<st
   return affectedFiles.filter((file) => confirmedPaths.has(file.split('\\').join('/').replace(/^\.?\//, '')))
 }
 
-function ensureStructuredMarkdown(markdown: string, confirmedPaths?: Set<string>): SelfHealInvestigationResult {
+function ensureStructuredMarkdown(markdown: string, confirmedPaths?: Set<string>): RemoteEditInvestigationResult {
   const best = pickBestCandidate(extractFrontMatterCandidates(markdown))
 
   if (best) {
@@ -282,7 +282,7 @@ function ensureStructuredMarkdown(markdown: string, confirmedPaths?: Set<string>
   }
 }
 
-function persistResult(reportId: string, result: SelfHealInvestigationResult): SelfHealInvestigationResult {
+function persistResult(reportId: string, result: RemoteEditInvestigationResult): RemoteEditInvestigationResult {
   const completedAt = Date.now()
   getDatabase()
     .prepare(
@@ -308,7 +308,7 @@ function persistResult(reportId: string, result: SelfHealInvestigationResult): S
   return { ...result, reportId, completedAt }
 }
 
-function persistError(reportId: string, error: unknown): SelfHealInvestigationResult {
+function persistError(reportId: string, error: unknown): RemoteEditInvestigationResult {
   const completedAt = Date.now()
   const message = error instanceof Error ? error.message : String(error)
   const markdown = [
@@ -345,37 +345,37 @@ function persistError(reportId: string, error: unknown): SelfHealInvestigationRe
   }
 }
 
-export function loadInvestigationSettings(): SelfHealInvestigationSettings {
+export function loadInvestigationSettings(): RemoteEditInvestigationSettings {
   const rows = getDatabase()
-    .prepare("SELECT key, value FROM settings WHERE key IN ('self_heal_backend', 'self_heal_model', 'self_heal_retry_limit', 'self_heal_auto_approve_tools')")
+    .prepare("SELECT key, value FROM settings WHERE key IN ('remote_edit_backend', 'remote_edit_model', 'remote_edit_retry_limit', 'remote_edit_auto_approve_tools')")
     .all() as { key: string; value: string }[]
   const settings = Object.fromEntries(rows.map((row) => [row.key, row.value]))
-  const backend = settings.self_heal_backend === 'claude-cli' || settings.self_heal_backend === 'codex-cli'
-    ? settings.self_heal_backend
+  const backend = settings.remote_edit_backend === 'claude-cli' || settings.remote_edit_backend === 'codex-cli'
+    ? settings.remote_edit_backend
     : 'byok'
   return {
     backend,
-    model: settings.self_heal_model || 'gpt-5-mini',
-    retryLimit: Math.max(0, Math.min(Number.parseInt(settings.self_heal_retry_limit || '1', 10) || 1, 5)),
-    autoApproveTools: settings.self_heal_auto_approve_tools === 'true',
+    model: settings.remote_edit_model || 'gpt-5-mini',
+    retryLimit: Math.max(0, Math.min(Number.parseInt(settings.remote_edit_retry_limit || '1', 10) || 1, 5)),
+    autoApproveTools: settings.remote_edit_auto_approve_tools === 'true',
   }
 }
 
-export function saveInvestigationSettings(input: SelfHealInvestigationSettings): SelfHealInvestigationSettings {
+export function saveInvestigationSettings(input: RemoteEditInvestigationSettings): RemoteEditInvestigationSettings {
   const backend = input.backend === 'claude-cli' || input.backend === 'codex-cli'
     ? input.backend
     : 'byok'
-  const settings: SelfHealInvestigationSettings = {
+  const settings: RemoteEditInvestigationSettings = {
     backend,
     model: String(input.model || 'gpt-5-mini'),
     retryLimit: Math.max(0, Math.min(Number(input.retryLimit) || 0, 5)),
     autoApproveTools: !!input.autoApproveTools,
   }
   const stmt = getDatabase().prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
-  stmt.run('self_heal_backend', settings.backend)
-  stmt.run('self_heal_model', settings.model)
-  stmt.run('self_heal_retry_limit', String(settings.retryLimit))
-  stmt.run('self_heal_auto_approve_tools', String(settings.autoApproveTools))
+  stmt.run('remote_edit_backend', settings.backend)
+  stmt.run('remote_edit_model', settings.model)
+  stmt.run('remote_edit_retry_limit', String(settings.retryLimit))
+  stmt.run('remote_edit_auto_approve_tools', String(settings.autoApproveTools))
   return settings
 }
 
@@ -383,7 +383,7 @@ export async function runInvestigation(
   win: BrowserWindow,
   reportId: string,
   callbacks: InvestigationCallbacks,
-): Promise<SelfHealInvestigationResult> {
+): Promise<RemoteEditInvestigationResult> {
   const report = readReport(reportId)
   const settings = loadInvestigationSettings()
   const workspacePath = getWorkspacePath()
@@ -500,7 +500,7 @@ export async function runInvestigation(
 
 export function emitInvestigationEvent(
   win: BrowserWindow | undefined,
-  channel: 'self-heal:investigation-activity' | 'self-heal:investigation-chunk' | 'self-heal:investigation-done',
+  channel: 'remote-edit:investigation-activity' | 'remote-edit:investigation-chunk' | 'remote-edit:investigation-done',
   payload: unknown,
 ): void {
   if (win && !win.isDestroyed()) {

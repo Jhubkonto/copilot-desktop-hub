@@ -50,7 +50,7 @@ export function rowToErrorReport(row: Record<string, unknown>): ErrorReportEntry
 
 function normalizeTitle(title: unknown): string {
   const value = typeof title === 'string' ? title.trim() : ''
-  return value || 'Bug report'
+  return value || 'Edit request'
 }
 
 function normalizeDescription(description: unknown): string {
@@ -126,27 +126,27 @@ export function deleteErrorReport(reportId: string): boolean {
   if (!row) return false
 
   const recoveryRows = db
-    .prepare('SELECT id FROM self_heal_recovery_runs WHERE report_id = ?')
+    .prepare('SELECT id FROM remote_edit_recovery_runs WHERE report_id = ?')
     .all(reportId) as Array<{ id: string }>
   const recoveryIds = new Set(recoveryRows.map((recovery) => recovery.id))
   const pendingRecovery = db
-    .prepare("SELECT value FROM settings WHERE key = 'self_heal_pending_recovery_id'")
+    .prepare("SELECT value FROM settings WHERE key = 'remote_edit_pending_recovery_id'")
     .get() as { value: string } | undefined
 
   db.transaction(() => {
-    db.prepare('DELETE FROM self_heal_diffs WHERE report_id = ?').run(reportId)
-    db.prepare('DELETE FROM self_heal_verification_runs WHERE report_id = ?').run(reportId)
-    db.prepare('DELETE FROM self_heal_recovery_runs WHERE report_id = ?').run(reportId)
-    db.prepare('DELETE FROM self_heal_history WHERE report_id = ?').run(reportId)
+    db.prepare('DELETE FROM remote_edit_diffs WHERE report_id = ?').run(reportId)
+    db.prepare('DELETE FROM remote_edit_verification_runs WHERE report_id = ?').run(reportId)
+    db.prepare('DELETE FROM remote_edit_recovery_runs WHERE report_id = ?').run(reportId)
+    db.prepare('DELETE FROM remote_edit_history WHERE report_id = ?').run(reportId)
     db.prepare('DELETE FROM error_reports WHERE id = ?').run(reportId)
     if (pendingRecovery?.value && recoveryIds.has(pendingRecovery.value)) {
-      db.prepare("DELETE FROM settings WHERE key = 'self_heal_pending_recovery_id'").run()
+      db.prepare("DELETE FROM settings WHERE key = 'remote_edit_pending_recovery_id'").run()
     }
   })()
 
   removeUserDataChild('error-reports', reportId)
-  removeUserDataChild('self-heal', 'staging', reportId)
-  removeUserDataChild('self-heal', 'backups', reportId)
+  removeUserDataChild('remote-edit', 'staging', reportId)
+  removeUserDataChild('remote-edit', 'backups', reportId)
 
   return true
 }

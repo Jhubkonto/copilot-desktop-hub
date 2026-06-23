@@ -289,7 +289,7 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
   {
     version: 28,
     sql: `
-      CREATE TABLE IF NOT EXISTS self_heal_diffs (
+      CREATE TABLE IF NOT EXISTS remote_edit_diffs (
         report_id     TEXT NOT NULL,
         relative_path TEXT NOT NULL,
         diff_json     TEXT NOT NULL,
@@ -301,7 +301,7 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
   {
     version: 29,
     sql: `
-      CREATE TABLE IF NOT EXISTS self_heal_verification_runs (
+      CREATE TABLE IF NOT EXISTS remote_edit_verification_runs (
         id TEXT PRIMARY KEY,
         report_id TEXT NOT NULL,
         status TEXT NOT NULL CHECK (status IN ('running', 'success', 'failed')),
@@ -311,14 +311,14 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
         retry_count INTEGER NOT NULL DEFAULT 0,
         error TEXT
       );
-      CREATE INDEX IF NOT EXISTS idx_self_heal_verification_report
-        ON self_heal_verification_runs(report_id, started_at);
+      CREATE INDEX IF NOT EXISTS idx_remote_edit_verification_report
+        ON remote_edit_verification_runs(report_id, started_at);
     `,
   },
   {
     version: 30,
     sql: `
-      CREATE TABLE IF NOT EXISTS self_heal_recovery_runs (
+      CREATE TABLE IF NOT EXISTS remote_edit_recovery_runs (
         id TEXT PRIMARY KEY,
         report_id TEXT NOT NULL,
         status TEXT NOT NULL CHECK (status IN ('prepared', 'reloading', 'confirmed', 'rollback-required', 'rolled-back', 'failed')),
@@ -332,14 +332,14 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
         rollback_at INTEGER,
         error TEXT
       );
-      CREATE INDEX IF NOT EXISTS idx_self_heal_recovery_report
-        ON self_heal_recovery_runs(report_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_remote_edit_recovery_report
+        ON remote_edit_recovery_runs(report_id, created_at);
     `,
   },
   {
     version: 31,
     sql: `
-      CREATE TABLE IF NOT EXISTS self_heal_history (
+      CREATE TABLE IF NOT EXISTS remote_edit_history (
         id TEXT PRIMARY KEY,
         report_id TEXT NOT NULL,
         report_title TEXT NOT NULL DEFAULT '',
@@ -358,10 +358,10 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
-      CREATE INDEX IF NOT EXISTS idx_self_heal_history_created
-        ON self_heal_history(created_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_self_heal_history_report
-        ON self_heal_history(report_id);
+      CREATE INDEX IF NOT EXISTS idx_remote_edit_history_created
+        ON remote_edit_history(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_remote_edit_history_report
+        ON remote_edit_history(report_id);
     `,
   },
   {
@@ -550,6 +550,10 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
         ON scheduled_runs(status, created_at DESC);
     `,
   },
+  {
+    version: 40,
+    sql: `ALTER TABLE build_records ADD COLUMN mobile_initiated INTEGER NOT NULL DEFAULT 0;`,
+  },
 ];
 
 
@@ -634,7 +638,7 @@ export function initializeBaseSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_error_reports_status_created
       ON error_reports(status, created_at);
 
-    CREATE TABLE IF NOT EXISTS self_heal_diffs (
+    CREATE TABLE IF NOT EXISTS remote_edit_diffs (
       report_id     TEXT NOT NULL,
       relative_path TEXT NOT NULL,
       diff_json     TEXT NOT NULL,
@@ -642,7 +646,7 @@ export function initializeBaseSchema(db: Database.Database): void {
       PRIMARY KEY (report_id, relative_path)
     );
 
-    CREATE TABLE IF NOT EXISTS self_heal_verification_runs (
+    CREATE TABLE IF NOT EXISTS remote_edit_verification_runs (
       id TEXT PRIMARY KEY,
       report_id TEXT NOT NULL,
       status TEXT NOT NULL CHECK (status IN ('running', 'success', 'failed')),
@@ -653,10 +657,10 @@ export function initializeBaseSchema(db: Database.Database): void {
       error TEXT
     );
 
-    CREATE INDEX IF NOT EXISTS idx_self_heal_verification_report
-      ON self_heal_verification_runs(report_id, started_at);
+    CREATE INDEX IF NOT EXISTS idx_remote_edit_verification_report
+      ON remote_edit_verification_runs(report_id, started_at);
 
-    CREATE TABLE IF NOT EXISTS self_heal_recovery_runs (
+    CREATE TABLE IF NOT EXISTS remote_edit_recovery_runs (
       id TEXT PRIMARY KEY,
       report_id TEXT NOT NULL,
       status TEXT NOT NULL CHECK (status IN ('prepared', 'reloading', 'confirmed', 'rollback-required', 'rolled-back', 'failed')),
@@ -671,8 +675,8 @@ export function initializeBaseSchema(db: Database.Database): void {
       error TEXT
     );
 
-    CREATE INDEX IF NOT EXISTS idx_self_heal_recovery_report
-      ON self_heal_recovery_runs(report_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_remote_edit_recovery_report
+      ON remote_edit_recovery_runs(report_id, created_at);
 
     CREATE TABLE IF NOT EXISTS agents (
       id TEXT PRIMARY KEY,

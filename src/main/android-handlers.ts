@@ -195,6 +195,7 @@ function rowToRecord(row: Record<string, unknown>): BuildRecord {
     logTail: (row.log_tail as string | null) ?? '',
     startedAt: row.started_at as number,
     finishedAt: (row.finished_at as number | null) ?? null,
+    mobileInitiated: Boolean(row.mobile_initiated),
   }
 }
 

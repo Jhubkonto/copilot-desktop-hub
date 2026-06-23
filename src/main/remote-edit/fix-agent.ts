@@ -12,9 +12,9 @@ import { CodexAdapter } from '../cli-adapters/codex'
 import { broadcastToMobile } from '../ws-server'
 import type { ProviderMessage } from '../providers'
 import type {
-  SelfHealFixEvent,
-  SelfHealFixDone,
-  SelfHealStagedFileEntry,
+  RemoteEditFixEvent,
+  RemoteEditFixDone,
+  RemoteEditStagedFileEntry,
   DiffLine,
   DiffHunk,
 } from '../../shared/types'
@@ -28,11 +28,11 @@ const MAX_FILE_CHARS = 32000
 // ---------------------------------------------------------------------------
 
 export function getStagingDir(reportId: string): string {
-  return path.join(app.getPath('userData'), 'self-heal', 'staging', reportId)
+  return path.join(app.getPath('userData'), 'remote-edit', 'staging', reportId)
 }
 
 export function getBackupDir(reportId: string): string {
-  return path.join(app.getPath('userData'), 'self-heal', 'backups', reportId)
+  return path.join(app.getPath('userData'), 'remote-edit', 'backups', reportId)
 }
 
 // ---------------------------------------------------------------------------
@@ -178,7 +178,7 @@ function buildFixPrompt(
     {
       role: 'system',
       content:
-        'You are the Nexy self-heal fix agent. ' +
+        'You are the Nexy remote-edit fix agent. ' +
         'Based on the investigation report, produce a complete corrected version of every affected file. ' +
         'For each file output it in this EXACT format (no other text before or after):\n\n' +
         '<<<NEXY_FIX_FILE:relative/path/to/file.ts>>>\n' +
@@ -207,7 +207,7 @@ function buildFixPrompt(
 
 export function emitFixEvent(
   win: BrowserWindow | undefined,
-  channel: 'self-heal:fix-event' | 'self-heal:fix-done',
+  channel: 'remote-edit:fix-event' | 'remote-edit:fix-done',
   payload: unknown,
 ): void {
   if (win && !win.isDestroyed()) {
@@ -221,14 +221,14 @@ export function emitFixEvent(
 // ---------------------------------------------------------------------------
 
 interface FixCallbacks {
-  onEvent: (event: SelfHealFixEvent) => void
+  onEvent: (event: RemoteEditFixEvent) => void
 }
 
 export async function runFix(
   win: BrowserWindow,
   reportId: string,
   callbacks: FixCallbacks,
-): Promise<SelfHealFixDone> {
+): Promise<RemoteEditFixDone> {
   const db = getDatabase()
   const row = db.prepare('SELECT * FROM error_reports WHERE id = ?').get(reportId) as Record<string, unknown> | undefined
   if (!row) throw new Error(`Report ${reportId} not found`)
@@ -270,7 +270,7 @@ export async function runFix(
       rawOutput = await ClaudeAdapter.send(
         win,
         {
-          conversationId: `self-heal-fix-${reportId}`,
+          conversationId: `remote-edit-fix-${reportId}`,
           cwd: workspacePath,
           model: settings.model,
           messages,
@@ -284,7 +284,7 @@ export async function runFix(
       rawOutput = await CodexAdapter.send(
         win,
         {
-          conversationId: `self-heal-fix-${reportId}`,
+          conversationId: `remote-edit-fix-${reportId}`,
           cwd: workspacePath,
           model: settings.model,
           messages,
@@ -310,7 +310,7 @@ export async function runFix(
         messages,
         [],
         new Map(),
-        `self-heal-fix-${randomUUID()}`,
+        `remote-edit-fix-${randomUUID()}`,
         null,
         win.webContents,
         () => {},
@@ -327,7 +327,7 @@ export async function runFix(
   callbacks.onEvent({ reportId, type: 'status', label: 'Parsing fix output' })
 
   const parsed = parseFixOutput(rawOutput)
-  const stagedFiles: SelfHealStagedFileEntry[] = []
+  const stagedFiles: RemoteEditStagedFileEntry[] = []
   const diffRows: Array<{ relativePath: string; diffJson: string; createdAt: number }> = []
 
   for (const file of parsed) {
@@ -379,7 +379,7 @@ export async function runFix(
 
   if (diffRows.length > 0) {
     const diffInsert = db.prepare(
-      `INSERT OR REPLACE INTO self_heal_diffs (report_id, relative_path, diff_json, created_at) VALUES (?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO remote_edit_diffs (report_id, relative_path, diff_json, created_at) VALUES (?, ?, ?, ?)`,
     )
     const insertMany = db.transaction((rows: typeof diffRows) => {
       for (const r of rows) diffInsert.run(reportId, r.relativePath, r.diffJson, r.createdAt)

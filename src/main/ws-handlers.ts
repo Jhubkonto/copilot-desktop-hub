@@ -9,7 +9,7 @@ import { getCliModels } from './cli-detection'
 import { getCachedCatalog } from './model-catalog'
 import { retrieveAuthMode } from './auth'
 import { getAndroidUpdateManifest, getAndroidWorkspaceInfo, computeSha256 } from './android-handlers'
-import { getWorkspaceInfo } from './build-handlers'
+import { getWorkspaceInfo, startBuildFromMobile, cancelMobileBuild, publishArtifactToFeed } from './build-handlers'
 import { dbListTasks, dbGetTask, dbCreateTask, dbUpdateTask, dbDeleteTask, dbSetTaskEnabled, dbListRuns, schedulerEngine } from './scheduler-engine'
 import { existsSync as fsExistsSync, copyFileSync as fsCopyFileSync, mkdirSync as fsMkdirSync, readdirSync as fsReaddirSync, statSync as fsStatSync } from 'fs'
 import { writeFile as fsWriteFile, readFile as fsReadFile } from 'fs/promises'
@@ -17,15 +17,15 @@ import pathModule from 'path'
 import { networkInterfaces } from 'os'
 import { startFeedServer, getFeedLanUrl } from './local-feed-server'
 import { createErrorReport, rowToErrorReport } from './error-report-handlers'
-import { listHistory } from './self-heal/history'
+import { listHistory } from './remote-edit/history'
 import {
   emitInvestigationEvent,
   runInvestigation,
-} from './self-heal/investigator'
-import { runFix, emitFixEvent } from './self-heal/fix-agent'
-import { emitVerificationEvent, runVerification } from './self-heal/verifier'
-import { commitSelfHealFix, prepareSelfHealCommit, pushSelfHealFix } from './self-heal/git-ops'
-import { approveRelaunch, getRecoveryRuns, prepareReload, rollbackHeal, startReload } from './self-heal/recovery'
+} from './remote-edit/investigator'
+import { runFix, emitFixEvent } from './remote-edit/fix-agent'
+import { emitVerificationEvent, runVerification } from './remote-edit/verifier'
+import { commitRemoteEditFix, prepareRemoteEditCommit, pushRemoteEditFix } from './remote-edit/git-ops'
+import { approveRelaunch, getRecoveryRuns, prepareReload, rollbackHeal, startReload } from './remote-edit/recovery'
 import { runProjectGeneratorChatForAndroid, createProjectFromSpec, getProjectGeneratorAgentSummaries, getProjectGeneratorModel } from './project-generator'
 import { runAgentGeneratorChatForAndroid, createAgentFromSpec, getAgentGeneratorModel } from './agent-generator'
 import { runSkillGeneratorChatForAndroid, createSkillFromSpec, getSkillGeneratorModel } from './skill-generator'
@@ -175,8 +175,8 @@ export function registerWsHandlers(): void {
     if (command === 'error-report:request-capture') {
       try {
         const result = createErrorReport({
-          title: typeof data.title === 'string' ? data.title : 'Android bug report',
-          description: typeof data.description === 'string' ? data.description : 'Requested from Android companion.',
+          title: typeof data.title === 'string' ? data.title : 'Android edit request',
+          description: typeof data.description === 'string' ? data.description : 'Requested from Android.',
           includeLog: data.includeLog !== false,
           includeScreenshot: false,
         })
@@ -199,7 +199,9 @@ export function registerWsHandlers(): void {
       const rows = getDatabase()
         .prepare('SELECT * FROM error_reports ORDER BY created_at DESC LIMIT 50')
         .all() as Record<string, unknown>[]
-      reply({ event: 'self-heal:reports', data: { reports: rows.map(rowToErrorReport) } })
+      const reports = rows.map(rowToErrorReport)
+      debugLog('ws', `self-heal:get-reports → returning ${reports.length} reports`)
+      reply({ event: 'self-heal:reports', data: { reports } })
       return
     }
 
@@ -208,18 +210,19 @@ export function registerWsHandlers(): void {
       if (!reportId) return
       const win = BrowserWindow.getAllWindows()[0]
       if (!win) return
+      debugLog('ws', `self-heal:start-investigation reportId=${reportId}`)
       void runInvestigation(win, reportId, {
         onChunk: (chunk) => {
           broadcastToMobile({ event: 'self-heal:investigation-chunk', data: { reportId, chunk } })
-          emitInvestigationEvent(win, 'self-heal:investigation-chunk', { reportId, chunk })
+          emitInvestigationEvent(win, 'remote-edit:investigation-chunk', { reportId, chunk })
         },
         onActivity: (activity) => {
           broadcastToMobile({ event: 'self-heal:investigation-activity', data: activity })
-          emitInvestigationEvent(win, 'self-heal:investigation-activity', activity)
+          emitInvestigationEvent(win, 'remote-edit:investigation-activity', activity)
         },
       }).then((result) => {
         broadcastToMobile({ event: 'self-heal:investigation-done', data: result })
-        emitInvestigationEvent(win, 'self-heal:investigation-done', result)
+        emitInvestigationEvent(win, 'remote-edit:investigation-done', result)
       })
       return
     }
@@ -229,14 +232,15 @@ export function registerWsHandlers(): void {
       if (!reportId) return
       const win = BrowserWindow.getAllWindows()[0]
       if (!win) return
+      debugLog('ws', `self-heal:start-fix reportId=${reportId}`)
       void runFix(win, reportId, {
         onEvent: (event) => {
           broadcastToMobile({ event: 'self-heal:fix-event', data: event })
-          emitFixEvent(win, 'self-heal:fix-event', event)
+          emitFixEvent(win, 'remote-edit:fix-event', event)
         },
       }).then((result) => {
         broadcastToMobile({ event: 'self-heal:fix-done', data: result })
-        emitFixEvent(win, 'self-heal:fix-done', result)
+        emitFixEvent(win, 'remote-edit:fix-done', result)
       })
       return
     }
@@ -247,12 +251,13 @@ export function registerWsHandlers(): void {
       const win = BrowserWindow.getAllWindows()[0]
       if (!win) return
       const runId = `${reportId}-${Date.now()}`
+      debugLog('ws', `self-heal:start-verification reportId=${reportId}`)
       void runVerification(reportId, (event) => {
         broadcastToMobile({ event: 'self-heal:verification-event', data: event })
-        emitVerificationEvent(win, 'self-heal:verification-event', event)
+        emitVerificationEvent(win, 'remote-edit:verification-event', event)
       }, runId).then((result) => {
         broadcastToMobile({ event: 'self-heal:verification-done', data: result })
-        emitVerificationEvent(win, 'self-heal:verification-done', result)
+        emitVerificationEvent(win, 'remote-edit:verification-done', result)
       })
       return
     }
@@ -262,7 +267,7 @@ export function registerWsHandlers(): void {
       const relativePath = typeof data.relativePath === 'string' ? data.relativePath : ''
       if (!reportId || !relativePath) return
       const row = getDatabase()
-        .prepare('SELECT diff_json FROM self_heal_diffs WHERE report_id = ? AND relative_path = ?')
+        .prepare('SELECT diff_json FROM remote_edit_diffs WHERE report_id = ? AND relative_path = ?')
         .get(reportId, relativePath) as { diff_json: string } | undefined
       if (!row) {
         reply({ event: 'self-heal:staged-diff', data: { reportId, relativePath, hunks: null } })
@@ -296,7 +301,7 @@ export function registerWsHandlers(): void {
     if (command === 'self-heal:git-prepare-commit') {
       const reportId = typeof data.reportId === 'string' ? data.reportId : ''
       if (!reportId) return
-      void prepareSelfHealCommit(reportId).then((result) => {
+      void prepareRemoteEditCommit(reportId).then((result) => {
         reply({ event: 'self-heal:git-prepare-result', data: result })
       })
       return
@@ -306,7 +311,8 @@ export function registerWsHandlers(): void {
       const reportId = typeof data.reportId === 'string' ? data.reportId : ''
       const message = typeof data.message === 'string' ? data.message : ''
       if (!reportId) return
-      void commitSelfHealFix(reportId, message).then((result) => {
+      debugLog('ws', `self-heal:git-commit reportId=${reportId}`)
+      void commitRemoteEditFix(reportId, message).then((result) => {
         reply({ event: 'self-heal:git-commit-result', data: result })
       })
       return
@@ -315,7 +321,7 @@ export function registerWsHandlers(): void {
     if (command === 'self-heal:git-push') {
       const reportId = typeof data.reportId === 'string' ? data.reportId : ''
       if (!reportId) return
-      void pushSelfHealFix(reportId).then((result) => {
+      void pushRemoteEditFix(reportId).then((result) => {
         reply({ event: 'self-heal:git-push-result', data: result })
       })
       return
@@ -1875,6 +1881,42 @@ export function registerWsHandlers(): void {
         return checks
       })().then((checks) => reply({ event: 'build:preflight-result', data: { checks } }))
         .catch((err: unknown) => reply({ event: 'build:preflight-result', data: { checks: [{ label: 'Preflight', status: 'fail', detail: String(err) }] } }))
+      return
+    }
+
+    if (command === 'build:start-from-mobile') {
+      const command_ = typeof data.command === 'string' ? data.command as import('../shared/types').BuildCommandName : null
+      const validCommands = ['typecheck', 'test', 'build', 'package'] as const
+      if (!command_ || !validCommands.includes(command_ as typeof validCommands[number])) {
+        reply({ event: 'build:command-done', data: { buildId: null, status: 'failed', exitCode: -1, error: 'Invalid command' } })
+        return
+      }
+      const win = BrowserWindow.getAllWindows()[0]
+      void startBuildFromMobile(command_, win ?? undefined)
+        .then(({ buildId }) => reply({ event: 'build:started', data: { buildId, command: command_ } }))
+        .catch((err: unknown) => reply({ event: 'build:command-done', data: { buildId: null, status: 'failed', exitCode: -1, error: String(err) } }))
+      return
+    }
+
+    if (command === 'build:cancel-from-mobile') {
+      const buildId = typeof data.buildId === 'string' ? data.buildId : ''
+      const cancelled = buildId ? cancelMobileBuild(buildId) : false
+      reply({ event: 'build:cancelled', data: { buildId, cancelled } })
+      return
+    }
+
+    if (command === 'build:update-from-artifact') {
+      void publishArtifactToFeed(db).then((result) => {
+        if (!result.published) {
+          reply({ event: 'update:restarting', data: { eta: null, version: null, error: result.error } })
+          return
+        }
+        broadcastToMobile({ event: 'update:restarting', data: { eta: 10, version: result.version ?? null } })
+        BrowserWindow.getAllWindows().forEach((w) => {
+          if (!w.isDestroyed()) w.webContents.send('update:restarting', { eta: 10, version: result.version ?? null })
+        })
+        setTimeout(() => { app.relaunch(); app.exit(0) }, 2000)
+      })
       return
     }
 
