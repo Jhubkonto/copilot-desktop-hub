@@ -11,6 +11,7 @@ import type {
   ToolCallEvent,
   ToastType,
 } from './chat-types'
+import { useStreamingQueue } from './useStreamingQueue'
 
 function hasIpcError(result: unknown): result is { error: string } {
   return typeof result === 'object' && result !== null && 'error' in result
@@ -28,6 +29,8 @@ interface UseChatParams {
   rateLimitSetterRef?: MutableRefObject<(seconds: number) => void>
   markConversationGenerating: (id: string) => void
   markConversationDoneGenerating: (id: string) => void
+  isConversationGenerating?: boolean
+  conversationGenerationStartedAt?: number | null
 }
 
 export function useChat({
@@ -39,7 +42,10 @@ export function useChat({
   rateLimitSetterRef,
   markConversationGenerating,
   markConversationDoneGenerating,
+  isConversationGenerating,
+  conversationGenerationStartedAt,
 }: UseChatParams) {
+  const { displayedContent, isDraining, enqueue, flush, reset: resetQueue } = useStreamingQueue()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isGenerating, setIsGenerating] = useState(false)
   const [streamingContent, setStreamingContent] = useState('')
@@ -64,6 +70,8 @@ export function useChat({
   const activeConversationRef = useRef<string | null>(conversationId)
   // Locked to the conversation that started the current stream; cleared on stream end/error.
   const streamingConversationRef = useRef<string | null>(null)
+  // Set to true when the WS stream ends; isGenerating stays true until the drain queue also empties.
+  const streamEndedRef = useRef(false)
   const justCreatedConversationRef = useRef(false)
   const lastUndoneUserMessageRef = useRef<string | null>(null)
   const pendingEditedResendRef = useRef(false)
@@ -121,6 +129,13 @@ export function useChat({
 
   useEffect(() => {
     activeConversationRef.current = conversationId
+    // If the user navigates into a conversation that already has an in-flight
+    // background stream (ignoreRemoteStreamRef=true), flip the ignore flag off so
+    // the pending stream-end / error handlers clear isGenerating when the stream
+    // finishes rather than bailing out via the wasBackground early-return path.
+    if (conversationId && streamingConversationRef.current === conversationId && ignoreRemoteStreamRef.current) {
+      ignoreRemoteStreamRef.current = false
+    }
   }, [conversationId])
 
   useEffect(() => {
@@ -183,6 +198,21 @@ export function useChat({
           addToast('Failed to load messages', 'error')
           setMessages([])
         })
+        .then(() => {
+          // If this conversation is still generating (user navigated away and back),
+          // restore the Thinking animation so the UI reflects the active state.
+          if (isConversationGenerating) {
+            setIsGenerating(true)
+            // Use the stored start time so the elapsed counter continues from where
+            // it left off rather than restarting at 0 on every re-entry.
+            setGenerationStartedAt(conversationGenerationStartedAt ?? Date.now())
+            // Seed a placeholder live thinking block so the reasoning bubble is
+            // visible immediately. It will be replaced by real chat:thinking-delta
+            // events when the next chunk arrives from the still-running stream.
+            const placeholder = new Map([['restore-placeholder', { blockId: 'restore-placeholder', content: '', done: false }]])
+            setLiveThinkingBlocks(placeholder)
+          }
+        })
         .finally(() => {
           setIsLoadingMessages(false)
         })
@@ -191,6 +221,7 @@ export function useChat({
       setIsLoadingMessages(false)
     }
 
+    resetQueue()
     setStreamingContent('')
     streamingContentRef.current = ''
     setIsGenerating(false)
@@ -206,6 +237,20 @@ export function useChat({
     liveToolCallsRef.current = []
     setLoadingFailed(false)
   }, [conversationId, addToast])
+
+  // Defer isGenerating=false until the drain queue empties so the streaming cursor
+  // stays visible until the last buffered character has actually been rendered.
+  useEffect(() => {
+    if (!isDraining && streamEndedRef.current) {
+      streamEndedRef.current = false
+      setIsGenerating(false)
+      setLoadingFailed(false)
+      setGenerationStartedAt(null)
+      setLiveTeamActivity([])
+      setCurrentActivity(null)
+      liveToolCallsRef.current = []
+    }
+  }, [isDraining])
 
   useEffect(() => {
     const unsubscribeRemoteMessage = window.api.onRemoteMessage(({ conversationId: remoteId, content, images }) => {
@@ -278,13 +323,21 @@ export function useChat({
         setLiveThinkingBlocks(new Map())
         streamingContentRef.current = ''
         streamModelRef.current = null
+        // Signal stream end — actual isGenerating=false deferred until drain queue empties
+        // so the streaming cursor stays visible until all buffered chars are rendered.
         setStreamingContent('')
-        setIsGenerating(false)
-        setLoadingFailed(false)
-        setGenerationStartedAt(null)
-        setLiveTeamActivity([])
-        setCurrentActivity(null)
-        liveToolCallsRef.current = []
+        streamEndedRef.current = true
+        // If the queue is already empty (no buffered content), the useEffect won't fire
+        // because isDraining never changes — clear immediately in that case.
+        if (!isDraining) {
+          streamEndedRef.current = false
+          setIsGenerating(false)
+          setLoadingFailed(false)
+          setGenerationStartedAt(null)
+          setLiveTeamActivity([])
+          setCurrentActivity(null)
+          liveToolCallsRef.current = []
+        }
         // Now that the new response arrived, delete the old assistant message from DB.
         if (pendingDeleteMessageRef.current) {
           void window.api.deleteMessage(pendingDeleteMessageRef.current.id)
@@ -298,6 +351,7 @@ export function useChat({
       if (streamingConversationRef.current && streamingConversationRef.current !== activeConversationRef.current) return
       streamingContentRef.current += chunk
       setStreamingContent((prev) => prev + chunk)
+      enqueue(chunk)
     })
 
     const unsubscribeError = window.api.onStreamError((error: StreamError) => {
@@ -317,6 +371,7 @@ export function useChat({
         return
       }
 
+      flush()
       setStreamingContent('')
       setIsGenerating(false)
       setLoadingFailed(false)
@@ -421,6 +476,8 @@ export function useChat({
       setLiveThinkingBlocksState((prev) => {
         const existing = prev.get(blockId) ?? { blockId, content: '', done: false }
         const next = new Map(prev).set(blockId, { ...existing, content: existing.content + chunk })
+        // Drop the re-entry placeholder once a real block starts arriving
+        next.delete('restore-placeholder')
         liveThinkingBlocksRef.current = next
         return next
       })
@@ -503,6 +560,7 @@ export function useChat({
       markConversationGenerating(conversationId)
       setIsGenerating(true)
       setGenerationStartedAt(Date.now())
+      resetQueue()
       setStreamingContent('')
       streamingContentRef.current = ''
       setLiveThinkingBlocks(new Map())
@@ -600,6 +658,8 @@ export function useChat({
     isGenerating,
     setIsGenerating,
     streamingContent,
+    displayedContent,
+    isDraining,
     setStreamingContent,
     loadingFailed,
     setLoadingFailed,

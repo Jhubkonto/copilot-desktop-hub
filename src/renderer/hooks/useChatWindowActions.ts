@@ -71,6 +71,8 @@ interface UseChatWindowActionsParams {
   conversationCreated: (id: string) => void
   markConversationGenerating: (id: string) => void
   markConversationDoneGenerating: (id: string) => void
+  markConversationPending: (id: string) => void
+  clearConversationPending: (id: string) => void
   setIsGenerating: Dispatch<SetStateAction<boolean>>
   setGenerationStartedAt: Dispatch<SetStateAction<number | null>>
   setStreamingContent: Dispatch<SetStateAction<string>>
@@ -139,6 +141,8 @@ export function useChatWindowActions({
   conversationCreated,
   markConversationGenerating,
   markConversationDoneGenerating,
+  markConversationPending,
+  clearConversationPending,
   setIsGenerating,
   setGenerationStartedAt,
   setStreamingContent,
@@ -392,6 +396,7 @@ export function useChatWindowActions({
       conversation = crypto.randomUUID()
       justCreatedConversationRef.current = true
       conversationCreated(conversation)
+      markConversationPending(conversation)
       activeConversationRef.current = conversation
     }
     streamingConversationRef.current = conversation
@@ -418,12 +423,15 @@ export function useChatWindowActions({
         contextSnapshot: contextSnapshotJson,
       }) as unknown
       if (hasIpcError(sendResult)) throw new Error(sendResult.error)
+      void loadConversations()
+      clearConversationPending(conversation)
       onAfterSend?.()
     } catch (error) {
       console.error('Failed to send message:', error)
       const failedConvId = streamingConversationRef.current ?? ''
       streamingConversationRef.current = null
       markConversationDoneGenerating(failedConvId)
+      clearConversationPending(failedConvId)
       setIsGenerating(false)
       setLoadingFailed(true)
       setGenerationStartedAt(null)

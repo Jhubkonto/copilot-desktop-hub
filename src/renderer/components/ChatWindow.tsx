@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
-import { ChevronDown, Download, Loader2, Sparkles, Upload } from 'lucide-react'
+import { ChevronDown, Download, Loader2, Pin, PinOff, Sparkles, Upload } from 'lucide-react'
 import { getAvailableModelIds, getModelLabel, modelIdSupportsTools } from '../../shared/models'
 import { isApiError, type AgentConfig, type AvailableModelEntry, type AvailableModelGroup, type ConversationExportPackFormat, type WikiCandidate } from '../../shared/types'
 import type { ContextRef, ToastType } from '../hooks/chat-types'
@@ -57,9 +57,14 @@ export function ChatWindow() {
   const markConversationUnread = useAppStore((state) => state.markConversationUnread)
   const catalogModels = useAppStore((state) => state.catalogModels)
   const markConversationRead = useAppStore((state) => state.markConversationRead)
+  const generatingConversationIds = useAppStore((state) => state.generatingConversationIds)
+  const generatingStartTimes = useAppStore((state) => state.generatingStartTimes)
   const markConversationGenerating = useAppStore((state) => state.markConversationGenerating)
   const markConversationDoneGenerating = useAppStore((state) => state.markConversationDoneGenerating)
+  const markConversationPending = useAppStore((state) => state.markConversationPending)
+  const clearConversationPending = useAppStore((state) => state.clearConversationPending)
   const defaultModelSetting = useAppStore((state) => state.globalDefaultModel)
+  const [isPinning, setIsPinning] = useState(false)
 
   const availableGroups = useAppStore((state) => state.availableModelGroups)
   const [pendingModel, setPendingModel] = useState<string | null>(null)
@@ -69,6 +74,7 @@ export function ChatWindow() {
   const [projectRootDir, setProjectRootDir] = useState<string | null>(null)
   const [inputPanelHeight, setInputPanelHeight] = useState<number | null>(null)
   const [hasUnreadBelow, setHasUnreadBelow] = useState(false)
+  const [isUserScrolledUp, setIsUserScrolledUp] = useState(false)
   const [clipboardRef, setClipboardRef] = useState<ContextRef | null>(null)
   const [promptInstructionRef, setPromptInstructionRef] = useState<ContextRef | null>(null)
   const [wikiMessageIds, setWikiMessageIds] = useState<Set<string>>(new Set())
@@ -191,6 +197,8 @@ export function ChatWindow() {
     rateLimitSetterRef,
     markConversationGenerating,
     markConversationDoneGenerating,
+    isConversationGenerating: conversationId ? generatingConversationIds.includes(conversationId) : false,
+    conversationGenerationStartedAt: conversationId ? (generatingStartTimes[conversationId] ?? null) : null,
   })
   const fileInput = useFileInput()
   const slashMenu = useSlashMenu()
@@ -254,6 +262,8 @@ export function ChatWindow() {
     conversationCreated,
     markConversationGenerating,
     markConversationDoneGenerating,
+    markConversationPending,
+    clearConversationPending,
     setIsGenerating: chat.setIsGenerating,
     setGenerationStartedAt: chat.setGenerationStartedAt,
     setStreamingContent: chat.setStreamingContent,
@@ -383,6 +393,7 @@ export function ChatWindow() {
     if (!el) return
     el.scrollTop = el.scrollHeight
     isUserScrolledUpRef.current = false
+    setIsUserScrolledUp(false)
     setHasUnreadBelow(false)
     if (conversationId) markConversationRead(conversationId)
   }, [conversationId, markConversationRead])
@@ -393,6 +404,7 @@ export function ChatWindow() {
     const SCROLL_UP_THRESHOLD = 80
     const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - SCROLL_UP_THRESHOLD
     isUserScrolledUpRef.current = !atBottom
+    setIsUserScrolledUp(!atBottom)
     if (atBottom) {
       setHasUnreadBelow(false)
       if (conversationId) markConversationRead(conversationId)
@@ -428,6 +440,7 @@ export function ChatWindow() {
   useEffect(() => {
     prevMessagesLengthRef.current = 0
     isUserScrolledUpRef.current = false
+    setIsUserScrolledUp(false)
     setHasUnreadBelow(false)
     if (conversationId) markConversationRead(conversationId)
     // Defer so the new messages have rendered before scrolling
@@ -679,6 +692,20 @@ export function ChatWindow() {
       )
     )
   }, [addToast, fileInput])
+
+  const handleTogglePin = useCallback(async () => {
+    if (!conversationId || isPinning) return
+    const newPinned = !(currentConversation?.pinned === 1)
+    setIsPinning(true)
+    try {
+      await window.api.setConversationPinned(conversationId, newPinned)
+      await loadConversations()
+    } catch {
+      addToast('Failed to update pin', 'error')
+    } finally {
+      setIsPinning(false)
+    }
+  }, [conversationId, isPinning, currentConversation?.pinned, loadConversations, addToast])
 
   const handleEditMessage = useCallback(
     (index: number) => actions.handleEdit(index, chat.handleEdit),
@@ -1115,6 +1142,28 @@ export function ChatWindow() {
                 <span>Import</span>
               </button>
             )}
+            {conversationId && (
+              <button
+                type="button"
+                onClick={() => void handleTogglePin()}
+                disabled={isPinning}
+                className={`inline-flex items-center gap-2 rounded-full border bg-white/95 dark:bg-gray-800/95 px-3 py-1.5 text-xs font-medium shadow-sm transition-[background-color,opacity] hover:opacity-100 focus-visible:opacity-100 disabled:cursor-not-allowed disabled:opacity-60 ${
+                  currentConversation?.pinned === 1
+                    ? 'border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300 opacity-90 hover:bg-purple-50 dark:hover:bg-purple-900/30'
+                    : 'border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 opacity-70 hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`}
+                aria-label={currentConversation?.pinned === 1 ? 'Unpin conversation' : 'Pin conversation'}
+                title={currentConversation?.pinned === 1 ? 'Unpin from top' : 'Pin to top'}
+              >
+                {isPinning
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : currentConversation?.pinned === 1
+                    ? <PinOff className="w-3.5 h-3.5" />
+                    : <Pin className="w-3.5 h-3.5" />
+                }
+                <span>{currentConversation?.pinned === 1 ? 'Unpin' : 'Pin'}</span>
+              </button>
+            )}
             {showContinueWith && (
               <div className="absolute right-0 top-10 z-20 w-72 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xl p-3">
                 <div className="mb-3">
@@ -1188,7 +1237,7 @@ export function ChatWindow() {
           isLoadingMessages={chat.isLoadingMessages}
           isGenerating={chat.isGenerating}
           liveTeamActivity={chat.liveTeamActivity}
-          streamingContent={chat.streamingContent}
+          streamingContent={chat.displayedContent}
           cliCost={chat.cliCost}
           currentActivity={chat.currentActivity}
           generationStartedAt={chat.generationStartedAt}
@@ -1213,11 +1262,15 @@ export function ChatWindow() {
           }}
           liveThinkingBlocks={chat.liveThinkingBlocks}
         />
-        {hasUnreadBelow && (
+        {isUserScrolledUp && (
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
             <button
               onClick={scrollToBottom}
-              className="pointer-events-auto flex items-center justify-center w-8 h-8 rounded-full bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-800 shadow-lg animate-bounce hover:animate-none hover:bg-gray-700 dark:hover:bg-gray-300 transition-colors"
+              className={`pointer-events-auto flex items-center justify-center w-8 h-8 rounded-full shadow-lg transition-colors ${
+                hasUnreadBelow
+                  ? 'bg-blue-600 dark:bg-blue-500 text-white hover:bg-blue-700 dark:hover:bg-blue-400 animate-bounce hover:animate-none'
+                  : 'bg-gray-800/70 dark:bg-gray-200/70 text-white dark:text-gray-800 hover:bg-gray-800 dark:hover:bg-gray-200'
+              }`}
               aria-label="Scroll to bottom"
             >
               <ChevronDown className="w-4 h-4" />
