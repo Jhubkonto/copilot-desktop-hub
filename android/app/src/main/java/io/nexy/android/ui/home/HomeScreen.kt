@@ -118,6 +118,9 @@ fun HomeScreen(
     val highlightAgentId by vm.highlightAgentId.collectAsState()
     val profiles by vm.profiles.collectAsState()
     val activeProfileId by vm.activeProfileId.collectAsState()
+    val activeConversationIds by vm.activeConversationIds.collectAsState()
+    val pendingConversationIds by vm.pendingConversationIds.collectAsState()
+    val completedWhileAwayIds by vm.completedWhileAwayIds.collectAsState()
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var showNewChatSheet by remember { mutableStateOf(false) }
     var newChatQuery by remember { mutableStateOf("") }
@@ -559,6 +562,9 @@ fun HomeScreen(
                     onRenameConversation = { id, title -> vm.renameConversation(id, title) },
                     onDeleteConversation = { id -> vm.deleteConversation(id) },
                     onTogglePinConversation = { id, pinned -> vm.setPinnedConversation(id, pinned) },
+                    activeConversationIds = activeConversationIds,
+                    pendingConversationIds = pendingConversationIds,
+                    completedWhileAwayIds = completedWhileAwayIds,
                 )
                 1 -> ProjectsTab(
                     projects = projects,

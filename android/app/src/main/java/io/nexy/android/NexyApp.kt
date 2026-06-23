@@ -5,7 +5,6 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import com.google.firebase.messaging.FirebaseMessaging
 import io.nexy.android.notification.NexyFcmService
-
 class NexyApp : Application() {
     override fun onCreate() {
         super.onCreate()

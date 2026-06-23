@@ -55,6 +55,7 @@ fun ScopedChatHistoryScreen(
     val conversations by WsRepository.conversations.collectAsState()
     val agents by WsRepository.agents.collectAsState()
     val projects by WsRepository.projects.collectAsState()
+    val activeConversationIds by WsRepository.activeConversationIds.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
 
     val title = when (scopeType) {
@@ -143,7 +144,7 @@ fun ScopedChatHistoryScreen(
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
                     items(filtered, key = { it.id }) { conversation ->
-                        ConversationRow(conv = conversation, projects = projects, onOpenChat = onOpenChat)
+                        ConversationRow(conv = conversation, projects = projects, onOpenChat = onOpenChat, isActive = conversation.id in activeConversationIds)
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     }
                 }

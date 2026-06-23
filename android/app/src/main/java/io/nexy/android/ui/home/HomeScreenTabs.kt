@@ -91,6 +91,9 @@ fun ChatsTab(
     onRenameConversation: (id: String, title: String) -> Unit,
     onDeleteConversation: (id: String) -> Unit,
     onTogglePinConversation: (id: String, pinned: Boolean) -> Unit = { _, _ -> },
+    activeConversationIds: Set<String> = emptySet(),
+    pendingConversationIds: Set<String> = emptySet(),
+    completedWhileAwayIds: Set<String> = emptySet(),
 ) {
     var activeFilter by remember { mutableStateOf<ChatFilter>(ChatFilter.All) }
     var showFilterSheet by remember { mutableStateOf(false) }
@@ -303,13 +306,25 @@ fun ChatsTab(
                         }
                     }
                 } else {
+                    val knownIds = remember(displayList) { displayList.map { it.id }.toSet() }
+                    val pendingNew = remember(pendingConversationIds, knownIds) {
+                        pendingConversationIds.filter { it !in knownIds }
+                    }
                     LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                        if (pendingNew.isNotEmpty()) {
+                            items(pendingNew) {
+                                PendingConversationRow()
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                            }
+                        }
                         itemsIndexed(displayList, key = { _, conv -> conv.id }) { index, conv ->
                             ConversationRow(
                                 conv = conv,
                                 index = index,
                                 projects = projects,
                                 onOpenChat = onOpenChat,
+                                isActive = conv.id in activeConversationIds,
+                                hasNewContent = conv.id in completedWhileAwayIds,
                                 onRename = { _, _ ->
                                     renameText = conv.title
                                     renamingConversation = conv

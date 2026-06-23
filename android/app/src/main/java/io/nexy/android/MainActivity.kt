@@ -1,6 +1,7 @@
 package io.nexy.android
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -18,14 +19,19 @@ import io.nexy.android.navigation.NavGraph
 import io.nexy.android.ui.theme.NexyTheme
 import io.nexy.android.ui.theme.ThemePreference
 import io.nexy.android.ui.theme.ThemePreferenceStore
+import kotlinx.coroutines.flow.MutableStateFlow
 
 class MainActivity : ComponentActivity() {
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { }
 
+    // Shared deeplink signal so onNewIntent can push to the running NavGraph
+    private val pendingDeeplink = MutableStateFlow<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        pendingDeeplink.value = intent?.getStringExtra("deeplink")
         enableEdgeToEdge()
         setContent {
             val themePreference by ThemePreferenceStore.themePreference.collectAsState()
@@ -36,12 +42,19 @@ class MainActivity : ComponentActivity() {
                 ThemePreference.Dark -> true
             }
             NexyTheme(darkTheme = darkTheme) {
-                val initialDeeplink = intent?.getStringExtra("deeplink")
                 NavGraph(
                     onRequestNotificationPermission = ::requestNotificationPermissionIfNeeded,
-                    initialDeeplink = initialDeeplink,
+                    pendingDeeplink = pendingDeeplink,
                 )
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        val deeplink = intent.getStringExtra("deeplink")
+        if (deeplink != null) {
+            pendingDeeplink.value = deeplink
         }
     }
 

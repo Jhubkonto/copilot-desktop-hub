@@ -1,13 +1,23 @@
 package io.nexy.android.navigation
 
 import android.net.Uri
+import android.os.Bundle
 import androidx.compose.runtime.Composable
+import androidx.navigation.NavController
+import androidx.navigation.NavDestination
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.filterNotNull
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -53,7 +63,7 @@ import io.nexy.android.ui.splash.SplashScreen
 @Composable
 fun NavGraph(
     onRequestNotificationPermission: () -> Unit = {},
-    initialDeeplink: String? = null,
+    pendingDeeplink: MutableStateFlow<String?> = MutableStateFlow(null),
 ) {
     val navController = rememberNavController()
     val connectionState by WsRepository.connectionState.collectAsState()
@@ -77,15 +87,27 @@ fun NavGraph(
         }
     }
 
-    // Navigate to deeplink once home is loaded (e.g. from a notification tap)
-    var deeplinkConsumed by remember { mutableStateOf(false) }
+    // Consume deeplinks from notification taps (cold-start and while-running)
     LaunchedEffect(navController) {
-        if (initialDeeplink != null && !deeplinkConsumed) {
-            navController.addOnDestinationChangedListener { _, destination, _ ->
-                if (destination.route == "home" && !deeplinkConsumed) {
-                    deeplinkConsumed = true
-                    navController.navigate(initialDeeplink)
-                }
+        pendingDeeplink.filterNotNull().collect { deeplink ->
+            pendingDeeplink.value = null
+            val currentRoute = navController.currentBackStackEntry?.destination?.route
+            if (currentRoute == "home") {
+                navController.navigate(deeplink)
+            } else {
+                navController.addOnDestinationChangedListener(object :
+                    NavController.OnDestinationChangedListener {
+                    override fun onDestinationChanged(
+                        controller: NavController,
+                        destination: NavDestination,
+                        arguments: Bundle?,
+                    ) {
+                        if (destination.route == "home") {
+                            controller.removeOnDestinationChangedListener(this)
+                            controller.navigate(deeplink)
+                        }
+                    }
+                })
             }
         }
     }
@@ -233,6 +255,18 @@ fun NavGraph(
                     defaultValue = ""
                 },
             ),
+            enterTransition = {
+                slideInVertically(
+                    initialOffsetY = { it / 6 },
+                    animationSpec = tween(durationMillis = 280),
+                ) + fadeIn(animationSpec = tween(durationMillis = 280))
+            },
+            exitTransition = {
+                slideOutVertically(
+                    targetOffsetY = { it / 8 },
+                    animationSpec = tween(durationMillis = 220),
+                ) + fadeOut(animationSpec = tween(durationMillis = 220))
+            },
         ) { backStack ->
             val conversationId = backStack.arguments?.getString("conversationId") ?: ""
             val agentId = backStack.arguments?.getString("agentId")?.takeIf { it.isNotBlank() }

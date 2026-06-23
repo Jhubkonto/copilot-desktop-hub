@@ -44,6 +44,15 @@ android {
     }
 }
 
+configurations.configureEach {
+    resolutionStrategy.eachDependency {
+        if (requested.group == "org.jetbrains" && requested.name == "annotations-java5") {
+            useTarget("org.jetbrains:annotations:23.0.0")
+            because("annotations-java5 and annotations both provide the same classes; pin to the newer one")
+        }
+    }
+}
+
 dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
@@ -60,6 +69,10 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.zxing.android.embedded)
     implementation(libs.markwon.core)
+    implementation(libs.markwon.ext.tables)
+    implementation(libs.markwon.linkify)
+    implementation(libs.markwon.syntax.highlight)
+    implementation(libs.prism4j)
     implementation(libs.androidx.security.crypto)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging.ktx)
