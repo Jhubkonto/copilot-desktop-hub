@@ -80,6 +80,7 @@ const CLAUDE_CLI_BUILT_IN_TOOLS: Array<{
 async function getClaudeCliAllowedBuiltInTools(
   window: BrowserWindow,
   agentConfig: Record<string, unknown> | null,
+  agentId: string | null,
   sendActivity: (activity: MobileChatActivity) => void,
 ): Promise<string[]> {
   const tools = (agentConfig?.tools && typeof agentConfig.tools === 'object'
@@ -103,7 +104,28 @@ async function getClaudeCliAllowedBuiltInTools(
       tool.approvalTool,
       {},
       tool.description,
-      { noRemember: true },
+      {
+        // When the user clicks "Always allow", persist auto-approval into the agent config
+        // so future messages skip the prompt — same as setting approval=auto in agent settings.
+        onRemember: (wasApproved) => {
+          if (!wasApproved || !agentId) return
+          const current = getAgentConfig(agentId)
+          if (!current) return
+          const currentTools = (current.tools && typeof current.tools === 'object'
+            ? current.tools
+            : {}) as Record<string, unknown>
+          const updatedConfig = {
+            ...current,
+            tools: {
+              ...currentTools,
+              [tool.key]: { ...(currentTools[tool.key] as object ?? {}), enabled: true, approval: 'auto' },
+            },
+          }
+          getDatabase()
+            .prepare('UPDATE agents SET config_json = ?, updated_at = ? WHERE id = ?')
+            .run(JSON.stringify(updatedConfig), Date.now(), agentId)
+        },
+      },
     )
     if (approved) allowedTools.push(...tool.claudeTools)
   }
@@ -598,7 +620,7 @@ export async function dispatchChatSend(
           }
         })()
         const cliAllowedBuiltInTools = effectiveBackend === 'claude-cli'
-          ? await getClaudeCliAllowedBuiltInTools(window, agentCfg2, sendActivity)
+          ? await getClaudeCliAllowedBuiltInTools(window, agentCfg2, effectiveAgentId, sendActivity)
           : []
         const cliAllowedTools = [...cliAllowedBuiltInTools, ...(cliAllowedMcpTools ?? [])]
         debugLog('chat', `cli-adapter: starting ${effectiveBackend} model=${cliModelForRequest || 'default'} mcpServers=${cliMcpServersFiltered?.length ?? 0} builtInTools=${cliAllowedBuiltInTools.length} mcpTools=${cliAllowedMcpTools?.length ?? 0}`)

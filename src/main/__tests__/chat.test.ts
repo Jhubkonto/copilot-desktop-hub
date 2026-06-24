@@ -335,7 +335,7 @@ describe('chat handlers', () => {
       'claude-cli:fileEdit',
       {},
       'Allow Claude CLI to read and edit files for this message?',
-      { noRemember: true },
+      { onRemember: expect.any(Function) },
     )
     expect(capturedReqs[0].allowedTools).toEqual(['Read', 'Write', 'Edit', 'MultiEdit'])
   })

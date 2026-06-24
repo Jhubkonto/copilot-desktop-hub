@@ -158,20 +158,22 @@ function setToolPreference(toolName: string, value: string): void {
 
 const pendingApprovals = new Map<
   string,
-  { toolName: string; resolve: (approved: boolean) => void; noRemember?: boolean }
+  { toolName: string; resolve: (approved: boolean) => void; noRemember?: boolean; onRemember?: (approved: boolean) => void }
 >()
 
 /**
  * Sends a tool approval request to the renderer and waits for the user's response.
  * Pass `noRemember: true` when the approval should not be persisted as a global tool
  * preference (e.g. MCP tools, which have their own per-agent override table).
+ * Pass `onRemember` to handle the "Always allow" case with custom persistence logic
+ * (e.g. updating an agent's tool approval field instead of writing a global preference).
  */
 export async function requestApproval(
   webContents: Electron.WebContents,
   toolName: string,
   args: Record<string, unknown>,
   description: string,
-  options?: { noRemember?: boolean }
+  options?: { noRemember?: boolean; onRemember?: (approved: boolean) => void }
 ): Promise<boolean> {
   const requestId = randomUUID()
   webContents.send('tool:request-approval', { requestId, tool: toolName, args, description })
@@ -180,7 +182,7 @@ export async function requestApproval(
     sendApprovalPush(getDatabase(), { requestId, toolName, args, description }).catch(() => {})
   }
   return new Promise<boolean>((resolve) => {
-    pendingApprovals.set(requestId, { toolName, resolve, noRemember: options?.noRemember })
+    pendingApprovals.set(requestId, { toolName, resolve, noRemember: options?.noRemember, onRemember: options?.onRemember })
     setTimeout(() => {
       if (pendingApprovals.has(requestId)) {
         pendingApprovals.delete(requestId)
@@ -253,8 +255,12 @@ export function registerToolHandlers(): void {
     (_event, requestId: string, approved: boolean, remember: boolean) => {
       const pending = pendingApprovals.get(requestId)
       if (pending) {
-        if (remember && !pending.noRemember) {
-          setToolPreference(pending.toolName, approved ? 'always_allow' : 'always_deny')
+        if (remember) {
+          if (pending.onRemember) {
+            pending.onRemember(approved)
+          } else if (!pending.noRemember) {
+            setToolPreference(pending.toolName, approved ? 'always_allow' : 'always_deny')
+          }
         }
         pending.resolve(approved)
         pendingApprovals.delete(requestId)
