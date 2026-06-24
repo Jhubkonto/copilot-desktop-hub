@@ -798,6 +798,22 @@ const api = {
     typedOn('scheduler:run-updated', handler)
     return () => typedOff('scheduler:run-updated', handler)
   },
+
+  // Debrief
+  generateDebrief: (conversationId: string, projectId: string | null, model?: string) =>
+    typedInvoke('conversation:generate-debrief', conversationId, projectId, model),
+  getDebrief: (conversationId: string) =>
+    typedInvoke('conversation:get-debrief', conversationId),
+  markConversationComplete: (conversationId: string) =>
+    typedInvoke('conversation:mark-complete', conversationId),
+
+  // Quiz
+  generateQuiz: (conversationId: string, model?: string) =>
+    typedInvoke('conversation:generate-quiz', conversationId, model),
+  saveQuizAttempt: (conversationId: string, score: number, total: number) =>
+    typedInvoke('conversation:save-quiz-attempt', conversationId, score, total),
+  listQuizAttempts: (conversationId: string) =>
+    typedInvoke('conversation:list-quiz-attempts', conversationId),
 }
 
 contextBridge.exposeInMainWorld('api', api)

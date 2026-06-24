@@ -82,6 +82,8 @@ export interface UiSlice {
   markConversationDoneGenerating: (id: string) => void
   markConversationPending: (id: string) => void
   clearConversationPending: (id: string) => void
+  pendingDebriefConversationId: string | null
+  setPendingDebriefConversationId: (id: string | null) => void
 }
 
 export const createUiSlice: StateCreator<
@@ -117,6 +119,13 @@ export const createUiSlice: StateCreator<
   globalDefaultModel: 'default',
   debugLogging: false,
   androidDebugLog: false,
+  pendingDebriefConversationId: null,
+
+  setPendingDebriefConversationId: (id) => {
+    set((s) => {
+      s.pendingDebriefConversationId = id
+    })
+  },
 
   setTheme: (theme) => {
     set((s) => {

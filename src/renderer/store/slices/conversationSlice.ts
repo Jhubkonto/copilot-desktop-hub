@@ -7,11 +7,13 @@ export interface ConversationSlice {
   conversations: Conversation[]
   currentConversationId: string | null
   conversationsLoading: boolean
+  completedConversationIds: string[]
   loadConversations: () => Promise<void>
   selectConversation: (id: string | null) => void
   deleteConversation: (id: string) => Promise<void>
   conversationCreated: (id: string) => Promise<void>
   newChat: (opts?: { projectId?: string | null; agentId?: string | null }) => void
+  markConversationComplete: (id: string) => Promise<void>
 }
 
 export const createConversationSlice: StateCreator<
@@ -23,6 +25,7 @@ export const createConversationSlice: StateCreator<
   conversations: [],
   currentConversationId: null,
   conversationsLoading: false,
+  completedConversationIds: [],
 
   loadConversations: async () => {
     set((s) => {
@@ -35,6 +38,9 @@ export const createConversationSlice: StateCreator<
       } else {
         set((s) => {
           s.conversations = result
+          s.completedConversationIds = result
+            .filter((c) => c.completed_at != null)
+            .map((c) => c.id)
         })
       }
     } catch {
@@ -43,6 +49,19 @@ export const createConversationSlice: StateCreator<
       set((s) => {
         s.conversationsLoading = false
       })
+    }
+  },
+
+  markConversationComplete: async (id) => {
+    try {
+      await window.api.markConversationComplete(id)
+      set((s) => {
+        if (!s.completedConversationIds.includes(id)) {
+          s.completedConversationIds.push(id)
+        }
+      })
+    } catch {
+      get().addToast('Failed to mark conversation complete', 'error')
     }
   },
 

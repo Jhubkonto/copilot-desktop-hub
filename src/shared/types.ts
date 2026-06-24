@@ -23,6 +23,61 @@ export interface Conversation {
   title: string
   createdAt: number
   updatedAt: number
+  completedAt: number | null
+}
+
+// ---------------------------------------------------------------------------
+// Debrief
+// ---------------------------------------------------------------------------
+
+export interface DebriefSection {
+  summary: string
+  commandsAndTools: string[]
+  reproductionGuide: string
+  mentalModel: string
+}
+
+export interface Debrief {
+  id: string
+  conversationId: string
+  projectId: string | null
+  summary: string
+  commandsTools: string[]
+  reproductionGuide: string
+  mentalModel: string
+  generatedAt: number
+  createdAt: number
+}
+
+// ---------------------------------------------------------------------------
+// Quiz
+// ---------------------------------------------------------------------------
+
+export interface QuizQuestion {
+  id: string
+  question: string
+  options: [string, string, string, string]
+  correctIndex: 0 | 1 | 2 | 3
+  explanation: string
+  category: 'command' | 'concept' | 'sequence' | 'approach'
+}
+
+export interface QuizResult {
+  questionId: string
+  selectedIndex: number
+  correct: boolean
+}
+
+export interface QuizAttempt {
+  id: string
+  conversation_id: string
+  score: number
+  total: number
+  attempted_at: number
+}
+
+export interface QuizGenerationResult {
+  questions: QuizQuestion[]
 }
 
 export interface ToolConfig {
@@ -704,6 +759,7 @@ export interface ConversationRow {
   pinned: number
   created_at: number
   updated_at: number
+  completed_at: number | null
 }
 
 export interface MessageRow {
@@ -1418,6 +1474,12 @@ export type IpcReturnMap = {
   'conversation:set-model': boolean
   'conversation:set-pinned': boolean
   'conversation:update-context': boolean
+  'conversation:generate-debrief': Debrief
+  'conversation:get-debrief': Debrief | null
+  'conversation:mark-complete': boolean
+  'conversation:generate-quiz': QuizGenerationResult
+  'conversation:save-quiz-attempt': QuizAttempt
+  'conversation:list-quiz-attempts': QuizAttempt[]
   // Debug
   'debug:set-enabled': boolean
   'debug:log': void
@@ -1766,6 +1828,12 @@ export type IpcChannels =
   | 'conversation:set-model'
   | 'conversation:set-pinned'
   | 'conversation:update-context'
+  | 'conversation:generate-debrief'
+  | 'conversation:get-debrief'
+  | 'conversation:mark-complete'
+  | 'conversation:generate-quiz'
+  | 'conversation:save-quiz-attempt'
+  | 'conversation:list-quiz-attempts'
   | 'debug:set-enabled'
   | 'debug:log'
   | 'errors:clear'

@@ -549,6 +549,26 @@ export function createMockApi() {
     androidSaveFcmServiceAccount: vi.fn().mockResolvedValue({ saved: true }),
     onAndroidLogChunk: vi.fn().mockReturnValue(() => {}),
     onAndroidCommandDone: vi.fn().mockReturnValue(() => {}),
+
+    // Debrief
+    generateDebrief: vi.fn().mockResolvedValue({
+      id: 'debrief-1',
+      conversationId: 'conv-1',
+      projectId: null,
+      summary: 'Test summary',
+      commandsTools: [],
+      reproductionGuide: 'Step 1. Do thing',
+      mentalModel: 'Think carefully',
+      generatedAt: 1000,
+      createdAt: 1000,
+    }),
+    getDebrief: vi.fn().mockResolvedValue(null),
+    markConversationComplete: vi.fn().mockResolvedValue(true),
+
+    // Quiz
+    generateQuiz: vi.fn().mockResolvedValue({ questions: [] }),
+    saveQuizAttempt: vi.fn().mockResolvedValue({ id: 'attempt-1', conversation_id: 'conv-1', score: 3, total: 5, attempted_at: 1000 }),
+    listQuizAttempts: vi.fn().mockResolvedValue([]),
   }
 }
 

@@ -554,6 +554,41 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
     version: 40,
     sql: `ALTER TABLE build_records ADD COLUMN mobile_initiated INTEGER NOT NULL DEFAULT 0;`,
   },
+  {
+    version: 41,
+    sql: `
+      CREATE TABLE IF NOT EXISTS conversation_debriefs (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL UNIQUE REFERENCES conversations(id) ON DELETE CASCADE,
+        project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+        summary TEXT NOT NULL DEFAULT '',
+        commands_tools TEXT NOT NULL DEFAULT '[]',
+        reproduction_guide TEXT NOT NULL DEFAULT '',
+        mental_model TEXT NOT NULL DEFAULT '',
+        generated_at INTEGER NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+      );
+      CREATE INDEX IF NOT EXISTS idx_debriefs_conversation ON conversation_debriefs(conversation_id);
+    `,
+  },
+  {
+    version: 42,
+    sql: `ALTER TABLE conversations ADD COLUMN completed_at INTEGER;`,
+  },
+  {
+    version: 43,
+    sql: `
+      CREATE TABLE IF NOT EXISTS conversation_quiz_attempts (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+        score INTEGER NOT NULL,
+        total INTEGER NOT NULL,
+        attempted_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_quiz_attempts_conversation
+        ON conversation_quiz_attempts(conversation_id, attempted_at DESC);
+    `,
+  },
 ];
 
 
