@@ -6,6 +6,7 @@ import type { ProviderMessage } from '../provider-core-types'
 import { activeStreamingRequests, incrementFallbackCounter } from '../provider-stream-state'
 import { toAnthropicContent, toAnthropicMessages } from '../provider-messages'
 import type { AnthropicContentBlock } from '../provider-messages'
+import { debugLog } from '../debug-mode'
 
 interface AnthropicTool {
   name: string
@@ -101,6 +102,9 @@ export async function sendAnthropicWithTools(
   }
 
   const body = JSON.stringify(bodyObj)
+  const thinkingEnabled = !!(bodyObj.thinking)
+  const thinkingBudget = thinkingEnabled ? (bodyObj.thinking as { budget_tokens?: number })?.budget_tokens : undefined
+  debugLog('anthropic', `withTools: model=${model} tools=${tools.length} thinking=${thinkingEnabled}${thinkingBudget ? ` budget=${thinkingBudget}` : ''} keyLen=${apiKey.length}`)
   const { status, data } = await httpsRequest(
     'https://api.anthropic.com/v1/messages',
     {
@@ -121,8 +125,10 @@ export async function sendAnthropicWithTools(
       const parsed = JSON.parse(data)
       if (parsed.error?.message) message = parsed.error.message
     } catch { /* use default */ }
+    debugLog('anthropic', `withTools error: HTTP ${status} model=${model} message="${message}"`)
     throw new Error(message)
   }
+  debugLog('anthropic', `withTools: HTTP ${status} model=${model}`)
 
   const parsed = JSON.parse(data)
   const contentBlocks: Array<{ type: string; text?: string; thinking?: string; id?: string; name?: string; input?: unknown }> =
@@ -187,6 +193,9 @@ export async function sendAnthropicMessage(
     }
   }
   const body = JSON.stringify(bodyObj)
+  const streamThinkingEnabled = !!(bodyObj.thinking)
+  const streamThinkingBudget = streamThinkingEnabled ? (bodyObj.thinking as { budget_tokens?: number })?.budget_tokens : undefined
+  debugLog('anthropic', `stream: model=${model} thinking=${streamThinkingEnabled}${streamThinkingBudget ? ` budget=${streamThinkingBudget}` : ''} msgs=${messages.length} keyLen=${apiKey.length}`)
 
   return new Promise((resolve, reject) => {
     const requestId = conversationId || `__provider_request__:${incrementFallbackCounter()}`
@@ -219,10 +228,12 @@ export async function sendAnthropicMessage(
               const parsed = JSON.parse(errBody)
               if (parsed.error?.message) message = parsed.error.message
             } catch { /* use default */ }
+            debugLog('anthropic', `stream error: HTTP ${res.statusCode} model=${model} message="${message}"`)
             reject(new Error(message))
           })
           return
         }
+        debugLog('anthropic', `stream: HTTP ${res.statusCode} model=${model} — receiving chunks`)
 
         let fullContent = ''
         let buffer = ''

@@ -5,6 +5,7 @@ import type { ProviderNonStreamResult, ToolCallResult, ToolChoice, ToolDefinitio
 import type { ProviderMessage } from '../provider-core-types'
 import { activeStreamingRequests, incrementFallbackCounter } from '../provider-stream-state'
 import { toOpenAICompatibleMessages } from '../provider-messages'
+import { debugLog } from '../debug-mode'
 
 function httpsRequest(
   url: string,
@@ -51,6 +52,7 @@ export async function sendOpenAIMessage(
     if (effort) bodyObj.reasoning_effort = effort
   }
   const body = JSON.stringify(bodyObj)
+  debugLog('openai', `stream: model=${model} baseUrl=${baseUrl ?? 'openai-default'} reasoningEffort=${bodyObj.reasoning_effort ?? 'none'} msgs=${messages.length} keyLen=${apiKey.length}`)
 
   return new Promise((resolve, reject) => {
     const requestId = conversationId || `__provider_request__:${incrementFallbackCounter()}`
@@ -74,6 +76,23 @@ export async function sendOpenAIMessage(
       (res) => {
         let fullContent = ''
         const contentType = res.headers['content-type'] ?? ''
+        debugLog('openai', `stream: HTTP ${res.statusCode} model=${model} contentType="${contentType.split(';')[0]}"`)
+
+        if (res.statusCode && res.statusCode >= 400) {
+          let errBody = ''
+          res.on('data', (chunk: Buffer) => { errBody += chunk.toString() })
+          res.on('end', () => {
+            let message = `OpenAI-compatible API error (HTTP ${res.statusCode})`
+            try {
+              const parsed = JSON.parse(errBody)
+              if (parsed.error?.message) message = parsed.error.message
+            } catch { /* use default */ }
+            debugLog('openai', `stream error: HTTP ${res.statusCode} model=${model} baseUrl=${baseUrl ?? 'openai-default'} message="${message}"`)
+            cleanupActiveRequest(req)
+            reject(new Error(message))
+          })
+          return
+        }
 
         if (!contentType.includes('text/event-stream')) {
           // Non-streaming response (some providers ignore stream:true).
@@ -215,6 +234,7 @@ export async function sendOpenAIWithTools(
   }
   const body = JSON.stringify(bodyObj)
   const url = baseUrl ? `${baseUrl}/chat/completions` : 'https://api.openai.com/v1/chat/completions'
+  debugLog('openai', `withTools: model=${model} baseUrl=${baseUrl ?? 'openai-default'} tools=${tools.length} toolChoice=${toolChoice} keyLen=${apiKey.length}`)
   const { status, data } = await httpsRequest(
     url,
     {
@@ -233,8 +253,10 @@ export async function sendOpenAIWithTools(
       const parsed = JSON.parse(data)
       if (parsed.error?.message) message = parsed.error.message
     } catch { /* use default */ }
+    debugLog('openai', `withTools error: HTTP ${status} model=${model} baseUrl=${baseUrl ?? 'openai-default'} message="${message}"`)
     throw new Error(message)
   }
+  debugLog('openai', `withTools: HTTP ${status} model=${model}`)
   const parsed = JSON.parse(data)
   const msg = parsed.choices?.[0]?.message
   const toolCalls: ToolCallResult[] = (msg?.tool_calls ?? []).map(
