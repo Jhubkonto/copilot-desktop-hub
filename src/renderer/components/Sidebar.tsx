@@ -3,6 +3,7 @@ import { Plus, MessageSquare, Settings, FolderOpen, Bot, Wrench, Package, Bug, S
 import { useAppStore } from '../store/app-store'
 import { ResizeHandle } from './ResizeHandle'
 import { Button } from './ui/primitives'
+import { PROJECT_COLOR_MAP } from './section-pane/shared'
 
 function NavButton({
   icon,
@@ -71,6 +72,7 @@ export function Sidebar() {
   const currentConversationId = useAppStore((s) => s.currentConversationId)
   const selectConversation = useAppStore((s) => s.selectConversation)
   const agents = useAppStore((s) => s.agents)
+  const projects = useAppStore((s) => s.projects)
   const generatingConversationIds = useAppStore((s) => s.generatingConversationIds)
   const unreadConversationIds = useAppStore((s) => s.unreadConversationIds)
   const pendingConversationIds = useAppStore((s) => s.pendingConversationIds)
@@ -232,30 +234,38 @@ export function Sidebar() {
                 const isGenerating = generatingConversationIds.includes(conv.id)
                 const isUnread = unreadConversationIds.includes(conv.id)
                 const agent = conv.agent_id ? agents.find((a) => a.id === conv.agent_id) : null
+                const project = conv.project_id ? projects.find((p) => p.id === conv.project_id) : null
+                const colors = project ? (PROJECT_COLOR_MAP[project.color] ?? PROJECT_COLOR_MAP.blue) : null
                 return (
                   <button
                     key={conv.id}
                     onClick={() => selectConversation(conv.id)}
-                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-colors ${
+                    className={`w-full flex items-stretch rounded-md text-left transition-colors overflow-hidden ${
                       isActive
                         ? 'bg-gray-200 dark:bg-gray-700'
                         : 'hover:bg-gray-100 dark:hover:bg-gray-800'
                     }`}
                   >
-                    {isGenerating ? (
-                      <span title="Generating…"><Loader2 className="w-3 h-3 text-purple-500 animate-spin shrink-0" /></span>
-                    ) : isUnread ? (
-                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse shrink-0" />
-                    ) : (
-                      <span className="w-1.5 h-1.5 shrink-0" />
-                    )}
-                    <span className="flex-1 min-w-0">
-                      <span className="block text-xs text-gray-700 dark:text-gray-200 truncate">{conv.title}</span>
-                      {agent && (
-                        <span className="block text-[10px] text-gray-400 dark:text-gray-500 truncate">
-                          {agent.icon} {agent.name}
-                        </span>
+                    {colors
+                      ? <span className={`w-1 shrink-0 ${colors.dot}`} />
+                      : <span className="w-1 shrink-0" />
+                    }
+                    <span className="flex items-center gap-2 px-2 py-1.5 flex-1 min-w-0">
+                      {isGenerating ? (
+                        <span title="Generating…"><Loader2 className="w-3 h-3 text-purple-500 animate-spin shrink-0" /></span>
+                      ) : isUnread ? (
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse shrink-0" />
+                      ) : (
+                        <span className="w-1.5 h-1.5 shrink-0" />
                       )}
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-xs text-gray-700 dark:text-gray-200 truncate">{conv.title}</span>
+                        {agent && (
+                          <span className="block text-[10px] text-gray-400 dark:text-gray-500 truncate">
+                            {agent.icon} {agent.name}
+                          </span>
+                        )}
+                      </span>
                     </span>
                   </button>
                 )

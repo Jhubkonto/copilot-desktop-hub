@@ -28,7 +28,6 @@ interface ChatMessagesProps {
   onSaveToWiki?: (messageId: string, content: string) => void
   wikiMessageIds: Set<string>
   onRegenerate: (modelOverride?: string) => void | Promise<void>
-  onRegenerateWithModel: (model: string) => void | Promise<void>
   onEdit: (index: number) => void
   onRetry: () => void | Promise<void>
   onSignIn: () => void
@@ -78,7 +77,6 @@ export function ChatMessagesBase({
   onSaveToWiki,
   wikiMessageIds,
   onRegenerate,
-  onRegenerateWithModel,
   onEdit,
   onRetry,
   onSignIn,
@@ -396,7 +394,6 @@ export function ChatMessagesBase({
                 onSaveToWiki={main.role === 'assistant' ? onSaveToWiki : undefined}
                 hasWikiEntry={wikiMessageIds.has(main.id)}
                 onRegenerate={index === lastAssistantIndex ? onRegenerate : undefined}
-                onRegenerateWithModel={index === lastAssistantIndex ? onRegenerateWithModel : undefined}
                 onEdit={main.role === 'user' ? onEdit : undefined}
                 onRetry={main.isError && main.retryable ? onRetry : undefined}
                 onSignIn={

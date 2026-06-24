@@ -1,10 +1,8 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { Copy, RotateCcw, Pencil, AlertTriangle, RefreshCw, LogIn, StopCircle, ChevronDown, CheckCircle, BookOpen } from 'lucide-react'
+import { Copy, RotateCcw, Pencil, AlertTriangle, RefreshCw, LogIn, StopCircle, CheckCircle, BookOpen } from 'lucide-react'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import type { ContextSnapshot } from '../hooks/chat-types'
 import { ContextSnapshotBadge } from './ContextInspector'
-import { useAppStore } from '../store/app-store'
-import { getAvailableModelIds, getModelLabel, getModelMultiplier } from '../../shared/models'
 
 // Strip injected context blocks (e.g. [Project File Structure]...[/Project File Structure])
 // from user-facing message content — these are internal and shouldn't be shown in the bubble.
@@ -45,7 +43,6 @@ interface MessageBubbleProps {
   messageIndex?: number
   onCopy: (content: string) => void
   onRegenerate?: () => void
-  onRegenerateWithModel?: (model: string) => void
   onEdit?: (index: number) => void
   onSaveToWiki?: (messageId: string, content: string) => void
   hasWikiEntry?: boolean
@@ -75,7 +72,6 @@ export function MessageBubbleBase({
   timestamp,
   onCopy,
   onRegenerate,
-  onRegenerateWithModel,
   onEdit,
   onSaveToWiki,
   hasWikiEntry,
@@ -85,14 +81,9 @@ export function MessageBubbleBase({
   isHighlighted
 }: MessageBubbleProps) {
   const [showActions, setShowActions] = useState(false)
-  const [showRegenMenu, setShowRegenMenu] = useState(false)
-  const [regenMenuAbove, setRegenMenuAbove] = useState(false)
   const [copied, setCopied] = useState(false)
-  const regenBtnRef = useRef<HTMLButtonElement | null>(null)
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const catalogModels = useAppStore((state) => state.catalogModels)
-  const modelIds = getAvailableModelIds(catalogModels)
 
   useEffect(() => {
     return () => {
@@ -110,7 +101,6 @@ export function MessageBubbleBase({
     if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
     hoverTimerRef.current = setTimeout(() => {
       setShowActions(false)
-      setShowRegenMenu(false)
     }, 400)
   }
 
@@ -182,49 +172,7 @@ export function MessageBubbleBase({
                 />
               )}
               {isLastAssistant && onRegenerate && (
-                <div className="relative flex items-center gap-1">
-                  <ActionButton icon={RotateCcw} label="Regenerate" onClick={() => onRegenerate()} />
-                  {onRegenerateWithModel && (
-                    <>
-                      <button
-                        ref={regenBtnRef}
-                        type="button"
-                        aria-label="Regenerate with model"
-                        className="self-stretch flex items-center px-1.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-200 transition-colors shadow-sm"
-                        onClick={() => {
-                          if (!showRegenMenu && regenBtnRef.current) {
-                            const rect = regenBtnRef.current.getBoundingClientRect()
-                            const dropdownHeight = 280
-                            setRegenMenuAbove(rect.bottom + dropdownHeight > window.innerHeight)
-                          }
-                          setShowRegenMenu((prev) => !prev)
-                        }}
-                      >
-                        <ChevronDown className="w-3 h-3" />
-                      </button>
-                      {showRegenMenu && (
-                        <div className={`absolute left-0 z-20 w-56 max-h-64 overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg p-1 ${regenMenuAbove ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
-                          {modelIds.filter((model) => model !== 'default').map((model) => (
-                            <button
-                              key={model}
-                              type="button"
-                              className="w-full text-left px-2 py-1.5 rounded text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center justify-between gap-2"
-                              onClick={() => {
-                                setShowRegenMenu(false)
-                                onRegenerateWithModel(model)
-                              }}
-                            >
-                              <span>{getModelLabel(model, catalogModels)}</span>
-                              {getModelMultiplier(model, catalogModels) && (
-                                <span className="text-gray-400 dark:text-gray-500 shrink-0">{getModelMultiplier(model, catalogModels)}</span>
-                              )}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
+                <ActionButton icon={RotateCcw} label="Regenerate" onClick={() => onRegenerate()} />
               )}
             </div>
           )}

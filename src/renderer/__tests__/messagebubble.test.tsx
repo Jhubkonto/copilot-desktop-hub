@@ -2,14 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { MessageBubble } from '../../renderer/components/MessageBubble'
 import { setupMockApi } from '../../test/mocks/api'
-import { createMockAppStore, setupStoreMock } from '../../test/mocks/store'
-
-const { useAppStore } = vi.hoisted(() => ({ useAppStore: vi.fn() }))
-vi.mock('../../renderer/store/app-store', () => ({ useAppStore }))
 
 beforeEach(() => {
   setupMockApi()
-  setupStoreMock(useAppStore, createMockAppStore())
 })
 
 const baseProps = {
@@ -134,28 +129,6 @@ describe('MessageBubble', () => {
     expect(screen.getByText('Regenerate')).toBeInTheDocument()
   })
 
-  it('calls onRegenerateWithModel from regenerate dropdown', () => {
-    const onRegenerateWithModel = vi.fn()
-    setupStoreMock(useAppStore, createMockAppStore({
-      catalogModels: [{ id: 'gpt-5.4', name: 'GPT-5.4', vendor: 'OpenAI', capabilities: [] }],
-    }))
-    render(
-      <MessageBubble
-        {...baseProps}
-        role="assistant"
-        isLastAssistant={true}
-        onRegenerate={vi.fn()}
-        onRegenerateWithModel={onRegenerateWithModel}
-      />
-    )
-
-    const container = screen.getByText('Hello there').closest('.group')!
-    fireEvent.mouseEnter(container)
-    fireEvent.click(screen.getByLabelText('Regenerate with model'))
-    fireEvent.click(screen.getByText('GPT-5.4'))
-
-    expect(onRegenerateWithModel).toHaveBeenCalledWith('gpt-5.4')
-  })
 
   it('shows choose model action for model_not_available errors', () => {
     const onPickModel = vi.fn()
