@@ -174,7 +174,8 @@ export const ClaudeAdapter: CliAgentAdapter = {
               if (block.type === 'thinking') {
                 const blockId = `thinking-${i}`
                 const thinkingText = (block as { type: 'thinking'; thinking?: string; text?: string }).thinking ?? block.text ?? ''
-                onEvent?.({ type: 'thinking_chunk', blockId, chunk: thinkingText })
+                // Emit chunk before end — no async boundary between them (H6).
+                if (thinkingText) onEvent?.({ type: 'thinking_chunk', blockId, chunk: thinkingText })
                 onEvent?.({ type: 'thinking_end', blockId })
               }
               if (block.type === 'text' && block.text) {
@@ -259,7 +260,17 @@ export const ClaudeAdapter: CliAgentAdapter = {
 
       proc.on('error', reject)
       proc.on('close', (code) => {
-        if (buffer.trim()) parseLine(buffer)
+        if (buffer.trim()) {
+          const trimmed = buffer.trim()
+          try {
+            JSON.parse(trimmed)
+            parseLine(trimmed)
+          } catch {
+            // Unterminated non-JSON line — emit as raw text fallback (M1).
+            onChunk(trimmed)
+            fullText += trimmed
+          }
+        }
         for (const id of openToolIds) {
           onEvent?.({
             type: 'tool_end',

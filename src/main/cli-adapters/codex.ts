@@ -115,16 +115,25 @@ function extractError(line: string): string | null {
   return null
 }
 
+// Known API format variants for reasoning summary delta events (M2).
+// Listed in priority order — first match wins.
+const REASONING_DELTA_TYPES = new Set([
+  'response.reasoning_summary_text.delta', // Responses API latest
+  'response.reasoning_summary.delta',       // Responses API earlier
+  'reasoning_summary_delta',                // Codex exec JSONL
+])
+const REASONING_DONE_TYPES = new Set([
+  'response.reasoning_summary_text.done',
+  'response.reasoning_summary.done',
+  'reasoning_summary_done',
+])
+
 function extractThinking(line: string): ThinkingResult | null {
   try {
     const obj = JSON.parse(line) as Record<string, unknown>
     const type = typeof obj.type === 'string' ? obj.type : ''
 
-    if (
-      type === 'response.reasoning_summary_text.delta' ||
-      type === 'response.reasoning_summary.delta' ||
-      type === 'reasoning_summary_delta'
-    ) {
+    if (REASONING_DELTA_TYPES.has(type)) {
       const delta = obj.delta
       if (typeof delta === 'string' && delta) return { blockId: 'codex-reasoning-summary', text: delta }
       const deltaRecord = asRecord(delta)
@@ -133,11 +142,7 @@ function extractThinking(line: string): ThinkingResult | null {
       }
     }
 
-    if (
-      type === 'response.reasoning_summary_text.done' ||
-      type === 'response.reasoning_summary.done' ||
-      type === 'reasoning_summary_done'
-    ) {
+    if (REASONING_DONE_TYPES.has(type)) {
       return { blockId: 'codex-reasoning-summary', text: '', done: true }
     }
 
