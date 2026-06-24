@@ -8,6 +8,7 @@ const FORMAT_OPTIONS = ['default', 'concise', 'detailed', 'code-only'] as const
 interface Props {
   config: AgentConfig
   onUpdateField: <K extends keyof AgentConfig>(key: K, value: AgentConfig[K]) => void
+  thinkingSupported?: boolean
   newGlob: string
   onSetNewGlob: (v: string) => void
   onAddIgnoredGlob: () => void
@@ -30,6 +31,7 @@ interface Props {
 
 export function SettingsTab({
   config, onUpdateField,
+  thinkingSupported = true,
   newGlob, onSetNewGlob, onAddIgnoredGlob, onRemoveIgnoredGlob,
   newCmdName, newCmdDesc, newCmdPrompt,
   onSetNewCmdName, onSetNewCmdDesc, onSetNewCmdPrompt,
@@ -175,19 +177,24 @@ export function SettingsTab({
       </div>
 
       {/* Thinking */}
-      <div className="space-y-2">
+      <div className={`space-y-2 ${!thinkingSupported ? 'opacity-50' : ''}`}>
         <div className="flex items-center justify-between">
           <div>
             <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Thinking</span>
-            <p className="text-xs text-gray-400 mt-0.5">Extended reasoning for Claude CLI, Anthropic, and OpenRouter o-series</p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {thinkingSupported
+                ? 'Extended reasoning for Claude CLI, Anthropic, and o-series models'
+                : 'Not supported by the active provider — effort will be ignored'}
+            </p>
           </div>
           <ToggleSwitch
             checked={!!config.thinkingEffort && config.thinkingEffort !== 'disabled'}
             onChange={(on) => onUpdateField('thinkingEffort', on ? 'medium' : 'disabled')}
             ariaLabel="Enable thinking"
+            disabled={!thinkingSupported}
           />
         </div>
-        {config.thinkingEffort && config.thinkingEffort !== 'disabled' && (
+        {config.thinkingEffort && config.thinkingEffort !== 'disabled' && thinkingSupported && (
           <div className="flex items-center gap-2">
             <label className="text-xs text-gray-500 dark:text-gray-400 shrink-0">Effort</label>
             <select

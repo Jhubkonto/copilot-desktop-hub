@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { X, Settings, FileText, Wrench } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
-import type { AgentConfig } from '../../shared/types'
+import type { AgentConfig, AvailableModelGroup } from '../../shared/types'
+import { PROVIDER_THINKING_SUPPORT } from '../../shared/types'
 import { ResizeHandle } from './ResizeHandle'
 import { SettingsTab } from './agent-panel/SettingsTab'
 import { SkillsTab } from './agent-panel/SkillsTab'
@@ -46,6 +47,12 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
   const setShowMcpPanel = useAppStore((s) => s.setShowMcpPanel)
   const setShowSettings = useAppStore((s) => s.setShowSettings)
   const setSettingsInitialTab = useAppStore((s) => s.setSettingsInitialTab)
+  const globalDefaultModel = useAppStore((s) => s.globalDefaultModel)
+
+  const [availableGroups, setAvailableGroups] = useState<AvailableModelGroup[]>([])
+  useEffect(() => {
+    window.api.listAvailableModels().then(setAvailableGroups).catch(() => {})
+  }, [])
 
   const agent = editingAgentId ? agents.find((a) => a.id === editingAgentId) ?? null : null
   const [tab, setTab] = useState<'settings' | 'skills' | 'knowledge' | 'json'>('settings')
@@ -73,6 +80,19 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
   const [newCmdPrompt, setNewCmdPrompt] = useState('')
 
   const isEditing = !!agent?.id
+
+  const thinkingSupported = useMemo(() => {
+    if (config.backend === 'claude-cli' || config.backend === 'codex-cli') return true
+    if (config.backend) return false
+    // BYOK: derive provider from available groups + global default model
+    const model = globalDefaultModel ?? 'default'
+    const group = availableGroups.find(
+      (g) => g.sourceType === 'provider' && (model === 'default' || g.models.some((m) => m.id === model)),
+    )
+    if (!group) return true // no groups loaded yet — optimistic
+    const support = PROVIDER_THINKING_SUPPORT[group.sourceKey]
+    return support === true || support === 'o-series-only'
+  }, [config.backend, globalDefaultModel, availableGroups])
 
   useEffect(() => {
     if (tab === 'json') {
@@ -356,6 +376,7 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
             <SettingsTab
               config={config}
               onUpdateField={updateField}
+              thinkingSupported={thinkingSupported}
               newGlob={newGlob}
               onSetNewGlob={setNewGlob}
               onAddIgnoredGlob={addIgnoredGlob}
