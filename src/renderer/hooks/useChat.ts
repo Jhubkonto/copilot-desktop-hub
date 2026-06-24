@@ -72,6 +72,10 @@ export function useChat({
   const streamingConversationRef = useRef<string | null>(null)
   // Set to true when the WS stream ends; isGenerating stays true until the drain queue also empties.
   const streamEndedRef = useRef(false)
+  // Set to true when the null sentinel arrives; gates late thinking_end events.
+  const streamClosedRef = useRef(false)
+  // Stores blockIds for thinking_end events that arrived before the matching chunk.
+  const pendingThinkingEndsRef = useRef<Set<string>>(new Set())
   const justCreatedConversationRef = useRef(false)
   const lastUndoneUserMessageRef = useRef<string | null>(null)
   const pendingEditedResendRef = useRef(false)
@@ -235,6 +239,8 @@ export function useChat({
     setCliCost(null)
     setLiveThinkingBlocks(new Map())
     liveToolCallsRef.current = []
+    streamClosedRef.current = false
+    pendingThinkingEndsRef.current.clear()
     setLoadingFailed(false)
   }, [conversationId, addToast])
 
@@ -282,6 +288,7 @@ export function useChat({
       if (chunk === null) {
         const wasBackground = ignoreRemoteStreamRef.current
         ignoreRemoteStreamRef.current = false
+        streamClosedRef.current = true
         const doneConvId = streamingConversationRef.current ?? activeConversationRef.current ?? ''
         streamingConversationRef.current = null
         markConversationDoneGenerating(doneConvId)
@@ -293,13 +300,22 @@ export function useChat({
           streamModelRef.current = null
           liveToolCallsRef.current = []
           setLiveThinkingBlocks(new Map())
+          streamClosedRef.current = false
           return
         }
 
         const finalContent = streamingContentRef.current
         const hadToolCalls = liveToolCallsRef.current.length > 0
         const displayContent = finalContent || (!hadToolCalls ? '_(no response)_' : '')
-        const frozenThinking = liveThinkingBlocksRef.current.size > 0 ? new Map(liveThinkingBlocksRef.current) : null
+
+        // Mark all live thinking blocks done before freezing — handles late/missing thinking_end events (H1).
+        const currentBlocks = liveThinkingBlocksRef.current
+        const frozenThinking: Map<string, { blockId: string; content: string; done: boolean }> | null =
+          currentBlocks.size > 0
+            ? new Map(Array.from(currentBlocks.entries()).map(([k, v]) => [k, { ...v, done: true }]))
+            : null
+
+        // Batch the message append and live-block clear in the same state update cycle (C1).
         if (displayContent) {
           const assistantMessage: ChatMessage = {
             id: crypto.randomUUID(),
@@ -320,7 +336,11 @@ export function useChat({
             return updated
           })
         }
+        // Clear live blocks immediately after setMessages to batch in same React flush.
         setLiveThinkingBlocks(new Map())
+        pendingThinkingEndsRef.current.clear()
+        streamClosedRef.current = false
+
         streamingContentRef.current = ''
         streamModelRef.current = null
         // Signal stream end — actual isGenerating=false deferred until drain queue empties
@@ -357,12 +377,16 @@ export function useChat({
     const unsubscribeError = window.api.onStreamError((error: StreamError) => {
       const wasBackground = ignoreRemoteStreamRef.current
       ignoreRemoteStreamRef.current = false
+      streamClosedRef.current = true
       const errorConvId = streamingConversationRef.current ?? activeConversationRef.current ?? ''
       streamingConversationRef.current = null
       streamingContentRef.current = ''
       streamModelRef.current = null
       liveToolCallsRef.current = []
+      // Mark all live thinking blocks done before clearing (H2).
       setLiveThinkingBlocks(new Map())
+      pendingThinkingEndsRef.current.clear()
+      streamClosedRef.current = false
       markConversationDoneGenerating(errorConvId)
       void loadConversations()
 
@@ -431,6 +455,9 @@ export function useChat({
 
     const unsubscribeCliToolStart = window.api.onCliToolStart(({ id, name, input }) => {
       if (streamingConversationRef.current && streamingConversationRef.current !== activeConversationRef.current) return
+      // Flush pending streamed text before inserting the tool block so the text
+      // always appears before the tool call in the DOM (C2).
+      flush()
       const toolCallMsg: ChatMessage = {
         id: crypto.randomUUID(),
         role: 'tool-call',
@@ -473,11 +500,17 @@ export function useChat({
 
     const unsubscribeThinkingDelta = window.api.onThinkingDelta(({ blockId, chunk }) => {
       if (streamingConversationRef.current && streamingConversationRef.current !== activeConversationRef.current) return
+      if (streamClosedRef.current) return
       setLiveThinkingBlocksState((prev) => {
         const existing = prev.get(blockId) ?? { blockId, content: '', done: false }
         const next = new Map(prev).set(blockId, { ...existing, content: existing.content + chunk })
         // Drop the re-entry placeholder once a real block starts arriving
         next.delete('restore-placeholder')
+        // Replay any pending end event that arrived before this chunk (H6).
+        if (pendingThinkingEndsRef.current.has(blockId)) {
+          next.set(blockId, { ...next.get(blockId)!, done: true })
+          pendingThinkingEndsRef.current.delete(blockId)
+        }
         liveThinkingBlocksRef.current = next
         return next
       })
@@ -485,9 +518,15 @@ export function useChat({
 
     const unsubscribeThinkingEnd = window.api.onThinkingEnd(({ blockId }) => {
       if (streamingConversationRef.current && streamingConversationRef.current !== activeConversationRef.current) return
+      // Ignore thinking_end events that arrive after the stream has closed (H1 desktop).
+      if (streamClosedRef.current) return
       setLiveThinkingBlocksState((prev) => {
         const existing = prev.get(blockId)
-        if (!existing) return prev
+        if (!existing) {
+          // thinking_end arrived before matching chunk — queue it for replay (H6).
+          pendingThinkingEndsRef.current.add(blockId)
+          return prev
+        }
         const next = new Map(prev).set(blockId, { ...existing, done: true })
         liveThinkingBlocksRef.current = next
         return next
@@ -507,7 +546,7 @@ export function useChat({
       unsubscribeThinkingDelta()
       unsubscribeThinkingEnd()
     }
-  }, [loadConversations, rateLimitSetterRef])
+  }, [loadConversations, rateLimitSetterRef, flush])
 
   useEffect(() => {
     const unsubscribe = window.api.onTeamActivity((step) => {

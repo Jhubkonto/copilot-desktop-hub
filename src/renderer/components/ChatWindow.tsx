@@ -432,12 +432,17 @@ export function ChatWindow() {
     }
   }, [conversationId, markConversationRead])
 
-  // Auto-scroll only when user is at the bottom
+  // Auto-scroll only when user is at the bottom.
+  // Fires on displayedContent (the drained queue output) so the DOM has already been
+  // updated with the new characters before we measure scrollHeight (C3).
   useEffect(() => {
     if (!isUserScrolledUpRef.current) {
-      scrollToBottom()
+      // Use rAF so the scroll happens after the browser has painted the new content.
+      requestAnimationFrame(() => {
+        if (!isUserScrolledUpRef.current) scrollToBottom()
+      })
     }
-  }, [chat.messages, chat.streamingContent, scrollToBottom])
+  }, [chat.messages, chat.displayedContent, scrollToBottom])
 
   // Track new content arriving while user is scrolled up → mark unread
   useEffect(() => {
@@ -456,6 +461,15 @@ export function ChatWindow() {
       scrollToBottom()
     }
   }, [chat.isGenerating, scrollToBottom])
+
+  // Scroll when live thinking blocks expand (new block added or content grows).
+  useEffect(() => {
+    if (!isUserScrolledUpRef.current && chat.liveThinkingBlocks.size > 0) {
+      requestAnimationFrame(() => {
+        if (!isUserScrolledUpRef.current) scrollToBottom()
+      })
+    }
+  }, [chat.liveThinkingBlocks, scrollToBottom])
 
   // Reset scroll state on conversation switch
   useEffect(() => {

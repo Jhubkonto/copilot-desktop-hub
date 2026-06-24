@@ -86,6 +86,23 @@ export interface ToolConfig {
   instructions: string
 }
 
+/**
+ * Thinking/reasoning support per provider.
+ * true = full extended-thinking support
+ * 'o-series-only' = only for o-series / reasoning models
+ * false = not supported (thinking effort param is ignored or unsupported)
+ */
+export const PROVIDER_THINKING_SUPPORT: Record<string, boolean | 'o-series-only'> = {
+  anthropic: true,
+  openai: 'o-series-only',
+  azure: 'o-series-only',
+  openrouter: false,
+  groq: false,
+  mistral: false,
+  gemini: false,
+  xai: false,
+}
+
 export interface AgentConfig {
   id: string
   name: string

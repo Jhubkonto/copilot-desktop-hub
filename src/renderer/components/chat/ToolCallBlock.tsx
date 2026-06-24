@@ -20,17 +20,20 @@ export function ToolCallBlock({
   const [expanded, setExpanded] = useState(false)
   const userCollapsedRef = useRef(false)
   const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const hasDetailsRef = useRef(false)
 
   const hasDetails = (args && Object.keys(args).length > 0) || result || resultImages?.length
+  hasDetailsRef.current = !!hasDetails
   const resultPreview = result?.replace(/\s+/g, ' ').trim()
 
-  // Auto-expand while in progress; auto-collapse after completion
+  // Auto-expand while in progress; auto-collapse after completion.
+  // hasDetails changes as result arrives but should not restart the collapse timer.
   useEffect(() => {
     if (inProgress) {
-      if (!userCollapsedRef.current && hasDetails) {
+      if (!userCollapsedRef.current && hasDetailsRef.current) {
         setExpanded(true)
       }
-    } else if (hasDetails) {
+    } else if (hasDetailsRef.current) {
       if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current)
       collapseTimerRef.current = setTimeout(() => {
         setExpanded(false)
@@ -40,7 +43,7 @@ export function ToolCallBlock({
     return () => {
       if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current)
     }
-  }, [inProgress, hasDetails])
+  }, [inProgress])
 
   const handleToggle = () => {
     if (!hasDetails) return

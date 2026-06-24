@@ -16,6 +16,8 @@ import type { InlineHandler, MobileChatActivity } from './chat-context-builder'
 import type { MessageContentPart } from './provider-core-types'
 import { modelIdSupportsTools } from '../shared/models'
 import { getCachedCatalog } from './model-catalog'
+import { debugLog } from './debug-mode'
+import { PROVIDER_THINKING_SUPPORT } from '../shared/types'
 
 function stripImageParts(msgs: ProviderMessage[]): ProviderMessage[] {
   return msgs.map((msg) => {
@@ -82,13 +84,38 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
     toolPolicy,
   } = opts
 
+  // Strip thinking effort for providers that don't support it (H5).
+  // openrouter does not expose Anthropic extended thinking via its OpenAI-compatible endpoint.
+  const thinkingSupport = PROVIDER_THINKING_SUPPORT[providerName]
+  const effectiveGenerationOptions = { ...generationOptions }
+  if (
+    effectiveGenerationOptions.thinkingEffort &&
+    effectiveGenerationOptions.thinkingEffort !== 'disabled' &&
+    thinkingSupport === false
+  ) {
+    debugLog('provider', `${providerName}: thinking not supported — stripping thinkingEffort=${effectiveGenerationOptions.thinkingEffort} model=${providerModel}`)
+    webContents.send('chat:activity-global', { label: `Thinking effort ignored: not supported by ${providerName}` })
+    effectiveGenerationOptions.thinkingEffort = 'disabled'
+  } else if (
+    effectiveGenerationOptions.thinkingEffort &&
+    effectiveGenerationOptions.thinkingEffort !== 'disabled' &&
+    thinkingSupport === 'o-series-only' &&
+    !/^o\d|^o-/.test(providerModel)
+  ) {
+    debugLog('provider', `${providerName}: thinking only supported for o-series models — stripping thinkingEffort=${effectiveGenerationOptions.thinkingEffort} model=${providerModel}`)
+    effectiveGenerationOptions.thinkingEffort = 'disabled'
+  }
+
   const catalog = getCachedCatalog()
   const catalogEntry = catalog.find((m) => m.id === providerModel)
   let toolsSupported: boolean
+  let toolSupportSource: string
   if (providerName !== 'openrouter') {
     toolsSupported = modelIdSupportsTools(providerModel, catalog)
+    toolSupportSource = 'catalog-lookup'
   } else if (catalogEntry) {
     toolsSupported = catalogEntry.capabilities.length === 0 || catalogEntry.capabilities.includes('tool_calls')
+    toolSupportSource = `openrouter-catalog caps=[${catalogEntry.capabilities.join(',')}]`
   } else {
     // No catalog hit: strip ~ routing prefix and check known-capable families.
     // hermes, nous, etc. won't match → conservative (no tools).
@@ -96,9 +123,11 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
     const id = providerModel.toLowerCase().replace(/^~/, '')
     const TOOL_CAPABLE_FAMILIES = ['claude', 'gpt-4', 'gpt-4o', 'gemini', 'mistral-large', 'llama-3', 'qwen']
     toolsSupported = TOOL_CAPABLE_FAMILIES.some((family) => id.includes(family))
+    toolSupportSource = `openrouter-heuristic id="${id}"`
   }
   const effectiveToolDefs = toolsSupported ? toolDefs : []
   const hasToolLoop = effectiveToolDefs.length > 0
+  debugLog('provider', `dispatch: provider=${providerName} model=${providerModel} toolsSupported=${toolsSupported} toolSupportSource=${toolSupportSource} toolDefs=${toolDefs.length} effectiveTools=${effectiveToolDefs.length} hasToolLoop=${hasToolLoop} agenticMode=${agenticMode}`)
   const inlineHandlers = wikiInlineHandlers.size > 0 ? wikiInlineHandlers : undefined
   const agentId = effectiveAgentId ?? 'default'
   const onActivity = makeActivityHandler(sendActivity)
@@ -115,10 +144,11 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
   }
 
   if (providerName === 'anthropic') {
+    debugLog('provider', `anthropic: path=${hasToolLoop ? 'tool-loop' : 'streaming'} model=${providerModel} thinkingEffort=${generationOptions.thinkingEffort ?? 'none'}`)
     if (hasToolLoop) {
       return runProviderMcpToolLoop(
         (msgs, tools, choice) =>
-          sendAnthropicWithTools(byokKey, providerModel, msgs, tools ?? [], choice, { ...generationOptions, ...thinkingCallbacks }),
+          sendAnthropicWithTools(byokKey, providerModel, msgs, tools ?? [], choice, { ...effectiveGenerationOptions, ...thinkingCallbacks }),
         chatMessages,
         effectiveToolDefs,
         toolMap,
@@ -143,15 +173,16 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
       chatMessages.slice(1),
       systemPrompt,
       sendChunk,
-      { ...generationOptions, ...thinkingCallbacks },
+      { ...effectiveGenerationOptions, ...thinkingCallbacks },
     )
   }
 
   if (providerName === 'openai') {
+    debugLog('provider', `openai: path=${hasToolLoop ? 'tool-loop' : 'streaming'} model=${providerModel}`)
     if (hasToolLoop) {
       return runProviderMcpToolLoop(
         (msgs, tools, choice) =>
-          sendOpenAIWithTools(byokKey, providerModel, msgs, tools ?? [], choice, generationOptions),
+          sendOpenAIWithTools(byokKey, providerModel, msgs, tools ?? [], choice, effectiveGenerationOptions),
         chatMessages,
         effectiveToolDefs,
         toolMap,
@@ -170,7 +201,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
     }
     sendActivity({ state: 'thinking', label: 'Generating response' })
     return sendOpenAIMessage(conversationId, byokKey, providerModel, chatMessages, sendChunk, {
-      ...generationOptions,
+      ...effectiveGenerationOptions,
       ...thinkingCallbacks,
     })
   }
@@ -180,21 +211,24 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
   if (openAiCompatible.includes(providerName)) {
     const providerCfg = PROVIDERS.find((p) => p.name === providerName)
     const baseUrl = providerCfg?.baseUrl
+    debugLog('provider', `${providerName}: path=${hasToolLoop ? 'tool-loop' : 'streaming'} model=${providerModel} baseUrl=${baseUrl ?? 'default'}`)
     if (hasToolLoop) {
       // Some OpenRouter models don't support tool use or image input. If the
       // first call fails with those specific errors, retry gracefully so the
       // user gets a response instead of a hard failure.
       const caller = async (msgs: ProviderMessage[], tools: ToolDefinition[] | undefined, choice: ToolChoice): Promise<ProviderNonStreamResult> => {
         try {
-          return await sendOpenAIWithTools(byokKey, providerModel, msgs, tools ?? [], choice, generationOptions, baseUrl)
+          return await sendOpenAIWithTools(byokKey, providerModel, msgs, tools ?? [], choice, effectiveGenerationOptions, baseUrl)
         } catch (err) {
           if (!(err instanceof Error)) throw err
           if (err.message.includes('No endpoints found that support tool use')) {
-            const text = await sendOpenAIMessage(conversationId, byokKey, providerModel, msgs, sendChunk, generationOptions, baseUrl)
+            debugLog('provider', `${providerName}: tool-use not supported by endpoint — retrying without tools model=${providerModel}`)
+            const text = await sendOpenAIMessage(conversationId, byokKey, providerModel, msgs, sendChunk, effectiveGenerationOptions, baseUrl)
             return { content: text, toolCalls: [] }
           }
           if (err.message.includes('No endpoints found that support image input')) {
-            const text = await sendOpenAIMessage(conversationId, byokKey, providerModel, stripImageParts(msgs), sendChunk, generationOptions, baseUrl)
+            debugLog('provider', `${providerName}: image input not supported by endpoint — retrying with text-only model=${providerModel}`)
+            const text = await sendOpenAIMessage(conversationId, byokKey, providerModel, stripImageParts(msgs), sendChunk, effectiveGenerationOptions, baseUrl)
             return { content: text, toolCalls: [] }
           }
           throw err
@@ -221,12 +255,12 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
     sendActivity({ state: 'thinking', label: 'Generating response' })
     try {
       return await sendOpenAIMessage(conversationId, byokKey, providerModel, chatMessages, sendChunk, {
-        ...generationOptions,
+        ...effectiveGenerationOptions,
         ...thinkingCallbacks,
       }, baseUrl)
     } catch (err) {
       if (err instanceof Error && err.message.includes('No endpoints found that support image input')) {
-        return sendOpenAIMessage(conversationId, byokKey, providerModel, stripImageParts(chatMessages), sendChunk, generationOptions, baseUrl)
+        return sendOpenAIMessage(conversationId, byokKey, providerModel, stripImageParts(chatMessages), sendChunk, effectiveGenerationOptions, baseUrl)
       }
       throw err
     }
@@ -235,12 +269,14 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
   // Azure
   const azureEndpoint = getAzureEndpoint()
   if (!azureEndpoint) {
+    debugLog('provider', `azure: endpoint not configured — aborting model=${providerModel}`)
     throw new Error('Azure endpoint not configured')
   }
+  debugLog('provider', `azure: path=${hasToolLoop ? 'tool-loop' : 'streaming'} model=${providerModel} endpoint=${azureEndpoint.slice(0, 40)}`)
   if (hasToolLoop) {
     return runProviderMcpToolLoop(
       (msgs, tools, choice) =>
-        sendAzureWithTools(byokKey, azureEndpoint, providerModel, msgs, tools ?? [], choice, generationOptions),
+        sendAzureWithTools(byokKey, azureEndpoint, providerModel, msgs, tools ?? [], choice, effectiveGenerationOptions),
       chatMessages,
       effectiveToolDefs,
       toolMap,
@@ -265,6 +301,6 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
     providerModel,
     chatMessages,
     sendChunk,
-    generationOptions,
+    effectiveGenerationOptions,
   )
 }

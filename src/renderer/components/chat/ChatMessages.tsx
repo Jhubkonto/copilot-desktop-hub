@@ -49,6 +49,7 @@ interface MsgGroup {
 
 export function getThinkingBlockLabel(blockId: string): string {
   if (blockId === 'codex-reasoning-summary') return 'Reasoning summary'
+  if (blockId === 'codex-activity') return 'Codex activity'
   return 'Reasoning'
 }
 
@@ -121,7 +122,18 @@ export function ChatMessagesBase({
       if (msg.role === 'tool-call') {
         pendingToolCalls.push(msg)
       } else {
-        groups.push({ main: msg, toolCalls: pendingToolCalls, index })
+        // Only group tool calls that preceded this message chronologically (C2 guard).
+        const orderedToolCalls = pendingToolCalls.filter(
+          (tc) => msg.role !== 'assistant' || tc.timestamp <= msg.timestamp,
+        )
+        const unorderedToolCalls = pendingToolCalls.filter(
+          (tc) => msg.role === 'assistant' && tc.timestamp > msg.timestamp,
+        )
+        groups.push({ main: msg, toolCalls: orderedToolCalls, index })
+        // Demote out-of-order tool calls to standalone entries.
+        for (const tc of unorderedToolCalls) {
+          groups.push({ main: tc, toolCalls: [], index: groups.length })
+        }
         pendingToolCalls = []
       }
     })
@@ -370,7 +382,7 @@ export function ChatMessagesBase({
               )}
               <MessageBubble
                 id={main.id}
-                role={main.role}
+                role={main.role as 'user' | 'assistant' | 'system'}
                 content={main.content}
                 isEdited={main.isEdited}
                 modelLabel={
@@ -416,19 +428,33 @@ export function ChatMessagesBase({
         {/* Live generation area: thinking + streaming text + activity dots in one container */}
         {(liveThinkingBlocks && liveThinkingBlocks.size > 0 || isGenerating) && (
           <div>
-            {liveThinkingBlocks && liveThinkingBlocks.size > 0 && (
-              <div>
-                {Array.from(liveThinkingBlocks.values()).map((block) => (
-                  <ThinkingBlock
-                    key={block.blockId}
-                    content={block.content}
-                    done={block.done}
-                    label={getThinkingBlockLabel(block.blockId)}
-                    isResponseStreaming={!!streamingContent}
-                  />
-                ))}
-              </div>
-            )}
+            {liveThinkingBlocks && liveThinkingBlocks.size > 0 && (() => {
+              // Collect blockIds already committed to a historical message to avoid
+              // rendering both the live block and the frozen copy simultaneously (C1).
+              const lastAssistant = messages.length > 0
+                ? [...messages].reverse().find((m) => m.role === 'assistant')
+                : null
+              const committedBlockIds = lastAssistant?.thinkingBlocks
+                ? new Set(lastAssistant.thinkingBlocks.keys())
+                : new Set<string>()
+              const visibleLiveBlocks = Array.from(liveThinkingBlocks.values()).filter(
+                (block) => !committedBlockIds.has(block.blockId),
+              )
+              if (visibleLiveBlocks.length === 0) return null
+              return (
+                <div>
+                  {visibleLiveBlocks.map((block) => (
+                    <ThinkingBlock
+                      key={block.blockId}
+                      content={block.content}
+                      done={block.done}
+                      label={getThinkingBlockLabel(block.blockId)}
+                      isResponseStreaming={!!streamingContent}
+                    />
+                  ))}
+                </div>
+              )
+            })()}
             {isGenerating && streamingContent && (
               <div className="pl-3 border-l-2 border-gray-200 dark:border-gray-700 text-sm text-gray-900 dark:text-gray-100">
                 <MarkdownRenderer content={streamingContent} />

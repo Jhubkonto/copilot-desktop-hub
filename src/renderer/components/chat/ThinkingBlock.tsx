@@ -14,8 +14,10 @@ export function ThinkingBlock({ content, done, label = 'Reasoning', isResponseSt
   const [expanded, setExpanded] = useState(false)
   const userCollapsedRef = useRef(false)
   const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const hasContentRef = useRef(false)
 
   const charCount = content.length
+  hasContentRef.current = charCount > 0
 
   // Collapse immediately when response starts streaming
   useEffect(() => {
@@ -26,10 +28,11 @@ export function ThinkingBlock({ content, done, label = 'Reasoning', isResponseSt
     }
   }, [isResponseStreaming])
 
-  // Auto-expand when block goes live; auto-collapse after done (unless user collapsed it)
+  // Auto-expand when block goes live; auto-collapse after done (unless user collapsed it).
+  // Only depends on `done` — content length changes do not reschedule the collapse timer (M4).
   useEffect(() => {
     if (!done) {
-      if (!userCollapsedRef.current && content.length > 0) {
+      if (!userCollapsedRef.current && hasContentRef.current) {
         setExpanded(true)
       }
     } else {
@@ -42,7 +45,7 @@ export function ThinkingBlock({ content, done, label = 'Reasoning', isResponseSt
     return () => {
       if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current)
     }
-  }, [done, content.length])
+  }, [done])
 
   const handleToggle = () => {
     if (content.length === 0) return
