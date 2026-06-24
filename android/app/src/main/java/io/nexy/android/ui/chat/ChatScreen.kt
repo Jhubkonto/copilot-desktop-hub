@@ -110,11 +110,15 @@ fun ChatScreen(
     onBack: () -> Unit,
     onOpenFork: ((String) -> Unit)? = null,
     onOpenRemoteEditWithPrefill: ((String) -> Unit)? = null,
-    vm: ChatViewModel = viewModel(factory = object : ViewModelProvider.Factory {
-        @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>) =
-            ChatViewModel(conversationId, agentId = agentId, projectId = projectId) as T
-    }),
+    vm: ChatViewModel = viewModel(
+        factory = remember(conversationId, agentId, projectId) {
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>) =
+                    ChatViewModel(conversationId, agentId = agentId, projectId = projectId) as T
+            }
+        },
+    ),
 ) {
     val messages by vm.messages.collectAsState()
     val isStreaming by vm.isStreaming.collectAsState()
@@ -324,6 +328,23 @@ fun ChatScreen(
         if (!isStreaming || userScrolledUp) return@LaunchedEffect
         val itemCount = listState.layoutInfo.totalItemsCount
         if (itemCount > 0) listState.scrollToItem(itemCount - 1, scrollOffset = Int.MAX_VALUE)
+    }
+
+    // Auto-scroll when live thinking blocks grow (new block added or content length increases).
+    val thinkingBlocksSize = liveThinkingBlocks.size
+    val thinkingTotalChars = liveThinkingBlocks.sumOf { it.content.length }
+    LaunchedEffect(thinkingBlocksSize, thinkingTotalChars) {
+        if (userScrolledUp) return@LaunchedEffect
+        val itemCount = listState.layoutInfo.totalItemsCount
+        if (itemCount > 0) listState.scrollToItem(itemCount - 1, scrollOffset = Int.MAX_VALUE)
+    }
+
+    // Scroll to bottom on stream end (user should see the completed response).
+    LaunchedEffect(isStreaming) {
+        if (!isStreaming && !userScrolledUp) {
+            val itemCount = listState.layoutInfo.totalItemsCount
+            if (itemCount > 0) listState.animateScrollToItem(itemCount - 1, scrollOffset = Int.MAX_VALUE)
+        }
     }
 
     LaunchedEffect(conversation?.model) {
@@ -813,6 +834,10 @@ fun ChatScreen(
                 if (connectionBanner) {
                     NexyConnectionBanner(connectionState, lastError)
                 }
+                // True once the drain coroutine has created a streaming message in the list.
+                // Used to suppress the duplicate ThinkingHistoryBubble in the awaiting section.
+                val hasStreamingMessage = remember(messages) { messages.any { it.isStreaming } }
+
                 // Group consecutive isToolCall messages into the assistant message that follows them.
                 // This gives one animateItem() animation per response turn instead of one per block.
                 val groupedMessages = remember(messages) {
@@ -830,6 +855,9 @@ fun ChatScreen(
                             pending.clear()
                         }
                     }
+                    // Trailing tool calls with no following assistant message yet (mid-stream):
+                    // render them individually so they're visible while the agent is still running.
+                    result.addAll(pending)
                     result
                 }
 
@@ -942,12 +970,25 @@ fun ChatScreen(
                     } else {
                         item { ChatStartHeader() }
                     }
-                    itemsIndexed(groupedMessages, key = { _, msg -> msg.id.ifBlank { "${msg.isUser}_${msg.timestamp}" } }) { msgIndex, msg ->
+                    itemsIndexed(groupedMessages, key = { idx, msg -> msg.id.ifBlank { "${msg.isUser}_${msg.timestamp}_${msg.toolName}_$idx" } }) { msgIndex, msg ->
                         androidx.compose.foundation.layout.Column(modifier = Modifier.animateItem()) {
-                            if (!msg.isUser && msg.isStreaming && liveThinkingBlocks.isNotEmpty()) {
-                                ThinkingHistoryBubble(liveThinkingBlocks, isLive = true, responseIsStreaming = msg.text.isNotEmpty())
+                            // Standalone trailing tool call (mid-stream, no following assistant msg yet)
+                            if (msg.isToolCall) {
+                                ToolCallBubble(msg, inProgress = false)
+                                return@Column
                             }
-                            if (!msg.isUser && msg.thinkingBlocks.isNotEmpty()) {
+                            val committedBlockIds = remember(msg.thinkingBlocks) {
+                                msg.thinkingBlocks.map { it.blockId }.toSet()
+                            }
+                            // Live thinking: only show blocks not already committed to the message (C1 guard).
+                            if (!msg.isUser && msg.isStreaming && liveThinkingBlocks.isNotEmpty()) {
+                                val visibleLive = liveThinkingBlocks.filter { it.blockId !in committedBlockIds }
+                                if (visibleLive.isNotEmpty()) {
+                                    ThinkingHistoryBubble(visibleLive, isLive = true, responseIsStreaming = msg.text.isNotEmpty())
+                                }
+                            }
+                            // Historical thinking: skip if streaming live blocks cover same content.
+                            if (!msg.isUser && msg.thinkingBlocks.isNotEmpty() && !(msg.isStreaming && liveThinkingBlocks.isNotEmpty())) {
                                 ThinkingHistoryBubble(msg.thinkingBlocks, isLive = false, responseIsStreaming = msg.isStreaming)
                             }
                             // Tool calls grouped inline above the response text
@@ -999,8 +1040,11 @@ fun ChatScreen(
                             )
                         } // animateItem Column
                     }
-                    if (isAwaitingResponse) {
-                        if (liveThinkingBlocks.isNotEmpty()) {
+                    // Only show the awaiting-section when NOT actively streaming.
+                    // When streaming, the message item already contains the live thinking bubble
+                    // and text — showing ThinkingBubble here too causes a visible duplicate/flash.
+                    if (isAwaitingResponse && !isStreaming) {
+                        if (liveThinkingBlocks.isNotEmpty() && !hasStreamingMessage) {
                             item { ThinkingHistoryBubble(liveThinkingBlocks, isLive = true) }
                         }
                         item { ThinkingBubble(activityLabel, generationStartedAt) }

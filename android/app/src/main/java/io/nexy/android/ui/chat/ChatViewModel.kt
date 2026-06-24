@@ -96,6 +96,8 @@ class ChatViewModel(
     // Set to true when ChatStreamEnd or ChatActivity(complete/error) arrives so that
     // late-arriving in-progress ChatActivity events don't re-set isAwaitingResponse.
     private var streamCompleted = false
+    // Set to true when stream ends; guards late ChatThinkingDelta/ChatThinkingEnd events.
+    private var isStreamEnded = false
 
     // Buffer incoming stream chunks; drain coroutine emits to _messages at a fixed rate.
     // null sentinel signals end-of-stream so the drain coroutine can clear isStreaming.
@@ -147,14 +149,22 @@ class ChatViewModel(
                         if (remaining.isNotEmpty()) delay(STREAM_TICK_MS)
                     }
                 }
-                // After the last chunk's characters are rendered, clear streaming state
+                // After the last chunk's characters are rendered, clear streaming state.
+                // Transfer liveThinkingBlocks into the message so thinking content stays
+                // visible during the 400ms gap before the history re-fetch completes.
                 if (streamEndPending && streamBuffer.isEmpty) {
                     val current = _messages.value
                     val streamingIdx = current.indexOfLast { it.isStreaming }
-                    WsRepository.sendLog("Drain", "draining complete; streamingIdx=$streamingIdx; clearing isStreaming")
+                    val thinkingSnapshot = _liveThinkingBlocks.value
+                    WsRepository.sendLog("Drain", "draining complete; streamingIdx=$streamingIdx; thinkingBlocks=${thinkingSnapshot.size}; clearing isStreaming")
                     if (streamingIdx >= 0) {
                         _messages.value = current.toMutableList().also { list ->
-                            list[streamingIdx] = list[streamingIdx].copy(isStreaming = false)
+                            val msg = list[streamingIdx]
+                            list[streamingIdx] = msg.copy(
+                                isStreaming = false,
+                                thinkingBlocks = if (thinkingSnapshot.isNotEmpty() && msg.thinkingBlocks.isEmpty())
+                                    thinkingSnapshot else msg.thinkingBlocks,
+                            )
                         }
                     }
                     _isStreaming.value = false
@@ -217,12 +227,18 @@ class ChatViewModel(
                         }
                     }
                     event is WsEvent.ChatActivity && event.conversationId == conversationId -> {
-                        WsRepository.sendLog("VM", "ChatActivity: state=${event.state} label=${event.label} streamCompleted=$streamCompleted")
+                        if (event.state == "error") {
+                            WsRepository.sendLog("VM", "ChatActivity ERROR: label=\"${event.label}\" model=${_selectedModel.value ?: "desktop-default"} streamCompleted=$streamCompleted")
+                        } else {
+                            WsRepository.sendLog("VM", "ChatActivity: state=${event.state} label=${event.label} streamCompleted=$streamCompleted")
+                        }
                         if (event.state == "complete" || event.state == "error") {
                             streamCompleted = true
+                            isStreamEnded = true
                             _isAwaitingResponse.value = false
                             _isStreaming.value = false
                             _activityLabel.value = "Assistant is thinking"
+                            markAllLiveThinkingDone()
                             _liveThinkingBlocks.value = emptyList()
                             _generationStartedAt.value = null
                         } else if (!streamCompleted) {
@@ -234,11 +250,13 @@ class ChatViewModel(
                         }
                     }
                     event is WsEvent.ChatThinkingDelta && event.conversationId == conversationId -> {
+                        if (isStreamEnded) return@collect
                         WsRepository.sendLog("VM", "ChatThinkingDelta: blockId=${event.blockId} len=${event.chunk.length}")
                         appendLiveThinking(event.blockId, event.chunk)
                         if (!_isStreaming.value) _isAwaitingResponse.value = true
                     }
                     event is WsEvent.ChatThinkingEnd && event.conversationId == conversationId -> {
+                        if (isStreamEnded) return@collect
                         WsRepository.sendLog("VM", "ChatThinkingEnd: blockId=${event.blockId}")
                         _liveThinkingBlocks.value = _liveThinkingBlocks.value.map { block ->
                             if (block.blockId == event.blockId) block.copy(done = true) else block
@@ -246,7 +264,8 @@ class ChatViewModel(
                     }
                     event is WsEvent.ChatToolCallEvent && event.conversationId == conversationId -> {
                         WsRepository.sendLog("VM", "ChatToolCallEvent: tool=${event.toolName} success=${event.success} msgs_before=${_messages.value.size} isStreaming=${_isStreaming.value}")
-                        _isAwaitingResponse.value = false
+                        // Keep isAwaitingResponse=true — the agent is still running between tool calls.
+                        // Clearing it here causes the ThinkingBubble to flash off then immediately back on.
                         _liveThinkingBlocks.value = emptyList()
                         _messages.value = _messages.value + ChatMessage(
                             text = "",
@@ -272,15 +291,16 @@ class ChatViewModel(
                     }
                     event is WsEvent.ChatStreamEnd && event.conversationId == conversationId -> {
                         WsRepository.sendLog("VM", "ChatStreamEnd: msgs=${_messages.value.size} bufferEmpty=${streamBuffer.isEmpty}")
+                        isStreamEnded = true
+                        markAllLiveThinkingDone()
                         _isAwaitingResponse.value = false
                         _activityLabel.value = "Assistant is thinking"
                         _generationStartedAt.value = null
                         // Send sentinel — drain coroutine will mark isStreaming = false once buffer is empty
                         streamBuffer.send(null)
-                        // Re-fetch message history after a short delay so tool calls persisted by the
-                        // desktop after stream end appear in the list without requiring a manual refresh.
+                        // Optimistic finalization: immediately re-fetch so tool calls persisted by the
+                        // desktop appear without a hardcoded delay.
                         viewModelScope.launch {
-                            kotlinx.coroutines.delay(400)
                             historyLoaded = false
                             wsClient.send("conversation:get-messages", mapOf("conversationId" to conversationId))
                         }
@@ -326,11 +346,14 @@ class ChatViewModel(
     }
 
     fun loadModel(model: String?) {
-        _selectedModel.value = model?.takeIf { it.isNotBlank() && it != "default" }
+        val normalized = model?.takeIf { it.isNotBlank() && it != "default" }
+        WsRepository.sendLog("ChatSend", "loadModel: raw=${model ?: "null"} normalized=${normalized ?: "null(desktop default)"}")
+        _selectedModel.value = normalized
     }
 
     fun setModel(model: String?) {
         val normalized = model?.takeIf { it.isNotBlank() && it != "default" }
+        WsRepository.sendLog("ChatSend", "setModel: raw=${model ?: "null"} normalized=${normalized ?: "null(desktop default)"} conv=$conversationId")
         _selectedModel.value = normalized
         wsClient.send(
             "conversation:set-model",
@@ -367,11 +390,16 @@ class ChatViewModel(
         _liveThinkingBlocks.value = emptyList()
         _generationStartedAt.value = System.currentTimeMillis()
         streamCompleted = false
+        isStreamEnded = false
 
-        if (wsClient === WsRepository && WsRepository.connectionState.value != ConnectionState.CONNECTED) {
+        val connState = if (wsClient === WsRepository) WsRepository.connectionState.value else null
+        WsRepository.sendLog("ChatSend", "pre-send: conv=$conversationId connState=$connState selectedModel=${_selectedModel.value ?: "none(will use desktop default)"} agentId=${agentId ?: "none"} projectId=${projectId ?: "none"} hasImages=${imageAtts.isNotEmpty()} textLen=${augmented.length}")
+
+        if (wsClient === WsRepository && connState != ConnectionState.CONNECTED) {
             val msgs = _messages.value
             _messages.value = msgs.dropLast(1) + msgs.last().copy(sendFailed = true)
             _isAwaitingResponse.value = false
+            WsRepository.sendLog("ChatSend", "BLOCKED: not connected — connState=$connState")
             _sendError.value = "Message could not be delivered — not connected to desktop."
             return
         }
@@ -387,7 +415,7 @@ class ChatViewModel(
             }
         }
         if (wsClient === WsRepository) WsRepository.markConversationPending(conversationId)
-        WsRepository.sendLog("ChatSend", "chat:send-message conv=$conversationId model=${data["model"] ?: "none"} agentId=${data["agentId"] ?: "none"} projectId=${data["projectId"] ?: "none"}")
+        WsRepository.sendLog("ChatSend", "chat:send-message conv=$conversationId model=${data["model"] ?: "none(desktop default)"} agentId=${data["agentId"] ?: "none"} projectId=${data["projectId"] ?: "none"} payloadKeys=${data.keys.joinToString(",")}")
         wsClient.send("chat:send-message", data)
     }
 
@@ -428,6 +456,12 @@ class ChatViewModel(
     fun deleteMessagesAfter(conversationId: String, timestamp: Long) {
         _messages.value = _messages.value.filter { it.timestamp < timestamp }
         wsClient.send("message:delete-after", mapOf("conversationId" to conversationId, "timestamp" to timestamp))
+    }
+
+    private fun markAllLiveThinkingDone() {
+        val current = _liveThinkingBlocks.value
+        if (current.isEmpty()) return
+        _liveThinkingBlocks.value = current.map { it.copy(done = true) }
     }
 
     private fun appendLiveThinking(blockId: String, chunk: String) {

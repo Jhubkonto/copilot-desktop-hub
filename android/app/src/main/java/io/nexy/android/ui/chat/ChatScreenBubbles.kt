@@ -198,19 +198,29 @@ fun ThinkingHistoryBubble(
     var userCollapsed by remember { mutableStateOf(false) }
     val totalChars = blocks.sumOf { it.content.length }
 
-    // Collapse immediately when response starts streaming; auto-collapse 2s after done
-    LaunchedEffect(isLive, totalChars, responseIsStreaming) {
-        when {
-            responseIsStreaming && !isLive -> {
-                expanded = false
-                userCollapsed = false
-            }
-            isLive && totalChars > 0 && !userCollapsed -> expanded = true
-            !isLive && !responseIsStreaming && expanded -> {
-                delay(2000)
-                expanded = false
-                userCollapsed = false
-            }
+    // Track hasContent without restarting the collapse timer on every chunk (M4).
+    val hasContent = totalChars > 0
+
+    // Expand when live blocks arrive; collapse immediately when response starts streaming.
+    // Only depends on isLive and hasContent — totalChars changes do NOT restart the effect.
+    LaunchedEffect(isLive, hasContent) {
+        if (isLive && hasContent && !userCollapsed) expanded = true
+    }
+
+    // Collapse immediately when the response starts streaming.
+    LaunchedEffect(responseIsStreaming) {
+        if (responseIsStreaming && !isLive) {
+            expanded = false
+            userCollapsed = false
+        }
+    }
+
+    // Auto-collapse 2s after done — only fires once when isLive flips false.
+    LaunchedEffect(isLive) {
+        if (!isLive && !responseIsStreaming && expanded) {
+            delay(2000)
+            expanded = false
+            userCollapsed = false
         }
     }
 
@@ -526,15 +536,24 @@ fun ToolCallBubble(msg: ChatMessage, inProgress: Boolean = false) {
         else -> "Failed"
     }
 
-    // Auto-expand when in progress; auto-collapse 2s after completion
-    LaunchedEffect(inProgress, hasDetails) {
-        if (inProgress && hasDetails && !userCollapsed) {
-            expanded = true
-        } else if (!inProgress && expanded) {
+    // Track hasDetails without restarting the collapse timer when result arrives (M4).
+    val hasDetailsRef = remember { mutableStateOf(hasDetails) }
+    hasDetailsRef.value = hasDetails
+
+    // Expand when in-progress and details arrive; only depends on inProgress (M4).
+    LaunchedEffect(inProgress) {
+        if (inProgress) {
+            if (hasDetailsRef.value && !userCollapsed) expanded = true
+        } else if (expanded) {
             delay(2000)
             expanded = false
             userCollapsed = false
         }
+    }
+
+    // Expand when details first arrive mid-progress (hasDetails flips true while inProgress).
+    LaunchedEffect(hasDetails) {
+        if (inProgress && hasDetails && !userCollapsed) expanded = true
     }
 
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
