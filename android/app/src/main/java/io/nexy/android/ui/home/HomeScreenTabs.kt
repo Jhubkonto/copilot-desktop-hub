@@ -325,6 +325,7 @@ fun ChatsTab(
                                 onOpenChat = onOpenChat,
                                 isActive = conv.id in activeConversationIds,
                                 hasNewContent = conv.id in completedWhileAwayIds,
+                                isCompleted = conv.completed_at != null,
                                 onRename = { _, _ ->
                                     renameText = conv.title
                                     renamingConversation = conv

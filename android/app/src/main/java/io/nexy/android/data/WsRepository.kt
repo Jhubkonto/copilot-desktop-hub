@@ -6,6 +6,8 @@ import io.nexy.android.data.model.Agent
 import io.nexy.android.data.model.AgentFullConfig
 import io.nexy.android.data.model.ScheduledTask
 import io.nexy.android.data.model.ScheduledRun
+import io.nexy.android.data.model.ConversationDebrief
+import io.nexy.android.data.model.QuizAttempt
 import io.nexy.android.data.model.AgentKnowledgeFile
 import io.nexy.android.data.model.AgentMcpServerTrust
 import io.nexy.android.data.model.AgentMcpToolOverride
@@ -145,6 +147,12 @@ object WsRepository : WsClient {
     private val _scheduledRuns = MutableStateFlow<Map<String, List<ScheduledRun>>>(emptyMap())
     val scheduledRuns: StateFlow<Map<String, List<ScheduledRun>>> = _scheduledRuns
 
+    private val _currentDebrief = MutableStateFlow<ConversationDebrief?>(null)
+    val currentDebrief: StateFlow<ConversationDebrief?> = _currentDebrief
+
+    private val _completedConversationIds = MutableStateFlow<Set<String>>(emptySet())
+    val completedConversationIds: StateFlow<Set<String>> = _completedConversationIds
+
     private val _profiles = MutableStateFlow<List<PairedServerProfile>>(emptyList())
     val profiles: StateFlow<List<PairedServerProfile>> = _profiles
 
@@ -283,8 +291,13 @@ object WsRepository : WsClient {
                         val existing = snapshots[event.conversationId] ?: return@collect
                         _activeChatSnapshots.value = snapshots + (event.conversationId to existing.copy(isStreaming = false))
                     }
-                    is WsEvent.ConversationList, is WsEvent.ConversationCreated -> {
-                        // Prune pending IDs now present in the conversation list
+                    is WsEvent.ConversationList -> {
+                        val knownIds = _conversations.value.map { it.id }.toSet()
+                        _pendingConversationIds.value = _pendingConversationIds.value - knownIds
+                        val completedIds = _conversations.value.filter { it.completed_at != null }.map { it.id }.toSet()
+                        _completedConversationIds.value = completedIds
+                    }
+                    is WsEvent.ConversationCreated -> {
                         val knownIds = _conversations.value.map { it.id }.toSet()
                         _pendingConversationIds.value = _pendingConversationIds.value - knownIds
                     }
@@ -523,6 +536,8 @@ object WsRepository : WsClient {
             cliStatus = _cliStatus,
             scheduledTasks = _scheduledTasks,
             scheduledRuns = _scheduledRuns,
+            currentDebrief = _currentDebrief,
+            completedConversationIds = _completedConversationIds,
             pairedServerStore = pairedServerStore,
         )
     }
@@ -687,6 +702,7 @@ object WsRepository : WsClient {
 
     fun clearDebugLog() { _debugLog.value = emptyList() }
 
+    fun listConversations() { send("conversation:list", emptyMap()) }
     fun renameConversation(id: String, title: String) { send("conversation:rename", mapOf("id" to id, "title" to title)) }
     fun deleteConversation(id: String) { send("conversation:delete", mapOf("id" to id)) }
     fun searchConversations(query: String) { send("conversation:search", mapOf("query" to query)) }
@@ -1062,4 +1078,23 @@ object WsRepository : WsClient {
     fun schedulerSetEnabled(taskId: String, enabled: Boolean) { send("scheduler:set-enabled", mapOf("id" to taskId, "enabled" to enabled)) }
     fun schedulerRunNow(taskId: String) { send("scheduler:run-now", mapOf("id" to taskId)) }
     fun schedulerListRuns(taskId: String, limit: Int = 50) { send("scheduler:list-runs", mapOf("taskId" to taskId, "limit" to limit)) }
+
+    // ─── Debrief ────────────────────────────────────────────────────────────────
+
+    fun generateDebrief(conversationId: String, projectId: String? = null) {
+        send("conversation:generate-debrief", buildMap {
+            put("conversationId", conversationId)
+            if (projectId != null) put("projectId", projectId)
+        })
+    }
+    fun getDebrief(conversationId: String) { send("conversation:get-debrief", mapOf("conversationId" to conversationId)) }
+    fun markConversationComplete(conversationId: String) { send("conversation:mark-complete", mapOf("conversationId" to conversationId)) }
+
+    // ─── Quiz ────────────────────────────────────────────────────────────────────
+
+    fun generateQuiz(conversationId: String) { send("conversation:generate-quiz", mapOf("conversationId" to conversationId)) }
+    fun saveQuizAttempt(conversationId: String, score: Int, total: Int) {
+        send("conversation:save-quiz-attempt", mapOf("conversationId" to conversationId, "score" to score, "total" to total))
+    }
+    fun listQuizAttempts(conversationId: String) { send("conversation:list-quiz-attempts", mapOf("conversationId" to conversationId)) }
 }

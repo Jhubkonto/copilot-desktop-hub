@@ -23,19 +23,21 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import io.nexy.android.ui.components.NexyTopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import io.nexy.android.data.model.WsEvent
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.nexy.android.data.WsRepository
-import io.nexy.android.data.model.Project
 import java.util.UUID
 
 enum class HistoryScope {
@@ -51,12 +53,22 @@ fun ScopedChatHistoryScreen(
     onBack: () -> Unit,
     onOpenChat: (String) -> Unit,
     onOpenDraftChat: (String, String?, String?) -> Unit,
+    onOpenDebrief: ((String) -> Unit)? = null,
+    onOpenQuiz: ((String) -> Unit)? = null,
 ) {
     val conversations by WsRepository.conversations.collectAsState()
     val agents by WsRepository.agents.collectAsState()
     val projects by WsRepository.projects.collectAsState()
     val activeConversationIds by WsRepository.activeConversationIds.collectAsState()
+    val completedConversationIds by WsRepository.completedConversationIds.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
+    var isRefreshing by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        WsRepository.events.collect { event ->
+            if (event is WsEvent.ConversationList) isRefreshing = false
+        }
+    }
 
     val title = when (scopeType) {
         HistoryScope.Agent -> agents.find { it.id == scopeId }?.let { agent ->
@@ -108,7 +120,12 @@ fun ScopedChatHistoryScreen(
             }
         },
     ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = { isRefreshing = true; WsRepository.listConversations() },
+            modifier = Modifier.fillMaxSize().padding(padding),
+        ) {
+        Column(modifier = Modifier.fillMaxSize()) {
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
@@ -144,11 +161,21 @@ fun ScopedChatHistoryScreen(
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
                     items(filtered, key = { it.id }) { conversation ->
-                        ConversationRow(conv = conversation, projects = projects, onOpenChat = onOpenChat, isActive = conversation.id in activeConversationIds)
+                        ConversationRow(
+                            conv = conversation,
+                            projects = projects,
+                            onOpenChat = onOpenChat,
+                            isActive = conversation.id in activeConversationIds,
+                            isCompleted = conversation.id in completedConversationIds,
+                            onDebrief = if (onOpenDebrief != null) { id -> onOpenDebrief(id) } else null,
+                            onMarkComplete = { id -> WsRepository.markConversationComplete(id) },
+                            onQuiz = if (onOpenQuiz != null) { id -> onOpenQuiz(id) } else null,
+                        )
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     }
                 }
             }
+        }
         }
     }
 }

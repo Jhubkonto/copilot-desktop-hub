@@ -1,5 +1,14 @@
 package io.nexy.android.ui.home
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.scaleIn
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -15,12 +24,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Article
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -28,12 +40,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -62,9 +68,13 @@ fun ConversationRow(
     onOpenChat: (String) -> Unit,
     isActive: Boolean = false,
     hasNewContent: Boolean = false,
+    isCompleted: Boolean = false,
     onRename: ((id: String, currentTitle: String) -> Unit)? = null,
     onDelete: ((id: String) -> Unit)? = null,
     onTogglePin: ((id: String, pinned: Boolean) -> Unit)? = null,
+    onDebrief: ((id: String) -> Unit)? = null,
+    onMarkComplete: ((id: String) -> Unit)? = null,
+    onQuiz: ((id: String) -> Unit)? = null,
 ) {
     val preview = conv.last_message ?: ""
     var menuExpanded by remember { mutableStateOf(false) }
@@ -142,6 +152,17 @@ fun ConversationRow(
                                     ),
                             )
                         }
+                        AnimatedVisibility(
+                            visible = isCompleted,
+                            enter = fadeIn(tween(300)) + scaleIn(tween(300), initialScale = 0.6f),
+                        ) {
+                            Icon(
+                                Icons.Default.CheckCircle,
+                                contentDescription = "Complete",
+                                modifier = Modifier.size(13.dp),
+                                tint = Color(0xFF34D399),
+                            )
+                        }
                         Text(
                             text = conv.title.ifBlank { "Untitled" },
                             style = MaterialTheme.typography.bodyMedium,
@@ -199,7 +220,7 @@ fun ConversationRow(
                 }
 
                 // Right: compact ⋮ menu
-                if (onRename != null || onDelete != null || onTogglePin != null) {
+                if (onRename != null || onDelete != null || onTogglePin != null || onDebrief != null || onMarkComplete != null || onQuiz != null) {
                     Box {
                         IconButton(
                             onClick = { menuExpanded = true },
@@ -240,6 +261,36 @@ fun ConversationRow(
                                     onClick = {
                                         menuExpanded = false
                                         onDelete.invoke(conv.id)
+                                    },
+                                )
+                            }
+                            if (onDebrief != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Debrief") },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.Article, contentDescription = null) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onDebrief.invoke(conv.id)
+                                    },
+                                )
+                            }
+                            if (onMarkComplete != null && !isCompleted) {
+                                DropdownMenuItem(
+                                    text = { Text("Mark complete") },
+                                    leadingIcon = { Icon(Icons.Default.CheckCircle, contentDescription = null) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onMarkComplete.invoke(conv.id)
+                                    },
+                                )
+                            }
+                            if (onQuiz != null && isCompleted) {
+                                DropdownMenuItem(
+                                    text = { Text("Quiz me") },
+                                    leadingIcon = { Icon(Icons.Default.Psychology, contentDescription = null) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onQuiz.invoke(conv.id)
                                     },
                                 )
                             }

@@ -61,6 +61,9 @@ import io.nexy.android.data.model.ScheduledTask
 import io.nexy.android.data.model.ScheduledRun
 import io.nexy.android.data.model.SkillTools
 import io.nexy.android.data.model.WsEvent
+import io.nexy.android.data.model.ConversationDebrief
+import io.nexy.android.data.model.QuizQuestion
+import io.nexy.android.data.model.QuizAttempt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -93,6 +96,8 @@ fun parseWsEvent(
     cliStatus: MutableStateFlow<Map<String, CliInstallInfo>>,
     scheduledTasks: MutableStateFlow<List<ScheduledTask>>,
     scheduledRuns: MutableStateFlow<Map<String, List<ScheduledRun>>>,
+    currentDebrief: MutableStateFlow<ConversationDebrief?>,
+    completedConversationIds: MutableStateFlow<Set<String>>,
 ) {
     try {
         val obj = JSONObject(text)
@@ -1452,6 +1457,49 @@ fun parseWsEvent(
                 WsEvent.SchedulerRunError(taskId, errorMsg)
             }
 
+            "debrief:ready" -> {
+                val debriefObj = data?.optJSONObject("debrief") ?: return
+                val debrief = parseConversationDebrief(debriefObj)
+                currentDebrief.value = debrief
+                WsEvent.DebriefReady(debrief)
+            }
+
+            "debrief:loaded" -> {
+                val debriefObj = data?.optJSONObject("debrief")
+                val debrief = debriefObj?.let { parseConversationDebrief(it) }
+                currentDebrief.value = debrief
+                WsEvent.DebriefLoaded(debrief)
+            }
+
+            "debrief:error" -> WsEvent.DebriefError(data?.optString("message") ?: "Unknown error")
+
+            "debrief:conversation-completed" -> {
+                val conversationId = data?.optString("conversationId") ?: return
+                val completedAt = data.optLong("completedAt", 0L)
+                completedConversationIds.value = completedConversationIds.value + conversationId
+                WsEvent.DebriefConversationCompleted(conversationId, completedAt)
+            }
+
+            "quiz:ready" -> {
+                val arr = data?.optJSONArray("questions") ?: return
+                val questions = (0 until arr.length()).map { parseQuizQuestion(arr.getJSONObject(it)) }
+                WsEvent.QuizReady(questions)
+            }
+
+            "quiz:error" -> WsEvent.QuizError(data?.optString("message") ?: "Unknown error")
+
+            "quiz:attempt-saved" -> {
+                val attemptObj = data?.optJSONObject("attempt") ?: return
+                WsEvent.QuizAttemptSaved(parseQuizAttempt(attemptObj))
+            }
+
+            "quiz:attempts-listed" -> {
+                val conversationId = data?.optString("conversationId") ?: return
+                val arr = data.optJSONArray("attempts") ?: return
+                val attempts = (0 until arr.length()).map { parseQuizAttempt(arr.getJSONObject(it)) }
+                WsEvent.QuizAttemptsListed(conversationId, attempts)
+            }
+
             else -> return
         }
         scope.launch { events.emit(wsEvent) }
@@ -1834,8 +1882,46 @@ private fun parseConversationArray(arr: JSONArray): List<Conversation> =
             model = row.nullableString("model"),
             last_message = row.nullableString("last_message"),
             pinned = row.optInt("pinned", 0) != 0,
+            completed_at = if (row.has("completed_at") && !row.isNull("completed_at")) row.optLong("completed_at") else null,
         )
     }
+
+private fun parseConversationDebrief(obj: JSONObject): ConversationDebrief {
+    val toolsArr = obj.optJSONArray("commandsTools")
+    val commandsTools = if (toolsArr != null) (0 until toolsArr.length()).map { toolsArr.optString(it) } else emptyList()
+    return ConversationDebrief(
+        id = obj.optString("id"),
+        conversationId = obj.optString("conversationId"),
+        projectId = obj.nullableString("projectId"),
+        summary = obj.optString("summary"),
+        commandsTools = commandsTools,
+        reproductionGuide = obj.optString("reproductionGuide"),
+        mentalModel = obj.optString("mentalModel"),
+        generatedAt = obj.optLong("generatedAt", 0L),
+        createdAt = obj.optLong("createdAt", 0L),
+    )
+}
+
+private fun parseQuizQuestion(obj: JSONObject): QuizQuestion {
+    val optArr = obj.optJSONArray("options")
+    val options = if (optArr != null) (0 until optArr.length()).map { optArr.optString(it) } else emptyList()
+    return QuizQuestion(
+        id = obj.optString("id"),
+        question = obj.optString("question"),
+        options = options,
+        correctIndex = obj.optInt("correctIndex", 0),
+        explanation = obj.optString("explanation"),
+        category = obj.optString("category"),
+    )
+}
+
+private fun parseQuizAttempt(obj: JSONObject) = QuizAttempt(
+    id = obj.optString("id"),
+    conversationId = obj.optString("conversationId"),
+    score = obj.optInt("score", 0),
+    total = obj.optInt("total", 0),
+    attemptedAt = obj.optLong("attemptedAt", 0L),
+)
 
 private fun parseScheduledTask(obj: JSONObject) = ScheduledTask(
     id = obj.optString("id"),

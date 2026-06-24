@@ -246,6 +246,16 @@ sealed class WsEvent {
     data class SchedulerRunUpdated(val run: ScheduledRun) : WsEvent()
     data class SchedulerRunList(val taskId: String, val runs: List<ScheduledRun>) : WsEvent()
     data class SchedulerRunError(val taskId: String, val error: String) : WsEvent()
+    // Debrief
+    data class DebriefReady(val debrief: ConversationDebrief) : WsEvent()
+    data class DebriefLoaded(val debrief: ConversationDebrief?) : WsEvent()
+    data class DebriefError(val message: String) : WsEvent()
+    data class DebriefConversationCompleted(val conversationId: String, val completedAt: Long) : WsEvent()
+    // Quiz
+    data class QuizReady(val questions: List<QuizQuestion>) : WsEvent()
+    data class QuizError(val message: String) : WsEvent()
+    data class QuizAttemptSaved(val attempt: QuizAttempt) : WsEvent()
+    data class QuizAttemptsListed(val conversationId: String, val attempts: List<QuizAttempt>) : WsEvent()
 }
 
 data class BuildRecord(

@@ -24,6 +24,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -150,10 +151,13 @@ fun ProvidersScreen(
             )
         },
     ) { padding ->
+        PullToRefreshBox(
+            isRefreshing = isLoading,
+            onRefresh = { vm.refresh() },
+            modifier = Modifier.fillMaxSize().padding(padding),
+        ) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
+            modifier = Modifier.fillMaxSize(),
         ) {
             Text(
                 "Configure API keys for BYOK (Bring Your Own Key) providers. Keys are stored encrypted on the desktop.",
@@ -212,6 +216,7 @@ fun ProvidersScreen(
                     }
                 }
             }
+        }
         }
     }
 }

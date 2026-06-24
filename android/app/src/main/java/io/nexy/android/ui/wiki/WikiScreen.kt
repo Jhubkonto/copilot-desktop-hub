@@ -33,6 +33,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -155,9 +156,14 @@ fun WikiScreen(
             }
         },
     ) { padding ->
+        PullToRefreshBox(
+            isRefreshing = state.isLoading,
+            onRefresh = { vm.load(projectId) },
+            modifier = Modifier.fillMaxSize().padding(padding),
+        ) {
         if (state.entries.isEmpty()) {
             Column(
-                modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
+                modifier = Modifier.fillMaxSize().padding(24.dp),
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -172,12 +178,13 @@ fun WikiScreen(
                 }
             }
         } else {
-            LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(state.entries) { entry ->
                     WikiEntryRow(entry = entry, onClick = { vm.selectEntry(entry) })
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
             }
+        }
         }
     }
 }

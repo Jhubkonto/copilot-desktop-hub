@@ -61,6 +61,8 @@ import io.nexy.android.ui.scheduler.SchedulerTaskDetailScreen
 import io.nexy.android.ui.scheduler.SchedulerTaskConfigScreen
 import io.nexy.android.ui.skills.SkillsScreen
 import io.nexy.android.ui.splash.SplashScreen
+import io.nexy.android.ui.debrief.DebriefScreen
+import io.nexy.android.ui.quiz.QuizScreen
 
 @Composable
 fun NavGraph(
@@ -241,6 +243,8 @@ fun NavGraph(
                     val projectParam = Uri.encode(projectId.orEmpty())
                     navController.navigate("chat/$conversationId?agentId=$agentParam&projectId=$projectParam")
                 },
+                onOpenDebrief = { conversationId -> navController.navigate("debrief/${Uri.encode(conversationId)}") },
+                onOpenQuiz = { conversationId -> navController.navigate("quiz/${Uri.encode(conversationId)}") },
             )
         }
 
@@ -511,6 +515,41 @@ fun NavGraph(
         ) { backStackEntry ->
             val projectId = backStackEntry.arguments?.getString("projectId") ?: return@composable
             WikiScreen(projectId = projectId, onBack = { navController.popBackStack() })
+        }
+
+        composable(
+            route = "debrief/{conversationId}",
+            arguments = listOf(navArgument("conversationId") { type = NavType.StringType }),
+            enterTransition = {
+                slideInVertically(initialOffsetY = { it / 6 }, animationSpec = tween(280)) + fadeIn(tween(280))
+            },
+            exitTransition = {
+                slideOutVertically(targetOffsetY = { it / 8 }, animationSpec = tween(220)) + fadeOut(tween(220))
+            },
+        ) { backStackEntry ->
+            val conversationId = backStackEntry.arguments?.getString("conversationId") ?: return@composable
+            DebriefScreen(
+                conversationId = conversationId,
+                onBack = { navController.popBackStack() },
+                onQuizMe = { cid -> navController.navigate("quiz/${Uri.encode(cid)}") },
+            )
+        }
+
+        composable(
+            route = "quiz/{conversationId}",
+            arguments = listOf(navArgument("conversationId") { type = NavType.StringType }),
+            enterTransition = {
+                slideInVertically(initialOffsetY = { it / 6 }, animationSpec = tween(280)) + fadeIn(tween(280))
+            },
+            exitTransition = {
+                slideOutVertically(targetOffsetY = { it / 8 }, animationSpec = tween(220)) + fadeOut(tween(220))
+            },
+        ) { backStackEntry ->
+            val conversationId = backStackEntry.arguments?.getString("conversationId") ?: return@composable
+            QuizScreen(
+                conversationId = conversationId,
+                onBack = { navController.popBackStack() },
+            )
         }
     }
 }

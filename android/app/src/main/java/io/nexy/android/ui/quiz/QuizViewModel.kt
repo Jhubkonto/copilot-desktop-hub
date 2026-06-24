@@ -1,0 +1,126 @@
+package io.nexy.android.ui.quiz
+
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import io.nexy.android.data.WsRepository
+import io.nexy.android.data.model.QuizAttempt
+import io.nexy.android.data.model.QuizQuestion
+import io.nexy.android.data.model.WsEvent
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+
+sealed class QuizUiState {
+    object Generating : QuizUiState()
+    data class Question(
+        val question: QuizQuestion,
+        val index: Int,
+        val total: Int,
+        val selected: Int? = null,
+    ) : QuizUiState()
+    data class Feedback(
+        val question: QuizQuestion,
+        val index: Int,
+        val total: Int,
+        val selected: Int,
+        val isCorrect: Boolean,
+    ) : QuizUiState()
+    data class Summary(
+        val score: Int,
+        val total: Int,
+        val categoryBreakdown: Map<String, Pair<Int, Int>>,
+        val pastAttempts: List<QuizAttempt>,
+    ) : QuizUiState()
+    data class Error(val message: String) : QuizUiState()
+}
+
+class QuizViewModel(app: Application) : AndroidViewModel(app) {
+
+    private val _state = MutableStateFlow<QuizUiState>(QuizUiState.Generating)
+    val state: StateFlow<QuizUiState> = _state.asStateFlow()
+
+    private var questions: List<QuizQuestion> = emptyList()
+    private var answers: MutableList<Int> = mutableListOf()
+    private var loadedConversationId: String? = null
+
+    init {
+        viewModelScope.launch {
+            WsRepository.events.collect { event ->
+                when (event) {
+                    is WsEvent.QuizReady -> {
+                        questions = event.questions
+                        answers = MutableList(questions.size) { -1 }
+                        if (questions.isNotEmpty()) {
+                            _state.value = QuizUiState.Question(questions[0], 0, questions.size)
+                        } else {
+                            _state.value = QuizUiState.Error("No questions generated.")
+                        }
+                    }
+                    is WsEvent.QuizError -> _state.value = QuizUiState.Error(event.message)
+                    is WsEvent.QuizAttemptsListed -> {
+                        val currentState = _state.value
+                        if (currentState is QuizUiState.Summary) {
+                            _state.value = currentState.copy(pastAttempts = event.attempts)
+                        }
+                    }
+                    else -> {}
+                }
+            }
+        }
+    }
+
+    fun startQuiz(conversationId: String) {
+        loadedConversationId = conversationId
+        questions = emptyList()
+        answers = mutableListOf()
+        _state.value = QuizUiState.Generating
+        WsRepository.generateQuiz(conversationId)
+    }
+
+    fun selectOption(index: Int) {
+        val current = _state.value as? QuizUiState.Question ?: return
+        _state.value = current.copy(selected = index)
+    }
+
+    fun submitAnswer() {
+        val current = _state.value as? QuizUiState.Question ?: return
+        val selected = current.selected ?: return
+        answers[current.index] = selected
+        val isCorrect = selected == current.question.correctIndex
+        _state.value = QuizUiState.Feedback(
+            question = current.question,
+            index = current.index,
+            total = current.total,
+            selected = selected,
+            isCorrect = isCorrect,
+        )
+    }
+
+    fun nextQuestion() {
+        val current = _state.value as? QuizUiState.Feedback ?: return
+        val nextIndex = current.index + 1
+        if (nextIndex < questions.size) {
+            _state.value = QuizUiState.Question(questions[nextIndex], nextIndex, current.total)
+        } else {
+            val score = answers.indices.count { i -> answers[i] == questions[i].correctIndex }
+            val breakdown = questions.groupBy { it.category }.mapValues { (_, qs) ->
+                val correct = qs.count { q ->
+                    val idx = questions.indexOf(q)
+                    idx >= 0 && answers[idx] == q.correctIndex
+                }
+                correct to qs.size
+            }
+            _state.value = QuizUiState.Summary(score, questions.size, breakdown, emptyList())
+            loadedConversationId?.let { cid ->
+                WsRepository.listQuizAttempts(cid)
+                WsRepository.saveQuizAttempt(cid, score, questions.size)
+            }
+        }
+    }
+
+    fun tryAgain(conversationId: String) {
+        startQuiz(conversationId)
+    }
+}
