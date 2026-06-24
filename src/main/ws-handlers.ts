@@ -43,6 +43,8 @@ import { detectAllClis } from './cli-detection'
 import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
 import { insertWikiEntry, extractWikiLearningsForWs } from './wiki-handlers'
+import { generateDebriefForWs, getDebriefForWs, markCompleteForWs } from './debrief-handlers'
+import { generateQuizForWs, saveQuizAttemptForWs, listQuizAttemptsForWs } from './quiz-handlers'
 import { getMcpServersWithStatus, getMcpServerStatus, addMcpServer, updateMcpServer, removeMcpServer, restartMcpServer, listMcpTools, listMcpToolsForAgent } from './mcp'
 import {
   insertPromptLibraryEntry,
@@ -2151,6 +2153,63 @@ export function registerWsHandlers(): void {
       const limit = typeof data.limit === 'number' ? data.limit : 50
       if (!taskId) return
       reply({ event: 'scheduler:runs', data: { taskId, runs: dbListRuns(taskId, limit) } })
+      return
+    }
+
+    if (command === 'conversation:generate-debrief') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+      const projectId = typeof data.projectId === 'string' ? data.projectId : null
+      const model = typeof data.model === 'string' ? data.model : undefined
+      if (!conversationId) return
+      void generateDebriefForWs(conversationId, projectId, model)
+        .then((debrief) => reply({ event: 'debrief:ready', data: { debrief } }))
+        .catch((err: unknown) => reply({ event: 'debrief:error', data: { message: String(err) } }))
+      return
+    }
+
+    if (command === 'conversation:get-debrief') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+      if (!conversationId) return
+      const debrief = getDebriefForWs(conversationId)
+      reply({ event: 'debrief:loaded', data: { debrief } })
+      return
+    }
+
+    if (command === 'conversation:mark-complete') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+      if (!conversationId) return
+      const result = markCompleteForWs(conversationId)
+      if (result) {
+        reply({ event: 'debrief:conversation-completed', data: { conversationId, completedAt: result.completedAt } })
+      }
+      return
+    }
+
+    if (command === 'conversation:generate-quiz') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+      const model = typeof data.model === 'string' ? data.model : undefined
+      if (!conversationId) return
+      void generateQuizForWs(conversationId, model)
+        .then((result) => reply({ event: 'quiz:ready', data: { questions: result.questions } }))
+        .catch((err: unknown) => reply({ event: 'quiz:error', data: { message: String(err) } }))
+      return
+    }
+
+    if (command === 'conversation:save-quiz-attempt') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+      const score = typeof data.score === 'number' ? data.score : 0
+      const total = typeof data.total === 'number' ? data.total : 0
+      if (!conversationId) return
+      const attempt = saveQuizAttemptForWs(conversationId, score, total)
+      reply({ event: 'quiz:attempt-saved', data: { attempt } })
+      return
+    }
+
+    if (command === 'conversation:list-quiz-attempts') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+      if (!conversationId) return
+      const attempts = listQuizAttemptsForWs(conversationId)
+      reply({ event: 'quiz:attempts-listed', data: { conversationId, attempts } })
       return
     }
   })
