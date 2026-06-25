@@ -300,9 +300,11 @@ fun ChatScreen(
     }
 
     suspend fun scrollToBottom(animated: Boolean = false, settlePasses: Int = 1) {
+        if (!shouldAutoFollow) return
         programmaticScrollInProgress = true
         try {
             repeat(settlePasses.coerceAtLeast(1)) { pass ->
+                if (!shouldAutoFollow) return
                 val itemCount = listState.layoutInfo.totalItemsCount
                 if (itemCount <= 0) return
                 if (animated && pass == 0) {
@@ -323,10 +325,6 @@ fun ChatScreen(
         derivedStateOf { !listState.canScrollForward }
     }
 
-    LaunchedEffect(isAtBottom) {
-        if (isAtBottom) shouldAutoFollow = true
-    }
-
     // Initial entry: wait for real chat content, then keep correcting while rich text settles.
     LaunchedEffect(Unit) {
         snapshotFlow { listState.layoutInfo.totalItemsCount }
@@ -339,22 +337,26 @@ fun ChatScreen(
     val streamingTextLength = remember(messages) { messages.lastOrNull { it.isStreaming }?.text?.length ?: 0 }
     val thinkingBlocksSize = liveThinkingBlocks.size
     val thinkingTotalChars = liveThinkingBlocks.sumOf { it.content.length }
+    // Track team activity content changes (in-place updates don't change messages.size)
+    val teamActivityResultLength = remember(messages) { messages.filter { it.serverName == "Team activity" }.sumOf { (it.toolResult?.length ?: 0) + (it.toolArgs?.length ?: 0) } }
 
     // Content signal: new messages, streaming chunks, thinking bubbles, or busy state changes should
     // stay pinned only while auto-follow is enabled.
-    LaunchedEffect(messages.size, isAwaitingResponse, isStreaming, streamingTextLength, thinkingBlocksSize, thinkingTotalChars) {
+    LaunchedEffect(messages.size, isAwaitingResponse, isStreaming, streamingTextLength, thinkingBlocksSize, thinkingTotalChars, teamActivityResultLength) {
         if (!hasInitiallyScrolled || !shouldAutoFollow) return@LaunchedEffect
         scrollToBottom(settlePasses = 4)
     }
 
     // Layout signal: AndroidView/Markwon content can change height after message data is already set.
     // While following the bottom, any late measurement that opens scrollable space is corrected.
-    LaunchedEffect(hasInitiallyScrolled, shouldAutoFollow) {
-        if (!hasInitiallyScrolled || !shouldAutoFollow) return@LaunchedEffect
+    LaunchedEffect(hasInitiallyScrolled) {
+        if (!hasInitiallyScrolled) return@LaunchedEffect
         snapshotFlow {
             val layout = listState.layoutInfo
             val last = layout.visibleItemsInfo.lastOrNull()
             listOf(
+                if (shouldAutoFollow) 1 else 0,
+                if (listState.isScrollInProgress) 1 else 0,
                 layout.totalItemsCount,
                 layout.viewportStartOffset,
                 layout.viewportEndOffset,
@@ -363,7 +365,7 @@ fun ChatScreen(
                 last?.size ?: 0,
             )
         }.collect {
-            if (shouldAutoFollow && listState.canScrollForward) {
+            if (shouldAutoFollow && !listState.isScrollInProgress && listState.canScrollForward) {
                 scrollToBottom(settlePasses = 2)
             }
         }
@@ -373,13 +375,19 @@ fun ChatScreen(
     // they return to the bottom or press the arrow.
     LaunchedEffect(hasInitiallyScrolled) {
         if (!hasInitiallyScrolled) return@LaunchedEffect
+        var wasScrolling = false
         snapshotFlow { listState.isScrollInProgress to listState.canScrollForward }
             .collect { (scrolling, canScrollForward) ->
-                if (!programmaticScrollInProgress && scrolling && canScrollForward) {
-                    shouldAutoFollow = false
-                } else if (!canScrollForward) {
-                    shouldAutoFollow = true
+                if (!programmaticScrollInProgress) {
+                    if (scrolling && canScrollForward) {
+                        // User actively scrolled away from bottom
+                        shouldAutoFollow = false
+                    } else if (wasScrolling && !scrolling && !canScrollForward) {
+                        // Scroll gesture just ended while at the bottom — re-enable auto-follow
+                        shouldAutoFollow = true
+                    }
                 }
+                wasScrolling = scrolling
             }
     }
 
@@ -866,6 +874,80 @@ fun ChatScreen(
             )
         },
     ) { padding ->
+        // Group consecutive isToolCall messages into the assistant message that follows them.
+        val groupedMessages = remember(messages) {
+            val result = mutableListOf<ChatMessage>()
+            val pending = mutableListOf<ChatMessage>()
+            for (msg in messages) {
+                if (msg.isToolCall) {
+                    pending.add(msg)
+                } else {
+                    result.add(
+                        if (!msg.isUser && pending.isNotEmpty())
+                            msg.copy(toolCalls = pending.toList())
+                        else msg
+                    )
+                    pending.clear()
+                }
+            }
+            result.addAll(pending)
+            result
+        }
+
+        // Map each assistant group index → the user message that immediately preceded it
+        val requestByGroupIndex = remember(groupedMessages) {
+            val map = mutableMapOf<Int, ChatMessage>()
+            var lastUser: ChatMessage? = null
+            groupedMessages.forEachIndexed { idx, msg ->
+                if (msg.isUser) {
+                    lastUser = msg
+                } else if (!msg.isToolCall && lastUser != null) {
+                    map[idx] = lastUser!!
+                }
+            }
+            map
+        }
+
+        // LazyColumn item index offset: item 0 = ChatStartHeader, items 1..N = groupedMessages
+        val lazyHeaderOffset = if (messages.isNotEmpty() || isAwaitingResponse) 1 else 0
+
+        // Sticky "In reply to" banner state — hoisted above Box so overlay and LazyColumn share it
+        val bannerRequest by remember(groupedMessages, requestByGroupIndex, lazyHeaderOffset) {
+            derivedStateOf {
+                val visibleItems = listState.layoutInfo.visibleItemsInfo
+                val firstVisibleIdx = visibleItems.firstOrNull()?.index ?: return@derivedStateOf null
+                val topAssistantGroupIdx = visibleItems
+                    .map { it.index - lazyHeaderOffset }
+                    .filter { gi -> gi >= 0 && gi < groupedMessages.size && !groupedMessages[gi].isUser && !groupedMessages[gi].isToolCall }
+                    .firstOrNull() ?: return@derivedStateOf null
+                val userMsg = requestByGroupIndex[topAssistantGroupIdx] ?: return@derivedStateOf null
+                val userGroupIdx = groupedMessages.indexOf(userMsg)
+                val userLazyIdx = userGroupIdx + lazyHeaderOffset
+                val userIsVisible = visibleItems.any { it.index == userLazyIdx }
+                if (userIsVisible) return@derivedStateOf null
+                if (userLazyIdx >= firstVisibleIdx) return@derivedStateOf null
+                val preview = userMsg.text.replace('\n', ' ').trim()
+                if (preview.isBlank()) null else Pair(userGroupIdx, if (preview.length > 120) preview.take(117) + "…" else preview)
+            }
+        }
+
+        val handleScrollToRequest: suspend (Int) -> Unit = { groupIdx ->
+            programmaticScrollInProgress = true
+            shouldAutoFollow = false
+            val lazyIdx = groupIdx + lazyHeaderOffset
+            try {
+                listState.animateScrollToItem(lazyIdx)
+            } finally {
+                programmaticScrollInProgress = false
+            }
+            val msgId = groupedMessages.getOrNull(groupIdx)?.id
+            if (msgId != null) {
+                highlightedMessageId = msgId
+                kotlinx.coroutines.delay(1600)
+                highlightedMessageId = null
+            }
+        }
+
         ChatRefreshableContent(
             isRefreshing = isRefreshing,
             onRefresh = { vm.refreshMessages() },
@@ -879,125 +961,6 @@ fun ChatScreen(
                 // True once the drain coroutine has created a streaming message in the list.
                 // Used to suppress the duplicate ThinkingHistoryBubble in the awaiting section.
                 val hasStreamingMessage = remember(messages) { messages.any { it.isStreaming } }
-
-                // Group consecutive isToolCall messages into the assistant message that follows them.
-                // This gives one animateItem() animation per response turn instead of one per block.
-                val groupedMessages = remember(messages) {
-                    val result = mutableListOf<ChatMessage>()
-                    val pending = mutableListOf<ChatMessage>()
-                    for (msg in messages) {
-                        if (msg.isToolCall) {
-                            pending.add(msg)
-                        } else {
-                            result.add(
-                                if (!msg.isUser && pending.isNotEmpty())
-                                    msg.copy(toolCalls = pending.toList())
-                                else msg
-                            )
-                            pending.clear()
-                        }
-                    }
-                    // Trailing tool calls with no following assistant message yet (mid-stream):
-                    // render them individually so they're visible while the agent is still running.
-                    result.addAll(pending)
-                    result
-                }
-
-                // Map each assistant group index → the user message that immediately preceded it
-                val requestByGroupIndex = remember(groupedMessages) {
-                    val map = mutableMapOf<Int, ChatMessage>()
-                    var lastUser: ChatMessage? = null
-                    groupedMessages.forEachIndexed { idx, msg ->
-                        if (msg.isUser) {
-                            lastUser = msg
-                        } else if (!msg.isToolCall && lastUser != null) {
-                            map[idx] = lastUser!!
-                        }
-                    }
-                    map
-                }
-
-                // LazyColumn item index offset: item 0 = ChatStartHeader, items 1..N = groupedMessages
-                val lazyHeaderOffset = if (messages.isNotEmpty() || isAwaitingResponse) 1 else 0
-
-                // Sticky "In reply to" banner: show when the topmost visible assistant message's
-                // user request is scrolled above the viewport.
-                val bannerRequest by remember(groupedMessages, requestByGroupIndex, lazyHeaderOffset) {
-                    derivedStateOf {
-                        val visibleItems = listState.layoutInfo.visibleItemsInfo
-                        val firstVisibleIdx = visibleItems.firstOrNull()?.index ?: return@derivedStateOf null
-                        // Find topmost visible assistant item
-                        val topAssistantGroupIdx = visibleItems
-                            .map { it.index - lazyHeaderOffset }
-                            .filter { gi -> gi >= 0 && gi < groupedMessages.size && !groupedMessages[gi].isUser && !groupedMessages[gi].isToolCall }
-                            .firstOrNull() ?: return@derivedStateOf null
-                        val userMsg = requestByGroupIndex[topAssistantGroupIdx] ?: return@derivedStateOf null
-                        // Only show banner if the user message itself is not visible
-                        val userGroupIdx = groupedMessages.indexOf(userMsg)
-                        val userLazyIdx = userGroupIdx + lazyHeaderOffset
-                        val userIsVisible = visibleItems.any { it.index == userLazyIdx }
-                        if (userIsVisible) return@derivedStateOf null
-                        // Only show when scrolled past (user message is above the viewport)
-                        if (userLazyIdx >= firstVisibleIdx) return@derivedStateOf null
-                        val preview = userMsg.text.replace('\n', ' ').trim()
-                        if (preview.isBlank()) null else Pair(userGroupIdx, if (preview.length > 120) preview.take(117) + "…" else preview)
-                    }
-                }
-
-                val handleScrollToRequest: suspend (Int) -> Unit = { groupIdx ->
-                    val lazyIdx = groupIdx + lazyHeaderOffset
-                    listState.animateScrollToItem(lazyIdx)
-                    val msgId = groupedMessages.getOrNull(groupIdx)?.id
-                    if (msgId != null) {
-                        highlightedMessageId = msgId
-                        kotlinx.coroutines.delay(1600)
-                        highlightedMessageId = null
-                    }
-                }
-
-                androidx.compose.animation.AnimatedVisibility(
-                    visible = bannerRequest != null,
-                    enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically(),
-                    exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkVertically(),
-                ) {
-                    bannerRequest?.let { (groupIdx, preview) ->
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { scope.launch { handleScrollToRequest(groupIdx) } },
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            shadowElevation = 2.dp,
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                Text(
-                                    "In reply to",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                Text(
-                                    preview,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                Icon(
-                                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                    }
-                }
 
                 LazyColumn(
                     state = listState,
@@ -1109,6 +1072,51 @@ fun ChatScreen(
                 }
             }
             // Scroll-to-bottom button shown whenever the user is scrolled above the bottom
+            // "In reply to" banner overlaid at the top so it doesn't resize the LazyColumn
+            androidx.compose.animation.AnimatedVisibility(
+                visible = bannerRequest != null,
+                modifier = Modifier.align(Alignment.TopCenter),
+                enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically(),
+                exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkVertically(),
+            ) {
+                bannerRequest?.let { (groupIdx, preview) ->
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { scope.launch { handleScrollToRequest(groupIdx) } },
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shadowElevation = 2.dp,
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                "In reply to",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                preview,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Icon(
+                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
             AnimatedVisibility(
                 visible = hasInitiallyScrolled && !isAtBottom,
                 modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp),
