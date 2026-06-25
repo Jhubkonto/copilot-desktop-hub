@@ -13,8 +13,10 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -197,6 +199,41 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun completedHistoryClearsAwaitingStateEvenWithoutStreamEnd() = runTest {
+        val fakeWs = FakeWsClient()
+        val vm = ChatViewModel("conv-1", fakeWs)
+        advanceUntilIdle()
+
+        vm.sendMessage("Hello")
+        assertTrue(vm.isAwaitingResponse.value)
+
+        vm.refreshMessages()
+        fakeWs.emit(
+            WsEvent.ConversationMessages(
+                conversationId = "conv-1",
+                messages = listOf(
+                    HistoryMessage("m1", "user", "Hello", 1),
+                    HistoryMessage("m2", "assistant", "Done", 2),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertFalse(vm.isAwaitingResponse.value)
+        assertFalse(vm.isStreaming.value)
+        assertTrue(vm.liveThinkingBlocks.value.isEmpty())
+        assertEquals(
+            listOf(
+                ChatMessage(id = "m1", text = "Hello", isUser = true, isStreaming = false, timestamp = 1),
+                ChatMessage(id = "m2", text = "Done", isUser = false, isStreaming = false, timestamp = 2),
+            ),
+            vm.messages.value,
+        )
+
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
     fun accumulatesLiveThinkingBlocksAndClearsThemOnStreamEnd() = runTest {
         val fakeWs = FakeWsClient()
         val vm = ChatViewModel("conv-1", fakeWs)
@@ -335,6 +372,196 @@ class ChatViewModelTest {
 
         assertFalse(vm.isAwaitingResponse.value)
         assertEquals("Assistant is thinking", vm.activityLabel.value)
+        assertEquals(
+            SentCommand("conversation:get-messages", mapOf("conversationId" to "conv-1")),
+            fakeWs.sentCommands.last(),
+        )
+
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
+    fun completeActivityReloadsPersistedAssistantWhenNoStreamChunksArrive() = runTest {
+        val fakeWs = FakeWsClient()
+        val vm = ChatViewModel("conv-1", fakeWs)
+        advanceUntilIdle()
+
+        fakeWs.emit(
+            WsEvent.ConversationMessages(
+                conversationId = "conv-1",
+                messages = listOf(HistoryMessage("m1", "user", "Hello", 1)),
+            ),
+        )
+        advanceUntilIdle()
+
+        vm.sendMessage("Follow up")
+        assertTrue(vm.isAwaitingResponse.value)
+
+        fakeWs.emit(
+            WsEvent.ChatActivity(
+                conversationId = "conv-1",
+                state = "complete",
+                label = "Complete",
+                toolName = null,
+                serverName = null,
+            ),
+        )
+        advanceUntilIdle()
+
+        assertFalse(vm.isAwaitingResponse.value)
+        assertFalse(vm.isStreaming.value)
+        assertEquals(
+            SentCommand("conversation:get-messages", mapOf("conversationId" to "conv-1")),
+            fakeWs.sentCommands.last(),
+        )
+
+        fakeWs.emit(
+            WsEvent.ConversationMessages(
+                conversationId = "conv-1",
+                messages = listOf(
+                    HistoryMessage("m1", "user", "Hello", 1),
+                    HistoryMessage("m2", "user", "Follow up", 2),
+                    HistoryMessage("m3", "assistant", "Done from history", 3),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(
+                ChatMessage(id = "m1", text = "Hello", isUser = true, isStreaming = false, timestamp = 1),
+                ChatMessage(id = "m2", text = "Follow up", isUser = true, isStreaming = false, timestamp = 2),
+                ChatMessage(id = "m3", text = "Done from history", isUser = false, isStreaming = false, timestamp = 3),
+            ),
+            vm.messages.value,
+        )
+
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
+    fun authoritativeHistoryPushUpdatesLoadedChatWhileAwaitingResponse() = runTest {
+        val fakeWs = FakeWsClient()
+        val vm = ChatViewModel("conv-1", fakeWs)
+        advanceUntilIdle()
+
+        fakeWs.emit(
+            WsEvent.ConversationMessages(
+                conversationId = "conv-1",
+                messages = listOf(HistoryMessage("m1", "user", "Hello", 1)),
+            ),
+        )
+        advanceUntilIdle()
+
+        vm.sendMessage("Follow up")
+        assertTrue(vm.isAwaitingResponse.value)
+
+        fakeWs.emit(
+            WsEvent.ConversationMessages(
+                conversationId = "conv-1",
+                messages = listOf(
+                    HistoryMessage("m1", "user", "Hello", 1),
+                    HistoryMessage("m2", "user", "Follow up", 2),
+                    HistoryMessage("m3", "assistant", "Persisted answer", 3),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertFalse(vm.isAwaitingResponse.value)
+        assertFalse(vm.isStreaming.value)
+        assertEquals("Persisted answer", vm.messages.value.last().text)
+
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
+    fun teamActivityEventsRenderAsLiveToolActivity() = runTest {
+        val fakeWs = FakeWsClient()
+        val vm = ChatViewModel("conv-1", fakeWs)
+        advanceUntilIdle()
+
+        fakeWs.emit(
+            WsEvent.ChatTeamActivity(
+                conversationId = "conv-1",
+                stepId = "step-1",
+                agentName = "Builder",
+                agentIcon = "B",
+                task = "Review the plan",
+                status = "delegating",
+                result = null,
+                durationMs = null,
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals(1, vm.messages.value.size)
+        assertTrue(vm.messages.value.single().isToolCall)
+        assertTrue(vm.messages.value.single().isStreaming)
+        assertEquals("B Builder", vm.messages.value.single().toolName)
+
+        fakeWs.emit(
+            WsEvent.ChatTeamActivity(
+                conversationId = "conv-1",
+                stepId = "step-1",
+                agentName = "Builder",
+                agentIcon = "B",
+                task = "Review the plan",
+                status = "done",
+                result = "Looks good.",
+                durationMs = 100,
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals(1, vm.messages.value.size)
+        assertFalse(vm.messages.value.single().isStreaming)
+        assertEquals("Looks good.", vm.messages.value.single().toolResult)
+
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
+    fun activeHistoryPollingRecoversWhenStreamEventsAreMissed() = runTest {
+        val fakeWs = FakeWsClient()
+        val vm = ChatViewModel("conv-1", fakeWs)
+        advanceUntilIdle()
+
+        fakeWs.emit(
+            WsEvent.ConversationMessages(
+                conversationId = "conv-1",
+                messages = listOf(HistoryMessage("m1", "user", "Hello", 1)),
+            ),
+        )
+        advanceUntilIdle()
+
+        val commandsBeforeSend = fakeWs.sentCommands.size
+        vm.sendMessage("Follow up")
+
+        advanceTimeBy(2_500)
+        runCurrent()
+
+        assertEquals(
+            SentCommand("conversation:get-messages", mapOf("conversationId" to "conv-1")),
+            fakeWs.sentCommands.last(),
+        )
+        assertEquals(commandsBeforeSend + 2, fakeWs.sentCommands.size)
+
+        fakeWs.emit(
+            WsEvent.ConversationMessages(
+                conversationId = "conv-1",
+                messages = listOf(
+                    HistoryMessage("m1", "user", "Hello", 1),
+                    HistoryMessage("m2", "user", "Follow up", 2),
+                    HistoryMessage("m3", "assistant", "Recovered answer", 3),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertFalse(vm.isAwaitingResponse.value)
+        assertFalse(vm.isStreaming.value)
+        assertEquals("Recovered answer", vm.messages.value.last().text)
 
         vm.viewModelScope.cancel()
     }
@@ -538,6 +765,27 @@ class ChatViewModelTest {
         )
 
         vm.viewModelScope.cancel()
+    }
+
+    @Test
+    fun stripsInjectedContextFromUserFacingHistoryMessages() = runTest {
+        assertEquals(
+            "Hello",
+            stripInjectedContextBlocks("[Project Context]\nsecret\n[/Project Context]\nHello"),
+        )
+        assertEquals(
+            "Hello",
+            stripInjectedContextBlocks("""{"projectId":"p1","sourceContext":{"useProjectWiki":true}}""" + "\nHello"),
+        )
+        val msg = HistoryMessage(
+            id = "team-1",
+            role = "team-activity",
+            content = """{"steps":[{"agentName":"Builder","task":"Review the plan"}]}""",
+            timestamp = 1,
+        ).toChatMessage()
+        assertTrue(msg.isToolCall)
+        assertEquals("Team activity", msg.toolName)
+        assertTrue(msg.toolResult.orEmpty().contains("Builder"))
     }
 
     private data class SentCommand(val command: String, val data: Map<String, Any>)

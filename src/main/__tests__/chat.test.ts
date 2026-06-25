@@ -3,10 +3,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const state = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>()
   const messages: Array<{ role: string; content: string; attachments: string | null; thinkingBlocks: string | null }> = []
+  const events: string[] = []
   const send = vi.fn()
-  const broadcastToMobile = vi.fn()
+  const broadcastToMobile = vi.fn((payload: { event?: string; data?: { state?: string } }) => {
+    if (payload.event === 'conversation:messages') events.push('mobile:messages')
+    if (payload.event === 'chat:stream-end') events.push('mobile:stream-end')
+    if (payload.event === 'chat:activity' && payload.data?.state === 'complete') events.push('mobile:complete')
+    if (payload.event === 'chat:activity' && payload.data?.state === 'error') events.push('mobile:error')
+  })
   const abortActiveStream = vi.fn()
-  return { handlers, messages, send, broadcastToMobile, abortActiveStream }
+  return { handlers, messages, events, send, broadcastToMobile, abortActiveStream }
 })
 
 vi.mock('../safe-handle', () => ({
@@ -26,11 +32,25 @@ vi.mock('../database', () => ({
             attachments: typeof args[4] === 'string' ? args[4] : null,
             thinkingBlocks: typeof args[7] === 'string' ? args[7] : null,
           })
+          if (String(args[2]) === 'assistant') state.events.push('db:assistant-insert')
         }
         return { changes: 1 }
       },
       get: () => ({ agent_id: null, model: null }),
-      all: () => [],
+      all: () => {
+        if (sql.includes('SELECT id, role, content')) {
+          return state.messages.map((message, index) => ({
+            id: `m-${index}`,
+            role: message.role,
+            content: message.content,
+            model: null,
+            attachments: message.attachments,
+            timestamp: index + 1,
+            thinking_blocks: message.thinkingBlocks,
+          }))
+        }
+        return []
+      },
     }),
   }),
 }))
@@ -99,6 +119,7 @@ describe('chat handlers', () => {
   beforeEach(() => {
     state.handlers.clear()
     state.messages.length = 0
+    state.events.length = 0
     state.send.mockClear()
     state.broadcastToMobile.mockClear()
     state.abortActiveStream.mockClear()
@@ -135,6 +156,10 @@ describe('chat handlers', () => {
       event: 'chat:activity',
       data: { conversationId: 'conv-1', state: 'complete', label: 'Complete' },
     })
+    expect(state.events.indexOf('db:assistant-insert')).toBeLessThan(state.events.indexOf('mobile:stream-end'))
+    expect(state.events.indexOf('db:assistant-insert')).toBeLessThan(state.events.indexOf('mobile:complete'))
+    expect(state.events.indexOf('db:assistant-insert')).toBeLessThan(state.events.indexOf('mobile:messages'))
+    expect(state.events.indexOf('mobile:messages')).toBeLessThan(state.events.indexOf('mobile:stream-end'))
   })
 
   it('forwards and stores BYOK provider thinking events', async () => {

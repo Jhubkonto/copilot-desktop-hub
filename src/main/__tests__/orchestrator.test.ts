@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   sendProviderWithTools: vi.fn(),
   windowSend: vi.fn(),
+  broadcastToMobile: vi.fn(),
   getAgentConfig: vi.fn(() => ({ systemPrompt: 'You are an agent.' })),
 }))
 
@@ -19,6 +20,7 @@ vi.mock('../providers', () => ({
 }))
 
 vi.mock('../agents', () => ({ getAgentConfig: mocks.getAgentConfig }))
+vi.mock('../ws-server', () => ({ broadcastToMobile: mocks.broadcastToMobile }))
 vi.mock('crypto', () => ({ randomUUID: vi.fn(() => 'step-uuid') }))
 
 import { runOrchestration, type OrchestratorOptions } from '../orchestrator'
@@ -57,5 +59,45 @@ describe('orchestrator', () => {
     await runOrchestration(makeOpts({ selectedModel: undefined }), 'Hi', [])
 
     expect(mocks.sendProviderWithTools).toHaveBeenCalled()
+  })
+
+  it('broadcasts team activity to mobile when delegating', async () => {
+    mocks.sendProviderWithTools
+      .mockResolvedValueOnce({
+        content: '',
+        toolCalls: [{ id: 'call-1', name: 'delegate_to_agent', arguments: { agent_id: 'builder-id', task: 'Review plan' } }],
+      })
+      .mockResolvedValueOnce({ content: 'Specialist result', toolCalls: [] })
+      .mockResolvedValueOnce({ content: 'Final answer', toolCalls: [] })
+
+    await runOrchestration(
+      makeOpts({
+        teamAgents: [
+          { agentId: 'leader-id', agentName: 'Leader', agentIcon: 'L', isPrimary: true, sortOrder: 0 },
+          { agentId: 'builder-id', agentName: 'Builder', agentIcon: 'B', isPrimary: false, sortOrder: 1 },
+        ],
+      }),
+      'Hi',
+      [],
+    )
+
+    expect(mocks.broadcastToMobile).toHaveBeenCalledWith({
+      event: 'chat:team-activity',
+      data: expect.objectContaining({
+        conversationId: 'conv-1',
+        stepId: 'step-uuid',
+        agentName: 'Builder',
+        status: 'delegating',
+      }),
+    })
+    expect(mocks.broadcastToMobile).toHaveBeenCalledWith({
+      event: 'chat:team-activity',
+      data: expect.objectContaining({
+        conversationId: 'conv-1',
+        stepId: 'step-uuid',
+        agentName: 'Builder',
+        status: 'done',
+      }),
+    })
   })
 })

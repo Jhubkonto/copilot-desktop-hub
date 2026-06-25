@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import { MessageBubble } from '../../renderer/components/MessageBubble'
+import { MessageBubble, stripInjectedBlocks } from '../../renderer/components/MessageBubble'
 import { setupMockApi } from '../../test/mocks/api'
 
 beforeEach(() => {
@@ -20,6 +20,11 @@ describe('MessageBubble', () => {
   it('renders user message content as plain text', () => {
     render(<MessageBubble {...baseProps} />)
     expect(screen.getByText('Hello there')).toBeInTheDocument()
+  })
+
+  it('strips injected context from user-facing content', () => {
+    expect(stripInjectedBlocks('[Project Context]\nsecret\n[/Project Context]\nHello')).toBe('Hello')
+    expect(stripInjectedBlocks('{"projectId":"p1","sourceContext":{"useProjectWiki":true}}\nHello')).toBe('Hello')
   })
 
   it('renders assistant message with markdown', () => {

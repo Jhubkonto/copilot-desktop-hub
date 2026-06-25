@@ -62,6 +62,10 @@ class ChatThinkingParserTest {
             wikiEntries = MutableStateFlow<List<WikiEntry>>(emptyList()),
             promptEntries = MutableStateFlow<List<PromptEntry>>(emptyList()),
             cliStatus = MutableStateFlow<Map<String, CliInstallInfo>>(emptyMap()),
+            scheduledTasks = MutableStateFlow(emptyList()),
+            scheduledRuns = MutableStateFlow(emptyMap()),
+            currentDebrief = MutableStateFlow(null),
+            completedConversationIds = MutableStateFlow(emptySet()),
         )
         testScheduler.advanceUntilIdle()
         return events.replayCache.lastOrNull() ?: throw AssertionError("No websocket event parsed from: $raw")
