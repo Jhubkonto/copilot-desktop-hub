@@ -106,7 +106,12 @@ async function getClaudeCliAllowedBuiltInTools(
       allowedTools.push(...tool.claudeTools)
       continue
     }
-    // All other cases (enabled: true + always-ask, or not configured at all) → prompt
+    // No agent configured → auto-allow all built-in tools, no prompt needed
+    if (!agentId) {
+      allowedTools.push(...tool.claudeTools)
+      continue
+    }
+    // Agent configured with always-ask or unconfigured tool → prompt
     sendActivity({ state: 'approval', label: `Waiting for ${tool.label} approval`, toolName: tool.label })
     const approved = await requestApproval(
       window.webContents,
@@ -227,8 +232,8 @@ export async function dispatchChatSend(
 
   // ── Provider resolution ────────────────────────────────────────────────────
   const convRow = db
-    .prepare('SELECT agent_id, model FROM conversations WHERE id = ?')
-    .get(conversationId) as { agent_id: string | null; model: string | null } | undefined
+    .prepare('SELECT agent_id, model, cli_backend FROM conversations WHERE id = ?')
+    .get(conversationId) as { agent_id: string | null; model: string | null; cli_backend: string | null } | undefined
   const settingsRows = db
     .prepare("SELECT key, value FROM settings WHERE key IN ('default_model', 'temperature', 'max_tokens')")
     .all() as Array<{ key: string; value: string }>
@@ -424,6 +429,11 @@ export async function dispatchChatSend(
     fallbackCliBackend = 'codex-cli'
   } else if (cliBackend === 'claude-cli' && ClaudeAdapter.isAvailable()) {
     fallbackCliBackend = 'claude-cli'
+  } else if (convRow?.cli_backend === 'codex-cli' && CodexAdapter.isAvailable()) {
+    // User explicitly picked a Codex CLI model in this conversation.
+    fallbackCliBackend = 'codex-cli'
+  } else if (convRow?.cli_backend === 'claude-cli' && ClaudeAdapter.isAvailable()) {
+    fallbackCliBackend = 'claude-cli'
   } else if (retrieveAuthMode() === 'none') {
     // No explicit backend — fall back to CLI only when there's no BYOK key.
     if (!byokKeyForModel) {
@@ -488,7 +498,7 @@ export async function dispatchChatSend(
       if (effectiveBackend === 'codex-cli') {
         if (!requestedCliModel) {
           cliModelForRequest = availableCodexModels[0]?.id ?? ''
-        } else if (modelOverride || availableCodexModels.some((m) => m.id === requestedCliModel)) {
+        } else if (availableCodexModels.some((m) => m.id === requestedCliModel)) {
           cliModelForRequest = requestedCliModel
         } else {
           cliModelForRequest = availableCodexModels[0]?.id ?? ''
