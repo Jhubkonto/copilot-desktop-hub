@@ -6,7 +6,9 @@ private val INJECTED_BLOCK_RE = Regex("""\[[A-Za-z][^\]]*]\n[\s\S]*?\[/[A-Za-z][
 
 internal fun HistoryMessage.toChatMessage(): ChatMessage {
     if (role != "tool-call") {
-        val displayText = if (role == "user") INJECTED_BLOCK_RE.replace(content, "").trimStart() else content
+        val rawText = if (role == "user") INJECTED_BLOCK_RE.replace(content, "").trimStart() else content
+        // Wrap bare JSON objects/arrays in a code fence so they render legibly instead of as a wall of text
+        val displayText = if (role != "user" && looksLikeRawJson(rawText)) "```json\n$rawText\n```" else rawText
         return ChatMessage(
             id = id,
             text = displayText,
@@ -58,6 +60,13 @@ internal fun jsonString(json: String, key: String): String? {
 internal fun jsonBoolean(json: String, key: String): Boolean? {
     val pattern = """"$key"\s*:\s*(true|false)""".toRegex()
     return pattern.find(json)?.groupValues?.getOrNull(1)?.toBooleanStrictOrNull()
+}
+
+internal fun looksLikeRawJson(text: String): Boolean {
+    val trimmed = text.trim()
+    if (trimmed.length < 2) return false
+    return (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+        (trimmed.startsWith("[") && trimmed.endsWith("]"))
 }
 
 internal fun jsonObject(json: String, key: String): String? {

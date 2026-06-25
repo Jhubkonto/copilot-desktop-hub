@@ -19,6 +19,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -330,7 +331,6 @@ fun MessageBubble(
             ) {
                 DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                     DropdownMenuItem(text = { Text("Copy") }, onClick = { menuExpanded = false; onCopy() })
-                    DropdownMenuItem(text = { Text("Select text") }, onClick = { menuExpanded = false; onCopy() })
                     if (onRetry != null) DropdownMenuItem(text = { Text("Retry") }, onClick = { menuExpanded = false; onRetry() })
                     if (onEditAssistant != null) DropdownMenuItem(text = { Text("Edit message") }, onClick = { menuExpanded = false; onEditAssistant() })
                     if (onBranch != null) DropdownMenuItem(text = { Text("Branch in new chat") }, onClick = { menuExpanded = false; onBranch() })
@@ -360,17 +360,20 @@ fun MessageBubble(
                         if (msg.text.isNotBlank()) {
                             if (msg.isStreaming) {
                                 // Plain text during streaming — avoids re-parsing markdown on every chunk
-                                Text(
-                                    text = msg.text,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = textColor,
-                                )
+                                SelectionContainer {
+                                    Text(
+                                        text = msg.text,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = textColor,
+                                    )
+                                }
                             } else {
                                 AndroidView(
                                     factory = { ctx ->
                                         TextView(ctx).also { tv ->
                                             tv.setTextColor(textColorArgb)
                                             tv.textSize = 14f
+                                            tv.setTextIsSelectable(true)
                                             markwon.setMarkdown(tv, msg.text)
                                         }
                                     },
