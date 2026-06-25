@@ -31,6 +31,7 @@ import { registerAgentGeneratorHandlers } from './agent-generator'
 import { registerArtifactHandlers } from './artifacts'
 import { registerArtifactGeneratorHandlers } from './artifact-generator'
 import { registerSkillGeneratorHandlers } from './skill-generator'
+import { registerScheduleGeneratorHandlers } from './scheduler-generator'
 import { registerVoiceHandlers } from './voice-handlers'
 import { registerSchedulerHandlers } from './scheduler-handlers'
 import { registerDebriefHandlers } from './debrief-handlers'
@@ -73,6 +74,7 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerProjectGeneratorHandlers(mainWindow)
   registerAgentGeneratorHandlers(mainWindow)
   registerSkillGeneratorHandlers(mainWindow)
+  registerScheduleGeneratorHandlers(mainWindow)
   registerArtifactHandlers()
   registerArtifactGeneratorHandlers(mainWindow)
   registerSchedulerHandlers()

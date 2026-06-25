@@ -661,6 +661,24 @@ export interface SkillGeneratorMessage {
   content: string
 }
 
+export interface ScheduleGeneratorSpec {
+  name: string
+  prompt: string
+  scheduleType: ScheduleType
+  localTime: string
+  weekday?: number
+  monthDay?: number
+  timezone: string
+  agentId?: string
+  projectId?: string
+  notificationPref: 'always' | 'failures_only' | 'off'
+}
+
+export interface ScheduleGeneratorMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
 export type ArtifactKind =
   | 'document' | 'code' | 'ui' | 'data'
   | 'prompt' | 'agent-config' | 'plan' | 'bundle' | 'other'
@@ -1713,6 +1731,13 @@ export type IpcReturnMap = {
   'skill-generator:done': void
   'skill-generator:get-model': string
   'skill-generator:set-model': void
+  // Scheduler generator
+  'scheduler-generator:chat': { started: boolean }
+  'scheduler-generator:token': void
+  'scheduler-generator:spec-ready': void
+  'scheduler-generator:done': void
+  'scheduler-generator:get-model': string
+  'scheduler-generator:set-model': void
   // Artifact
   'artifact:list': ArtifactRow[]
   'artifact:get': ArtifactRow | null
@@ -2052,6 +2077,12 @@ export type IpcChannels =
   | 'skill-generator:done'
   | 'skill-generator:get-model'
   | 'skill-generator:set-model'
+  | 'scheduler-generator:chat'
+  | 'scheduler-generator:token'
+  | 'scheduler-generator:spec-ready'
+  | 'scheduler-generator:done'
+  | 'scheduler-generator:get-model'
+  | 'scheduler-generator:set-model'
   | 'artifact:list'
   | 'artifact:get'
   | 'artifact:list-versions'

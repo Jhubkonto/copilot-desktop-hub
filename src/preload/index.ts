@@ -33,6 +33,8 @@ import type {
   SkillConfig,
   SkillGeneratorMessage,
   SkillGeneratorSpec,
+  ScheduleGeneratorMessage,
+  ScheduleGeneratorSpec,
   ArtifactGeneratorMessage,
   ArtifactSpec,
   ArtifactRow,
@@ -725,6 +727,27 @@ const api = {
   },
   skillGeneratorGetModel: () => typedInvoke('skill-generator:get-model'),
   skillGeneratorSetModel: (modelId: string) => typedInvoke('skill-generator:set-model', modelId),
+
+  // Schedule generator
+  scheduleGeneratorChat: (messages: ScheduleGeneratorMessage[], modelOverride?: string) =>
+    typedInvoke('scheduler-generator:chat', messages, modelOverride),
+  onScheduleGeneratorToken: (callback: (chunk: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, chunk: string) => callback(chunk)
+    typedOn('scheduler-generator:token', handler)
+    return () => typedOff('scheduler-generator:token', handler)
+  },
+  onScheduleGeneratorSpecReady: (callback: (spec: ScheduleGeneratorSpec) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, spec: ScheduleGeneratorSpec) => callback(spec)
+    typedOn('scheduler-generator:spec-ready', handler)
+    return () => typedOff('scheduler-generator:spec-ready', handler)
+  },
+  onScheduleGeneratorDone: (callback: (data: { hasSpec: boolean }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { hasSpec: boolean }) => callback(data)
+    typedOn('scheduler-generator:done', handler)
+    return () => typedOff('scheduler-generator:done', handler)
+  },
+  getScheduleGeneratorModel: () => typedInvoke('scheduler-generator:get-model'),
+  setScheduleGeneratorModel: (modelId: string) => typedInvoke('scheduler-generator:set-model', modelId),
 
   // Artifact CRUD
   artifactList: (projectId?: string) =>

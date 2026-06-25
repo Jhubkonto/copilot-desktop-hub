@@ -107,7 +107,7 @@ describe('tool-loop regression — scheduler toolPolicy does not affect normal r
     await runProviderMcpToolLoop(
       callerMock,
       [{ role: 'user', content: 'search' }],
-      [{ function: { name: 'wiki_search', description: '', parameters: {} } }],
+      [{ type: 'function', function: { name: 'wiki_search', description: '', parameters: {} } }],
       new Map(),
       'agent-1',
       'conv-1',
@@ -138,7 +138,7 @@ describe('tool-loop regression — scheduler toolPolicy does not affect normal r
     await runProviderMcpToolLoop(
       callerMock,
       [{ role: 'user', content: 'run bash' }],
-      [{ function: { name: 'srv__bash', description: '', parameters: {} } }],
+      [{ type: 'function', function: { name: 'srv__bash', description: '', parameters: {} } }],
       new Map([['srv__bash', { serverId: 'srv', toolName: 'bash' }]]),
       'agent-1',
       'conv-1',
@@ -174,7 +174,7 @@ describe('tool-loop regression — scheduler toolPolicy does not affect normal r
     await runProviderMcpToolLoop(
       callerMock,
       [{ role: 'user', content: 'read something' }],
-      [{ function: { name: 'srv__read_file', description: '', parameters: {} } }],
+      [{ type: 'function', function: { name: 'srv__read_file', description: '', parameters: {} } }],
       new Map([['srv__read_file', { serverId: 'srv', toolName: 'read_file' }]]),
       'agent-1',
       'conv-1',
@@ -211,7 +211,7 @@ describe('tool-loop regression — scheduler toolPolicy does not affect normal r
     await runProviderMcpToolLoop(
       callerMock,
       [{ role: 'user', content: 'write' }],
-      [{ function: { name: 'srv__write_file', description: '', parameters: {} } }],
+      [{ type: 'function', function: { name: 'srv__write_file', description: '', parameters: {} } }],
       new Map(), // not in toolMap — resolves as unknown, not policy-blocked
       'agent-1',
       'conv-1',

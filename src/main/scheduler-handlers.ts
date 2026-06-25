@@ -11,9 +11,9 @@ import {
   dbListRuns,
   schedulerEngine,
 } from './scheduler-engine'
-import type { ScheduledTask, ScheduledTaskCreateInput, ScheduledTaskUpdateInput } from '../shared/types'
+import type { ScheduledTaskCreateInput, ScheduledTaskUpdateInput } from '../shared/types'
 
-function buildWarnings(input: Partial<ScheduledTask>): string[] {
+function buildWarnings(input: { agentId?: string | null; projectId?: string | null }): string[] {
   const db = getDatabase()
   const warnings: string[] = []
   if (input.agentId) {
