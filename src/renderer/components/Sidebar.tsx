@@ -109,7 +109,9 @@ export function Sidebar() {
         const all = await window.api.artifactList()
         const fresh = all.filter((a) => a.status === 'ready' && a.createdAt > artifactLastOpenedRef.current)
         setNewArtifactCount(fresh.length)
-      } catch {}
+      } catch {
+        // Ignore badge refresh failures; the artifacts panel can still load on demand.
+      }
     }
     void refresh()
     const interval = setInterval(() => { void refresh() }, 15000)

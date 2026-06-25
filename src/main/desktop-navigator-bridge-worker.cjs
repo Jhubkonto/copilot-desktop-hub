@@ -7,6 +7,8 @@
  * and returns results back to the CLI.
  */
 
+/* global require, process, Buffer */
+
 'use strict'
 
 const { Server } = require('@modelcontextprotocol/sdk/server/index.js')

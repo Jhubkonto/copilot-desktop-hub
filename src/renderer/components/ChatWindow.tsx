@@ -1213,7 +1213,11 @@ export function ChatWindow() {
                   <>
                     <button
                       type="button"
-                      onClick={() => { setMenuExportOpen(false); menuContinueOpen ? setMenuContinueOpen(false) : handleOpenContinueWith() }}
+                      onClick={() => {
+                        setMenuExportOpen(false)
+                        if (menuContinueOpen) setMenuContinueOpen(false)
+                        else handleOpenContinueWith()
+                      }}
                       disabled={isForking}
                       className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
                     >
