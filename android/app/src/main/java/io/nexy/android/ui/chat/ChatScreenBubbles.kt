@@ -531,9 +531,8 @@ fun MessageBubble(
 @Composable
 fun ToolCallBubble(msg: ChatMessage, inProgress: Boolean = false) {
     val isTeamActivity = msg.serverName == "Team activity"
-    // Completed team activity bubbles start expanded so content is visible without interaction.
     val hasDetails = !msg.toolArgs.isNullOrBlank() || !msg.toolResult.isNullOrBlank()
-    var expanded by remember { mutableStateOf(isTeamActivity && !inProgress && hasDetails) }
+    var expanded by remember { mutableStateOf(false) }
     var userCollapsed by remember { mutableStateOf(false) }
     val preview = when {
         inProgress -> "Running…"
