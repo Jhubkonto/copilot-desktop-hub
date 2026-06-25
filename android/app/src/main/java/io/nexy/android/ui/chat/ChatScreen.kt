@@ -87,19 +87,27 @@ import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.PromptEntry
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.snapshotFlow
 import io.noties.markwon.Markwon
 import io.noties.markwon.ext.tables.TablePlugin
 import io.noties.markwon.linkify.LinkifyPlugin
-import io.noties.markwon.syntax.Prism4jThemeDarkula
+import io.noties.markwon.syntax.Prism4jTheme
 import io.noties.markwon.syntax.SyntaxHighlightPlugin
 import io.noties.prism4j.Prism4j
+import android.text.SpannableStringBuilder
 import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyConnectionBanner
 import io.nexy.android.ui.model.activeModelDetail
 import io.nexy.android.ui.model.activeModelLabel
 import io.nexy.android.ui.model.emptyModelListDetail
 import io.nexy.android.ui.model.modelSourceDetail
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import androidx.compose.runtime.withFrameNanos
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -146,6 +154,7 @@ fun ChatScreen(
     var input by remember { mutableStateOf(draftFromVm) }
     val listState = rememberLazyListState()
     var userScrolledUp by remember { mutableStateOf(false) }
+    var hasInitiallyScrolled by remember { mutableStateOf(false) }
     val context = LocalContext.current
     var showModelSheet by remember { mutableStateOf(false) }
     var modelQuery by remember { mutableStateOf("") }
@@ -293,41 +302,66 @@ fun ChatScreen(
         else screenshotPermissionLauncher.launch(screenshotPermission)
     }
 
-    // Track whether the user is scrolled away from the bottom using live layout info.
-    val isAtBottom by remember {
-        derivedStateOf {
-            val layoutInfo = listState.layoutInfo
-            val itemCount = layoutInfo.totalItemsCount
-            if (itemCount == 0) return@derivedStateOf true
-            val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
-            val lastItem = layoutInfo.visibleItemsInfo.lastOrNull()
-            // Also check that the last item's bottom edge is within the viewport
-            val lastItemClipped = lastItem != null &&
-                lastItem.offset + lastItem.size > layoutInfo.viewportEndOffset
-            itemCount > 0 && lastVisible >= itemCount - 1 && !lastItemClipped
+    suspend fun scrollToBottom(animated: Boolean = false, settlePasses: Int = 1) {
+        repeat(settlePasses.coerceAtLeast(1)) { pass ->
+            val itemCount = listState.layoutInfo.totalItemsCount
+            if (itemCount <= 0) return
+            if (animated && pass == 0) {
+                listState.animateScrollToItem(itemCount - 1, scrollOffset = Int.MAX_VALUE)
+            } else {
+                listState.scrollToItem(itemCount - 1, scrollOffset = Int.MAX_VALUE)
+            }
+            // Markwon AndroidView content can report a larger measured height after it is first revealed.
+            withFrameNanos {}
+            if (!listState.canScrollForward) {
+                userScrolledUp = false
+                return
+            }
         }
+    }
+
+    // canScrollForward is false exactly when the list is at its bottommost scroll position.
+    val isAtBottom by remember {
+        derivedStateOf { !listState.canScrollForward }
     }
     LaunchedEffect(isAtBottom) {
         if (isAtBottom) userScrolledUp = false
-        else userScrolledUp = true
+    }
+
+    // User input disables auto-follow only when it actually leaves the list above the bottom.
+    val scrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.UserInput && hasInitiallyScrolled) {
+                    userScrolledUp = listState.canScrollForward
+                }
+                return Offset.Zero
+            }
+        }
+    }
+
+    // On first composition, scroll to the bottom using a two-phase approach:
+    // Phase 1 brings the last item into view so Compose and Android measure it.
+    // Phase 2 re-scrolls with the now-accurate measured height, landing precisely at the bottom.
+    LaunchedEffect(Unit) {
+        snapshotFlow { listState.layoutInfo.totalItemsCount }
+            .first { it > 0 }
+        scrollToBottom(settlePasses = 6)
+        hasInitiallyScrolled = true
+        userScrolledUp = false
     }
 
     // Auto-scroll on new whole messages or awaiting-response toggle.
-    // scrollOffset = Int.MAX_VALUE causes Compose to clamp to the actual content bottom,
-    // so the last item's bottom edge is visible rather than its top.
     LaunchedEffect(messages.size, isAwaitingResponse) {
-        if (userScrolledUp) return@LaunchedEffect
-        val itemCount = listState.layoutInfo.totalItemsCount
-        if (itemCount > 0) listState.scrollToItem(itemCount - 1, scrollOffset = Int.MAX_VALUE)
+        if (!hasInitiallyScrolled || userScrolledUp) return@LaunchedEffect
+        scrollToBottom(settlePasses = 3)
     }
 
     // Auto-scroll while streaming text within the last message (chunks don't change messages.size).
-    // Use scrollToItem (instant) to avoid animation jitter from rapid successive calls.
     val streamingTextLength = remember(messages) { messages.lastOrNull { it.isStreaming }?.text?.length ?: 0 }
     LaunchedEffect(streamingTextLength, isStreaming) {
         if (!isStreaming || userScrolledUp) return@LaunchedEffect
-        val itemCount = listState.layoutInfo.totalItemsCount
-        if (itemCount > 0) listState.scrollToItem(itemCount - 1, scrollOffset = Int.MAX_VALUE)
+        scrollToBottom(settlePasses = 2)
     }
 
     // Auto-scroll when live thinking blocks grow (new block added or content length increases).
@@ -335,15 +369,13 @@ fun ChatScreen(
     val thinkingTotalChars = liveThinkingBlocks.sumOf { it.content.length }
     LaunchedEffect(thinkingBlocksSize, thinkingTotalChars) {
         if (userScrolledUp) return@LaunchedEffect
-        val itemCount = listState.layoutInfo.totalItemsCount
-        if (itemCount > 0) listState.scrollToItem(itemCount - 1, scrollOffset = Int.MAX_VALUE)
+        scrollToBottom(settlePasses = 2)
     }
 
     // Scroll to bottom on stream end (user should see the completed response).
     LaunchedEffect(isStreaming) {
         if (!isStreaming && !userScrolledUp) {
-            val itemCount = listState.layoutInfo.totalItemsCount
-            if (itemCount > 0) listState.animateScrollToItem(itemCount - 1, scrollOffset = Int.MAX_VALUE)
+            scrollToBottom(animated = true, settlePasses = 3)
         }
     }
 
@@ -730,10 +762,16 @@ fun ChatScreen(
 
     val markwon = remember(context) {
         val prism4j = Prism4j(io.nexy.android.GrammarLocatorDef())
+        // Custom theme: subtle tinted background with readable dark text instead of Darkula black
+        val codeTheme = object : Prism4jTheme {
+            override fun background(): Int = 0xFF1E1F2E.toInt() // deep navy, visible in both themes
+            override fun textColor(): Int = 0xFFE8EAF6.toInt() // soft lavender-white
+            override fun apply(language: String, syntax: io.noties.prism4j.Prism4j.Syntax, builder: SpannableStringBuilder, start: Int, end: Int) = Unit
+        }
         Markwon.builder(context)
             .usePlugin(TablePlugin.create(context))
             .usePlugin(LinkifyPlugin.create())
-            .usePlugin(SyntaxHighlightPlugin.create(prism4j, Prism4jThemeDarkula.create()))
+            .usePlugin(SyntaxHighlightPlugin.create(prism4j, codeTheme))
             .build()
     }
     CompositionLocalProvider(LocalMarkwon provides markwon) {
@@ -959,7 +997,8 @@ fun ChatScreen(
 
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+                    modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
+                        .nestedScroll(scrollConnection),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(vertical = 8.dp),
                 ) {
@@ -1068,16 +1107,17 @@ fun ChatScreen(
             }
             // Scroll-to-bottom button shown whenever the user is scrolled above the bottom
             AnimatedVisibility(
-                visible = userScrolledUp,
+                visible = hasInitiallyScrolled && !isAtBottom,
                 modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp),
                 enter = fadeIn(),
                 exit = fadeOut(),
             ) {
                 FloatingActionButton(
                     onClick = {
-                        userScrolledUp = false
-                        val itemCount = listState.layoutInfo.totalItemsCount
-                        if (itemCount > 0) scope.launch { listState.scrollToItem(itemCount - 1, scrollOffset = Int.MAX_VALUE) }
+                        scope.launch {
+                            scrollToBottom(animated = true, settlePasses = 4)
+                            userScrolledUp = false
+                        }
                     },
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
