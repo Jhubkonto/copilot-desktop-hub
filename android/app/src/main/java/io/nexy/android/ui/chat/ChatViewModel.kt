@@ -10,6 +10,8 @@ import io.nexy.android.data.model.ThinkingBlock
 import io.nexy.android.data.model.WsEvent
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -17,6 +19,7 @@ import java.util.UUID
 
 private const val STREAM_CHARS_PER_TICK = 60
 private const val STREAM_TICK_MS = 16L
+private const val ACTIVE_HISTORY_POLL_MS = 2_500L
 // Chunks larger than this skip the typewriter drip and are applied in one update
 private const val LARGE_CHUNK_THRESHOLD = 500
 
@@ -49,6 +52,7 @@ data class ChatMessage(
     val toolCalls: List<ChatMessage> = emptyList(),
 )
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class ChatViewModel(
     private val conversationId: String,
     private val wsClient: WsClient = WsRepository,
@@ -102,6 +106,7 @@ class ChatViewModel(
     // Buffer incoming stream chunks; drain coroutine emits to _messages at a fixed rate.
     // null sentinel signals end-of-stream so the drain coroutine can clear isStreaming.
     private val streamBuffer = Channel<String?>(Channel.UNLIMITED)
+    private var activeHistoryPollJob: Job? = null
 
     init {
         refreshMessages()
@@ -109,6 +114,27 @@ class ChatViewModel(
         // streamEndPending defers isStreaming=false until the last queued chunk finishes rendering.
         viewModelScope.launch {
             var streamEndPending = false
+            fun finalizeRenderedStream() {
+                val current = _messages.value
+                val streamingIdx = current.indexOfLast { it.isStreaming }
+                val thinkingSnapshot = _liveThinkingBlocks.value
+                WsRepository.sendLog("Drain", "draining complete; streamingIdx=$streamingIdx; thinkingBlocks=${thinkingSnapshot.size}; clearing isStreaming")
+                if (streamingIdx >= 0) {
+                    _messages.value = current.toMutableList().also { list ->
+                        val msg = list[streamingIdx]
+                        list[streamingIdx] = msg.copy(
+                            isStreaming = false,
+                            thinkingBlocks = if (thinkingSnapshot.isNotEmpty() && msg.thinkingBlocks.isEmpty())
+                                thinkingSnapshot else msg.thinkingBlocks,
+                        )
+                    }
+                }
+                _isStreaming.value = false
+                _isAwaitingResponse.value = false
+                _liveThinkingBlocks.value = emptyList()
+                _generationStartedAt.value = null
+                streamEndPending = false
+            }
             WsRepository.sendLog("Drain", "drain coroutine started for conv=$conversationId")
             for (chunk in streamBuffer) {
                 if (chunk == null) {
@@ -116,6 +142,9 @@ class ChatViewModel(
                     // after the last real chunk's while-loop finishes so the cursor stays visible.
                     WsRepository.sendLog("Drain", "null sentinel received; streamEndPending=true; bufferEmpty=${streamBuffer.isEmpty}")
                     streamEndPending = true
+                    if (streamBuffer.isEmpty) {
+                        finalizeRenderedStream()
+                    }
                     continue
                 }
                 WsRepository.sendLog("Drain", "chunk len=${chunk.length}; msgs=${_messages.value.size}; lastIsStreaming=${_messages.value.lastOrNull()?.isStreaming}")
@@ -153,25 +182,7 @@ class ChatViewModel(
                 // Transfer liveThinkingBlocks into the message so thinking content stays
                 // visible during the 400ms gap before the history re-fetch completes.
                 if (streamEndPending && streamBuffer.isEmpty) {
-                    val current = _messages.value
-                    val streamingIdx = current.indexOfLast { it.isStreaming }
-                    val thinkingSnapshot = _liveThinkingBlocks.value
-                    WsRepository.sendLog("Drain", "draining complete; streamingIdx=$streamingIdx; thinkingBlocks=${thinkingSnapshot.size}; clearing isStreaming")
-                    if (streamingIdx >= 0) {
-                        _messages.value = current.toMutableList().also { list ->
-                            val msg = list[streamingIdx]
-                            list[streamingIdx] = msg.copy(
-                                isStreaming = false,
-                                thinkingBlocks = if (thinkingSnapshot.isNotEmpty() && msg.thinkingBlocks.isEmpty())
-                                    thinkingSnapshot else msg.thinkingBlocks,
-                            )
-                        }
-                    }
-                    _isStreaming.value = false
-                    _isAwaitingResponse.value = false
-                    _liveThinkingBlocks.value = emptyList()
-                    _generationStartedAt.value = null
-                    streamEndPending = false
+                    finalizeRenderedStream()
                 }
             }
         }
@@ -180,15 +191,35 @@ class ChatViewModel(
                 when {
                     event is WsEvent.ConversationMessages && event.conversationId == conversationId -> {
                         WsRepository.sendLog("VM", "ConversationMessages: count=${event.messages.size} historyLoaded=$historyLoaded")
-                        if (!historyLoaded) {
+                        val mapped = event.messages.map { msg -> msg.toChatMessage() }
+                        val historyHasAssistantResponse = mapped.lastOrNull { !it.isToolCall }?.isUser == false
+                        val shouldApplyHistory =
+                            !historyLoaded ||
+                            _isRefreshing.value ||
+                            _isAwaitingResponse.value ||
+                            _isStreaming.value ||
+                            historyHasAssistantResponse
+
+                        if (shouldApplyHistory) {
                             historyLoaded = true
                             _isRefreshing.value = false
-                            val mapped = event.messages.map { msg -> msg.toChatMessage() }
+                            if (historyHasAssistantResponse) {
+                                streamCompleted = true
+                                isStreamEnded = true
+                                _isAwaitingResponse.value = false
+                                _isStreaming.value = false
+                                _activityLabel.value = "Assistant is thinking"
+                                _liveThinkingBlocks.value = emptyList()
+                                _generationStartedAt.value = null
+                                stopActiveHistoryPolling()
+                                WsRepository.clearConversationActiveState(conversationId)
+                            }
 
                             // Restore in-progress state from the WsRepository snapshot if the chat
                             // is still active (user left and re-entered while the desktop was busy).
                             val snapshot = WsRepository.activeChatSnapshots.value[conversationId]
-                            if (snapshot != null) {
+                            val isDesktopActive = conversationId in WsRepository.activeConversationIds.value
+                            if (!historyHasAssistantResponse && snapshot != null && isDesktopActive && !streamCompleted) {
                                 _isAwaitingResponse.value = true
                                 _activityLabel.value = snapshot.activityLabel
                                 if (snapshot.generationStartedAt > 0L) {
@@ -220,15 +251,19 @@ class ChatViewModel(
                                 // Only restore the awaiting indicator when the desktop is confirmed active
                                 // for this conversation. Checking activeConversationIds prevents a glitched
                                 // chat (where no activity ever arrived) from showing a perpetual spinner.
-                                val isDesktopActive = conversationId in WsRepository.activeConversationIds.value
-                                if (mapped.isNotEmpty() && mapped.last().isUser && !_isStreaming.value && isDesktopActive) {
+                                if (mapped.isNotEmpty() && mapped.last().isUser && !_isStreaming.value && isDesktopActive && !streamCompleted) {
                                     _isAwaitingResponse.value = true
                                 }
                                 // Clean up any stale snapshot so re-entry doesn't restore false busy-state
-                                if (!isDesktopActive) {
-                                    WsRepository.clearConversationSnapshot(conversationId)
+                                if (!isDesktopActive || streamCompleted || historyHasAssistantResponse) {
+                                    WsRepository.clearConversationActiveState(conversationId)
                                 }
                             }
+                            if (!historyHasAssistantResponse && (_isAwaitingResponse.value || _isStreaming.value) && !streamCompleted) {
+                                startActiveHistoryPolling()
+                            }
+                        } else {
+                            WsRepository.sendLog("VM", "ConversationMessages ignored: current history already loaded and chat idle")
                         }
                     }
                     event is WsEvent.ChatActivity && event.conversationId == conversationId -> {
@@ -246,12 +281,18 @@ class ChatViewModel(
                             markAllLiveThinkingDone()
                             _liveThinkingBlocks.value = emptyList()
                             _generationStartedAt.value = null
+                            stopActiveHistoryPolling()
+                            viewModelScope.launch {
+                                historyLoaded = false
+                                wsClient.send("conversation:get-messages", mapOf("conversationId" to conversationId))
+                            }
                         } else if (!streamCompleted) {
                             _activityLabel.value = event.label.ifBlank { "Assistant is thinking" }
                             if (_generationStartedAt.value == null) {
                                 _generationStartedAt.value = System.currentTimeMillis()
                             }
                             if (!_isStreaming.value) _isAwaitingResponse.value = true
+                            startActiveHistoryPolling()
                         }
                     }
                     event is WsEvent.ChatThinkingDelta && event.conversationId == conversationId -> {
@@ -285,7 +326,36 @@ class ChatViewModel(
                         )
                         WsRepository.sendLog("VM", "ChatToolCallEvent: msgs_after=${_messages.value.size}")
                     }
+                    event is WsEvent.ChatTeamActivity && event.conversationId == conversationId -> {
+                        val title = listOf(event.agentIcon, event.agentName).filter { it.isNotBlank() }.joinToString(" ")
+                        val result = event.result?.takeIf { it.isNotBlank() }
+                            ?: when (event.status) {
+                                "delegating" -> "Working on: ${event.task}"
+                                "error" -> "Team activity failed."
+                                else -> event.task
+                            }
+                        val teamMessage = ChatMessage(
+                            id = event.stepId.ifBlank { UUID.randomUUID().toString() },
+                            text = "",
+                            isUser = false,
+                            isStreaming = event.status == "delegating",
+                            isToolCall = true,
+                            toolName = title.ifBlank { "Team activity" },
+                            serverName = "Team activity",
+                            toolArgs = event.task.takeIf { it.isNotBlank() },
+                            toolResult = result,
+                            toolSuccess = event.status != "error",
+                        )
+                        val current = _messages.value
+                        val idx = current.indexOfFirst { it.id == teamMessage.id }
+                        _messages.value = if (idx >= 0) {
+                            current.toMutableList().also { it[idx] = teamMessage }
+                        } else {
+                            current + teamMessage
+                        }
+                    }
                     event is WsEvent.ChatStreamChunk && event.conversationId == conversationId -> {
+                        stopActiveHistoryPolling()
                         if (_isStreaming.value.not()) {
                             WsRepository.sendLog("VM", "ChatStreamChunk: FIRST CHUNK; msgs=${_messages.value.size}; types=${_messages.value.map { if (it.isToolCall) "tool" else if (it.isUser) "user" else "asst(streaming=${it.isStreaming})" }}")
                         }
@@ -296,11 +366,13 @@ class ChatViewModel(
                     }
                     event is WsEvent.ChatStreamEnd && event.conversationId == conversationId -> {
                         WsRepository.sendLog("VM", "ChatStreamEnd: msgs=${_messages.value.size} bufferEmpty=${streamBuffer.isEmpty}")
+                        streamCompleted = true
                         isStreamEnded = true
                         markAllLiveThinkingDone()
                         _isAwaitingResponse.value = false
                         _activityLabel.value = "Assistant is thinking"
                         _generationStartedAt.value = null
+                        stopActiveHistoryPolling()
                         // Send sentinel — drain coroutine will mark isStreaming = false once buffer is empty
                         streamBuffer.send(null)
                         // Optimistic finalization: immediately re-fetch so tool calls persisted by the
@@ -347,6 +419,8 @@ class ChatViewModel(
     fun refreshMessages() {
         _isRefreshing.value = true
         historyLoaded = false
+        _liveThinkingBlocks.value = emptyList()
+        _generationStartedAt.value = null
         wsClient.send("conversation:get-messages", mapOf("conversationId" to conversationId))
     }
 
@@ -396,6 +470,7 @@ class ChatViewModel(
         _generationStartedAt.value = System.currentTimeMillis()
         streamCompleted = false
         isStreamEnded = false
+        startActiveHistoryPolling()
 
         val connState = if (wsClient === WsRepository) WsRepository.connectionState.value else null
         WsRepository.sendLog("ChatSend", "pre-send: conv=$conversationId connState=$connState selectedModel=${_selectedModel.value ?: "none(will use desktop default)"} agentId=${agentId ?: "none"} projectId=${projectId ?: "none"} hasImages=${imageAtts.isNotEmpty()} textLen=${augmented.length}")
@@ -404,6 +479,7 @@ class ChatViewModel(
             val msgs = _messages.value
             _messages.value = msgs.dropLast(1) + msgs.last().copy(sendFailed = true)
             _isAwaitingResponse.value = false
+            stopActiveHistoryPolling()
             WsRepository.sendLog("ChatSend", "BLOCKED: not connected — connState=$connState")
             _sendError.value = "Message could not be delivered — not connected to desktop."
             return
@@ -430,6 +506,7 @@ class ChatViewModel(
         _activityLabel.value = "Assistant is thinking"
         _liveThinkingBlocks.value = emptyList()
         _generationStartedAt.value = null
+        stopActiveHistoryPolling()
         // Drain any buffered chunks immediately, then mark done
         val buffered = buildString {
             while (true) {
@@ -481,6 +558,23 @@ class ChatViewModel(
         } else {
             current + ThinkingBlock(blockId = blockId, content = chunk, done = false)
         }
+    }
+
+    private fun startActiveHistoryPolling() {
+        if (activeHistoryPollJob?.isActive == true) return
+        activeHistoryPollJob = viewModelScope.launch {
+            delay(ACTIVE_HISTORY_POLL_MS)
+            activeHistoryPollJob = null
+            if (streamCompleted || (!_isAwaitingResponse.value && !_isStreaming.value)) return@launch
+            historyLoaded = false
+            WsRepository.sendLog("VM", "active history poll: conversation:get-messages conv=$conversationId")
+            wsClient.send("conversation:get-messages", mapOf("conversationId" to conversationId))
+        }
+    }
+
+    private fun stopActiveHistoryPolling() {
+        activeHistoryPollJob?.cancel()
+        activeHistoryPollJob = null
     }
 
 }

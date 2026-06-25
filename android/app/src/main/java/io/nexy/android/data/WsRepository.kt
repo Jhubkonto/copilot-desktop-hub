@@ -287,9 +287,12 @@ object WsRepository : WsClient {
                         }
                     }
                     is WsEvent.ChatStreamEnd -> {
-                        val snapshots = _activeChatSnapshots.value
-                        val existing = snapshots[event.conversationId] ?: return@collect
-                        _activeChatSnapshots.value = snapshots + (event.conversationId to existing.copy(isStreaming = false))
+                        _activeConversationIds.value = _activeConversationIds.value - event.conversationId
+                        _pendingConversationIds.value = _pendingConversationIds.value - event.conversationId
+                        if (activelyViewedConversationId.value != event.conversationId) {
+                            _completedWhileAwayIds.value = _completedWhileAwayIds.value + event.conversationId
+                        }
+                        _activeChatSnapshots.value = _activeChatSnapshots.value - event.conversationId
                     }
                     is WsEvent.ConversationList -> {
                         val knownIds = _conversations.value.map { it.id }.toSet()
@@ -686,7 +689,7 @@ object WsRepository : WsClient {
     }
 
     fun sendLog(tag: String, message: String) {
-        android.util.Log.d("NexyDebug[$tag]", message)
+        runCatching { android.util.Log.d("NexyDebug[$tag]", message) }
         val entry = DebugLogEntry(tag = tag, message = message, ts = System.currentTimeMillis())
         val current = _debugLog.value
         _debugLog.value = if (current.size >= 500) current.drop(1) + entry else current + entry
@@ -694,7 +697,7 @@ object WsRepository : WsClient {
     }
 
     fun appendDebugLog(tag: String, message: String) {
-        android.util.Log.d("NexyDebug[$tag]", message)
+        runCatching { android.util.Log.d("NexyDebug[$tag]", message) }
         val entry = DebugLogEntry(tag = tag, message = message, ts = System.currentTimeMillis())
         val current = _debugLog.value
         _debugLog.value = if (current.size >= 500) current.drop(1) + entry else current + entry
@@ -706,6 +709,11 @@ object WsRepository : WsClient {
     fun renameConversation(id: String, title: String) { send("conversation:rename", mapOf("id" to id, "title" to title)) }
     fun deleteConversation(id: String) { send("conversation:delete", mapOf("id" to id)) }
     fun clearConversationSnapshot(conversationId: String) {
+        _activeChatSnapshots.value = _activeChatSnapshots.value - conversationId
+    }
+    fun clearConversationActiveState(conversationId: String) {
+        _activeConversationIds.value = _activeConversationIds.value - conversationId
+        _pendingConversationIds.value = _pendingConversationIds.value - conversationId
         _activeChatSnapshots.value = _activeChatSnapshots.value - conversationId
     }
     fun searchConversations(query: String) { send("conversation:search", mapOf("query" to query)) }
