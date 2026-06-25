@@ -31,6 +31,15 @@ import { debugLog } from './debug-mode'
 
 export { clearDirListingCache } from './chat-context-builder'
 
+function broadcastConversationMessages(conversationId: string): void {
+  const db = getDatabase()
+  const rows = db.prepare(
+    `SELECT id, role, content, model, attachments, timestamp, thinking_blocks FROM messages
+       WHERE conversation_id = ? ORDER BY timestamp ASC`,
+  ).all(conversationId)
+  broadcastToMobile({ event: 'conversation:messages', data: { conversationId, messages: rows } })
+}
+
 type ChatSendOptions = {
   attachments?: { id: string; name: string; path: string; size: number }[]
   images?: { id: string; name: string; dataUrl: string }[]
@@ -800,12 +809,14 @@ export async function dispatchChatSend(
 
   const agentSystemPrompt =
     typeof agentCfg2?.systemPrompt === 'string' ? agentCfg2.systemPrompt : undefined
+  const contextBoundaryNote =
+    '\n\nProject/context blocks in the user message, including [Project Context], [Project Scope], [Project File Structure], and [Project Wiki], are reference material only. Use them to answer the current request, but never reproduce, dump, summarize as raw metadata, or quote these blocks unless the user explicitly asks to inspect the context itself.'
   const rootDirNote = injectedRootDirectory
     ? `\n\nThe user's project root directory (${injectedRootDirectory}) has been scanned and its file tree is provided in the user message within [Project File Structure] tags. Treat it as real file system data — do NOT say you cannot access the file system.`
     : ''
   const systemPrompt = agentSystemPrompt
-    ? `${agentSystemPrompt}${rootDirNote}\n\n${modelIdentityInstruction}`
-    : `You are an AI programming assistant.${rootDirNote}\n\n${modelIdentityInstruction}`
+    ? `${agentSystemPrompt}${contextBoundaryNote}${rootDirNote}\n\n${modelIdentityInstruction}`
+    : `You are an AI programming assistant.${contextBoundaryNote}${rootDirNote}\n\n${modelIdentityInstruction}`
 
   const chatMessages: ProviderMessage[] = [
     { role: 'system' as const, content: systemPrompt },
@@ -868,6 +879,7 @@ export async function dispatchChatSend(
   const byokThinkingBuffer = new Map<string, { blockId: string; content: string; done: boolean }>()
 
   let responseContent: string
+  let completionActivity: MobileChatActivity = { state: 'complete', label: 'Complete' }
 
   try {
     debugLog('chat', `byok: dispatching to ${providerName}/${providerModel} mcpTools=${mcpTools.length} wikiTools=${wikiToolDefs.length} contextMsgs=${effectiveContextMessages.length}`)
@@ -909,7 +921,6 @@ export async function dispatchChatSend(
     })
 
     debugLog('chat', `byok: stream complete provider=${providerName} responseLen=${responseContent.length}`)
-    sendStreamEnd()
   } catch (error) {
     debugLog('chat', `byok error: ${providerName} — ${error instanceof Error ? error.message : String(error)}`)
     console.error(`[chat] ${providerName} error:`, error)
@@ -919,9 +930,8 @@ export async function dispatchChatSend(
       message,
       retryable: message !== NO_PROVIDER_CONFIGURED_MESSAGE && message !== 'Azure endpoint not configured',
     })
-    sendActivity({ state: 'error', label: message })
-    broadcastToMobile({ event: 'chat:stream-end', data: { conversationId } })
     responseContent = message
+    completionActivity = { state: 'error', label: message }
   }
 
   const byokThinkingJson = byokThinkingBuffer.size > 0
@@ -941,6 +951,15 @@ export async function dispatchChatSend(
     capturedStreamModel ?? selectedModel ?? null,
     byokThinkingJson,
   )
+
+  broadcastConversationMessages(conversationId)
+
+  if (completionActivity.state === 'complete') {
+    sendStreamEnd()
+  } else {
+    sendActivity(completionActivity)
+    broadcastToMobile({ event: 'chat:stream-end', data: { conversationId } })
+  }
 
   return { assistantMsgId }
 }

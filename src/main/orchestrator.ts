@@ -17,6 +17,7 @@ import {
   type ProviderMessage,
   type ProviderName
 } from './providers'
+import { broadcastToMobile } from './ws-server'
 
 export const MAX_DELEGATION_DEPTH = 5
 
@@ -328,6 +329,7 @@ export async function runOrchestration(
       }
       teamActivitySteps.push(step)
       window.webContents.send('chat:team-activity', { ...step })
+      broadcastToMobile({ event: 'chat:team-activity', data: { conversationId: opts.conversationId, ...step } })
 
       const taskContent = context ? `${task}\n\nContext:\n${context}` : task
       const delegateStart = Date.now()
@@ -345,6 +347,7 @@ export async function runOrchestration(
       }
       step.durationMs = Date.now() - delegateStart
       window.webContents.send('chat:team-activity', { ...step })
+      broadcastToMobile({ event: 'chat:team-activity', data: { conversationId: opts.conversationId, ...step } })
       return { call, result: specialistResult }
     }))
 

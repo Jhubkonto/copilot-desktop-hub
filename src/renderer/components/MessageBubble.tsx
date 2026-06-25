@@ -7,8 +7,58 @@ import { ContextSnapshotBadge } from './ContextInspector'
 // Strip injected context blocks (e.g. [Project File Structure]...[/Project File Structure])
 // from user-facing message content — these are internal and shouldn't be shown in the bubble.
 const INJECTED_BLOCK_RE = /\[[A-Za-z][^\]]*\]\n[\s\S]*?\[\/[A-Za-z][^\]]*\]\n*/g
+const CONTEXT_OBJECT_KEYS = [
+  '"project',
+  '"context',
+  '"instructions',
+  '"rootDirectory',
+  '"sourceContext',
+  '"scope',
+  '"files',
+  '"agents',
+]
 export function stripInjectedBlocks(text: string): string {
-  return text.replace(INJECTED_BLOCK_RE, '').trimStart()
+  return stripLeadingContextObject(text.replace(INJECTED_BLOCK_RE, '').trimStart()).trimStart()
+}
+
+function stripLeadingContextObject(text: string): string {
+  const trimmed = text.trimStart()
+  const opener = trimmed[0]
+  const closer = opener === '{' ? '}' : opener === '[' ? ']' : null
+  if (!closer) return text
+  const end = findBalancedEnd(trimmed, opener, closer)
+  if (end === -1) return text
+  const candidate = trimmed.slice(0, end + 1)
+  if (!CONTEXT_OBJECT_KEYS.some((key) => candidate.toLowerCase().includes(key.toLowerCase()))) return text
+  return trimmed.slice(end + 1)
+}
+
+function findBalancedEnd(text: string, opener: string, closer: string): number {
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i]
+    if (escaped) {
+      escaped = false
+      continue
+    }
+    if (ch === '\\' && inString) {
+      escaped = true
+      continue
+    }
+    if (ch === '"') {
+      inString = !inString
+      continue
+    }
+    if (inString) continue
+    if (ch === opener) depth += 1
+    if (ch === closer) {
+      depth -= 1
+      if (depth === 0) return i
+    }
+  }
+  return -1
 }
 
 interface Attachment {
