@@ -618,7 +618,7 @@ export function useChatWindowActions({
       }
       if (conversationId) {
         try {
-          const result = await window.api.setConversationModel(conversationId, modelId)
+          const result = await window.api.setConversationModel(conversationId, modelId, backend)
           if (hasIpcError(result)) throw new Error(result.error)
           await loadConversations()
         } catch {

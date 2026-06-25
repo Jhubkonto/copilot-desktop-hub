@@ -290,8 +290,8 @@ const api = {
     typedInvoke('conversation:search', query),
   renameConversation: (id: string, title: string) =>
     typedInvoke('conversation:rename', id, title),
-  setConversationModel: (id: string, model: string | null) =>
-    typedInvoke('conversation:set-model', id, model),
+  setConversationModel: (id: string, model: string | null, cliBackend?: string | null) =>
+    typedInvoke('conversation:set-model', id, model, cliBackend),
   setConversationPinned: (id: string, pinned: boolean) =>
     typedInvoke('conversation:set-pinned', id, pinned),
   updateConversationContext: (

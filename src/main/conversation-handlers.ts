@@ -31,14 +31,19 @@ export {
 
 export function registerConversationHandlers(): void {
   const db = getDatabase();
+  const columns = db
+    .prepare("PRAGMA table_info(conversations)")
+    .all() as Array<{ name: string }>;
   const ensureConversationModelColumn = () => {
-    const columns = db
-      .prepare("PRAGMA table_info(conversations)")
-      .all() as Array<{ name: string }>;
     if (!columns.some((col) => col.name === "model")) {
       db.exec("ALTER TABLE conversations ADD COLUMN model TEXT");
+      columns.push({ name: "model" });
     }
   };
+  // Eagerly ensure cli_backend exists so chat dispatch can SELECT it safely.
+  if (!columns.some((col) => col.name === "cli_backend")) {
+    db.exec("ALTER TABLE conversations ADD COLUMN cli_backend TEXT");
+  }
 
   safeHandle("conversation:list", () => {
     return db
@@ -157,11 +162,11 @@ export function registerConversationHandlers(): void {
 
   safeHandle(
     "conversation:set-model",
-    (_event, id: string, model: string | null) => {
+    (_event, id: string, model: string | null, cliBackend?: string | null) => {
       ensureConversationModelColumn();
       db.prepare(
-        "UPDATE conversations SET model = ?, updated_at = ? WHERE id = ?",
-      ).run(model, Date.now(), id);
+        "UPDATE conversations SET model = ?, cli_backend = ?, updated_at = ? WHERE id = ?",
+      ).run(model, cliBackend ?? null, Date.now(), id);
       return true;
     },
   );

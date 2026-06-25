@@ -589,6 +589,10 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
         ON conversation_quiz_attempts(conversation_id, attempted_at DESC);
     `,
   },
+  {
+    version: 44,
+    sql: `ALTER TABLE conversations ADD COLUMN cli_backend TEXT;`,
+  },
 ];
 
 
