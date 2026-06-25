@@ -3,6 +3,7 @@ package io.nexy.android.notification
 import android.content.Context
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import io.nexy.android.NexyApp
 import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.PairedServerConfig
 import io.nexy.android.data.PairedServerStore
@@ -18,6 +19,7 @@ class NexyFcmService : FirebaseMessagingService() {
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
+        if (NexyApp.isInForeground) return
         val data = message.data
         when (data["type"]) {
             "tool:approval-request" -> {
