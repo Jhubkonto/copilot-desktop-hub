@@ -530,9 +530,11 @@ fun MessageBubble(
 
 @Composable
 fun ToolCallBubble(msg: ChatMessage, inProgress: Boolean = false) {
-    var expanded by remember { mutableStateOf(false) }
-    var userCollapsed by remember { mutableStateOf(false) }
+    val isTeamActivity = msg.serverName == "Team activity"
+    // Completed team activity bubbles start expanded so content is visible without interaction.
     val hasDetails = !msg.toolArgs.isNullOrBlank() || !msg.toolResult.isNullOrBlank()
+    var expanded by remember { mutableStateOf(isTeamActivity && !inProgress && hasDetails) }
+    var userCollapsed by remember { mutableStateOf(false) }
     val preview = when {
         inProgress -> "Running…"
         msg.toolResult?.isNotBlank() == true -> msg.toolResult.replace(Regex("\\s+"), " ").trim()
@@ -545,10 +547,11 @@ fun ToolCallBubble(msg: ChatMessage, inProgress: Boolean = false) {
     hasDetailsRef.value = hasDetails
 
     // Expand when in-progress and details arrive; only depends on inProgress (M4).
+    // Team activity bubbles never auto-collapse — they hold orchestration context the user needs.
     LaunchedEffect(inProgress) {
         if (inProgress) {
             if (hasDetailsRef.value && !userCollapsed) expanded = true
-        } else if (expanded) {
+        } else if (!isTeamActivity && expanded && !userCollapsed) {
             delay(2000)
             expanded = false
             userCollapsed = false
@@ -558,6 +561,11 @@ fun ToolCallBubble(msg: ChatMessage, inProgress: Boolean = false) {
     // Expand when details first arrive mid-progress (hasDetails flips true while inProgress).
     LaunchedEffect(hasDetails) {
         if (inProgress && hasDetails && !userCollapsed) expanded = true
+    }
+
+    // Re-expand when content updates arrive while in-progress (prevents collapse between steps).
+    LaunchedEffect(msg.toolResult, msg.toolArgs) {
+        if (inProgress && hasDetailsRef.value && !userCollapsed) expanded = true
     }
 
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
@@ -683,8 +691,6 @@ fun ToolDetailSection(label: String, value: String) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontFamily = FontFamily.Monospace,
                 modifier = Modifier.padding(8.dp),
-                maxLines = 10,
-                overflow = TextOverflow.Ellipsis,
             )
         }
     }
