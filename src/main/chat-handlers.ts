@@ -16,7 +16,7 @@ import { runOrchestration, type OrchestratorAgent } from './orchestrator'
 import { ensureMcpServersReady, getAvailableMcpTools, getMcpServerConfigsForCli, servers as mcpServers } from './mcp'
 import { requestApproval } from './tools'
 import { getAdapter } from './cli-adapters/registry'
-import { broadcastToMobile } from './ws-server'
+import { broadcastToMobile, hasMobileClients } from './ws-server'
 import { sendChatCompleteNotification } from './fcm-sender'
 import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
@@ -171,7 +171,9 @@ export async function dispatchChatSend(
     sendActivity({ state: 'complete', label: 'Complete' })
     const db = getDatabase()
     const convTitle = (db.prepare('SELECT title FROM conversations WHERE id = ?').get(conversationId) as { title: string } | undefined)?.title ?? 'Chat'
-    void sendChatCompleteNotification(db, { conversationId, title: convTitle })
+    if (!hasMobileClients()) {
+      void sendChatCompleteNotification(db, { conversationId, title: convTitle })
+    }
   }
 
   const attachments = options?.attachments
