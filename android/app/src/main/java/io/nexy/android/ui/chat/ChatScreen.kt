@@ -101,10 +101,6 @@ import io.nexy.android.ui.model.activeModelDetail
 import io.nexy.android.ui.model.activeModelLabel
 import io.nexy.android.ui.model.emptyModelListDetail
 import io.nexy.android.ui.model.modelSourceDetail
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.withFrameNanos
@@ -153,8 +149,9 @@ fun ChatScreen(
     val draftFromVm by vm.draft.collectAsState()
     var input by remember { mutableStateOf(draftFromVm) }
     val listState = rememberLazyListState()
-    var userScrolledUp by remember { mutableStateOf(false) }
+    var shouldAutoFollow by remember { mutableStateOf(true) }
     var hasInitiallyScrolled by remember { mutableStateOf(false) }
+    var programmaticScrollInProgress by remember { mutableStateOf(false) }
     val context = LocalContext.current
     var showModelSheet by remember { mutableStateOf(false) }
     var modelQuery by remember { mutableStateOf("") }
@@ -303,80 +300,87 @@ fun ChatScreen(
     }
 
     suspend fun scrollToBottom(animated: Boolean = false, settlePasses: Int = 1) {
-        repeat(settlePasses.coerceAtLeast(1)) { pass ->
-            val itemCount = listState.layoutInfo.totalItemsCount
-            if (itemCount <= 0) return
-            if (animated && pass == 0) {
-                listState.animateScrollToItem(itemCount - 1, scrollOffset = Int.MAX_VALUE)
-            } else {
-                listState.scrollToItem(itemCount - 1, scrollOffset = Int.MAX_VALUE)
+        programmaticScrollInProgress = true
+        try {
+            repeat(settlePasses.coerceAtLeast(1)) { pass ->
+                val itemCount = listState.layoutInfo.totalItemsCount
+                if (itemCount <= 0) return
+                if (animated && pass == 0) {
+                    listState.animateScrollToItem(itemCount - 1, scrollOffset = Int.MAX_VALUE)
+                } else {
+                    listState.scrollToItem(itemCount - 1, scrollOffset = Int.MAX_VALUE)
+                }
+                // Markwon AndroidView content can report a larger measured height after it is first revealed.
+                withFrameNanos {}
+                if (!listState.canScrollForward) return
             }
-            // Markwon AndroidView content can report a larger measured height after it is first revealed.
-            withFrameNanos {}
-            if (!listState.canScrollForward) {
-                userScrolledUp = false
-                return
-            }
+        } finally {
+            programmaticScrollInProgress = false
         }
     }
 
-    // canScrollForward is false exactly when the list is at its bottommost scroll position.
     val isAtBottom by remember {
         derivedStateOf { !listState.canScrollForward }
     }
+
     LaunchedEffect(isAtBottom) {
-        if (isAtBottom) userScrolledUp = false
+        if (isAtBottom) shouldAutoFollow = true
     }
 
-    // User input disables auto-follow only when it actually leaves the list above the bottom.
-    val scrollConnection = remember {
-        object : NestedScrollConnection {
-            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                if (source == NestedScrollSource.UserInput && hasInitiallyScrolled) {
-                    userScrolledUp = listState.canScrollForward
-                }
-                return Offset.Zero
+    // Initial entry: wait for real chat content, then keep correcting while rich text settles.
+    LaunchedEffect(Unit) {
+        snapshotFlow { listState.layoutInfo.totalItemsCount }
+            .first { it > 0 }
+        shouldAutoFollow = true
+        scrollToBottom(settlePasses = 12)
+        hasInitiallyScrolled = true
+    }
+
+    val streamingTextLength = remember(messages) { messages.lastOrNull { it.isStreaming }?.text?.length ?: 0 }
+    val thinkingBlocksSize = liveThinkingBlocks.size
+    val thinkingTotalChars = liveThinkingBlocks.sumOf { it.content.length }
+
+    // Content signal: new messages, streaming chunks, thinking bubbles, or busy state changes should
+    // stay pinned only while auto-follow is enabled.
+    LaunchedEffect(messages.size, isAwaitingResponse, isStreaming, streamingTextLength, thinkingBlocksSize, thinkingTotalChars) {
+        if (!hasInitiallyScrolled || !shouldAutoFollow) return@LaunchedEffect
+        scrollToBottom(settlePasses = 4)
+    }
+
+    // Layout signal: AndroidView/Markwon content can change height after message data is already set.
+    // While following the bottom, any late measurement that opens scrollable space is corrected.
+    LaunchedEffect(hasInitiallyScrolled, shouldAutoFollow) {
+        if (!hasInitiallyScrolled || !shouldAutoFollow) return@LaunchedEffect
+        snapshotFlow {
+            val layout = listState.layoutInfo
+            val last = layout.visibleItemsInfo.lastOrNull()
+            listOf(
+                layout.totalItemsCount,
+                layout.viewportStartOffset,
+                layout.viewportEndOffset,
+                last?.index ?: -1,
+                last?.offset ?: 0,
+                last?.size ?: 0,
+            )
+        }.collect {
+            if (shouldAutoFollow && listState.canScrollForward) {
+                scrollToBottom(settlePasses = 2)
             }
         }
     }
 
-    // On first composition, scroll to the bottom using a two-phase approach:
-    // Phase 1 brings the last item into view so Compose and Android measure it.
-    // Phase 2 re-scrolls with the now-accurate measured height, landing precisely at the bottom.
-    LaunchedEffect(Unit) {
-        snapshotFlow { listState.layoutInfo.totalItemsCount }
-            .first { it > 0 }
-        scrollToBottom(settlePasses = 6)
-        hasInitiallyScrolled = true
-        userScrolledUp = false
-    }
-
-    // Auto-scroll on new whole messages or awaiting-response toggle.
-    LaunchedEffect(messages.size, isAwaitingResponse) {
-        if (!hasInitiallyScrolled || userScrolledUp) return@LaunchedEffect
-        scrollToBottom(settlePasses = 3)
-    }
-
-    // Auto-scroll while streaming text within the last message (chunks don't change messages.size).
-    val streamingTextLength = remember(messages) { messages.lastOrNull { it.isStreaming }?.text?.length ?: 0 }
-    LaunchedEffect(streamingTextLength, isStreaming) {
-        if (!isStreaming || userScrolledUp) return@LaunchedEffect
-        scrollToBottom(settlePasses = 2)
-    }
-
-    // Auto-scroll when live thinking blocks grow (new block added or content length increases).
-    val thinkingBlocksSize = liveThinkingBlocks.size
-    val thinkingTotalChars = liveThinkingBlocks.sumOf { it.content.length }
-    LaunchedEffect(thinkingBlocksSize, thinkingTotalChars) {
-        if (userScrolledUp) return@LaunchedEffect
-        scrollToBottom(settlePasses = 2)
-    }
-
-    // Scroll to bottom on stream end (user should see the completed response).
-    LaunchedEffect(isStreaming) {
-        if (!isStreaming && !userScrolledUp) {
-            scrollToBottom(animated = true, settlePasses = 3)
-        }
+    // User scroll signal: once the user scrolls and leaves the bottom, stop auto-following until
+    // they return to the bottom or press the arrow.
+    LaunchedEffect(hasInitiallyScrolled) {
+        if (!hasInitiallyScrolled) return@LaunchedEffect
+        snapshotFlow { listState.isScrollInProgress to listState.canScrollForward }
+            .collect { (scrolling, canScrollForward) ->
+                if (!programmaticScrollInProgress && scrolling && canScrollForward) {
+                    shouldAutoFollow = false
+                } else if (!canScrollForward) {
+                    shouldAutoFollow = true
+                }
+            }
     }
 
     LaunchedEffect(conversation?.model) {
@@ -997,8 +1001,7 @@ fun ChatScreen(
 
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
-                        .nestedScroll(scrollConnection),
+                    modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(vertical = 8.dp),
                 ) {
@@ -1010,7 +1013,7 @@ fun ChatScreen(
                         item { ChatStartHeader() }
                     }
                     itemsIndexed(groupedMessages, key = { idx, msg -> msg.id.ifBlank { "${msg.isUser}_${msg.timestamp}_${msg.toolName}_$idx" } }) { msgIndex, msg ->
-                        androidx.compose.foundation.layout.Column(modifier = Modifier.animateItem()) {
+                        androidx.compose.foundation.layout.Column {
                             // Standalone trailing tool call (mid-stream, no following assistant msg yet)
                             if (msg.isToolCall) {
                                 ToolCallBubble(msg, inProgress = false)
@@ -1115,8 +1118,8 @@ fun ChatScreen(
                 FloatingActionButton(
                     onClick = {
                         scope.launch {
-                            scrollToBottom(animated = true, settlePasses = 4)
-                            userScrolledUp = false
+                            shouldAutoFollow = true
+                            scrollToBottom(animated = false, settlePasses = 12)
                         }
                     },
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
