@@ -369,6 +369,7 @@ fun MessageBubble(
                                 }
                             } else {
                                 AndroidView(
+                                    modifier = Modifier.fillMaxWidth(),
                                     factory = { ctx ->
                                         TextView(ctx).also { tv ->
                                             tv.setTextColor(textColorArgb)
