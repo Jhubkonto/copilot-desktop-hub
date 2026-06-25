@@ -330,7 +330,7 @@ fun ChatScreen(
         snapshotFlow { listState.layoutInfo.totalItemsCount }
             .first { it > 0 }
         shouldAutoFollow = true
-        scrollToBottom(settlePasses = 12, caller = "initial")
+        scrollToBottom(settlePasses = 12)
         hasInitiallyScrolled = true
     }
 
@@ -344,7 +344,7 @@ fun ChatScreen(
     // stay pinned only while auto-follow is enabled.
     LaunchedEffect(messages.size, isAwaitingResponse, isStreaming, streamingTextLength, thinkingBlocksSize, thinkingTotalChars, teamActivityResultLength) {
         if (!hasInitiallyScrolled || !shouldAutoFollow) return@LaunchedEffect
-        scrollToBottom(settlePasses = 4, caller = "content-signal")
+        scrollToBottom(settlePasses = 4)
     }
 
     // Layout signal: AndroidView/Markwon content can change height after message data is already set.
@@ -362,7 +362,7 @@ fun ChatScreen(
             )
         }.collect {
             if (shouldAutoFollow && !listState.isScrollInProgress && listState.canScrollForward) {
-                scrollToBottom(settlePasses = 2, caller = "layout-signal")
+                scrollToBottom(settlePasses = 2)
             }
         }
     }
@@ -949,7 +949,11 @@ fun ChatScreen(
                     } else {
                         item { ChatStartHeader() }
                     }
-                    itemsIndexed(groupedMessages, key = { idx, msg -> msg.id.ifBlank { "${msg.isUser}_${msg.timestamp}_${msg.toolName}_$idx" } }) { msgIndex, msg ->
+                    itemsIndexed(
+                        groupedMessages,
+                        key = { idx, msg -> msg.id.ifBlank { "${msg.isUser}_${msg.timestamp}_${msg.toolName}_$idx" } },
+                        contentType = { _, msg -> if (msg.isUser) 0 else if (msg.isToolCall) 1 else 2 },
+                    ) { msgIndex, msg ->
                         androidx.compose.foundation.layout.Column {
                             // Standalone trailing tool call (mid-stream, no following assistant msg yet)
                             if (msg.isToolCall) {
@@ -1064,7 +1068,7 @@ fun ChatScreen(
                     onClick = {
                         scope.launch {
                             shouldAutoFollow = true
-                            scrollToBottom(animated = false, settlePasses = 12, caller = "fab")
+                            scrollToBottom(animated = false, settlePasses = 12)
                         }
                     },
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
