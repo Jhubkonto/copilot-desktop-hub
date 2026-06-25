@@ -59,6 +59,7 @@ import io.nexy.android.ui.settings.UpdatesScreen
 import io.nexy.android.ui.scheduler.ScheduledScreen
 import io.nexy.android.ui.scheduler.SchedulerTaskDetailScreen
 import io.nexy.android.ui.scheduler.SchedulerTaskConfigScreen
+import io.nexy.android.ui.schedulegenerator.ScheduleGeneratorScreen
 import io.nexy.android.ui.skills.SkillsScreen
 import io.nexy.android.ui.splash.SplashScreen
 import io.nexy.android.ui.debrief.DebriefScreen
@@ -427,8 +428,13 @@ fun NavGraph(
             ScheduledScreen(
                 onBack = { navController.popBackStack() },
                 onNewTask = { navController.navigate("scheduled/new") },
+                onOpenGenerator = { navController.navigate("scheduled/generator") },
                 onTaskDetail = { taskId -> navController.navigate("scheduled/$taskId") },
             )
+        }
+
+        composable("scheduled/generator") {
+            ScheduleGeneratorScreen(onBack = { navController.popBackStack() })
         }
 
         composable("scheduled/new") {

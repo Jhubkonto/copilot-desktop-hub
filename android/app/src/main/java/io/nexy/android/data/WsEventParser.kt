@@ -15,6 +15,7 @@ import io.nexy.android.data.model.AgentGeneratorTools
 import io.nexy.android.data.model.ArtifactGeneratorSpec
 import io.nexy.android.data.model.ArtifactOutputFile
 import io.nexy.android.data.model.ArtifactSourceContext
+import io.nexy.android.data.model.ScheduleGeneratorSpec
 import io.nexy.android.data.model.SkillGeneratorSpec
 import io.nexy.android.data.model.SkillGeneratorTools
 import io.nexy.android.data.model.ProjectSettingsConfig
@@ -1201,6 +1202,41 @@ fun parseWsEvent(
 
             "skill-generator:cancelled" -> WsEvent.SkillGeneratorCancelled(data?.nullableString("sessionId"))
 
+            "scheduler-generator:model" -> WsEvent.SchedulerGeneratorModel(
+                sessionId = data?.nullableString("sessionId"),
+                modelId = data?.optString("modelId") ?: "",
+            )
+
+            "scheduler-generator:token" -> WsEvent.SchedulerGeneratorToken(
+                sessionId = data?.nullableString("sessionId"),
+                chunk = data?.optString("chunk") ?: "",
+            )
+
+            "scheduler-generator:turn-complete" -> WsEvent.SchedulerGeneratorTurnComplete(
+                sessionId = data?.nullableString("sessionId"),
+                content = data?.optString("content") ?: "",
+                hasSpec = data?.optBoolean("hasSpec", false) ?: false,
+            )
+
+            "scheduler-generator:spec-ready" -> {
+                val specData = data?.optJSONObject("spec") ?: data
+                val spec = parseScheduleGeneratorSpec(specData) ?: return
+                WsEvent.SchedulerGeneratorSpecReady(data?.nullableString("sessionId"), spec)
+            }
+
+            "scheduler-generator:created" -> WsEvent.SchedulerGeneratorCreated(
+                sessionId = data?.nullableString("sessionId"),
+                taskId = data?.optString("taskId") ?: "",
+                name = data?.optString("name") ?: "",
+            )
+
+            "scheduler-generator:error" -> WsEvent.SchedulerGeneratorError(
+                sessionId = data?.nullableString("sessionId"),
+                message = data?.optString("message") ?: "Unknown error",
+            )
+
+            "scheduler-generator:cancelled" -> WsEvent.SchedulerGeneratorCancelled(data?.nullableString("sessionId"))
+
             "provider:azure-endpoint" -> WsEvent.ProviderAzureEndpoint(
                 endpoint = data?.optString("endpoint") ?: "",
             )
@@ -1824,6 +1860,22 @@ private fun parseSkillGeneratorSpec(data: JSONObject?): SkillGeneratorSpec? {
         tags = strList("tags"),
         knowledge = knowledge,
         suggestedAgents = strList("suggestedAgents"),
+    )
+}
+
+private fun parseScheduleGeneratorSpec(data: JSONObject?): ScheduleGeneratorSpec? {
+    val d = data ?: return null
+    return ScheduleGeneratorSpec(
+        name = d.optString("name", ""),
+        prompt = d.optString("prompt", ""),
+        scheduleType = d.optString("scheduleType", "daily"),
+        localTime = d.optString("localTime", "09:00"),
+        weekday = if (d.has("weekday") && !d.isNull("weekday")) d.optInt("weekday") else null,
+        monthDay = if (d.has("monthDay") && !d.isNull("monthDay")) d.optInt("monthDay") else null,
+        timezone = d.optString("timezone", "UTC"),
+        agentId = d.nullableString("agentId"),
+        projectId = d.nullableString("projectId"),
+        notificationPref = d.optString("notificationPref", "always"),
     )
 }
 

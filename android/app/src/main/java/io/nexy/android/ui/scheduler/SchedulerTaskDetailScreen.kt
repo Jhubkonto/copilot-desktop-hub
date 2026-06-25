@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.WifiOff
@@ -31,7 +30,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -47,6 +45,7 @@ import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.ScheduledRun
 import io.nexy.android.data.model.ScheduledTask
+import io.nexy.android.ui.components.NexyTopAppBar
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -99,13 +98,15 @@ fun SchedulerTaskDetailScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(task?.name ?: "Task") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
+            NexyTopAppBar(
+                titleContent = {
+                    Text(
+                        task?.name ?: "Task",
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                    )
                 },
+                onBack = onBack,
                 actions = {
                     if (task != null) {
                         IconButton(onClick = { onEdit(taskId) }, enabled = isConnected) {

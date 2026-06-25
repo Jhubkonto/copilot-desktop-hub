@@ -26,6 +26,7 @@ import io.nexy.android.data.model.ModelListSource
 import io.nexy.android.data.model.ModelOption
 import io.nexy.android.data.model.Project
 import io.nexy.android.data.model.ProjectSettingsConfig
+import io.nexy.android.data.model.ScheduleGeneratorSpec
 import io.nexy.android.data.model.ProviderInfo
 import io.nexy.android.data.model.SkillConfig
 import io.nexy.android.data.model.ThinkingBlock
@@ -1089,6 +1090,24 @@ object WsRepository : WsClient {
     fun schedulerSetEnabled(taskId: String, enabled: Boolean) { send("scheduler:set-enabled", mapOf("id" to taskId, "enabled" to enabled)) }
     fun schedulerRunNow(taskId: String) { send("scheduler:run-now", mapOf("id" to taskId)) }
     fun schedulerListRuns(taskId: String, limit: Int = 50) { send("scheduler:list-runs", mapOf("taskId" to taskId, "limit" to limit)) }
+    fun schedulerGeneratorStart(sessionId: String, messages: List<Map<String, String>>, modelId: String? = null) {
+        val data = mutableMapOf<String, Any>("sessionId" to sessionId, "messages" to messages)
+        if (modelId != null) data["model"] = modelId
+        send("scheduler-generator:start", data)
+    }
+    fun schedulerGeneratorMessage(sessionId: String, messages: List<Map<String, String>>, modelId: String? = null) {
+        val data = mutableMapOf<String, Any>("sessionId" to sessionId, "messages" to messages)
+        if (modelId != null) data["model"] = modelId
+        send("scheduler-generator:message", data)
+    }
+    fun schedulerGeneratorConfirm(sessionId: String, spec: ScheduleGeneratorSpec) {
+        send("scheduler-generator:confirm", mapOf("sessionId" to sessionId, "spec" to spec.toPayload()))
+    }
+    fun schedulerGeneratorCancel(sessionId: String) { send("scheduler-generator:cancel", mapOf("sessionId" to sessionId)) }
+    fun schedulerGeneratorGetModel(sessionId: String) { send("scheduler-generator:get-model", mapOf("sessionId" to sessionId)) }
+    fun schedulerGeneratorSetModel(sessionId: String, modelId: String) {
+        send("scheduler-generator:set-model", mapOf("sessionId" to sessionId, "modelId" to modelId))
+    }
 
     // ─── Debrief ────────────────────────────────────────────────────────────────
 
@@ -1109,4 +1128,20 @@ object WsRepository : WsClient {
         send("conversation:save-quiz-attempt", mapOf("conversationId" to conversationId, "score" to score, "total" to total))
     }
     fun listQuizAttempts(conversationId: String) { send("conversation:list-quiz-attempts", mapOf("conversationId" to conversationId)) }
+}
+
+fun ScheduleGeneratorSpec.toPayload(): Map<String, Any> {
+    val payload = mutableMapOf<String, Any>(
+        "name" to name,
+        "prompt" to prompt,
+        "scheduleType" to scheduleType,
+        "localTime" to localTime,
+        "timezone" to timezone,
+        "notificationPref" to notificationPref,
+    )
+    weekday?.let { payload["weekday"] = it }
+    monthDay?.let { payload["monthDay"] = it }
+    agentId?.let { payload["agentId"] = it }
+    projectId?.let { payload["projectId"] = it }
+    return payload
 }

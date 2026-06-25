@@ -16,8 +16,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.WifiOff
@@ -28,7 +28,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -36,7 +35,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -53,6 +51,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.ScheduledTask
+import io.nexy.android.ui.components.NexyTopAppBar
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -64,6 +63,7 @@ private enum class TaskFilter { ALL, ACTIVE, PAUSED }
 fun ScheduledScreen(
     onBack: () -> Unit,
     onNewTask: () -> Unit,
+    onOpenGenerator: () -> Unit,
     onTaskDetail: (taskId: String) -> Unit,
     viewModel: SchedulerViewModel = viewModel(),
 ) {
@@ -97,23 +97,18 @@ fun ScheduledScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Scheduled Tasks") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            NexyTopAppBar(
+                titleContent = { Text("Scheduled Tasks", style = MaterialTheme.typography.titleMedium) },
+                onBack = onBack,
+                actions = {
+                    IconButton(onClick = onOpenGenerator, enabled = isConnected) {
+                        Icon(Icons.Filled.CalendarMonth, contentDescription = "Generate schedule")
+                    }
+                    IconButton(onClick = onNewTask, enabled = isConnected) {
+                        Icon(Icons.Filled.Add, contentDescription = "Create task")
                     }
                 },
             )
-        },
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = { if (isConnected) onNewTask() },
-                containerColor = if (isConnected) MaterialTheme.colorScheme.primaryContainer
-                                 else MaterialTheme.colorScheme.surfaceVariant,
-            ) {
-                Icon(Icons.Filled.Add, contentDescription = "Create task")
-            }
         },
     ) { padding ->
         PullToRefreshBox(

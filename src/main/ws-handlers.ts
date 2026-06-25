@@ -30,13 +30,19 @@ import { runProjectGeneratorChatForAndroid, createProjectFromSpec, getProjectGen
 import { runAgentGeneratorChatForAndroid, createAgentFromSpec, getAgentGeneratorModel } from './agent-generator'
 import { runSkillGeneratorChatForAndroid, createSkillFromSpec, getSkillGeneratorModel } from './skill-generator'
 import {
+  createScheduleFromSpec,
+  getScheduleGeneratorModel,
+  runScheduleGeneratorChatForAndroid,
+  setScheduleGeneratorModel,
+} from './scheduler-generator'
+import {
   createArtifactGeneratorRunRecord,
   runArtifactGeneration,
   runArtifactGeneratorChatForAndroid,
   updateArtifactGeneratorRunRecord,
   getArtifactGeneratorModel,
 } from './artifact-generator'
-import type { ProjectGeneratorSpec, AgentGeneratorSpec, SkillConfig, SkillGeneratorSpec, ArtifactGeneratorMessage, ArtifactSpec, PromptLibraryEntry, PromptLibraryVersion } from '../shared/types'
+import type { ProjectGeneratorSpec, AgentGeneratorSpec, SkillConfig, SkillGeneratorSpec, ScheduleGeneratorMessage, ScheduleGeneratorSpec, ArtifactGeneratorMessage, ArtifactSpec, PromptLibraryEntry, PromptLibraryVersion } from '../shared/types'
 import { storeApiKey, removeApiKey, getAzureEndpoint, setAzureEndpoint } from './provider-secrets'
 import { testProviderKey } from './providers'
 import { detectAllClis } from './cli-detection'
@@ -1791,6 +1797,68 @@ export function registerWsHandlers(): void {
       return
     }
 
+    if (command === 'scheduler-generator:start' || command === 'scheduler-generator:message') {
+      const rawMessages = Array.isArray(data.messages) ? data.messages : []
+      const messages: ScheduleGeneratorMessage[] = rawMessages
+        .filter((m): m is Record<string, unknown> => typeof m === 'object' && m !== null)
+        .map((m) => ({
+          role: m.role === 'assistant' ? 'assistant' : 'user',
+          content: typeof m.content === 'string' ? m.content : '',
+        }))
+      const sessionId = typeof data.sessionId === 'string' && data.sessionId.trim()
+        ? data.sessionId.trim()
+        : `android-schedule-${Date.now()}`
+      const modelOverride = typeof data.model === 'string' && data.model.trim() ? data.model.trim() : undefined
+      if (command === 'scheduler-generator:start') {
+        try {
+          const resolvedModel = modelOverride ?? getScheduleGeneratorModel()
+          broadcastToMobile({ event: 'scheduler-generator:model', data: { sessionId, modelId: resolvedModel } })
+        } catch { /* no configured provider; generator error will surface */ }
+      }
+      void runScheduleGeneratorChatForAndroid(messages, sessionId, modelOverride)
+        .catch((err: unknown) => {
+          broadcastToMobile({ event: 'scheduler-generator:error', data: { sessionId, message: String(err) } })
+        })
+      return
+    }
+
+    if (command === 'scheduler-generator:confirm') {
+      const spec = data.spec as ScheduleGeneratorSpec
+      const sessionId = typeof data.sessionId === 'string' ? data.sessionId : undefined
+      createScheduleFromSpec(spec)
+        .then((result) => {
+          broadcastToMobile({ event: 'scheduler-generator:created', data: { sessionId, taskId: result.taskId, name: result.name } })
+        })
+        .catch((err: unknown) => {
+          broadcastToMobile({ event: 'scheduler-generator:error', data: { sessionId, message: String(err) } })
+        })
+      return
+    }
+
+    if (command === 'scheduler-generator:cancel') {
+      const sessionId = typeof data.sessionId === 'string' ? data.sessionId : undefined
+      broadcastToMobile({ event: 'scheduler-generator:cancelled', data: { sessionId } })
+      return
+    }
+
+    if (command === 'scheduler-generator:get-model') {
+      const sessionId = typeof data.sessionId === 'string' ? data.sessionId : undefined
+      try {
+        broadcastToMobile({ event: 'scheduler-generator:model', data: { sessionId, modelId: getScheduleGeneratorModel() } })
+      } catch (err) {
+        broadcastToMobile({ event: 'scheduler-generator:error', data: { sessionId, message: err instanceof Error ? err.message : String(err) } })
+      }
+      return
+    }
+
+    if (command === 'scheduler-generator:set-model') {
+      const sessionId = typeof data.sessionId === 'string' ? data.sessionId : undefined
+      const modelId = typeof data.modelId === 'string' ? data.modelId : ''
+      setScheduleGeneratorModel(modelId)
+      broadcastToMobile({ event: 'scheduler-generator:model', data: { sessionId, modelId: getScheduleGeneratorModel() } })
+      return
+    }
+
     if (command === 'artifact-generator:start' || command === 'artifact-generator:message') {
       const rawMessages = Array.isArray(data.messages) ? data.messages : []
       const messages: ArtifactGeneratorMessage[] = rawMessages
@@ -2098,7 +2166,7 @@ export function registerWsHandlers(): void {
     }
 
     if (command === 'scheduler:create') {
-      const input = data as import('../shared/types').ScheduledTaskCreateInput
+      const input = data as unknown as import('../shared/types').ScheduledTaskCreateInput
       if (!input?.name || !input?.scheduleType || !input?.localTime || !input?.timezone) return
       const task = dbCreateTask(input)
       schedulerEngine.scheduleTask(task)

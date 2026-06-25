@@ -784,7 +784,7 @@ class ChatViewModelTest {
             timestamp = 1,
         ).toChatMessage()
         assertTrue(msg.isToolCall)
-        assertEquals("Team activity", msg.toolName)
+        assertEquals("🤝 1 step", msg.toolName)
         assertTrue(msg.toolResult.orEmpty().contains("Builder"))
     }
 
