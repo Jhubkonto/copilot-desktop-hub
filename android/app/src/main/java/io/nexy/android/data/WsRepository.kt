@@ -705,6 +705,9 @@ object WsRepository : WsClient {
     fun listConversations() { send("conversation:list", emptyMap()) }
     fun renameConversation(id: String, title: String) { send("conversation:rename", mapOf("id" to id, "title" to title)) }
     fun deleteConversation(id: String) { send("conversation:delete", mapOf("id" to id)) }
+    fun clearConversationSnapshot(conversationId: String) {
+        _activeChatSnapshots.value = _activeChatSnapshots.value - conversationId
+    }
     fun searchConversations(query: String) { send("conversation:search", mapOf("query" to query)) }
     fun setPinnedConversation(id: String, pinned: Boolean) {
         // Optimistic update so the pin icon and sort order reflect immediately,
@@ -1089,6 +1092,7 @@ object WsRepository : WsClient {
     }
     fun getDebrief(conversationId: String) { send("conversation:get-debrief", mapOf("conversationId" to conversationId)) }
     fun markConversationComplete(conversationId: String) { send("conversation:mark-complete", mapOf("conversationId" to conversationId)) }
+    fun markConversationIncomplete(conversationId: String) { send("conversation:mark-incomplete", mapOf("conversationId" to conversationId)) }
 
     // ─── Quiz ────────────────────────────────────────────────────────────────────
 

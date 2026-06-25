@@ -217,11 +217,16 @@ class ChatViewModel(
                                 _messages.value = if (missingToolCalls.isNotEmpty()) mapped + missingToolCalls else mapped
                             } else {
                                 _messages.value = mapped
-                                // If the last persisted message is from the user, a response is still
-                                // being generated — restore the awaiting indicator so re-entry shows
-                                // progress instead of an inert user bubble.
-                                if (mapped.isNotEmpty() && mapped.last().isUser && !_isStreaming.value) {
+                                // Only restore the awaiting indicator when the desktop is confirmed active
+                                // for this conversation. Checking activeConversationIds prevents a glitched
+                                // chat (where no activity ever arrived) from showing a perpetual spinner.
+                                val isDesktopActive = conversationId in WsRepository.activeConversationIds.value
+                                if (mapped.isNotEmpty() && mapped.last().isUser && !_isStreaming.value && isDesktopActive) {
                                     _isAwaitingResponse.value = true
+                                }
+                                // Clean up any stale snapshot so re-entry doesn't restore false busy-state
+                                if (!isDesktopActive) {
+                                    WsRepository.clearConversationSnapshot(conversationId)
                                 }
                             }
                         }
