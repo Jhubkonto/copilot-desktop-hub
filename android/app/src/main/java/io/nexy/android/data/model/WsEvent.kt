@@ -32,6 +32,16 @@ sealed class WsEvent {
         val toolName: String?,
         val serverName: String?,
     ) : WsEvent()
+    data class ChatTeamActivity(
+        val conversationId: String,
+        val stepId: String,
+        val agentName: String,
+        val agentIcon: String,
+        val task: String,
+        val status: String,
+        val result: String?,
+        val durationMs: Long?,
+    ) : WsEvent()
     data class ConversationList(val conversations: List<Conversation>) : WsEvent()
     data class ConversationMessages(
         val conversationId: String,

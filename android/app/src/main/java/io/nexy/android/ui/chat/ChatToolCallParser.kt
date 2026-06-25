@@ -3,10 +3,40 @@ package io.nexy.android.ui.chat
 import io.nexy.android.data.model.HistoryMessage
 
 private val INJECTED_BLOCK_RE = Regex("""\[[A-Za-z][^\]]*]\n[\s\S]*?\[/[A-Za-z][^\]]*]\n*""")
+private val CONTEXT_OBJECT_KEYS = listOf(
+    "\"project",
+    "\"context",
+    "\"instructions",
+    "\"rootDirectory",
+    "\"sourceContext",
+    "\"scope",
+    "\"files",
+    "\"agents",
+)
+
+internal fun stripInjectedContextBlocks(text: String): String {
+    val withoutBracketBlocks = INJECTED_BLOCK_RE.replace(text, "").trimStart()
+    return stripLeadingContextObject(withoutBracketBlocks).trimStart()
+}
 
 internal fun HistoryMessage.toChatMessage(): ChatMessage {
+    if (role == "team-activity") {
+        return ChatMessage(
+            id = id,
+            text = "",
+            isUser = false,
+            isStreaming = false,
+            timestamp = timestamp,
+            isToolCall = true,
+            toolName = "Team activity",
+            serverName = "Team activity",
+            toolResult = summarizeTeamActivity(content),
+            toolSuccess = true,
+        )
+    }
+
     if (role != "tool-call") {
-        val rawText = if (role == "user") INJECTED_BLOCK_RE.replace(content, "").trimStart() else content
+        val rawText = if (role == "user") stripInjectedContextBlocks(content) else content
         // Wrap bare JSON objects/arrays in a code fence so they render legibly instead of as a wall of text
         val displayText = if (role != "user" && looksLikeRawJson(rawText)) "```json\n$rawText\n```" else rawText
         return ChatMessage(
@@ -91,6 +121,72 @@ internal fun jsonObject(json: String, key: String): String? {
         if (ch == '}') {
             depth--
             if (depth == 0) return json.substring(start, i + 1)
+        }
+    }
+    return null
+}
+
+private fun summarizeTeamActivity(content: String): String {
+    val names = """"agentName"\s*:\s*"((?:\\.|[^"\\])*)"""".toRegex()
+        .findAll(content)
+        .mapNotNull { it.groupValues.getOrNull(1) }
+        .map { it.replace("\\\"", "\"") }
+        .distinct()
+        .toList()
+    val tasks = """"task"\s*:\s*"((?:\\.|[^"\\])*)"""".toRegex()
+        .findAll(content)
+        .mapNotNull { it.groupValues.getOrNull(1) }
+        .map { it.replace("\\n", "\n").replace("\\\"", "\"") }
+        .take(3)
+        .toList()
+    return buildString {
+        if (names.isNotEmpty()) append("Agents: ${names.joinToString(", ")}")
+        if (tasks.isNotEmpty()) {
+            if (isNotEmpty()) append("\n")
+            append(tasks.joinToString("\n") { "Task: $it" })
+        }
+        if (isEmpty()) append("Team activity completed.")
+    }
+}
+
+private fun stripLeadingContextObject(text: String): String {
+    val trimmed = text.trimStart()
+    if (trimmed.isEmpty()) return trimmed
+    val opener = trimmed.first()
+    val closer = when (opener) {
+        '{' -> '}'
+        '[' -> ']'
+        else -> return text
+    }
+    val end = findBalancedEnd(trimmed, opener, closer) ?: return text
+    val candidate = trimmed.substring(0, end + 1)
+    if (!CONTEXT_OBJECT_KEYS.any { candidate.contains(it, ignoreCase = true) }) return text
+    return trimmed.substring(end + 1)
+}
+
+private fun findBalancedEnd(text: String, opener: Char, closer: Char): Int? {
+    var depth = 0
+    var inString = false
+    var escaped = false
+    for (i in text.indices) {
+        val ch = text[i]
+        if (escaped) {
+            escaped = false
+            continue
+        }
+        if (ch == '\\' && inString) {
+            escaped = true
+            continue
+        }
+        if (ch == '"') {
+            inString = !inString
+            continue
+        }
+        if (inString) continue
+        if (ch == opener) depth++
+        if (ch == closer) {
+            depth--
+            if (depth == 0) return i
         }
     }
     return null

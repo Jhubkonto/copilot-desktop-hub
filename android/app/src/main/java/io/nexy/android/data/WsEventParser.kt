@@ -163,6 +163,17 @@ fun parseWsEvent(
                 serverName = data?.nullableString("serverName"),
             )
 
+            "chat:team-activity" -> WsEvent.ChatTeamActivity(
+                conversationId = data?.optString("conversationId") ?: "",
+                stepId = data?.optString("stepId") ?: "",
+                agentName = data?.optString("agentName") ?: "Agent",
+                agentIcon = data?.optString("agentIcon") ?: "",
+                task = data?.optString("task") ?: "",
+                status = data?.optString("status") ?: "",
+                result = data?.nullableString("result"),
+                durationMs = data?.takeIf { it.has("durationMs") }?.optLong("durationMs"),
+            )
+
             "conversation:list" -> {
                 val rows = when {
                     data != null && data.has("rows") -> data.optJSONArray("rows") ?: JSONArray()

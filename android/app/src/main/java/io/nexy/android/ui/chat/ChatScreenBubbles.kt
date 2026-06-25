@@ -442,6 +442,7 @@ fun MessageBubble(
         val bubbleColor = MaterialTheme.colorScheme.primary
         val textColor = MaterialTheme.colorScheme.onPrimary
         val bubbleShape = RoundedCornerShape(topStart = 16.dp, topEnd = 4.dp, bottomStart = 16.dp, bottomEnd = 16.dp)
+        val displayText = remember(msg.text) { stripInjectedContextBlocks(msg.text) }
 
         val highlightAlpha = remember { Animatable(0f) }
         LaunchedEffect(isHighlighted) {
@@ -471,8 +472,8 @@ fun MessageBubble(
                     if (onDeleteAfter != null) DropdownMenuItem(text = { Text("Delete from here") }, onClick = { menuExpanded = false; onDeleteAfter() })
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (msg.text.isNotBlank()) {
-                        Text(msg.text, color = textColor, style = MaterialTheme.typography.bodyMedium)
+                    if (displayText.isNotBlank()) {
+                        Text(displayText, color = textColor, style = MaterialTheme.typography.bodyMedium)
                     }
                     if (msg.attachments.isNotEmpty()) {
                         val thumbs = msg.attachments.filter { it.type == "image" && it.thumbnailDataUrl != null }
