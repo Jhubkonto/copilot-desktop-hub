@@ -35,6 +35,9 @@ const SkillPanel = lazy(() =>
 const SkillGeneratorModal = lazy(() =>
   import('./components/SkillGeneratorModal').then((m) => ({ default: m.SkillGeneratorModal }))
 )
+const ScheduleGeneratorModal = lazy(() =>
+  import('./components/ScheduleGeneratorModal').then((m) => ({ default: m.ScheduleGeneratorModal }))
+)
 const RemoteEditPanel = lazy(() =>
   import('./components/RemoteEditPanel').then((m) => ({ default: m.RemoteEditPanel }))
 )
@@ -59,6 +62,8 @@ export default function App() {
   const showSkillPanel = useAppStore((s) => s.showSkillPanel)
   const showSkillGenerator = useAppStore((s) => s.showSkillGenerator)
   const setShowSkillGenerator = useAppStore((s) => s.setShowSkillGenerator)
+  const showSchedulerGenerator = useAppStore((s) => s.showSchedulerGenerator)
+  const setShowSchedulerGenerator = useAppStore((s) => s.setShowSchedulerGenerator)
   const editingProjectId = useAppStore((s) => s.editingProjectId)
   const pendingDeleteAgent = useAppStore((s) => s.pendingDeleteAgent)
   const confirmDeleteAgent = useAppStore((s) => s.confirmDeleteAgent)
@@ -312,6 +317,10 @@ export default function App() {
 
         {showSkillGenerator && (
           <SkillGeneratorModal onClose={() => setShowSkillGenerator(false)} />
+        )}
+
+        {showSchedulerGenerator && (
+          <ScheduleGeneratorModal onClose={() => setShowSchedulerGenerator(false)} />
         )}
 
         <McpServerPanel />

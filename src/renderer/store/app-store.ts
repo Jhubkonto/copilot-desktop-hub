@@ -24,7 +24,10 @@ import {
   createUiSlice,
   type UiSlice
 } from './slices/uiSlice'
-import type { ScheduledTask } from '../../shared/types'
+import {
+  createSchedulerSlice,
+  type SchedulerSlice
+} from './slices/schedulerSlice'
 import { isApiError } from '../../shared/types'
 
 export type {
@@ -52,10 +55,9 @@ export type AppState =
   & ProjectSlice
   & SkillSlice
   & AgentSlice
+  & SchedulerSlice
   & UiSlice
   & {
-    schedulerTasks: ScheduledTask[]
-    setSchedulerTasks: (tasks: ScheduledTask[]) => void
     hydrate: () => Promise<void>
   }
 
@@ -66,13 +68,8 @@ export const useAppStore = create<AppState>()(
     ...createProjectSlice(set, get, store),
     ...createSkillSlice(set, get, store),
     ...createAgentSlice(set, get, store),
+    ...createSchedulerSlice(set, get, store),
     ...createUiSlice(set, get, store),
-
-    schedulerTasks: [] as ScheduledTask[],
-
-    setSchedulerTasks: (tasks: ScheduledTask[]) => {
-      set((s) => { s.schedulerTasks = tasks })
-    },
 
     hydrate: async () => {
       try {
