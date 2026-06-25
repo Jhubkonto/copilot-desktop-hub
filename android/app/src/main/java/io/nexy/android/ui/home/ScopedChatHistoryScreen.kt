@@ -24,6 +24,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyTopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -32,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.WsEvent
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -63,6 +65,7 @@ fun ScopedChatHistoryScreen(
     val completedConversationIds by WsRepository.completedConversationIds.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
     var isRefreshing by remember { mutableStateOf(false) }
+    var deletingConversation by remember { mutableStateOf<Conversation?>(null) }
 
     LaunchedEffect(Unit) {
         WsRepository.events.collect { event ->
@@ -86,6 +89,20 @@ fun ScopedChatHistoryScreen(
             listOfNotNull(conversation.title, conversation.last_message, conversation.agent_name, conversation.project_name)
                 .any { it.contains(query, ignoreCase = true) }
         }
+    }
+
+    deletingConversation?.let { conv ->
+        NexyConfirmDialog(
+            title = "Delete chat?",
+            message = "\"${conv.title.ifBlank { "Untitled" }}\" will be permanently deleted.",
+            confirmLabel = "Delete",
+            destructive = true,
+            onConfirm = {
+                WsRepository.deleteConversation(conv.id)
+                deletingConversation = null
+            },
+            onDismiss = { deletingConversation = null },
+        )
     }
 
     Scaffold(
@@ -167,8 +184,10 @@ fun ScopedChatHistoryScreen(
                             onOpenChat = onOpenChat,
                             isActive = conversation.id in activeConversationIds,
                             isCompleted = conversation.id in completedConversationIds,
+                            onDelete = { _ -> deletingConversation = conversation },
                             onDebrief = if (onOpenDebrief != null) { id -> onOpenDebrief(id) } else null,
                             onMarkComplete = { id -> WsRepository.markConversationComplete(id) },
+                            onMarkIncomplete = { id -> WsRepository.markConversationIncomplete(id) },
                             onQuiz = if (onOpenQuiz != null) { id -> onOpenQuiz(id) } else null,
                         )
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)

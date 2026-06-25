@@ -251,6 +251,7 @@ sealed class WsEvent {
     data class DebriefLoaded(val debrief: ConversationDebrief?) : WsEvent()
     data class DebriefError(val message: String) : WsEvent()
     data class DebriefConversationCompleted(val conversationId: String, val completedAt: Long) : WsEvent()
+    data class DebriefConversationIncompleted(val conversationId: String) : WsEvent()
     // Quiz
     data class QuizReady(val questions: List<QuizQuestion>) : WsEvent()
     data class QuizError(val message: String) : WsEvent()

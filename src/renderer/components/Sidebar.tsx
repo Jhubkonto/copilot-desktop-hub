@@ -250,7 +250,7 @@ export function Sidebar() {
                       ? <span className={`w-1 shrink-0 ${colors.dot}`} />
                       : <span className="w-1 shrink-0" />
                     }
-                    <span className="flex items-center gap-2 px-2 py-1.5 flex-1 min-w-0">
+                    <span className="flex items-center gap-2 px-2 py-1 flex-1 min-w-0">
                       {isGenerating ? (
                         <span title="Generating…"><Loader2 className="w-3 h-3 text-purple-500 animate-spin shrink-0" /></span>
                       ) : isUnread ? (
@@ -260,11 +260,9 @@ export function Sidebar() {
                       )}
                       <span className="flex-1 min-w-0">
                         <span className="block text-xs text-gray-700 dark:text-gray-200 truncate">{conv.title}</span>
-                        {agent && (
-                          <span className="block text-[10px] text-gray-400 dark:text-gray-500 truncate">
-                            {agent.icon} {agent.name}
-                          </span>
-                        )}
+                        <span className="block text-[10px] text-gray-400 dark:text-gray-500 truncate">
+                          {agent ? `${agent.icon} ${agent.name}` : project ? project.name : ' '}
+                        </span>
                       </span>
                     </span>
                   </button>

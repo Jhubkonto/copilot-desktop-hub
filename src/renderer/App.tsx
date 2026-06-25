@@ -83,6 +83,8 @@ export default function App() {
   const markConversationGenerating = useAppStore((s) => s.markConversationGenerating)
   const markConversationDoneGenerating = useAppStore((s) => s.markConversationDoneGenerating)
   const loadConversations = useAppStore((s) => s.loadConversations)
+  const handleConversationCompleted = useAppStore((s) => s.handleConversationCompleted)
+  const handleConversationIncompleted = useAppStore((s) => s.handleConversationIncompleted)
 
   const hydrate = useAppStore((s) => s.hydrate)
 
@@ -205,6 +207,17 @@ export default function App() {
     })
     return () => { unsubscribe() }
   }, [markConversationGenerating, markConversationDoneGenerating, loadConversations])
+
+  // Sync completion state pushed from Android via WebSocket
+  useEffect(() => {
+    const unsub1 = window.api.onConversationCompleted((data) => {
+      handleConversationCompleted(data.conversationId)
+    })
+    const unsub2 = window.api.onConversationIncompleted((data) => {
+      handleConversationIncompleted(data.conversationId)
+    })
+    return () => { unsub1(); unsub2() }
+  }, [handleConversationCompleted, handleConversationIncompleted])
 
   // Zoom: Ctrl+scroll and Ctrl+Plus/Minus/0
   useEffect(() => {

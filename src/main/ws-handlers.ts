@@ -43,7 +43,7 @@ import { detectAllClis } from './cli-detection'
 import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
 import { insertWikiEntry, extractWikiLearningsForWs } from './wiki-handlers'
-import { generateDebriefForWs, getDebriefForWs, markCompleteForWs } from './debrief-handlers'
+import { generateDebriefForWs, getDebriefForWs, markCompleteForWs, markIncompleteForWs } from './debrief-handlers'
 import { generateQuizForWs, saveQuizAttemptForWs, listQuizAttemptsForWs } from './quiz-handlers'
 import { getMcpServersWithStatus, getMcpServerStatus, addMcpServer, updateMcpServer, removeMcpServer, restartMcpServer, listMcpTools, listMcpToolsForAgent } from './mcp'
 import {
@@ -2181,6 +2181,16 @@ export function registerWsHandlers(): void {
       const result = markCompleteForWs(conversationId)
       if (result) {
         reply({ event: 'debrief:conversation-completed', data: { conversationId, completedAt: result.completedAt } })
+      }
+      return
+    }
+
+    if (command === 'conversation:mark-incomplete') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+      if (!conversationId) return
+      const ok = markIncompleteForWs(conversationId)
+      if (ok) {
+        reply({ event: 'debrief:conversation-incompleted', data: { conversationId } })
       }
       return
     }

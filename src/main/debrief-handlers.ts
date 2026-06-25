@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { BrowserWindow } from 'electron'
 import { getDatabase } from './database'
 import { safeHandle } from './safe-handle'
 import type { Debrief } from '../shared/types'
@@ -165,7 +166,23 @@ export function markCompleteForWs(conversationId: string): { completedAt: number
   ).run(now, conversationId)
   if (result.changes === 0) return null
   broadcastToMobile({ event: 'debrief:conversation-completed', data: { conversationId, completedAt: now } })
+  BrowserWindow.getAllWindows().forEach((w) => {
+    if (!w.isDestroyed()) w.webContents.send('conversation:completed', { conversationId, completedAt: now })
+  })
   return { completedAt: now }
+}
+
+export function markIncompleteForWs(conversationId: string): boolean {
+  const db = getDatabase()
+  const result = db.prepare(
+    'UPDATE conversations SET completed_at = NULL WHERE id = ?'
+  ).run(conversationId)
+  if (result.changes === 0) return false
+  broadcastToMobile({ event: 'debrief:conversation-incompleted', data: { conversationId } })
+  BrowserWindow.getAllWindows().forEach((w) => {
+    if (!w.isDestroyed()) w.webContents.send('conversation:incompleted', { conversationId })
+  })
+  return true
 }
 
 export function registerDebriefHandlers(): void {
@@ -179,5 +196,9 @@ export function registerDebriefHandlers(): void {
 
   safeHandle('conversation:mark-complete', (_event, conversationId: string): boolean => {
     return markCompleteForWs(conversationId) !== null
+  })
+
+  safeHandle('conversation:mark-incomplete', (_event, conversationId: string): boolean => {
+    return markIncompleteForWs(conversationId)
   })
 }

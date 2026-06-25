@@ -1494,6 +1494,7 @@ export type IpcReturnMap = {
   'conversation:generate-debrief': Debrief
   'conversation:get-debrief': Debrief | null
   'conversation:mark-complete': boolean
+  'conversation:mark-incomplete': boolean
   'conversation:generate-quiz': QuizGenerationResult
   'conversation:save-quiz-attempt': QuizAttempt
   'conversation:list-quiz-attempts': QuizAttempt[]
@@ -1848,6 +1849,9 @@ export type IpcChannels =
   | 'conversation:generate-debrief'
   | 'conversation:get-debrief'
   | 'conversation:mark-complete'
+  | 'conversation:mark-incomplete'
+  | 'conversation:completed'
+  | 'conversation:incompleted'
   | 'conversation:generate-quiz'
   | 'conversation:save-quiz-attempt'
   | 'conversation:list-quiz-attempts'

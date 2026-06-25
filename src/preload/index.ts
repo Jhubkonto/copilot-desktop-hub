@@ -806,6 +806,18 @@ const api = {
     typedInvoke('conversation:get-debrief', conversationId),
   markConversationComplete: (conversationId: string) =>
     typedInvoke('conversation:mark-complete', conversationId),
+  markConversationIncomplete: (conversationId: string) =>
+    typedInvoke('conversation:mark-incomplete', conversationId),
+  onConversationCompleted: (callback: (data: { conversationId: string; completedAt: number }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { conversationId: string; completedAt: number }) => callback(data)
+    typedOn('conversation:completed', handler)
+    return () => typedOff('conversation:completed', handler)
+  },
+  onConversationIncompleted: (callback: (data: { conversationId: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { conversationId: string }) => callback(data)
+    typedOn('conversation:incompleted', handler)
+    return () => typedOff('conversation:incompleted', handler)
+  },
 
   // Quiz
   generateQuiz: (conversationId: string, model?: string) =>

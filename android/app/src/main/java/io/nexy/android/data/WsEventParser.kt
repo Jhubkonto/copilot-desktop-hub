@@ -1480,6 +1480,12 @@ fun parseWsEvent(
                 WsEvent.DebriefConversationCompleted(conversationId, completedAt)
             }
 
+            "debrief:conversation-incompleted" -> {
+                val conversationId = data?.optString("conversationId") ?: return
+                completedConversationIds.value = completedConversationIds.value - conversationId
+                WsEvent.DebriefConversationIncompleted(conversationId)
+            }
+
             "quiz:ready" -> {
                 val arr = data?.optJSONArray("questions") ?: return
                 val questions = (0 until arr.length()).map { parseQuizQuestion(arr.getJSONObject(it)) }

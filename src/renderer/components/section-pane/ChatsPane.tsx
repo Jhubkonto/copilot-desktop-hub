@@ -1,5 +1,5 @@
 import { useState, useMemo, useDeferredValue } from 'react'
-import { BrainCircuit, CheckCircle, CheckCircle2, Plus, Search, X, Pin, Trash2, Loader2 } from 'lucide-react'
+import { BrainCircuit, CheckCircle, CheckCircle2, Circle, Plus, Search, X, Pin, Trash2, Loader2 } from 'lucide-react'
 import { useAppStore } from '../../store/app-store'
 import type { Conversation } from '../../store/types'
 import { DeleteConversationDialog } from '../DeleteConversationDialog'
@@ -20,6 +20,7 @@ export function ChatsPane() {
   const pendingConversationIds = useAppStore((s) => s.pendingConversationIds)
   const completedConversationIds = useAppStore((s) => s.completedConversationIds)
   const markConversationComplete = useAppStore((s) => s.markConversationComplete)
+  const markConversationIncomplete = useAppStore((s) => s.markConversationIncomplete)
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
   const [pendingDeleteConv, setPendingDeleteConv] = useState<{ id: string; title: string } | null>(null)
@@ -85,7 +86,16 @@ export function ChatsPane() {
             </div>
           </div>
           <div className="invisible group-hover:visible flex items-center gap-0.5 shrink-0">
-            {!isCompleted && (
+            {isCompleted ? (
+              <button
+                onClick={(e) => { e.stopPropagation(); void markConversationIncomplete(conv.id) }}
+                className="p-1 rounded text-emerald-500 hover:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+                title="Mark incomplete"
+                aria-label="Mark conversation incomplete"
+              >
+                <Circle className="w-3 h-3" />
+              </button>
+            ) : (
               <button
                 onClick={(e) => { e.stopPropagation(); void markConversationComplete(conv.id) }}
                 className="p-1 rounded text-gray-400 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/20"

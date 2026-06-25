@@ -14,6 +14,9 @@ export interface ConversationSlice {
   conversationCreated: (id: string) => Promise<void>
   newChat: (opts?: { projectId?: string | null; agentId?: string | null }) => void
   markConversationComplete: (id: string) => Promise<void>
+  markConversationIncomplete: (id: string) => Promise<void>
+  handleConversationCompleted: (conversationId: string) => void
+  handleConversationIncompleted: (conversationId: string) => void
 }
 
 export const createConversationSlice: StateCreator<
@@ -63,6 +66,31 @@ export const createConversationSlice: StateCreator<
     } catch {
       get().addToast('Failed to mark conversation complete', 'error')
     }
+  },
+
+  markConversationIncomplete: async (id) => {
+    try {
+      await window.api.markConversationIncomplete(id)
+      set((s) => {
+        s.completedConversationIds = s.completedConversationIds.filter((cid) => cid !== id)
+      })
+    } catch {
+      get().addToast('Failed to mark conversation incomplete', 'error')
+    }
+  },
+
+  handleConversationCompleted: (conversationId) => {
+    set((s) => {
+      if (!s.completedConversationIds.includes(conversationId)) {
+        s.completedConversationIds.push(conversationId)
+      }
+    })
+  },
+
+  handleConversationIncompleted: (conversationId) => {
+    set((s) => {
+      s.completedConversationIds = s.completedConversationIds.filter((id) => id !== conversationId)
+    })
   },
 
   selectConversation: (id) => {

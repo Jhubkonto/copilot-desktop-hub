@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -74,6 +75,7 @@ fun ConversationRow(
     onTogglePin: ((id: String, pinned: Boolean) -> Unit)? = null,
     onDebrief: ((id: String) -> Unit)? = null,
     onMarkComplete: ((id: String) -> Unit)? = null,
+    onMarkIncomplete: ((id: String) -> Unit)? = null,
     onQuiz: ((id: String) -> Unit)? = null,
 ) {
     val preview = conv.last_message ?: ""
@@ -220,7 +222,7 @@ fun ConversationRow(
                 }
 
                 // Right: compact ⋮ menu
-                if (onRename != null || onDelete != null || onTogglePin != null || onDebrief != null || onMarkComplete != null || onQuiz != null) {
+                if (onRename != null || onDelete != null || onTogglePin != null || onDebrief != null || onMarkComplete != null || onMarkIncomplete != null || onQuiz != null) {
                     Box {
                         IconButton(
                             onClick = { menuExpanded = true },
@@ -281,6 +283,16 @@ fun ConversationRow(
                                     onClick = {
                                         menuExpanded = false
                                         onMarkComplete.invoke(conv.id)
+                                    },
+                                )
+                            }
+                            if (onMarkIncomplete != null && isCompleted) {
+                                DropdownMenuItem(
+                                    text = { Text("Mark incomplete") },
+                                    leadingIcon = { Icon(Icons.Default.RadioButtonUnchecked, contentDescription = null) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onMarkIncomplete.invoke(conv.id)
                                     },
                                 )
                             }
