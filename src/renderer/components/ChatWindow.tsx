@@ -442,18 +442,19 @@ export function ChatWindow() {
         if (!isUserScrolledUpRef.current) scrollToBottom()
       })
     }
-  }, [chat.messages, chat.displayedContent, scrollToBottom])
+  }, [chat.messages, chat.displayedContent, chat.liveTeamActivity, scrollToBottom])
 
   // Track new content arriving while user is scrolled up → mark unread
   useEffect(() => {
     const newMessages = chat.messages.length > prevMessagesLengthRef.current
     const hasStreaming = chat.streamingContent !== ''
-    if (isUserScrolledUpRef.current && (newMessages || hasStreaming)) {
+    const hasTeamActivity = chat.liveTeamActivity.length > 0
+    if (isUserScrolledUpRef.current && (newMessages || hasStreaming || hasTeamActivity)) {
       setHasUnreadBelow(true)
       if (conversationId) markConversationUnread(conversationId)
     }
     prevMessagesLengthRef.current = chat.messages.length
-  }, [chat.messages, chat.streamingContent, conversationId, markConversationUnread])
+  }, [chat.messages, chat.streamingContent, chat.liveTeamActivity, conversationId, markConversationUnread])
 
   // Force scroll to bottom whenever a new generation begins (user just sent a message)
   useEffect(() => {

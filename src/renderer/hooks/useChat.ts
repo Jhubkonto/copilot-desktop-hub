@@ -244,6 +244,60 @@ export function useChat({
     setLoadingFailed(false)
   }, [conversationId, addToast])
 
+  // Re-fetch messages from DB and update state, preserving any in-memory images.
+  // Called after stream end so the persisted team-activity row becomes visible without
+  // requiring the user to navigate away and back.
+  const reloadMessages = useCallback(() => {
+    if (!conversationId) return
+    void window.api.getMessages(conversationId).then((dbMessages) => {
+      setMessages((prev) => {
+        const imageMap = new Map(
+          prev.filter((m) => m.images).map((m) => [m.id, m.images!]),
+        )
+        return dbMessages.map((message) => {
+          const base: ChatMessage = {
+            id: message.id,
+            role: message.role as ChatMessage['role'],
+            content: message.content,
+            timestamp: message.timestamp,
+            model: message.model ?? null,
+            isEdited: message.is_edited === 1,
+            attachments: message.attachments ? JSON.parse(message.attachments) : undefined,
+            images: imageMap.get(message.id),
+            contextSnapshot: message.context_snapshot ?? undefined,
+          }
+          if (message.role === 'assistant' && message.thinking_blocks) {
+            try {
+              const blocks = JSON.parse(message.thinking_blocks) as Array<{ blockId: string; content: string; done: boolean }>
+              base.thinkingBlocks = new Map(blocks.map((b) => [b.blockId, b]))
+            } catch { /* malformed — ignore */ }
+          }
+          if (message.role === 'tool-call') {
+            try {
+              const parsed = JSON.parse(message.content) as Record<string, unknown>
+              if (parsed.__type === 'tool-call') {
+                return {
+                  ...base,
+                  content: typeof parsed.toolResult === 'string' ? parsed.toolResult : '',
+                  toolName: typeof parsed.toolName === 'string' ? parsed.toolName : undefined,
+                  serverName: typeof parsed.serverName === 'string' ? parsed.serverName : undefined,
+                  toolArgs: (typeof parsed.toolArgs === 'object' && parsed.toolArgs !== null)
+                    ? parsed.toolArgs as Record<string, unknown>
+                    : undefined,
+                  toolResult: typeof parsed.toolResult === 'string' ? parsed.toolResult : undefined,
+                  toolSuccess: typeof parsed.toolSuccess === 'boolean' ? parsed.toolSuccess : true,
+                }
+              }
+            } catch { /* malformed tool-call JSON — skip */ }
+          }
+          return base
+        })
+      })
+    })
+  }, [conversationId])
+  const reloadMessagesRef = useRef(reloadMessages)
+  reloadMessagesRef.current = reloadMessages
+
   // Defer isGenerating=false until the drain queue empties so the streaming cursor
   // stays visible until the last buffered character has actually been rendered.
   useEffect(() => {
@@ -255,6 +309,7 @@ export function useChat({
       setLiveTeamActivity([])
       setCurrentActivity(null)
       liveToolCallsRef.current = []
+      reloadMessagesRef.current()
     }
   }, [isDraining])
 
@@ -357,6 +412,7 @@ export function useChat({
           setLiveTeamActivity([])
           setCurrentActivity(null)
           liveToolCallsRef.current = []
+          reloadMessagesRef.current()
         }
         // Now that the new response arrived, delete the old assistant message from DB.
         if (pendingDeleteMessageRef.current) {
