@@ -167,19 +167,73 @@ User types + sends
   chat-handlers.ts (main)
        │── loads conversation history from SQLite
        │── resolves agent config + context files
-       │── calls the selected BYOK provider or CLI adapter
+       │── creates ChatTurnEmitter for this turn
+       │── calls the selected BYOK provider, CLI adapter, or orchestrator
        │
-  providers.ts
-       │── opens HTTPS streaming request
-       │── parses SSE chunks via parseSseStream()
-       │── emits ipcMain → win.webContents.send('chat:token', chunk)
+  ChatTurnEmitter (main)
+       │── emits ordered, sequenced ChatTurnEvents (chat:turn-event)
+       │── simultaneously emits legacy compatibility events (chat:stream-chunk,
+       │   chat:thinking-delta, chat:activity, etc.)
+       │── routes to both Electron IPC (desktop renderer) and WebSocket (Android)
        │
-  useChat.ts (renderer hook)
-       │── receives streaming tokens via window.api.onChatToken(cb)
-       │── appends to messages state
+  Desktop renderer (useChatLiveTurn + useChatTurnReducer)
+       │── chatTurnReducer applies events in order → live ChatTurnState
+       │── ChatRenderItem adapter builds ordered list for ChatMessages
        ▼
-  ChatMessages.tsx renders live streaming output
+  ChatMessages.tsx renders live + historical items from ordered render list
 ```
+
+---
+
+## Chat Event Lifecycle
+
+All chat turns flow through a normalized event sequence emitted by `ChatTurnEmitter` (`src/main/chat-turn-emitter.ts`). Events are monotonically sequenced per turn and carry a `turnId` so late events from previous turns can be discarded.
+
+### Event types (`src/shared/chat-turn-types.ts`)
+
+| Event | When emitted |
+|---|---|
+| `turn_started` | Immediately when `dispatchChatSend` begins |
+| `user_message_committed` | After the user message is persisted to DB |
+| `activity_changed` | Each time the activity label changes (thinking, tool, preparing) |
+| `thinking_delta` | Each reasoning/thinking block chunk |
+| `thinking_done` | When a thinking block is complete |
+| `tool_started` | CLI: when a tool call begins |
+| `tool_finished` | When a tool call completes (MCP or CLI) |
+| `cost_updated` | When token cost is reported by the provider |
+| `model_changed` | When the actual model id is known from the stream |
+| `assistant_text_delta` | Each text chunk from the assistant |
+| `turn_completed` | On `stream_end` (normal completion) |
+| `turn_failed` | On provider error |
+| `history_snapshot_received` | After history is reloaded from DB |
+
+### Desktop lifecycle
+
+```
+ChatTurnEmitter.started()
+       ↓
+  [activity_changed × N] (thinking → tool → thinking → ...)
+  [thinking_delta × N]
+  [thinking_done × N]
+  [tool_started / tool_finished × N]
+  [assistant_text_delta × N]
+       ↓
+ChatTurnEmitter.streamEnd()   → turn_completed
+                              → legacy: chat:stream-end, chat:activity(complete)
+       ↓
+persistAssistantMessage()     → DB insert with thinking_blocks
+broadcastConversationMessages() → WebSocket push to Android
+```
+
+Desktop reducer (`chatTurnReducer`) handles `chat:turn-event` exclusively. Legacy events (`chat:stream-chunk`, `chat:activity`, etc.) are still emitted for backwards compatibility but the reducer ignores them.
+
+### Android lifecycle
+
+Android `ChatViewModel` subscribes to all WsEvents. The normalized `ChatTurnEvent` path feeds `reduceChatTurn` to update `_liveTurnState`. The `chat:stream-chunk` / `chat:stream-end` events additionally control the typewriter drain coroutine in `ChatViewModel` — this is a rendering concern separate from the reducer.
+
+**Re-entry restoration**: when a user navigates away while a turn is active and returns, `ConversationMessages` arrives without an assistant response. `ChatViewModel` restores the in-progress state from `WsRepository.activeChatSnapshots` (activity label, thinking blocks, completed tool calls) so the UI shows the correct awaiting state.
+
+**Active history polling**: after `sendMessage()` starts a turn, a 2.5-second poll fires if no stream events arrive. This guards against dropped WebSocket messages during reconnects.
 
 ---
 
