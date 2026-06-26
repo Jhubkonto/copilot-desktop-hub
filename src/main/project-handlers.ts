@@ -31,6 +31,10 @@ export function parseProjectConfig(
     if (Array.isArray(raw.rootDirectory)) {
       raw.rootDirectory = typeof raw.rootDirectory[0] === 'string' ? raw.rootDirectory[0] : '';
     }
+    // Strip embedded newlines that can corrupt a path if instructions text was accidentally merged
+    if (typeof raw.rootDirectory === 'string' && raw.rootDirectory.includes('\n')) {
+      raw.rootDirectory = raw.rootDirectory.split('\n')[0]?.trim() ?? ''
+    }
     return { ...DEFAULT_PROJECT_CONFIG, ...raw };
   } catch {
     return { ...DEFAULT_PROJECT_CONFIG };
@@ -188,6 +192,9 @@ export function registerProjectHandlers(): void {
       // Coerce rootDirectory array to string (can happen when dialog filePaths array is stored directly)
       if (Array.isArray(config.rootDirectory)) {
         config.rootDirectory = typeof config.rootDirectory[0] === 'string' ? config.rootDirectory[0] : '';
+      }
+      if (typeof config.rootDirectory === 'string' && config.rootDirectory.includes('\n')) {
+        config.rootDirectory = config.rootDirectory.split('\n')[0]?.trim() ?? ''
       }
       const merged = { ...current, ...config };
       db.prepare(
