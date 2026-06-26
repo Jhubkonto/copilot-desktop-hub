@@ -2,15 +2,13 @@ import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 
 import { getModelLabel } from '../../shared/models'
 import type { CatalogModel } from '../../shared/types'
 import type {
-  ActivityEvent,
   ChatMessage,
-  CliCostSummary,
   ConversationDbMessage,
-  StreamError,
   TeamActivityStep,
   ToolCallEvent,
   ToastType,
 } from './chat-types'
+import { useChatLiveTurn } from './useChatLiveTurn'
 import { useStreamingQueue } from './useStreamingQueue'
 
 function hasIpcError(result: unknown): result is { error: string } {
@@ -46,6 +44,7 @@ export function useChat({
   conversationGenerationStartedAt,
 }: UseChatParams) {
   const { displayedContent, isDraining, enqueue, flush, reset: resetQueue } = useStreamingQueue()
+  const liveTurnState = useChatLiveTurn(conversationId)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isGenerating, setIsGenerating] = useState(false)
   const [streamingContent, setStreamingContent] = useState('')
@@ -54,17 +53,13 @@ export function useChat({
   const [isEditingMessage, setIsEditingMessage] = useState(false)
   const [liveTeamActivity, setLiveTeamActivity] = useState<TeamActivityStep[]>([])
   const [generationStartedAt, setGenerationStartedAt] = useState<number | null>(null)
-  const [currentActivity, setCurrentActivity] = useState<ActivityEvent | null>(null)
-  const [cliCost, setCliCost] = useState<CliCostSummary | null>(null)
-  const [liveThinkingBlocks, setLiveThinkingBlocksState] = useState<Map<string, { blockId: string; content: string; done: boolean }>>(new Map())
-  const liveThinkingBlocksRef = useRef<Map<string, { blockId: string; content: string; done: boolean }>>(new Map())
-  const setLiveThinkingBlocks = (map: Map<string, { blockId: string; content: string; done: boolean }>) => {
-    liveThinkingBlocksRef.current = map
-    setLiveThinkingBlocksState(map)
-  }
+  const liveTurnStateRef = useRef(liveTurnState)
+  liveTurnStateRef.current = liveTurnState
 
   const streamingContentRef = useRef('')
   const ignoreRemoteStreamRef = useRef(false)
+  // Set by the onStreamError handler so the failed-turn effect knows to skip UI updates.
+  const errorWasBackgroundRef = useRef(false)
   const liveToolCallsRef = useRef<ChatMessage[]>([])
   const streamModelRef = useRef<string | null>(null)
   const activeConversationRef = useRef<string | null>(conversationId)
@@ -210,11 +205,6 @@ export function useChat({
             // Use the stored start time so the elapsed counter continues from where
             // it left off rather than restarting at 0 on every re-entry.
             setGenerationStartedAt(conversationGenerationStartedAt ?? Date.now())
-            // Seed a placeholder live thinking block so the reasoning bubble is
-            // visible immediately. It will be replaced by real chat:thinking-delta
-            // events when the next chunk arrives from the still-running stream.
-            const placeholder = new Map([['restore-placeholder', { blockId: 'restore-placeholder', content: '', done: false }]])
-            setLiveThinkingBlocks(placeholder)
           }
         })
         .finally(() => {
@@ -235,9 +225,6 @@ export function useChat({
     pendingEditedResendRef.current = false
     setGenerationStartedAt(null)
     setLiveTeamActivity([])
-    setCurrentActivity(null)
-    setCliCost(null)
-    setLiveThinkingBlocks(new Map())
     liveToolCallsRef.current = []
     streamClosedRef.current = false
     pendingThinkingEndsRef.current.clear()
@@ -307,11 +294,54 @@ export function useChat({
       setLoadingFailed(false)
       setGenerationStartedAt(null)
       setLiveTeamActivity([])
-      setCurrentActivity(null)
       liveToolCallsRef.current = []
       reloadMessagesRef.current()
     }
   }, [isDraining])
+
+  // React to turn_failed reducer state — handle regen rollback or append error message.
+  // Transport-level cleanup (refs, generating state) happens in onStreamError; this
+  // effect handles the message-list consequences so rollback is expressed as a reaction
+  // to reducer state rather than being buried in an IPC closure.
+  const handledFailedTurnRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (liveTurnState.status !== 'failed' || !liveTurnState.turnId) return
+    if (handledFailedTurnRef.current === liveTurnState.turnId) return
+    if (errorWasBackgroundRef.current) {
+      errorWasBackgroundRef.current = false
+      handledFailedTurnRef.current = liveTurnState.turnId
+      return
+    }
+    handledFailedTurnRef.current = liveTurnState.turnId
+
+    const error = liveTurnState.error
+    if (preRegenMessagesRef.current) {
+      setMessages(preRegenMessagesRef.current)
+      preRegenMessagesRef.current = null
+      pendingDeleteMessageRef.current = null
+      if (error) addToastRef.current(error.message, 'error')
+    } else if (error) {
+      const errorMessage: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: error.message,
+        timestamp: Date.now(),
+        isError: true,
+        errorType: error.type,
+        retryable: error.retryable,
+      }
+      setLoadingFailed(true)
+      setMessages((prev) => [...prev, errorMessage])
+
+      if (error.type === 'rate_limit') {
+        const waitSeconds =
+          typeof error.retryAfterSeconds === 'number' && error.retryAfterSeconds > 0
+            ? error.retryAfterSeconds
+            : 15
+        rateLimitSetterRef?.current(waitSeconds)
+      }
+    }
+  }, [liveTurnState.status, liveTurnState.turnId, liveTurnState.error, rateLimitSetterRef])
 
   useEffect(() => {
     const unsubscribeRemoteMessage = window.api.onRemoteMessage(({ conversationId: remoteId, content, images }) => {
@@ -354,7 +384,6 @@ export function useChat({
           streamingContentRef.current = ''
           streamModelRef.current = null
           liveToolCallsRef.current = []
-          setLiveThinkingBlocks(new Map())
           streamClosedRef.current = false
           return
         }
@@ -364,13 +393,14 @@ export function useChat({
         const displayContent = finalContent || (!hadToolCalls ? '_(no response)_' : '')
 
         // Mark all live thinking blocks done before freezing — handles late/missing thinking_end events (H1).
-        const currentBlocks = liveThinkingBlocksRef.current
+        // Read from the reducer state (via ref) since liveThinkingBlocks state has been removed.
+        const currentBlocks = liveTurnStateRef.current.thinkingBlocks
         const frozenThinking: Map<string, { blockId: string; content: string; done: boolean }> | null =
           currentBlocks.size > 0
             ? new Map(Array.from(currentBlocks.entries()).map(([k, v]) => [k, { ...v, done: true }]))
             : null
 
-        // Batch the message append and live-block clear in the same state update cycle (C1).
+        // Batch the message append in one state update cycle (C1).
         if (displayContent) {
           const assistantMessage: ChatMessage = {
             id: crypto.randomUUID(),
@@ -391,8 +421,6 @@ export function useChat({
             return updated
           })
         }
-        // Clear live blocks immediately after setMessages to batch in same React flush.
-        setLiveThinkingBlocks(new Map())
         pendingThinkingEndsRef.current.clear()
         streamClosedRef.current = false
 
@@ -410,7 +438,6 @@ export function useChat({
           setLoadingFailed(false)
           setGenerationStartedAt(null)
           setLiveTeamActivity([])
-          setCurrentActivity(null)
           liveToolCallsRef.current = []
           reloadMessagesRef.current()
         }
@@ -430,17 +457,16 @@ export function useChat({
       enqueue(chunk)
     })
 
-    const unsubscribeError = window.api.onStreamError((error: StreamError) => {
+    const unsubscribeError = window.api.onStreamError(() => {
       const wasBackground = ignoreRemoteStreamRef.current
       ignoreRemoteStreamRef.current = false
+      errorWasBackgroundRef.current = wasBackground
       streamClosedRef.current = true
       const errorConvId = streamingConversationRef.current ?? activeConversationRef.current ?? ''
       streamingConversationRef.current = null
       streamingContentRef.current = ''
       streamModelRef.current = null
       liveToolCallsRef.current = []
-      // Mark all live thinking blocks done before clearing (H2).
-      setLiveThinkingBlocks(new Map())
       pendingThinkingEndsRef.current.clear()
       streamClosedRef.current = false
       markConversationDoneGenerating(errorConvId)
@@ -451,42 +477,13 @@ export function useChat({
         return
       }
 
+      // Message rollback and error insertion are handled by the liveTurnState.status==='failed'
+      // useEffect above, which reacts to the turn_failed reducer event emitted alongside this error.
       flush()
       setStreamingContent('')
       setIsGenerating(false)
       setLoadingFailed(false)
       setGenerationStartedAt(null)
-      setCurrentActivity(null)
-      setCliCost(null)
-
-      if (preRegenMessagesRef.current) {
-        // Restore the conversation to its state before the failed regeneration
-        // so the user doesn't lose their previous response.
-        setMessages(preRegenMessagesRef.current)
-        preRegenMessagesRef.current = null
-        pendingDeleteMessageRef.current = null
-        addToastRef.current(error.message, 'error')
-      } else {
-        const errorMessage: ChatMessage = {
-          id: crypto.randomUUID(),
-          role: 'assistant',
-          content: error.message,
-          timestamp: Date.now(),
-          isError: true,
-          errorType: error.type,
-          retryable: error.retryable,
-        }
-        setLoadingFailed(true)
-        setMessages((prev) => [...prev, errorMessage])
-      }
-
-      if (error.type === 'rate_limit') {
-        const waitSeconds =
-          typeof error.retryAfterSeconds === 'number' && error.retryAfterSeconds > 0
-            ? error.retryAfterSeconds
-            : 15
-        rateLimitSetterRef?.current(waitSeconds)
-      }
 
       void loadConversations()
     })
@@ -539,54 +536,9 @@ export function useChat({
       )
     })
 
-    const unsubscribeCliCost = window.api.onCliCost((data) => {
-      if (streamingConversationRef.current && streamingConversationRef.current !== activeConversationRef.current) return
-      setCliCost(data)
-    })
-
-    const unsubscribeActivity = window.api.onActivity((event) => {
-      if (streamingConversationRef.current && streamingConversationRef.current !== activeConversationRef.current) return
-      setCurrentActivity(event)
-    })
-
     const unsubscribeStreamModel = window.api.onStreamModel((model) => {
       if (streamingConversationRef.current && streamingConversationRef.current !== activeConversationRef.current) return
       streamModelRef.current = model
-    })
-
-    const unsubscribeThinkingDelta = window.api.onThinkingDelta(({ blockId, chunk }) => {
-      if (streamingConversationRef.current && streamingConversationRef.current !== activeConversationRef.current) return
-      if (streamClosedRef.current) return
-      setLiveThinkingBlocksState((prev) => {
-        const existing = prev.get(blockId) ?? { blockId, content: '', done: false }
-        const next = new Map(prev).set(blockId, { ...existing, content: existing.content + chunk })
-        // Drop the re-entry placeholder once a real block starts arriving
-        next.delete('restore-placeholder')
-        // Replay any pending end event that arrived before this chunk (H6).
-        if (pendingThinkingEndsRef.current.has(blockId)) {
-          next.set(blockId, { ...next.get(blockId)!, done: true })
-          pendingThinkingEndsRef.current.delete(blockId)
-        }
-        liveThinkingBlocksRef.current = next
-        return next
-      })
-    })
-
-    const unsubscribeThinkingEnd = window.api.onThinkingEnd(({ blockId }) => {
-      if (streamingConversationRef.current && streamingConversationRef.current !== activeConversationRef.current) return
-      // Ignore thinking_end events that arrive after the stream has closed (H1 desktop).
-      if (streamClosedRef.current) return
-      setLiveThinkingBlocksState((prev) => {
-        const existing = prev.get(blockId)
-        if (!existing) {
-          // thinking_end arrived before matching chunk — queue it for replay (H6).
-          pendingThinkingEndsRef.current.add(blockId)
-          return prev
-        }
-        const next = new Map(prev).set(blockId, { ...existing, done: true })
-        liveThinkingBlocksRef.current = next
-        return next
-      })
     })
 
     return () => {
@@ -596,11 +548,7 @@ export function useChat({
       unsubscribeToolCall()
       unsubscribeCliToolStart()
       unsubscribeCliToolEnd()
-      unsubscribeCliCost()
-      unsubscribeActivity()
       unsubscribeStreamModel()
-      unsubscribeThinkingDelta()
-      unsubscribeThinkingEnd()
     }
   }, [loadConversations, rateLimitSetterRef, flush])
 
@@ -658,7 +606,6 @@ export function useChat({
       resetQueue()
       setStreamingContent('')
       streamingContentRef.current = ''
-      setLiveThinkingBlocks(new Map())
 
       const regenerateModel =
         modelOverride ?? (effectiveModel === 'default' ? null : effectiveModel)
@@ -749,6 +696,7 @@ export function useChat({
 
   return {
     messages,
+    liveTurnState,
     setMessages,
     isGenerating,
     setIsGenerating,
@@ -761,9 +709,6 @@ export function useChat({
     isLoadingMessages,
     liveTeamActivity,
     setLiveTeamActivity,
-    currentActivity,
-    setCurrentActivity,
-    cliCost,
     generationStartedAt,
     setGenerationStartedAt,
     isEditingMessage,
@@ -782,7 +727,5 @@ export function useChat({
     pushSystemMessage,
     attachArtifact,
     buildConversationMarkdown,
-    liveThinkingBlocks,
-    setLiveThinkingBlocks,
   }
 }

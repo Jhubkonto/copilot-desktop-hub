@@ -10,6 +10,8 @@ import { ToolCallBlock } from './ToolCallBlock'
 import { ThinkingBlock } from './ThinkingBlock'
 import { ArtifactCard } from '../artifacts/ArtifactCard'
 import type { ActivityEvent, ChatMessage, CliCostSummary, TeamActivityStep } from '../../hooks/chat-types'
+import { buildChatRenderItems } from '../../hooks/chat-render-items'
+import { createEmptyChatTurnState, type ChatTurnState } from '../../hooks/chat-turn-reducer'
 
 interface ChatMessagesProps {
   messages: ChatMessage[]
@@ -33,7 +35,7 @@ interface ChatMessagesProps {
   onSignIn: () => void
   onPickModel: () => void
   onUseImageAsContext?: (dataUrl: string) => void
-  liveThinkingBlocks?: Map<string, { blockId: string; content: string; done: boolean }>
+  liveTurnState?: ChatTurnState
 }
 
 interface RequestReference {
@@ -45,6 +47,10 @@ interface MsgGroup {
   main: ChatMessage
   toolCalls: ChatMessage[]
   index: number
+}
+
+function toolCallSignature(toolName?: string, serverName?: string, result?: string): string {
+  return [toolName ?? '', serverName ?? '', result ?? ''].join('\u0000')
 }
 
 export function getThinkingBlockLabel(blockId: string): string {
@@ -83,7 +89,7 @@ export function ChatMessagesBase({
   onSignIn,
   onPickModel,
   onUseImageAsContext,
-  liveThinkingBlocks,
+  liveTurnState,
 }: ChatMessagesProps) {
   const catalogModels = useAppStore((state) => state.catalogModels)
   const generationElapsedSec = useGenerationTimer(isGenerating, generationStartedAt)
@@ -116,33 +122,52 @@ export function ChatMessagesBase({
   // Group consecutive tool-call messages with the assistant message that follows them.
   // This ensures one message-enter animation per turn rather than one per block.
   const msgGroups = useMemo<MsgGroup[]>(() => {
-    const groups: MsgGroup[] = []
-    let pendingToolCalls: ChatMessage[] = []
-    messages.forEach((msg, index) => {
-      if (msg.role === 'tool-call') {
-        pendingToolCalls.push(msg)
-      } else {
-        // Only group tool calls that preceded this message chronologically (C2 guard).
-        const orderedToolCalls = pendingToolCalls.filter(
-          (tc) => msg.role !== 'assistant' || tc.timestamp <= msg.timestamp,
-        )
-        const unorderedToolCalls = pendingToolCalls.filter(
-          (tc) => msg.role === 'assistant' && tc.timestamp > msg.timestamp,
-        )
-        groups.push({ main: msg, toolCalls: orderedToolCalls, index })
-        // Demote out-of-order tool calls to standalone entries.
-        for (const tc of unorderedToolCalls) {
-          groups.push({ main: tc, toolCalls: [], index: groups.length })
+    return buildChatRenderItems(messages, createEmptyChatTurnState(null), { includeLiveTurn: false })
+      .flatMap((item): MsgGroup[] => {
+        if (item.type === 'historical-tool-group') {
+          return [{ main: item.message, toolCalls: item.toolCalls, index: item.index }]
         }
-        pendingToolCalls = []
+        if (item.type === 'historical-message') {
+          return [{ main: item.message, toolCalls: [], index: item.index }]
+        }
+        return []
       }
-    })
-    // Flush trailing tool-calls (edge case: tool calls without a following assistant message)
-    for (const tc of pendingToolCalls) {
-      groups.push({ main: tc, toolCalls: [], index: groups.length })
-    }
-    return groups
+      )
   }, [messages])
+  const effectiveLiveTurnState = liveTurnState ?? createEmptyChatTurnState(null)
+  const liveRenderItems = useMemo(
+    () => buildChatRenderItems(messages, effectiveLiveTurnState, { includeLiveTurn: true })
+      .filter((item) => item.type !== 'historical-message' && item.type !== 'historical-tool-group'),
+    [messages, effectiveLiveTurnState],
+  )
+  const effectiveLiveThinkingBlocks = liveTurnState?.thinkingBlocks
+  const effectiveCurrentActivity =
+    currentActivity ?? (
+      liveTurnState?.activity
+        ? liveTurnState.activity.state === 'tool'
+          ? {
+              type: 'tool' as const,
+              name: liveTurnState.activity.toolName ?? liveTurnState.activity.label,
+              server: liveTurnState.activity.serverName ?? '',
+            }
+          : { type: 'thinking' as const }
+        : null
+    )
+  const effectiveCliCost = cliCost ?? liveTurnState?.cost ?? null
+  const liveToolCalls = useMemo(() => {
+    if (!liveTurnState?.toolCalls.length) return []
+    const committedIds = new Set<string>()
+    const committedSignatures = new Set<string>()
+    for (const message of messages) {
+      if (message.role !== 'tool-call') continue
+      if (message.toolCallId) committedIds.add(message.toolCallId)
+      committedSignatures.add(toolCallSignature(message.toolName, message.serverName, message.toolResult))
+    }
+    return liveTurnState.toolCalls.filter((toolCall) => {
+      if (toolCall.id && committedIds.has(toolCall.id)) return false
+      return !committedSignatures.has(toolCallSignature(toolCall.toolName, toolCall.serverName, toolCall.result))
+    })
+  }, [liveTurnState?.toolCalls, messages])
 
   const updateVisibleMessages = useCallback(() => {
     const container = scrollContainerRef?.current
@@ -426,9 +451,9 @@ export function ChatMessagesBase({
           </div>
         )}
         {/* Live generation area: thinking + streaming text + activity dots in one container */}
-        {(liveThinkingBlocks && liveThinkingBlocks.size > 0 || isGenerating) && (
+        {(effectiveLiveThinkingBlocks && effectiveLiveThinkingBlocks.size > 0 || liveToolCalls.length > 0 || isGenerating) && (
           <div>
-            {liveThinkingBlocks && liveThinkingBlocks.size > 0 && (() => {
+            {effectiveLiveThinkingBlocks && effectiveLiveThinkingBlocks.size > 0 && (() => {
               // Collect blockIds already committed to a historical message to avoid
               // rendering both the live block and the frozen copy simultaneously (C1).
               const lastAssistant = messages.length > 0
@@ -437,7 +462,7 @@ export function ChatMessagesBase({
               const committedBlockIds = lastAssistant?.thinkingBlocks
                 ? new Set(lastAssistant.thinkingBlocks.keys())
                 : new Set<string>()
-              const visibleLiveBlocks = Array.from(liveThinkingBlocks.values()).filter(
+              const visibleLiveBlocks = Array.from(effectiveLiveThinkingBlocks.values()).filter(
                 (block) => !committedBlockIds.has(block.blockId),
               )
               if (visibleLiveBlocks.length === 0) return null
@@ -455,23 +480,39 @@ export function ChatMessagesBase({
                 </div>
               )
             })()}
-            {isGenerating && streamingContent && (
+            {liveToolCalls.length > 0 && (
+              <div className="mb-1">
+                {liveToolCalls.map((toolCall, index) => (
+                  <ToolCallBlock
+                    key={toolCall.id ?? `${toolCall.toolName}-${index}`}
+                    toolName={toolCall.toolName}
+                    serverName={toolCall.serverName}
+                    args={toolCall.args}
+                    result={toolCall.result}
+                    success={toolCall.success}
+                    resultImages={toolCall.resultImages}
+                    onUseImageAsContext={onUseImageAsContext}
+                  />
+                ))}
+              </div>
+            )}
+            {isGenerating && (streamingContent || liveRenderItems.some((item) => item.type === 'live-assistant-text')) && (
               <div className="pl-3 border-l-2 border-gray-200 dark:border-gray-700 text-sm text-gray-900 dark:text-gray-100">
                 <MarkdownRenderer content={streamingContent} />
                 <span className="animate-pulse text-gray-400">▊</span>
               </div>
             )}
-            {isGenerating && !streamingContent && (
+            {isGenerating && !streamingContent && !liveRenderItems.some((item) => item.type === 'live-assistant-text') && (
               <div className="pl-3 border-l-2 border-gray-200 dark:border-gray-700 text-sm text-gray-500 dark:text-gray-400">
                 <div className="flex items-center gap-2 mb-2">
-                  {currentActivity?.type === 'tool' ? (
+                  {effectiveCurrentActivity?.type === 'tool' ? (
                     <Wrench className="w-3.5 h-3.5 animate-pulse shrink-0 text-blue-500 dark:text-blue-400" />
                   ) : (
                     <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
                   )}
                   <span>
-                    {currentActivity?.type === 'tool'
-                      ? <>Using <span className="font-mono text-blue-600 dark:text-blue-400">{currentActivity.name}</span>{currentActivity.server ? <span className="text-gray-400 dark:text-gray-500"> · {currentActivity.server}</span> : null}</>
+                    {effectiveCurrentActivity?.type === 'tool'
+                      ? <>Using <span className="font-mono text-blue-600 dark:text-blue-400">{effectiveCurrentActivity.name}</span>{effectiveCurrentActivity.server ? <span className="text-gray-400 dark:text-gray-500"> · {effectiveCurrentActivity.server}</span> : null}</>
                       : <>Thinking{generationElapsedSec > 0 ? ` · ${generationElapsedSec}s` : '...'}</>
                     }
                   </span>
@@ -485,13 +526,13 @@ export function ChatMessagesBase({
             )}
           </div>
         )}
-        {cliCost && !isGenerating && (
+        {effectiveCliCost && !isGenerating && (
           <div className="mt-2 flex items-center gap-3 border-t border-gray-100 px-3 py-1.5 text-xs text-gray-400 dark:border-gray-800 dark:text-gray-500">
-            <span className="font-mono">${cliCost.totalCostUsd.toFixed(4)}</span>
+            <span className="font-mono">${effectiveCliCost.totalCostUsd.toFixed(4)}</span>
             <span>·</span>
-            <span>{cliCost.inputTokens.toLocaleString()} in</span>
+            <span>{effectiveCliCost.inputTokens.toLocaleString()} in</span>
             <span>/</span>
-            <span>{cliCost.outputTokens.toLocaleString()} out</span>
+            <span>{effectiveCliCost.outputTokens.toLocaleString()} out</span>
           </div>
         )}
         {loadingFailed && !isGenerating && !streamingContent && (

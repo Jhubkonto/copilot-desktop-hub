@@ -5,6 +5,7 @@
  */
 import { describe, it, expectTypeOf } from 'vitest'
 import type { ElectronAPI } from '../../preload/index'
+import type { ChatTurnEvent } from '../../shared/chat-turn-types'
 import type {
   AuthStatus,
   ConversationRow,
@@ -110,6 +111,11 @@ describe('preload IPC return types', () => {
   it('screen capture and auto-clipboard APIs are typed', () => {
     expectTypeOf<ReturnType<ElectronAPI['captureScreen']>>().toEqualTypeOf<Promise<IpcReturn<'screen:capture'>>>()
     expectTypeOf<ReturnType<ElectronAPI['onAutoClipboardFocus']>>().toEqualTypeOf<() => void>()
+  })
+
+  it('chat turn event API is typed', () => {
+    expectTypeOf<ReturnType<ElectronAPI['onChatTurnEvent']>>().toEqualTypeOf<() => void>()
+    expectTypeOf<Parameters<ElectronAPI['onChatTurnEvent']>[0]>().toEqualTypeOf<(event: ChatTurnEvent) => void>()
   })
 
   it('error log APIs are typed', () => {

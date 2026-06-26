@@ -291,7 +291,6 @@ export function ChatWindow() {
       setPromptInstructionRef(null)
     },
     onEditStateConsumed: chat.clearEditState,
-    clearLiveThinkingBlocks: () => chat.setLiveThinkingBlocks(new Map()),
   })
 
   useLayoutEffect(() => {
@@ -465,12 +464,12 @@ export function ChatWindow() {
 
   // Scroll when live thinking blocks expand (new block added or content grows).
   useEffect(() => {
-    if (!isUserScrolledUpRef.current && chat.liveThinkingBlocks.size > 0) {
+    if (!isUserScrolledUpRef.current && chat.liveTurnState.thinkingBlocks.size > 0) {
       requestAnimationFrame(() => {
         if (!isUserScrolledUpRef.current) scrollToBottom()
       })
     }
-  }, [chat.liveThinkingBlocks, scrollToBottom])
+  }, [chat.liveTurnState.thinkingBlocks, scrollToBottom])
 
   // Reset scroll state on conversation switch
   useEffect(() => {
@@ -1338,8 +1337,6 @@ export function ChatWindow() {
           isGenerating={chat.isGenerating}
           liveTeamActivity={chat.liveTeamActivity}
           streamingContent={chat.displayedContent}
-          cliCost={chat.cliCost}
-          currentActivity={chat.currentActivity}
           generationStartedAt={chat.generationStartedAt}
           loadingFailed={chat.loadingFailed}
           messagesEndRef={messagesEndRef}
@@ -1359,7 +1356,7 @@ export function ChatWindow() {
               { id: crypto.randomUUID(), dataUrl, name: 'browser-screenshot.png' }
             ])
           }}
-          liveThinkingBlocks={chat.liveThinkingBlocks}
+          liveTurnState={chat.liveTurnState}
         />
         {isUserScrolledUp && (
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 pointer-events-none">

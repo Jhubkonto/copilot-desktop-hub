@@ -2,15 +2,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { useChat } from '../../../renderer/hooks/useChat'
 import { setupMockApi, type MockApi } from '../../../test/mocks/api'
+import type { ChatTurnEvent } from '../../../shared/chat-turn-types'
 
 let mockApi: MockApi
 let streamCallback: ((chunk: string | null) => void) | null = null
 let remoteMessageCallback: ((data: { conversationId: string; content: string; images?: { id: string; name: string; dataUrl: string }[] }) => void) | null = null
+let chatTurnEventCallback: ((event: ChatTurnEvent) => void) | null = null
 
 beforeEach(() => {
   mockApi = setupMockApi()
   streamCallback = null
   remoteMessageCallback = null
+  chatTurnEventCallback = null
   mockApi.onStreamResponse.mockImplementation((cb: (chunk: string | null) => void) => {
     streamCallback = cb
     return () => {
@@ -21,6 +24,12 @@ beforeEach(() => {
     remoteMessageCallback = cb
     return () => {
       remoteMessageCallback = null
+    }
+  })
+  mockApi.onChatTurnEvent.mockImplementation((cb: (event: ChatTurnEvent) => void) => {
+    chatTurnEventCallback = cb
+    return () => {
+      chatTurnEventCallback = null
     }
   })
   mockApi.onStreamError.mockImplementation(() => () => undefined)
@@ -104,6 +113,61 @@ describe('useChat', () => {
     expect(result.current.messages).toEqual([])
     expect(result.current.isGenerating).toBe(false)
     expect(result.current.streamingContent).toBe('')
+  })
+
+  it('tracks normalized chat turn events for the active conversation', () => {
+    const addToast = vi.fn()
+    const loadConversations = vi.fn().mockResolvedValue(undefined)
+    const conversationCreated = vi.fn()
+
+    const { result } = renderHook(() =>
+      useChat({
+        conversationId: 'conv-1',
+        activeAgentId: null,
+        activeProjectId: null,
+        effectiveModel: 'default',
+        catalogModels: [],
+        addToast,
+        loadConversations,
+        conversationCreated,
+        markConversationGenerating: vi.fn(),
+        markConversationDoneGenerating: vi.fn(),
+      }),
+    )
+
+    act(() => {
+      chatTurnEventCallback?.({
+        type: 'turn_started',
+        conversationId: 'conv-1',
+        turnId: 'turn-1',
+        sequence: 1,
+        timestamp: 1000,
+      })
+      chatTurnEventCallback?.({
+        type: 'assistant_text_delta',
+        conversationId: 'conv-1',
+        turnId: 'turn-1',
+        sequence: 2,
+        timestamp: 1001,
+        chunk: 'Hello',
+      })
+      chatTurnEventCallback?.({
+        type: 'assistant_text_delta',
+        conversationId: 'conv-2',
+        turnId: 'turn-other',
+        sequence: 1,
+        timestamp: 1002,
+        chunk: ' leaked',
+      })
+    })
+
+    expect(result.current.liveTurnState).toMatchObject({
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      status: 'streaming',
+      text: 'Hello',
+      lastSequence: 2,
+    })
   })
 
   it('handleEdit truncates messages and cancelEdit restores them', async () => {

@@ -88,7 +88,6 @@ interface UseChatWindowActionsParams {
   loadConversations: () => Promise<void>
   onAfterSend?: () => void
   onEditStateConsumed?: () => void
-  clearLiveThinkingBlocks: () => void
 }
 
 export function useChatWindowActions({
@@ -158,7 +157,6 @@ export function useChatWindowActions({
   loadConversations,
   onAfterSend,
   onEditStateConsumed,
-  clearLiveThinkingBlocks,
 }: UseChatWindowActionsParams) {
   // Stores a CLI model and backend chosen before the conversation row exists (new chat), applied on first send.
   const pendingCliModelRef = useRef<string | null>(null)
@@ -386,7 +384,6 @@ export function useChatWindowActions({
     setGenerationStartedAt(Date.now())
     setStreamingContent('')
     setLiveTeamActivity([])
-    clearLiveThinkingBlocks()
     streamingContentRef.current = ''
     const requestModel = effectiveModel === 'default' ? undefined : effectiveModel
     streamModelRef.current = requestModel ?? null
@@ -490,7 +487,6 @@ export function useChatWindowActions({
     chatProjectId,
     onAfterSend,
     onEditStateConsumed,
-    clearLiveThinkingBlocks,
   ])
 
   const handleRetry = useCallback(async () => {
@@ -514,7 +510,6 @@ export function useChatWindowActions({
     setIsGenerating(true)
     setGenerationStartedAt(Date.now())
     setStreamingContent('')
-    clearLiveThinkingBlocks()
     streamingContentRef.current = ''
 
     try {
@@ -546,7 +541,6 @@ export function useChatWindowActions({
     effectiveModel,
     streamModelRef,
     addToast,
-    clearLiveThinkingBlocks,
   ])
 
   const handleEdit = useCallback(
