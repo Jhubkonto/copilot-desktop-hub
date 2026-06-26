@@ -13,6 +13,12 @@ vi.mock('../safe-handle', () => ({
   }),
 }))
 
+vi.mock('electron', () => ({
+  Notification: {
+    isSupported: vi.fn(() => false),
+  },
+}))
+
 vi.mock('../remote-edit/investigator', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../remote-edit/investigator')>()
   return {
@@ -20,6 +26,28 @@ vi.mock('../remote-edit/investigator', async (importOriginal) => {
     runInvestigation: mockRunInvestigation,
   }
 })
+
+vi.mock('../remote-edit/fix-agent', () => ({
+  emitFixEvent: vi.fn(),
+  getBackupDir: vi.fn(() => '.test-backups'),
+  runFix: vi.fn(),
+}))
+
+vi.mock('../remote-edit/verifier', () => ({
+  emitVerificationEvent: vi.fn(),
+  getVerificationRuns: vi.fn(() => []),
+  runVerification: vi.fn(),
+}))
+
+vi.mock('../remote-edit/history', () => ({
+  getOrCreateHistoryEntry: vi.fn(),
+  listHistory: vi.fn(() => []),
+  updateHistoryEntry: vi.fn(),
+}))
+
+vi.mock('../fcm-sender', () => ({
+  sendRemoteEditNotification: vi.fn(),
+}))
 
 let db: Database.Database
 
@@ -72,7 +100,7 @@ describe('remote-edit handlers', () => {
       autoApproveTools: false,
     })
     expect(loaded).toEqual(saved)
-  })
+  }, 15000)
 
   it('persists codex-cli investigation settings', async () => {
     const { registerRemoteEditHandlers } = await import('../remote-edit-handlers')

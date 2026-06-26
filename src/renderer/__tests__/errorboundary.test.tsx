@@ -30,13 +30,13 @@ describe('ErrorBoundary', () => {
     )
 
     expect(screen.getByText('Something went wrong')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /create remote-edit report/i }))
+    await user.click(screen.getByRole('button', { name: /create self-heal report/i }))
 
     expect(onCreateRemoteEditReport).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Rendered fewer hooks than expected',
     }))
 
-    await user.click(await screen.findByRole('button', { name: /open remote-edit/i }))
+    await user.click(await screen.findByRole('button', { name: /open remote edit/i }))
     expect(onOpenRemoteEditReport).toHaveBeenCalledWith('report-123456')
   })
 })

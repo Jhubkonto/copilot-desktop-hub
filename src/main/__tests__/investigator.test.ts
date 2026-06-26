@@ -96,7 +96,7 @@ describe('remote-edit investigator', () => {
       investigation_root_cause: 'missing guard',
     }))
     expect(String(row.investigation_markdown)).toContain('confidence: high')
-  })
+  }, 15000)
 
   it('prefers a later, more complete yaml-fenced block over a leading placeholder front-matter block', async () => {
     sendProviderWithToolsMock

@@ -23,12 +23,25 @@ let streamErrorCallback:
       retryAfterSeconds?: number;
     }) => void)
   | null = null;
+let chatTurnEventCallback: ((event: {
+  conversationId: string;
+  turnId: string;
+  sequence: number;
+  type: string;
+  timestamp: number;
+  errorType?: string;
+  message?: string;
+  retryable?: boolean;
+  retryAfterSeconds?: number;
+}) => void) | null = null;
 let autoClipboardFocusCallback: (() => void | Promise<void>) | null = null;
 let mockStore: ReturnType<typeof createMockAppStore>;
 
 beforeEach(() => {
   mockApi = setupMockApi();
   streamCallback = null;
+  streamErrorCallback = null;
+  chatTurnEventCallback = null;
   autoClipboardFocusCallback = null;
   mockApi.getMessages.mockResolvedValue([]);
 
@@ -55,6 +68,12 @@ beforeEach(() => {
       };
     },
   );
+  mockApi.onChatTurnEvent.mockImplementation((cb: typeof chatTurnEventCallback) => {
+    chatTurnEventCallback = cb;
+    return () => {
+      chatTurnEventCallback = null;
+    };
+  });
   mockApi.onAutoClipboardFocus.mockImplementation((cb: () => void | Promise<void>) => {
     autoClipboardFocusCallback = cb;
     return () => {
@@ -540,6 +559,11 @@ describe("ChatWindow — Offline State", () => {
   });
 
   it("disables input while rate limit countdown is active", async () => {
+    mockStore = createMockAppStore({
+      authState: { authenticated: true, user: null },
+      currentConversationId: "conv-1",
+    });
+    setupStoreMock(useAppStore, mockStore);
     render(<ChatWindow />);
     act(() => {
       streamErrorCallback?.({
@@ -549,11 +573,24 @@ describe("ChatWindow — Offline State", () => {
         retryable: true,
         retryAfterSeconds: 8,
       });
+      chatTurnEventCallback?.({
+        conversationId: "conv-1",
+        turnId: "turn-1",
+        sequence: 1,
+        type: "turn_failed",
+        timestamp: Date.now(),
+        errorType: "rate_limit",
+        message: "Rate limited. Please wait a moment and try again.",
+        retryable: true,
+        retryAfterSeconds: 8,
+      });
     });
 
-    expect(
-      screen.getByText(/Rate limited — you can send again in 8s/i),
-    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Rate limited — you can send again in 8s/i),
+      ).toBeInTheDocument();
+    });
     expect(
       screen.getByRole("textbox", { name: /message input/i }),
     ).toBeDisabled();

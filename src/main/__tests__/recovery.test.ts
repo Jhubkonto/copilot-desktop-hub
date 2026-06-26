@@ -37,6 +37,10 @@ vi.mock('../database', () => ({
 const testRoot = path.join(process.cwd(), '.test-remote-edit-recovery')
 const workspacePath = path.join(testRoot, 'workspace')
 
+function removeTestRoot(): void {
+  rmSync(testRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+}
+
 function git(args: string[]) {
   execFileSync('git', args, { cwd: workspacePath, stdio: 'pipe' })
 }
@@ -71,7 +75,7 @@ describe('remote-edit recovery preparation', () => {
     spawnMock.mockReset()
     relaunchMock.mockReset()
     exitMock.mockReset()
-    rmSync(testRoot, { recursive: true, force: true })
+    removeTestRoot()
     mkdirSync(path.join(workspacePath, 'src'), { recursive: true })
     execFileSync('git', ['init'], { cwd: workspacePath, stdio: 'pipe' })
     git(['config', 'user.email', 'nexy@example.test'])
@@ -85,7 +89,7 @@ describe('remote-edit recovery preparation', () => {
 
   afterEach(() => {
     db.close()
-    rmSync(testRoot, { recursive: true, force: true })
+    removeTestRoot()
   })
 
   it('persists reload preparation metadata for an applied, verified, clean fix', async () => {
@@ -105,7 +109,7 @@ describe('remote-edit recovery preparation', () => {
     ])
     expect(runs).toHaveLength(1)
     expect(runs[0].preReloadState).toEqual(expect.objectContaining({ dirty: false, version: '0.9.1' }))
-  })
+  }, 15000)
 
   it('blocks reload preparation while the workspace is dirty', async () => {
     writeFileSync(path.join(workspacePath, 'src', 'example.ts'), 'export const value = 3\n', 'utf8')

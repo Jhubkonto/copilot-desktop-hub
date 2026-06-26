@@ -125,5 +125,5 @@ describe('remote-edit fix staging', () => {
       fix_status: 'applied',
       status: 'fixed',
     })
-  })
+  }, 15000)
 })

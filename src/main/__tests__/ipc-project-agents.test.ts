@@ -13,6 +13,7 @@ const { mockDb, ipcHandlers, mockIpcMain } = vi.hoisted(() => {
       get: vi.fn((..._args: unknown[]): unknown => stmtResults.get(sql) ?? undefined),
       all: vi.fn((): unknown[] => (stmtResults.get(sql) as unknown[]) ?? [])
     })),
+    exec: vi.fn(),
     transaction: vi.fn((fn: (...args: unknown[]) => unknown) => fn),
     _setResult: (sql: string, value: unknown) => stmtResults.set(sql, value),
     _clearResults: () => stmtResults.clear()
@@ -38,6 +39,56 @@ vi.mock('electron', () => ({
 
 vi.mock('../database', () => ({
   getDatabase: () => mockDb
+}))
+
+vi.mock('../settings-handlers', () => ({ registerSettingsHandlers: vi.fn() }))
+vi.mock('../conversation-handlers', () => ({
+  registerConversationHandlers: vi.fn(),
+  registerMessageHandlers: vi.fn(),
+}))
+vi.mock('../chat-handlers', () => ({
+  registerChatHandlers: vi.fn(),
+  clearDirListingCache: vi.fn(),
+}))
+vi.mock('../file-handlers', () => ({
+  registerFileHandlers: vi.fn(),
+  registerContextHandlers: vi.fn(),
+  listDirectoryEntries: vi.fn(),
+}))
+vi.mock('../system-handlers', () => ({ registerSystemHandlers: vi.fn() }))
+vi.mock('../agents', () => ({ registerAgentHandlers: vi.fn() }))
+vi.mock('../skills', () => ({ registerSkillHandlers: vi.fn() }))
+vi.mock('../knowledge', () => ({ registerKnowledgeHandlers: vi.fn() }))
+vi.mock('../wiki-handlers', () => ({ registerWikiHandlers: vi.fn() }))
+vi.mock('../prompt-handlers', () => ({ registerPromptHandlers: vi.fn() }))
+vi.mock('../tools', () => ({ registerToolHandlers: vi.fn() }))
+vi.mock('../mcp', () => ({ registerMcpHandlers: vi.fn(), initDesktopNavigatorMcp: vi.fn() }))
+vi.mock('../providers', () => ({ registerProviderHandlers: vi.fn() }))
+vi.mock('../screen-capture-handlers', () => ({ registerScreenCaptureHandlers: vi.fn() }))
+vi.mock('../model-catalog-handlers', () => ({ registerModelCatalogHandlers: vi.fn() }))
+vi.mock('../cli-detection', () => ({ registerCliHandlers: vi.fn() }))
+vi.mock('../ws-handlers', () => ({ registerWsHandlers: vi.fn() }))
+vi.mock('../build-handlers', () => ({ registerBuildHandlers: vi.fn() }))
+vi.mock('../android-handlers', () => ({ registerAndroidHandlers: vi.fn() }))
+vi.mock('../model-availability', () => ({ registerModelAvailabilityHandlers: vi.fn() }))
+vi.mock('../error-log-handlers', () => ({ registerErrorLogHandlers: vi.fn() }))
+vi.mock('../error-report-handlers', () => ({ registerErrorReportHandlers: vi.fn() }))
+vi.mock('../remote-edit-handlers', () => ({ registerRemoteEditHandlers: vi.fn() }))
+vi.mock('../remote-edit/git-ops', () => ({ registerRemoteEditGitHandlers: vi.fn() }))
+vi.mock('../remote-edit/recovery', () => ({ registerRemoteEditRecoveryHandlers: vi.fn() }))
+vi.mock('../project-generator', () => ({ registerProjectGeneratorHandlers: vi.fn() }))
+vi.mock('../agent-generator', () => ({ registerAgentGeneratorHandlers: vi.fn() }))
+vi.mock('../artifacts', () => ({ registerArtifactHandlers: vi.fn() }))
+vi.mock('../artifact-generator', () => ({ registerArtifactGeneratorHandlers: vi.fn() }))
+vi.mock('../skill-generator', () => ({ registerSkillGeneratorHandlers: vi.fn() }))
+vi.mock('../scheduler-generator', () => ({ registerScheduleGeneratorHandlers: vi.fn() }))
+vi.mock('../voice-handlers', () => ({ registerVoiceHandlers: vi.fn() }))
+vi.mock('../scheduler-handlers', () => ({ registerSchedulerHandlers: vi.fn() }))
+vi.mock('../debrief-handlers', () => ({ registerDebriefHandlers: vi.fn() }))
+vi.mock('../quiz-handlers', () => ({ registerQuizHandlers: vi.fn() }))
+vi.mock('../screen-capture', () => ({
+  cacheExternalWindowLabel: vi.fn().mockResolvedValue(undefined),
+  consumeSuppressFocusEvent: vi.fn(() => false),
 }))
 
 vi.mock('../safe-handle', () => ({

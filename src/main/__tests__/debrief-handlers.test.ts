@@ -19,6 +19,14 @@ vi.mock('../safe-handle', () => ({
   },
 }))
 
+vi.mock('electron', () => ({
+  BrowserWindow: {
+    getAllWindows: vi.fn(() => [
+      { isDestroyed: vi.fn(() => false), webContents: { send: vi.fn() } },
+    ]),
+  },
+}))
+
 const mockSendProviderNonStreaming = vi.hoisted(() => vi.fn())
 vi.mock('../providers', () => ({
   DEFAULT_PROVIDER_MODEL: 'claude-sonnet-4-6',
@@ -30,6 +38,10 @@ vi.mock('../providers', () => ({
 
 vi.mock('../cli-adapters/claude', () => ({
   ClaudeAdapter: { isAvailable: vi.fn().mockReturnValue(false) },
+}))
+
+vi.mock('../ws-server', () => ({
+  broadcastToMobile: vi.fn(),
 }))
 
 import { initializeBaseSchema, runMigrations } from '../database-migrations'

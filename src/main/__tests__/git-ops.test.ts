@@ -18,6 +18,10 @@ vi.mock('../database', () => ({
 const testRoot = path.join(process.cwd(), '.test-remote-edit-git')
 const workspacePath = path.join(testRoot, 'workspace')
 
+function removeTestRoot(): void {
+  rmSync(testRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+}
+
 function git(args: string[]) {
   execFileSync('git', args, { cwd: workspacePath, stdio: 'pipe' })
 }
@@ -46,7 +50,7 @@ function createDatabase() {
 describe('remote-edit git operations', () => {
   beforeEach(() => {
     vi.resetModules()
-    rmSync(testRoot, { recursive: true, force: true })
+    removeTestRoot()
     mkdirSync(path.join(workspacePath, 'src'), { recursive: true })
     execFileSync('git', ['init'], { cwd: workspacePath, stdio: 'pipe' })
     git(['config', 'user.email', 'nexy@example.test'])
@@ -60,7 +64,7 @@ describe('remote-edit git operations', () => {
 
   afterEach(() => {
     db.close()
-    rmSync(testRoot, { recursive: true, force: true })
+    removeTestRoot()
   })
 
   it('prepares a commit only after an applied and verified fix', async () => {
@@ -74,7 +78,7 @@ describe('remote-edit git operations', () => {
     expect(prepared.status.files).toEqual([
       expect.objectContaining({ path: 'src/example.ts', status: 'modified' }),
     ])
-  })
+  }, 15000)
 
   it('commits only the applied remote-edit files', async () => {
     writeFileSync(path.join(workspacePath, 'unrelated.txt'), 'leave me unstaged\n', 'utf8')

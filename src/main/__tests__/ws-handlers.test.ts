@@ -100,6 +100,7 @@ vi.mock('../ws-server', () => ({
   getWsStatus: vi.fn(() => ({ enabled: false })),
   getQrDataUrl: vi.fn(),
   regenerateToken: vi.fn(),
+  broadcastToMobile: vi.fn(),
   setWsCommandHandler: vi.fn((handler) => { state.commandHandler = handler }),
 }))
 
@@ -138,6 +139,7 @@ describe('ws handlers', () => {
     state.runs.length = 0
     state.abortActiveStream.mockClear()
     state.dispatchChatSend.mockClear()
+    state.dispatchChatSend.mockResolvedValue(undefined)
     state.webContentsSend.mockClear()
     vi.mocked(retrieveAuthMode).mockReturnValue('byok')
     vi.mocked(getAndroidUpdateManifest).mockResolvedValue(null)

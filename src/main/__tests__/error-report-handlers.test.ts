@@ -95,8 +95,8 @@ describe('error report handlers', () => {
     const reports = invoke<Array<{ id: string; title: string }>>('error-report:list', 10)
 
     expect(result.reportId).toEqual(expect.any(String))
-    expect(report).toEqual(expect.objectContaining({ id: result.reportId, title: 'Bug report' }))
-    expect(reports).toEqual([expect.objectContaining({ id: result.reportId, title: 'Bug report' })])
+    expect(report).toEqual(expect.objectContaining({ id: result.reportId, title: 'Edit request' }))
+    expect(reports).toEqual([expect.objectContaining({ id: result.reportId, title: 'Edit request' })])
   })
 
   it('deletes a report, its remote-edit rows, and its artifact folders', async () => {

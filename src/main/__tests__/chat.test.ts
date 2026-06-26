@@ -90,7 +90,7 @@ vi.mock('../project-handlers', () => ({
   })),
 }))
 vi.mock('../fcm-sender', () => ({ sendChatCompleteNotification: vi.fn(async () => undefined) }))
-vi.mock('../file-handlers', () => ({ listDirectoryEntries: vi.fn(() => []) }))
+vi.mock('../file-handlers', () => ({ listDirectoryEntries: vi.fn(() => []), getWorkingDirectory: vi.fn(() => '/mock-cwd') }))
 vi.mock('../mcp', () => ({
   ensureMcpServersReady: vi.fn(async () => undefined),
   getAvailableMcpTools: vi.fn(() => []),
