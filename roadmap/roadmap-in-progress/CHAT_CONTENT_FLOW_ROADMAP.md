@@ -125,12 +125,12 @@ Major refactoring is needed, but it should be phased. Keep existing IPC and WebS
   - [x] targeted `ChatThinkingParserTest`
   - [x] targeted `ChatTurnReducerTest`
   - [x] targeted `ChatViewModelTest` normalized live-turn subscription coverage
-  - [ ] from `android/`: `./gradlew test`
-  - [ ] from `android/`: `./gradlew lintDebug`
-  - [ ] from `android/`: `./gradlew assembleDebug`
+  - [x] from `android/`: `./gradlew test`
+  - [x] from `android/`: `./gradlew lintDebug`
+  - [x] from `android/`: `./gradlew assembleDebug`
 - Manual smoke tests:
-  - [ ] OpenAI/OpenRouter text-only response
-  - [ ] Anthropic/Codex/Claude reasoning response
+  - [x] OpenAI/OpenRouter text-only response
+  - [x] Anthropic/Codex/Claude reasoning response
   - [ ] CLI tool call with text before and after tool execution
   - [ ] provider MCP tool loop
   - [ ] stop generation mid-stream
