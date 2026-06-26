@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { ChatTurnEvent } from '../shared/chat-turn-types'
 import type {
   AndroidBuildCommandName,
   AndroidSigningConfig,
@@ -243,6 +244,11 @@ const api = {
       callback(data)
     typedOn('chat:activity-global', handler)
     return () => typedOff('chat:activity-global', handler)
+  },
+  onChatTurnEvent: (callback: (event: ChatTurnEvent) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: ChatTurnEvent) => callback(data)
+    typedOn('chat:turn-event', handler)
+    return () => typedOff('chat:turn-event', handler)
   },
   onAndroidLog: (callback: (data: { tag: string; message: string; ts: number }) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, data: { tag: string; message: string; ts: number }) =>
