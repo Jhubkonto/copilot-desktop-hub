@@ -35,6 +35,16 @@ export interface ModelToolCaller {
   ): Promise<ProviderNonStreamResult>
 }
 
+export interface ToolLoopToolFinishedEvent {
+  toolName: string
+  serverName: string
+  args: Record<string, unknown>
+  result: string
+  success: boolean
+  conversationId: string | null
+  resultImages?: { dataUrl: string }[]
+}
+
 export async function runProviderMcpToolLoop(
   caller: ModelToolCaller,
   messages: ProviderMessage[],
@@ -51,6 +61,7 @@ export async function runProviderMcpToolLoop(
   onActivity?: (event: { type: 'thinking' } | { type: 'tool'; name: string; server: string }) => void,
   autoApproveTools?: boolean,
   toolPolicy?: { preApproved: string[]; alwaysAsk: string[]; neverAllow: string[] },
+  onToolFinished?: (event: ToolLoopToolFinishedEvent) => void,
 ): Promise<string> {
   const toolNames = [...new Set(toolDefs.map((t) => t.function.name.split('__').pop()))].join(', ')
   const directive = toolDirective ??
@@ -82,6 +93,14 @@ export async function runProviderMcpToolLoop(
   const sendActivity = (event: { type: 'thinking' } | { type: 'tool'; name: string; server: string }) => {
     if (!webContents.isDestroyed()) webContents.send('chat:activity', event)
     onActivity?.(event)
+  }
+  const sendToolFinished = (event: ToolLoopToolFinishedEvent) => {
+    if (onToolFinished) {
+      onToolFinished(event)
+      return
+    }
+    if (!webContents.isDestroyed()) webContents.send('chat:tool-call-event', event)
+    broadcastToMobile({ event: 'chat:tool-call-event', data: event })
   }
 
   for (let i = 0; i < MCP_MAX_ITERATIONS; i++) {
@@ -163,8 +182,7 @@ export async function runProviderMcpToolLoop(
             success: false,
             conversationId,
           }
-          if (!webContents.isDestroyed()) webContents.send('chat:tool-call-event', neverAllowPayload)
-          broadcastToMobile({ event: 'chat:tool-call-event', data: neverAllowPayload })
+          sendToolFinished(neverAllowPayload)
           loopMessages.push({ role: 'tool' as const, tool_call_id: call.id, content: toolResultContent })
           continue
         }
@@ -179,8 +197,7 @@ export async function runProviderMcpToolLoop(
             success: false,
             conversationId,
           }
-          if (!webContents.isDestroyed()) webContents.send('chat:tool-call-event', notApprovedPayload)
-          broadcastToMobile({ event: 'chat:tool-call-event', data: notApprovedPayload })
+          sendToolFinished(notApprovedPayload)
           loopMessages.push({ role: 'tool' as const, tool_call_id: call.id, content: toolResultContent })
           continue
         }
@@ -197,8 +214,7 @@ export async function runProviderMcpToolLoop(
           success: false,
           conversationId,
         }
-        if (!webContents.isDestroyed()) webContents.send('chat:tool-call-event', unknownPayload)
-        broadcastToMobile({ event: 'chat:tool-call-event', data: unknownPayload })
+        sendToolFinished(unknownPayload)
       } else if (inlineHandler) {
         sendActivity({ type: 'tool', name: call.name, server: 'Project Wiki' })
         const toolResult = await inlineHandler(call.arguments as Record<string, unknown>)
@@ -213,8 +229,7 @@ export async function runProviderMcpToolLoop(
           success: toolResult.success,
           conversationId,
         }
-        if (!webContents.isDestroyed()) webContents.send('chat:tool-call-event', inlinePayload)
-        broadcastToMobile({ event: 'chat:tool-call-event', data: inlinePayload })
+        sendToolFinished(inlinePayload)
       } else {
         // resolved is guaranteed non-null: the first branch handles !resolved && !inlineHandler
         const mcpResolved = resolved!
@@ -246,8 +261,7 @@ export async function runProviderMcpToolLoop(
           conversationId,
           ...(toolImages?.length && { resultImages: toolImages }),
         }
-        if (!webContents.isDestroyed()) webContents.send('chat:tool-call-event', mcpPayload)
-        broadcastToMobile({ event: 'chat:tool-call-event', data: mcpPayload })
+        sendToolFinished(mcpPayload)
       }
 
       // Truncate large results for the model context to prevent inspection tools

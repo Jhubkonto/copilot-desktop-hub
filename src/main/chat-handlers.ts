@@ -17,7 +17,7 @@ import { runOrchestration, type OrchestratorAgent } from './orchestrator'
 import { ensureMcpServersReady, getAvailableMcpTools, getMcpServerConfigsForCli, servers as mcpServers } from './mcp'
 import { requestApproval } from './tools'
 import { getAdapter } from './cli-adapters/registry'
-import { broadcastToMobile, hasMobileClients, isMobileInForeground } from './ws-server'
+import { broadcastToMobile, isMobileInForeground } from './ws-server'
 import { sendChatCompleteNotification } from './fcm-sender'
 import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
@@ -29,8 +29,28 @@ import { buildChatContext, buildStoredAttachments } from './chat-context-builder
 import { dispatchToProvider } from './chat-provider-dispatch'
 import type { MobileChatActivity } from './chat-context-builder'
 import { debugLog } from './debug-mode'
+import { ChatTurnEmitter } from './chat-turn-emitter'
 
 export { clearDirListingCache } from './chat-context-builder'
+
+type ThinkingBlockEntry = { blockId: string; content: string; done: boolean }
+
+function persistAssistantMessage(
+  db: ReturnType<typeof getDatabase>,
+  conversationId: string,
+  content: string,
+  model: string | null,
+  thinkingBlocks?: Map<string, ThinkingBlockEntry>,
+): string {
+  const msgId = randomUUID()
+  const thinkingJson = thinkingBlocks && thinkingBlocks.size > 0
+    ? JSON.stringify(Array.from(thinkingBlocks.values()))
+    : null
+  db.prepare(
+    'INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model, thinking_blocks) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+  ).run(msgId, conversationId, 'assistant', content, null, Date.now(), model, thinkingJson)
+  return msgId
+}
 
 function broadcastConversationMessages(conversationId: string): void {
   const db = getDatabase()
@@ -156,19 +176,22 @@ export async function dispatchChatSend(
 ): Promise<{ assistantMsgId: string } | null> {
   const db = getDatabase()
 
+  const turnEmitter = new ChatTurnEmitter(conversationId, {
+    sendDesktop: (channel, ...args) => {
+      if (!window.webContents.isDestroyed()) window.webContents.send(channel, ...args)
+    },
+    broadcastMobile: broadcastToMobile,
+  })
+  turnEmitter.started()
+
   const sendActivity = (activity: MobileChatActivity) => {
-    broadcastToMobile({ event: 'chat:activity', data: { conversationId, ...activity } })
-    if (!window.webContents.isDestroyed()) {
-      window.webContents.send('chat:activity-global', { conversationId, ...activity })
-    }
+    turnEmitter.activity(activity)
   }
   const sendChunk = (chunk: string) => {
-    if (!window.webContents.isDestroyed()) window.webContents.send('chat:stream-response', chunk)
-    broadcastToMobile({ event: 'chat:stream-chunk', data: { conversationId, chunk } })
+    turnEmitter.assistantTextDelta(chunk)
   }
   const sendStreamEnd = () => {
-    if (!window.webContents.isDestroyed()) window.webContents.send('chat:stream-response', null)
-    broadcastToMobile({ event: 'chat:stream-end', data: { conversationId } })
+    turnEmitter.streamEnd()
     sendActivity({ state: 'complete', label: 'Complete' })
     const db = getDatabase()
     const convTitle = (db.prepare('SELECT title FROM conversations WHERE id = ?').get(conversationId) as { title: string } | undefined)?.title ?? 'Chat'
@@ -396,17 +419,14 @@ export async function dispatchChatSend(
         } catch (orchError) {
           const message = orchError instanceof Error ? orchError.message : 'Orchestration failed'
           debugLog('chat', `orchestration error: ${message}`)
-          window.webContents.send('chat:stream-error', {
+          turnEmitter.streamError({
             type: 'api',
             message,
             retryable: message !== NO_PROVIDER_CONFIGURED_MESSAGE,
           })
           sendActivity({ state: 'error', label: message })
-          broadcastToMobile({ event: 'chat:stream-end', data: { conversationId } })
-          const errMsgId = randomUUID()
-          db.prepare(
-            'INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model) VALUES (?, ?, ?, ?, ?, ?, ?)',
-          ).run(errMsgId, conversationId, 'assistant', message, null, Date.now(), selectedModel ?? null)
+          turnEmitter.closeStream()
+          const errMsgId = persistAssistantMessage(db, conversationId, message, selectedModel ?? null)
           broadcastConversationMessages(conversationId)
           return { assistantMsgId: errMsgId }
         }
@@ -448,18 +468,7 @@ export async function dispatchChatSend(
         }
 
         const responseContent = finalContent
-        const assistantMsgId = randomUUID()
-        db.prepare(
-          'INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        ).run(
-          assistantMsgId,
-          conversationId,
-          'assistant',
-          responseContent,
-          null,
-          Date.now(),
-          selectedModel ?? null,
-        )
+        const assistantMsgId = persistAssistantMessage(db, conversationId, responseContent, selectedModel ?? null)
         broadcastConversationMessages(conversationId)
         sendStreamEnd()
         return { assistantMsgId }
@@ -595,9 +604,7 @@ export async function dispatchChatSend(
       const cliThinkingBuffer = new Map<string, { blockId: string; content: string; done: boolean }>()
 
       try {
-        if (!window.webContents.isDestroyed()) {
-          window.webContents.send('chat:stream-model', cliModelForRequest || effectiveBackend)
-        }
+        turnEmitter.model(cliModelForRequest || effectiveBackend)
         sendActivity({ state: 'thinking', label: 'Starting CLI agent' })
         if (cliMcpServers && cliMcpServers.length > 0) {
           sendActivity({ state: 'thinking', label: 'Preparing MCP tools' })
@@ -720,7 +727,7 @@ export async function dispatchChatSend(
             if (event.type === 'tool_start') {
               debugLog('chat', `cli-tool-start: id=${event.id} name=${event.name}`)
               pendingTools.set(event.id, { name: event.name, input: event.input, startTime: Date.now() })
-              window.webContents.send('chat:cli-tool-start', { id: event.id, name: event.name, input: event.input })
+              turnEmitter.cliToolStart(event.id, event.name, event.input as Record<string, unknown>)
               sendActivity({
                 state: 'tool',
                 label: `Running ${event.name}`,
@@ -733,35 +740,21 @@ export async function dispatchChatSend(
               if (pending) {
                 completedToolCalls.push({ id: event.id, ...pending, content: event.content, isError: event.isError })
                 pendingTools.delete(event.id)
-                broadcastToMobile({
-                  event: 'chat:tool-call-event',
-                  data: {
-                    conversationId,
-                    toolName: pending.name,
-                    serverName: effectiveBackend,
-                    args: pending.input,
-                    result: event.content,
-                    success: !event.isError,
-                  },
-                })
               }
-              window.webContents.send('chat:cli-tool-end', { id: event.id, content: event.content, isError: event.isError })
+              turnEmitter.cliToolEnd(event.id, event.content, event.isError, pending ? {
+                name: pending.name,
+                input: pending.input as Record<string, unknown>,
+                serverName: effectiveBackend,
+              } : undefined)
               sendActivity({ state: 'thinking', label: 'Processing tool result' })
             } else if (event.type === 'cost') {
-              window.webContents.send('chat:cli-cost', {
-                totalCostUsd: event.totalCostUsd,
-                inputTokens: event.inputTokens,
-                outputTokens: event.outputTokens,
-              })
-              broadcastToMobile({ event: 'chat:cost', data: { conversationId, inputTokens: event.inputTokens, outputTokens: event.outputTokens, totalCostUsd: event.totalCostUsd } })
+              turnEmitter.cost(event.inputTokens, event.outputTokens, event.totalCostUsd)
             } else if (event.type === 'thinking_chunk') {
-              window.webContents.send('chat:thinking-delta', { blockId: event.blockId, chunk: event.chunk })
-              broadcastToMobile({ event: 'chat:thinking-delta', data: { conversationId, blockId: event.blockId, chunk: event.chunk } })
+              turnEmitter.thinkingDelta(event.blockId, event.chunk)
               const existing = cliThinkingBuffer.get(event.blockId) ?? { blockId: event.blockId, content: '', done: false }
               cliThinkingBuffer.set(event.blockId, { ...existing, content: existing.content + event.chunk })
             } else if (event.type === 'thinking_end') {
-              window.webContents.send('chat:thinking-end', { blockId: event.blockId })
-              broadcastToMobile({ event: 'chat:thinking-end', data: { conversationId, blockId: event.blockId } })
+              turnEmitter.thinkingEnd(event.blockId)
               const existing = cliThinkingBuffer.get(event.blockId)
               if (existing) cliThinkingBuffer.set(event.blockId, { ...existing, done: true })
             }
@@ -772,25 +765,12 @@ export async function dispatchChatSend(
 
         debugLog('chat', `cli-adapter: stream done toolCallsPersisted=${completedToolCalls.length} thinkingBlocks=${cliThinkingBuffer.size}`)
         persistCompletedCliToolCalls()
-
-        const cliThinkingJson = cliThinkingBuffer.size > 0
-          ? JSON.stringify(Array.from(cliThinkingBuffer.values()))
-          : null
-
-        const assistantMsgId = randomUUID()
-        db.prepare(
-          'INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model, thinking_blocks) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        ).run(
-          assistantMsgId,
-          conversationId,
-          'assistant',
-          cliResponseContent,
-          null,
-          Date.now(),
+        const assistantMsgId = persistAssistantMessage(
+          db, conversationId, cliResponseContent,
           (cliModelForRequest || null) as string | null,
-          cliThinkingJson,
+          cliThinkingBuffer,
         )
-
+        broadcastConversationMessages(conversationId)
         sendStreamEnd()
         return { assistantMsgId }
       } catch (err) {
@@ -801,20 +781,15 @@ export async function dispatchChatSend(
         for (const [blockId, block] of cliThinkingBuffer) {
           if (!block.done) {
             cliThinkingBuffer.set(blockId, { ...block, done: true })
-            window.webContents.send('chat:thinking-end', { blockId })
-            broadcastToMobile({ event: 'chat:thinking-end', data: { conversationId, blockId } })
+            turnEmitter.thinkingEnd(blockId)
           }
         }
-        const cliErrorThinkingJson = cliThinkingBuffer.size > 0
-          ? JSON.stringify(Array.from(cliThinkingBuffer.values()))
-          : null
-        window.webContents.send('chat:stream-error', { type: 'api', message, retryable: true })
+        turnEmitter.streamError({ type: 'api', message, retryable: true })
         sendActivity({ state: 'error', label: message })
-        broadcastToMobile({ event: 'chat:stream-end', data: { conversationId } })
-        const assistantMsgId = randomUUID()
-        db.prepare(
-          'INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model, thinking_blocks) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        ).run(assistantMsgId, conversationId, 'assistant', message, null, Date.now(), effectiveBackend, cliErrorThinkingJson)
+        turnEmitter.closeStream()
+        const assistantMsgId = persistAssistantMessage(
+          db, conversationId, message, effectiveBackend, cliThinkingBuffer,
+        )
         return { assistantMsgId }
       }
     }
@@ -936,9 +911,7 @@ export async function dispatchChatSend(
   let capturedStreamModel: string | null = null
   const handleStreamModel = (m: string) => {
     capturedStreamModel = m
-    if (!window.webContents.isDestroyed()) {
-      window.webContents.send('chat:stream-model', m)
-    }
+    turnEmitter.model(m)
   }
 
   const byokThinkingBuffer = new Map<string, { blockId: string; content: string; done: boolean }>()
@@ -976,12 +949,22 @@ export async function dispatchChatSend(
       onThinkingChunk: (blockId, chunk) => {
         const existing = byokThinkingBuffer.get(blockId) ?? { blockId, content: '', done: false }
         byokThinkingBuffer.set(blockId, { ...existing, content: existing.content + chunk })
-        broadcastToMobile({ event: 'chat:thinking-delta', data: { conversationId, blockId, chunk } })
+        turnEmitter.thinkingDelta(blockId, chunk)
       },
       onThinkingEnd: (blockId) => {
         const existing = byokThinkingBuffer.get(blockId)
         if (existing) byokThinkingBuffer.set(blockId, { ...existing, done: true })
-        broadcastToMobile({ event: 'chat:thinking-end', data: { conversationId, blockId } })
+        turnEmitter.thinkingEnd(blockId)
+      },
+      onToolFinished: (event) => {
+        turnEmitter.toolFinished({
+          toolName: event.toolName,
+          serverName: event.serverName,
+          args: event.args,
+          result: event.result,
+          success: event.success,
+          ...(event.resultImages?.length ? { resultImages: event.resultImages } : {}),
+        })
       },
     })
 
@@ -990,7 +973,7 @@ export async function dispatchChatSend(
     debugLog('chat', `byok error: ${providerName} — ${error instanceof Error ? error.message : String(error)}`)
     console.error(`[chat] ${providerName} error:`, error)
     const message = error instanceof Error ? error.message : 'Unexpected provider error'
-    window.webContents.send('chat:stream-error', {
+    turnEmitter.streamError({
       type: 'api',
       message,
       retryable: message !== NO_PROVIDER_CONFIGURED_MESSAGE && message !== 'Azure endpoint not configured',
@@ -999,22 +982,10 @@ export async function dispatchChatSend(
     completionActivity = { state: 'error', label: message }
   }
 
-  const byokThinkingJson = byokThinkingBuffer.size > 0
-    ? JSON.stringify(Array.from(byokThinkingBuffer.values()))
-    : null
-
-  const assistantMsgId = randomUUID()
-  db.prepare(
-    'INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model, thinking_blocks) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-  ).run(
-    assistantMsgId,
-    conversationId,
-    'assistant',
-    responseContent,
-    null,
-    Date.now(),
+  const assistantMsgId = persistAssistantMessage(
+    db, conversationId, responseContent,
     capturedStreamModel ?? selectedModel ?? null,
-    byokThinkingJson,
+    byokThinkingBuffer,
   )
 
   broadcastConversationMessages(conversationId)
@@ -1023,7 +994,7 @@ export async function dispatchChatSend(
     sendStreamEnd()
   } else {
     sendActivity(completionActivity)
-    broadcastToMobile({ event: 'chat:stream-end', data: { conversationId } })
+    turnEmitter.closeStream()
   }
 
   return { assistantMsgId }

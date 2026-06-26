@@ -11,6 +11,7 @@ import {
   type ProviderMessage,
 } from './providers'
 import { runProviderMcpToolLoop } from './tool-loop'
+import type { ToolLoopToolFinishedEvent } from './tool-loop'
 import type { ToolDefinition, ToolChoice, ProviderNonStreamResult } from './provider-types'
 import type { InlineHandler, MobileChatActivity } from './chat-context-builder'
 import type { MessageContentPart } from './provider-core-types'
@@ -47,6 +48,7 @@ export type ProviderDispatchOptions = {
   systemPrompt: string
   onThinkingChunk?: (blockId: string, chunk: string) => void
   onThinkingEnd?: (blockId: string) => void
+  onToolFinished?: (event: ToolLoopToolFinishedEvent) => void
   toolPolicy?: { preApproved: string[]; alwaysAsk: string[]; neverAllow: string[] }
 }
 
@@ -81,6 +83,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
     systemPrompt,
     onThinkingChunk: callerOnThinkingChunk,
     onThinkingEnd: callerOnThinkingEnd,
+    onToolFinished,
     toolPolicy,
   } = opts
 
@@ -134,12 +137,18 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
 
   const thinkingCallbacks = {
     onThinkingChunk: (blockId: string, chunk: string) => {
-      webContents.send('chat:thinking-delta', { blockId, chunk })
-      callerOnThinkingChunk?.(blockId, chunk)
+      if (callerOnThinkingChunk) {
+        callerOnThinkingChunk(blockId, chunk)
+      } else {
+        webContents.send('chat:thinking-delta', { blockId, chunk })
+      }
     },
     onThinkingEnd: (blockId: string) => {
-      webContents.send('chat:thinking-end', { blockId })
-      callerOnThinkingEnd?.(blockId)
+      if (callerOnThinkingEnd) {
+        callerOnThinkingEnd(blockId)
+      } else {
+        webContents.send('chat:thinking-end', { blockId })
+      }
     },
   }
 
@@ -163,6 +172,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
         onActivity,
         undefined,
         toolPolicy,
+        onToolFinished,
       )
     }
     sendActivity({ state: 'thinking', label: 'Generating response' })
@@ -197,6 +207,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
         onActivity,
         undefined,
         toolPolicy,
+        onToolFinished,
       )
     }
     sendActivity({ state: 'thinking', label: 'Generating response' })
@@ -250,6 +261,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
         onActivity,
         undefined,
         toolPolicy,
+        onToolFinished,
       )
     }
     sendActivity({ state: 'thinking', label: 'Generating response' })
@@ -291,6 +303,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
       onActivity,
       undefined,
       toolPolicy,
+      onToolFinished,
     )
   }
   sendActivity({ state: 'thinking', label: 'Generating response' })

@@ -118,6 +118,7 @@ vi.mock('../providers', () => ({
   NO_PROVIDER_CONFIGURED_MESSAGE: 'No provider configured. Add an API key in Settings.',
   getProviderForAgent: vi.fn(() => ({ provider: 'openai', model: 'gpt-4o' })),
   getApiKey: vi.fn(() => 'test-key'),
+  getOpenRouterModels: vi.fn(() => []),
   sendOpenAIMessage: vi.fn(async (_conversationId, _apiKey, _model, _messages, onChunk) => {
     onChunk('Hello')
     onChunk(' world')
@@ -142,6 +143,7 @@ import { getAvailableMcpTools, getMcpServerConfigsForCli } from '../mcp'
 import { getApiKey, sendOpenAIMessage } from '../providers'
 import { requestApproval } from '../tools'
 import { runOrchestration } from '../orchestrator'
+import { runProviderMcpToolLoop } from '../tool-loop'
 
 describe('chat handlers', () => {
   beforeEach(() => {
@@ -162,6 +164,7 @@ describe('chat handlers', () => {
     vi.mocked(getAvailableMcpTools).mockReturnValue([])
     vi.mocked(getMcpServerConfigsForCli).mockReturnValue([])
     vi.mocked(getApiKey).mockReturnValue('test-key')
+    vi.mocked(runProviderMcpToolLoop).mockReset()
     vi.mocked(requestApproval).mockResolvedValue(false)
     registerChatHandlers()
   })
@@ -176,15 +179,15 @@ describe('chat handlers', () => {
     expect(state.send).toHaveBeenCalledWith('chat:stream-response', ' world')
     expect(state.broadcastToMobile).toHaveBeenCalledWith({
       event: 'chat:activity',
-      data: { conversationId: 'conv-1', state: 'thinking', label: 'Preparing context' },
+      data: expect.objectContaining({ conversationId: 'conv-1', state: 'thinking', label: 'Preparing context' }),
     })
     expect(state.broadcastToMobile).toHaveBeenCalledWith({
       event: 'chat:activity',
-      data: { conversationId: 'conv-1', state: 'thinking', label: 'Generating response' },
+      data: expect.objectContaining({ conversationId: 'conv-1', state: 'thinking', label: 'Generating response' }),
     })
     expect(state.broadcastToMobile).toHaveBeenCalledWith({
       event: 'chat:activity',
-      data: { conversationId: 'conv-1', state: 'complete', label: 'Complete' },
+      data: expect.objectContaining({ conversationId: 'conv-1', state: 'complete', label: 'Complete' }),
     })
     expect(state.events.indexOf('db:assistant-insert')).toBeLessThan(state.events.indexOf('mobile:stream-end'))
     expect(state.events.indexOf('db:assistant-insert')).toBeLessThan(state.events.indexOf('mobile:complete'))
@@ -217,12 +220,105 @@ describe('chat handlers', () => {
     expect(state.send).toHaveBeenCalledWith('chat:thinking-end', { blockId: 'reasoning-0' })
     expect(state.broadcastToMobile).toHaveBeenCalledWith({
       event: 'chat:thinking-delta',
-      data: { conversationId: 'conv-byok-thinking', blockId: 'reasoning-0', chunk: 'Checking context.' },
+      data: expect.objectContaining({ conversationId: 'conv-byok-thinking', blockId: 'reasoning-0', chunk: 'Checking context.' }),
     })
     const assistantMessage = state.messages.find((message) => message.role === 'assistant')
     expect(JSON.parse(assistantMessage?.thinkingBlocks ?? '[]')).toEqual([
       { blockId: 'reasoning-0', content: 'Checking context.', done: true },
     ])
+  })
+
+  it('routes BYOK provider tool-loop events through normalized chat turn events', async () => {
+    vi.mocked(getAgentConfig).mockReturnValue({
+      id: 'agent-tools',
+      name: 'Tool Agent',
+      systemPrompt: 'Use tools.',
+      mcpServers: ['server-1'],
+      agenticMode: true,
+    } as never)
+    vi.mocked(getAvailableMcpTools).mockReturnValue([{
+      name: 'browser_snapshot',
+      serverId: 'server-1',
+      serverName: 'Browser',
+    }])
+    vi.mocked(runProviderMcpToolLoop).mockImplementationOnce(async (
+      _caller,
+      _messages,
+      _toolDefs,
+      _toolMap,
+      _agentId,
+      _conversationId,
+      _webContents,
+      onChunk,
+      _onModel,
+      _agenticMode,
+      _inlineHandlers,
+      _toolDirective,
+      _onActivity,
+      _autoApproveTools,
+      _toolPolicy,
+      onToolFinished,
+    ) => {
+      onToolFinished?.({
+        conversationId: 'conv-byok-tool',
+        toolName: 'browser_snapshot',
+        serverName: 'Browser',
+        args: { tab: 'active' },
+        result: 'Snapshot captured',
+        success: true,
+      })
+      onChunk('Done')
+      return 'Done'
+    })
+
+    const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<{ assistantMsgId: string }>
+    await handler({ sender: {} }, 'conv-byok-tool', 'Inspect page', { agentId: 'agent-tools' })
+
+    expect(state.broadcastToMobile).toHaveBeenCalledWith({
+      event: 'chat:tool-call-event',
+      data: expect.objectContaining({
+        conversationId: 'conv-byok-tool',
+        toolName: 'browser_snapshot',
+        serverName: 'Browser',
+        args: { tab: 'active' },
+        result: 'Snapshot captured',
+        success: true,
+        turnId: expect.any(String),
+        sequence: expect.any(Number),
+      }),
+    })
+    expect(state.broadcastToMobile).toHaveBeenCalledWith({
+      event: 'chat:turn-event',
+      data: expect.objectContaining({
+        conversationId: 'conv-byok-tool',
+        type: 'tool_finished',
+        toolName: 'browser_snapshot',
+        result: 'Snapshot captured',
+      }),
+    })
+  })
+
+  it('CLI path sends conversation:messages before chat:stream-end so Android history is loaded before stream closes', async () => {
+    const mockAdapter = {
+      isAvailable: () => true,
+      send: vi.fn(async (_win: unknown, _req: unknown, onChunk: (chunk: string) => void) => {
+        onChunk('cli response')
+        return 'cli response'
+      }),
+    }
+    vi.mocked(getAdapter).mockReturnValue(mockAdapter as never)
+    vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(true)
+    vi.mocked(retrieveAuthMode).mockReturnValue('none')
+    vi.mocked(getApiKey).mockReturnValue(null)
+
+    const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<{ assistantMsgId: string }>
+    await handler({ sender: {} }, 'conv-cli-order', 'Hello there')
+
+    expect(state.events).toContain('db:assistant-insert')
+    expect(state.events).toContain('mobile:messages')
+    expect(state.events).toContain('mobile:stream-end')
+    expect(state.events.indexOf('db:assistant-insert')).toBeLessThan(state.events.indexOf('mobile:stream-end'))
+    expect(state.events.indexOf('mobile:messages')).toBeLessThan(state.events.indexOf('mobile:stream-end'))
   })
 
   it('stores mobile image attachment metadata without persisting image data', async () => {
@@ -298,11 +394,11 @@ describe('chat handlers', () => {
     expect(state.send).toHaveBeenCalledWith('chat:thinking-end', { blockId: 'codex-activity' })
     expect(state.broadcastToMobile).toHaveBeenCalledWith({
       event: 'chat:thinking-delta',
-      data: { conversationId: 'conv-cli-thinking', blockId: 'codex-activity', chunk: 'Starting Codex CLI.\n' },
+      data: expect.objectContaining({ conversationId: 'conv-cli-thinking', blockId: 'codex-activity', chunk: 'Starting Codex CLI.\n' }),
     })
     expect(state.broadcastToMobile).toHaveBeenCalledWith({
       event: 'chat:thinking-end',
-      data: { conversationId: 'conv-cli-thinking', blockId: 'codex-activity' },
+      data: expect.objectContaining({ conversationId: 'conv-cli-thinking', blockId: 'codex-activity' }),
     })
     const assistantMessage = state.messages.find((message) => message.role === 'assistant')
     expect(JSON.parse(assistantMessage?.thinkingBlocks ?? '[]')).toEqual([

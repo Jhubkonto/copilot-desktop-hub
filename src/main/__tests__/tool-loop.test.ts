@@ -268,6 +268,46 @@ describe('runProviderMcpToolLoop', () => {
     }))
   })
 
+  it('uses the optional tool-finished callback instead of direct UI emission', async () => {
+    const caller: ModelToolCaller = vi.fn()
+      .mockResolvedValueOnce({
+        content: null,
+        toolCalls: [{ id: 'call-1', name: 'server-1__click', arguments: { target: 'submit' } }]
+      })
+      .mockResolvedValueOnce({ content: 'finished', toolCalls: [] })
+
+    const webContents = makeWebContents()
+    const onToolFinished = vi.fn()
+    await runProviderMcpToolLoop(
+      caller,
+      [{ role: 'user', content: 'click submit' }],
+      toolDefs,
+      toolMap,
+      'agent-1',
+      'conversation-42',
+      webContents,
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      onToolFinished,
+    )
+
+    expect(onToolFinished).toHaveBeenCalledWith(expect.objectContaining({
+      conversationId: 'conversation-42',
+      toolName: 'click',
+      serverName: 'Browser Server',
+      args: { target: 'submit' },
+      result: 'clicked',
+      success: true,
+    }))
+    expect(webContents.send).not.toHaveBeenCalledWith('chat:tool-call-event', expect.anything())
+  })
+
   it('emits conversationId: null when called from a non-chat caller', async () => {
     const caller: ModelToolCaller = vi.fn()
       .mockResolvedValueOnce({
