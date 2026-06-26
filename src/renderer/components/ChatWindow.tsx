@@ -49,7 +49,7 @@ export function ChatWindow() {
   const loadConversations = useAppStore((state) => state.loadConversations)
   const loadAgents = useAppStore((state) => state.loadAgents)
   const newChat = useAppStore((state) => state.newChat)
-  const setShowArtifactsPanel = useAppStore((state) => state.setShowArtifactsPanel)
+  const openSectionPane = useAppStore((state) => state.openSectionPane)
   const selectConversation = useAppStore((state) => state.selectConversation)
   const setTheme = useAppStore((state) => state.setTheme)
   const logout = useAppStore((state) => state.logout)
@@ -994,7 +994,7 @@ export function ChatWindow() {
       onCaptureScreen={handleCaptureScreen}
       onPasteClipboardImage={handlePasteClipboard}
       onOpenPromptLibrary={() => setShowPromptLibrary(true)}
-      onAttachArtifact={conversationId ? () => setShowArtifactsPanel(true) : undefined}
+      onAttachArtifact={conversationId ? () => openSectionPane('artifacts') : undefined}
       voiceState={voiceState}
       onToggleVoice={toggleVoice}
       onToggleContextInspector={() => setShowContextInspector((value) => !value)}

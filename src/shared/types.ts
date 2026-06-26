@@ -1745,6 +1745,7 @@ export type IpcReturnMap = {
   'artifact:list-versions': ArtifactVersion[]
   'artifact:get-version': ArtifactVersion | null
   'artifact:delete': { deleted: boolean }
+  'artifact:move-to-project': { ok: boolean }
   'artifact:export': { exportPath: string }
   'artifact:open-folder': { ok: boolean }
   'artifact-generator:chat': { started: boolean }
@@ -2097,6 +2098,7 @@ export type IpcChannels =
   | 'artifact-generator:get-runs'
   | 'artifact-generator:get-storage-root'
   | 'artifact-generator:set-storage-root'
+  | 'artifact:move-to-project'
   | 'artifact-generator:token'
   | 'artifact-generator:spec-ready'
   | 'artifact-generator:file-event'

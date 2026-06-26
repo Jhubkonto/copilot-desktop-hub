@@ -131,6 +131,14 @@ export function registerArtifactHandlers(): void {
     return { deleted: info.changes > 0 }
   })
 
+  safeHandle('artifact:move-to-project', (_event, artifactId: string, projectId: string | null) => {
+    const db = getDatabase()
+    const info = projectId
+      ? db.prepare('UPDATE artifacts SET project_id = ?, updated_at = ? WHERE id = ?').run(projectId, Date.now(), artifactId)
+      : db.prepare('UPDATE artifacts SET project_id = NULL, updated_at = ? WHERE id = ?').run(Date.now(), artifactId)
+    return { ok: info.changes > 0 }
+  })
+
   safeHandle('artifact:export', async (_event, versionId: string, format: string) => {
     const db = getDatabase()
     const vRow = db.prepare('SELECT * FROM artifact_versions WHERE id = ?').get(versionId) as Record<string, unknown> | undefined

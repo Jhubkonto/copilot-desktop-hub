@@ -767,6 +767,8 @@ const api = {
     typedInvoke('artifact:get-version', versionId),
   artifactDelete: (id: string) =>
     typedInvoke('artifact:delete', id),
+  artifactMoveToProject: (artifactId: string, projectId: string | null) =>
+    typedInvoke('artifact:move-to-project', artifactId, projectId),
   artifactExport: (versionId: string, format: string) =>
     typedInvoke('artifact:export', versionId, format),
   artifactOpenFolder: (absolutePath: string) =>

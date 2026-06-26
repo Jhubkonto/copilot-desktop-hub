@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { X, Send, Loader2, Sparkles, Package } from 'lucide-react'
+import { X, Send, Loader2, Sparkles, Package, Plus, Trash2 } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import type { ArtifactSpec, ArtifactGeneratorMessage, AvailableModelGroup, AvailableModelEntry } from '../../shared/types'
 import { ModelPicker } from './chat/ModelPicker'
@@ -73,6 +73,328 @@ function SpecPreview({ spec }: { spec: ArtifactSpec | null }) {
   )
 }
 
+// ─── EditForm ─────────────────────────────────────────────────────────────────
+
+const ARTIFACT_KINDS = ['document', 'code', 'ui', 'data', 'prompt', 'agent-config', 'plan', 'bundle', 'other'] as const
+
+interface EditFormProps {
+  spec: ArtifactSpec
+  onChange: (spec: ArtifactSpec) => void
+  onConfirm: () => void
+  onBack: () => void
+}
+
+function EditForm({ spec, onChange, onConfirm, onBack }: EditFormProps) {
+  const set = (patch: Partial<ArtifactSpec>) => onChange({ ...spec, ...patch })
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4 text-sm">
+
+        <section>
+          <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium mb-2">Title</p>
+          <input
+            value={spec.title}
+            onChange={(e) => set({ title: e.target.value })}
+            placeholder="Artifact title"
+            className="w-full text-sm border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-purple-400"
+          />
+        </section>
+
+        <section>
+          <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium mb-2">Kind</p>
+          <div className="flex flex-wrap gap-1.5">
+            {ARTIFACT_KINDS.map((kind) => (
+              <button
+                key={kind}
+                type="button"
+                onClick={() => set({ kind })}
+                className={`text-[11px] px-2.5 py-1 rounded-full font-medium transition-colors ${
+                  spec.kind === kind
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                }`}
+              >
+                {kind}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section>
+          <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium mb-2">Intended use</p>
+          <textarea
+            value={spec.intendedUse ?? ''}
+            onChange={(e) => set({ intendedUse: e.target.value })}
+            placeholder="What is this artifact for?"
+            rows={3}
+            className="w-full text-xs border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-purple-400 resize-none"
+          />
+        </section>
+
+        <section>
+          <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium mb-2">Audience</p>
+          <input
+            value={spec.audience ?? ''}
+            onChange={(e) => set({ audience: e.target.value })}
+            placeholder="Who is this for?"
+            className="w-full text-xs border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-purple-400"
+          />
+        </section>
+
+        <section>
+          <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium mb-2">Output files</p>
+          <div className="space-y-1.5">
+            {spec.outputFiles.map((f, i) => (
+              <div key={i} className="flex gap-2 items-center">
+                <input
+                  value={f.path}
+                  onChange={(e) => {
+                    const files = [...spec.outputFiles]
+                    files[i] = { ...f, path: e.target.value }
+                    set({ outputFiles: files })
+                  }}
+                  placeholder="path"
+                  className="flex-1 text-xs border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none font-mono"
+                />
+                <input
+                  value={f.role}
+                  onChange={(e) => {
+                    const files = [...spec.outputFiles]
+                    files[i] = { ...f, role: e.target.value as ArtifactSpec['outputFiles'][number]['role'] }
+                    set({ outputFiles: files })
+                  }}
+                  placeholder="role"
+                  className="w-20 text-xs border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => set({ outputFiles: spec.outputFiles.filter((_, j) => j !== i) })}
+                  className="p-1 text-gray-400 hover:text-red-500"
+                  aria-label="Remove file"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={() => set({ outputFiles: [...spec.outputFiles, { path: '', role: 'primary' as const, mediaType: 'text/plain' }] })}
+              className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+            >
+              <Plus className="w-3 h-3" />
+              Add file
+            </button>
+          </div>
+        </section>
+
+        <section>
+          <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium mb-2">Acceptance criteria</p>
+          <div className="space-y-1.5">
+            {spec.acceptanceCriteria.map((c, i) => (
+              <div key={i} className="flex gap-2 items-center">
+                <input
+                  value={c}
+                  onChange={(e) => {
+                    const criteria = [...spec.acceptanceCriteria]
+                    criteria[i] = e.target.value
+                    set({ acceptanceCriteria: criteria })
+                  }}
+                  placeholder="Criterion…"
+                  className="flex-1 text-xs border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => set({ acceptanceCriteria: spec.acceptanceCriteria.filter((_, j) => j !== i) })}
+                  className="p-1 text-gray-400 hover:text-red-500"
+                  aria-label="Remove criterion"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={() => set({ acceptanceCriteria: [...spec.acceptanceCriteria, ''] })}
+              className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+            >
+              <Plus className="w-3 h-3" />
+              Add criterion
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 dark:border-gray-800">
+        <button
+          onClick={onBack}
+          className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+        >
+          Back
+        </button>
+        <button
+          onClick={onConfirm}
+          disabled={!spec.title.trim()}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-xs font-medium transition-colors"
+        >
+          <Sparkles className="w-3.5 h-3.5" />
+          Generate artifact
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── CreationOverlay ──────────────────────────────────────────────────────────
+
+const CREATION_STEPS = [
+  'Creating artifact…',
+  'Writing files…',
+  'Finalizing…',
+  'Done ✓',
+] as const
+
+function CreationOverlay({ step, error, onRetry }: { step: number; error: string | null; onRetry: () => void }) {
+  return (
+    <div className="absolute inset-0 z-10 bg-white/90 dark:bg-gray-900/90 flex flex-col items-center justify-center gap-4">
+      {error ? (
+        <>
+          <p className="text-sm text-red-600 dark:text-red-400 font-medium">Creation failed</p>
+          <p className="text-xs text-gray-500 max-w-sm text-center">{error}</p>
+          <button
+            onClick={onRetry}
+            className="px-4 py-2 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-sm font-medium hover:bg-gray-800 dark:hover:bg-gray-200"
+          >
+            Try again
+          </button>
+        </>
+      ) : (
+        <>
+          <Loader2 className="w-6 h-6 text-purple-500 animate-spin" />
+          <div className="space-y-1.5 text-left min-w-[200px]">
+            {CREATION_STEPS.map((label, i) => (
+              <div key={i} className="flex items-center gap-2">
+                {i < step ? (
+                  <span className="w-3.5 h-3.5 rounded-full bg-green-500 flex items-center justify-center text-white text-[8px]">✓</span>
+                ) : i === step ? (
+                  <Loader2 className="w-3.5 h-3.5 text-purple-500 animate-spin shrink-0" />
+                ) : (
+                  <span className="w-3.5 h-3.5 rounded-full border border-gray-300 dark:border-gray-600" />
+                )}
+                <span className={`text-xs ${i === step ? 'text-gray-900 dark:text-gray-100 font-medium' : i < step ? 'text-gray-400 line-through' : 'text-gray-400'}`}>
+                  {label}
+                </span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ─── DoneOverlay ──────────────────────────────────────────────────────────────
+
+interface DoneOverlayProps {
+  artifactTitle: string | null
+  artifactId: string | null
+  projects: { id: string; name: string }[]
+  activeProjectId: string | null
+  onAddToProject: (projectId: string) => Promise<void>
+  onClose: () => void
+  onGenerateAnother: () => void
+}
+
+function DoneOverlay({ artifactTitle, artifactId, projects, activeProjectId, onAddToProject, onClose, onGenerateAnother }: DoneOverlayProps) {
+  const [addingToProject, setAddingToProject] = useState<string | null>(null)
+  const [addedToProject, setAddedToProject] = useState<string | null>(null)
+
+  const activeProject = projects.find((p) => p.id === activeProjectId)
+
+  const handleAdd = async (projectId: string) => {
+    if (!artifactId) return
+    setAddingToProject(projectId)
+    try {
+      await onAddToProject(projectId)
+      setAddedToProject(projectId)
+    } finally {
+      setAddingToProject(null)
+    }
+  }
+
+  return (
+    <div className="absolute inset-0 z-10 bg-white/95 dark:bg-gray-900/95 flex flex-col items-center justify-center gap-5 px-8">
+      <div className="w-12 h-12 rounded-full bg-green-100 dark:bg-green-900/40 flex items-center justify-center">
+        <span className="text-xl">✓</span>
+      </div>
+      <div className="text-center space-y-1">
+        <p className="text-base font-semibold text-gray-900 dark:text-gray-100">Artifact Created!</p>
+        {artifactTitle && (
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            &ldquo;{artifactTitle}&rdquo; is ready.
+          </p>
+        )}
+      </div>
+      {artifactId && projects.length > 0 && (
+        <div className="w-full max-w-sm space-y-2">
+          <p className="text-[10px] uppercase tracking-wider text-gray-400 text-center font-medium">Add to project</p>
+          {activeProject && (
+            <button
+              onClick={() => void handleAdd(activeProject.id)}
+              disabled={addingToProject !== null || addedToProject === activeProject.id}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border text-sm transition-colors ${
+                addedToProject === activeProject.id
+                  ? 'border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400'
+                  : 'border-indigo-200 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/40'
+              } disabled:opacity-50`}
+            >
+              <span className="truncate">{activeProject.name}</span>
+              {addingToProject === activeProject.id ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+              ) : addedToProject === activeProject.id ? (
+                <span className="text-xs shrink-0">Added ✓</span>
+              ) : (
+                <span className="text-xs shrink-0">Active project</span>
+              )}
+            </button>
+          )}
+          {projects.filter((p) => p.id !== activeProjectId).length > 0 && (
+            <details className="text-xs text-gray-400">
+              <summary className="cursor-pointer hover:text-gray-600 dark:hover:text-gray-300 select-none text-center">Other projects…</summary>
+              <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
+                {projects.filter((p) => p.id !== activeProjectId).map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => void handleAdd(p.id)}
+                    disabled={addingToProject !== null || addedToProject === p.id}
+                    className="w-full text-left px-3 py-1.5 rounded border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 truncate transition-colors"
+                  >
+                    {addedToProject === p.id ? `${p.name} ✓` : p.name}
+                  </button>
+                ))}
+              </div>
+            </details>
+          )}
+        </div>
+      )}
+      <div className="flex items-center gap-3 mt-2">
+        <button
+          onClick={onGenerateAnother}
+          className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+        >
+          Generate another
+        </button>
+        <button
+          onClick={onClose}
+          className="px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-xs font-medium hover:bg-gray-800 dark:hover:bg-gray-200 transition-colors"
+        >
+          Done
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ─── Chat bubble ──────────────────────────────────────────────────────────────
 
 function ChatBubble({ role, content }: { role: 'user' | 'assistant'; content: string }) {
@@ -140,13 +462,22 @@ export function ArtifactGeneratorModal({ projectId, onClose, onArtifactCreated }
   const globalDefaultModel = useAppStore((s) => s.globalDefaultModel)
   const addToast = useAppStore((s) => s.addToast)
   const setPendingArtifactGeneration = useAppStore((s) => s.setPendingArtifactGeneration)
-  const setShowArtifactsPanel = useAppStore((s) => s.setShowArtifactsPanel)
+  const projects = useAppStore((s) => s.projects)
+  const activeProjectId = useAppStore((s) => s.activeProjectId)
 
   const [messages, setMessages] = useState<ArtifactGeneratorMessage[]>(() => getSession().messages)
   const [streamingText, setStreamingText] = useState('')
   const [inputText, setInputText] = useState('')
   const [spec, setSpec] = useState<ArtifactSpec | null>(() => getSession().spec)
+  const [editSpec, setEditSpec] = useState<ArtifactSpec | null>(null)
+  const [isEditing, setIsEditing] = useState(false)
   const [isStreaming, setIsStreaming] = useState(false)
+  const [isGenerating, setIsGenerating] = useState(false)
+  const [generationStep, setGenerationStep] = useState(0)
+  const [generationError, setGenerationError] = useState<string | null>(null)
+  const [isDone, setIsDone] = useState(false)
+  const [createdArtifactId, setCreatedArtifactId] = useState<string | null>(null)
+  const [createdArtifactTitle, setCreatedArtifactTitle] = useState<string | null>(null)
   const [genModel, setGenModel] = useState<string | null>(null)
   const [availableGroups, setAvailableGroups] = useState<AvailableModelGroup[]>([])
   const [missedSpec, setMissedSpec] = useState(false)
@@ -227,13 +558,18 @@ export function ArtifactGeneratorModal({ projectId, onClose, onArtifactCreated }
 
   useEffect(() => { saveSession({ messages, spec }) }, [messages, spec])
 
-  const handleGenerate = useCallback(async () => {
-    if (!spec) return
+  const doGenerate = useCallback(async (specToGenerate: ArtifactSpec) => {
     const runId = crypto.randomUUID()
     _generationInFlight = true
-    setPendingArtifactGeneration({ title: spec.title, kind: spec.kind, startedAt: Date.now() })
+    setIsGenerating(true)
+    setGenerationStep(0)
+    setGenerationError(null)
+    setPendingArtifactGeneration({ title: specToGenerate.title, kind: specToGenerate.kind, startedAt: Date.now() })
     clearSession()
-    onClose()
+
+    // Advance steps for UX feedback
+    const stepTimer1 = setTimeout(() => setGenerationStep(1), 2000)
+    const stepTimer2 = setTimeout(() => setGenerationStep(2), 5000)
 
     const GENERATION_TIMEOUT_MS = 3 * 60 * 1000
     const timeoutPromise = new Promise<never>((_, reject) =>
@@ -242,33 +578,81 @@ export function ArtifactGeneratorModal({ projectId, onClose, onArtifactCreated }
 
     try {
       const result = await Promise.race([
-        window.api.artifactGeneratorGenerate(runId, spec, projectId, genModel ?? undefined),
+        window.api.artifactGeneratorGenerate(runId, specToGenerate, projectId, genModel ?? undefined),
         timeoutPromise,
       ])
       if (result && typeof result === 'object' && 'error' in result) {
         throw new Error(String((result as { error: unknown }).error))
       }
+      clearTimeout(stepTimer1)
+      clearTimeout(stepTimer2)
+      setGenerationStep(3)
       setPendingArtifactGeneration(null)
+      setCreatedArtifactTitle(specToGenerate.title)
+      // Try to get the created artifact id from the most recent done run
+      try {
+        const runs = await window.api.artifactGeneratorGetRuns()
+        const latest = runs.find((r) => r.status === 'done' && r.artifactId)
+        if (latest?.artifactId) setCreatedArtifactId(latest.artifactId)
+      } catch { /* non-fatal */ }
       onArtifactCreated?.()
-      addToast('Artifact ready', 'success', {
-        label: 'View',
-        onClick: () => setShowArtifactsPanel(true),
-      })
+      setIsDone(true)
     } catch (err) {
+      clearTimeout(stepTimer1)
+      clearTimeout(stepTimer2)
       setPendingArtifactGeneration(null)
-      addToast(err instanceof Error ? err.message : 'Generation failed', 'error')
+      setGenerationError(err instanceof Error ? err.message : 'Generation failed')
     } finally {
+      setIsGenerating(false)
       _generationInFlight = false
       _cleanupFileListener?.()
       _cleanupFileListener = null
     }
-  }, [spec, projectId, genModel, onClose, onArtifactCreated, addToast, setPendingArtifactGeneration, setShowArtifactsPanel])
+  }, [projectId, genModel, setPendingArtifactGeneration, onArtifactCreated])
+
+  const handleGenerate = useCallback(() => {
+    const specToUse = isEditing ? editSpec : spec
+    if (!specToUse) return
+    setIsEditing(false)
+    void doGenerate(specToUse)
+  }, [isEditing, editSpec, spec, doGenerate])
+
+  const handleGenerateAnother = useCallback(() => {
+    setMessages([GREETING])
+    setSpec(null)
+    setEditSpec(null)
+    setIsEditing(false)
+    setIsDone(false)
+    setCreatedArtifactId(null)
+    setCreatedArtifactTitle(null)
+    setGenerationError(null)
+    setGenerationStep(0)
+    setInputText('')
+    setGenModel(null)
+    clearSession()
+  }, [])
+
+  const handleAddToProject = useCallback(async (pid: string) => {
+    if (!createdArtifactId) return
+    await window.api.artifactMoveToProject(createdArtifactId, pid)
+  }, [createdArtifactId])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       void sendMessage(inputText)
     }
+  }
+
+  const resetAll = () => {
+    clearSession()
+    setMessages([GREETING])
+    setSpec(null)
+    setEditSpec(null)
+    setIsEditing(false)
+    setMissedSpec(false)
+    setInputText('')
+    setGenModel(null)
   }
 
   return (
@@ -282,25 +666,43 @@ export function ArtifactGeneratorModal({ projectId, onClose, onArtifactCreated }
         className="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
         style={{ width: 'min(860px, 96vw)', height: 'min(640px, 90vh)' }}
       >
+        {/* CreationOverlay */}
+        {isGenerating && (
+          <CreationOverlay
+            step={generationStep}
+            error={generationError}
+            onRetry={() => {
+              setIsGenerating(false)
+              setGenerationError(null)
+            }}
+          />
+        )}
+
+        {/* DoneOverlay */}
+        {isDone && (
+          <DoneOverlay
+            artifactTitle={createdArtifactTitle}
+            artifactId={createdArtifactId}
+            projects={projects}
+            activeProjectId={activeProjectId}
+            onAddToProject={handleAddToProject}
+            onClose={onClose}
+            onGenerateAnother={handleGenerateAnother}
+          />
+        )}
+
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-200 dark:border-gray-700 shrink-0">
           <div className="flex items-center gap-2">
             <Package className="w-4 h-4 text-purple-500" />
             <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-              {projectId ? 'New Project Artifact' : 'New Global Artifact'}
+              {isEditing ? 'Edit Artifact Spec' : (projectId ? 'New Project Artifact' : 'New Global Artifact')}
             </h2>
           </div>
           <div className="flex items-center gap-2">
-            {(messages.length > 1 || spec) && (
+            {!isEditing && (messages.length > 1 || spec) && (
               <button
-                onClick={() => {
-                  clearSession()
-                  setMessages([GREETING])
-                  setSpec(null)
-                  setMissedSpec(false)
-                  setInputText('')
-                  setGenModel(null)
-                }}
+                onClick={resetAll}
                 className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
               >
                 Start over
@@ -316,117 +718,132 @@ export function ArtifactGeneratorModal({ projectId, onClose, onArtifactCreated }
           </div>
         </div>
 
-        {/* Body — two columns */}
-        <div className="flex flex-1 min-h-0 divide-x divide-gray-200 dark:divide-gray-700">
-          {/* Left: spec preview (38%) */}
-          <div className="relative" style={{ width: '38%' }}>
-            <div className="absolute inset-0 overflow-hidden">
-              <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-800 shrink-0">
-                <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Artifact spec</p>
-              </div>
-              <div className="h-[calc(100%-33px)] overflow-hidden">
-                <SpecPreview spec={spec} />
+        {/* Body — two columns or edit form */}
+        {isEditing && editSpec ? (
+          <EditForm
+            spec={editSpec}
+            onChange={setEditSpec}
+            onConfirm={handleGenerate}
+            onBack={() => setIsEditing(false)}
+          />
+        ) : (
+          <div className="flex flex-1 min-h-0 divide-x divide-gray-200 dark:divide-gray-700">
+            {/* Left: spec preview (38%) */}
+            <div className="relative" style={{ width: '38%' }}>
+              <div className="absolute inset-0 overflow-hidden">
+                <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-800 shrink-0">
+                  <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Artifact spec</p>
+                </div>
+                <div className="h-[calc(100%-33px)] overflow-hidden">
+                  <SpecPreview spec={spec} />
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Right: chat (62%) */}
-          <div className="flex flex-col flex-1 min-w-0">
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-              {messages.map((msg, i) => (
-                <ChatBubble key={i} role={msg.role} content={msg.content} />
-              ))}
-              {isStreaming && streamingText && (
-                <ChatBubble role="assistant" content={streamingText} />
-              )}
-              {isStreaming && !streamingText && (
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-full bg-gradient-to-br from-purple-500 to-blue-600 flex items-center justify-center shrink-0">
-                    <Package className="w-3 h-3 text-white" />
+            {/* Right: chat (62%) */}
+            <div className="flex flex-col flex-1 min-w-0">
+              {/* Messages */}
+              <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+                {messages.map((msg, i) => (
+                  <ChatBubble key={i} role={msg.role} content={msg.content} />
+                ))}
+                {isStreaming && streamingText && (
+                  <ChatBubble role="assistant" content={streamingText} />
+                )}
+                {isStreaming && !streamingText && (
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-full bg-gradient-to-br from-purple-500 to-blue-600 flex items-center justify-center shrink-0">
+                      <Package className="w-3 h-3 text-white" />
+                    </div>
+                    <div className="flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-800 rounded-2xl rounded-tl-sm">
+                      <Loader2 className="w-3 h-3 text-purple-400 animate-spin shrink-0" />
+                      <span className="text-xs text-gray-500 dark:text-gray-400">Generating artifact spec…</span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-800 rounded-2xl rounded-tl-sm">
-                    <Loader2 className="w-3 h-3 text-purple-400 animate-spin shrink-0" />
-                    <span className="text-xs text-gray-500 dark:text-gray-400">Generating artifact spec…</span>
-                  </div>
-                </div>
-              )}
-              <div ref={chatEndRef} />
-            </div>
+                )}
+                <div ref={chatEndRef} />
+              </div>
 
-            {/* Input / spec footer */}
-            <div className="border-t border-gray-100 dark:border-gray-800">
-              {spec && !isStreaming && (
-                <div className="px-4 pt-3 pb-2 flex items-center gap-2">
-                  <div className="flex-1 text-xs text-gray-500 dark:text-gray-400 truncate">
-                    <span className="text-green-600 dark:text-green-400 font-medium">Spec ready</span>
-                    {' — '}{spec.title}
-                  </div>
-                  <button
-                    onClick={() => void handleGenerate()}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-xs font-medium transition-colors"
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    Generate artifact
-                  </button>
-                </div>
-              )}
-              <div className="px-4 pb-4 pt-2">
-                <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus-within:ring-2 focus-within:ring-gray-400 dark:focus-within:ring-gray-500 focus-within:border-transparent transition-colors">
-                  <textarea
-                    ref={inputRef}
-                    value={inputText}
-                    onChange={(e) => setInputText(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    placeholder={spec ? 'Refine the spec or ask for changes…' : 'Describe the artifact you want to create…'}
-                    rows={1}
-                    disabled={isStreaming}
-                    className="chat-input w-full resize-none bg-transparent px-4 pt-3 pb-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed overflow-y-auto"
-                  />
-                  <div className="flex items-center justify-end px-2 pb-2 gap-1">
-                    <ModelPicker
-                      value={genModel ?? 'default'}
-                      availableGroups={availableGroups}
-                      catalogModels={catalogModels}
-                      globalDefaultModel={globalDefaultModel ?? undefined}
-                      includeDefault={true}
-                      buttonRef={modelPickerRef}
-                      onSelectDefault={() => setGenModel(null)}
-                      onSelectAvailableModel={(group: AvailableModelGroup, model: AvailableModelEntry) => {
-                        const id = group.sourceType === 'cli' ? `${group.sourceKey}:${model.id}` : model.id
-                        setGenModel(id)
-                      }}
-                    />
-                    <VoiceInputButton disabled={isStreaming} onText={(text) => setInputText((current) => current.trim() ? `${current.trimEnd()} ${text}` : text)} />
+              {/* Input / spec footer */}
+              <div className="border-t border-gray-100 dark:border-gray-800">
+                {spec && !isStreaming && (
+                  <div className="px-4 pt-3 pb-2 flex items-center gap-2">
+                    <div className="flex-1 text-xs text-gray-500 dark:text-gray-400 truncate">
+                      <span className="text-green-600 dark:text-green-400 font-medium">Spec ready</span>
+                      {' — '}{spec.title}
+                    </div>
                     <button
-                      type="button"
-                      onClick={() => void sendMessage(inputText)}
-                      disabled={isStreaming || !inputText.trim()}
-                      className={`p-1.5 rounded-md flex items-center justify-center transition-colors ${
-                        inputText.trim() && !isStreaming
-                          ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-300'
-                          : 'bg-transparent text-gray-400 dark:text-gray-500 cursor-not-allowed'
-                      }`}
-                      aria-label="Send message"
+                      onClick={() => { setEditSpec({ ...spec }); setIsEditing(true) }}
+                      className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                     >
-                      <Send className="w-4 h-4" />
+                      Edit
+                    </button>
+                    <button
+                      onClick={handleGenerate}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-xs font-medium transition-colors"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      Generate artifact
                     </button>
                   </div>
+                )}
+                <div className="px-4 pb-4 pt-2">
+                  <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus-within:ring-2 focus-within:ring-gray-400 dark:focus-within:ring-gray-500 focus-within:border-transparent transition-colors">
+                    <textarea
+                      ref={inputRef}
+                      value={inputText}
+                      onChange={(e) => setInputText(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      placeholder={spec ? 'Refine the spec or ask for changes…' : 'Describe the artifact you want to create…'}
+                      rows={1}
+                      disabled={isStreaming}
+                      className="chat-input w-full resize-none bg-transparent px-4 pt-3 pb-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed overflow-y-auto"
+                    />
+                    <div className="flex items-center justify-end px-2 pb-2 gap-1">
+                      <ModelPicker
+                        value={genModel ?? 'default'}
+                        availableGroups={availableGroups}
+                        catalogModels={catalogModels}
+                        globalDefaultModel={globalDefaultModel ?? undefined}
+                        includeDefault={true}
+                        buttonRef={modelPickerRef}
+                        onSelectDefault={() => setGenModel(null)}
+                        onSelectAvailableModel={(group: AvailableModelGroup, model: AvailableModelEntry) => {
+                          const id = group.sourceType === 'cli' ? `${group.sourceKey}:${model.id}` : model.id
+                          setGenModel(id)
+                        }}
+                      />
+                      <VoiceInputButton disabled={isStreaming} onText={(text) => setInputText((current) => current.trim() ? `${current.trimEnd()} ${text}` : text)} />
+                      <button
+                        type="button"
+                        onClick={() => void sendMessage(inputText)}
+                        disabled={isStreaming || !inputText.trim()}
+                        className={`p-1.5 rounded-md flex items-center justify-center transition-colors ${
+                          inputText.trim() && !isStreaming
+                            ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-300'
+                            : 'bg-transparent text-gray-400 dark:text-gray-500 cursor-not-allowed'
+                        }`}
+                        aria-label="Send message"
+                      >
+                        <Send className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                  {missedSpec && (
+                    <p className="text-[10px] text-amber-500 mt-1.5 text-center">
+                      No spec was generated — try describing what artifact you want.
+                    </p>
+                  )}
+                  {!spec && !missedSpec && (
+                    <p className="text-[10px] text-gray-400 mt-1.5 text-center">
+                      Press Enter to send · Shift+Enter for newline
+                    </p>
+                  )}
                 </div>
-                {missedSpec && (
-                  <p className="text-[10px] text-amber-500 mt-1.5 text-center">
-                    No spec was generated — try describing what artifact you want.
-                  </p>
-                )}
-                {!spec && !missedSpec && (
-                  <p className="text-[10px] text-gray-400 mt-1.5 text-center">
-                    Press Enter to send · Shift+Enter for newline
-                  </p>
-                )}
               </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   )
