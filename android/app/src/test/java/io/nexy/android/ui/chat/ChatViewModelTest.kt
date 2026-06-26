@@ -2,6 +2,7 @@ package io.nexy.android.ui.chat
 
 import androidx.lifecycle.viewModelScope
 import io.nexy.android.data.WsClient
+import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.AttachmentMeta
 import io.nexy.android.data.model.HistoryMessage
 import io.nexy.android.data.model.ThinkingBlock
@@ -94,6 +95,26 @@ class ChatViewModelTest {
 
         assertEquals(2, vm.messages.value.size)
         assertEquals("Hello", vm.messages.value.first().text)
+
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
+    fun tracksNormalizedChatTurnEventsForCurrentConversation() = runTest {
+        val fakeWs = FakeWsClient()
+        val vm = ChatViewModel("conv-1", fakeWs)
+        advanceUntilIdle()
+
+        fakeWs.emit(chatTurnEvent("turn_started", 1))
+        fakeWs.emit(chatTurnEvent("assistant_text_delta", 2, """"chunk":"Hello""""))
+        fakeWs.emit(chatTurnEvent("assistant_text_delta", 1, """"chunk":" stale"""", conversationId = "conv-2"))
+        advanceUntilIdle()
+
+        assertEquals("conv-1", vm.liveTurnState.value.conversationId)
+        assertEquals("turn-1", vm.liveTurnState.value.turnId)
+        assertEquals(ChatTurnStatus.Streaming, vm.liveTurnState.value.status)
+        assertEquals("Hello", vm.liveTurnState.value.text)
+        assertEquals(2L, vm.liveTurnState.value.lastSequence)
 
         vm.viewModelScope.cancel()
     }
@@ -239,9 +260,10 @@ class ChatViewModelTest {
         val vm = ChatViewModel("conv-1", fakeWs)
         advanceUntilIdle()
 
-        fakeWs.emit(WsEvent.ChatThinkingDelta("conv-1", "codex-activity", "Planning"))
-        fakeWs.emit(WsEvent.ChatThinkingDelta("conv-1", "codex-activity", " steps"))
-        fakeWs.emit(WsEvent.ChatThinkingEnd("conv-1", "codex-activity"))
+        fakeWs.emit(chatTurnEvent("turn_started", 1))
+        fakeWs.emit(chatTurnEvent("thinking_delta", 2, """"blockId":"codex-activity","chunk":"Planning""""))
+        fakeWs.emit(chatTurnEvent("thinking_delta", 3, """"blockId":"codex-activity","chunk":" steps""""))
+        fakeWs.emit(chatTurnEvent("thinking_done", 4, """"blockId":"codex-activity""""))
         advanceUntilIdle()
 
         assertTrue(vm.isAwaitingResponse.value)
@@ -265,8 +287,8 @@ class ChatViewModelTest {
         val vm = ChatViewModel("conv-1", fakeWs)
         advanceUntilIdle()
 
-        fakeWs.emit(WsEvent.ChatThinkingDelta("other-conv", "codex-activity", "Ignored"))
-        fakeWs.emit(WsEvent.ChatThinkingEnd("other-conv", "codex-activity"))
+        fakeWs.emit(chatTurnEvent("thinking_delta", 1, """"blockId":"codex-activity","chunk":"Ignored"""", conversationId = "other-conv"))
+        fakeWs.emit(chatTurnEvent("thinking_done", 2, """"blockId":"codex-activity"""", conversationId = "other-conv"))
         advanceUntilIdle()
 
         assertTrue(vm.liveThinkingBlocks.value.isEmpty())
@@ -281,19 +303,22 @@ class ChatViewModelTest {
         val vm = ChatViewModel("conv-1", fakeWs)
         advanceUntilIdle()
 
-        fakeWs.emit(WsEvent.ChatThinkingDelta("conv-1", "codex-activity", "Working"))
+        fakeWs.emit(chatTurnEvent("turn_started", 1))
+        fakeWs.emit(chatTurnEvent("thinking_delta", 2, """"blockId":"codex-activity","chunk":"Working""""))
         advanceUntilIdle()
         assertTrue(vm.liveThinkingBlocks.value.isNotEmpty())
 
         vm.stopStream()
         assertTrue(vm.liveThinkingBlocks.value.isEmpty())
 
-        fakeWs.emit(WsEvent.ChatThinkingDelta("conv-1", "codex-activity", "Working"))
+        fakeWs.emit(chatTurnEvent("turn_started", 3))
+        fakeWs.emit(chatTurnEvent("thinking_delta", 4, """"blockId":"codex-activity","chunk":"Working""""))
         advanceUntilIdle()
         vm.refreshMessages()
         assertTrue(vm.liveThinkingBlocks.value.isEmpty())
 
-        fakeWs.emit(WsEvent.ChatThinkingDelta("conv-1", "codex-activity", "Working"))
+        fakeWs.emit(chatTurnEvent("turn_started", 5))
+        fakeWs.emit(chatTurnEvent("thinking_delta", 6, """"blockId":"codex-activity","chunk":"Working""""))
         fakeWs.emit(
             WsEvent.ChatActivity(
                 conversationId = "conv-1",
@@ -768,6 +793,61 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun reEnteringActiveBackgroundConversationRestoresLiveState() = runTest {
+        // Simulate: user was on another screen while conv-1 was streaming. They navigate back.
+        // WsRepository already holds a snapshot from the ongoing turn.
+        val snapshot = WsRepository.ActiveChatSnapshot(
+            activityLabel = "Running browser_snapshot",
+            liveThinkingBlocks = listOf(ThinkingBlock("block-1", "Planned steps", done = true)),
+            completedToolCalls = listOf(
+                WsRepository.LiveToolCall(
+                    toolName = "browser_snapshot",
+                    serverName = "Browser",
+                    args = null,
+                    result = "Screenshot taken",
+                    success = true,
+                ),
+            ),
+            generationStartedAt = 1_000L,
+        )
+        WsRepository.seedActiveConversationForTest("conv-1", snapshot)
+
+        val fakeWs = FakeWsClient()
+        val vm = ChatViewModel("conv-1", fakeWs)
+        advanceUntilIdle()
+
+        // History arrives: only user message, no assistant response yet
+        fakeWs.emit(
+            WsEvent.ConversationMessages(
+                conversationId = "conv-1",
+                messages = listOf(HistoryMessage("m1", "user", "Hello", 1)),
+            ),
+        )
+        advanceUntilIdle()
+
+        // VM should surface the active state from the snapshot
+        assertTrue(vm.isAwaitingResponse.value)
+        assertEquals("Running browser_snapshot", vm.activityLabel.value)
+        assertEquals(
+            listOf(ThinkingBlock("block-1", "Planned steps", done = true)),
+            vm.liveThinkingBlocks.value,
+        )
+
+        // Tool calls from the snapshot should be appended to messages
+        val msgs = vm.messages.value
+        assertEquals(2, msgs.size)
+        assertEquals("m1", msgs[0].id)
+        assertTrue(msgs[1].isToolCall)
+        assertEquals("browser_snapshot", msgs[1].toolName)
+        assertEquals("Screenshot taken", msgs[1].toolResult)
+
+        // Cleanup singleton state so other tests are not affected
+        WsRepository.clearConversationActiveState("conv-1")
+
+        vm.viewModelScope.cancel()
+    }
+
+    @Test
     fun stripsInjectedContextFromUserFacingHistoryMessages() = runTest {
         assertEquals(
             "Hello",
@@ -789,6 +869,28 @@ class ChatViewModelTest {
     }
 
     private data class SentCommand(val command: String, val data: Map<String, Any>)
+
+    private fun chatTurnEvent(
+        type: String,
+        sequence: Long,
+        payload: String = "",
+        conversationId: String = "conv-1",
+        turnId: String = "turn-1",
+    ): WsEvent.ChatTurnEvent {
+        val payloadJson = buildString {
+            append("""{"type":"$type","conversationId":"$conversationId","turnId":"$turnId","sequence":$sequence,"timestamp":${1000 + sequence}""")
+            if (payload.isNotBlank()) append(",").append(payload)
+            append("}")
+        }
+        return WsEvent.ChatTurnEvent(
+            conversationId = conversationId,
+            turnId = turnId,
+            sequence = sequence,
+            type = type,
+            timestamp = 1000 + sequence,
+            payloadJson = payloadJson,
+        )
+    }
 
     private class FakeWsClient : WsClient {
         private val mutableEvents = MutableSharedFlow<WsEvent>(extraBufferCapacity = 16)

@@ -39,7 +39,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -868,53 +867,30 @@ fun ChatScreen(
             )
         },
     ) { padding ->
-        // Group consecutive isToolCall messages into the assistant message that follows them.
-        val groupedMessages = remember(messages) {
-            val result = mutableListOf<ChatMessage>()
-            val pending = mutableListOf<ChatMessage>()
-            for (msg in messages) {
-                if (msg.isToolCall) {
-                    pending.add(msg)
-                } else {
-                    result.add(
-                        if (!msg.isUser && pending.isNotEmpty())
-                            msg.copy(toolCalls = pending.toList())
-                        else msg
-                    )
-                    pending.clear()
-                }
-            }
-            result.addAll(pending)
-            result
+        val renderItems = remember(messages, isAwaitingResponse, isStreaming, liveThinkingBlocks, activityLabel, generationStartedAt) {
+            buildChatRenderItems(
+                messages = messages,
+                liveThinkingBlocks = liveThinkingBlocks,
+                isAwaitingResponse = isAwaitingResponse,
+                isStreaming = isStreaming,
+                activityLabel = activityLabel,
+                generationStartedAt = generationStartedAt,
+            )
         }
 
-        // Map each assistant group index → the user message that immediately preceded it
-        val requestByGroupIndex = remember(groupedMessages) {
-            val map = mutableMapOf<Int, ChatMessage>()
-            var lastUser: ChatMessage? = null
-            groupedMessages.forEachIndexed { idx, msg ->
-                if (msg.isUser) {
-                    lastUser = msg
-                } else if (!msg.isToolCall && lastUser != null) {
-                    map[idx] = lastUser!!
-                }
-            }
-            map
-        }
+        // LazyColumn item index offset: item 0 = ChatStartHeader, items 1..N = renderItems
+        val lazyHeaderOffset = if (renderItems.isNotEmpty()) 1 else 0
 
-        // LazyColumn item index offset: item 0 = ChatStartHeader, items 1..N = groupedMessages
-        val lazyHeaderOffset = if (messages.isNotEmpty() || isAwaitingResponse) 1 else 0
-
-        val handleScrollToRequest: suspend (Int) -> Unit = { groupIdx ->
+        val handleScrollToRequest: suspend (Int) -> Unit = { itemIdx ->
             programmaticScrollInProgress = true
             shouldAutoFollow = false
-            val lazyIdx = groupIdx + lazyHeaderOffset
+            val lazyIdx = itemIdx + lazyHeaderOffset
             try {
                 listState.animateScrollToItem(lazyIdx)
             } finally {
                 programmaticScrollInProgress = false
             }
-            val msgId = groupedMessages.getOrNull(groupIdx)?.id
+            val msgId = (renderItems.getOrNull(itemIdx) as? ChatRenderItem.UserMessage)?.message?.id
             if (msgId != null) {
                 highlightedMessageId = msgId
                 kotlinx.coroutines.delay(1600)
@@ -932,9 +908,6 @@ fun ChatScreen(
                 if (connectionBanner) {
                     NexyConnectionBanner(connectionState, lastError)
                 }
-                // True once the drain coroutine has created a streaming message in the list.
-                // Used to suppress the duplicate ThinkingHistoryBubble in the awaiting section.
-                val hasStreamingMessage = remember(messages) { messages.any { it.isStreaming } }
 
                 LazyColumn(
                     state = listState,
@@ -942,102 +915,118 @@ fun ChatScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(vertical = 8.dp),
                 ) {
-                    if (messages.isEmpty() && !isAwaitingResponse) {
+                    if (renderItems.isEmpty()) {
                         item {
                             EmptyChatContent(agentLabel = agentLabel, projectLabel = projectLabel)
                         }
                     } else {
                         item { ChatStartHeader() }
                     }
-                    itemsIndexed(
-                        groupedMessages,
-                        key = { idx, msg ->
-                            // Tool calls key on name+position (not UUID) so the composable survives the
-                            // live→persisted transition when history re-fetch replaces the synthetic id
-                            // with a real UUID. Destroying the composable resets expanded state, causing
-                            // the visible flicker.
-                            if (msg.isToolCall) "tool_${msg.toolName}_$idx"
-                            else msg.id.ifBlank { "${msg.isUser}_${msg.timestamp}_$idx" }
+                    items(
+                        renderItems,
+                        key = { item -> item.key },
+                        contentType = { item ->
+                            when (item) {
+                                is ChatRenderItem.UserMessage -> 0
+                                is ChatRenderItem.ToolCall -> 1
+                                is ChatRenderItem.AssistantMessage -> 2
+                                is ChatRenderItem.LiveThinking -> 3
+                                is ChatRenderItem.LiveActivity -> 4
+                            }
                         },
-                        contentType = { _, msg -> if (msg.isUser) 0 else if (msg.isToolCall) 1 else 2 },
-                    ) { msgIndex, msg ->
-                        androidx.compose.foundation.layout.Column {
-                            // Standalone trailing tool call (mid-stream, no following assistant msg yet)
-                            if (msg.isToolCall) {
-                                ToolCallBubble(msg, inProgress = false)
-                                return@Column
+                    ) { item ->
+                        when (item) {
+                            is ChatRenderItem.ToolCall -> {
+                                ToolCallBubble(item.message, inProgress = false)
                             }
-                            val committedBlockIds = remember(msg.thinkingBlocks) {
-                                msg.thinkingBlocks.map { it.blockId }.toSet()
+                            is ChatRenderItem.LiveThinking -> {
+                                ThinkingHistoryBubble(item.blocks, isLive = true)
                             }
-                            // Live thinking: only show blocks not already committed to the message (C1 guard).
-                            if (!msg.isUser && msg.isStreaming && liveThinkingBlocks.isNotEmpty()) {
-                                val visibleLive = liveThinkingBlocks.filter { it.blockId !in committedBlockIds }
-                                if (visibleLive.isNotEmpty()) {
-                                    ThinkingHistoryBubble(visibleLive, isLive = true, responseIsStreaming = msg.text.isNotEmpty())
+                            is ChatRenderItem.LiveActivity -> {
+                                ThinkingBubble(item.label, item.generationStartedAt)
+                            }
+                            is ChatRenderItem.UserMessage -> {
+                                val msg = item.message
+                                val chatProjectId = conversation?.project_id ?: projectId
+                                MessageBubble(
+                                    msg = msg,
+                                    onCopy = { copyMessage(clipboardManager, msg.text) },
+                                    onEdit = { input = msg.text; vm.setDraft(msg.text) },
+                                    onResend = { vm.sendMessage(msg.text) },
+                                    onDelete = if (msg.id.isNotBlank()) { { deletingMessage = msg } } else null,
+                                    onDeleteAfter = if (msg.id.isNotBlank() && msg.timestamp > 0L) { { deleteAfterMessage = msg } } else null,
+                                    isHighlighted = msg.id == highlightedMessageId,
+                                    onRetry = null,
+                                    onEditAssistant = null,
+                                    onBranch = null,
+                                    onAddToProject = null,
+                                    onInvestigateWithAi = null,
+                                    onShare = null,
+                                    onReadAloud = null,
+                                )
+                            }
+                            is ChatRenderItem.AssistantMessage -> {
+                                val msg = item.message
+                                val precedingUserText = renderItems
+                                    .take(renderItems.indexOf(item))
+                                    .filterIsInstance<ChatRenderItem.UserMessage>()
+                                    .lastOrNull()?.message?.text
+                                val chatProjectId = conversation?.project_id ?: projectId
+                                androidx.compose.foundation.layout.Column {
+                                    // Live thinking blocks pre-filtered by buildChatRenderItems (C1 guard)
+                                    if (item.liveThinkingBlocks.isNotEmpty()) {
+                                        ThinkingHistoryBubble(item.liveThinkingBlocks, isLive = true, responseIsStreaming = msg.text.isNotEmpty())
+                                    }
+                                    // Historical thinking: skip if live blocks cover same content
+                                    if (msg.thinkingBlocks.isNotEmpty() && item.liveThinkingBlocks.isEmpty()) {
+                                        ThinkingHistoryBubble(msg.thinkingBlocks, isLive = false, responseIsStreaming = msg.isStreaming)
+                                    }
+                                    // Tool calls grouped inline above the response text
+                                    msg.toolCalls.forEach { tc ->
+                                        ToolCallBubble(tc, inProgress = tc.isStreaming)
+                                    }
+                                    MessageBubble(
+                                        msg = msg,
+                                        onCopy = { copyMessage(clipboardManager, msg.text) },
+                                        onEdit = null,
+                                        onResend = null,
+                                        onDelete = if (msg.id.isNotBlank()) { { deletingMessage = msg } } else null,
+                                        onDeleteAfter = if (msg.id.isNotBlank() && msg.timestamp > 0L) { { deleteAfterMessage = msg } } else null,
+                                        isHighlighted = false,
+                                        onRetry = if (precedingUserText != null) {
+                                            { vm.sendMessage(precedingUserText) }
+                                        } else null,
+                                        onEditAssistant = if (msg.text.isNotBlank()) {
+                                            { input = msg.text; vm.setDraft(msg.text) }
+                                        } else null,
+                                        onBranch = if (msg.timestamp > 0L) {
+                                            { branchPending = true; WsRepository.forkConversation(conversationId, msg.timestamp) }
+                                        } else null,
+                                        onAddToProject = if (chatProjectId != null && msg.text.isNotBlank()) {
+                                            { addToProjectMessage = msg; addToProjectTitle = "" }
+                                        } else null,
+                                        onInvestigateWithAi = if (msg.text.isNotBlank() && onOpenRemoteEditWithPrefill != null) {
+                                            { investigateMessage = msg }
+                                        } else null,
+                                        onShare = if (msg.text.isNotBlank()) {
+                                            {
+                                                val intent = Intent(Intent.ACTION_SEND).apply {
+                                                    type = "text/plain"
+                                                    putExtra(Intent.EXTRA_TEXT, msg.text)
+                                                }
+                                                context.startActivity(Intent.createChooser(intent, "Share message"))
+                                            }
+                                        } else null,
+                                        onReadAloud = if (msg.text.isNotBlank()) {
+                                            {
+                                                tts.stop()
+                                                tts.speak(msg.text, TextToSpeech.QUEUE_FLUSH, null, msg.id)
+                                            }
+                                        } else null,
+                                    )
                                 }
                             }
-                            // Historical thinking: skip if streaming live blocks cover same content.
-                            if (!msg.isUser && msg.thinkingBlocks.isNotEmpty() && !(msg.isStreaming && liveThinkingBlocks.isNotEmpty())) {
-                                ThinkingHistoryBubble(msg.thinkingBlocks, isLive = false, responseIsStreaming = msg.isStreaming)
-                            }
-                            // Tool calls grouped inline above the response text
-                            msg.toolCalls.forEach { tc ->
-                                ToolCallBubble(tc, inProgress = tc.isStreaming)
-                            }
-                            val precedingUserText = if (!msg.isUser) {
-                                groupedMessages.take(msgIndex).lastOrNull { it.isUser }?.text
-                            } else null
-                            val chatProjectId = conversation?.project_id ?: projectId
-                            MessageBubble(
-                                msg = msg,
-                                onCopy = { copyMessage(clipboardManager, msg.text) },
-                                onEdit = if (msg.isUser) { { input = msg.text; vm.setDraft(msg.text) } } else null,
-                                onResend = if (msg.isUser) { { vm.sendMessage(msg.text) } } else null,
-                                onDelete = if (msg.id.isNotBlank()) { { deletingMessage = msg } } else null,
-                                onDeleteAfter = if (msg.id.isNotBlank() && msg.timestamp > 0L) { { deleteAfterMessage = msg } } else null,
-                                isHighlighted = msg.isUser && msg.id == highlightedMessageId,
-                                onRetry = if (!msg.isUser && precedingUserText != null) {
-                                    { vm.sendMessage(precedingUserText) }
-                                } else null,
-                                onEditAssistant = if (!msg.isUser && msg.text.isNotBlank()) {
-                                    { input = msg.text; vm.setDraft(msg.text) }
-                                } else null,
-                                onBranch = if (!msg.isUser && msg.timestamp > 0L) {
-                                    { branchPending = true; WsRepository.forkConversation(conversationId, msg.timestamp) }
-                                } else null,
-                                onAddToProject = if (!msg.isUser && chatProjectId != null && msg.text.isNotBlank()) {
-                                    { addToProjectMessage = msg; addToProjectTitle = "" }
-                                } else null,
-                            onInvestigateWithAi = if (!msg.isUser && msg.text.isNotBlank() && onOpenRemoteEditWithPrefill != null) {
-                                    { investigateMessage = msg }
-                                } else null,
-                                onShare = if (!msg.isUser && msg.text.isNotBlank()) {
-                                    {
-                                        val intent = Intent(Intent.ACTION_SEND).apply {
-                                            type = "text/plain"
-                                            putExtra(Intent.EXTRA_TEXT, msg.text)
-                                        }
-                                        context.startActivity(Intent.createChooser(intent, "Share message"))
-                                    }
-                                } else null,
-                                onReadAloud = if (!msg.isUser && msg.text.isNotBlank()) {
-                                    {
-                                        tts.stop()
-                                        tts.speak(msg.text, TextToSpeech.QUEUE_FLUSH, null, msg.id)
-                                    }
-                                } else null,
-                            )
-                        } // animateItem Column
-                    }
-                    // Only show the awaiting-section when NOT actively streaming.
-                    // When streaming, the message item already contains the live thinking bubble
-                    // and text — showing ThinkingBubble here too causes a visible duplicate/flash.
-                    if (isAwaitingResponse && !isStreaming) {
-                        if (liveThinkingBlocks.isNotEmpty() && !hasStreamingMessage) {
-                            item { ThinkingHistoryBubble(liveThinkingBlocks, isLive = true) }
                         }
-                        item { ThinkingBubble(activityLabel, generationStartedAt) }
                     }
                     pendingApproval?.let { approval ->
                         item(key = "approval-${approval.requestId}") {
@@ -1059,11 +1048,10 @@ fun ChatScreen(
             // Scroll-to-bottom button shown whenever the user is scrolled above the bottom
             InReplyToBanner(
                 listState = listState,
-                groupedMessages = groupedMessages,
-                requestByGroupIndex = requestByGroupIndex,
+                renderItems = renderItems,
                 lazyHeaderOffset = lazyHeaderOffset,
                 modifier = Modifier.align(Alignment.TopCenter),
-                onScrollToRequest = { groupIdx -> scope.launch { handleScrollToRequest(groupIdx) } },
+                onScrollToRequest = { itemIdx -> scope.launch { handleScrollToRequest(itemIdx) } },
             )
             AnimatedVisibility(
                 visible = hasInitiallyScrolled && !isAtBottom,
@@ -1094,29 +1082,30 @@ fun ChatScreen(
 @Composable
 private fun InReplyToBanner(
     listState: androidx.compose.foundation.lazy.LazyListState,
-    groupedMessages: List<ChatMessage>,
-    requestByGroupIndex: Map<Int, ChatMessage>,
+    renderItems: List<ChatRenderItem>,
     lazyHeaderOffset: Int,
     modifier: Modifier = Modifier,
     onScrollToRequest: (Int) -> Unit,
 ) {
     // derivedStateOf is scoped here so only this composable recomposes on every scroll frame,
     // not the parent Box/Column/LazyColumn.
-    val bannerRequest by remember(groupedMessages, requestByGroupIndex, lazyHeaderOffset) {
+    val bannerRequest by remember(renderItems, lazyHeaderOffset) {
         derivedStateOf {
             val visibleItems = listState.layoutInfo.visibleItemsInfo
             val firstVisibleIdx = visibleItems.firstOrNull()?.index ?: return@derivedStateOf null
-            val topAssistantGroupIdx = visibleItems
+            val topAssistantRenderIdx = visibleItems
                 .map { it.index - lazyHeaderOffset }
-                .filter { gi -> gi >= 0 && gi < groupedMessages.size && !groupedMessages[gi].isUser && !groupedMessages[gi].isToolCall }
+                .filter { ri -> ri >= 0 && ri < renderItems.size && renderItems[ri] is ChatRenderItem.AssistantMessage }
                 .firstOrNull() ?: return@derivedStateOf null
-            val userMsg = requestByGroupIndex[topAssistantGroupIdx] ?: return@derivedStateOf null
-            val userGroupIdx = groupedMessages.indexOf(userMsg)
-            val userLazyIdx = userGroupIdx + lazyHeaderOffset
+            // Find the preceding user message
+            val precedingUserRenderIdx = (topAssistantRenderIdx - 1 downTo 0)
+                .firstOrNull { renderItems[it] is ChatRenderItem.UserMessage } ?: return@derivedStateOf null
+            val userLazyIdx = precedingUserRenderIdx + lazyHeaderOffset
             if (visibleItems.any { it.index == userLazyIdx }) return@derivedStateOf null
             if (userLazyIdx >= firstVisibleIdx) return@derivedStateOf null
+            val userMsg = (renderItems[precedingUserRenderIdx] as ChatRenderItem.UserMessage).message
             val preview = userMsg.text.replace('\n', ' ').trim()
-            if (preview.isBlank()) null else Pair(userGroupIdx, if (preview.length > 120) preview.take(117) + "…" else preview)
+            if (preview.isBlank()) null else Pair(precedingUserRenderIdx, if (preview.length > 120) preview.take(117) + "…" else preview)
         }
     }
     bannerRequest?.let { (groupIdx, preview) ->

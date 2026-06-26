@@ -712,6 +712,11 @@ object WsRepository : WsClient {
     fun clearConversationSnapshot(conversationId: String) {
         _activeChatSnapshots.value = _activeChatSnapshots.value - conversationId
     }
+    /** For testing only: seed repository state as if a ChatActivity event had been received. */
+    fun seedActiveConversationForTest(conversationId: String, snapshot: ActiveChatSnapshot) {
+        _activeConversationIds.value = _activeConversationIds.value + conversationId
+        _activeChatSnapshots.value = _activeChatSnapshots.value + (conversationId to snapshot)
+    }
     fun clearConversationActiveState(conversationId: String) {
         _activeConversationIds.value = _activeConversationIds.value - conversationId
         _pendingConversationIds.value = _pendingConversationIds.value - conversationId
