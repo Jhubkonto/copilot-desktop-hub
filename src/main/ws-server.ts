@@ -32,6 +32,7 @@ let currentToken: string | null = null
 let currentCertFingerprint: string | null = null
 const connectedClients = new Set<WebSocket>()
 let commandHandler: CommandHandler | null = null
+let mobileInForeground = false
 const EXTERNAL_WSS_URL_SETTING = 'ws_external_url'
 let wakeLockId: number | null = null
 let pingInterval: ReturnType<typeof setInterval> | null = null
@@ -143,6 +144,14 @@ function computeFingerprint(certPem: string): string {
 
 export function hasMobileClients(): boolean {
   return connectedClients.size > 0
+}
+
+export function isMobileInForeground(): boolean {
+  return mobileInForeground
+}
+
+export function setMobileInForeground(inForeground: boolean): void {
+  mobileInForeground = inForeground
 }
 
 export function broadcastToMobile(event: WsPushEvent): void {
@@ -328,13 +337,13 @@ export async function startWsServer(): Promise<{ port: number; token: string }> 
 
     ws.on('close', (code, reason) => {
       connectedClients.delete(ws)
-      if (connectedClients.size === 0) releaseWakeLock()
+      if (connectedClients.size === 0) { releaseWakeLock(); mobileInForeground = false }
       onClientCountChange?.(connectedClients.size)
       debugLog('ws', `client disconnected: code=${code} reason=${reason.toString() || 'none'} remaining=${connectedClients.size}`)
     })
     ws.on('error', (err) => {
       connectedClients.delete(ws)
-      if (connectedClients.size === 0) releaseWakeLock()
+      if (connectedClients.size === 0) { releaseWakeLock(); mobileInForeground = false }
       onClientCountChange?.(connectedClients.size)
       debugLog('ws', `client error: ${err.message} remaining=${connectedClients.size}`)
     })
@@ -405,6 +414,7 @@ export function stopWsServer(): void {
   try { bonjourInstance?.destroy(); bonjourInstance = null } catch { /* best-effort */ }
   for (const client of connectedClients) client.close(1001, 'Server stopping')
   connectedClients.clear()
+  mobileInForeground = false
   releaseWakeLock()
   wss?.close()
   httpServer?.close()

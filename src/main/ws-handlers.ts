@@ -84,6 +84,7 @@ import {
   broadcastToMobile,
   getWakelockEnabled,
   setWakelockEnabled,
+  setMobileInForeground,
 } from './ws-server'
 
 // Filled in by tools.ts after registration to avoid a circular import
@@ -162,6 +163,16 @@ export function registerWsHandlers(): void {
           app.setLoginItemSettings({ openAtLogin: true })
         }
       }
+      return
+    }
+
+    if (command === 'mobile:app-foreground') {
+      setMobileInForeground(true)
+      return
+    }
+
+    if (command === 'mobile:app-background') {
+      setMobileInForeground(false)
       return
     }
 

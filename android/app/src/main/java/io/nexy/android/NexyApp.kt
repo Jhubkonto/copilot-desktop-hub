@@ -16,13 +16,17 @@ class NexyApp : Application() {
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityResumed(activity: Activity) {
                 resumedActivityCount++
-                isInForeground = true
+                if (!isInForeground) {
+                    isInForeground = true
+                    io.nexy.android.data.WsRepository.send("mobile:app-foreground", emptyMap())
+                }
             }
             override fun onActivityPaused(activity: Activity) {
                 resumedActivityCount--
                 if (resumedActivityCount <= 0) {
                     resumedActivityCount = 0
                     isInForeground = false
+                    io.nexy.android.data.WsRepository.send("mobile:app-background", emptyMap())
                 }
             }
             override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}

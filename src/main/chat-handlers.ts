@@ -16,7 +16,7 @@ import { runOrchestration, type OrchestratorAgent } from './orchestrator'
 import { ensureMcpServersReady, getAvailableMcpTools, getMcpServerConfigsForCli, servers as mcpServers } from './mcp'
 import { requestApproval } from './tools'
 import { getAdapter } from './cli-adapters/registry'
-import { broadcastToMobile, hasMobileClients } from './ws-server'
+import { broadcastToMobile, hasMobileClients, isMobileInForeground } from './ws-server'
 import { sendChatCompleteNotification } from './fcm-sender'
 import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
@@ -171,7 +171,7 @@ export async function dispatchChatSend(
     sendActivity({ state: 'complete', label: 'Complete' })
     const db = getDatabase()
     const convTitle = (db.prepare('SELECT title FROM conversations WHERE id = ?').get(conversationId) as { title: string } | undefined)?.title ?? 'Chat'
-    if (!hasMobileClients()) {
+    if (!isMobileInForeground()) {
       void sendChatCompleteNotification(db, { conversationId, title: convTitle })
     }
   }
@@ -203,8 +203,8 @@ export async function dispatchChatSend(
             : null)
         : null
       db.prepare(
-        'INSERT INTO conversations (id, agent_id, project_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-      ).run(conversationId, agentId ?? null, validProjectId, title, now, now)
+        'INSERT INTO conversations (id, agent_id, project_id, title, cli_backend, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ).run(conversationId, agentId ?? null, validProjectId, title, cliBackend ?? null, now, now)
     }
 
     const userMsgId = options?.messageId ?? randomUUID()
@@ -236,6 +236,20 @@ export async function dispatchChatSend(
   const convRow = db
     .prepare('SELECT agent_id, model, cli_backend FROM conversations WHERE id = ?')
     .get(conversationId) as { agent_id: string | null; model: string | null; cli_backend: string | null } | undefined
+  // Auto-heal: if cli_backend is missing but the stored model is a known CLI model, infer and persist it.
+  if (convRow && convRow.cli_backend == null && convRow.model) {
+    let healedBackend: 'claude-cli' | 'codex-cli' | null = null
+    if (ClaudeAdapter.isAvailable() && getCliModels('claude-cli').some((m) => m.id === convRow.model)) {
+      healedBackend = 'claude-cli'
+    } else if (CodexAdapter.isAvailable() && getCliModels('codex-cli').some((m) => m.id === convRow.model)) {
+      healedBackend = 'codex-cli'
+    }
+    if (healedBackend) {
+      db.prepare('UPDATE conversations SET cli_backend = ? WHERE id = ?').run(healedBackend, conversationId)
+      convRow.cli_backend = healedBackend
+      debugLog('chat', `auto-healed cli_backend=${healedBackend} for conv=${conversationId} model=${convRow.model}`)
+    }
+  }
   const settingsRows = db
     .prepare("SELECT key, value FROM settings WHERE key IN ('default_model', 'temperature', 'max_tokens')")
     .all() as Array<{ key: string; value: string }>
@@ -299,7 +313,9 @@ export async function dispatchChatSend(
           }
         })()
       : {}
-    const orchEnabled = projConfig.orchestrationEnabled === true && !cliBackend
+    const agentBackendForOrch = typeof agentCfg2?.backend === 'string' ? agentCfg2.backend : null
+    const effectiveCli = cliBackend ?? agentBackendForOrch ?? convRow?.cli_backend ?? null
+    const orchEnabled = projConfig.orchestrationEnabled === true && !effectiveCli
 
     if (orchEnabled) {
       const agentRows = db
@@ -348,22 +364,43 @@ export async function dispatchChatSend(
         const userContent: ProviderMessage['content'] =
           attachedImages.length > 0 ? buildVisionUserContent() : augmentedContent
 
-        const { finalContent, teamActivity } = await runOrchestration(
-          {
-            projectId: orchProjId,
-            projectName: projRow?.name ?? 'Project',
-            leaderAgentId: primaryRow.agent_id,
-            teamAgents,
-            conversationId,
-            window,
-            selectedModel: selectedModel ?? 'default',
-            generationOptions,
-            maxDelegationDepth: maxDepth,
-            showActivity,
-          },
-          userContent,
-          [],
-        )
+        let orchResult: { finalContent: string; teamActivity: import('./orchestrator').TeamActivityStep[] }
+        try {
+          orchResult = await runOrchestration(
+            {
+              projectId: orchProjId,
+              projectName: projRow?.name ?? 'Project',
+              leaderAgentId: primaryRow.agent_id,
+              teamAgents,
+              conversationId,
+              window,
+              selectedModel: selectedModel ?? 'default',
+              generationOptions,
+              maxDelegationDepth: maxDepth,
+              showActivity,
+            },
+            userContent,
+            [],
+          )
+        } catch (orchError) {
+          const message = orchError instanceof Error ? orchError.message : 'Orchestration failed'
+          debugLog('chat', `orchestration error: ${message}`)
+          window.webContents.send('chat:stream-error', {
+            type: 'api',
+            message,
+            retryable: message !== NO_PROVIDER_CONFIGURED_MESSAGE,
+          })
+          sendActivity({ state: 'error', label: message })
+          broadcastToMobile({ event: 'chat:stream-end', data: { conversationId } })
+          const errMsgId = randomUUID()
+          db.prepare(
+            'INSERT INTO messages (id, conversation_id, role, content, attachments, timestamp, model) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          ).run(errMsgId, conversationId, 'assistant', message, null, Date.now(), selectedModel ?? null)
+          broadcastConversationMessages(conversationId)
+          return { assistantMsgId: errMsgId }
+        }
+
+        const { finalContent, teamActivity } = orchResult
 
         if (showActivity && teamActivity.length > 0) {
           const activityMsgId = randomUUID()
@@ -412,6 +449,8 @@ export async function dispatchChatSend(
           Date.now(),
           selectedModel ?? null,
         )
+        broadcastConversationMessages(conversationId)
+        sendStreamEnd()
         return { assistantMsgId }
       }
     }

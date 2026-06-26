@@ -12,7 +12,10 @@ const state = vi.hoisted(() => {
     if (payload.event === 'chat:activity' && payload.data?.state === 'error') events.push('mobile:error')
   })
   const abortActiveStream = vi.fn()
-  return { handlers, messages, events, send, broadcastToMobile, abortActiveStream }
+  // Per-test overrides: map SQL substrings to fixed return values for get()
+  const getOverrides = new Map<string, unknown>()
+  const allOverrides = new Map<string, unknown[]>()
+  return { handlers, messages, events, send, broadcastToMobile, abortActiveStream, getOverrides, allOverrides }
 })
 
 vi.mock('../safe-handle', () => ({
@@ -36,8 +39,16 @@ vi.mock('../database', () => ({
         }
         return { changes: 1 }
       },
-      get: () => ({ agent_id: null, model: null }),
+      get: () => {
+        for (const [pattern, value] of state.getOverrides) {
+          if (sql.includes(pattern)) return value
+        }
+        return { agent_id: null, model: null, cli_backend: null }
+      },
       all: () => {
+        for (const [pattern, value] of state.allOverrides) {
+          if (sql.includes(pattern)) return value
+        }
         if (sql.includes('SELECT id, role, content')) {
           return state.messages.map((message, index) => ({
             id: `m-${index}`,
@@ -62,7 +73,23 @@ vi.mock('electron', () => ({
 }))
 
 vi.mock('../agents', () => ({ getAgentConfig: vi.fn(() => null) }))
-vi.mock('../project-handlers', () => ({ parseProjectConfig: vi.fn(() => null) }))
+vi.mock('../project-handlers', () => ({
+  parseProjectConfig: vi.fn(() => ({
+    instructions: '',
+    instructionsEnabled: true,
+    rootDirectory: null,
+    variables: [],
+    instructionMode: 'prepend',
+    orchestrationEnabled: false,
+    maxDelegationDepth: 5,
+    showTeamActivity: true,
+    inScope: [],
+    outOfScope: [],
+    milestones: [],
+    defaultModel: null,
+  })),
+}))
+vi.mock('../fcm-sender', () => ({ sendChatCompleteNotification: vi.fn(async () => undefined) }))
 vi.mock('../file-handlers', () => ({ listDirectoryEntries: vi.fn(() => []) }))
 vi.mock('../mcp', () => ({
   ensureMcpServersReady: vi.fn(async () => undefined),
@@ -78,7 +105,7 @@ vi.mock('../cli-adapters/codex', () => ({
   readCodexConfigModel: vi.fn(() => null),
   CODEX_DEFAULT_MODELS: [],
 }))
-vi.mock('../ws-server', () => ({ broadcastToMobile: state.broadcastToMobile }))
+vi.mock('../ws-server', () => ({ broadcastToMobile: state.broadcastToMobile, hasMobileClients: vi.fn(() => true), isMobileInForeground: vi.fn(() => true) }))
 vi.mock('../auth', () => ({ retrieveAuthMode: vi.fn(() => 'byok') }))
 vi.mock('../wiki-context', () => ({ getRelevantWikiEntries: vi.fn(() => []), formatWikiSection: vi.fn(() => '') }))
 vi.mock('../wiki-handlers', () => ({ insertWikiEntry: vi.fn() }))
@@ -114,6 +141,7 @@ import { getAgentConfig } from '../agents'
 import { getAvailableMcpTools, getMcpServerConfigsForCli } from '../mcp'
 import { getApiKey, sendOpenAIMessage } from '../providers'
 import { requestApproval } from '../tools'
+import { runOrchestration } from '../orchestrator'
 
 describe('chat handlers', () => {
   beforeEach(() => {
@@ -123,6 +151,8 @@ describe('chat handlers', () => {
     state.send.mockClear()
     state.broadcastToMobile.mockClear()
     state.abortActiveStream.mockClear()
+    state.getOverrides.clear()
+    state.allOverrides.clear()
     vi.mocked(requestApproval).mockReset()
     vi.mocked(getAdapter).mockReturnValue(undefined)
     vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(false)
@@ -445,5 +475,62 @@ describe('chat handlers', () => {
 
     await expect(handler({}, 'conv-1')).resolves.toBe(true)
     expect(state.abortActiveStream).toHaveBeenCalledWith('conv-1')
+  })
+
+  it('broadcasts messages and stream-end to mobile after orchestration completes', async () => {
+    // Set up database to return a project with orchestrationEnabled=true and two agents
+    state.getOverrides.set('SELECT name, config_json FROM projects', {
+      name: 'Test Project',
+      config_json: JSON.stringify({ orchestrationEnabled: true }),
+    })
+    state.getOverrides.set('SELECT project_id FROM conversations', { project_id: 'proj-1' })
+    state.allOverrides.set('project_agents pa JOIN agents', [
+      { agent_id: 'agent-leader', is_primary: 1, sort_order: 0, config_json: JSON.stringify({ name: 'Leader', icon: '🎯' }) },
+      { agent_id: 'agent-worker', is_primary: 0, sort_order: 1, config_json: JSON.stringify({ name: 'Worker', icon: '🔨' }) },
+    ])
+
+    vi.mocked(runOrchestration).mockResolvedValueOnce({
+      finalContent: 'Orchestrated answer',
+      teamActivity: [],
+    })
+
+    const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<{ assistantMsgId: string }>
+    const result = await handler({ sender: {} }, 'conv-orch', 'Do the thing', { projectId: 'proj-1' })
+
+    expect(result.assistantMsgId).toBeTruthy()
+    expect(vi.mocked(runOrchestration)).toHaveBeenCalledOnce()
+
+    // Android must receive messages push before stream-end so the UI can update
+    expect(state.events).toContain('mobile:messages')
+    expect(state.events).toContain('mobile:stream-end')
+    expect(state.events.indexOf('mobile:messages')).toBeLessThan(state.events.indexOf('mobile:stream-end'))
+    expect(state.events).toContain('mobile:complete')
+
+    const assistantMessage = state.messages.find((m) => m.role === 'assistant')
+    expect(assistantMessage?.content).toBe('Orchestrated answer')
+  })
+
+  it('broadcasts error and stream-end to mobile when orchestration throws', async () => {
+    state.getOverrides.set('SELECT name, config_json FROM projects', {
+      name: 'Test Project',
+      config_json: JSON.stringify({ orchestrationEnabled: true }),
+    })
+    state.getOverrides.set('SELECT project_id FROM conversations', { project_id: 'proj-1' })
+    state.allOverrides.set('project_agents pa JOIN agents', [
+      { agent_id: 'agent-leader', is_primary: 1, sort_order: 0, config_json: JSON.stringify({ name: 'Leader', icon: '🎯' }) },
+      { agent_id: 'agent-worker', is_primary: 0, sort_order: 1, config_json: JSON.stringify({ name: 'Worker', icon: '🔨' }) },
+    ])
+
+    vi.mocked(runOrchestration).mockRejectedValueOnce(new Error('Orchestration network error'))
+
+    const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<{ assistantMsgId: string }>
+    const result = await handler({ sender: {} }, 'conv-orch-err', 'Do the thing', { projectId: 'proj-1' })
+
+    expect(result.assistantMsgId).toBeTruthy()
+    expect(state.events).toContain('mobile:messages')
+    expect(state.events).toContain('mobile:stream-end')
+    expect(state.events).toContain('mobile:error')
+    const assistantMessage = state.messages.find((m) => m.role === 'assistant')
+    expect(assistantMessage?.content).toContain('Orchestration network error')
   })
 })
