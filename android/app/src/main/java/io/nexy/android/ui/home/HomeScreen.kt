@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -429,6 +430,9 @@ fun HomeScreen(
                         intentionalRestartExpected = intentionalRestartExpected,
                         onClick = { showConnectionSheet = true },
                     )
+                    IconButton(onClick = onOpenArtifacts) {
+                        Icon(Icons.Default.Inventory2, contentDescription = "Artifacts")
+                    }
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")
                     }
@@ -440,11 +444,6 @@ fun HomeScreen(
                             expanded = showOverflowMenu,
                             onDismissRequest = { showOverflowMenu = false },
                         ) {
-                            DropdownMenuItem(
-                                text = { Text("Artifacts") },
-                                leadingIcon = { Icon(Icons.Default.Folder, contentDescription = null) },
-                                onClick = { showOverflowMenu = false; onOpenArtifacts() },
-                            )
                             DropdownMenuItem(
                                 text = { Text("Skills") },
                                 leadingIcon = { Icon(Icons.Default.Build, contentDescription = null) },
