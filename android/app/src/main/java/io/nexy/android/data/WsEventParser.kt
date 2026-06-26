@@ -1181,6 +1181,11 @@ fun parseWsEvent(
 
             "artifact-generator:cancelled" -> WsEvent.ArtifactGeneratorCancelled(data?.nullableString("sessionId"))
 
+            "artifact:moved-to-project" -> WsEvent.ArtifactMovedToProject(
+                artifactId = data?.optString("artifactId") ?: "",
+                projectId = data?.nullableString("projectId"),
+            )
+
             "skill-generator:token" -> WsEvent.SkillGeneratorToken(
                 sessionId = data?.nullableString("sessionId"),
                 chunk = data?.optString("chunk") ?: "",

@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.ArtifactGeneratorSpec
+import io.nexy.android.data.model.Project
 import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyStepIndicator
 import io.nexy.android.ui.components.NexyTopAppBar
@@ -69,6 +70,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun ArtifactGeneratorScreen(
     onBack: () -> Unit,
+    onViewArtifacts: () -> Unit = {},
     vm: ArtifactGeneratorViewModel = viewModel(),
 ) {
     val uiState by vm.uiState.collectAsState()
@@ -176,7 +178,10 @@ fun ArtifactGeneratorScreen(
                     modifier = Modifier.weight(1f),
                 )
                 ArtifactGenPhase.DONE -> DonePhase(
+                    uiState = uiState,
                     onReset = { vm.reset() },
+                    onViewArtifacts = onViewArtifacts,
+                    onMoveToProject = { projectId -> vm.moveToProject(projectId) },
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -490,22 +495,93 @@ private fun SpecField(label: String, value: String) {
 
 @Composable
 private fun DonePhase(
+    uiState: ArtifactGeneratorUiState,
     onReset: () -> Unit,
+    onViewArtifacts: () -> Unit,
+    onMoveToProject: (String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val projects by WsRepository.projects.collectAsState()
+    var showProjectPicker by remember { mutableStateOf(false) }
+    val projectSheetState = rememberModalBottomSheetState()
+    val scope = rememberCoroutineScope()
+
     Column(
         modifier = modifier.fillMaxSize().padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Text("Spec ready!", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Text("Artifact Created!", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
+        if (!uiState.createdArtifactTitle.isNullOrBlank()) {
+            Text(
+                uiState.createdArtifactTitle,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.height(8.dp))
+        }
+        if (uiState.movedToProjectId != null) {
+            val projectName = projects.find { it.id == uiState.movedToProjectId }?.name ?: "project"
+            Text(
+                "Added to $projectName",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.height(8.dp))
+        }
         Text(
-            "The artifact has been generated. Open the Artifacts area to view and manage generated versions.",
+            "The artifact has been generated and saved.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(24.dp))
-        Button(onClick = onReset) { Text("Generate another artifact") }
+        Button(onClick = onViewArtifacts, modifier = Modifier.fillMaxWidth()) { Text("View artifacts") }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = { showProjectPicker = true },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(if (uiState.movedToProjectId != null) "Change project" else "Add to project")
+        }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(onClick = onReset, modifier = Modifier.fillMaxWidth()) { Text("Generate another artifact") }
+    }
+
+    if (showProjectPicker) {
+        ModalBottomSheet(
+            onDismissRequest = { showProjectPicker = false },
+            sheetState = projectSheetState,
+        ) {
+            Text(
+                "Add to project",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+            if (projects.isEmpty()) {
+                Text(
+                    "No projects available.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(16.dp),
+                )
+            } else {
+                LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
+                    items(projects) { project ->
+                        ListItem(
+                            headlineContent = { Text(project.name) },
+                            modifier = Modifier.clickable {
+                                onMoveToProject(project.id)
+                                scope.launch { projectSheetState.hide() }.invokeOnCompletion { showProjectPicker = false }
+                            },
+                            trailingContent = if (uiState.movedToProjectId == project.id) ({
+                                Text("✓", color = MaterialTheme.colorScheme.primary)
+                            }) else null,
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    }
+                }
+            }
+        }
     }
 }

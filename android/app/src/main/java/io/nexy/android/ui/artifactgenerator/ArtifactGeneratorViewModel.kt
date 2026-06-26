@@ -32,6 +32,7 @@ data class ArtifactGeneratorUiState(
     val error: String? = null,
     val createdArtifactId: String? = null,
     val createdArtifactTitle: String? = null,
+    val movedToProjectId: String? = null,
     val sessionId: String = "android-artifact-${UUID.randomUUID()}",
     val promptInsert: Pair<Int, String>? = null,
     val selectedModel: String? = null,
@@ -108,6 +109,11 @@ class ArtifactGeneratorViewModel(
                             _uiState.value = ArtifactGeneratorUiState()
                         }
                     }
+                    is WsEvent.ArtifactMovedToProject -> {
+                        if (event.artifactId == state.createdArtifactId) {
+                            _uiState.value = _uiState.value.copy(movedToProjectId = event.projectId)
+                        }
+                    }
                     else -> {}
                 }
             }
@@ -168,6 +174,14 @@ class ArtifactGeneratorViewModel(
 
     fun dismissError() {
         _uiState.value = _uiState.value.copy(error = null)
+    }
+
+    fun moveToProject(projectId: String?) {
+        val artifactId = _uiState.value.createdArtifactId ?: return
+        wsClient.send("artifact:move-to-project", mapOf(
+            "artifactId" to artifactId,
+            "projectId" to (projectId ?: ""),
+        ))
     }
 
     fun reset() {

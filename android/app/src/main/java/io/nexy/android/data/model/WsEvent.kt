@@ -221,6 +221,8 @@ sealed class WsEvent {
     data class ArtifactGeneratorCreated(val sessionId: String?, val artifactId: String, val title: String) : WsEvent()
     data class ArtifactGeneratorError(val sessionId: String?, val message: String) : WsEvent()
     data class ArtifactGeneratorCancelled(val sessionId: String?) : WsEvent()
+    data class ArtifactMoveToProject(val artifactId: String, val projectId: String?) : WsEvent()
+    data class ArtifactMovedToProject(val artifactId: String, val projectId: String?) : WsEvent()
     data class SkillGeneratorToken(val sessionId: String?, val chunk: String) : WsEvent()
     data class SkillGeneratorTurnComplete(val sessionId: String?, val content: String, val hasSpec: Boolean = false) : WsEvent()
     data class SkillGeneratorSpecReady(val sessionId: String?, val spec: SkillGeneratorSpec) : WsEvent()

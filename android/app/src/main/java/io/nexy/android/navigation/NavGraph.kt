@@ -410,7 +410,13 @@ fun NavGraph(
         }
 
         composable("artifact-generator") {
-            ArtifactGeneratorScreen(onBack = { navController.popBackStack() })
+            ArtifactGeneratorScreen(
+                onBack = { navController.popBackStack() },
+                onViewArtifacts = {
+                    navController.popBackStack()
+                    navController.navigate("artifacts")
+                },
+            )
         }
 
         composable("skills") {

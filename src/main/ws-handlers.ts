@@ -1901,6 +1901,20 @@ export function registerWsHandlers(): void {
       return
     }
 
+    if (command === 'artifact:move-to-project') {
+      const artifactId = typeof data.artifactId === 'string' ? data.artifactId : ''
+      const projectId = typeof data.projectId === 'string' && data.projectId ? data.projectId : null
+      if (!artifactId) {
+        reply({ event: 'artifact:moved-to-project', data: { ok: false, artifactId, projectId } })
+        return
+      }
+      const info = projectId
+        ? db.prepare('UPDATE artifacts SET project_id = ?, updated_at = ? WHERE id = ?').run(projectId, Date.now(), artifactId)
+        : db.prepare('UPDATE artifacts SET project_id = NULL, updated_at = ? WHERE id = ?').run(Date.now(), artifactId)
+      broadcastToMobile({ event: 'artifact:moved-to-project', data: { ok: (info as { changes: number }).changes > 0, artifactId, projectId } })
+      return
+    }
+
     if (command === 'artifact-generator:generate') {
       const sessionId = typeof data.sessionId === 'string' && data.sessionId.trim()
         ? data.sessionId.trim()
