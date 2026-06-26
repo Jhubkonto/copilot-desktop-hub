@@ -951,7 +951,14 @@ fun ChatScreen(
                     }
                     itemsIndexed(
                         groupedMessages,
-                        key = { idx, msg -> msg.id.ifBlank { "${msg.isUser}_${msg.timestamp}_${msg.toolName}_$idx" } },
+                        key = { idx, msg ->
+                            // Tool calls key on name+position (not UUID) so the composable survives the
+                            // live→persisted transition when history re-fetch replaces the synthetic id
+                            // with a real UUID. Destroying the composable resets expanded state, causing
+                            // the visible flicker.
+                            if (msg.isToolCall) "tool_${msg.toolName}_$idx"
+                            else msg.id.ifBlank { "${msg.isUser}_${msg.timestamp}_$idx" }
+                        },
                         contentType = { _, msg -> if (msg.isUser) 0 else if (msg.isToolCall) 1 else 2 },
                     ) { msgIndex, msg ->
                         androidx.compose.foundation.layout.Column {
