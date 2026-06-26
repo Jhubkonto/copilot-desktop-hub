@@ -11,6 +11,7 @@ data class AgentFullConfig(
     val maxTokens: Int = 8192,
     val responseFormat: String = "default",
     val agenticMode: Boolean = false,
+    val fullAutoApprove: Boolean = false,
     val memory: String = "",
     val tools: AgentTools = AgentTools(),
     val mcpServers: List<String> = emptyList(),

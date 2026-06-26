@@ -47,6 +47,7 @@ class AgentConfigRoundTripTest {
                   "maxTokens": 64000,
                   "responseFormat": "detailed",
                   "agenticMode": true,
+                  "fullAutoApprove": true,
                   "memory": "Prefer small patches",
                   "tools": {
                     "fileEdit": { "enabled": true, "approval": "always-ask", "instructions": "Keep edits scoped" },
@@ -79,6 +80,7 @@ class AgentConfigRoundTripTest {
         assertEquals("codex-cli", payload["backend"])
         assertEquals("gpt-5-codex", payload["cliModel"])
         assertEquals(64000, payload["maxTokens"])
+        assertEquals(true, payload["fullAutoApprove"])
         assertEquals(listOf("github", "filesystem"), payload["mcpServers"])
         assertEquals("high", payload["thinkingEffort"])
         assertEquals("C:/repo", payload["rootDirectory"])

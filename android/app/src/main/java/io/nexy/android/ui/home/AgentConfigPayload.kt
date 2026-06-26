@@ -37,6 +37,7 @@ internal fun buildAgentUpdatePayload(config: AgentFullConfig): Map<String, Any> 
         put("systemPrompt", config.systemPrompt)
         put("memory", config.memory)
         put("agenticMode", config.agenticMode)
+        put("fullAutoApprove", config.fullAutoApprove)
         put("backend", config.backend ?: "")
         put("cliModel", config.cliModel ?: "")
         put("responseFormat", config.responseFormat)

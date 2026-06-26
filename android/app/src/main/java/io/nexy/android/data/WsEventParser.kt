@@ -616,6 +616,7 @@ fun parseWsEvent(
                     maxTokens = a.optInt("maxTokens", 8192),
                     responseFormat = a.optString("responseFormat", "default"),
                     agenticMode = a.optBoolean("agenticMode", false),
+                    fullAutoApprove = a.optBoolean("fullAutoApprove", false),
                     memory = a.optString("memory", ""),
                     tools = parseAgentTools(a.optJSONObject("tools")),
                     mcpServers = mcpServersList,

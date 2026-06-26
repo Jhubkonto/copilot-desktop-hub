@@ -130,6 +130,8 @@ fun AgentConfigScreen(
     var systemPrompt by remember { mutableStateOf("") }
     var memory by remember { mutableStateOf("") }
     var agenticMode by remember { mutableStateOf(false) }
+    var fullAutoApprove by remember { mutableStateOf(false) }
+    var showFullAutoApproveDialog by remember { mutableStateOf(false) }
     // Backend
     var backend by remember { mutableStateOf<String?>(null) }
     var cliModel by remember { mutableStateOf("") }
@@ -183,6 +185,7 @@ fun AgentConfigScreen(
     var loadedSystemPrompt by remember { mutableStateOf("") }
     var loadedMemory by remember { mutableStateOf("") }
     var loadedAgenticMode by remember { mutableStateOf(false) }
+    var loadedFullAutoApprove by remember { mutableStateOf(false) }
     var loadedBackend by remember { mutableStateOf<String?>(null) }
     var loadedCliModel by remember { mutableStateOf("") }
     var loadedResponseFormat by remember { mutableStateOf("default") }
@@ -221,6 +224,7 @@ fun AgentConfigScreen(
         systemPrompt != loadedSystemPrompt ||
         memory != loadedMemory ||
         agenticMode != loadedAgenticMode ||
+        fullAutoApprove != loadedFullAutoApprove ||
         backend != loadedBackend ||
         cliModel != loadedCliModel ||
         responseFormat != loadedResponseFormat ||
@@ -244,6 +248,20 @@ fun AgentConfigScreen(
         )
     }
 
+    if (showFullAutoApproveDialog) {
+        NexyConfirmDialog(
+            title = "Enable auto-approve?",
+            message = "This agent will execute all tool calls, including file edits, shell commands, and web requests, without asking for confirmation.",
+            confirmLabel = "Enable auto-approve",
+            onConfirm = {
+                fullAutoApprove = true
+                showFullAutoApproveDialog = false
+            },
+            onDismiss = { showFullAutoApproveDialog = false },
+            destructive = true,
+        )
+    }
+
     LaunchedEffect(agentId) {
         WsRepository.agentFullConfig.value = null
         WsRepository.requestAgentFull(agentId)
@@ -262,6 +280,7 @@ fun AgentConfigScreen(
         systemPrompt = c.systemPrompt; loadedSystemPrompt = c.systemPrompt
         memory = c.memory; loadedMemory = c.memory
         agenticMode = c.agenticMode; loadedAgenticMode = c.agenticMode
+        fullAutoApprove = c.fullAutoApprove; loadedFullAutoApprove = c.fullAutoApprove
         backend = c.backend; loadedBackend = c.backend
         cliModel = c.cliModel ?: ""; loadedCliModel = c.cliModel ?: ""
         responseFormat = c.responseFormat; loadedResponseFormat = c.responseFormat
@@ -294,7 +313,8 @@ fun AgentConfigScreen(
                     saving = false
                     loadedName = name; loadedIcon = icon
                     loadedSystemPrompt = systemPrompt; loadedMemory = memory
-                    loadedAgenticMode = agenticMode; loadedBackend = backend
+                    loadedAgenticMode = agenticMode; loadedFullAutoApprove = fullAutoApprove
+                    loadedBackend = backend
                     loadedCliModel = cliModel; loadedResponseFormat = responseFormat
                     loadedTemperature = temperature; loadedMaxTokensText = maxTokensText
                     loadedThinkingEffort = thinkingEffort
@@ -458,6 +478,38 @@ fun AgentConfigScreen(
                             Text("Allow autonomous multi-step actions", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Switch(checked = agenticMode, onCheckedChange = { if (!saving && !disconnected) agenticMode = it }, enabled = !saving && !disconnected)
+                    }
+
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "Auto-approve all actions",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                )
+                                Text(
+                                    "All tool calls execute immediately without confirmation. Use only for fully trusted agents.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                )
+                            }
+                            Switch(
+                                checked = fullAutoApprove,
+                                onCheckedChange = { checked ->
+                                    if (saving || disconnected) return@Switch
+                                    if (checked) showFullAutoApproveDialog = true else fullAutoApprove = false
+                                },
+                                enabled = !saving && !disconnected,
+                            )
+                        }
                     }
                 }
             }
@@ -896,6 +948,7 @@ fun AgentConfigScreen(
                             maxTokens = maxTokensParsed!!.coerceIn(256, 128000),
                             responseFormat = responseFormat,
                             agenticMode = agenticMode,
+                            fullAutoApprove = fullAutoApprove,
                             memory = memory.trim(),
                             tools = AgentTools(
                                 fileEdit = ToolConfig(enabled = fileEditEnabled, approval = fileEditApproval, instructions = fileEditInstructions),
