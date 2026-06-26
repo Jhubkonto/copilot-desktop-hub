@@ -174,6 +174,7 @@ export function createMockApi() {
     onChatTurnEvent: vi.fn().mockReturnValue(() => {}),
     stopGeneration: vi.fn().mockResolvedValue(undefined),
     onAutoClipboardFocus: vi.fn().mockReturnValue(() => {}),
+    onToolAutoApproved: vi.fn().mockReturnValue(() => {}),
 
     // Conversations
     listConversations: vi.fn().mockResolvedValue([]),

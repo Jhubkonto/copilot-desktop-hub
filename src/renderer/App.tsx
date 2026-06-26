@@ -155,6 +155,17 @@ export default function App() {
     return () => { unsubscribe() }
   }, [removeToolApprovalRequest])
 
+  // Show inline indicator for auto-approved tool calls
+  useEffect(() => {
+    if (typeof window.api.onToolAutoApproved !== 'function') return
+    const unsubscribe = window.api.onToolAutoApproved(
+      (data: { toolName: string; args: Record<string, unknown> }) => {
+        addToast(`⚡ ${data.toolName} auto-approved`, 'info')
+      }
+    )
+    return () => { unsubscribe() }
+  }, [addToast])
+
   // Listen for auto-update events
   useEffect(() => {
     const unsub1 = window.api.onUpdateAvailable((info: { version: string }) => {

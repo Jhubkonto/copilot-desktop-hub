@@ -1,4 +1,5 @@
-import { X, Folder, FileText, Plus, ExternalLink } from 'lucide-react'
+import { useState } from 'react'
+import { X, Folder, FileText, Plus, ExternalLink, AlertTriangle } from 'lucide-react'
 import type { AgentConfig } from '../../../shared/types'
 import { ToggleSwitch } from '../ui/primitives'
 
@@ -27,6 +28,7 @@ interface Props {
   onRemoveContextFile: (i: number) => void
   onPickRootDirectory: () => void
   onOpenCliSettings: () => void
+  autoApproveDisabled?: boolean
 }
 
 export function SettingsTab({
@@ -38,8 +40,10 @@ export function SettingsTab({
   onAddCustomCommand, onRemoveCustomCommand,
   onAddDirectories, onAddFiles, onRemoveContextDir, onRemoveContextFile,
   onPickRootDirectory, onOpenCliSettings,
+  autoApproveDisabled = false,
 }: Props) {
   const contextRules = config.contextRules ?? { ignoredGlobs: [], autoInjectWorkspace: false, autoInjectGit: false }
+  const [showAutoApproveConfirm, setShowAutoApproveConfirm] = useState(false)
 
   return (
     <>
@@ -417,6 +421,78 @@ export function SettingsTab({
           </button>
         </div>
       </div>
+
+      {/* Danger Zone */}
+      <div className="space-y-3 pt-2">
+        <hr className="border-red-200 dark:border-red-900" />
+        <div className="flex items-center gap-1.5">
+          <AlertTriangle className="w-3.5 h-3.5 text-red-500" />
+          <span className="text-xs font-semibold text-red-600 dark:text-red-400 uppercase tracking-wide">Danger Zone</span>
+        </div>
+        <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/30 p-3 space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-red-900 dark:text-red-200">Auto-approve all actions</p>
+              <p className="text-xs text-red-700 dark:text-red-400 mt-0.5">All tool calls execute immediately without confirmation. Use only for fully trusted agents.</p>
+            </div>
+            <ToggleSwitch
+              checked={config.fullAutoApprove === true}
+              onChange={(checked) => {
+                if (autoApproveDisabled) return
+                if (checked) {
+                  setShowAutoApproveConfirm(true)
+                } else {
+                  onUpdateField('fullAutoApprove', false)
+                }
+              }}
+              ariaLabel="Toggle auto-approve all actions"
+              disabled={autoApproveDisabled}
+            />
+          </div>
+          {autoApproveDisabled && (
+            <p
+              className="text-xs text-red-700 dark:text-red-400"
+              title="Auto-approve is not available for agents used in scheduled tasks"
+            >
+              Auto-approve is not available for agents used in scheduled tasks.
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Auto-approve confirmation modal */}
+      {showAutoApproveConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-labelledby="auto-approve-modal-title">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl p-6 max-w-sm w-full mx-4 space-y-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-red-500 mt-0.5 shrink-0" />
+              <div>
+                <h2 id="auto-approve-modal-title" className="text-base font-semibold text-gray-900 dark:text-gray-100">Enable auto-approve?</h2>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                  This agent will execute all tool calls — including file edits, shell commands, and web requests — without asking for confirmation. Are you sure?
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                onClick={() => setShowAutoApproveConfirm(false)}
+                className="px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  onUpdateField('fullAutoApprove', true)
+                  setShowAutoApproveConfirm(false)
+                }}
+                className="px-3 py-1.5 text-sm rounded-lg bg-red-600 hover:bg-red-700 text-white font-medium transition-colors"
+              >
+                Enable auto-approve
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }

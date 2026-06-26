@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
-import { BookOpen, BrainCircuit, CheckCircle, ChevronDown, ChevronRight, Download, Loader2, Lock, MoreHorizontal, Pin, PinOff, Sparkles, Upload } from 'lucide-react'
+import { BookOpen, BrainCircuit, CheckCircle, ChevronDown, ChevronRight, Download, Loader2, Lock, MoreHorizontal, Pin, PinOff, Sparkles, Upload, Zap } from 'lucide-react'
 import { getAvailableModelIds, getModelLabel, modelIdSupportsTools } from '../../shared/models'
 import { isApiError, type AgentConfig, type AvailableModelEntry, type AvailableModelGroup, type ConversationExportPackFormat, type WikiCandidate } from '../../shared/types'
 import type { ContextRef, ToastType } from '../hooks/chat-types'
@@ -67,6 +67,7 @@ export function ChatWindow() {
   const markConversationPending = useAppStore((state) => state.markConversationPending)
   const clearConversationPending = useAppStore((state) => state.clearConversationPending)
   const defaultModelSetting = useAppStore((state) => state.globalDefaultModel)
+  const saveAgent = useAppStore((state) => state.saveAgent)
   const [isPinning, setIsPinning] = useState(false)
 
   const availableGroups = useAppStore((state) => state.availableModelGroups)
@@ -401,6 +402,22 @@ export function ChatWindow() {
           id: crypto.randomUUID(),
           role: 'system' as const,
           content: `📖 ${count} project ${label} auto-injected into this conversation.`,
+          timestamp: Date.now(),
+        },
+      ])
+    })
+    return unsubscribe
+  }, [chat.setMessages])
+
+  useEffect(() => {
+    if (typeof window.api.onToolAutoApproved !== 'function') return
+    const unsubscribe = window.api.onToolAutoApproved(({ toolName }) => {
+      chat.setMessages((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          role: 'system' as const,
+          content: `⚡ ${toolName} auto-approved`,
           timestamp: Date.now(),
         },
       ])
@@ -892,8 +909,9 @@ export function ChatWindow() {
   }, [chatAgent?.backend, authMode, cliInstalled, installedClis.claude, installedClis.codex, effectiveModel, availableGroups, hasByok])
 
   const contextBar = (
+    <div className="border-b border-gray-200 dark:border-gray-700/80 bg-gray-50 dark:bg-gray-800/50">
     <div
-      className="flex items-center gap-2 px-4 h-9 border-b border-gray-200 dark:border-gray-700/80 bg-gray-50 dark:bg-gray-800/50"
+      className="flex items-center gap-2 px-4 h-9"
       aria-label="Chat context"
     >
       <span
@@ -957,6 +975,7 @@ export function ChatWindow() {
           </span>
         )}
       </div>
+    </div>
     </div>
   )
 
@@ -1050,6 +1069,19 @@ export function ChatWindow() {
   ) : null
 
 
+  const autoApproveBanner = chatAgent?.fullAutoApprove ? (
+    <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-xs" role="alert" aria-live="polite" aria-label="Auto-approve warning">
+      <Zap className="w-3 h-3 shrink-0" aria-hidden="true" />
+      <span className="flex-1">Auto-approve is ON — all actions execute immediately</span>
+      <button
+        onClick={() => saveAgent({ ...chatAgent, fullAutoApprove: false })}
+        className="underline hover:no-underline font-medium"
+      >
+        Disable
+      </button>
+    </div>
+  ) : null
+
   if (!conversationId && chat.messages.length === 0) {
     return (
       <div
@@ -1060,6 +1092,7 @@ export function ChatWindow() {
         onDrop={fileInput.handleDrop}
       >
         {contextBar}
+        {autoApproveBanner}
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center max-w-md">
             <h2 className="text-2xl font-medium text-gray-700 dark:text-gray-200 mb-2">
@@ -1114,6 +1147,7 @@ export function ChatWindow() {
       aria-label="Chat conversation"
     >
       {contextBar}
+      {autoApproveBanner}
 
       <div className="relative flex flex-col flex-1 min-h-0">
         {(conversationId || chat.messages.length > 0) && !chat.isGenerating && (

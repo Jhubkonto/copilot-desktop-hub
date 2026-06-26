@@ -35,6 +35,9 @@ let chatTurnEventCallback: ((event: {
   retryAfterSeconds?: number;
 }) => void) | null = null;
 let autoClipboardFocusCallback: (() => void | Promise<void>) | null = null;
+let toolAutoApprovedCallback:
+  | ((data: { toolName: string; args: Record<string, unknown> }) => void)
+  | null = null;
 let mockStore: ReturnType<typeof createMockAppStore>;
 
 beforeEach(() => {
@@ -43,6 +46,7 @@ beforeEach(() => {
   streamErrorCallback = null;
   chatTurnEventCallback = null;
   autoClipboardFocusCallback = null;
+  toolAutoApprovedCallback = null;
   mockApi.getMessages.mockResolvedValue([]);
 
   mockApi.onStreamResponse.mockImplementation(
@@ -78,6 +82,12 @@ beforeEach(() => {
     autoClipboardFocusCallback = cb;
     return () => {
       autoClipboardFocusCallback = null;
+    };
+  });
+  mockApi.onToolAutoApproved.mockImplementation((cb: typeof toolAutoApprovedCallback) => {
+    toolAutoApprovedCallback = cb;
+    return () => {
+      toolAutoApprovedCallback = null;
     };
   });
 
@@ -1273,6 +1283,75 @@ describe("ChatWindow — Model Dropdown (O.2)", () => {
     render(<ChatWindow />);
 
     expect(screen.getByTitle("Active backend for this conversation")).toHaveTextContent("Codex CLI");
+  });
+});
+
+describe("ChatWindow — Full Auto-Approve", () => {
+  it("shows the auto-approve banner and disables it from the chat header", async () => {
+    const user = userEvent.setup();
+    mockStore = createMockAppStore({
+      authState: { authenticated: true, user: null },
+      currentConversationId: "conv-1",
+      conversations: [
+        {
+          id: "conv-1",
+          title: "Trusted chat",
+          project_id: null,
+          agent_id: "agent-1",
+          model: null,
+          pinned: false,
+          created_at: 0,
+          updated_at: 0,
+        },
+      ],
+      agents: [
+        {
+          id: "agent-1",
+          name: "Trusted Agent",
+          icon: "T",
+          systemPrompt: "",
+          fullAutoApprove: true,
+        },
+      ],
+    });
+    setupStoreMock(useAppStore, mockStore);
+    render(<ChatWindow />);
+
+    expect(screen.getByLabelText("Auto-approve warning")).toHaveTextContent("Auto-approve is ON");
+    await user.click(screen.getByRole("button", { name: /disable/i }));
+
+    expect(mockStore.saveAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ fullAutoApprove: false }),
+    );
+  });
+
+  it("renders an inline auto-approved tool indicator", async () => {
+    mockStore = createMockAppStore({
+      authState: { authenticated: true, user: null },
+      currentConversationId: "conv-1",
+      conversations: [
+        {
+          id: "conv-1",
+          title: "Trusted chat",
+          project_id: null,
+          agent_id: "agent-1",
+          model: null,
+          pinned: false,
+          created_at: 0,
+          updated_at: 0,
+        },
+      ],
+      agents: [{ id: "agent-1", name: "Trusted Agent", icon: "T", systemPrompt: "" }],
+    });
+    setupStoreMock(useAppStore, mockStore);
+    render(<ChatWindow />);
+
+    await waitFor(() => expect(toolAutoApprovedCallback).not.toBeNull());
+    act(() => {
+      toolAutoApprovedCallback?.({ toolName: "terminal", args: {} });
+    });
+
+    expect(await screen.findByText(/terminal auto-approved/i)).toBeInTheDocument();
   });
 });
 

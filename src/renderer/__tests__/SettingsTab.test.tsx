@@ -1,0 +1,132 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { SettingsTab } from '../../renderer/components/agent-panel/SettingsTab'
+import type { AgentConfig } from '../../shared/types'
+
+function makeConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
+  return {
+    id: 'agent-1',
+    name: 'Test Agent',
+    icon: '🤖',
+    systemPrompt: '',
+    temperature: 0.7,
+    maxTokens: 4096,
+    contextDirectories: [],
+    contextFiles: [],
+    mcpServers: [],
+    agenticMode: false,
+    tools: {
+      fileEdit: { enabled: true, approval: 'auto', instructions: '' },
+      terminal: { enabled: false, approval: 'always-ask', instructions: '' },
+      webFetch: { enabled: true, approval: 'auto', instructions: '' },
+    },
+    responseFormat: 'default',
+    ...overrides,
+  }
+}
+
+function defaultProps(config: AgentConfig, onUpdateField = vi.fn()) {
+  return {
+    config,
+    onUpdateField,
+    newGlob: '',
+    onSetNewGlob: vi.fn(),
+    onAddIgnoredGlob: vi.fn(),
+    onRemoveIgnoredGlob: vi.fn(),
+    newCmdName: '',
+    newCmdDesc: '',
+    newCmdPrompt: '',
+    onSetNewCmdName: vi.fn(),
+    onSetNewCmdDesc: vi.fn(),
+    onSetNewCmdPrompt: vi.fn(),
+    onAddCustomCommand: vi.fn(),
+    onRemoveCustomCommand: vi.fn(),
+    onAddDirectories: vi.fn(),
+    onAddFiles: vi.fn(),
+    onRemoveContextDir: vi.fn(),
+    onRemoveContextFile: vi.fn(),
+    onPickRootDirectory: vi.fn(),
+    onOpenCliSettings: vi.fn(),
+    autoApproveDisabled: false,
+  }
+}
+
+const user = userEvent.setup()
+
+describe('SettingsTab — Danger Zone', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('renders the Danger Zone section', () => {
+    render(<SettingsTab {...defaultProps(makeConfig())} />)
+    expect(screen.getByText('Danger Zone')).toBeInTheDocument()
+  })
+
+  it('renders the auto-approve toggle', () => {
+    render(<SettingsTab {...defaultProps(makeConfig())} />)
+    expect(screen.getByRole('switch', { name: /auto-approve all actions/i })).toBeInTheDocument()
+  })
+
+  it('toggle is unchecked when fullAutoApprove is false', () => {
+    render(<SettingsTab {...defaultProps(makeConfig({ fullAutoApprove: false }))} />)
+    const toggle = screen.getByRole('switch', { name: /auto-approve all actions/i })
+    expect(toggle).toHaveAttribute('aria-checked', 'false')
+  })
+
+  it('toggle is checked when fullAutoApprove is true', () => {
+    render(<SettingsTab {...defaultProps(makeConfig({ fullAutoApprove: true }))} />)
+    const toggle = screen.getByRole('switch', { name: /auto-approve all actions/i })
+    expect(toggle).toHaveAttribute('aria-checked', 'true')
+  })
+
+  it('clicking toggle-on opens the confirmation modal', async () => {
+    render(<SettingsTab {...defaultProps(makeConfig({ fullAutoApprove: false }))} />)
+    const toggle = screen.getByRole('switch', { name: /auto-approve all actions/i })
+    await user.click(toggle)
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByText(/Enable auto-approve\?/i)).toBeInTheDocument()
+  })
+
+  it('cancelling the modal does not call onUpdateField', async () => {
+    const onUpdateField = vi.fn()
+    render(<SettingsTab {...defaultProps(makeConfig({ fullAutoApprove: false }), onUpdateField)} />)
+    const toggle = screen.getByRole('switch', { name: /auto-approve all actions/i })
+    await user.click(toggle)
+    await user.click(screen.getByRole('button', { name: /cancel/i }))
+    expect(onUpdateField).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('confirming the modal calls onUpdateField with fullAutoApprove: true', async () => {
+    const onUpdateField = vi.fn()
+    render(<SettingsTab {...defaultProps(makeConfig({ fullAutoApprove: false }), onUpdateField)} />)
+    const toggle = screen.getByRole('switch', { name: /auto-approve all actions/i })
+    await user.click(toggle)
+    await user.click(screen.getByRole('button', { name: /enable auto-approve/i }))
+    expect(onUpdateField).toHaveBeenCalledWith('fullAutoApprove', true)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('toggling off directly calls onUpdateField with fullAutoApprove: false (no modal)', async () => {
+    const onUpdateField = vi.fn()
+    render(<SettingsTab {...defaultProps(makeConfig({ fullAutoApprove: true }), onUpdateField)} />)
+    const toggle = screen.getByRole('switch', { name: /auto-approve all actions/i })
+    await user.click(toggle)
+    expect(onUpdateField).toHaveBeenCalledWith('fullAutoApprove', false)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('disables the toggle and shows a scheduled task warning when blocked', async () => {
+    const onUpdateField = vi.fn()
+    render(<SettingsTab {...defaultProps(makeConfig({ fullAutoApprove: false }), onUpdateField)} autoApproveDisabled />)
+    const toggle = screen.getByRole('switch', { name: /auto-approve all actions/i })
+
+    expect(toggle).toBeDisabled()
+    expect(screen.getByText(/not available for agents used in scheduled tasks/i)).toBeInTheDocument()
+    await user.click(toggle)
+    expect(onUpdateField).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+})

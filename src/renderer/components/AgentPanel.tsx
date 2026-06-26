@@ -48,6 +48,7 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
   const setShowSettings = useAppStore((s) => s.setShowSettings)
   const setSettingsInitialTab = useAppStore((s) => s.setSettingsInitialTab)
   const globalDefaultModel = useAppStore((s) => s.globalDefaultModel)
+  const schedulerTasks = useAppStore((s) => s.schedulerTasks ?? [])
 
   const [availableGroups, setAvailableGroups] = useState<AvailableModelGroup[]>([])
   useEffect(() => {
@@ -80,6 +81,7 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
   const [newCmdPrompt, setNewCmdPrompt] = useState('')
 
   const isEditing = !!agent?.id
+  const autoApproveDisabled = isEditing && schedulerTasks.some((task) => task.agentId === config.id)
 
   const thinkingSupported = useMemo(() => {
     if (config.backend === 'claude-cli' || config.backend === 'codex-cli') return true
@@ -395,6 +397,7 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
               onRemoveContextFile={(i) => updateField('contextFiles', config.contextFiles.filter((_, idx) => idx !== i))}
               onPickRootDirectory={handlePickRootDirectory}
               onOpenCliSettings={() => { setSettingsInitialTab('cli'); setShowSettings(true) }}
+              autoApproveDisabled={autoApproveDisabled}
             />
           )}
 
