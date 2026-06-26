@@ -570,6 +570,25 @@ export function createMockApi() {
     generateQuiz: vi.fn().mockResolvedValue({ questions: [] }),
     saveQuizAttempt: vi.fn().mockResolvedValue({ id: 'attempt-1', conversation_id: 'conv-1', score: 3, total: 5, attempted_at: 1000 }),
     listQuizAttempts: vi.fn().mockResolvedValue([]),
+
+    // Artifacts
+    artifactList: vi.fn().mockResolvedValue([]),
+    artifactGet: vi.fn().mockResolvedValue(null),
+    artifactListVersions: vi.fn().mockResolvedValue([]),
+    artifactGetVersion: vi.fn().mockResolvedValue(null),
+    artifactDelete: vi.fn().mockResolvedValue({ deleted: true }),
+    artifactMoveToProject: vi.fn().mockResolvedValue({ ok: true }),
+    artifactExport: vi.fn().mockResolvedValue({ exportPath: '/tmp/export' }),
+    artifactOpenFolder: vi.fn().mockResolvedValue({ ok: true }),
+    artifactGeneratorChat: vi.fn().mockResolvedValue({ started: true }),
+    artifactGeneratorGenerate: vi.fn().mockResolvedValue({ started: true }),
+    artifactGeneratorGetRuns: vi.fn().mockResolvedValue([]),
+    artifactGeneratorGetStorageRoot: vi.fn().mockResolvedValue({ path: '/tmp/artifacts' }),
+    artifactGeneratorSetStorageRoot: vi.fn().mockResolvedValue({ ok: true }),
+    onArtifactGeneratorToken: vi.fn().mockReturnValue(() => {}),
+    onArtifactGeneratorSpecReady: vi.fn().mockReturnValue(() => {}),
+    onArtifactGeneratorFileEvent: vi.fn().mockReturnValue(() => {}),
+    onArtifactGeneratorDone: vi.fn().mockReturnValue(() => {}),
   }
 }
 
