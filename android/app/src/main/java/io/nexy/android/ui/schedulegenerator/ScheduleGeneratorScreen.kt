@@ -36,6 +36,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -45,10 +46,12 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.ScheduleGeneratorSpec
 import io.nexy.android.ui.chat.ChatInputBar
+import io.nexy.android.ui.chat.rememberOnDeviceVoiceInput
 import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyStepIndicator
 import io.nexy.android.ui.components.NexyTopAppBar
 import io.nexy.android.ui.model.activeModelLabel
+import kotlinx.coroutines.launch
 
 private val scheduleTypes = listOf("one-time", "daily", "weekdays", "weekly", "monthly")
 private val notificationPrefs = listOf("always", "failures_only", "off")
@@ -62,8 +65,13 @@ fun ScheduleGeneratorScreen(
     val uiState by viewModel.uiState.collectAsState()
     val models by WsRepository.models.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     var input by remember { mutableStateOf("") }
     var confirmReset by remember { mutableStateOf(false) }
+    val voiceInput = rememberOnDeviceVoiceInput(
+        onText = { text -> input = if (input.isBlank()) text else "${input.trimEnd()} $text" },
+        onError = { message -> scope.launch { snackbarHostState.showSnackbar(message) } },
+    )
     val displayModelId = uiState.selectedModel ?: uiState.resolvedModel
     val activeModelLabel = if (displayModelId != null) activeModelLabel(displayModelId, models) else "Default model"
 
@@ -155,6 +163,8 @@ fun ScheduleGeneratorScreen(
                     placeholder = "Describe your schedule...",
                     onSetupManually = { viewModel.setupManually() },
                     showAttachOptions = false,
+                    isListening = voiceInput.listening,
+                    onVoiceInput = voiceInput.toggle,
                 )
             }
         }

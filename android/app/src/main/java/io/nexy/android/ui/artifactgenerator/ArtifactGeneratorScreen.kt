@@ -35,6 +35,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import io.nexy.android.ui.chat.ChatInputBar
+import io.nexy.android.ui.chat.rememberOnDeviceVoiceInput
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
@@ -82,6 +83,10 @@ fun ArtifactGeneratorScreen(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var input by remember { mutableStateOf("") }
+    val voiceInput = rememberOnDeviceVoiceInput(
+        onText = { text -> input = if (input.isBlank()) text else "${input.trimEnd()} $text" },
+        onError = { message -> scope.launch { snackbarHostState.showSnackbar(message) } },
+    )
 
     val displayModelId = uiState.selectedModel ?: uiState.resolvedModel
     val activeModelLabel = if (displayModelId != null) activeModelLabel(displayModelId, models) else "Default model"
@@ -187,6 +192,8 @@ fun ArtifactGeneratorScreen(
                     onInsertPrompt = { WsRepository.listPrompts(); showPromptSheet = true },
                     placeholder = "Describe your artifact…",
                     showAttachOptions = false,
+                    isListening = voiceInput.listening,
+                    onVoiceInput = voiceInput.toggle,
                 )
             }
         }
