@@ -131,7 +131,7 @@ Major refactoring is needed, but it should be phased. Keep existing IPC and WebS
 - Manual smoke tests:
   - [x] OpenAI/OpenRouter text-only response
   - [x] Anthropic/Codex/Claude reasoning response
-  - [ ] CLI tool call with text before and after tool execution
+  - [x] CLI tool call with text before and after tool execution
   - [ ] provider MCP tool loop
   - [ ] stop generation mid-stream
   - [ ] regenerate last assistant response
