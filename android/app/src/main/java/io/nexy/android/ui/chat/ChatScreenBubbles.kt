@@ -278,7 +278,6 @@ fun ThinkingHistoryBubble(
                                 block.content,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontFamily = FontFamily.Monospace,
                                 modifier = Modifier.padding(8.dp),
                                 maxLines = 30,
                                 overflow = TextOverflow.Ellipsis,
@@ -537,7 +536,7 @@ fun ToolCallBubble(msg: ChatMessage, inProgress: Boolean = false) {
     var userCollapsed by remember { mutableStateOf(false) }
     val preview = when {
         inProgress -> "Running…"
-        msg.toolResult?.isNotBlank() == true -> msg.toolResult.replace(Regex("\\s+"), " ").trim()
+        msg.toolResult?.isNotBlank() == true -> cleanToolResultPreview(msg.toolResult)
         msg.toolSuccess -> "Completed"
         else -> "Failed"
     }
@@ -661,6 +660,53 @@ fun ToolCallBubble(msg: ChatMessage, inProgress: Boolean = false) {
     }
 }
 
+internal fun cleanToolResultPreview(result: String): String {
+    val trimmed = result.trim()
+    // If it looks like JSON, extract a meaningful summary rather than raw structure
+    if ((trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+        (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
+        // Try to find a "content", "text", "message", or "result" string field
+        val summaryField = listOf("content", "text", "message", "result", "output", "error")
+        for (field in summaryField) {
+            val pattern = """"$field"\s*:\s*"((?:\\.|[^"\\]){1,120})"""".toRegex()
+            val match = pattern.find(trimmed)
+            if (match != null) {
+                val v = match.groupValues[1]
+                    .replace("\\n", " ")
+                    .replace("\\\"", "\"")
+                    .replace("\\\\", "\\")
+                    .trim()
+                if (v.isNotBlank()) return v.replace(Regex("\\s+"), " ")
+            }
+        }
+        // Fall back to a compact single-line version of the JSON
+        return trimmed.replace(Regex("\\s+"), " ").take(100)
+    }
+    return trimmed.replace(Regex("\\s+"), " ").take(100)
+}
+
+internal fun parseJsonKeyValuePairs(json: String): List<Pair<String, String>>? {
+    val trimmed = json.trim()
+    if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null
+    val result = mutableListOf<Pair<String, String>>()
+    // Match top-level string and primitive values only (skip nested objects/arrays)
+    val stringVal = """"(\w+)"\s*:\s*"((?:\\.|[^"\\])*)"""".toRegex()
+    val primitiveVal = """"(\w+)"\s*:\s*(-?\d+\.?\d*|true|false|null)""".toRegex()
+    val allMatches = (stringVal.findAll(trimmed) + primitiveVal.findAll(trimmed))
+        .sortedBy { it.range.first }
+    for (m in allMatches) {
+        val key = m.groupValues[1]
+        val raw = m.groupValues[2]
+        val value = raw
+            .replace("\\n", " ")
+            .replace("\\\"", "\"")
+            .replace("\\\\", "\\")
+            .trim()
+        if (value.isNotBlank()) result.add(key to value.take(120))
+    }
+    return if (result.isEmpty()) null else result
+}
+
 private fun relativeTime(timestampMs: Long): String? {
     if (timestampMs <= 0L) return null
     val diff = System.currentTimeMillis() - timestampMs
@@ -674,6 +720,7 @@ private fun relativeTime(timestampMs: Long): String? {
 
 @Composable
 fun ToolDetailSection(label: String, value: String) {
+    val pairs = remember(value) { parseJsonKeyValuePairs(value) }
     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Text(
             label.uppercase(),
@@ -685,13 +732,36 @@ fun ToolDetailSection(label: String, value: String) {
             shape = RoundedCornerShape(6.dp),
             color = MaterialTheme.colorScheme.surface,
         ) {
-            Text(
-                value,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontFamily = FontFamily.Monospace,
-                modifier = Modifier.padding(8.dp),
-            )
+            if (pairs != null) {
+                Column(
+                    modifier = Modifier.padding(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    pairs.forEach { (k, v) ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                "$k:",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = FontWeight.Medium,
+                            )
+                            Text(
+                                v,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            } else {
+                Text(
+                    value,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(8.dp),
+                )
+            }
         }
     }
 }
