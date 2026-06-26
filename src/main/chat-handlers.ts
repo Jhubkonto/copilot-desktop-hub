@@ -1,5 +1,6 @@
 import { BrowserWindow } from 'electron'
 import { randomUUID } from 'crypto'
+import { existsSync } from 'fs'
 import { getDatabase } from './database'
 import {
   DEFAULT_PROVIDER_MODEL,
@@ -26,6 +27,7 @@ import { retrieveAuthMode } from './auth'
 import { applyRollingContextCompression } from './context-compression'
 import { getAgentConfig } from './agents'
 import { buildChatContext, buildStoredAttachments } from './chat-context-builder'
+import { getWorkingDirectory } from './file-handlers'
 import { dispatchToProvider } from './chat-provider-dispatch'
 import type { MobileChatActivity } from './chat-context-builder'
 import { debugLog } from './debug-mode'
@@ -71,6 +73,7 @@ type ChatSendOptions = {
   messageId?: string
   projectId?: string
   contextSnapshot?: string
+  displayContent?: string
   toolPolicy?: { preApproved: string[]; alwaysAsk: string[]; neverAllow: string[] }
 }
 
@@ -210,6 +213,7 @@ export async function dispatchChatSend(
   const contextSnapshot = options?.contextSnapshot ?? null
   const toolPolicy = options?.toolPolicy ?? null
 
+
   debugLog('chat', `dispatch: conv=${conversationId} agent=${agentId ?? 'none'} regenerate=${regenerate} cliBackend=${cliBackend ?? 'none'} model=${options?.model ?? 'default'} content="${content.slice(0, 60)}${content.length > 60 ? '…' : ''}"`)
   sendActivity({ state: 'thinking', label: 'Preparing context' })
 
@@ -234,15 +238,16 @@ export async function dispatchChatSend(
     const userMsgId = options?.messageId ?? randomUUID()
     const storedAttachments = buildStoredAttachments(attachments, pastedImages)
     const attachmentsJson = storedAttachments.length > 0 ? JSON.stringify(storedAttachments) : null
+    const persistedUserContent = options?.displayContent ?? content
     db.prepare(
       'INSERT INTO messages (id, conversation_id, role, content, attachments, context_snapshot, timestamp, model) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-    ).run(userMsgId, conversationId, 'user', content, attachmentsJson, contextSnapshot, Date.now(), null)
+    ).run(userMsgId, conversationId, 'user', persistedUserContent, attachmentsJson, contextSnapshot, Date.now(), null)
 
     const msgCount = db
       .prepare('SELECT COUNT(*) as count FROM messages WHERE conversation_id = ?')
       .get(conversationId) as { count: number }
     if (msgCount.count === 1) {
-      const title = content.slice(0, 80) + (content.length > 80 ? '...' : '')
+      const title = persistedUserContent.slice(0, 80) + (persistedUserContent.length > 80 ? '...' : '')
       db.prepare('UPDATE conversations SET title = ? WHERE id = ?').run(title, conversationId)
     }
   }
@@ -714,7 +719,16 @@ export async function dispatchChatSend(
             systemPrompt: cliSystemPrompt,
             messages: [{ role: 'user' as const, content: cliUserContent }],
             images: attachedImages.length > 0 ? attachedImages : undefined,
-            cwd: process.cwd(),
+            cwd: (() => {
+              if (projectId) {
+                const row = db.prepare('SELECT config_json FROM projects WHERE id = ?').get(projectId) as { config_json: string | null } | undefined
+                const root: string | undefined = row?.config_json ? (JSON.parse(row.config_json) as { rootDirectory?: string }).rootDirectory : undefined
+                if (root && existsSync(root)) return root
+              }
+              const agentRoot: string | undefined = typeof agentCfg2?.rootDirectory === 'string' ? agentCfg2.rootDirectory : undefined
+              if (agentRoot && existsSync(agentRoot)) return agentRoot
+              return getWorkingDirectory()
+            })(),
             model: cliModelForRequest,
             conversationId,
             mcpServers: cliMcpServersFiltered,

@@ -211,7 +211,7 @@ export function ChatWindow() {
   })
   const fileInput = useFileInput()
   const slashMenu = useSlashMenu()
-  const atMenu = useAtMenu({ input, setInput, projectId: chatProjectId })
+  const atMenu = useAtMenu({ input, setInput, projectId: chatProjectId, projectRootDir })
   const mergedContextRefs = useMemo(() => {
     const refs = [...atMenu.contextRefs]
     if (clipboardRef) refs.push(clipboardRef)

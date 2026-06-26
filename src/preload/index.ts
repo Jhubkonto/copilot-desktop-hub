@@ -192,6 +192,7 @@ const api = {
       messageId?: string
       projectId?: string
       contextSnapshot?: string
+      displayContent?: string
     }
   ) => typedInvoke('chat:send-message', conversationId, content, options),
   onStreamResponse: (callback: (chunk: string | null) => void) => {
@@ -317,7 +318,7 @@ const api = {
   getWorkingDirectory: () => typedInvoke('file:get-cwd'),
   setWorkingDirectory: (cwd: string) => typedInvoke('file:set-cwd', cwd),
   readContextFile: (filePath: string) => typedInvoke('context:read-file', filePath),
-  getWorkspaceSummary: () => typedInvoke('context:workspace-summary'),
+  getWorkspaceSummary: (rootDir?: string) => typedInvoke('context:workspace-summary', rootDir),
   getGitContext: () => typedInvoke('context:git'),
   getGitDiff: () => typedInvoke('context:git-diff'),
 

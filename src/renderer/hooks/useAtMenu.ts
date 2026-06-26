@@ -5,9 +5,10 @@ interface UseAtMenuParams {
   input: string
   setInput: Dispatch<SetStateAction<string>>
   projectId?: string | null
+  projectRootDir?: string | null
 }
 
-export function useAtMenu({ input, setInput, projectId }: UseAtMenuParams) {
+export function useAtMenu({ input, setInput, projectId, projectRootDir }: UseAtMenuParams) {
   const [showAtMenu, setShowAtMenu] = useState(false)
   const [atFilter, setAtFilter] = useState('')
   const [selectedAtIndex, setSelectedAtIndex] = useState(0)
@@ -71,7 +72,7 @@ export function useAtMenu({ input, setInput, projectId }: UseAtMenuParams) {
 
     for (const ref of refs) {
       if (ref.key === 'workspace') {
-        const summary = await window.api.getWorkspaceSummary()
+        const summary = await window.api.getWorkspaceSummary(projectRootDir ?? undefined)
         lines.push(`[Workspace]\n${summary}`)
         continue
       }

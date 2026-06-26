@@ -418,6 +418,7 @@ export function useChatWindowActions({
         messageId: userMessage.id,
         projectId: chatProjectId ?? undefined,
         contextSnapshot: contextSnapshotJson,
+        displayContent: userDisplayContent,
       }) as unknown
       if (hasIpcError(sendResult)) throw new Error(sendResult.error)
       void loadConversations()

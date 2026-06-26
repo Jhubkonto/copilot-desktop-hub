@@ -226,8 +226,8 @@ export function registerContextHandlers(): void {
     };
   });
 
-  safeHandle("context:workspace-summary", async () => {
-    const cwd = getWorkingDirectory();
+  safeHandle("context:workspace-summary", async (_event, rootDir?: string) => {
+    const cwd = (rootDir && existsSync(rootDir)) ? rootDir : getWorkingDirectory();
     const maxDepth = 3;
     const maxEntries = 200;
     const ignored = new Set([".git", "node_modules", "dist", "release"]);
