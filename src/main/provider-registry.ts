@@ -83,13 +83,13 @@ export function getProviderForAgent(agentModel: string): { provider: ProviderNam
   const staticProvider = MODEL_TO_PROVIDER.get(normalizedModel)
   if (staticProvider) return { provider: staticProvider, model: normalizedModel }
 
-  if (normalizedModel.startsWith('claude')) {
-    return { provider: 'anthropic', model: normalizedModel }
-  }
-
   const orModels = getOpenRouterModels()
   if (orModels.includes(normalizedModel)) {
     return { provider: 'openrouter', model: normalizedModel }
+  }
+
+  if (normalizedModel.startsWith('claude')) {
+    return { provider: 'anthropic', model: normalizedModel }
   }
 
   return { provider: 'openai', model: normalizedModel }

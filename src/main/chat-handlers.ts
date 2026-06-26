@@ -7,6 +7,7 @@ import {
   getProviderForAgent,
   getApiKey,
   abortActiveStream,
+  getOpenRouterModels,
   type MessageContentPart,
   type ProviderMessage,
 } from './providers'
@@ -237,17 +238,27 @@ export async function dispatchChatSend(
     .prepare('SELECT agent_id, model, cli_backend FROM conversations WHERE id = ?')
     .get(conversationId) as { agent_id: string | null; model: string | null; cli_backend: string | null } | undefined
   // Auto-heal: if cli_backend is missing but the stored model is a known CLI model, infer and persist it.
-  if (convRow && convRow.cli_backend == null && convRow.model) {
-    let healedBackend: 'claude-cli' | 'codex-cli' | null = null
-    if (ClaudeAdapter.isAvailable() && getCliModels('claude-cli').some((m) => m.id === convRow.model)) {
-      healedBackend = 'claude-cli'
-    } else if (CodexAdapter.isAvailable() && getCliModels('codex-cli').some((m) => m.id === convRow.model)) {
-      healedBackend = 'codex-cli'
-    }
-    if (healedBackend) {
-      db.prepare('UPDATE conversations SET cli_backend = ? WHERE id = ?').run(healedBackend, conversationId)
-      convRow.cli_backend = healedBackend
-      debugLog('chat', `auto-healed cli_backend=${healedBackend} for conv=${conversationId} model=${convRow.model}`)
+  // Skip healing if the model is in the OpenRouter cache — it's a BYOK model, not a CLI one.
+  // Reverse-heal: if cli_backend was previously set by mistake for an OpenRouter model, clear it.
+  if (convRow && convRow.model) {
+    const orModels = getOpenRouterModels()
+    const isOpenRouterModel = orModels.includes(convRow.model)
+    if (isOpenRouterModel && convRow.cli_backend != null) {
+      db.prepare('UPDATE conversations SET cli_backend = NULL WHERE id = ?').run(conversationId)
+      convRow.cli_backend = null
+      debugLog('chat', `reverse-healed cli_backend cleared for conv=${conversationId} model=${convRow.model} (OpenRouter model)`)
+    } else if (!isOpenRouterModel && convRow.cli_backend == null) {
+      let healedBackend: 'claude-cli' | 'codex-cli' | null = null
+      if (ClaudeAdapter.isAvailable() && getCliModels('claude-cli').some((m) => m.id === convRow.model)) {
+        healedBackend = 'claude-cli'
+      } else if (CodexAdapter.isAvailable() && getCliModels('codex-cli').some((m) => m.id === convRow.model)) {
+        healedBackend = 'codex-cli'
+      }
+      if (healedBackend) {
+        db.prepare('UPDATE conversations SET cli_backend = ? WHERE id = ?').run(healedBackend, conversationId)
+        convRow.cli_backend = healedBackend
+        debugLog('chat', `auto-healed cli_backend=${healedBackend} for conv=${conversationId} model=${convRow.model}`)
+      }
     }
   }
   const settingsRows = db
@@ -463,6 +474,9 @@ export async function dispatchChatSend(
     : []
   const agentHasAssignedMcpServers = assignedAgentMcpServerIds.length > 0
   const byokKeyForModel = getApiKey(providerName)
+  // A model in the OpenRouter cache is always a BYOK model — never route to CLI even if
+  // the conversation has a stale cli_backend from a prior mis-heal.
+  const selectedModelIsOpenRouter = getOpenRouterModels().includes(selectedModel)
   let fallbackCliBackend: 'claude-cli' | 'codex-cli' | undefined
   // An explicit cliBackend request (e.g. from the Android WS path) always wins,
   // regardless of auth mode or BYOK key availability.
@@ -470,10 +484,10 @@ export async function dispatchChatSend(
     fallbackCliBackend = 'codex-cli'
   } else if (cliBackend === 'claude-cli' && ClaudeAdapter.isAvailable()) {
     fallbackCliBackend = 'claude-cli'
-  } else if (convRow?.cli_backend === 'codex-cli' && CodexAdapter.isAvailable()) {
+  } else if (!selectedModelIsOpenRouter && convRow?.cli_backend === 'codex-cli' && CodexAdapter.isAvailable()) {
     // User explicitly picked a Codex CLI model in this conversation.
     fallbackCliBackend = 'codex-cli'
-  } else if (convRow?.cli_backend === 'claude-cli' && ClaudeAdapter.isAvailable()) {
+  } else if (!selectedModelIsOpenRouter && convRow?.cli_backend === 'claude-cli' && ClaudeAdapter.isAvailable()) {
     fallbackCliBackend = 'claude-cli'
   } else if (retrieveAuthMode() === 'none') {
     // No explicit backend — fall back to CLI only when there's no BYOK key.
