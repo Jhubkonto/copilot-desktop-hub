@@ -8,7 +8,7 @@ import { MilestonesTab } from './project-settings/MilestonesTab'
 import { TeamTab } from './project-settings/TeamTab'
 import { DraftTeamPicker } from './project-settings/DraftTeamPicker'
 import { WikiTab } from './project-settings/WikiTab'
-import { ArtifactsBrowser } from './artifacts/ArtifactsBrowser'
+import { ProjectArtifactsTab } from './project-settings/ProjectArtifactsTab'
 import { SaveStatus, type SaveState } from './ui/primitives'
 
 type TabId = 'general' | 'scope' | 'milestones' | 'team' | 'wiki' | 'artifacts'
@@ -452,7 +452,7 @@ export function ProjectSettingsPanel(props: Props) {
         )}
 
         {activeTab === 'artifacts' && !isDraft && projectId && (
-          <ArtifactsBrowser fixedProjectId={projectId} />
+          <ProjectArtifactsTab projectId={projectId} />
         )}
 
         {activeTab === 'team' && isDraft && (

@@ -41,8 +41,8 @@ const ScheduleGeneratorModal = lazy(() =>
 const RemoteEditPanel = lazy(() =>
   import('./components/RemoteEditPanel').then((m) => ({ default: m.RemoteEditPanel }))
 )
-const ArtifactsPanel = lazy(() =>
-  import('./components/ArtifactsPanel').then((m) => ({ default: m.ArtifactsPanel }))
+const ArtifactPanel = lazy(() =>
+  import('./components/ArtifactPanel').then((m) => ({ default: m.ArtifactPanel }))
 )
 
 export default function App() {
@@ -81,6 +81,7 @@ export default function App() {
   const pendingErrorCount = useAppStore((s) => s.pendingErrorCount)
   const openBugReport = useAppStore((s) => s.openBugReport)
   const closeBugReport = useAppStore((s) => s.closeBugReport)
+  const viewingArtifactId = useAppStore((s) => s.viewingArtifactId)
   const setShowRemoteEditPanel = useAppStore((s) => s.setShowRemoteEditPanel)
   const setPendingRemoteEditReportId = useAppStore((s) => s.setPendingRemoteEditReportId)
   const incrementPendingErrorCount = useAppStore((s) => s.incrementPendingErrorCount)
@@ -329,7 +330,7 @@ export default function App() {
 
         <RemoteEditPanel />
 
-        <ArtifactsPanel />
+        {viewingArtifactId && <ArtifactPanel artifactId={viewingArtifactId} />}
 
         {showOnboarding && (
           <OnboardingModal

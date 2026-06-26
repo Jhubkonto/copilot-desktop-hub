@@ -21,7 +21,6 @@ export interface UiSlice {
   showOnboarding: boolean
   showRemoteEditPanel: boolean
   pendingRemoteEditReportId: string | null
-  showArtifactsPanel: boolean
   pendingArtifactGeneration: { title: string; kind: string; startedAt: number } | null
   pendingArtifactAttach: { artifactId: string; versionId?: string } | null
   bugReportDraft: BugReportDraft | null
@@ -50,7 +49,6 @@ export interface UiSlice {
   setShowSettings: (show: boolean) => void
   setShowRemoteEditPanel: (show: boolean) => void
   setPendingRemoteEditReportId: (reportId: string | null) => void
-  setShowArtifactsPanel: (show: boolean) => void
   setPendingArtifactGeneration: (v: { title: string; kind: string; startedAt: number } | null) => void
   requestArtifactAttach: (artifactId: string, versionId?: string) => void
   clearPendingArtifactAttach: () => void
@@ -82,6 +80,9 @@ export interface UiSlice {
   markConversationDoneGenerating: (id: string) => void
   markConversationPending: (id: string) => void
   clearConversationPending: (id: string) => void
+  viewingArtifactId: string | null
+  openArtifactPanel: (id: string) => void
+  closeArtifactPanel: () => void
   pendingDebriefConversationId: string | null
   setPendingDebriefConversationId: (id: string | null) => void
 }
@@ -100,7 +101,6 @@ export const createUiSlice: StateCreator<
   showOnboarding: false,
   showRemoteEditPanel: false,
   pendingRemoteEditReportId: null,
-  showArtifactsPanel: false,
   pendingArtifactGeneration: null,
   pendingArtifactAttach: null,
   bugReportDraft: null,
@@ -119,7 +119,20 @@ export const createUiSlice: StateCreator<
   globalDefaultModel: 'default',
   debugLogging: false,
   androidDebugLog: false,
+  viewingArtifactId: null,
   pendingDebriefConversationId: null,
+
+  openArtifactPanel: (id) => {
+    set((s) => {
+      s.viewingArtifactId = id
+    })
+  },
+
+  closeArtifactPanel: () => {
+    set((s) => {
+      s.viewingArtifactId = null
+    })
+  },
 
   setPendingDebriefConversationId: (id) => {
     set((s) => {
@@ -188,12 +201,6 @@ export const createUiSlice: StateCreator<
   setPendingRemoteEditReportId: (reportId) => {
     set((s) => {
       s.pendingRemoteEditReportId = reportId
-    })
-  },
-
-  setShowArtifactsPanel: (show) => {
-    set((s) => {
-      s.showArtifactsPanel = show
     })
   },
 
