@@ -281,6 +281,9 @@ export function SettingsTab({
       {/* Root Directory */}
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Root Directory</label>
+        <p className="text-[11px] text-gray-400 dark:text-gray-500">
+          Working directory for CLI tool execution. Overrides global CWD. If the agent is used inside a project, the project&apos;s root directory takes priority.
+        </p>
         <div className="flex items-center gap-2">
           <span className="flex-1 truncate text-xs text-gray-600 dark:text-gray-400 px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 min-h-[32px]">
             {config.rootDirectory ? config.rootDirectory : <span className="italic text-gray-400 dark:text-gray-500">Inherit global CWD</span>}
