@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -37,6 +38,32 @@ class ChatThinkingParserTest {
 
         assertEquals(WsEvent.ChatThinkingDelta("conv-1", "codex-activity", "Planning"), delta)
         assertEquals(WsEvent.ChatThinkingEnd("conv-1", "codex-activity"), end)
+    }
+
+    @Test
+    fun parsesNormalizedChatTurnEvents() = runTest {
+        val event = parseEvent(
+            """
+            {
+              "event": "chat:turn-event",
+              "data": {
+                "conversationId": "conv-1",
+                "turnId": "turn-1",
+                "sequence": 3,
+                "type": "assistant_text_delta",
+                "timestamp": 123456,
+                "chunk": "Hello"
+              }
+            }
+            """.trimIndent()
+        ) as WsEvent.ChatTurnEvent
+
+        assertEquals("conv-1", event.conversationId)
+        assertEquals("turn-1", event.turnId)
+        assertEquals(3L, event.sequence)
+        assertEquals("assistant_text_delta", event.type)
+        assertEquals(123456L, event.timestamp)
+        assertTrue(event.payloadJson.contains("\"chunk\":\"Hello\""))
     }
 
     private suspend fun TestScope.parseEvent(raw: String): WsEvent {

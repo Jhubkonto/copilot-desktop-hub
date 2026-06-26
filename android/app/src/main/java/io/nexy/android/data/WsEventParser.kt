@@ -164,6 +164,15 @@ fun parseWsEvent(
                 serverName = data?.nullableString("serverName"),
             )
 
+            "chat:turn-event" -> WsEvent.ChatTurnEvent(
+                conversationId = data?.optString("conversationId") ?: "",
+                turnId = data?.optString("turnId") ?: "",
+                sequence = data?.optLong("sequence", 0L) ?: 0L,
+                type = data?.optString("type") ?: "",
+                timestamp = data?.optLong("timestamp", 0L) ?: 0L,
+                payloadJson = data?.toString() ?: "{}",
+            )
+
             "chat:team-activity" -> WsEvent.ChatTeamActivity(
                 conversationId = data?.optString("conversationId") ?: "",
                 stepId = data?.optString("stepId") ?: "",
