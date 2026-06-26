@@ -96,6 +96,8 @@ import io.noties.prism4j.Prism4j
 import android.text.SpannableStringBuilder
 import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyConnectionBanner
+import io.nexy.android.ui.model.agentBackendLockDetail
+import io.nexy.android.ui.model.agentBackendLockLabel
 import io.nexy.android.ui.model.activeModelDetail
 import io.nexy.android.ui.model.activeModelLabel
 import io.nexy.android.ui.model.emptyModelListDetail
@@ -464,6 +466,8 @@ fun ChatScreen(
     val activeModelId = selectedModel ?: "default"
     val activeModelLabel = activeModelLabel(selectedModel, models)
     val activeModelDetail = activeModelDetail(selectedModel, chatAgent, modelSource)
+    val backendLockLabel = agentBackendLockLabel(chatAgent)
+    val backendLockDetail = agentBackendLockDetail(chatAgent)
     val connectionBanner = connectionState != ConnectionState.CONNECTED
 
     if (showModelSheet) {
@@ -514,6 +518,14 @@ fun ChatScreen(
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
                     )
+                    if (backendLockDetail != null) {
+                        Text(
+                            backendLockDetail,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
+                        )
+                    }
                     OutlinedTextField(
                         value = modelQuery,
                         onValueChange = { modelQuery = it },
@@ -799,6 +811,14 @@ fun ChatScreen(
                                 maxLines = 1,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (backendLockLabel != null) {
+                            Text(
+                                backendLockLabel,
+                                maxLines = 1,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
                             )
                         }
                     }

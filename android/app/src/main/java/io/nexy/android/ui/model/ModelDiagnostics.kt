@@ -40,6 +40,16 @@ fun activeModelDetail(
     return "Using the desktop default model when no agent or project default applies."
 }
 
+fun agentBackendLockLabel(agent: Agent?): String? {
+    val backend = forcedCliBackend(agent) ?: return null
+    return "Agent locked to ${backendDisplayName(backend)}"
+}
+
+fun agentBackendLockDetail(agent: Agent?): String? {
+    val backend = forcedCliBackend(agent) ?: return null
+    return "${agent?.name ?: "The selected agent"} locks this chat to ${backendDisplayName(backend)}. Only models for that backend are shown."
+}
+
 fun emptyModelListDetail(source: ModelListSource?): String =
     when (source?.type) {
         "none" -> "Configure Claude CLI, Codex CLI, or an API provider on desktop to choose models here."
@@ -49,6 +59,9 @@ fun emptyModelListDetail(source: ModelListSource?): String =
 
 private fun modelCountLabel(count: Int): String =
     if (count == 1) "1 model" else "$count models"
+
+private fun forcedCliBackend(agent: Agent?): String? =
+    agent?.backend?.takeIf { it == "claude-cli" || it == "codex-cli" }
 
 private fun backendDisplayName(backend: String?): String =
     when (backend) {

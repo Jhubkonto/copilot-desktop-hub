@@ -53,4 +53,21 @@ class ModelDiagnosticsTest {
             activeModelDetail("gpt-5-mini", agent, null),
         )
     }
+
+    @Test
+    fun explainsAgentLockedCliBackend() {
+        val agent = Agent(
+            id = "agent-1",
+            name = "Builder",
+            backend = "codex-cli",
+            cliModel = "gpt-5.5",
+        )
+
+        assertEquals("Agent locked to Codex CLI", agentBackendLockLabel(agent))
+        assertEquals(
+            "Builder locks this chat to Codex CLI. Only models for that backend are shown.",
+            agentBackendLockDetail(agent),
+        )
+        assertEquals(null, agentBackendLockLabel(agent.copy(backend = null)))
+    }
 }
