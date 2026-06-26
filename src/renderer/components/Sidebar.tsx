@@ -62,7 +62,6 @@ export function Sidebar() {
   const logout = useAppStore((s) => s.logout)
   const setShowSettings = useAppStore((s) => s.setShowSettings)
   const setShowRemoteEditPanel = useAppStore((s) => s.setShowRemoteEditPanel)
-  const setShowArtifactsPanel = useAppStore((s) => s.setShowArtifactsPanel)
   const openBugReport = useAppStore((s) => s.openBugReport)
   const activeSectionPane = useAppStore((s) => s.activeSectionPane)
   const openSectionPane = useAppStore((s) => s.openSectionPane)
@@ -86,7 +85,6 @@ export function Sidebar() {
   const [configuredProviderLabel, setConfiguredProviderLabel] = useState('')
 
   const showRemoteEditPanel = useAppStore((s) => s.showRemoteEditPanel)
-  const showArtifactsPanel = useAppStore((s) => s.showArtifactsPanel)
   const showSettings = useAppStore((s) => s.showSettings)
 
   const artifactLastOpenedRef = useRef(Date.now())
@@ -103,6 +101,8 @@ export function Sidebar() {
     return () => clearInterval(interval)
   }, [showRemoteEditPanel])
 
+  const artifactsPaneOpen = activeSectionPane === 'artifacts'
+
   useEffect(() => {
     const refresh = async () => {
       try {
@@ -110,13 +110,13 @@ export function Sidebar() {
         const fresh = all.filter((a) => a.status === 'ready' && a.createdAt > artifactLastOpenedRef.current)
         setNewArtifactCount(fresh.length)
       } catch {
-        // Ignore badge refresh failures; the artifacts panel can still load on demand.
+        // Ignore badge refresh failures; the artifacts pane can still load on demand.
       }
     }
     void refresh()
     const interval = setInterval(() => { void refresh() }, 15000)
     return () => clearInterval(interval)
-  }, [showArtifactsPanel])
+  }, [artifactsPaneOpen])
 
   useEffect(() => {
     window.api.listProviders()
@@ -189,10 +189,10 @@ export function Sidebar() {
         <NavButton
           icon={<Package className="w-3.5 h-3.5" />}
           label="Artifacts"
-          onClick={() => { artifactLastOpenedRef.current = Date.now(); setNewArtifactCount(0); setShowArtifactsPanel(true) }}
+          onClick={() => { artifactLastOpenedRef.current = Date.now(); setNewArtifactCount(0); openSectionPane('artifacts') }}
           badgeCount={newArtifactCount}
+          active={activeSectionPane === 'artifacts'}
           ariaLabel={`Open Artifacts${newArtifactCount > 0 ? ` (${newArtifactCount} new)` : ''}`}
-          modal
         />
         <hr className="border-gray-200 dark:border-gray-700/80" />
         <NavButton

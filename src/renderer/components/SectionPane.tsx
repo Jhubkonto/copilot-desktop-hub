@@ -10,8 +10,9 @@ import { ChatsPane } from './section-pane/ChatsPane'
 import { ProjectHistoryPane } from './section-pane/ProjectHistoryPane'
 import { SkillsPane } from './section-pane/SkillsPane'
 import { ScheduledPane } from './section-pane/ScheduledPane'
+import { ArtifactsPane } from './section-pane/ArtifactsPane'
 
-type SectionType = 'projects' | 'agents' | 'chats' | 'skills' | 'scheduled'
+type SectionType = 'projects' | 'agents' | 'chats' | 'skills' | 'scheduled' | 'artifacts'
 
 const SECTION_LABELS: Record<SectionType, string> = {
   projects: 'Projects',
@@ -19,6 +20,7 @@ const SECTION_LABELS: Record<SectionType, string> = {
   chats: 'All Chats',
   skills: 'Skills',
   scheduled: 'Scheduled',
+  artifacts: 'Artifacts',
 }
 
 interface SectionPaneProps {
@@ -105,6 +107,7 @@ export function SectionPane({ section }: SectionPaneProps) {
         {section === 'chats' && <ChatsPane />}
         {section === 'skills' && <SkillsPane />}
         {section === 'scheduled' && <ScheduledPane />}
+        {section === 'artifacts' && <ArtifactsPane />}
       </div>
 
       <ResizeHandle

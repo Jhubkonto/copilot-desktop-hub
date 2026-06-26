@@ -72,4 +72,4 @@ export type {
 export { DEFAULT_PROJECT_CONFIG } from '../../shared/types'
 
 export type Theme = 'light' | 'dark'
-export type ActiveSectionPane = 'projects' | 'agents' | 'chats' | 'skills' | 'scheduled' | null
+export type ActiveSectionPane = 'projects' | 'agents' | 'chats' | 'skills' | 'scheduled' | 'artifacts' | null
