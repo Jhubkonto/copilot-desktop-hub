@@ -50,6 +50,7 @@ export type ProviderDispatchOptions = {
   onThinkingEnd?: (blockId: string) => void
   onToolFinished?: (event: ToolLoopToolFinishedEvent) => void
   toolPolicy?: { preApproved: string[]; alwaysAsk: string[]; neverAllow: string[] }
+  fullAutoApprove?: boolean
 }
 
 function makeActivityHandler(sendActivity: (a: MobileChatActivity) => void) {
@@ -85,6 +86,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
     onThinkingEnd: callerOnThinkingEnd,
     onToolFinished,
     toolPolicy,
+    fullAutoApprove,
   } = opts
 
   // Strip thinking effort for providers that don't support it (H5).
@@ -173,6 +175,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
         undefined,
         toolPolicy,
         onToolFinished,
+        fullAutoApprove,
       )
     }
     sendActivity({ state: 'thinking', label: 'Generating response' })
@@ -208,6 +211,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
         undefined,
         toolPolicy,
         onToolFinished,
+        fullAutoApprove,
       )
     }
     sendActivity({ state: 'thinking', label: 'Generating response' })
@@ -262,6 +266,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
         undefined,
         toolPolicy,
         onToolFinished,
+        fullAutoApprove,
       )
     }
     sendActivity({ state: 'thinking', label: 'Generating response' })
@@ -304,6 +309,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
       undefined,
       toolPolicy,
       onToolFinished,
+      fullAutoApprove,
     )
   }
   sendActivity({ state: 'thinking', label: 'Generating response' })

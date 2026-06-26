@@ -471,6 +471,15 @@ const api = {
     return () => typedOff('tool:approval-resolved', handler)
   },
 
+  onToolAutoApproved: (callback: (data: { toolName: string; args: Record<string, unknown> }) => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      data: { toolName: string; args: Record<string, unknown> }
+    ) => callback(data)
+    typedOn('tool:auto-approved', handler)
+    return () => typedOff('tool:auto-approved', handler)
+  },
+
   // MCP Servers
   listMcpServers: () => typedInvoke('mcp:list-servers'),
   addMcpServer: (config: Record<string, unknown>) =>

@@ -128,6 +128,10 @@ export const ClaudeAdapter: CliAgentAdapter = {
       if (req.allowedTools && req.allowedTools.length > 0) {
         args.push('--allowedTools', req.allowedTools.join(','))
       }
+      if (req.skipPermissions === true) {
+        args.push('--dangerously-skip-permissions')
+        console.warn(`[WARN] Agent is running with --dangerously-skip-permissions. All file and shell operations will execute without confirmation.`)
+      }
       if (useJsonInput) {
         args.push('--input-format', 'stream-json')
       }

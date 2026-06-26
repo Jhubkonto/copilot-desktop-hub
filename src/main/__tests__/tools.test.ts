@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 /* ── Hoisted mocks ─────────────────────────────────────────── */
 const { mockIpcMain, mockDb, mockBrowserWindow, mockExistsSync, mockReadFileSync, mockWriteFileSync, mockExec, mockExecFile } = vi.hoisted(() => {
@@ -84,6 +84,25 @@ vi.mock('child_process', () => ({
   execFile: mockExecFile
 }))
 
+const { mockBroadcastToMobile, mockSendApprovalPush, mockIsMobileInForeground } = vi.hoisted(() => ({
+  mockBroadcastToMobile: vi.fn(),
+  mockSendApprovalPush: vi.fn().mockResolvedValue(undefined),
+  mockIsMobileInForeground: vi.fn().mockReturnValue(false),
+}))
+
+vi.mock('../ws-server', () => ({
+  broadcastToMobile: mockBroadcastToMobile,
+  isMobileInForeground: mockIsMobileInForeground,
+}))
+
+vi.mock('../fcm-sender', () => ({
+  sendApprovalPush: mockSendApprovalPush,
+}))
+
+vi.mock('../safe-handle', () => ({
+  safeHandle: mockIpcMain.handle,
+}))
+
 /* ── Helpers ─────────────────────────────────────────── */
 async function invokeHandler(channel: string, ...args: unknown[]): Promise<any> {
   const handler = mockIpcMain._handlers.get(channel)
@@ -93,7 +112,7 @@ async function invokeHandler(channel: string, ...args: unknown[]): Promise<any> 
 }
 
 /* ── Import & Register ─────────────────────────────────────── */
-import { registerToolHandlers, executeTool, TOOL_DEFINITIONS } from '../tools'
+import { registerToolHandlers, executeTool, TOOL_DEFINITIONS, requestApproval, drainPendingApprovals } from '../tools'
 
 beforeEach(() => {
   mockDb._store.clear()
@@ -243,5 +262,92 @@ describe('Tools — IPC Handlers', () => {
     expect(result.success).toBe(true)
     // Preference should be stored
     expect(mockDb._store.get('tool_pref:fileRead')).toBe('always_allow')
+  })
+})
+
+describe('requestApproval — autoApprove bypass', () => {
+  it('resolves true immediately when autoApprove is true', async () => {
+    const send = vi.fn()
+    const wc = { send, isDestroyed: () => false } as unknown as Electron.WebContents
+    const result = await requestApproval(wc, 'myTool', { a: 1 }, 'desc', { autoApprove: true })
+    expect(result).toBe(true)
+  })
+
+  it('does not emit tool:request-approval when autoApprove is true', async () => {
+    const send = vi.fn()
+    const wc = { send, isDestroyed: () => false } as unknown as Electron.WebContents
+    await requestApproval(wc, 'myTool', {}, 'desc', { autoApprove: true })
+    const requestApprovalCalls = send.mock.calls.filter((c: unknown[]) => c[0] === 'tool:request-approval')
+    expect(requestApprovalCalls).toHaveLength(0)
+  })
+
+  it('emits tool:auto-approved when autoApprove is true', async () => {
+    const send = vi.fn()
+    const wc = { send, isDestroyed: () => false } as unknown as Electron.WebContents
+    await requestApproval(wc, 'myTool', { x: 42 }, 'desc', { autoApprove: true })
+    expect(send).toHaveBeenCalledWith('tool:auto-approved', { toolName: 'myTool', args: { x: 42 } })
+  })
+
+  it('does not call broadcastToMobile when autoApprove is true', async () => {
+    const send = vi.fn()
+    const wc = { send, isDestroyed: () => false } as unknown as Electron.WebContents
+    await requestApproval(wc, 'myTool', {}, 'desc', { autoApprove: true })
+    expect(mockBroadcastToMobile).not.toHaveBeenCalled()
+  })
+
+  it('does not call sendApprovalPush when autoApprove is true', async () => {
+    const send = vi.fn()
+    const wc = { send, isDestroyed: () => false } as unknown as Electron.WebContents
+    await requestApproval(wc, 'myTool', {}, 'desc', { autoApprove: true })
+    expect(mockSendApprovalPush).not.toHaveBeenCalled()
+  })
+
+  it('still emits tool:request-approval when autoApprove is false', async () => {
+    const send = vi.fn()
+    const wc = { send, isDestroyed: () => false } as unknown as Electron.WebContents
+    // Fire and forget — we don't need to resolve it
+    void requestApproval(wc, 'myTool', {}, 'desc', { autoApprove: false })
+    await new Promise((r) => setTimeout(r, 0))
+    const requestApprovalCalls = send.mock.calls.filter((c: unknown[]) => c[0] === 'tool:request-approval')
+    expect(requestApprovalCalls).toHaveLength(1)
+  })
+})
+
+describe('drainPendingApprovals', () => {
+  it('resolves all pending approvals for the given agent with true', async () => {
+    const send = vi.fn()
+    const wc = { send, isDestroyed: () => false } as unknown as Electron.WebContents
+
+    let resolved1: boolean | undefined
+    let resolved2: boolean | undefined
+
+    void requestApproval(wc, 'toolA', {}, 'desc', { agentId: 'agent-1' }).then((v) => { resolved1 = v })
+    void requestApproval(wc, 'toolB', {}, 'desc', { agentId: 'agent-1' }).then((v) => { resolved2 = v })
+
+    await new Promise((r) => setTimeout(r, 0))
+
+    drainPendingApprovals('agent-1')
+
+    await new Promise((r) => setTimeout(r, 0))
+
+    expect(resolved1).toBe(true)
+    expect(resolved2).toBe(true)
+  })
+
+  it('leaves pending approvals for other agents untouched', async () => {
+    const send = vi.fn()
+    const wc = { send, isDestroyed: () => false } as unknown as Electron.WebContents
+
+    let resolvedOther: boolean | undefined
+
+    void requestApproval(wc, 'toolC', {}, 'desc', { agentId: 'agent-2' }).then((v) => { resolvedOther = v })
+
+    await new Promise((r) => setTimeout(r, 0))
+
+    drainPendingApprovals('agent-1')
+
+    await new Promise((r) => setTimeout(r, 10))
+
+    expect(resolvedOther).toBeUndefined()
   })
 })

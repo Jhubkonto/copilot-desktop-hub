@@ -18,6 +18,7 @@ export interface CliAdapterRequest {
   model: string
   conversationId: string
   thinkingEffort?: 'low' | 'medium' | 'high' | 'max' | 'disabled'
+  skipPermissions?: boolean
 }
 
 export type CliStreamEvent =

@@ -76,6 +76,19 @@ vi.mock('fs/promises', () => ({
   readFile: mockReadFile
 }))
 
+vi.mock('../ws-server', () => ({
+  broadcastToMobile: vi.fn(),
+  isMobileInForeground: vi.fn().mockReturnValue(false),
+}))
+
+vi.mock('../tools', () => ({
+  drainPendingApprovals: vi.fn(),
+  registerToolHandlers: vi.fn(),
+  executeTool: vi.fn(),
+  TOOL_DEFINITIONS: [],
+  requestApproval: vi.fn(),
+}))
+
 // ── Test helpers ───────────────────────────────────────────────────────────────
 
 const SAMPLE_CONFIG = {
@@ -175,6 +188,9 @@ describe('Agents — IPC Handlers', () => {
   describe('agent:update', () => {
     it('agent-m-3: updates existing agent in DB', async () => {
       const runFn = vi.fn()
+      // First prepare: SELECT config_json FROM agents WHERE id = ? (reads previous config)
+      mockDb.prepare.mockReturnValueOnce({ run: vi.fn(), get: vi.fn(() => undefined), all: vi.fn() })
+      // Second prepare: UPDATE agents SET config_json = ? ...
       mockDb.prepare.mockReturnValueOnce({ run: runFn, get: vi.fn(), all: vi.fn() })
 
       const updated = { ...SAMPLE_CONFIG, name: 'Updated Agent' }

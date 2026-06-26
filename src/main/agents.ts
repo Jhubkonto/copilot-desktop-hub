@@ -7,6 +7,8 @@ import { join } from 'path'
 import type { ToolConfig } from '../shared/types'
 import { safeHandle } from './safe-handle'
 import { applySkillsToAgentConfig } from './skills'
+import { drainPendingApprovals } from './tools'
+import { broadcastToMobile } from './ws-server'
 
 interface AgentRow {
   id: string
@@ -181,11 +183,21 @@ export function registerAgentHandlers(): void {
 
   safeHandle('agent:update', (_event, id: string, config: Record<string, unknown>) => {
     const now = Date.now()
+    const previous = db.prepare('SELECT config_json FROM agents WHERE id = ?').get(id) as { config_json: string } | undefined
+    const prevConfig = previous?.config_json ? (JSON.parse(previous.config_json) as Record<string, unknown>) : {}
     db.prepare('UPDATE agents SET config_json = ?, updated_at = ? WHERE id = ?').run(
       JSON.stringify(config),
       now,
       id
     )
+    const wasFullAuto = prevConfig.fullAutoApprove === true
+    const isFullAuto = config.fullAutoApprove === true
+    if (!wasFullAuto && isFullAuto) {
+      drainPendingApprovals(id)
+      broadcastToMobile({ event: 'agent:full-auto-approve-on', data: { agentId: id } })
+    } else if (wasFullAuto && !isFullAuto) {
+      broadcastToMobile({ event: 'agent:full-auto-approve-off', data: { agentId: id } })
+    }
     return { ...config, id }
   })
 

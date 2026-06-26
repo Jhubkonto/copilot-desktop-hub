@@ -291,7 +291,8 @@ export async function callMcpTool(
   agentId?: string,
   webContents?: WebContents,
   agenticMode?: boolean,
-  autoApprove?: boolean
+  autoApprove?: boolean,
+  fullAutoApprove?: boolean
 ): Promise<{ success: boolean; result?: string; images?: { dataUrl: string; mimeType: string }[]; error?: string }> {
   // Resolve approval policy. Per-tool overrides take precedence; the server-level
   // trust setting is the fallback. Both count as "explicit" so that agentic mode
@@ -305,7 +306,8 @@ export async function callMcpTool(
     const override = db.prepare(
       'SELECT enabled, approval FROM agent_mcp_tool_overrides WHERE agent_id=? AND server_id=? AND tool_name=?'
     ).get(agentId, serverId, toolName) as { enabled: number; approval: string } | undefined
-    if (override?.enabled === 0) return { success: false, error: 'Tool disabled for this agent' }
+    // fullAutoApprove overrides disabled tool overrides — the flag means "trust everything"
+    if (override?.enabled === 0 && !fullAutoApprove) return { success: false, error: 'Tool disabled for this agent' }
     if (override) {
       approval = override.approval
       hasExplicitOverride = true
@@ -321,16 +323,18 @@ export async function callMcpTool(
     }
   }
 
-  if (approval === 'disabled') return { success: false, error: 'Tool disabled for this agent' }
+  // fullAutoApprove overrides disabled approval — treat it as auto
+  if (approval === 'disabled' && !fullAutoApprove) return { success: false, error: 'Tool disabled for this agent' }
 
   const instance = servers.get(serverId)
   if (!instance || instance.status !== 'connected') {
     return { success: false, error: `Server ${serverId} not connected` }
   }
 
-  // Agentic mode auto-approves tools that have no explicit override (neither
-  // per-tool nor server-level). If either is set, it is always honoured.
-  const bypassApproval = autoApprove || (agenticMode && !hasExplicitOverride)
+  // fullAutoApprove overrides explicit per-tool 'always-ask' and server 'block' trust.
+  // autoApprove bypasses when no explicit override exists (agentic mode).
+  // agenticMode auto-approves tools that have no explicit override.
+  const bypassApproval = fullAutoApprove || autoApprove || (agenticMode && !hasExplicitOverride)
 
   if (approval === 'always-ask' && !bypassApproval) {
     if (!webContents || webContents.isDestroyed()) {
@@ -340,6 +344,10 @@ export async function callMcpTool(
     const description = `[${instance.config.name}] ${tool?.description ?? toolName}`
     const approved = await requestApproval(webContents, toolName, args, description, { noRemember: true })
     if (!approved) return { success: false, error: 'Tool execution denied by user' }
+  }
+
+  if (fullAutoApprove && webContents && !webContents.isDestroyed()) {
+    webContents.send('tool:auto-approved', { toolName, args })
   }
 
   debugLog('mcp', `tool-call: server=${serverId} tool=${toolName} approval=${approval} bypass=${String(bypassApproval)}`)

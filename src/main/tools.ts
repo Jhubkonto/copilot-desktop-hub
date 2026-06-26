@@ -158,7 +158,7 @@ function setToolPreference(toolName: string, value: string): void {
 
 const pendingApprovals = new Map<
   string,
-  { toolName: string; resolve: (approved: boolean) => void; noRemember?: boolean; onRemember?: (approved: boolean) => void }
+  { toolName: string; resolve: (approved: boolean) => void; noRemember?: boolean; onRemember?: (approved: boolean) => void; agentId?: string }
 >()
 
 /**
@@ -167,14 +167,21 @@ const pendingApprovals = new Map<
  * preference (e.g. MCP tools, which have their own per-agent override table).
  * Pass `onRemember` to handle the "Always allow" case with custom persistence logic
  * (e.g. updating an agent's tool approval field instead of writing a global preference).
+ * Pass `autoApprove: true` to skip all prompts and resolve immediately (fullAutoApprove mode).
  */
 export async function requestApproval(
   webContents: Electron.WebContents,
   toolName: string,
   args: Record<string, unknown>,
   description: string,
-  options?: { noRemember?: boolean; onRemember?: (approved: boolean) => void }
+  options?: { noRemember?: boolean; onRemember?: (approved: boolean) => void; autoApprove?: boolean; agentId?: string }
 ): Promise<boolean> {
+  if (options?.autoApprove === true) {
+    if (!webContents.isDestroyed()) {
+      webContents.send('tool:auto-approved', { toolName, args })
+    }
+    return true
+  }
   const requestId = randomUUID()
   webContents.send('tool:request-approval', { requestId, tool: toolName, args, description })
   broadcastToMobile({ event: 'tool:approval-request', data: { requestId, toolName, args, description } })
@@ -182,7 +189,7 @@ export async function requestApproval(
     sendApprovalPush(getDatabase(), { requestId, toolName, args, description }).catch(() => {})
   }
   return new Promise<boolean>((resolve) => {
-    pendingApprovals.set(requestId, { toolName, resolve, noRemember: options?.noRemember, onRemember: options?.onRemember })
+    pendingApprovals.set(requestId, { toolName, resolve, noRemember: options?.noRemember, onRemember: options?.onRemember, agentId: options?.agentId })
     setTimeout(() => {
       if (pendingApprovals.has(requestId)) {
         pendingApprovals.delete(requestId)
@@ -190,6 +197,15 @@ export async function requestApproval(
       }
     }, 60000)
   })
+}
+
+export function drainPendingApprovals(agentId: string): void {
+  for (const [requestId, pending] of pendingApprovals) {
+    if (pending.agentId === agentId) {
+      pending.resolve(true)
+      pendingApprovals.delete(requestId)
+    }
+  }
 }
 
 export function resolveApprovalFromWs(requestId: string, approved: boolean): boolean {

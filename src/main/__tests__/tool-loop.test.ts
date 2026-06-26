@@ -163,6 +163,8 @@ describe('runProviderMcpToolLoop', () => {
       { target: 'submit' },
       'agent-1',
       expect.any(Object),
+      undefined,
+      undefined,
       undefined
     )
   })
@@ -426,7 +428,7 @@ describe('runProviderMcpToolLoop', () => {
     // Recovery iteration must have used 'required'
     expect(choices[3]).toBe('required')
     // browser_fill_form must have been called
-    expect(mockCallMcpTool).toHaveBeenCalledWith('server-1', 'browser_fill_form', expect.any(Object), expect.any(String), expect.any(Object), undefined)
+    expect(mockCallMcpTool).toHaveBeenCalledWith('server-1', 'browser_fill_form', expect.any(Object), expect.any(String), expect.any(Object), undefined, undefined, undefined)
   })
 
   it('does NOT recover when previous step had action (non-inspection) tools', async () => {

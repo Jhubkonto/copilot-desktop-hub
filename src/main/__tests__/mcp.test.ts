@@ -399,6 +399,63 @@ describe('MCP — Image extraction', () => {
   })
 })
 
+describe('MCP — fullAutoApprove bypass', () => {
+  function addFaaServer() {
+    const id = `faa-server-${Math.random().toString(36).slice(2)}`
+    const client = makeMockClient()
+    injectConnectedServer(id, 'FaaServer', client)
+    client.callTool.mockResolvedValue({ content: [{ type: 'text', text: 'done' }], isError: false })
+    return { id, client }
+  }
+
+  it('bypasses an explicit always-ask override when fullAutoApprove is true', async () => {
+    const { id: serverId, client } = addFaaServer()
+    mockOverrideRows.set(`agent1:${serverId}:testTool`, { enabled: 1, approval: 'always-ask' })
+
+    const r = await callMcpTool(serverId, 'testTool', {}, 'agent1', fakeSender as unknown as Electron.WebContents, false, false, true)
+    expect(mockRequestApproval).not.toHaveBeenCalled()
+    expect(r.success).toBe(true)
+    expect(client.callTool).toHaveBeenCalled()
+  })
+
+  it('bypasses a block server trust when fullAutoApprove is true', async () => {
+    const { id: serverId } = addFaaServer()
+    // No per-tool row - server trust = 'block' which maps to 'always-ask'
+    // We simulate it by adding a server trust that forces always-ask with explicit override
+    mockOverrideRows.set(`agent1:${serverId}:testTool`, { enabled: 1, approval: 'always-ask' })
+
+    const r = await callMcpTool(serverId, 'testTool', {}, 'agent1', fakeSender as unknown as Electron.WebContents, false, false, true)
+    expect(r.success).toBe(true)
+    expect(mockRequestApproval).not.toHaveBeenCalled()
+  })
+
+  it('bypasses a disabled tool override when fullAutoApprove is true', async () => {
+    const { id: serverId, client } = addFaaServer()
+    mockOverrideRows.set(`agent1:${serverId}:testTool`, { enabled: 0, approval: 'auto' })
+
+    const r = await callMcpTool(serverId, 'testTool', {}, 'agent1', fakeSender as unknown as Electron.WebContents, false, false, true)
+    expect(r.success).toBe(true)
+    expect(client.callTool).toHaveBeenCalled()
+  })
+
+  it('still respects explicit always-ask override when fullAutoApprove is false', async () => {
+    const { id: serverId } = addFaaServer()
+    mockOverrideRows.set(`agent1:${serverId}:testTool`, { enabled: 1, approval: 'always-ask' })
+    mockRequestApproval.mockResolvedValue(true)
+
+    await callMcpTool(serverId, 'testTool', {}, 'agent1', fakeSender as unknown as Electron.WebContents, false, false, false)
+    expect(mockRequestApproval).toHaveBeenCalled()
+  })
+
+  it('emits tool:auto-approved when fullAutoApprove is true', async () => {
+    const { id: serverId } = addFaaServer()
+    mockOverrideRows.set(`agent1:${serverId}:testTool`, { enabled: 1, approval: 'auto' })
+
+    await callMcpTool(serverId, 'testTool', { x: 1 }, 'agent1', fakeSender as unknown as Electron.WebContents, false, false, true)
+    expect(fakeSender.send).toHaveBeenCalledWith('tool:auto-approved', { toolName: 'testTool', args: { x: 1 } })
+  })
+})
+
 describe('MCP — Crash recovery', () => {
   it('auto-reconnects after an unexpected transport close', async () => {
     vi.useFakeTimers()

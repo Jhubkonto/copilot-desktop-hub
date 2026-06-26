@@ -640,4 +640,121 @@ describe('CLI adapters', () => {
       conversationId: 'conv-1',
     }, () => {})).rejects.toThrow('boom')
   })
+
+  describe('skipPermissions flag', () => {
+    function makeClaudeOutput(text = 'done') {
+      return [
+        JSON.stringify({ type: 'system', subtype: 'init' }),
+        JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text }] } }),
+        JSON.stringify({ type: 'result', subtype: 'success', result: text, total_cost_usd: 0, usage: { input_tokens: 10, output_tokens: 5 } }),
+      ].join('\n') + '\n'
+    }
+
+    it('ClaudeAdapter includes --dangerously-skip-permissions when skipPermissions is true', async () => {
+      const proc = makeProc()
+      mockSpawn.mockReturnValue(proc)
+
+      const sendPromise = ClaudeAdapter.send({} as never, {
+        messages: [{ role: 'user', content: 'do something' }],
+        cwd: 'C:\\workspace',
+        model: 'default',
+        conversationId: 'conv-1',
+        skipPermissions: true,
+      }, () => {})
+
+      proc.stdout.emit('data', Buffer.from(makeClaudeOutput()))
+      proc.emit('close', 0)
+      await sendPromise
+
+      const spawnArgs = mockSpawn.mock.calls[0][1] as string[]
+      expect(spawnArgs).toContain('--dangerously-skip-permissions')
+    })
+
+    it('ClaudeAdapter omits --dangerously-skip-permissions when skipPermissions is false', async () => {
+      const proc = makeProc()
+      mockSpawn.mockReturnValue(proc)
+
+      const sendPromise = ClaudeAdapter.send({} as never, {
+        messages: [{ role: 'user', content: 'do something' }],
+        cwd: 'C:\\workspace',
+        model: 'default',
+        conversationId: 'conv-1',
+        skipPermissions: false,
+      }, () => {})
+
+      proc.stdout.emit('data', Buffer.from(makeClaudeOutput()))
+      proc.emit('close', 0)
+      await sendPromise
+
+      const spawnArgs = mockSpawn.mock.calls[0][1] as string[]
+      expect(spawnArgs).not.toContain('--dangerously-skip-permissions')
+    })
+
+    it('ClaudeAdapter omits --dangerously-skip-permissions when skipPermissions is absent', async () => {
+      const proc = makeProc()
+      mockSpawn.mockReturnValue(proc)
+
+      const sendPromise = ClaudeAdapter.send({} as never, {
+        messages: [{ role: 'user', content: 'do something' }],
+        cwd: 'C:\\workspace',
+        model: 'default',
+        conversationId: 'conv-1',
+      }, () => {})
+
+      proc.stdout.emit('data', Buffer.from(makeClaudeOutput()))
+      proc.emit('close', 0)
+      await sendPromise
+
+      const spawnArgs = mockSpawn.mock.calls[0][1] as string[]
+      expect(spawnArgs).not.toContain('--dangerously-skip-permissions')
+    })
+
+    it('CodexAdapter prepends auto-approve directive when skipPermissions is true', async () => {
+      const proc = makeProc()
+      mockSpawn.mockReturnValue(proc)
+
+      const sendPromise = CodexAdapter.send({} as never, {
+        messages: [{ role: 'user', content: 'do it' }],
+        cwd: 'C:\\workspace',
+        model: 'default',
+        conversationId: 'conv-1',
+        skipPermissions: true,
+      }, () => {})
+
+      proc.stdout.emit('data', Buffer.from([
+        JSON.stringify({ type: 'item.completed', item: { id: 'x', type: 'agent_message', text: 'done' } }),
+        JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 5 } }),
+        '',
+      ].join('\n')))
+      proc.emit('close', 0)
+      await sendPromise
+
+      const writtenStdin = proc.stdin.end.mock.calls[0][0] as string
+      expect(writtenStdin).toContain('[AUTO-APPROVE]')
+    })
+
+    it('CodexAdapter does NOT prepend auto-approve directive when skipPermissions is false', async () => {
+      const proc = makeProc()
+      mockSpawn.mockReturnValue(proc)
+
+      const sendPromise = CodexAdapter.send({} as never, {
+        messages: [{ role: 'user', content: 'do it' }],
+        cwd: 'C:\\workspace',
+        model: 'default',
+        conversationId: 'conv-1',
+        skipPermissions: false,
+      }, () => {})
+
+      proc.stdout.emit('data', Buffer.from([
+        JSON.stringify({ type: 'item.completed', item: { id: 'x', type: 'agent_message', text: 'done' } }),
+        JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 5 } }),
+        '',
+      ].join('\n')))
+      proc.emit('close', 0)
+      await sendPromise
+
+      const writtenStdin = proc.stdin.end.mock.calls[0][0] as string
+      expect(writtenStdin).not.toContain('[AUTO-APPROVE]')
+    })
+  })
 })

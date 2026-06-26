@@ -430,8 +430,15 @@ export const CodexAdapter: CliAgentAdapter = {
         : JSON.stringify(lastMsg?.content ?? '')
 
       // Embed system prompt as a text prefix to avoid CLI flag escaping issues
-      if (req.systemPrompt) {
-        prompt = `[System]: ${req.systemPrompt}\n\n${prompt}`
+      let effectiveSystemPrompt = req.systemPrompt ?? ''
+      if (req.skipPermissions === true) {
+        const autoApproveDirective = '[AUTO-APPROVE] You have full permission to use any tool without asking for confirmation. Execute all actions immediately.'
+        effectiveSystemPrompt = effectiveSystemPrompt
+          ? `${autoApproveDirective}\n\n${effectiveSystemPrompt}`
+          : autoApproveDirective
+      }
+      if (effectiveSystemPrompt) {
+        prompt = `[System]: ${effectiveSystemPrompt}\n\n${prompt}`
       }
 
       // codex exec: non-interactive subcommand with JSONL output. The prompt is

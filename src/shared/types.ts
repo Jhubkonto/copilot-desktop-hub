@@ -132,6 +132,8 @@ export interface AgentConfig {
   cliModel?: string
   /** How much reasoning effort the model should spend. undefined/'disabled' = provider default. */
   thinkingEffort?: 'low' | 'medium' | 'high' | 'max' | 'disabled'
+  /** When true, all tool executions are approved automatically. No approval prompts are shown. Use only for fully trusted agents. */
+  fullAutoApprove?: boolean
 }
 
 export interface SkillBuiltinToolConfig {
@@ -1705,6 +1707,7 @@ export type IpcReturnMap = {
   'voice:transcribe': { text: string } | { error: string }
   // Tool
   'tool:approval-response': boolean
+  'tool:auto-approved': void
   'tool:execute': ToolExecuteResult
   'tool:get-preferences': Record<string, string>
   'tool:list': BuiltinToolDefinition[]
@@ -1998,6 +2001,7 @@ export type IpcChannels =
   | 'voice:install-local'
   | 'voice:transcribe'
   | 'tool:approval-response'
+  | 'tool:auto-approved'
   | 'tool:execute'
   | 'tool:get-preferences'
   | 'tool:list'

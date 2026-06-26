@@ -26,6 +26,7 @@ import { getCliModels } from './cli-detection'
 import { retrieveAuthMode } from './auth'
 import { applyRollingContextCompression } from './context-compression'
 import { getAgentConfig } from './agents'
+import { isFullAutoApprove } from './agentic-policy'
 import { buildChatContext, buildStoredAttachments } from './chat-context-builder'
 import { getWorkingDirectory } from './file-handlers'
 import { dispatchToProvider } from './chat-provider-dispatch'
@@ -115,6 +116,7 @@ async function getClaudeCliAllowedBuiltInTools(
   agentConfig: Record<string, unknown> | null,
   agentId: string | null,
   sendActivity: (activity: MobileChatActivity) => void,
+  autoApprove = false,
 ): Promise<string[]> {
   const tools = (agentConfig?.tools && typeof agentConfig.tools === 'object'
     ? agentConfig.tools
@@ -123,7 +125,7 @@ async function getClaudeCliAllowedBuiltInTools(
 
   for (const tool of CLAUDE_CLI_BUILT_IN_TOOLS) {
     const policy = tools[tool.key]
-    // Explicitly disabled → skip entirely, no prompt
+    // Explicitly disabled → skip entirely, no prompt (fullAutoApprove respects disabled)
     if (policy?.enabled === false) continue
     // Enabled: true + auto → allow immediately without prompting
     if (policy?.enabled === true && policy.approval === 'auto') {
@@ -133,6 +135,12 @@ async function getClaudeCliAllowedBuiltInTools(
     // No agent configured → auto-allow all built-in tools, no prompt needed
     if (!agentId) {
       allowedTools.push(...tool.claudeTools)
+      continue
+    }
+    // fullAutoApprove mode — skip prompt and emit audit event
+    if (autoApprove) {
+      const approved = await requestApproval(window.webContents, tool.approvalTool, {}, tool.description, { autoApprove: true })
+      if (approved) allowedTools.push(...tool.claudeTools)
       continue
     }
     // Agent configured with always-ask or unconfigured tool → prompt
@@ -677,12 +685,13 @@ export async function dispatchChatSend(
             if (serverFullyBlocked) continue
 
             if (serverNeedsApproval) {
+              const cliFullAuto = agentCfg2 ? isFullAutoApprove(agentCfg2) : false
               const approved = await requestApproval(
                 window.webContents,
                 `mcp__${server.key}`,
                 {},
                 `Allow agent to use ${mcpServers.get(serverId)?.config.name ?? server.key} tools for this message?`,
-                { noRemember: true }
+                { noRemember: true, autoApprove: cliFullAuto }
               )
               if (approved) approvedServerIds.add(serverId)
               // denied → server excluded from CLI run
@@ -711,7 +720,7 @@ export async function dispatchChatSend(
           }
         })()
         const cliAllowedBuiltInTools = effectiveBackend === 'claude-cli'
-          ? await getClaudeCliAllowedBuiltInTools(window, agentCfg2, effectiveAgentId, sendActivity)
+          ? await getClaudeCliAllowedBuiltInTools(window, agentCfg2, effectiveAgentId, sendActivity, agentCfg2 ? isFullAutoApprove(agentCfg2) : false)
           : []
         const cliAllowedTools = [...cliAllowedBuiltInTools, ...(cliAllowedMcpTools ?? [])]
         debugLog('chat', `cli-adapter: starting ${effectiveBackend} model=${cliModelForRequest || 'default'} mcpServers=${cliMcpServersFiltered?.length ?? 0} builtInTools=${cliAllowedBuiltInTools.length} mcpTools=${cliAllowedMcpTools?.length ?? 0}`)
@@ -739,6 +748,7 @@ export async function dispatchChatSend(
             mcpServers: cliMcpServersFiltered,
             allowedTools: cliAllowedTools.length > 0 ? cliAllowedTools : undefined,
             thinkingEffort: agentCfg2?.thinkingEffort as 'low' | 'medium' | 'high' | 'max' | 'disabled' | undefined,
+            skipPermissions: agentCfg2 ? isFullAutoApprove(agentCfg2) : false,
           },
           sendChunk,
           (event) => {
@@ -965,6 +975,7 @@ export async function dispatchChatSend(
       onModel: handleStreamModel,
       systemPrompt,
       toolPolicy: toolPolicy ?? undefined,
+      fullAutoApprove: agentCfg2 ? isFullAutoApprove(agentCfg2) : false,
       onThinkingChunk: (blockId, chunk) => {
         const existing = byokThinkingBuffer.get(blockId) ?? { blockId, content: '', done: false }
         byokThinkingBuffer.set(blockId, { ...existing, content: existing.content + chunk })
