@@ -262,10 +262,14 @@ export async function runOrchestration(
 
   const memberIds = new Set(teamAgents.filter((a) => !a.isPrimary).map((a) => a.agentId))
 
+  // Only OpenAI and Anthropic reliably support tool_choice='required'; other providers
+  // (OpenRouter, Groq, Mistral, etc.) may reject it — use 'auto' for them instead.
+  const supportsRequiredToolChoice = leaderProvider === 'openai' || leaderProvider === 'anthropic'
+
   for (let depth = 0; depth < maxDelegationDepth; depth++) {
-    // On the first pass, require the model to call the tool if specialists exist.
+    // On the first pass, nudge the model to call the delegate tool if specialists exist.
     // Subsequent passes use 'auto' so the model can finalise without forcing another delegation.
-    const toolChoice = (depth === 0 && memberIds.size > 0) ? 'required' : 'auto'
+    const toolChoice = (depth === 0 && memberIds.size > 0 && supportsRequiredToolChoice) ? 'required' : 'auto'
     const result = await sendProviderWithTools(
       leaderProvider,
       leaderApiKey,
