@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
-import { BookOpen, BrainCircuit, CheckCircle, ChevronDown, ChevronRight, Download, Loader2, MoreHorizontal, Pin, PinOff, Sparkles, Upload } from 'lucide-react'
+import { BookOpen, BrainCircuit, CheckCircle, ChevronDown, ChevronRight, Download, Loader2, Lock, MoreHorizontal, Pin, PinOff, Sparkles, Upload } from 'lucide-react'
 import { getAvailableModelIds, getModelLabel, modelIdSupportsTools } from '../../shared/models'
 import { isApiError, type AgentConfig, type AvailableModelEntry, type AvailableModelGroup, type ConversationExportPackFormat, type WikiCandidate } from '../../shared/types'
 import type { ContextRef, ToastType } from '../hooks/chat-types'
@@ -141,12 +141,21 @@ export function ChatWindow() {
 
   const chatAgentBackend = chatAgent?.backend
   const chatAgentCliModel = nonDefault(chatAgent?.cliModel ?? null)
+  const lockModelToAgentBackend =
+    chatAgentBackend === 'claude-cli' || chatAgentBackend === 'codex-cli'
+  const conversationCliModelForAgentBackend =
+    lockModelToAgentBackend && nonDefault(conversationModel) && availableGroups.some((group) =>
+      group.sourceKey === chatAgentBackend &&
+      group.models.some((model) => model.id === nonDefault(conversationModel)),
+    )
+      ? nonDefault(conversationModel)
+      : null
 
   let effectiveModel: string
   let modelSourceLabel: string | undefined
   if (chatAgentBackend === 'claude-cli' || chatAgentBackend === 'codex-cli') {
-    // Per-conversation override wins; falls back to the agent's configured model.
-    effectiveModel = nonDefault(conversationModel) ?? chatAgentCliModel ?? 'default'
+    // Forced CLI agents only honor per-conversation model choices within that backend.
+    effectiveModel = conversationCliModelForAgentBackend ?? chatAgentCliModel ?? 'default'
   } else if (nonDefault(pendingModel)) {
     effectiveModel = pendingModel!
   } else if (nonDefault(conversationModel)) {
@@ -754,7 +763,7 @@ export function ChatWindow() {
 
   const handleSelectAvailableModel = useCallback(
     (group: AvailableModelGroup, model: AvailableModelEntry) => {
-      if (chatAgentBackend === 'claude-cli' || chatAgentBackend === 'codex-cli') {
+      if (lockModelToAgentBackend) {
         // For CLI-backed agents, only allow picking within the same backend.
         // Store as a per-conversation override — does not mutate the agent config.
         if (group.sourceKey !== chatAgentBackend) return
@@ -765,9 +774,9 @@ export function ChatWindow() {
       }
       if (group.sourceType === 'cli') {
         void actions.handleSetCliBackendAndModel(group.sourceKey as 'claude-cli' | 'codex-cli', model.id)
-        // Also update the UI immediately — handleSetCliBackendAndModel only persists to a ref
-        // when there's no agent and no conversation yet, so the picker would otherwise not update.
-        if (!chatAgent && !conversationId) {
+        // Also update the UI immediately when there is no conversation yet;
+        // the backend is staged for the first send inside useChatWindowActions.
+        if (!conversationId) {
           setPendingModel(model.id)
         }
       } else {
@@ -778,7 +787,7 @@ export function ChatWindow() {
         }
       }
     },
-    [actions, chatAgent, chatAgentBackend, conversationId],
+    [actions, chatAgentBackend, conversationId, lockModelToAgentBackend],
   )
 
   const handlePickModel = useCallback(() => {
@@ -841,6 +850,20 @@ export function ChatWindow() {
   const hasByok = availableGroups.some((g) => g.sourceType === 'provider')
 
   const backendChip = useMemo(() => {
+    const byokGroup = availableGroups.find((g) => {
+      if (g.sourceType !== 'provider') return false
+      if (effectiveModel === 'default') return true
+      return g.models.some((m) => m.id === effectiveModel)
+    })
+    const cliGroup = availableGroups.find(
+      (g) => g.sourceType === 'cli' && g.models.some((m) => m.id === effectiveModel),
+    )
+    const providerColorMap: Record<string, string> = {
+      openrouter: 'bg-violet-50 dark:bg-violet-900/20 border-violet-200 dark:border-violet-700 text-violet-700 dark:text-violet-300',
+      anthropic: 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-700 text-orange-700 dark:text-orange-300',
+      azure: 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-300',
+    }
+
     const agentBackend = chatAgent?.backend
     if (agentBackend === 'gh-copilot') {
       return { label: 'gh copilot', cls: 'bg-gray-100 dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-400' }
@@ -856,23 +879,10 @@ export function ChatWindow() {
         ? { label: 'Codex CLI', cls: 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300' }
         : { label: 'Claude CLI', cls: 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-700 text-purple-700 dark:text-purple-300' }
     }
-    const byokGroup = availableGroups.find((g) => {
-      if (g.sourceType !== 'provider') return false
-      if (effectiveModel === 'default') return true
-      return g.models.some((m) => m.id === effectiveModel)
-    })
     if (byokGroup) {
-      const providerColorMap: Record<string, string> = {
-        openrouter: 'bg-violet-50 dark:bg-violet-900/20 border-violet-200 dark:border-violet-700 text-violet-700 dark:text-violet-300',
-        anthropic: 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-700 text-orange-700 dark:text-orange-300',
-        azure: 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-300',
-      }
       const cls = providerColorMap[byokGroup.sourceKey] ?? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-700 text-green-700 dark:text-green-300'
       return { label: byokGroup.sourceLabel, cls }
     }
-    const cliGroup = availableGroups.find(
-      (g) => g.sourceType === 'cli' && g.models.some((m) => m.id === effectiveModel),
-    )
     if (cliGroup) {
       return cliGroup.sourceKey === 'codex-cli'
         ? { label: 'Codex CLI', cls: 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300' }
@@ -923,6 +933,17 @@ export function ChatWindow() {
       >
         {backendChip.label}
       </span>
+      {lockModelToAgentBackend && (
+        <span
+          className="inline-flex items-center gap-1 px-2 rounded-full text-xs font-medium bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 text-amber-700 dark:text-amber-300 select-none"
+          style={{ lineHeight: '20px' }}
+          title={`This chat is locked to ${backendChip.label} by the selected agent's Chat Backend setting.`}
+          aria-label={`Chat backend locked by agent settings to ${backendChip.label}`}
+        >
+          <Lock className="w-3 h-3" aria-hidden="true" />
+          Agent locked
+        </span>
+      )}
 
       <div className="ml-auto flex items-center gap-2">
         {projectRootDir && (
@@ -1003,15 +1024,16 @@ export function ChatWindow() {
       onStop={actions.handleStop}
       onSend={actions.handleSend}
       cliLockedModels={
-        chatAgentBackend === 'claude-cli' || chatAgentBackend === 'codex-cli'
+        lockModelToAgentBackend
           ? (availableGroups.find((g) => g.sourceKey === chatAgentBackend)?.models ?? [])
           : undefined
       }
       onSelectCliModel={
-        chatAgentBackend === 'claude-cli' || chatAgentBackend === 'codex-cli'
+        lockModelToAgentBackend
           ? (modelId) => { if (conversationId) void actions.handleSetConversationModel(modelId) }
           : undefined
       }
+      lockModelToAgentBackend={lockModelToAgentBackend}
     />
   )
 

@@ -68,6 +68,7 @@ interface ChatComposerProps {
   onSend: () => void | Promise<void>
   cliLockedModels?: AvailableModelEntry[]
   onSelectCliModel?: (modelId: string) => void
+  lockModelToAgentBackend?: boolean
 }
 
 export function ChatComposer({
@@ -126,12 +127,13 @@ export function ChatComposer({
   onSend,
   cliLockedModels,
   onSelectCliModel,
+  lockModelToAgentBackend = false,
 }: ChatComposerProps) {
   const catalogModels = useAppStore((state) => state.catalogModels)
   const globalDefaultModel = useAppStore((state) => state.globalDefaultModel)
   const agentBackend = activeAgent?.backend
   const isGhCopilot = agentBackend === 'gh-copilot'
-  const isCliLocked = agentBackend === 'claude-cli' || agentBackend === 'codex-cli'
+  const isCliLocked = lockModelToAgentBackend && (agentBackend === 'claude-cli' || agentBackend === 'codex-cli')
 
   return (
     <div className="border-t border-gray-200 dark:border-gray-700/80 relative">

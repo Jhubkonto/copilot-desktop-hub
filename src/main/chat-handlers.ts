@@ -353,7 +353,7 @@ export async function dispatchChatSend(
         })()
       : {}
     const agentBackendForOrch = typeof agentCfg2?.backend === 'string' ? agentCfg2.backend : null
-    const effectiveCli = cliBackend ?? agentBackendForOrch ?? convRow?.cli_backend ?? null
+    const effectiveCli = cliBackend ?? convRow?.cli_backend ?? agentBackendForOrch
     const orchEnabled = projConfig.orchestrationEnabled === true && !effectiveCli
 
     if (orchEnabled) {
@@ -488,8 +488,8 @@ export async function dispatchChatSend(
     : []
   const agentHasAssignedMcpServers = assignedAgentMcpServerIds.length > 0
   const byokKeyForModel = getApiKey(providerName)
-  // A model in the OpenRouter cache is always a BYOK model — never route to CLI even if
-  // the conversation has a stale cli_backend from a prior mis-heal.
+  // A model in the OpenRouter cache is BYOK unless the agent explicitly forces a CLI backend.
+  // This still prevents stale conversation cli_backend values from hijacking provider chats.
   const selectedModelIsOpenRouter = getOpenRouterModels().includes(selectedModel)
   let fallbackCliBackend: 'claude-cli' | 'codex-cli' | undefined
   // An explicit cliBackend request (e.g. from the Android WS path) always wins,
@@ -497,6 +497,11 @@ export async function dispatchChatSend(
   if (cliBackend === 'codex-cli' && CodexAdapter.isAvailable()) {
     fallbackCliBackend = 'codex-cli'
   } else if (cliBackend === 'claude-cli' && ClaudeAdapter.isAvailable()) {
+    fallbackCliBackend = 'claude-cli'
+  } else if (agentBackend === 'codex-cli' && CodexAdapter.isAvailable()) {
+    // Agent-level forced backend constrains routing for the whole conversation.
+    fallbackCliBackend = 'codex-cli'
+  } else if (agentBackend === 'claude-cli' && ClaudeAdapter.isAvailable()) {
     fallbackCliBackend = 'claude-cli'
   } else if (!selectedModelIsOpenRouter && convRow?.cli_backend === 'codex-cli' && CodexAdapter.isAvailable()) {
     // User explicitly picked a Codex CLI model in this conversation.
@@ -510,7 +515,7 @@ export async function dispatchChatSend(
       else if (CodexAdapter.isAvailable()) fallbackCliBackend = 'codex-cli'
     }
   }
-  const effectiveBackend = agentBackend ?? fallbackCliBackend
+  const effectiveBackend = fallbackCliBackend ?? agentBackend
   debugLog('chat', `routing: authMode=${retrieveAuthMode()} byokKey=${byokKeyForModel ? 'yes' : 'no'} agentBackend=${agentBackend ?? 'none'} fallbackCli=${fallbackCliBackend ?? 'none'} effectiveBackend=${effectiveBackend ?? 'byok'}`)
 
   if (effectiveBackend) {

@@ -1077,6 +1077,203 @@ describe("ChatWindow — Model Dropdown (O.2)", () => {
       expect(btn).toHaveTextContent("GPT-4.1");
     });
   });
+
+  it("sets a CLI model as a conversation override without changing the project agent backend", async () => {
+    const user = userEvent.setup();
+    mockStore = createMockAppStore({
+      authState: {
+        authenticated: true,
+        mode: 'byok',
+        user: null,
+        cliInstalled: true,
+        clis: { claude: false, codex: true },
+      },
+      currentConversationId: "conv-1",
+      conversations: [
+        {
+          id: "conv-1",
+          title: "Project chat",
+          project_id: "proj-1",
+          agent_id: "agent-1",
+          model: null,
+          pinned: false,
+          created_at: 0,
+          updated_at: 0,
+        },
+      ],
+      projects: [
+        {
+          id: "proj-1",
+          name: "Project",
+          color: "blue",
+          created_at: 0,
+          updated_at: 0,
+        },
+      ],
+      agents: [
+        {
+          id: "agent-1",
+          name: "Project Agent",
+          icon: "A",
+          systemPrompt: "",
+          backend: undefined,
+        },
+      ],
+      availableModelGroups: [
+        {
+          sourceKey: "openai",
+          sourceLabel: "OpenAI",
+          sourceType: "provider",
+          models: [{ id: "gpt-5-mini", label: "GPT-5 mini" }],
+        },
+        {
+          sourceKey: "codex-cli",
+          sourceLabel: "Codex CLI",
+          sourceType: "cli",
+          models: [{ id: "gpt-5.5", label: "GPT-5.5" }],
+        },
+      ],
+    });
+    setupStoreMock(useAppStore, mockStore);
+    render(<ChatWindow />);
+
+    await user.click(screen.getByRole("button", { name: /conversation model/i }));
+    await user.click(await screen.findByText("GPT-5.5"));
+
+    expect(mockApi.setConversationModel).toHaveBeenCalledWith("conv-1", "gpt-5.5", "codex-cli");
+    expect(mockApi.updateAgent).not.toHaveBeenCalled();
+  });
+
+  it("locks the model picker to Codex CLI when the agent backend is forced", async () => {
+    const user = userEvent.setup();
+    mockStore = createMockAppStore({
+      authState: {
+        authenticated: true,
+        mode: 'byok',
+        user: null,
+        cliInstalled: true,
+        clis: { claude: false, codex: true },
+      },
+      currentConversationId: "conv-1",
+      conversations: [
+        {
+          id: "conv-1",
+          title: "Project chat",
+          project_id: "proj-1",
+          agent_id: "agent-1",
+          model: "gpt-5.5",
+          pinned: false,
+          created_at: 0,
+          updated_at: 0,
+        },
+      ],
+      projects: [
+        {
+          id: "proj-1",
+          name: "Project",
+          color: "blue",
+          created_at: 0,
+          updated_at: 0,
+        },
+      ],
+      agents: [
+        {
+          id: "agent-1",
+          name: "Project Agent",
+          icon: "A",
+          systemPrompt: "",
+          backend: "codex-cli",
+          cliModel: "gpt-5.5",
+        },
+      ],
+      availableModelGroups: [
+        {
+          sourceKey: "openai",
+          sourceLabel: "OpenAI",
+          sourceType: "provider",
+          models: [{ id: "gpt-5-mini", label: "GPT-5 mini" }],
+        },
+        {
+          sourceKey: "codex-cli",
+          sourceLabel: "Codex CLI",
+          sourceType: "cli",
+          models: [{ id: "gpt-5.5", label: "GPT-5.5" }],
+        },
+      ],
+    });
+    setupStoreMock(useAppStore, mockStore);
+    render(<ChatWindow />);
+
+    await user.click(screen.getByRole("button", { name: /gpt-5\.5.*codex cli/i }));
+    expect((await screen.findAllByText("Codex CLI")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("GPT-5.5").length).toBeGreaterThan(0);
+    expect(screen.queryByText("GPT-5 mini")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Chat backend locked by agent settings to Codex CLI")).toHaveTextContent("Agent locked");
+
+    expect(mockApi.updateAgent).not.toHaveBeenCalled();
+  });
+
+  it("shows the forced CLI badge even if the conversation has a provider model", () => {
+    mockStore = createMockAppStore({
+      authState: {
+        authenticated: true,
+        mode: 'byok',
+        user: null,
+        cliInstalled: true,
+        clis: { claude: false, codex: true },
+      },
+      currentConversationId: "conv-1",
+      conversations: [
+        {
+          id: "conv-1",
+          title: "Project chat",
+          project_id: "proj-1",
+          agent_id: "agent-1",
+          model: "claude-haiku-4.5",
+          pinned: false,
+          created_at: 0,
+          updated_at: 0,
+        },
+      ],
+      projects: [
+        {
+          id: "proj-1",
+          name: "Project",
+          color: "blue",
+          created_at: 0,
+          updated_at: 0,
+        },
+      ],
+      agents: [
+        {
+          id: "agent-1",
+          name: "Project Agent",
+          icon: "A",
+          systemPrompt: "",
+          backend: "codex-cli",
+          cliModel: "gpt-5.5",
+        },
+      ],
+      availableModelGroups: [
+        {
+          sourceKey: "openrouter",
+          sourceLabel: "OpenRouter",
+          sourceType: "provider",
+          models: [{ id: "claude-haiku-4.5", label: "Claude Haiku 4.5" }],
+        },
+        {
+          sourceKey: "codex-cli",
+          sourceLabel: "Codex CLI",
+          sourceType: "cli",
+          models: [{ id: "gpt-5.5", label: "GPT-5.5" }],
+        },
+      ],
+    });
+    setupStoreMock(useAppStore, mockStore);
+    render(<ChatWindow />);
+
+    expect(screen.getByTitle("Active backend for this conversation")).toHaveTextContent("Codex CLI");
+  });
 });
 
 // ── Resizable Input Panel ─────────────────────────────────────────────────────

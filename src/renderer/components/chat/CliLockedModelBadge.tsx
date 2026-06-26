@@ -71,7 +71,7 @@ export function CliLockedModelBadge({
         type="button"
         onClick={() => setOpen((prev) => !prev)}
         className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 px-1.5 py-1 rounded-md transition-colors max-w-[220px]"
-        title={`${backendLabel} · ${modelLabel} — click to change model for this conversation`}
+        title={`Agent settings lock this chat to ${backendLabel}. Click to change model within ${backendLabel}.`}
       >
         <span className="truncate">{modelLabel}</span>
         <span className="shrink-0 text-gray-400 dark:text-gray-500 opacity-80">· {backendLabel}</span>

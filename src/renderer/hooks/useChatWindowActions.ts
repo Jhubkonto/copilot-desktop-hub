@@ -601,16 +601,6 @@ export function useChatWindowActions({
 
   const handleSetCliBackendAndModel = useCallback(
     async (backend: 'claude-cli' | 'codex-cli', modelId: string) => {
-      if (activeAgent?.id) {
-        try {
-          const result = await window.api.updateAgent(activeAgent.id, { ...activeAgent, backend, cliModel: modelId })
-          if (hasIpcError(result)) throw new Error(result.error)
-          await loadAgents()
-        } catch {
-          addToast('Failed to update CLI model', 'error')
-        }
-        return
-      }
       if (conversationId) {
         try {
           const result = await window.api.setConversationModel(conversationId, modelId, backend)
@@ -624,7 +614,7 @@ export function useChatWindowActions({
       pendingCliModelRef.current = modelId
       pendingCliBackendRef.current = backend
     },
-    [activeAgent, conversationId, loadConversations, loadAgents, addToast],
+    [conversationId, loadConversations, addToast],
   )
 
   const handleStop = useCallback(async () => {

@@ -321,6 +321,35 @@ describe('chat handlers', () => {
     expect(state.events.indexOf('mobile:messages')).toBeLessThan(state.events.indexOf('mobile:stream-end'))
   })
 
+  it('routes through the forced agent CLI backend even when a provider model is supplied', async () => {
+    const mockAdapter = {
+      isAvailable: () => true,
+      send: vi.fn(async () => 'cli response'),
+    }
+    vi.mocked(getAdapter).mockReturnValue(mockAdapter as never)
+    vi.mocked(CodexAdapter.isAvailable).mockReturnValue(true)
+    vi.mocked(getAgentConfig).mockReturnValue({
+      id: 'agent-1',
+      name: 'Project Agent',
+      icon: 'A',
+      systemPrompt: '',
+      backend: 'codex-cli',
+      cliModel: 'gpt-5.5',
+    } as never)
+    vi.mocked(sendOpenAIMessage).mockClear()
+    state.getOverrides.set('SELECT agent_id, model, cli_backend FROM conversations', {
+      agent_id: 'agent-1',
+      model: 'gpt-5-mini',
+      cli_backend: null,
+    })
+
+    const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<unknown>
+    await handler({ sender: {} }, 'conv-provider-override', 'Hello there', { model: 'gpt-5-mini' })
+
+    expect(mockAdapter.send).toHaveBeenCalled()
+    expect(sendOpenAIMessage).not.toHaveBeenCalled()
+  })
+
   it('stores mobile image attachment metadata without persisting image data', async () => {
     const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<{ assistantMsgId: string }>
 
