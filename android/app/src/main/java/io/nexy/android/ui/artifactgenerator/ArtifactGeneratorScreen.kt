@@ -493,6 +493,7 @@ private fun SpecField(label: String, value: String) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DonePhase(
     uiState: ArtifactGeneratorUiState,
