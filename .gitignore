@@ -43,3 +43,6 @@ src/planning/
 
 # Local Claude/Codex tooling state
 .claude/
+
+# Android local Gradle cache
+android/.gradle-user/
