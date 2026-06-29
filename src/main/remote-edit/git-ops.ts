@@ -20,9 +20,42 @@ import type {
 
 const execFileAsync = promisify(execFile)
 
+type GitFailureInfo = {
+  message: string
+  authRequired: boolean
+  authHelp?: string
+}
+
 async function git(args: string[], cwd = getWorkspacePath()): Promise<string> {
   const { stdout } = await execFileAsync('git', args, { cwd, timeout: 15000 })
   return stdout.trim()
+}
+
+export function classifyGitFailure(error: unknown): GitFailureInfo {
+  const stderr = typeof error === 'object' && error !== null && 'stderr' in error && typeof (error as { stderr?: unknown }).stderr === 'string'
+    ? (error as { stderr: string }).stderr
+    : ''
+  const stdout = typeof error === 'object' && error !== null && 'stdout' in error && typeof (error as { stdout?: unknown }).stdout === 'string'
+    ? (error as { stdout: string }).stdout
+    : ''
+  const message = error instanceof Error ? error.message : String(error)
+  const combined = `${message}\n${stderr}\n${stdout}`.toLowerCase()
+  const authRequired =
+    combined.includes('authentication failed') ||
+    combined.includes('could not read username') ||
+    combined.includes('permission denied (publickey)') ||
+    combined.includes('repository not found') ||
+    combined.includes('fatal: could not read from remote repository') ||
+    combined.includes('fatal: authentication') ||
+    combined.includes('access denied')
+
+  return {
+    message: stderr.trim() || message,
+    authRequired,
+    authHelp: authRequired
+      ? 'Remote git auth failed. Use your system git login or credential manager, or run the relevant CLI login for this remote, then retry the repo operation.'
+      : undefined,
+  }
 }
 
 function classifyStatus(indexStatus: string, worktreeStatus: string): RemoteEditGitFileStatus {
@@ -168,12 +201,15 @@ export async function commitRemoteEditFix(reportId: string, message: string): Pr
     const status = await getRemoteEditGitStatus(reportId)
     return { reportId, committed: true, commitSha, status }
   } catch (error) {
+    const failure = classifyGitFailure(error)
     return {
       reportId,
       committed: false,
       commitSha: null,
       status: await getRemoteEditGitStatus(reportId),
-      error: error instanceof Error ? error.message : String(error),
+      error: failure.message,
+      authRequired: failure.authRequired,
+      authHelp: failure.authHelp,
     }
   }
 }
@@ -183,11 +219,14 @@ export async function pushRemoteEditFix(reportId: string): Promise<RemoteEditGit
     await git(['push'])
     return { reportId, pushed: true, status: await getRemoteEditGitStatus(reportId) }
   } catch (error) {
+    const failure = classifyGitFailure(error)
     return {
       reportId,
       pushed: false,
       status: await getRemoteEditGitStatus(reportId),
-      error: error instanceof Error ? error.message : String(error),
+      error: failure.message,
+      authRequired: failure.authRequired,
+      authHelp: failure.authHelp,
     }
   }
 }
@@ -210,6 +249,8 @@ export function registerRemoteEditGitHandlers(mainWindow?: BrowserWindow): void 
       label: result.canCommit ? 'Ready to commit remote-edit fix' : result.reason ?? 'Unable to prepare commit',
       status: result.status,
       error: result.reason,
+      authRequired: result.authRequired,
+      authHelp: result.authHelp,
     })
     return result
   })
@@ -224,6 +265,8 @@ export function registerRemoteEditGitHandlers(mainWindow?: BrowserWindow): void 
       status: result.status,
       commitSha: result.commitSha,
       error: result.error,
+      authRequired: result.authRequired,
+      authHelp: result.authHelp,
     })
     if (result.committed) {
       updateHistoryEntry(reportId, { committed: true, commitSha: result.commitSha ?? null, status: 'committed' })
@@ -240,6 +283,8 @@ export function registerRemoteEditGitHandlers(mainWindow?: BrowserWindow): void 
       label: result.pushed ? 'Push complete' : result.error ?? 'Push failed',
       status: result.status,
       error: result.error,
+      authRequired: result.authRequired,
+      authHelp: result.authHelp,
     })
     if (result.pushed) {
       updateHistoryEntry(reportId, { pushed: true, status: 'pushed' })
