@@ -291,6 +291,9 @@ function RemoteEditDiffViewer({
                   {gitPrepare.reason && (
                     <p className="text-[11px] text-red-600 dark:text-red-400">{gitPrepare.reason}</p>
                   )}
+                  {gitPrepare.authHelp && (
+                    <p className="text-[11px] text-amber-700 dark:text-amber-300">{gitPrepare.authHelp}</p>
+                  )}
                   <input
                     value={gitMessage}
                     onChange={(event) => onSetGitMessage(event.target.value)}
@@ -814,6 +817,8 @@ export function RemoteEditPanel() {
               status: event.status!,
               canCommit: event.type === 'commit' && !event.error ? false : existing.canCommit,
               reason: event.error ?? existing.reason,
+              authRequired: event.authRequired ?? existing.authRequired,
+              authHelp: event.authHelp ?? existing.authHelp,
             },
           }
         })
@@ -928,7 +933,14 @@ export function RemoteEditPanel() {
     setGitPrepare((prev) => ({
       ...prev,
       [reportId]: prev[reportId]
-        ? { ...prev[reportId]!, status: result.status, canCommit: !result.committed, reason: result.error }
+        ? {
+            ...prev[reportId]!,
+            status: result.status,
+            canCommit: !result.committed,
+            reason: result.error,
+            authRequired: result.authRequired,
+            authHelp: result.authHelp,
+          }
         : null,
     }))
     setGitRunning(null)
@@ -940,7 +952,13 @@ export function RemoteEditPanel() {
     setGitPrepare((prev) => ({
       ...prev,
       [reportId]: prev[reportId]
-        ? { ...prev[reportId]!, status: result.status, reason: result.error }
+        ? {
+            ...prev[reportId]!,
+            status: result.status,
+            reason: result.error,
+            authRequired: result.authRequired,
+            authHelp: result.authHelp,
+          }
         : null,
     }))
     setGitRunning(null)
