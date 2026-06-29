@@ -9,9 +9,10 @@ import { TeamTab } from './project-settings/TeamTab'
 import { DraftTeamPicker } from './project-settings/DraftTeamPicker'
 import { WikiTab } from './project-settings/WikiTab'
 import { ProjectArtifactsTab } from './project-settings/ProjectArtifactsTab'
+import { AuditTab } from './project-settings/AuditTab'
 import { SaveStatus, type SaveState } from './ui/primitives'
 
-type TabId = 'general' | 'scope' | 'milestones' | 'team' | 'wiki' | 'artifacts'
+type TabId = 'general' | 'scope' | 'milestones' | 'team' | 'changes' | 'wiki' | 'artifacts'
 
 interface EditProps {
   projectId: string
@@ -58,6 +59,8 @@ export function ProjectSettingsPanel(props: Props) {
   const updateProjectOrchestration = useAppStore((s) => s.updateProjectOrchestration)
   const loadProjectConfig = useAppStore((s) => s.loadProjectConfig)
   const addToast = useAppStore((s) => s.addToast)
+  const conversationCreated = useAppStore((s) => s.conversationCreated)
+  const selectProject = useAppStore((s) => s.selectProject)
 
   const projectId = isDraft ? null : (props as EditProps).projectId
   const project = projectId ? projects.find((p) => p.id === projectId) : null
@@ -69,6 +72,8 @@ export function ProjectSettingsPanel(props: Props) {
   const [color, setColor] = useState(project?.color ?? 'blue')
   const [instructions, setInstructions] = useState(cfg?.instructions ?? '')
   const [rootDirectory, setRootDirectory] = useState(cfg?.rootDirectory ?? '')
+  const [codingWorkspace, setCodingWorkspace] = useState(cfg?.codingWorkspace ?? false)
+  const [inspectedWorkspaceInfo, setInspectedWorkspaceInfo] = useState<ProjectConfig['workspaceInfo']>(cfg?.workspaceInfo ?? null)
   const [instructionMode, setInstructionMode] = useState<ProjectConfig['instructionMode']>(cfg?.instructionMode ?? 'prepend')
   const [instructionsEnabled, setInstructionsEnabled] = useState(cfg?.instructionsEnabled ?? true)
   const [variables, setVariables] = useState<Array<{ key: string; value: string }>>(cfg?.variables ?? [])
@@ -116,6 +121,8 @@ export function ProjectSettingsPanel(props: Props) {
     setColor(project?.color ?? 'blue')
     setInstructions(cfg.instructions)
     setRootDirectory(cfg.rootDirectory)
+    setCodingWorkspace(cfg.codingWorkspace)
+    setInspectedWorkspaceInfo(cfg.workspaceInfo)
     setInstructionMode(cfg.instructionMode)
     setInstructionsEnabled(cfg.instructionsEnabled)
     setVariables(cfg.variables)
@@ -131,6 +138,27 @@ export function ProjectSettingsPanel(props: Props) {
   useEffect(() => {
     if (!isDraft && projectId) void loadProjectConfig(projectId)
   }, [projectId, isDraft, loadProjectConfig])
+
+  useEffect(() => {
+    if (!rootDirectory.trim()) {
+      setInspectedWorkspaceInfo(null)
+      return
+    }
+    let cancelled = false
+    const timer = setTimeout(() => {
+      void window.api.inspectProjectWorkspace(rootDirectory.trim()).then((result) => {
+        if (!cancelled) {
+          setInspectedWorkspaceInfo(result)
+        }
+      }).catch(() => {
+        if (!cancelled) setInspectedWorkspaceInfo(null)
+      })
+    }, 250)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [rootDirectory])
 
   const debounceSave = useCallback((partial: Partial<ProjectConfig>) => {
     if (isDraft || !projectId) return
@@ -193,6 +221,12 @@ export function ProjectSettingsPanel(props: Props) {
       setRootDirectory(result[0])
       immediateSave({ rootDirectory: result[0] })
     }
+  }
+
+  const handleCodingWorkspaceToggle = () => {
+    const next = !codingWorkspace
+    setCodingWorkspace(next)
+    immediateSave({ codingWorkspace: next })
   }
 
   const handleAddVariable = () => {
@@ -310,6 +344,20 @@ export function ProjectSettingsPanel(props: Props) {
     if (agent) addToast(`🤖 ${agent.name} added to project`, 'success')
   }
 
+  const handleStartWorkflowStep = async (agentId: string | null, prompt: string) => {
+    if (!projectId) return
+    const selectedAgentId = agentId ?? members.find((member) => member.isPrimary)?.agentId ?? members[0]?.agentId ?? null
+    const conversation = await window.api.createConversation(selectedAgentId ?? undefined, projectId)
+    if (!conversation || typeof conversation !== 'object' || !('id' in conversation) || typeof conversation.id !== 'string') {
+      addToast('Failed to create conversation for workflow step', 'error')
+      return
+    }
+    selectProject(projectId)
+    await conversationCreated(conversation.id)
+    await window.api.sendMessage(conversation.id, prompt, { agentId: selectedAgentId ?? undefined, projectId })
+    addToast('Workflow step started in chat', 'success')
+  }
+
   // ── Draft team handlers ───────────────────────────────────────────────────
 
   const handleToggleDraftAgent = (agentId: string) => {
@@ -336,6 +384,7 @@ export function ProjectSettingsPanel(props: Props) {
       await (props as DraftProps).onConfirm(trimmedName, color, {
         instructions,
         rootDirectory,
+        codingWorkspace,
         instructionMode,
         instructionsEnabled,
         variables,
@@ -360,7 +409,7 @@ export function ProjectSettingsPanel(props: Props) {
 
       {/* Tab bar */}
       <div className="flex items-center gap-0.5 px-3 pt-2 pb-0 flex-wrap" role="tablist">
-        {(['general', 'scope', 'milestones', 'team', ...(!isDraft ? ['wiki', 'artifacts'] : [])] as TabId[]).map((tab) => (
+        {(['general', 'scope', 'milestones', 'team', ...(!isDraft ? ['changes', 'wiki', 'artifacts'] : [])] as TabId[]).map((tab) => (
           <button
             key={tab}
             type="button"
@@ -381,6 +430,8 @@ export function ProjectSettingsPanel(props: Props) {
                 ? 'Scope'
                 : tab === 'team'
                   ? 'Team'
+                  : tab === 'changes'
+                    ? 'Changes'
                   : tab === 'wiki'
                     ? 'Wiki'
                     : tab === 'artifacts'
@@ -401,6 +452,8 @@ export function ProjectSettingsPanel(props: Props) {
             name={name}
             color={color}
             rootDirectory={rootDirectory}
+            codingWorkspace={codingWorkspace}
+            workspaceInfo={inspectedWorkspaceInfo ?? projectConfig.workspaceInfo}
             instructions={instructions}
             instructionMode={instructionMode}
             instructionsEnabled={instructionsEnabled}
@@ -417,6 +470,7 @@ export function ProjectSettingsPanel(props: Props) {
             onModeChange={handleModeChange}
             onEnabledToggle={handleEnabledToggle}
             onBrowseDir={handleBrowseDir}
+            onCodingWorkspaceToggle={handleCodingWorkspaceToggle}
             onSetShowModeDropdown={setShowModeDropdown}
             onAddVariable={handleAddVariable}
             onRemoveVariable={handleRemoveVariable}
@@ -455,6 +509,10 @@ export function ProjectSettingsPanel(props: Props) {
           <ProjectArtifactsTab projectId={projectId} />
         )}
 
+        {activeTab === 'changes' && !isDraft && projectId && (
+          <AuditTab projectId={projectId} workspaceInfo={projectConfig.workspaceInfo} />
+        )}
+
         {activeTab === 'team' && isDraft && (
           <DraftTeamPicker
             agents={agents}
@@ -482,6 +540,8 @@ export function ProjectSettingsPanel(props: Props) {
             onSetPrimaryAgent={(agentId) => setProjectPrimaryAgent(projectId, agentId)}
             onReorderAgents={(orderedIds) => reorderProjectAgents(projectId, orderedIds)}
             onUpdateOrchestration={(partial) => updateProjectOrchestration(projectId, partial)}
+            onStartWorkflowStep={handleStartWorkflowStep}
+            onToast={addToast}
           />
         )}
       </div>

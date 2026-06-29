@@ -178,6 +178,7 @@ export interface CliInstallStatus {
 }
 
 export interface ProjectOrchestrationConfig {
+  workflowMode: 'single-agent' | 'manual-delegation' | 'orchestrated'
   orchestrationEnabled: boolean
   maxDelegationDepth: number
   showTeamActivity: boolean
@@ -202,9 +203,48 @@ export interface ProjectVariable {
   value: string
 }
 
+export interface ProjectWorkspaceMetadata {
+  rootDirectory: string
+  exists: boolean
+  isLikelyCodingWorkspace: boolean
+  codingMarkers: string[]
+  isGitRepo: boolean
+  repoRoot: string | null
+  branch: string | null
+  dirty: boolean
+  scannedAt: number
+}
+
+export type ProjectEditSource = 'chat-tool' | 'remote-edit' | 'self-heal' | 'manual-apply'
+export type ProjectTouchedFileStatus = 'modified' | 'created' | 'deleted'
+
+export interface ProjectEditSession {
+  id: string
+  projectId: string | null
+  conversationId: string | null
+  agentId: string | null
+  title: string
+  source: ProjectEditSource
+  createdAt: number
+  updatedAt: number
+  fileCount: number
+}
+
+export interface ProjectTouchedFile {
+  sessionId: string
+  relativePath: string
+  status: ProjectTouchedFileStatus
+  lastOperation: 'write' | 'create' | 'delete' | 'apply'
+  firstTouchedAt: number
+  lastTouchedAt: number
+  diffAvailable: boolean
+}
+
 export interface ProjectConfig extends ProjectOrchestrationConfig {
   instructions: string
   rootDirectory: string
+  codingWorkspace: boolean
+  workspaceInfo: ProjectWorkspaceMetadata | null
   variables: ProjectVariable[]
   instructionMode: 'prepend' | 'append' | 'replace' | 'standalone'
   instructionsEnabled: boolean
@@ -216,9 +256,12 @@ export interface ProjectConfig extends ProjectOrchestrationConfig {
 export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
   instructions: '',
   rootDirectory: '',
+  codingWorkspace: false,
+  workspaceInfo: null,
   variables: [],
   instructionMode: 'prepend',
   instructionsEnabled: true,
+  workflowMode: 'single-agent',
   orchestrationEnabled: false,
   maxDelegationDepth: 5,
   showTeamActivity: true,
@@ -442,6 +485,8 @@ export interface RemoteEditGitPrepareResult {
   files: string[]
   canCommit: boolean
   reason?: string
+  authRequired?: boolean
+  authHelp?: string
 }
 
 export interface RemoteEditGitCommitResult {
@@ -450,6 +495,8 @@ export interface RemoteEditGitCommitResult {
   commitSha: string | null
   status: RemoteEditGitStatus
   error?: string
+  authRequired?: boolean
+  authHelp?: string
 }
 
 export interface RemoteEditGitPushResult {
@@ -457,6 +504,8 @@ export interface RemoteEditGitPushResult {
   pushed: boolean
   status: RemoteEditGitStatus
   error?: string
+  authRequired?: boolean
+  authHelp?: string
 }
 
 export interface RemoteEditGitEvent {
@@ -466,6 +515,8 @@ export interface RemoteEditGitEvent {
   status?: RemoteEditGitStatus
   commitSha?: string | null
   error?: string
+  authRequired?: boolean
+  authHelp?: string
 }
 
 export interface RemoteEditRecoveryBackupFile {
@@ -677,6 +728,29 @@ export interface ScheduleGeneratorSpec {
 }
 
 export interface ScheduleGeneratorMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface ManualWorkflowStep {
+  id: string
+  title: string
+  summary: string
+  agentId?: string
+  agentName?: string
+  prompt: string
+  expectedOutput: string
+  dependsOnStepIds?: string[]
+}
+
+export interface ManualWorkflowSpec {
+  title: string
+  goalSummary: string
+  assumptions: string[]
+  steps: ManualWorkflowStep[]
+}
+
+export interface ManualWorkflowGeneratorMessage {
   role: 'user' | 'assistant'
   content: string
 }
@@ -1607,6 +1681,7 @@ export type IpcReturnMap = {
   'project:duplicate': ProjectRow | null
   'project:export': boolean
   'project:get-config': ProjectConfig
+  'project:inspect-workspace': ProjectWorkspaceMetadata | null
   'project:list': ProjectRow[]
   'project:list-agents': ProjectAgent[]
   'project:remove-agent': boolean
@@ -1616,6 +1691,15 @@ export type IpcReturnMap = {
   'project:set-default-model': boolean
   'project:set-primary-agent': boolean
   'project:update-config': boolean
+  'project-audit:list-sessions': ProjectEditSession[]
+  'project-audit:list-files': ProjectTouchedFile[]
+  'project-audit:get-diff': RemoteEditStagedFileDiff | null
+  'manual-workflow-generator:chat': { started: boolean }
+  'manual-workflow-generator:token': void
+  'manual-workflow-generator:spec-ready': void
+  'manual-workflow-generator:done': { hasSpec: boolean }
+  'manual-workflow-generator:get-model': string
+  'manual-workflow-generator:set-model': void
   // Scheduler
   'scheduler:list': ScheduledTask[]
   'scheduler:get': ScheduledTask | null
@@ -1959,6 +2043,7 @@ export type IpcChannels =
   | 'project:duplicate'
   | 'project:export'
   | 'project:get-config'
+  | 'project:inspect-workspace'
   | 'project:list'
   | 'project:list-agents'
   | 'project:remove-agent'
@@ -1968,6 +2053,15 @@ export type IpcChannels =
   | 'project:set-default-model'
   | 'project:set-primary-agent'
   | 'project:update-config'
+  | 'project-audit:list-sessions'
+  | 'project-audit:list-files'
+  | 'project-audit:get-diff'
+  | 'manual-workflow-generator:chat'
+  | 'manual-workflow-generator:token'
+  | 'manual-workflow-generator:spec-ready'
+  | 'manual-workflow-generator:done'
+  | 'manual-workflow-generator:get-model'
+  | 'manual-workflow-generator:set-model'
   | 'scheduler:list'
   | 'scheduler:get'
   | 'scheduler:create'

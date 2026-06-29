@@ -759,6 +759,8 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
         outOfScope: specToCreate.outOfScope.map((s, i) => ({ id: String(i), ...s })),
         milestones: specToCreate.milestones.map((m, i) => ({ id: String(i), ...m })),
         instructionsEnabled: true,
+        workflowMode: specToCreate.orchestrationEnabled ? 'orchestrated' : 'single-agent',
+        orchestrationEnabled: specToCreate.orchestrationEnabled,
       })
 
       // Step 2: create new agents
@@ -808,7 +810,6 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
 
       // Step 5: enable orchestration + default model
       setCreationStep(5)
-      await updateProjectConfig(projectId, { orchestrationEnabled: specToCreate.orchestrationEnabled })
       if (specToCreate.defaultModel) {
         await setProjectDefaultModel(projectId, specToCreate.defaultModel)
       }

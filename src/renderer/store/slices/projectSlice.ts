@@ -47,7 +47,7 @@ export interface ProjectSlice {
   reorderProjectAgents: (projectId: string, orderedAgentIds: string[]) => Promise<void>
   updateProjectOrchestration: (
     projectId: string,
-    config: Partial<ProjectOrchestrationConfig>
+    config: Partial<Pick<ProjectOrchestrationConfig, 'workflowMode' | 'orchestrationEnabled' | 'maxDelegationDepth' | 'showTeamActivity'>>
   ) => Promise<void>
   updateProjectConfig: (
     projectId: string,
@@ -384,6 +384,15 @@ export const createProjectSlice: StateCreator<
         projectId,
         config as Record<string, unknown>
       )
+      const refreshed = await window.api.getProjectConfig(projectId)
+      if (!isApiError(refreshed)) {
+        set((s) => {
+          s.projectConfigs[projectId] = {
+            ...DEFAULT_PROJECT_CONFIG,
+            ...refreshed,
+          }
+        })
+      }
     } catch {
       set((s) => {
         s.projectConfigs[projectId] = prev
@@ -393,6 +402,7 @@ export const createProjectSlice: StateCreator<
   },
 
   updateProjectOrchestration: async (projectId, config) => {
+    const prev = get().projectConfigs[projectId] ?? DEFAULT_PROJECT_CONFIG
     set((s) => {
       const current = s.projectConfigs[projectId] ?? DEFAULT_PROJECT_CONFIG
       s.projectConfigs[projectId] = { ...current, ...config }
@@ -402,7 +412,19 @@ export const createProjectSlice: StateCreator<
         projectId,
         config as Record<string, unknown>
       )
+      const refreshed = await window.api.getProjectConfig(projectId)
+      if (!isApiError(refreshed)) {
+        set((s) => {
+          s.projectConfigs[projectId] = {
+            ...DEFAULT_PROJECT_CONFIG,
+            ...refreshed,
+          }
+        })
+      }
     } catch {
+      set((s) => {
+        s.projectConfigs[projectId] = prev
+      })
       get().addToast('Failed to update orchestration settings', 'error')
     }
   },

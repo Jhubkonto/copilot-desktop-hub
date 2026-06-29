@@ -1,14 +1,34 @@
 import { BrowserWindow, dialog } from "electron";
 import { randomUUID } from "crypto";
-import { writeFileSync } from "fs";
+import { execFileSync } from "child_process";
+import { existsSync, readdirSync, statSync, writeFileSync } from "fs";
 import { getDatabase } from "./database";
 import { safeHandle } from "./safe-handle";
 import {
   DEFAULT_PROJECT_CONFIG,
   type ProjectConfig,
+  type ProjectWorkspaceMetadata,
 } from "../shared/types";
 
 export { DEFAULT_PROJECT_CONFIG };
+
+const CODING_MARKERS = [
+  'package.json',
+  'tsconfig.json',
+  'pom.xml',
+  'build.gradle',
+  'build.gradle.kts',
+  'settings.gradle',
+  'settings.gradle.kts',
+  'Cargo.toml',
+  'go.mod',
+  'pyproject.toml',
+  'requirements.txt',
+  'Gemfile',
+  'composer.json',
+  'Makefile',
+  'src',
+] as const
 
 export const PROJECT_COLORS = new Set([
   "blue",
@@ -20,6 +40,102 @@ export const PROJECT_COLORS = new Set([
   "yellow",
   "gray",
 ]);
+
+function parseBranchFromStatus(statusOutput: string): string | null {
+  const header = statusOutput.split('\n').find((line) => line.startsWith('## '))
+  if (!header) return null
+  const branch = header.slice(3).split('...')[0]?.trim()
+  return branch || null
+}
+
+export function detectProjectWorkspaceMetadata(rootDirectory: string): ProjectWorkspaceMetadata | null {
+  const trimmedRoot = rootDirectory.trim()
+  if (!trimmedRoot) return null
+
+  const scannedAt = Date.now()
+  if (!existsSync(trimmedRoot)) {
+    return {
+      rootDirectory: trimmedRoot,
+      exists: false,
+      isLikelyCodingWorkspace: false,
+      codingMarkers: [],
+      isGitRepo: false,
+      repoRoot: null,
+      branch: null,
+      dirty: false,
+      scannedAt,
+    }
+  }
+
+  try {
+    if (!statSync(trimmedRoot).isDirectory()) {
+      return {
+        rootDirectory: trimmedRoot,
+        exists: false,
+        isLikelyCodingWorkspace: false,
+        codingMarkers: [],
+        isGitRepo: false,
+        repoRoot: null,
+        branch: null,
+        dirty: false,
+        scannedAt,
+      }
+    }
+  } catch {
+    return {
+      rootDirectory: trimmedRoot,
+      exists: false,
+      isLikelyCodingWorkspace: false,
+      codingMarkers: [],
+      isGitRepo: false,
+      repoRoot: null,
+      branch: null,
+      dirty: false,
+      scannedAt,
+    }
+  }
+
+  const entries = new Set(readdirSync(trimmedRoot))
+  const codingMarkers = CODING_MARKERS.filter((marker) => entries.has(marker))
+
+  let repoRoot: string | null = null
+  let branch: string | null = null
+  let dirty = false
+  let isGitRepo = false
+
+  try {
+    repoRoot = execFileSync('git', ['rev-parse', '--show-toplevel'], {
+      cwd: trimmedRoot,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim() || null
+    const statusOutput = execFileSync('git', ['status', '--porcelain=v1', '-b'], {
+      cwd: trimmedRoot,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim()
+    isGitRepo = true
+    branch = parseBranchFromStatus(statusOutput)
+    dirty = statusOutput
+      .split('\n')
+      .filter(Boolean)
+      .some((line) => !line.startsWith('## '))
+  } catch {
+    isGitRepo = false
+  }
+
+  return {
+    rootDirectory: trimmedRoot,
+    exists: true,
+    isLikelyCodingWorkspace: codingMarkers.length > 0,
+    codingMarkers,
+    isGitRepo,
+    repoRoot,
+    branch,
+    dirty,
+    scannedAt,
+  }
+}
 
 export function parseProjectConfig(
   configJson: string | null,
@@ -35,10 +151,45 @@ export function parseProjectConfig(
     if (typeof raw.rootDirectory === 'string' && raw.rootDirectory.includes('\n')) {
       raw.rootDirectory = raw.rootDirectory.split('\n')[0]?.trim() ?? ''
     }
+    const workflowMode = raw.workflowMode === 'manual-delegation' || raw.workflowMode === 'orchestrated' || raw.workflowMode === 'single-agent'
+      ? raw.workflowMode
+      : (raw.orchestrationEnabled === true ? 'orchestrated' : 'single-agent')
+    raw.workflowMode = workflowMode
+    raw.orchestrationEnabled = workflowMode === 'orchestrated'
+    raw.codingWorkspace = raw.codingWorkspace === true
+    if (typeof raw.workspaceInfo !== 'object' || raw.workspaceInfo === null) {
+      raw.workspaceInfo = null
+    }
     return { ...DEFAULT_PROJECT_CONFIG, ...raw };
   } catch {
     return { ...DEFAULT_PROJECT_CONFIG };
   }
+}
+
+function normalizeProjectConfigPatch(config: Record<string, unknown>): Record<string, unknown> {
+  const normalized = { ...config }
+  if (Array.isArray(normalized.rootDirectory)) {
+    normalized.rootDirectory = typeof normalized.rootDirectory[0] === 'string' ? normalized.rootDirectory[0] : '';
+  }
+  if (typeof normalized.rootDirectory === 'string' && normalized.rootDirectory.includes('\n')) {
+    normalized.rootDirectory = normalized.rootDirectory.split('\n')[0]?.trim() ?? ''
+  }
+  const workflowMode =
+    normalized.workflowMode === 'manual-delegation' || normalized.workflowMode === 'orchestrated' || normalized.workflowMode === 'single-agent'
+      ? normalized.workflowMode
+      : typeof normalized.orchestrationEnabled === 'boolean'
+        ? (normalized.orchestrationEnabled ? 'orchestrated' : 'single-agent')
+        : undefined
+  if (workflowMode) {
+    normalized.workflowMode = workflowMode
+    normalized.orchestrationEnabled = workflowMode === 'orchestrated'
+  }
+  if (Object.prototype.hasOwnProperty.call(normalized, 'workspaceInfo')) {
+    normalized.workspaceInfo = normalized.workspaceInfo && typeof normalized.workspaceInfo === 'object'
+      ? normalized.workspaceInfo
+      : null
+  }
+  return normalized
 }
 
 export function registerProjectHandlers(): void {
@@ -186,17 +337,12 @@ export function registerProjectHandlers(): void {
       const existing = db
         .prepare("SELECT config_json FROM projects WHERE id = ?")
         .get(id) as { config_json: string | null } | undefined;
-      const current = existing?.config_json
-        ? (JSON.parse(existing.config_json) as Record<string, unknown>)
-        : {};
-      // Coerce rootDirectory array to string (can happen when dialog filePaths array is stored directly)
-      if (Array.isArray(config.rootDirectory)) {
-        config.rootDirectory = typeof config.rootDirectory[0] === 'string' ? config.rootDirectory[0] : '';
+      const currentConfig = parseProjectConfig(existing?.config_json ?? null)
+      const normalizedPatch = normalizeProjectConfigPatch(config)
+      const merged = { ...currentConfig, ...normalizedPatch } as ProjectConfig
+      if ('rootDirectory' in normalizedPatch) {
+        merged.workspaceInfo = detectProjectWorkspaceMetadata(merged.rootDirectory)
       }
-      if (typeof config.rootDirectory === 'string' && config.rootDirectory.includes('\n')) {
-        config.rootDirectory = config.rootDirectory.split('\n')[0]?.trim() ?? ''
-      }
-      const merged = { ...current, ...config };
       db.prepare(
         "UPDATE projects SET config_json = ?, updated_at = ? WHERE id = ?",
       ).run(JSON.stringify(merged), Date.now(), id);
@@ -210,6 +356,10 @@ export function registerProjectHandlers(): void {
       .get(id) as { config_json: string | null } | undefined;
     return parseProjectConfig(row?.config_json ?? null);
   });
+
+  safeHandle("project:inspect-workspace", (_event, rootDirectory: string) => {
+    return detectProjectWorkspaceMetadata(String(rootDirectory ?? ''))
+  })
 }
 
 export function registerProjectAgentHandlers(): void {

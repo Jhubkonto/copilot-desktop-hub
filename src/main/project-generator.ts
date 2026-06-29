@@ -374,6 +374,8 @@ export async function createProjectFromSpec(spec: ProjectGeneratorSpec): Promise
       outOfScope: spec.outOfScope.map((s, i) => ({ id: String(i), ...s })),
       milestones: spec.milestones.map((m, i) => ({ id: String(i), ...m })),
       instructionsEnabled: true,
+      workflowMode: spec.orchestrationEnabled ? 'orchestrated' : 'single-agent',
+      orchestrationEnabled: spec.orchestrationEnabled,
     }
     const existing = db.prepare('SELECT config_json FROM projects WHERE id = ?').get(projectId) as { config_json: string | null } | undefined
     const current = existing?.config_json ? JSON.parse(existing.config_json) as Record<string, unknown> : {}
@@ -440,7 +442,11 @@ export async function createProjectFromSpec(spec: ProjectGeneratorSpec): Promise
     const orchRow = db.prepare('SELECT config_json FROM projects WHERE id = ?').get(projectId) as { config_json: string | null } | undefined
     const orchCurrent = orchRow?.config_json ? JSON.parse(orchRow.config_json) as Record<string, unknown> : {}
     db.prepare('UPDATE projects SET config_json = ?, updated_at = ? WHERE id = ?').run(
-      JSON.stringify({ ...orchCurrent, orchestrationEnabled: spec.orchestrationEnabled }),
+      JSON.stringify({
+        ...orchCurrent,
+        workflowMode: spec.orchestrationEnabled ? 'orchestrated' : 'single-agent',
+        orchestrationEnabled: spec.orchestrationEnabled,
+      }),
       Date.now(),
       projectId,
     )

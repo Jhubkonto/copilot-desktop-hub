@@ -362,7 +362,7 @@ export async function dispatchChatSend(
       : {}
     const agentBackendForOrch = typeof agentCfg2?.backend === 'string' ? agentCfg2.backend : null
     const effectiveCli = cliBackend ?? convRow?.cli_backend ?? agentBackendForOrch
-    const orchEnabled = projConfig.orchestrationEnabled === true && !effectiveCli
+    const orchEnabled = projConfig.workflowMode === 'orchestrated' && !effectiveCli
 
     if (orchEnabled) {
       const agentRows = db

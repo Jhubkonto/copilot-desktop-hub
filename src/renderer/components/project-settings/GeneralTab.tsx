@@ -40,6 +40,8 @@ interface Props {
   name: string
   color: string
   rootDirectory: string
+  codingWorkspace: boolean
+  workspaceInfo: ProjectConfig['workspaceInfo']
   instructions: string
   instructionMode: ProjectConfig['instructionMode']
   instructionsEnabled: boolean
@@ -56,6 +58,7 @@ interface Props {
   onModeChange: (mode: ProjectConfig['instructionMode']) => void
   onEnabledToggle: () => void
   onBrowseDir: () => void
+  onCodingWorkspaceToggle: () => void
   onSetShowModeDropdown: (v: boolean) => void
   onAddVariable: () => void
   onRemoveVariable: (idx: number) => void
@@ -63,11 +66,11 @@ interface Props {
 }
 
 export function GeneralTab({
-  isDraft, name, color, rootDirectory,
+  isDraft, name, color, rootDirectory, codingWorkspace, workspaceInfo,
   instructions, instructionMode, instructionsEnabled,
   variables, varErrors, showModeDropdown, hasVarErrors,
   onSetName, onSetColor, onNameBlur, onConfirm,
-  onInstructionsChange, onRootDirChange, onModeChange, onEnabledToggle, onBrowseDir,
+  onInstructionsChange, onRootDirChange, onModeChange, onEnabledToggle, onBrowseDir, onCodingWorkspaceToggle,
   onSetShowModeDropdown, onAddVariable, onRemoveVariable, onVarChange,
 }: Props) {
   const selectedModeLabel = INSTRUCTION_MODES.find((m) => m.value === instructionMode)?.label ?? instructionMode
@@ -130,6 +133,49 @@ export function GeneralTab({
             <FolderOpen className="w-3.5 h-3.5" />
           </button>
         </div>
+        {workspaceInfo && (
+          <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-[11px] dark:border-gray-700 dark:bg-gray-900/30">
+            <p className="font-medium text-gray-700 dark:text-gray-200">
+              {workspaceInfo.exists ? 'Workspace detected' : 'Workspace path not found'}
+            </p>
+            <p className="mt-1 text-gray-500 dark:text-gray-400">
+              {workspaceInfo.isGitRepo
+                ? `Git repo · ${workspaceInfo.branch ?? 'detached'} · ${workspaceInfo.dirty ? 'dirty' : 'clean'}`
+                : workspaceInfo.exists
+                  ? 'No git repository detected'
+                  : 'Choose a valid directory to enable repo detection'}
+            </p>
+            {workspaceInfo.codingMarkers.length > 0 && (
+              <p className="mt-1 text-gray-500 dark:text-gray-400">
+                Coding markers: {workspaceInfo.codingMarkers.join(', ')}
+              </p>
+            )}
+          </div>
+        )}
+        {(workspaceInfo?.isLikelyCodingWorkspace || codingWorkspace) && (
+          <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50/70 px-3 py-2 dark:border-blue-900 dark:bg-blue-950/20">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-medium text-blue-700 dark:text-blue-300">Software workspace</p>
+                <p className="mt-1 text-[10px] text-blue-700/80 dark:text-blue-300/80">
+                  {codingWorkspace
+                    ? 'Coding-focused repo and diff affordances stay enabled for this project.'
+                    : 'This directory looks like a codebase. Enable coding-focused repo and diff affordances for this project.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={onCodingWorkspaceToggle}
+                className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${codingWorkspace ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+                aria-label={codingWorkspace ? 'Disable software workspace mode' : 'Enable software workspace mode'}
+                role="switch"
+                aria-checked={codingWorkspace}
+              >
+                <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${codingWorkspace ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Instructions */}
