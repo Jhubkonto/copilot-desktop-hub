@@ -13,6 +13,7 @@ import { getCliModels } from './cli-detection'
 import type { ProviderMessage } from './provider-core-types'
 import type { ArtifactSpec, ArtifactGeneratorMessage, ArtifactGeneratorRun, ArtifactKind, ArtifactExportFormat } from '../shared/types'
 import { getDatabase } from './database'
+import { recordProjectAuditChange } from './project-audit'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -408,12 +409,28 @@ export async function runArtifactGeneration(
 
   const parsed = parseGenerationOutput(accumulated)
   const writtenFiles: { relativePath: string; absolutePath: string; mediaType: string; role: string; sizeBytes: number }[] = []
+  const auditSessionId = `artifact-generator:${runId}`
+
+  const recordArtifactAudit = (relativePath: string) => {
+    if (!projectId) return
+    recordProjectAuditChange({
+      sessionId: auditSessionId,
+      projectId,
+      title: spec.title,
+      source: 'manual-apply',
+      relativePath,
+      status: 'created',
+      lastOperation: 'create',
+      diff: null,
+    })
+  }
 
   for (const f of parsed) {
     try {
       const dest = path.join(versionDir, f.relativePath)
       mkdirSync(path.dirname(dest), { recursive: true })
       writeFileSync(dest, f.content, 'utf8')
+      recordArtifactAudit(f.relativePath)
       const size = statSync(dest).size
       const specFile = spec.outputFiles.find((sf) => sf.path === f.relativePath)
       writtenFiles.push({
@@ -435,6 +452,7 @@ export async function runArtifactGeneration(
     const dest = path.join(versionDir, fallbackFile.path)
     mkdirSync(path.dirname(dest), { recursive: true })
     writeFileSync(dest, accumulated, 'utf8')
+    recordArtifactAudit(fallbackFile.path)
     const size = statSync(dest).size
     writtenFiles.push({ relativePath: fallbackFile.path, absolutePath: dest, mediaType: fallbackFile.mediaType, role: fallbackFile.role, sizeBytes: size })
     if (!win.isDestroyed()) win.webContents.send('artifact-generator:file-event', { file: fallbackFile.path, absolutePath: dest, status: 'done' })

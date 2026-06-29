@@ -36,6 +36,8 @@ import type {
   SkillGeneratorSpec,
   ScheduleGeneratorMessage,
   ScheduleGeneratorSpec,
+  ManualWorkflowGeneratorMessage,
+  ManualWorkflowSpec,
   ArtifactGeneratorMessage,
   ArtifactSpec,
   ArtifactRow,
@@ -545,6 +547,33 @@ const api = {
     typedInvoke('project:update-config', projectId, config),
   getProjectConfig: (projectId: string) =>
     typedInvoke('project:get-config', projectId),
+  inspectProjectWorkspace: (rootDirectory: string) =>
+    typedInvoke('project:inspect-workspace', rootDirectory),
+  listProjectAuditSessions: (projectId?: string | null) =>
+    typedInvoke('project-audit:list-sessions', projectId),
+  listProjectAuditFiles: (sessionId: string) =>
+    typedInvoke('project-audit:list-files', sessionId),
+  getProjectAuditDiff: (sessionId: string, relativePath: string) =>
+    typedInvoke('project-audit:get-diff', sessionId, relativePath),
+  manualWorkflowGeneratorChat: (projectId: string, messages: ManualWorkflowGeneratorMessage[], modelOverride?: string) =>
+    typedInvoke('manual-workflow-generator:chat', projectId, messages, modelOverride),
+  onManualWorkflowGeneratorToken: (callback: (chunk: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, chunk: string) => callback(chunk)
+    typedOn('manual-workflow-generator:token', handler)
+    return () => typedOff('manual-workflow-generator:token', handler)
+  },
+  onManualWorkflowGeneratorSpecReady: (callback: (spec: ManualWorkflowSpec) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, spec: ManualWorkflowSpec) => callback(spec)
+    typedOn('manual-workflow-generator:spec-ready', handler)
+    return () => typedOff('manual-workflow-generator:spec-ready', handler)
+  },
+  onManualWorkflowGeneratorDone: (callback: (data: { hasSpec: boolean }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { hasSpec: boolean }) => callback(data)
+    typedOn('manual-workflow-generator:done', handler)
+    return () => typedOff('manual-workflow-generator:done', handler)
+  },
+  getManualWorkflowGeneratorModel: () => typedInvoke('manual-workflow-generator:get-model'),
+  setManualWorkflowGeneratorModel: (modelId: string) => typedInvoke('manual-workflow-generator:set-model', modelId),
   onTeamActivity: (callback: (step: {
     stepId: string
     agentId: string

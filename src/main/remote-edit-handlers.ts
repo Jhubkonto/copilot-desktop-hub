@@ -24,6 +24,7 @@ import {
 import { getOrCreateHistoryEntry, listHistory, updateHistoryEntry } from './remote-edit/history'
 import { sendRemoteEditNotification } from './fcm-sender'
 import { getDatabase } from './database'
+import { getRemoteEditAuditDiff, inferProjectIdForWorkspace, recordProjectAuditChange } from './project-audit'
 import type {
   ErrorReportEntry,
   ErrorReportStatus,
@@ -139,8 +140,10 @@ export function registerRemoteEditHandlers(mainWindow?: BrowserWindow): void {
     const row = getDatabase()
       .prepare('SELECT diff_json FROM remote_edit_diffs WHERE report_id = ? AND relative_path = ?')
       .get(reportId, relativePath) as { diff_json: string } | undefined
-    if (!row) return null
-    return { relativePath, ...(JSON.parse(row.diff_json) as { hunks: unknown[] }) } as RemoteEditStagedFileDiff
+    if (row) {
+      return { relativePath, ...(JSON.parse(row.diff_json) as { hunks: unknown[] }) } as RemoteEditStagedFileDiff
+    }
+    return getRemoteEditAuditDiff(reportId, relativePath)
   })
 
   safeHandle('remote-edit:revert-staged-file', (_event, reportId: string, relativePath: string) => {
@@ -181,6 +184,10 @@ export function registerRemoteEditHandlers(mainWindow?: BrowserWindow): void {
     if (staged.length === 0) return null
 
     const workspacePath = getWorkspacePath()
+    const projectId = inferProjectIdForWorkspace(workspacePath)
+    const reportMeta = db.prepare(
+      'SELECT title FROM error_reports WHERE id = ?'
+    ).get(reportId) as { title: string } | undefined
     const backupDir = getBackupDir(reportId)
     mkdirSync(backupDir, { recursive: true })
 
@@ -207,6 +214,20 @@ export function registerRemoteEditHandlers(mainWindow?: BrowserWindow): void {
         mkdirSync(path.dirname(workspaceFilePath), { recursive: true })
         copyFileSync(entry.stagingPath, workspaceFilePath)
         appliedFiles.push(entry.relativePath)
+
+        const diffRow = db
+          .prepare('SELECT diff_json FROM remote_edit_diffs WHERE report_id = ? AND relative_path = ?')
+          .get(reportId, entry.relativePath) as { diff_json: string } | undefined
+        recordProjectAuditChange({
+          sessionId: `remote-edit:${reportId}`,
+          projectId,
+          title: reportMeta?.title?.trim() || `Remote edit ${reportId}`,
+          source: 'remote-edit',
+          relativePath: entry.relativePath,
+          status: existsSync(backupPath) ? 'modified' : 'created',
+          lastOperation: 'apply',
+          diff: diffRow?.diff_json ? (JSON.parse(diffRow.diff_json) as { hunks: unknown[] }) : null,
+        })
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err)

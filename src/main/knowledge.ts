@@ -2,6 +2,7 @@ import { getDatabase } from './database'
 import { randomUUID } from 'crypto'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { safeHandle } from './safe-handle'
+import { inferProjectAuditTarget, recordProjectAuditChange } from './project-audit'
 
 export function registerKnowledgeHandlers(): void {
   const db = getDatabase()
@@ -57,10 +58,23 @@ export function registerKnowledgeHandlers(): void {
         .prepare('SELECT id FROM agent_knowledge_files WHERE agent_id = ? AND file_path = ?')
         .get(agentId, filePath)
       if (!row) throw new Error('File not registered for this agent')
+      const existed = existsSync(filePath)
       writeFileSync(filePath, content, 'utf-8')
       db.prepare(
         'UPDATE agent_knowledge_files SET updated_at = ? WHERE agent_id = ? AND file_path = ?'
       ).run(Date.now(), agentId, filePath)
+      const auditTarget = inferProjectAuditTarget(filePath)
+      if (auditTarget) {
+        recordProjectAuditChange({
+          projectId: auditTarget.projectId,
+          agentId,
+          title: 'Knowledge file update',
+          source: 'manual-apply',
+          relativePath: auditTarget.relativePath,
+          status: existed ? 'modified' : 'created',
+          lastOperation: existed ? 'write' : 'create',
+        })
+      }
       return true
     }
   )

@@ -593,6 +593,36 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
     version: 44,
     sql: `ALTER TABLE conversations ADD COLUMN cli_backend TEXT;`,
   },
+  {
+    version: 45,
+    sql: `
+      CREATE TABLE IF NOT EXISTS project_edit_sessions (
+        id TEXT PRIMARY KEY,
+        project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+        conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
+        agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL,
+        title TEXT NOT NULL DEFAULT '',
+        source TEXT NOT NULL CHECK (source IN ('chat-tool', 'remote-edit', 'self-heal', 'manual-apply')),
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_project_edit_sessions_project
+        ON project_edit_sessions(project_id, updated_at DESC);
+
+      CREATE TABLE IF NOT EXISTS project_touched_files (
+        session_id TEXT NOT NULL REFERENCES project_edit_sessions(id) ON DELETE CASCADE,
+        relative_path TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('modified', 'created', 'deleted')),
+        last_operation TEXT NOT NULL CHECK (last_operation IN ('write', 'create', 'delete', 'apply')),
+        first_touched_at INTEGER NOT NULL,
+        last_touched_at INTEGER NOT NULL,
+        diff_json TEXT,
+        PRIMARY KEY (session_id, relative_path)
+      );
+      CREATE INDEX IF NOT EXISTS idx_project_touched_files_session
+        ON project_touched_files(session_id, last_touched_at DESC);
+    `,
+  },
 ];
 
 
@@ -882,6 +912,34 @@ export function initializeBaseSchema(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_scheduled_runs_status
       ON scheduled_runs(status, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS project_edit_sessions (
+      id TEXT PRIMARY KEY,
+      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+      conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
+      agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL,
+      title TEXT NOT NULL DEFAULT '',
+      source TEXT NOT NULL CHECK (source IN ('chat-tool', 'remote-edit', 'self-heal', 'manual-apply')),
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_project_edit_sessions_project
+      ON project_edit_sessions(project_id, updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS project_touched_files (
+      session_id TEXT NOT NULL REFERENCES project_edit_sessions(id) ON DELETE CASCADE,
+      relative_path TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('modified', 'created', 'deleted')),
+      last_operation TEXT NOT NULL CHECK (last_operation IN ('write', 'create', 'delete', 'apply')),
+      first_touched_at INTEGER NOT NULL,
+      last_touched_at INTEGER NOT NULL,
+      diff_json TEXT,
+      PRIMARY KEY (session_id, relative_path)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_project_touched_files_session
+      ON project_touched_files(session_id, last_touched_at DESC);
   `);
 }
 

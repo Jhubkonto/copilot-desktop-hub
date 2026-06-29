@@ -7,6 +7,7 @@ import { safeHandle } from './safe-handle'
 import { broadcastToMobile, hasMobileClients, isMobileInForeground } from './ws-server'
 import { sendApprovalPush } from './fcm-sender'
 import { registerApprovalResolver } from './ws-handlers'
+import { inferProjectAuditTarget, recordProjectAuditChange } from './project-audit'
 
 export interface ToolDefinition {
   name: string
@@ -58,7 +59,19 @@ async function executeFileRead(args: { path: string }): Promise<string> {
 }
 
 async function executeFileWrite(args: { path: string; content: string }): Promise<string> {
+  const existed = existsSync(args.path)
   writeFileSync(args.path, args.content, 'utf-8')
+  const auditTarget = inferProjectAuditTarget(args.path)
+  if (auditTarget) {
+    recordProjectAuditChange({
+      projectId: auditTarget.projectId,
+      title: 'Tool file write',
+      source: 'chat-tool',
+      relativePath: auditTarget.relativePath,
+      status: existed ? 'modified' : 'created',
+      lastOperation: existed ? 'write' : 'create',
+    })
+  }
   return `Successfully wrote ${args.content.length} characters to ${args.path}`
 }
 
