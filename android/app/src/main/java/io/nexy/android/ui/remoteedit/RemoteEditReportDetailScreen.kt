@@ -48,8 +48,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.WsEvent
+import io.nexy.android.ui.components.NexyDiffContent
 import io.nexy.android.ui.components.NexyTopAppBar
-import org.json.JSONArray
+import io.nexy.android.ui.components.renderDiffHunks
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -93,7 +94,7 @@ fun RemoteEditReportDetailScreen(
                     fixStatus = event.fixStatus
                 }
                 event is WsEvent.RemoteEditStagedDiff && event.reportId == reportId -> {
-                    diffContents[event.relativePath] = event.hunksJson?.let { renderHunks(it) }
+                    diffContents[event.relativePath] = event.hunksJson?.let { renderDiffHunks(it) }
                 }
                 event is WsEvent.RemoteEditGitCommitResult && event.reportId == reportId -> {
                     commitRunning = false
@@ -264,7 +265,7 @@ fun RemoteEditReportDetailScreen(
                                     modifier = Modifier.padding(12.dp),
                                 )
                             } else {
-                                DiffContent(content)
+                                NexyDiffContent(content)
                             }
                         }
                     }
@@ -330,76 +331,5 @@ fun RemoteEditReportDetailScreen(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun DiffContent(diffText: String) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(8.dp),
-        verticalArrangement = Arrangement.spacedBy(0.dp),
-    ) {
-        diffText.lines().forEach { line ->
-            val bg = when {
-                line.startsWith("+") -> Color(0xFF22C55E).copy(alpha = 0.12f)
-                line.startsWith("-") -> Color(0xFFEF4444).copy(alpha = 0.12f)
-                line.startsWith("@@") -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f)
-                else -> Color.Transparent
-            }
-            val textColor = when {
-                line.startsWith("+") -> Color(0xFF22C55E)
-                line.startsWith("-") -> Color(0xFFEF4444)
-                line.startsWith("@@") -> MaterialTheme.colorScheme.onSecondaryContainer
-                else -> MaterialTheme.colorScheme.onSurface
-            }
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(bg),
-            ) {
-                Text(
-                    text = line,
-                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                    color = textColor,
-                    modifier = Modifier.padding(horizontal = 4.dp),
-                )
-            }
-        }
-    }
-}
-
-private fun renderHunks(hunksJson: String): String {
-    return try {
-        val hunks = JSONArray(hunksJson)
-        buildString {
-            for (i in 0 until hunks.length()) {
-                val hunk = hunks.getJSONObject(i)
-                val header = hunk.optString("header")
-                if (header.isNotBlank()) appendLine(header)
-                val lines = hunk.optJSONArray("lines")
-                if (lines != null) {
-                    for (j in 0 until lines.length()) {
-                        val lineObj = lines.optJSONObject(j)
-                        if (lineObj != null) {
-                            val kind = lineObj.optString("kind", " ")
-                            val content = lineObj.optString("content", "")
-                            val prefix = when (kind) {
-                                "add" -> "+"
-                                "del" -> "-"
-                                else -> " "
-                            }
-                            appendLine("$prefix$content")
-                        } else {
-                            appendLine(lines.optString(j, ""))
-                        }
-                    }
-                }
-            }
-        }.trimEnd()
-    } catch (_: Exception) {
-        hunksJson
     }
 }

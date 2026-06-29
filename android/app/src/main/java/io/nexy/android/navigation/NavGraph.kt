@@ -30,6 +30,7 @@ import io.nexy.android.ui.artifactgenerator.ArtifactGeneratorScreen
 import io.nexy.android.ui.skillgenerator.SkillGeneratorScreen
 import io.nexy.android.ui.chat.ChatScreen
 import io.nexy.android.ui.projects.ProjectConfigScreen
+import io.nexy.android.ui.projects.ProjectAuditScreen
 import io.nexy.android.ui.home.AgentConfigScreen
 import io.nexy.android.ui.home.HistoryScope
 import io.nexy.android.ui.home.HomeScreen
@@ -397,8 +398,20 @@ fun NavGraph(
                 projectId = projectId,
                 onBack = { navController.popBackStack() },
                 isNew = projectId == newProjectId,
+                onOpenAudit = { navController.navigate("project-audit/${Uri.encode(projectId)}") },
                 onOpenWiki = { navController.navigate("wiki/${Uri.encode(projectId)}") },
                 onOpenArtifacts = { navController.navigate("artifacts") },
+            )
+        }
+
+        composable(
+            route = "project-audit/{projectId}",
+            arguments = listOf(navArgument("projectId") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val projectId = backStackEntry.arguments?.getString("projectId") ?: return@composable
+            ProjectAuditScreen(
+                projectId = projectId,
+                onBack = { navController.popBackStack() },
             )
         }
 

@@ -87,6 +87,7 @@ fun ProjectConfigScreen(
     isNew: Boolean = false,
     onOpenWiki: () -> Unit = {},
     onOpenArtifacts: () -> Unit = {},
+    onOpenAudit: () -> Unit = {},
 ) {
     val projects by WsRepository.projects.collectAsState()
     val allAgents by WsRepository.agents.collectAsState()
@@ -642,6 +643,13 @@ fun ProjectConfigScreen(
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
             // — Wiki & Artifacts quick links (not collapsible) —
+            TextButton(
+                onClick = onOpenAudit,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("View project changes")
+            }
+
             TextButton(
                 onClick = onOpenWiki,
                 modifier = Modifier.fillMaxWidth(),

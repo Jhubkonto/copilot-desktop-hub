@@ -49,6 +49,9 @@ import io.nexy.android.data.model.AndroidPublishManifest
 import io.nexy.android.data.model.ModelListSource
 import io.nexy.android.data.model.ModelOption
 import io.nexy.android.data.model.Project
+import io.nexy.android.data.model.ProjectAuditDiff
+import io.nexy.android.data.model.ProjectAuditFile
+import io.nexy.android.data.model.ProjectAuditSession
 import io.nexy.android.data.model.ProjectAgentEntry
 import io.nexy.android.data.model.ProviderInfo
 import io.nexy.android.data.model.SkillAgentLink
@@ -1100,6 +1103,58 @@ fun parseWsEvent(
                     )
                 }
                 WsEvent.ProjectAgents(id = id, agents = agents)
+            }
+
+            "project-audit:sessions" -> {
+                val projectId = data?.nullableString("projectId")
+                val arr = data?.optJSONArray("sessions") ?: JSONArray()
+                val sessions = (0 until arr.length()).map { i ->
+                    val item = arr.optJSONObject(i) ?: JSONObject()
+                    ProjectAuditSession(
+                        id = item.optString("id"),
+                        projectId = item.optString("projectId"),
+                        conversationId = item.nullableString("conversationId"),
+                        agentId = item.nullableString("agentId"),
+                        title = item.optString("title"),
+                        source = item.optString("source"),
+                        createdAt = item.optLong("createdAt", 0L),
+                        updatedAt = item.optLong("updatedAt", 0L),
+                        fileCount = item.optInt("fileCount", 0),
+                    )
+                }
+                WsEvent.ProjectAuditSessions(projectId = projectId, sessions = sessions)
+            }
+
+            "project-audit:files" -> {
+                val sessionId = data?.optString("sessionId") ?: ""
+                val arr = data?.optJSONArray("files") ?: JSONArray()
+                val files = (0 until arr.length()).map { i ->
+                    val item = arr.optJSONObject(i) ?: JSONObject()
+                    ProjectAuditFile(
+                        sessionId = item.optString("sessionId"),
+                        relativePath = item.optString("relativePath"),
+                        status = item.optString("status"),
+                        lastOperation = item.optString("lastOperation"),
+                        firstTouchedAt = item.optLong("firstTouchedAt", 0L),
+                        lastTouchedAt = item.optLong("lastTouchedAt", 0L),
+                        diffAvailable = item.optBoolean("diffAvailable", false),
+                    )
+                }
+                WsEvent.ProjectAuditFiles(sessionId = sessionId, files = files)
+            }
+
+            "project-audit:diff" -> {
+                val sessionId = data?.optString("sessionId") ?: ""
+                val diffObj = data?.optJSONObject("diff")
+                WsEvent.ProjectAuditDiffLoaded(
+                    sessionId = sessionId,
+                    diff = diffObj?.let {
+                        ProjectAuditDiff(
+                            relativePath = it.optString("relativePath"),
+                            hunksJson = it.optJSONArray("hunks")?.toString(),
+                        )
+                    },
+                )
             }
 
             "project-generator:model" -> WsEvent.ProjectGeneratorModel(

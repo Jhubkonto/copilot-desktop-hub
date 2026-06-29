@@ -875,6 +875,11 @@ object WsRepository : WsClient {
     fun reorderProjectAgents(projectId: String, agentIds: List<String>) {
         send("project:reorder-agents", mapOf("id" to projectId, "agentIds" to agentIds))
     }
+    fun listProjectAuditSessions(projectId: String) { send("project-audit:list-sessions", mapOf("projectId" to projectId)) }
+    fun listProjectAuditFiles(sessionId: String) { send("project-audit:list-files", mapOf("sessionId" to sessionId)) }
+    fun getProjectAuditDiff(sessionId: String, relativePath: String) {
+        send("project-audit:get-diff", mapOf("sessionId" to sessionId, "relativePath" to relativePath))
+    }
 
     fun listWikiEntries(projectId: String) { send("wiki:list", mapOf("projectId" to projectId)) }
     fun createWikiEntry(projectId: String, title: String, body: String, tags: List<String>) {
