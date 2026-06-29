@@ -48,7 +48,7 @@ describe('database migrations', () => {
     initializeBaseSchema(db)
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(44)
+    expect(db.pragma('user_version', { simple: true })).toBe(45)
     expect(getColumnNames(db, 'projects')).toEqual(
       expect.arrayContaining(['default_model', 'config_json'])
     )
@@ -96,6 +96,12 @@ describe('database migrations', () => {
     expect(getColumnNames(db, 'conversation_quiz_attempts')).toEqual(
       expect.arrayContaining(['conversation_id', 'score', 'total', 'attempted_at'])
     )
+    expect(getColumnNames(db, 'project_edit_sessions')).toEqual(
+      expect.arrayContaining(['project_id', 'conversation_id', 'agent_id', 'title', 'source', 'created_at', 'updated_at'])
+    )
+    expect(getColumnNames(db, 'project_touched_files')).toEqual(
+      expect.arrayContaining(['session_id', 'relative_path', 'status', 'last_operation', 'diff_json'])
+    )
   })
 
   it('allows persisted tool call messages on a fresh DB', () => {
@@ -117,7 +123,7 @@ describe('database migrations', () => {
       runMigrations(db)
       runMigrations(db)
     }).not.toThrow()
-    expect(db.pragma('user_version', { simple: true })).toBe(44)
+    expect(db.pragma('user_version', { simple: true })).toBe(45)
   })
 
   it('only runs pending migrations for a partial upgrade', () => {
@@ -171,7 +177,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(44)
+    expect(db.pragma('user_version', { simple: true })).toBe(45)
     expect(getColumnNames(db, 'messages')).toEqual(
       expect.arrayContaining(['is_edited', 'previous_content', 'context_snapshot'])
     )
@@ -234,7 +240,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(44)
+    expect(db.pragma('user_version', { simple: true })).toBe(45)
     expect(() => insertMessageWithRole(db, 'tool-call')).not.toThrow()
     expect(
       db.prepare("SELECT COUNT(*) AS count FROM messages WHERE role = ?").get('assistant')

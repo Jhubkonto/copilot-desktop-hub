@@ -49,11 +49,21 @@ vi.mock('../fcm-sender', () => ({
   sendRemoteEditNotification: vi.fn(),
 }))
 
+const getRemoteEditAuditDiff = vi.fn()
+
 let db: Database.Database
 
 vi.mock('../database', () => ({
   getDatabase: () => db,
 }))
+
+vi.mock('../project-audit', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../project-audit')>()
+  return {
+    ...actual,
+    getRemoteEditAuditDiff,
+  }
+})
 
 function createDatabase() {
   const database = new Database(':memory:')
@@ -74,6 +84,8 @@ describe('remote-edit handlers', () => {
     safeHandlers.clear()
     vi.resetModules()
     mockRunInvestigation.mockReset()
+    getRemoteEditAuditDiff.mockReset()
+    getRemoteEditAuditDiff.mockReturnValue(null)
     db = createDatabase()
   })
 
@@ -164,5 +176,22 @@ describe('remote-edit handlers', () => {
     const updated = invoke<{ id: string; status: string } | null>('remote-edit:set-report-status', 'report-1', 'rejected')
 
     expect(updated).toEqual(expect.objectContaining({ id: 'report-1', status: 'rejected' }))
+  })
+
+  it('falls back to shared project audit diffs when staged diff rows are gone', async () => {
+    const { registerRemoteEditHandlers } = await import('../remote-edit-handlers')
+    registerRemoteEditHandlers()
+    getRemoteEditAuditDiff.mockReturnValue({
+      relativePath: 'src/App.tsx',
+      hunks: [{ header: '@@ -1,1 +1,1 @@', lines: [] }],
+    })
+
+    const diff = invoke('remote-edit:get-staged-diff', 'report-1', 'src/App.tsx')
+
+    expect(getRemoteEditAuditDiff).toHaveBeenCalledWith('report-1', 'src/App.tsx')
+    expect(diff).toEqual({
+      relativePath: 'src/App.tsx',
+      hunks: [{ header: '@@ -1,1 +1,1 @@', lines: [] }],
+    })
   })
 })

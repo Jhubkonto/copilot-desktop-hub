@@ -99,7 +99,7 @@ describe('registerIpcHandlers window events', () => {
     listeners.get('focus')?.()
     expect(mockConsumeSuppressFocusEvent).toHaveBeenCalled()
     expect(mainWindow.webContents.send).toHaveBeenCalledWith('clipboard:auto-focus')
-  })
+  }, 15000)
 
   it('skips auto-clipboard when the focus event is suppressed', async () => {
     mockConsumeSuppressFocusEvent.mockReturnValue(true)

@@ -33,6 +33,11 @@ const { mockDb, ipcHandlers, mockIpcMain, mockRandomUUID, mockExistsSync, mockRe
     }
   })
 
+const { mockInferProjectAuditTarget, mockRecordProjectAuditChange } = vi.hoisted(() => ({
+  mockInferProjectAuditTarget: vi.fn(),
+  mockRecordProjectAuditChange: vi.fn(),
+}))
+
 vi.mock('electron', () => ({
   ipcMain: mockIpcMain,
   dialog: { showSaveDialog: vi.fn(), showOpenDialog: vi.fn() },
@@ -57,6 +62,11 @@ vi.mock('fs', () => ({
   existsSync: mockExistsSync,
   readFileSync: mockReadFileSync,
   writeFileSync: mockWriteFileSync
+}))
+
+vi.mock('../project-audit', () => ({
+  inferProjectAuditTarget: mockInferProjectAuditTarget,
+  recordProjectAuditChange: mockRecordProjectAuditChange,
 }))
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -85,6 +95,7 @@ describe('Knowledge — IPC Handlers', () => {
     vi.clearAllMocks()
     ipcHandlers.clear()
     mockDb._clearResults()
+    mockInferProjectAuditTarget.mockReturnValue(null)
     // Re-register handlers fresh each test
     return import('../knowledge').then((mod) => mod.registerKnowledgeHandlers())
   })
@@ -213,6 +224,30 @@ describe('Knowledge — IPC Handlers', () => {
       )
       expect(result).toBe(true)
       expect(mockWriteFileSync).toHaveBeenCalledWith('/docs/notes.md', '# Updated Content', 'utf-8')
+    })
+
+    it('kf-m-7b: records project audit entries for project-scoped knowledge writes', async () => {
+      mockDb._setResult(
+        'SELECT id FROM agent_knowledge_files WHERE agent_id = ? AND file_path = ?',
+        { id: 'kf-1' }
+      )
+      mockInferProjectAuditTarget.mockReturnValue({ projectId: 'proj-1', relativePath: 'docs/notes.md' })
+
+      const result = await invokeHandler(
+        'fs:write-file',
+        'agent-1',
+        '/docs/notes.md',
+        '# Updated Content'
+      )
+
+      expect(result).toBe(true)
+      expect(mockRecordProjectAuditChange).toHaveBeenCalledWith(expect.objectContaining({
+        projectId: 'proj-1',
+        agentId: 'agent-1',
+        title: 'Knowledge file update',
+        source: 'manual-apply',
+        relativePath: 'docs/notes.md',
+      }))
     })
 
     it('kf-m-8: throws when file is not registered for the agent', async () => {

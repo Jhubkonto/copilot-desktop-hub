@@ -12,9 +12,12 @@ vi.mock('../store/app-store', () => ({ useAppStore }))
 const BASE_CONFIG: ProjectConfig = {
   instructions: 'Do stuff',
   rootDirectory: '/tmp/project',
+  codingWorkspace: false,
+  workspaceInfo: null,
   variables: [],
   instructionMode: 'prepend',
   instructionsEnabled: true,
+  workflowMode: 'single-agent',
   orchestrationEnabled: false,
   maxDelegationDepth: 5,
   showTeamActivity: true,
@@ -53,6 +56,7 @@ describe('ProjectSettingsPanel — tabs', () => {
     expect(screen.getByRole('tab', { name: /general/i })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /scope/i })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /milestones/i })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /changes/i })).toBeInTheDocument()
   })
 
   it('k-2: General tab is active by default', () => {
@@ -77,6 +81,240 @@ describe('ProjectSettingsPanel — tabs', () => {
     render(<ProjectSettingsPanel projectId="proj-1" onClose={vi.fn()} />)
     await user.click(screen.getByRole('tab', { name: /milestones/i }))
     expect(screen.getByRole('button', { name: /add milestone/i })).toBeInTheDocument()
+  })
+})
+
+describe('ProjectSettingsPanel — changes audit', () => {
+  it('loads project audit sessions when opening Changes tab', async () => {
+    const api = setupMockApi()
+    api.listProjectAuditSessions.mockResolvedValue([
+      {
+        id: 'session-1',
+        projectId: 'proj-1',
+        conversationId: null,
+        agentId: null,
+        title: 'Remote edit fix',
+        source: 'remote-edit',
+        createdAt: 1000,
+        updatedAt: 1000,
+        fileCount: 1,
+      },
+    ])
+    api.listProjectAuditFiles.mockResolvedValue([
+      {
+        sessionId: 'session-1',
+        relativePath: 'src/example.ts',
+        status: 'modified',
+        lastOperation: 'apply',
+        firstTouchedAt: 1000,
+        lastTouchedAt: 1000,
+        diffAvailable: false,
+      },
+    ])
+
+    render(<ProjectSettingsPanel projectId="proj-1" onClose={vi.fn()} />)
+    await user.click(screen.getByRole('tab', { name: /changes/i }))
+
+    expect(await screen.findAllByText(/remote edit fix/i)).toHaveLength(2)
+    expect(api.listProjectAuditSessions).toHaveBeenCalledWith('proj-1')
+    expect(await screen.findByText('src/example.ts')).toBeInTheDocument()
+  })
+
+  it('shows best-effort diff warning when the project root is not a git repo', async () => {
+    mockStore = createMockAppStore({
+      projects: [PROJECT],
+      projectConfigs: {
+        'proj-1': {
+          ...BASE_CONFIG,
+          workspaceInfo: {
+            rootDirectory: '/tmp/project',
+            exists: true,
+            isLikelyCodingWorkspace: true,
+            codingMarkers: ['package.json'],
+            isGitRepo: false,
+            repoRoot: null,
+            branch: null,
+            dirty: false,
+            scannedAt: 1000,
+          },
+        },
+      },
+      activeProjectId: 'proj-1',
+      agents: [],
+      agentsLoading: false,
+      conversations: [],
+      currentConversationId: null,
+      activeAgentId: null,
+    })
+    setupStoreMock(useAppStore, mockStore)
+
+    render(<ProjectSettingsPanel projectId="proj-1" initialTab="changes" onClose={vi.fn()} />)
+
+    expect(await screen.findByText(/best-effort file audit/i)).toBeInTheDocument()
+  })
+})
+
+describe('ProjectSettingsPanel — coding workspace metadata', () => {
+  it('shows repo metadata and coding workspace toggle when a codebase is detected', async () => {
+    mockStore = createMockAppStore({
+      projects: [PROJECT],
+      projectConfigs: {
+        'proj-1': {
+          ...BASE_CONFIG,
+          workspaceInfo: {
+            rootDirectory: '/tmp/project',
+            exists: true,
+            isLikelyCodingWorkspace: true,
+            codingMarkers: ['package.json', 'src'],
+            isGitRepo: true,
+            repoRoot: '/tmp/project',
+            branch: 'main',
+            dirty: true,
+            scannedAt: 1000,
+          },
+        },
+      },
+      activeProjectId: 'proj-1',
+      agents: [],
+      agentsLoading: false,
+      conversations: [],
+      currentConversationId: null,
+      activeAgentId: null,
+    })
+    setupStoreMock(useAppStore, mockStore)
+
+    render(<ProjectSettingsPanel projectId="proj-1" initialTab="general" onClose={vi.fn()} />)
+
+    expect(screen.getByText(/git repo · main · dirty/i)).toBeInTheDocument()
+    expect(screen.getByText(/coding markers: package\.json, src/i)).toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: /enable software workspace mode/i })).toBeInTheDocument()
+  })
+})
+
+describe('ProjectSettingsPanel — manual workflow mode', () => {
+  it('shows manual workflow controls and starts generation in manual mode', async () => {
+    const api = setupMockApi()
+    mockStore = createMockAppStore({
+      authState: { authenticated: true, mode: 'byok', user: null, cliInstalled: false, clis: { claude: false, codex: false } },
+      projects: [PROJECT],
+      projectConfigs: {
+        'proj-1': {
+          ...BASE_CONFIG,
+          workflowMode: 'manual-delegation',
+        },
+      },
+      projectAgents: {
+        'proj-1': [
+          { agentId: 'agent-1', agentName: 'Planner', agentIcon: '🧠', isPrimary: true, sortOrder: 0 },
+        ],
+      },
+      activeProjectId: 'proj-1',
+      agents: [],
+      agentsLoading: false,
+      conversations: [],
+      currentConversationId: null,
+      activeAgentId: null,
+    })
+    setupStoreMock(useAppStore, mockStore)
+
+    render(<ProjectSettingsPanel projectId="proj-1" initialTab="team" onClose={vi.fn()} />)
+
+    expect(screen.getByText(/manual workflow generator/i)).toBeInTheDocument()
+    await user.type(screen.getByPlaceholderText(/describe the project goal/i), 'Plan a release')
+    await user.click(screen.getByRole('button', { name: /generate workflow/i }))
+
+    expect(api.manualWorkflowGeneratorChat).toHaveBeenCalledWith('proj-1', [
+      { role: 'user', content: 'Plan a release' },
+    ])
+  })
+
+  it('renders generated workflow steps and starts a step in chat', async () => {
+    const api = setupMockApi()
+    let onSpecReady!: (spec: import('../../shared/types').ManualWorkflowSpec) => void
+    api.onManualWorkflowGeneratorSpecReady.mockImplementation((callback) => {
+      onSpecReady = callback
+      return () => {}
+    })
+
+    mockStore = createMockAppStore({
+      projects: [PROJECT],
+      projectConfigs: {
+        'proj-1': {
+          ...BASE_CONFIG,
+          workflowMode: 'manual-delegation',
+        },
+      },
+      projectAgents: {
+        'proj-1': [
+          { agentId: 'agent-1', agentName: 'Planner', agentIcon: '🧠', isPrimary: true, sortOrder: 0 },
+        ],
+      },
+      activeProjectId: 'proj-1',
+      agents: [],
+      agentsLoading: false,
+      conversations: [],
+      currentConversationId: null,
+      activeAgentId: null,
+    })
+    setupStoreMock(useAppStore, mockStore)
+
+    render(<ProjectSettingsPanel projectId="proj-1" initialTab="team" onClose={vi.fn()} />)
+
+    onSpecReady({
+      title: 'Release workflow',
+      goalSummary: 'Ship safely',
+      assumptions: [],
+      steps: [
+        {
+          id: 'step-1',
+          title: 'Investigate',
+          summary: 'Map risks',
+          agentId: 'agent-1',
+          agentName: 'Planner',
+          prompt: 'Review the code and list risks.',
+          expectedOutput: 'Risk list',
+        },
+      ],
+    })
+
+    expect(await screen.findByText(/release workflow/i)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /start in chat/i }))
+
+    expect(api.createConversation).toHaveBeenCalledWith('agent-1', 'proj-1')
+    expect(api.sendMessage).toHaveBeenCalledWith('conv-1', 'Review the code and list risks.', {
+      agentId: 'agent-1',
+      projectId: 'proj-1',
+    })
+  })
+
+  it('shows backend availability warning when manual mode has no configured backend', () => {
+    mockStore = createMockAppStore({
+      authState: { authenticated: false, mode: 'none', user: null, cliInstalled: false, clis: { claude: false, codex: false } },
+      projects: [PROJECT],
+      projectConfigs: {
+        'proj-1': {
+          ...BASE_CONFIG,
+          workflowMode: 'manual-delegation',
+        },
+      },
+      projectAgents: {
+        'proj-1': [
+          { agentId: 'agent-1', agentName: 'Planner', agentIcon: '🧠', isPrimary: true, sortOrder: 0 },
+        ],
+      },
+      activeProjectId: 'proj-1',
+      agents: [],
+      agentsLoading: false,
+      conversations: [],
+      currentConversationId: null,
+      activeAgentId: null,
+    })
+    setupStoreMock(useAppStore, mockStore)
+
+    render(<ProjectSettingsPanel projectId="proj-1" initialTab="team" onClose={vi.fn()} />)
+
+    expect(screen.getByText(/no provider or supported cli backend is configured/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /generate workflow/i })).toBeDisabled()
   })
 })
 

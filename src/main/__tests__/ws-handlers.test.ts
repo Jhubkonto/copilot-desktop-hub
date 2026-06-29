@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ProjectEditSession, ProjectTouchedFile, RemoteEditStagedFileDiff } from '../../shared/types'
 
 const state = vi.hoisted(() => {
   let commandHandler: ((command: string, data: Record<string, unknown>, reply: (event: unknown) => void) => void) | null = null
@@ -7,6 +8,15 @@ const state = vi.hoisted(() => {
   const abortActiveStream = vi.fn()
   const dispatchChatSend = vi.fn()
   const webContentsSend = vi.fn()
+  const broadcastToMobile = vi.fn()
+  const listProjectAuditSessions = vi.fn<(projectId?: string | null) => ProjectEditSession[]>(() => [])
+  const listProjectAuditFiles = vi.fn<(sessionId: string) => ProjectTouchedFile[]>(() => [])
+  const getProjectAuditDiff = vi.fn<(sessionId: string, relativePath: string) => RemoteEditStagedFileDiff | null>(() => null)
+  const getRemoteEditAuditDiff = vi.fn<(reportId: string, relativePath: string) => RemoteEditStagedFileDiff | null>(() => null)
+  let projectConfigJson: string | null = null
+  const runManualWorkflowGeneratorChatForAndroid = vi.fn()
+  const getManualWorkflowGeneratorModel = vi.fn(() => 'gpt-5.5')
+  const setManualWorkflowGeneratorModel = vi.fn()
 
   return {
     get commandHandler() { return commandHandler },
@@ -16,6 +26,16 @@ const state = vi.hoisted(() => {
     abortActiveStream,
     dispatchChatSend,
     webContentsSend,
+    broadcastToMobile,
+    listProjectAuditSessions,
+    listProjectAuditFiles,
+    getProjectAuditDiff,
+    getRemoteEditAuditDiff,
+    runManualWorkflowGeneratorChatForAndroid,
+    getManualWorkflowGeneratorModel,
+    setManualWorkflowGeneratorModel,
+    get projectConfigJson() { return projectConfigJson },
+    set projectConfigJson(value) { projectConfigJson = value },
   }
 })
 
@@ -34,6 +54,7 @@ vi.mock('../database', () => ({
         return []
       },
       get: (..._args: unknown[]) => {
+        if (sql.includes('SELECT config_json FROM projects WHERE id = ?')) return { config_json: state.projectConfigJson }
         if (sql.includes('FROM agents')) return { backend: 'codex-cli' }
         return undefined
       },
@@ -71,6 +92,13 @@ vi.mock('../chat-handlers', () => ({
   dispatchChatSend: state.dispatchChatSend,
 }))
 
+vi.mock('../project-audit', () => ({
+  listProjectAuditSessions: state.listProjectAuditSessions,
+  listProjectAuditFiles: state.listProjectAuditFiles,
+  getProjectAuditDiff: state.getProjectAuditDiff,
+  getRemoteEditAuditDiff: state.getRemoteEditAuditDiff,
+}))
+
 vi.mock('../cli-detection', () => ({
   getCliModels: vi.fn((backend: string) => backend === 'codex-cli'
     ? [{ id: 'gpt-5.5', label: 'GPT-5.5' }]
@@ -100,7 +128,7 @@ vi.mock('../ws-server', () => ({
   getWsStatus: vi.fn(() => ({ enabled: false })),
   getQrDataUrl: vi.fn(),
   regenerateToken: vi.fn(),
-  broadcastToMobile: vi.fn(),
+  broadcastToMobile: state.broadcastToMobile,
   setWsCommandHandler: vi.fn((handler) => { state.commandHandler = handler }),
 }))
 
@@ -117,6 +145,12 @@ vi.mock('../scheduler-engine', () => ({
     unscheduleTask: vi.fn(),
     triggerRun: vi.fn().mockResolvedValue({ id: 'run-1' }),
   },
+}))
+
+vi.mock('../manual-workflow-generator', () => ({
+  runManualWorkflowGeneratorChatForAndroid: state.runManualWorkflowGeneratorChatForAndroid,
+  getManualWorkflowGeneratorModel: state.getManualWorkflowGeneratorModel,
+  setManualWorkflowGeneratorModel: state.setManualWorkflowGeneratorModel,
 }))
 
 import { registerWsHandlers, registerApprovalResolver } from '../ws-handlers'
@@ -141,6 +175,21 @@ describe('ws handlers', () => {
     state.dispatchChatSend.mockClear()
     state.dispatchChatSend.mockResolvedValue(undefined)
     state.webContentsSend.mockClear()
+    state.broadcastToMobile.mockClear()
+    state.projectConfigJson = null
+    state.listProjectAuditSessions.mockReset()
+    state.listProjectAuditSessions.mockReturnValue([])
+    state.listProjectAuditFiles.mockReset()
+    state.listProjectAuditFiles.mockReturnValue([])
+    state.getProjectAuditDiff.mockReset()
+    state.getProjectAuditDiff.mockReturnValue(null)
+    state.getRemoteEditAuditDiff.mockReset()
+    state.getRemoteEditAuditDiff.mockReturnValue(null)
+    state.runManualWorkflowGeneratorChatForAndroid.mockReset()
+    state.runManualWorkflowGeneratorChatForAndroid.mockResolvedValue(undefined)
+    state.getManualWorkflowGeneratorModel.mockReset()
+    state.getManualWorkflowGeneratorModel.mockReturnValue('gpt-5.5')
+    state.setManualWorkflowGeneratorModel.mockReset()
     vi.mocked(retrieveAuthMode).mockReturnValue('byok')
     vi.mocked(getAndroidUpdateManifest).mockResolvedValue(null)
     vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(false)
@@ -350,6 +399,145 @@ describe('ws handlers', () => {
     expect(reply).toHaveBeenCalledWith({
       event: 'android:update-manifest',
       data: null,
+    })
+  })
+
+  it('replies with project audit sessions/files/diffs for mobile consumers', () => {
+    state.listProjectAuditSessions.mockReturnValue([
+      {
+        id: 'session-1',
+        projectId: 'proj-1',
+        conversationId: null,
+        agentId: null,
+        title: 'Remote edit fix',
+        source: 'remote-edit',
+        createdAt: 1,
+        updatedAt: 2,
+        fileCount: 1,
+      },
+    ])
+    state.listProjectAuditFiles.mockReturnValue([
+      {
+        sessionId: 'session-1',
+        relativePath: 'src/example.ts',
+        status: 'modified',
+        lastOperation: 'apply',
+        firstTouchedAt: 1,
+        lastTouchedAt: 2,
+        diffAvailable: true,
+      },
+    ])
+    state.getProjectAuditDiff.mockReturnValue({
+      relativePath: 'src/example.ts',
+      hunks: [],
+    })
+
+    const sessionsReply = sendCommand('project-audit:list-sessions', { projectId: 'proj-1' })
+    const filesReply = sendCommand('project-audit:list-files', { sessionId: 'session-1' })
+    const diffReply = sendCommand('project-audit:get-diff', { sessionId: 'session-1', relativePath: 'src/example.ts' })
+
+    expect(sessionsReply).toHaveBeenCalledWith({
+      event: 'project-audit:sessions',
+      data: {
+        projectId: 'proj-1',
+        sessions: expect.arrayContaining([expect.objectContaining({ id: 'session-1' })]),
+      },
+    })
+    expect(filesReply).toHaveBeenCalledWith({
+      event: 'project-audit:files',
+      data: {
+        sessionId: 'session-1',
+        files: expect.arrayContaining([expect.objectContaining({ relativePath: 'src/example.ts' })]),
+      },
+    })
+    expect(diffReply).toHaveBeenCalledWith({
+      event: 'project-audit:diff',
+      data: {
+        sessionId: 'session-1',
+        diff: { relativePath: 'src/example.ts', hunks: [] },
+      },
+    })
+  })
+
+  it('falls back to shared project audit diffs for mobile self-heal staged diff requests', () => {
+    state.getRemoteEditAuditDiff.mockReturnValue({
+      relativePath: 'src/example.ts',
+      hunks: [{ header: '@@ -1,1 +1,1 @@', lines: [] }],
+    })
+
+    const reply = sendCommand('self-heal:get-staged-diff', { reportId: 'report-1', relativePath: 'src/example.ts' })
+
+    expect(state.getRemoteEditAuditDiff).toHaveBeenCalledWith('report-1', 'src/example.ts')
+    expect(reply).toHaveBeenCalledWith({
+      event: 'self-heal:staged-diff',
+      data: {
+        reportId: 'report-1',
+        relativePath: 'src/example.ts',
+        hunks: [{ header: '@@ -1,1 +1,1 @@', lines: [] }],
+      },
+    })
+  })
+
+  it('normalizes project:get-config workflow mode for mobile consumers', () => {
+    state.projectConfigJson = '{"workflowMode":"manual-delegation","orchestrationEnabled":true}'
+
+    const reply = sendCommand('project:get-config', { id: 'proj-1' })
+
+    expect(reply).toHaveBeenCalledWith({
+      event: 'project:config',
+      data: {
+        id: 'proj-1',
+        config: expect.objectContaining({
+          workflowMode: 'manual-delegation',
+          orchestrationEnabled: false,
+        }),
+      },
+    })
+  })
+
+  it('broadcasts normalized workflow config after mobile project:update-config', () => {
+    state.projectConfigJson = '{"orchestrationEnabled":true}'
+
+    sendCommand('project:update-config', { id: 'proj-1', workflowMode: 'manual-delegation' })
+
+    expect(state.broadcastToMobile).toHaveBeenCalledWith({
+      event: 'project:config-updated',
+      data: {
+        id: 'proj-1',
+        config: expect.objectContaining({
+          workflowMode: 'manual-delegation',
+          orchestrationEnabled: false,
+        }),
+      },
+    })
+  })
+
+  it('starts the manual workflow generator for mobile consumers', () => {
+    sendCommand('manual-workflow-generator:start', {
+      projectId: 'proj-1',
+      messages: [{ role: 'user', content: 'Plan the release' }],
+      sessionId: 'mw-1',
+    })
+
+    expect(state.broadcastToMobile).toHaveBeenCalledWith({
+      event: 'manual-workflow-generator:model',
+      data: { sessionId: 'mw-1', modelId: 'gpt-5.5' },
+    })
+    expect(state.runManualWorkflowGeneratorChatForAndroid).toHaveBeenCalledWith(
+      'proj-1',
+      [{ role: 'user', content: 'Plan the release' }],
+      'mw-1',
+      undefined,
+    )
+  })
+
+  it('updates the mobile manual workflow generator model', () => {
+    sendCommand('manual-workflow-generator:set-model', { sessionId: 'mw-2', modelId: 'gpt-5.4-mini' })
+
+    expect(state.setManualWorkflowGeneratorModel).toHaveBeenCalledWith('gpt-5.4-mini')
+    expect(state.broadcastToMobile).toHaveBeenCalledWith({
+      event: 'manual-workflow-generator:model',
+      data: { sessionId: 'mw-2', modelId: 'gpt-5.5' },
     })
   })
 })

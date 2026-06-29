@@ -103,4 +103,13 @@ describe('remote-edit git operations', () => {
     expect(result.committed).toBe(false)
     expect(result.error).toBe('Verification must pass before committing')
   })
+
+  it('classifies auth-related git failures with guidance', async () => {
+    const { classifyGitFailure } = await import('../remote-edit/git-ops')
+
+    const result = classifyGitFailure(new Error('fatal: Authentication failed for https://example.com/private/repo.git'))
+
+    expect(result.authRequired).toBe(true)
+    expect(result.authHelp).toMatch(/system git login|credential manager/i)
+  })
 })

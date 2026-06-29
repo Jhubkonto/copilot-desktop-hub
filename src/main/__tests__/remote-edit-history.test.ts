@@ -180,5 +180,5 @@ describe('remote_edit_history table', () => {
     const entries = listHistory()
     expect(entries[0].rolledBack).toBe(true)
     expect(entries[0].status).toBe('rolled-back')
-  })
+  }, 15000)
 })

@@ -384,6 +384,7 @@ describe("SectionPane — Project settings panel (J5)", () => {
           instructionMode: "prepend",
           instructionsEnabled: true,
           variables: [],
+          workflowMode: "single-agent",
           orchestrationEnabled: false,
           maxDelegationDepth: 3,
           showTeamActivity: false,

@@ -69,6 +69,11 @@ vi.mock('electron', () => ({
   BrowserWindow: mockBrowserWindow
 }))
 
+const { mockInferProjectAuditTarget, mockRecordProjectAuditChange } = vi.hoisted(() => ({
+  mockInferProjectAuditTarget: vi.fn(),
+  mockRecordProjectAuditChange: vi.fn(),
+}))
+
 vi.mock('../database', () => ({
   getDatabase: () => mockDb
 }))
@@ -103,6 +108,11 @@ vi.mock('../safe-handle', () => ({
   safeHandle: mockIpcMain.handle,
 }))
 
+vi.mock('../project-audit', () => ({
+  inferProjectAuditTarget: mockInferProjectAuditTarget,
+  recordProjectAuditChange: mockRecordProjectAuditChange,
+}))
+
 /* ── Helpers ─────────────────────────────────────────── */
 async function invokeHandler(channel: string, ...args: unknown[]): Promise<any> {
   const handler = mockIpcMain._handlers.get(channel)
@@ -117,6 +127,7 @@ import { registerToolHandlers, executeTool, TOOL_DEFINITIONS, requestApproval, d
 beforeEach(() => {
   mockDb._store.clear()
   vi.clearAllMocks()
+  mockInferProjectAuditTarget.mockReturnValue(null)
   registerToolHandlers()
 })
 
@@ -159,6 +170,23 @@ describe('Tools — executeTool', () => {
     expect(r.success).toBe(true)
     expect(r.result).toContain('4 characters')
     expect(mockWriteFileSync).toHaveBeenCalledWith('/tmp/out.txt', 'data', 'utf-8')
+  })
+
+  it('fileWrite records project audit entries for project-scoped writes', async () => {
+    mockExistsSync.mockReturnValue(false)
+    mockInferProjectAuditTarget.mockReturnValue({ projectId: 'proj-1', relativePath: 'src/out.txt' })
+
+    const r = await executeTool('fileWrite', { path: '/tmp/out.txt', content: 'data' })
+
+    expect(r.success).toBe(true)
+    expect(mockRecordProjectAuditChange).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: 'proj-1',
+      title: 'Tool file write',
+      source: 'chat-tool',
+      relativePath: 'src/out.txt',
+      status: 'created',
+      lastOperation: 'create',
+    }))
   })
 
   it('shellExec runs command and returns stdout', async () => {

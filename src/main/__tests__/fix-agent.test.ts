@@ -3,6 +3,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'fs'
 import path from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initializeBaseSchema, runMigrations } from '../database-migrations'
+import { DEFAULT_PROJECT_CONFIG } from '../../shared/types'
 
 const { safeHandlers, testRoot, sendProviderWithToolsMock } = vi.hoisted(() => ({
   safeHandlers: new Map<string, (...args: unknown[]) => unknown>(),
@@ -68,6 +69,9 @@ describe('remote-edit fix staging', () => {
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('build_workspace_path', ?)").run(workspacePath)
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('remote_edit_backend', 'byok')").run()
     db.prepare(
+      'INSERT INTO projects (id, name, color, config_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run('proj-1', 'Workspace project', 'blue', JSON.stringify({ ...DEFAULT_PROJECT_CONFIG, rootDirectory: workspacePath }), 1, 1)
+    db.prepare(
       `INSERT INTO error_reports (
         id, title, description, screenshot_path, log_snapshot, status,
         app_version, platform, os_version, investigation_markdown,
@@ -124,6 +128,21 @@ describe('remote-edit fix staging', () => {
     expect(db.prepare('SELECT fix_status, status FROM error_reports WHERE id = ?').get('report-1')).toEqual({
       fix_status: 'applied',
       status: 'fixed',
+    })
+    expect(
+      db.prepare('SELECT project_id, title, source FROM project_edit_sessions WHERE id = ?').get('remote-edit:report-1')
+    ).toEqual({
+      project_id: 'proj-1',
+      title: 'Fix me',
+      source: 'remote-edit',
+    })
+    expect(
+      db.prepare('SELECT status, last_operation, diff_json FROM project_touched_files WHERE session_id = ? AND relative_path = ?')
+        .get('remote-edit:report-1', 'src/example.ts')
+    ).toEqual({
+      status: 'modified',
+      last_operation: 'apply',
+      diff_json: expect.any(String),
     })
   }, 15000)
 })

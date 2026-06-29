@@ -80,6 +80,7 @@ vi.mock('../project-handlers', () => ({
     rootDirectory: null,
     variables: [],
     instructionMode: 'prepend',
+    workflowMode: 'single-agent',
     orchestrationEnabled: false,
     maxDelegationDepth: 5,
     showTeamActivity: true,
@@ -606,7 +607,7 @@ describe('chat handlers', () => {
     // Set up database to return a project with orchestrationEnabled=true and two agents
     state.getOverrides.set('SELECT name, config_json FROM projects', {
       name: 'Test Project',
-      config_json: JSON.stringify({ orchestrationEnabled: true }),
+      config_json: JSON.stringify({ workflowMode: 'orchestrated', orchestrationEnabled: true }),
     })
     state.getOverrides.set('SELECT project_id FROM conversations', { project_id: 'proj-1' })
     state.allOverrides.set('project_agents pa JOIN agents', [
@@ -638,7 +639,7 @@ describe('chat handlers', () => {
   it('broadcasts error and stream-end to mobile when orchestration throws', async () => {
     state.getOverrides.set('SELECT name, config_json FROM projects', {
       name: 'Test Project',
-      config_json: JSON.stringify({ orchestrationEnabled: true }),
+      config_json: JSON.stringify({ workflowMode: 'orchestrated', orchestrationEnabled: true }),
     })
     state.getOverrides.set('SELECT project_id FROM conversations', { project_id: 'proj-1' })
     state.allOverrides.set('project_agents pa JOIN agents', [
