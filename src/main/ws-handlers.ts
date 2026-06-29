@@ -42,7 +42,12 @@ import {
   updateArtifactGeneratorRunRecord,
   getArtifactGeneratorModel,
 } from './artifact-generator'
-import type { ProjectGeneratorSpec, AgentGeneratorSpec, SkillConfig, SkillGeneratorSpec, ScheduleGeneratorMessage, ScheduleGeneratorSpec, ArtifactGeneratorMessage, ArtifactSpec, PromptLibraryEntry, PromptLibraryVersion } from '../shared/types'
+import {
+  getManualWorkflowGeneratorModel,
+  runManualWorkflowGeneratorChatForAndroid,
+  setManualWorkflowGeneratorModel,
+} from './manual-workflow-generator'
+import type { ProjectGeneratorSpec, AgentGeneratorSpec, SkillConfig, SkillGeneratorSpec, ScheduleGeneratorMessage, ScheduleGeneratorSpec, ArtifactGeneratorMessage, ArtifactSpec, PromptLibraryEntry, PromptLibraryVersion, ManualWorkflowGeneratorMessage } from '../shared/types'
 import { storeApiKey, removeApiKey, getAzureEndpoint, setAzureEndpoint } from './provider-secrets'
 import { testProviderKey } from './providers'
 import { detectAllClis } from './cli-detection'
@@ -59,6 +64,8 @@ import {
   updatePromptLibraryEntry,
 } from './prompt-handlers'
 import { buildConversationExportPack, forkConversation, importConversationExport, getConversationCompressionPreview, prepareConversationCompressionSummary, saveConversationCompressionSummary } from './conversation-handlers'
+import { getProjectAuditDiff, getRemoteEditAuditDiff, listProjectAuditFiles, listProjectAuditSessions } from './project-audit'
+import { parseProjectConfig } from './project-handlers'
 import {
   createSkillConfig,
   deleteSkillConfig,
@@ -289,6 +296,14 @@ export function registerWsHandlers(): void {
         .prepare('SELECT diff_json FROM remote_edit_diffs WHERE report_id = ? AND relative_path = ?')
         .get(reportId, relativePath) as { diff_json: string } | undefined
       if (!row) {
+        const auditDiff = getRemoteEditAuditDiff(reportId, relativePath)
+        if (auditDiff) {
+          reply({
+            event: 'self-heal:staged-diff',
+            data: { reportId, ...auditDiff },
+          })
+          return
+        }
         reply({ event: 'self-heal:staged-diff', data: { reportId, relativePath, hunks: null } })
         return
       }
@@ -731,12 +746,18 @@ export function registerWsHandlers(): void {
       const id = typeof data.id === 'string' ? data.id : ''
       if (!id) return
       const existing = db.prepare('SELECT config_json FROM projects WHERE id = ?').get(id) as { config_json: string | null } | undefined
-      const current = existing?.config_json ? (JSON.parse(existing.config_json) as Record<string, unknown>) : {}
+      const current = { ...parseProjectConfig(existing?.config_json ?? null) } as Record<string, unknown>
       const patch: Record<string, unknown> = {}
       if (typeof data.instructions === 'string') patch.instructions = data.instructions
       if (typeof data.rootDirectory === 'string') patch.rootDirectory = data.rootDirectory
       if (Array.isArray(data.variables)) patch.variables = data.variables
-      if (typeof data.orchestrationEnabled === 'boolean') patch.orchestrationEnabled = data.orchestrationEnabled
+      if (typeof data.workflowMode === 'string' && ['single-agent', 'manual-delegation', 'orchestrated'].includes(data.workflowMode)) {
+        patch.workflowMode = data.workflowMode
+        patch.orchestrationEnabled = data.workflowMode === 'orchestrated'
+      } else if (typeof data.orchestrationEnabled === 'boolean') {
+        patch.orchestrationEnabled = data.orchestrationEnabled
+        patch.workflowMode = data.orchestrationEnabled ? 'orchestrated' : 'single-agent'
+      }
       if (typeof data.maxDelegationDepth === 'number') patch.maxDelegationDepth = Math.max(1, Math.min(10, data.maxDelegationDepth))
       if (typeof data.showTeamActivity === 'boolean') patch.showTeamActivity = data.showTeamActivity
       if (typeof data.defaultModel === 'string') patch.defaultModel = data.defaultModel
@@ -747,7 +768,7 @@ export function registerWsHandlers(): void {
       if (Array.isArray(data.milestones)) patch.milestones = data.milestones
       const merged = { ...current, ...patch }
       db.prepare('UPDATE projects SET config_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(merged), Date.now(), id)
-      broadcastToMobile({ event: 'project:config-updated', data: { id } })
+      broadcastToMobile({ event: 'project:config-updated', data: { id, config: parseProjectConfig(JSON.stringify(merged)) } })
       return
     }
 
@@ -755,8 +776,33 @@ export function registerWsHandlers(): void {
       const id = typeof data.id === 'string' ? data.id : ''
       if (!id) return
       const row = db.prepare('SELECT config_json FROM projects WHERE id = ?').get(id) as { config_json: string | null } | undefined
-      const config = row?.config_json ? (JSON.parse(row.config_json) as Record<string, unknown>) : {}
+      const config = parseProjectConfig(row?.config_json ?? null)
       reply({ event: 'project:config', data: { id, config } })
+      return
+    }
+
+    if (command === 'project-audit:list-sessions') {
+      const projectId = typeof data.projectId === 'string'
+        ? data.projectId
+        : data.projectId === null
+          ? null
+          : undefined
+      reply({ event: 'project-audit:sessions', data: { projectId: projectId ?? null, sessions: listProjectAuditSessions(projectId) } })
+      return
+    }
+
+    if (command === 'project-audit:list-files') {
+      const sessionId = typeof data.sessionId === 'string' ? data.sessionId : ''
+      if (!sessionId) return
+      reply({ event: 'project-audit:files', data: { sessionId, files: listProjectAuditFiles(sessionId) } })
+      return
+    }
+
+    if (command === 'project-audit:get-diff') {
+      const sessionId = typeof data.sessionId === 'string' ? data.sessionId : ''
+      const relativePath = typeof data.relativePath === 'string' ? data.relativePath : ''
+      if (!sessionId || !relativePath) return
+      reply({ event: 'project-audit:diff', data: { sessionId, diff: getProjectAuditDiff(sessionId, relativePath) } })
       return
     }
 
@@ -1898,6 +1944,61 @@ export function registerWsHandlers(): void {
     if (command === 'artifact-generator:cancel') {
       const sessionId = typeof data.sessionId === 'string' ? data.sessionId : undefined
       broadcastToMobile({ event: 'artifact-generator:cancelled', data: { sessionId } })
+      return
+    }
+
+    if (command === 'manual-workflow-generator:start' || command === 'manual-workflow-generator:message') {
+      const projectId = typeof data.projectId === 'string' ? data.projectId.trim() : ''
+      if (!projectId) {
+        const sessionId = typeof data.sessionId === 'string' ? data.sessionId : undefined
+        broadcastToMobile({ event: 'manual-workflow-generator:error', data: { sessionId, message: 'Missing projectId' } })
+        return
+      }
+      const rawMessages = Array.isArray(data.messages) ? data.messages : []
+      const messages: ManualWorkflowGeneratorMessage[] = rawMessages
+        .filter((m): m is Record<string, unknown> => typeof m === 'object' && m !== null)
+        .map((m) => ({
+          role: m.role === 'assistant' ? 'assistant' : 'user',
+          content: typeof m.content === 'string' ? m.content : '',
+        }))
+      const sessionId = typeof data.sessionId === 'string' && data.sessionId.trim()
+        ? data.sessionId.trim()
+        : `android-manual-workflow-${Date.now()}`
+      const modelOverride = typeof data.model === 'string' && data.model.trim() ? data.model.trim() : undefined
+      if (command === 'manual-workflow-generator:start') {
+        try {
+          const resolvedModel = modelOverride ?? getManualWorkflowGeneratorModel()
+          broadcastToMobile({ event: 'manual-workflow-generator:model', data: { sessionId, modelId: resolvedModel } })
+        } catch { /* no configured provider; generator error will surface */ }
+      }
+      void runManualWorkflowGeneratorChatForAndroid(projectId, messages, sessionId, modelOverride)
+        .catch((err: unknown) => {
+          broadcastToMobile({ event: 'manual-workflow-generator:error', data: { sessionId, message: String(err) } })
+        })
+      return
+    }
+
+    if (command === 'manual-workflow-generator:cancel') {
+      const sessionId = typeof data.sessionId === 'string' ? data.sessionId : undefined
+      broadcastToMobile({ event: 'manual-workflow-generator:cancelled', data: { sessionId } })
+      return
+    }
+
+    if (command === 'manual-workflow-generator:get-model') {
+      const sessionId = typeof data.sessionId === 'string' ? data.sessionId : undefined
+      try {
+        broadcastToMobile({ event: 'manual-workflow-generator:model', data: { sessionId, modelId: getManualWorkflowGeneratorModel() } })
+      } catch (err) {
+        broadcastToMobile({ event: 'manual-workflow-generator:error', data: { sessionId, message: err instanceof Error ? err.message : String(err) } })
+      }
+      return
+    }
+
+    if (command === 'manual-workflow-generator:set-model') {
+      const sessionId = typeof data.sessionId === 'string' ? data.sessionId : undefined
+      const modelId = typeof data.modelId === 'string' ? data.modelId : ''
+      setManualWorkflowGeneratorModel(modelId)
+      broadcastToMobile({ event: 'manual-workflow-generator:model', data: { sessionId, modelId: getManualWorkflowGeneratorModel() } })
       return
     }
 
