@@ -73,6 +73,7 @@ import java.io.File
 fun ArtifactsScreen(
     onBack: () -> Unit,
     projectId: String? = null,
+    initialArtifactId: String? = null,
     onOpenGenerator: (() -> Unit)? = null,
     vm: ArtifactsViewModel = viewModel(),
 ) {
@@ -122,6 +123,12 @@ fun ArtifactsScreen(
     }
 
     LaunchedEffect(projectId) { vm.refresh(projectId) }
+    LaunchedEffect(initialArtifactId, artifacts) {
+        val artifactId = initialArtifactId?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+        if (artifacts.any { it.id == artifactId } && selected?.id != artifactId) {
+            vm.selectArtifact(artifactId)
+        }
+    }
     LifecycleResumeEffect(projectId) {
         vm.refresh(projectId)
         onPauseOrDispose {}
@@ -157,7 +164,7 @@ fun ArtifactsScreen(
                 onBack = onBack,
                 actions = {
                     if (onOpenGenerator != null) {
-                        TextButton(onClick = onOpenGenerator) { Text("Generate") }
+                        TextButton(onClick = onOpenGenerator) { Text("Generator") }
                     }
                     if (artifacts.isNotEmpty()) {
                         IconButton(onClick = { showSortSheet = true }) {
@@ -189,7 +196,7 @@ fun ArtifactsScreen(
                     } else {
                         NexyEmptyState(
                             title = if (error != null) "Connection error" else "No artifacts yet.",
-                            detail = error ?: "Generated project artifacts will appear here.",
+                            detail = error ?: "Saved and generated artifacts will appear here.",
                             action = {
                                 TextButton(onClick = { vm.refresh(projectId) }) { Text("Retry") }
                             },

@@ -861,6 +861,29 @@ object WsRepository : WsClient {
     fun getArtifact(id: String) { send("artifact:get", mapOf("id" to id)) }
     fun listArtifactVersions(artifactId: String) { send("artifact:list-versions", mapOf("artifactId" to artifactId)) }
     fun deleteArtifact(id: String) { send("artifact:delete", mapOf("id" to id)) }
+    fun promoteArtifactMessage(
+        conversationId: String,
+        messageId: String,
+        title: String,
+        kind: String,
+        scopeType: String,
+        scopeProjectId: String?,
+        filePath: String,
+    ) {
+        val scope = mutableMapOf<String, Any>("type" to scopeType)
+        if (!scopeProjectId.isNullOrBlank()) scope["projectId"] = scopeProjectId
+        send(
+            "artifact:promote-message",
+            mapOf(
+                "conversationId" to conversationId,
+                "messageId" to messageId,
+                "title" to title,
+                "kind" to kind,
+                "scope" to scope,
+                "filePath" to filePath,
+            )
+        )
+    }
     fun exportArtifact(versionId: String) { send("artifact:export", mapOf("versionId" to versionId)) }
 
     fun getProjectConfig(id: String) { send("project:get-config", mapOf("id" to id)) }

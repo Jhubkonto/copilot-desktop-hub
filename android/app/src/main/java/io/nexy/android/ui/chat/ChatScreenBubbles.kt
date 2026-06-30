@@ -302,6 +302,7 @@ fun MessageBubble(
     onEditAssistant: (() -> Unit)? = null,
     onBranch: (() -> Unit)? = null,
     onAddToProject: (() -> Unit)? = null,
+    onSaveAsArtifact: (() -> Unit)? = null,
     onShare: (() -> Unit)? = null,
     onReadAloud: (() -> Unit)? = null,
     onInvestigateWithAi: (() -> Unit)? = null,
@@ -334,6 +335,7 @@ fun MessageBubble(
                     if (onEditAssistant != null) DropdownMenuItem(text = { Text("Edit message") }, onClick = { menuExpanded = false; onEditAssistant() })
                     if (onBranch != null) DropdownMenuItem(text = { Text("Branch in new chat") }, onClick = { menuExpanded = false; onBranch() })
                     if (onAddToProject != null) DropdownMenuItem(text = { Text("Add to project sources") }, onClick = { menuExpanded = false; onAddToProject() })
+                    if (onSaveAsArtifact != null) DropdownMenuItem(text = { Text("Save as artifact") }, onClick = { menuExpanded = false; onSaveAsArtifact() })
                     if (onInvestigateWithAi != null) DropdownMenuItem(text = { Text("Remote Edit") }, onClick = { menuExpanded = false; onInvestigateWithAi() })
                     if (onReadAloud != null) DropdownMenuItem(text = { Text("Read aloud") }, onClick = { menuExpanded = false; onReadAloud() })
                     if (onDelete != null) DropdownMenuItem(text = { Text("Delete") }, onClick = { menuExpanded = false; onDelete() })
@@ -421,6 +423,7 @@ fun MessageBubble(
                             if (onEditAssistant != null) DropdownMenuItem(text = { Text("Edit message") }, onClick = { overflowExpanded = false; onEditAssistant() })
                             if (onBranch != null) DropdownMenuItem(text = { Text("Branch in new chat") }, onClick = { overflowExpanded = false; onBranch() })
                             if (onAddToProject != null) DropdownMenuItem(text = { Text("Add to project sources") }, onClick = { overflowExpanded = false; onAddToProject() })
+                            if (onSaveAsArtifact != null) DropdownMenuItem(text = { Text("Save as artifact") }, onClick = { overflowExpanded = false; onSaveAsArtifact() })
                             if (onInvestigateWithAi != null) DropdownMenuItem(text = { Text("Remote Edit") }, onClick = { overflowExpanded = false; onInvestigateWithAi() })
                             DropdownMenuItem(text = { Text("Delete") }, onClick = { overflowExpanded = false; onDelete?.invoke() }, enabled = onDelete != null)
                         }

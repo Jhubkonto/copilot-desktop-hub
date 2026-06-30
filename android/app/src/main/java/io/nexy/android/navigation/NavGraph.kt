@@ -190,7 +190,7 @@ fun NavGraph(
                     navController.navigate("agent-generator")
                 },
                 onOpenArtifacts = {
-                    navController.navigate("artifacts")
+                    navController.navigate("artifacts?artifactId=")
                 },
                 onOpenSkills = {
                     navController.navigate("skills")
@@ -284,6 +284,9 @@ fun NavGraph(
                 agentId = agentId,
                 projectId = projectId,
                 onBack = { navController.popBackStack() },
+                onOpenArtifacts = { artifactId ->
+                    navController.navigate("artifacts?artifactId=${Uri.encode(artifactId.orEmpty())}")
+                },
                 onOpenFork = { forkedId -> navController.navigate("chat/$forkedId") },
                 onOpenRemoteEditWithPrefill = { prefill ->
                     navController.navigate("remote-edit/start?prefill=${Uri.encode(prefill)}")
@@ -400,7 +403,7 @@ fun NavGraph(
                 isNew = projectId == newProjectId,
                 onOpenAudit = { navController.navigate("project-audit/${Uri.encode(projectId)}") },
                 onOpenWiki = { navController.navigate("wiki/${Uri.encode(projectId)}") },
-                onOpenArtifacts = { navController.navigate("artifacts") },
+                onOpenArtifacts = { navController.navigate("artifacts?artifactId=") },
             )
         }
 
@@ -415,9 +418,19 @@ fun NavGraph(
             )
         }
 
-        composable("artifacts") {
+        composable(
+            route = "artifacts?artifactId={artifactId}",
+            arguments = listOf(
+                navArgument("artifactId") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+            ),
+        ) { backStackEntry ->
+            val artifactId = backStackEntry.arguments?.getString("artifactId")?.takeIf { it.isNotBlank() }
             ArtifactsScreen(
                 onBack = { navController.popBackStack() },
+                initialArtifactId = artifactId,
                 onOpenGenerator = { navController.navigate("artifact-generator") },
             )
         }
@@ -427,7 +440,7 @@ fun NavGraph(
                 onBack = { navController.popBackStack() },
                 onViewArtifacts = {
                     navController.popBackStack()
-                    navController.navigate("artifacts")
+                    navController.navigate("artifacts?artifactId=")
                 },
             )
         }

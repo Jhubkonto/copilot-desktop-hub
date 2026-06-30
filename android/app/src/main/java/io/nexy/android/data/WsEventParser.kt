@@ -909,6 +909,18 @@ fun parseWsEvent(
                 deleted = data?.optBoolean("deleted", false) ?: false,
             )
 
+            "artifact:promoted" -> WsEvent.ArtifactPromoted(
+                artifactId = data?.optString("artifactId") ?: "",
+                versionId = data?.optString("versionId") ?: "",
+                title = data?.optString("title") ?: "",
+                messageId = data?.nullableString("messageId"),
+            )
+
+            "artifact:promote-error" -> WsEvent.ArtifactPromoteError(
+                message = data?.optString("message") ?: "Artifact promotion failed",
+                messageId = data?.nullableString("messageId"),
+            )
+
             "artifact:export-pack" -> {
                 val versionId = data?.optString("versionId") ?: ""
                 val arr = data?.optJSONArray("files") ?: org.json.JSONArray()

@@ -113,6 +113,7 @@ fun ChatScreen(
     agentId: String? = null,
     projectId: String? = null,
     onBack: () -> Unit,
+    onOpenArtifacts: ((String?) -> Unit)? = null,
     onOpenFork: ((String) -> Unit)? = null,
     onOpenRemoteEditWithPrefill: ((String) -> Unit)? = null,
     vm: ChatViewModel = viewModel(
@@ -175,6 +176,12 @@ fun ChatScreen(
     var addToProjectTitle by remember { mutableStateOf("") }
     var branchPending by remember { mutableStateOf(false) }
     var investigateMessage by remember { mutableStateOf<ChatMessage?>(null) }
+    var promoteArtifactMessage by remember { mutableStateOf<ChatMessage?>(null) }
+    var promoteArtifactTitle by remember { mutableStateOf("") }
+    var promoteArtifactKind by remember { mutableStateOf("document") }
+    var promoteArtifactScopeType by remember { mutableStateOf("global") }
+    var promoteArtifactFilePath by remember { mutableStateOf("output.md") }
+    var pendingPromotedMessageId by remember { mutableStateOf<String?>(null) }
     var pendingApproval by remember { mutableStateOf<io.nexy.android.data.model.WsEvent.ToolApprovalRequest?>(null) }
     val promptEntries by WsRepository.promptEntries.collectAsState()
     var relaunchFilePicker by remember { mutableStateOf(false) }
@@ -433,6 +440,25 @@ fun ChatScreen(
                         pendingApproval = null
                     }
                 }
+                is io.nexy.android.data.model.WsEvent.ArtifactPromoted -> {
+                    if (pendingPromotedMessageId != null && event.messageId == pendingPromotedMessageId) {
+                        pendingPromotedMessageId = null
+                        promoteArtifactMessage = null
+                        val result = snackbarHostState.showSnackbar(
+                            message = "Artifact saved",
+                            actionLabel = "View",
+                        )
+                        if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+                            onOpenArtifacts?.invoke(event.artifactId)
+                        }
+                    }
+                }
+                is io.nexy.android.data.model.WsEvent.ArtifactPromoteError -> {
+                    if (pendingPromotedMessageId != null && event.messageId == pendingPromotedMessageId) {
+                        pendingPromotedMessageId = null
+                        snackbarHostState.showSnackbar(event.message)
+                    }
+                }
                 else -> {}
             }
         }
@@ -469,6 +495,18 @@ fun ChatScreen(
     val backendLockLabel = agentBackendLockLabel(chatAgent)
     val backendLockDetail = agentBackendLockDetail(chatAgent)
     val connectionBanner = connectionState != ConnectionState.CONNECTED
+
+    fun suggestedArtifactTitle(text: String): String {
+        val heading = Regex("""(?m)^\s{0,3}#{1,6}\s+(.+?)\s*$""").find(text)?.groupValues?.getOrNull(1)?.trim()
+        return heading ?: conversation?.title?.takeIf { it.isNotBlank() } ?: "New Artifact"
+    }
+
+    fun suggestedArtifactFilePath(kind: String): String = when (kind) {
+        "prompt" -> "prompt.md"
+        "code" -> "output.ts"
+        "other" -> "output.txt"
+        else -> "output.md"
+    }
 
     if (showModelSheet) {
         ModalBottomSheet(
@@ -764,6 +802,89 @@ fun ChatScreen(
         }
     }
 
+    promoteArtifactMessage?.let { message ->
+        val chatProjectId = conversation?.project_id ?: projectId
+        AlertDialog(
+            onDismissRequest = {
+                if (pendingPromotedMessageId == null) {
+                    promoteArtifactMessage = null
+                }
+            },
+            title = { Text("Save as artifact") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Save this assistant response as a versioned artifact.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedTextField(
+                        value = promoteArtifactTitle,
+                        onValueChange = { promoteArtifactTitle = it },
+                        label = { Text("Title") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = promoteArtifactKind,
+                        onValueChange = {
+                            promoteArtifactKind = it
+                            promoteArtifactFilePath = suggestedArtifactFilePath(it)
+                        },
+                        label = { Text("Kind") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = promoteArtifactScopeType,
+                        onValueChange = { promoteArtifactScopeType = if (it == "project") "project" else "global" },
+                        label = { Text("Scope (global or project)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = promoteArtifactFilePath,
+                        onValueChange = { promoteArtifactFilePath = it },
+                        label = { Text("File path") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (promoteArtifactScopeType == "project" && chatProjectId.isNullOrBlank()) {
+                        Text(
+                            "This chat is not attached to a project, so only global scope is available.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val scopeType = if (promoteArtifactScopeType == "project" && !chatProjectId.isNullOrBlank()) "project" else "global"
+                        pendingPromotedMessageId = message.id
+                        WsRepository.promoteArtifactMessage(
+                            conversationId = conversationId,
+                            messageId = message.id,
+                            title = promoteArtifactTitle.trim(),
+                            kind = promoteArtifactKind.trim().ifBlank { "document" },
+                            scopeType = scopeType,
+                            scopeProjectId = if (scopeType == "project") chatProjectId else null,
+                            filePath = promoteArtifactFilePath.trim(),
+                        )
+                    },
+                    enabled = pendingPromotedMessageId == null && promoteArtifactFilePath.isNotBlank(),
+                ) { Text(if (pendingPromotedMessageId == null) "Save" else "Saving…") }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { promoteArtifactMessage = null },
+                    enabled = pendingPromotedMessageId == null,
+                ) { Text("Cancel") }
+            },
+        )
+    }
+
     val tts = remember(context) {
         var engine: TextToSpeech? = null
         engine = TextToSpeech(context) { status ->
@@ -1011,11 +1132,11 @@ fun ChatScreen(
                                         onEdit = null,
                                         onResend = null,
                                         onDelete = if (msg.id.isNotBlank()) { { deletingMessage = msg } } else null,
-                                        onDeleteAfter = if (msg.id.isNotBlank() && msg.timestamp > 0L) { { deleteAfterMessage = msg } } else null,
-                                        isHighlighted = false,
-                                        onRetry = if (precedingUserText != null) {
-                                            { vm.sendMessage(precedingUserText) }
-                                        } else null,
+                                    onDeleteAfter = if (msg.id.isNotBlank() && msg.timestamp > 0L) { { deleteAfterMessage = msg } } else null,
+                                    isHighlighted = false,
+                                    onRetry = if (precedingUserText != null) {
+                                        { vm.sendMessage(precedingUserText) }
+                                    } else null,
                                         onEditAssistant = if (msg.text.isNotBlank()) {
                                             { input = msg.text; vm.setDraft(msg.text) }
                                         } else null,
@@ -1024,6 +1145,15 @@ fun ChatScreen(
                                         } else null,
                                         onAddToProject = if (chatProjectId != null && msg.text.isNotBlank()) {
                                             { addToProjectMessage = msg; addToProjectTitle = "" }
+                                        } else null,
+                                        onSaveAsArtifact = if (msg.text.isNotBlank()) {
+                                            {
+                                                promoteArtifactMessage = msg
+                                                promoteArtifactTitle = suggestedArtifactTitle(msg.text)
+                                                promoteArtifactKind = "document"
+                                                promoteArtifactScopeType = if (!chatProjectId.isNullOrBlank()) "project" else "global"
+                                                promoteArtifactFilePath = suggestedArtifactFilePath("document")
+                                            }
                                         } else null,
                                         onInvestigateWithAi = if (msg.text.isNotBlank() && onOpenRemoteEditWithPrefill != null) {
                                             { investigateMessage = msg }
