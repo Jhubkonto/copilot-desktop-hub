@@ -54,7 +54,7 @@ function formatBuildFailureReport(record: BuildRecord): { title: string; descrip
   return {
     title: `Build failed: ${record.command}`,
     description: [
-      'A Developer build command failed and was sent to Remote Edit.',
+      'A Developer build command failed and was added to Code Changes.',
       '',
       '## Build context',
       `- Source: developer-build`,
@@ -576,13 +576,16 @@ export function SettingsPanel() {
         description: report.description,
         includeLog: true,
         includeScreenshot: false,
+        requestType: 'bugfix',
+        origin: 'build-failure',
+        workspaceRoot: record.workspacePath,
       })
       setPendingRemoteEditReportId(result.reportId)
       setShowSettings(false)
       setShowRemoteEditPanel(true)
-      addToast('Remote Edit report created from build failure', 'success')
+      addToast('Code change request created from build failure', 'success')
     } catch {
-      addToast('Failed to create Remote Edit report from build failure', 'error')
+      addToast('Failed to create code change request from build failure', 'error')
     } finally {
       setRemoteEditReportingBuildId(null)
     }

@@ -212,7 +212,7 @@ export function OnboardingModal({ onComplete }: OnboardingProps) {
                   <li className="flex items-center gap-2"><Bot className="w-3.5 h-3.5 text-gray-400 shrink-0" /> Create custom agents with unique personalities</li>
                   <li className="flex items-center gap-2"><Plug className="w-3.5 h-3.5 text-gray-400 shrink-0" /> Connect MCP servers for extended capabilities</li>
                   <li className="flex items-center gap-2"><Wrench className="w-3.5 h-3.5 text-gray-400 shrink-0" /> Use built-in tools (file editing, terminal, web fetch)</li>
-                  <li className="flex items-center gap-2"><ShieldCheck className="w-3.5 h-3.5 text-gray-400 shrink-0" /> Remote Edit: investigate, fix, and verify app changes remotely (sidebar)</li>
+                  <li className="flex items-center gap-2"><ShieldCheck className="w-3.5 h-3.5 text-gray-400 shrink-0" /> Code Changes: connect a repo, review staged patches, verify, and commit (sidebar)</li>
                   <li className="flex items-center gap-2"><Sparkles className="w-3.5 h-3.5 text-gray-400 shrink-0" /> Project Generator: scaffold projects, roles, and milestones from a guided prompt (sidebar)</li>
                   <li className="flex items-center gap-2"><Package className="w-3.5 h-3.5 text-gray-400 shrink-0" /> Artifacts: save, browse, and export reusable docs, code, prompts, and plans (sidebar)</li>
                   <li className="flex items-center gap-2"><span className="w-3.5 text-center text-gray-400 shrink-0 text-xs">⌨</span> Press <kbd className="px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-xs font-mono">

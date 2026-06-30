@@ -20,7 +20,15 @@ import type {
   RemoteEditVerificationEvent,
   RemoteEditVerificationRun,
   RemoteEditVerificationStep,
+  WorkspaceInfo,
+  CodeChangeRequestType,
 } from '@shared/types'
+import {
+  CODE_CHANGE_PHASE_GUIDANCE,
+  CODE_CHANGE_PHASE_LABELS,
+  deriveCodeChangePhase,
+  toCodeChangeRequest,
+} from '@shared/code-changes'
 import { useAppStore } from '../store/app-store'
 import { Button, ModalShell, PhaseBar } from './ui/primitives'
 import { ModelPicker } from './chat/ModelPicker'
@@ -103,7 +111,7 @@ function RemoteEditDiffViewer({
     <div className="space-y-3 pt-1">
       <div className="flex items-center justify-between">
         <p className="text-[11px] font-medium text-gray-700 dark:text-gray-300">
-          Fix staging
+          Staged patch
           {' '}
           <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
             report.fix_status === 'applied' ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300' :
@@ -118,13 +126,13 @@ function RemoteEditDiffViewer({
             disabled={fixRunning !== null}
             className="text-[11px] px-2 py-1 rounded-md border border-blue-300 text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-950/30 disabled:opacity-50"
           >
-            {fixRunning === report.id ? 'Generating...' : 'Retry Fix'}
+            {fixRunning === report.id ? 'Generating...' : 'Regenerate patch'}
           </button>
         ) : null}
       </div>
 
       {report.fix_status === 'staging' && (
-        <p className="text-[11px] text-gray-400">{fixStatus ?? 'Generating fix...'}</p>
+        <p className="text-[11px] text-gray-400">{fixStatus ?? 'Generating patch...'}</p>
       )}
 
       {stagedFiles.length > 0 && (
@@ -232,7 +240,7 @@ function RemoteEditDiffViewer({
       {report.fix_status === 'applied' && (
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-[11px] text-green-600 dark:text-green-400">Fix applied to workspace. Backups saved.</p>
+            <p className="text-[11px] text-green-600 dark:text-green-400">Selected changes applied to the workspace. Backups were saved.</p>
             <button
               onClick={() => void onStartVerification(report.id)}
               disabled={verificationRunning !== null}
@@ -308,7 +316,7 @@ function RemoteEditDiffViewer({
                       disabled={!gitPrepare.canCommit || gitRunning !== null}
                       className="text-[11px] px-2 py-1"
                     >
-                      {gitRunning === 'commit' ? 'Committing...' : 'Commit fix'}
+                      {gitRunning === 'commit' ? 'Committing...' : 'Commit changes'}
                     </Button>
                     <Button
                       variant="secondary"
@@ -391,7 +399,7 @@ function RemoteEditDiffViewer({
                   disabled={fixRunning !== null}
                   className="text-[11px] px-2 py-1 rounded-md bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
                 >
-                  {fixRunning === report.id ? 'Generating...' : 'Back to fix & retry'}
+                  {fixRunning === report.id ? 'Generating...' : 'Revise patch'}
                 </button>
                 <button
                   onClick={() => void onStartVerification(report.id)}
@@ -417,60 +425,21 @@ function RemoteEditDiffViewer({
 // Phase progress bar
 // ---------------------------------------------------------------------------
 
-type RemoteEditPhase =
-  | 'captured'
-  | 'investigating'
-  | 'plan-accepted'
-  | 'fixing'
-  | 'verifying'
-  | 'verify-failed'
-  | 'committed'
-  | 'reloaded'
+const CODE_CHANGE_PHASE_ORDER = [
+  'draft', 'investigating', 'patch-ready', 'applied', 'verifying', 'ready-to-commit', 'committed',
+] as const
 
-const REMOTE_EDIT_PHASE_ORDER: RemoteEditPhase[] = [
-  'captured', 'investigating', 'plan-accepted', 'fixing', 'verifying', 'committed', 'reloaded',
-]
-
-function deriveRemoteEditPhase(
-  report: ErrorReportEntry,
-  verificationRun: RemoteEditVerificationRun | null,
-  recoveryRun: RemoteEditRecoveryRun | null,
-  gitCommitted: boolean,
-): RemoteEditPhase {
-  if (recoveryRun?.status === 'reloading' || recoveryRun?.status === 'confirmed') return 'reloaded'
-  if (gitCommitted) return 'committed'
-  if (verificationRun?.status === 'failed') return 'verify-failed'
-  if (verificationRun?.status === 'success') return 'committed' // verified, awaiting git review — grouped with commit phase
-  if (report.fix_status === 'applied') return 'verifying'
-  if (['staging', 'staged', 'applying', 'failed'].includes(report.fix_status)) return 'fixing'
-  if (report.status === 'investigated') return 'plan-accepted'
-  if (report.status === 'investigating' || report.investigation_markdown) return 'investigating'
-  return 'captured'
-}
-
-const REMOTE_EDIT_PHASE_STEPS: { id: RemoteEditPhase; label: string }[] = [
-  { id: 'captured', label: 'Captured' },
-  { id: 'investigating', label: 'Investigating' },
-  { id: 'plan-accepted', label: 'Plan accepted' },
-  { id: 'fixing', label: 'Fixing' },
-  { id: 'verifying', label: 'Verified' },
-  { id: 'committed', label: 'Committed' },
-  { id: 'reloaded', label: 'Reloaded' },
-]
-
-function RemoteEditPhaseBar({ phase }: { phase: RemoteEditPhase }) {
-  const currentIndex = phase === 'verify-failed'
-    ? REMOTE_EDIT_PHASE_ORDER.indexOf('verifying')
-    : REMOTE_EDIT_PHASE_ORDER.indexOf(phase)
-  const steps = REMOTE_EDIT_PHASE_STEPS.map((step) =>
-    step.id === 'verifying' && phase === 'verify-failed' ? { ...step, label: 'Verify failed' } : step,
-  )
+function CodeChangePhaseBar({ phase }: { phase: ReturnType<typeof deriveCodeChangePhase> }) {
+  const currentIndex = phase === 'needs-attention'
+    ? CODE_CHANGE_PHASE_ORDER.indexOf('verifying')
+    : Math.max(0, CODE_CHANGE_PHASE_ORDER.indexOf(phase as (typeof CODE_CHANGE_PHASE_ORDER)[number]))
+  const steps = CODE_CHANGE_PHASE_ORDER.map((id) => ({ id, label: CODE_CHANGE_PHASE_LABELS[id] }))
 
   return (
     <PhaseBar
       steps={steps}
       currentIndex={currentIndex}
-      failedId={phase === 'verify-failed' ? 'verifying' : undefined}
+      failedId={phase === 'needs-attention' ? 'verifying' : undefined}
     />
   )
 }
@@ -527,8 +496,35 @@ export function RemoteEditPanel() {
   const [reviewAction, setReviewAction] = useState<'accept' | 'reject' | 'revise' | null>(null)
   const [deletingReportId, setDeletingReportId] = useState<string | null>(null)
   const [pendingDeleteReport, setPendingDeleteReport] = useState<ErrorReportEntry | null>(null)
+  const [workspaceInfo, setWorkspaceInfo] = useState<WorkspaceInfo | null>(null)
+  const [newRequestTitle, setNewRequestTitle] = useState('')
+  const [newRequestDescription, setNewRequestDescription] = useState('')
+  const [creatingRequest, setCreatingRequest] = useState(false)
+  const [newRequestType, setNewRequestType] = useState<CodeChangeRequestType>('edit')
 
   const selectedReport = reports.find((report) => report.id === selectedReportId) ?? reports[0] ?? null
+  const workspaceBinding = {
+    rootDirectory: workspaceInfo?.path ?? '',
+    isGitRepo: workspaceInfo?.isGitRepo ?? false,
+    repoRoot: workspaceInfo?.isGitRepo ? workspaceInfo.path : null,
+    branch: workspaceInfo?.branch ?? null,
+    dirty: workspaceInfo?.dirty ?? false,
+    isConnected: Boolean(workspaceInfo?.path),
+    lastValidatedAt: workspaceInfo ? Date.now() : null,
+  }
+  const selectedRequest = selectedReport
+    ? toCodeChangeRequest(selectedReport, {
+        projectId: null,
+        workspaceRoot: workspaceBinding.rootDirectory || null,
+      })
+    : null
+  const selectedPhase = selectedReport
+    ? deriveCodeChangePhase(
+        selectedReport,
+        verificationRuns[selectedReport.id]?.[0] ?? null,
+        gitPrepare[selectedReport.id]?.canCommit === false,
+      )
+    : null
   const remoteEditModelGroups = availableModelGroups.filter((group) => {
     if (investigationSettings.backend === 'claude-cli') return group.sourceKey === 'claude-cli'
     if (investigationSettings.backend === 'codex-cli') return group.sourceKey === 'codex-cli'
@@ -581,10 +577,10 @@ export function RemoteEditPanel() {
 
   const handleRefreshReports = async () => {
     setReportsRefreshing(true)
-    setInvestigationStatus('Refreshing reports...')
+    setInvestigationStatus('Refreshing change requests...')
     try {
       await loadReports()
-      setInvestigationStatus('Reports refreshed')
+      setInvestigationStatus('Change requests refreshed')
     } catch (error) {
       setInvestigationStatus(error instanceof Error ? error.message : String(error))
     } finally {
@@ -643,6 +639,42 @@ export function RemoteEditPanel() {
     setRecoveryRuns((prev) => ({ ...prev, [reportId]: runs }))
   }
 
+  const refreshWorkspace = async () => {
+    const info = await window.api.buildGetWorkspaceInfo()
+    setWorkspaceInfo(info)
+  }
+
+  const handleConnectWorkspace = async () => {
+    const paths = await window.api.openDirectoryDialog()
+    const selectedPath = paths[0]
+    if (!selectedPath) return
+    const info = await window.api.buildSetWorkspacePath(selectedPath)
+    setWorkspaceInfo(info)
+    addToast(`Connected workspace: ${info.path}`, 'success')
+  }
+
+  const handleCreateRequest = async () => {
+    if (!workspaceBinding.isConnected || !newRequestTitle.trim()) return
+    setCreatingRequest(true)
+    try {
+      const result = await window.api.captureErrorReport({
+        title: newRequestTitle.trim(),
+        description: newRequestDescription.trim(),
+        includeLog: false,
+        includeScreenshot: false,
+        requestType: newRequestType,
+        origin: 'manual',
+        workspaceRoot: workspaceBinding.rootDirectory,
+      })
+      setNewRequestTitle('')
+      setNewRequestDescription('')
+      await loadReports(result.reportId)
+      setInvestigationStatus('Change request created')
+    } finally {
+      setCreatingRequest(false)
+    }
+  }
+
   useEffect(() => {
     if (!visible) return
     if (
@@ -654,6 +686,7 @@ export function RemoteEditPanel() {
     void loadReports()
     void loadRemoteEditHistory()
     void loadAvailableModels()
+    void refreshWorkspace()
     window.api.getInvestigationSettings().then(setInvestigationSettings).catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, pendingRemoteEditReportId])
@@ -705,7 +738,7 @@ export function RemoteEditPanel() {
     })
     const offDone = window.api.onFixDone((result: RemoteEditFixDone) => {
       setFixRunning(null)
-      setFixStatus(result.status === 'done' ? 'Fix staging complete' : result.error ?? 'Fix failed')
+      setFixStatus(result.status === 'done' ? 'Staged patch ready' : result.error ?? 'Patch generation failed')
       void loadReports()
     })
     return () => {
@@ -844,7 +877,7 @@ export function RemoteEditPanel() {
 
   const handleStartFix = async (reportId: string) => {
     setFixRunning(reportId)
-    setFixStatus('Generating fix...')
+    setFixStatus('Generating staged patch...')
     setStagedDiffs({})
     setReviewedFiles({})
     setExpandedDiffFile(null)
@@ -1046,7 +1079,7 @@ export function RemoteEditPanel() {
   const handleDeleteReport = async (reportId: string) => {
     if (typeof window.api.deleteErrorReport !== 'function') return
     setDeletingReportId(reportId)
-    setInvestigationStatus('Deleting report...')
+    setInvestigationStatus('Deleting change request...')
     try {
       const deleted = await window.api.deleteErrorReport(reportId)
       if (!deleted) {
@@ -1060,7 +1093,7 @@ export function RemoteEditPanel() {
       setRecoveryRuns((prev) => { const next = { ...prev }; delete next[reportId]; return next })
       setGitPrepare((prev) => { const next = { ...prev }; delete next[reportId]; return next })
       setGitMessage((prev) => { const next = { ...prev }; delete next[reportId]; return next })
-      setInvestigationStatus('Report deleted')
+      setInvestigationStatus('Change request deleted')
       setPendingDeleteReport(null)
       await loadReports(null)
       await loadRemoteEditHistory()
@@ -1080,13 +1113,92 @@ export function RemoteEditPanel() {
   return (
     <>
     <ModalShell
-      title="Remote Edit"
-      description="Describe a change or problem, apply an AI fix, review the diff, and commit."
+      title="Code Changes"
+      description="Connect a repo, create a change request, review staged patches, verify, and commit."
       icon={<Wrench className="w-3.5 h-3.5" />}
       maxWidth="max-w-7xl"
       onClose={onClose}
     >
       <div className="space-y-4">
+        <div className={`rounded-lg border p-4 ${
+          workspaceBinding.isConnected
+            ? 'border-gray-200 dark:border-gray-700'
+            : 'border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/20'
+        }`}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-gray-700 dark:text-gray-200">
+                {workspaceBinding.isConnected ? 'Connected workspace' : 'Connect a workspace to begin'}
+              </p>
+              <p className="mt-1 truncate font-mono text-[11px] text-gray-500">
+                {workspaceBinding.rootDirectory || 'Code Changes needs an existing local workspace or git repository.'}
+              </p>
+              {workspaceBinding.isConnected && (
+                <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
+                  <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                    {workspaceBinding.isGitRepo ? 'Git repository' : 'Folder workspace'}
+                  </span>
+                  {workspaceBinding.branch && (
+                    <span className="rounded-full bg-blue-50 px-2 py-0.5 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
+                      {workspaceBinding.branch}
+                    </span>
+                  )}
+                  {workspaceBinding.dirty && (
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                      Uncommitted changes
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+            <Button variant="secondary" onClick={() => void handleConnectWorkspace()}>
+              {workspaceBinding.isConnected ? 'Change workspace' : 'Connect workspace'}
+            </Button>
+          </div>
+          {workspaceBinding.dirty && (
+            <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-300">
+              Existing uncommitted changes may appear alongside the generated patch. Review git status before committing.
+            </p>
+          )}
+        </div>
+
+        <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+          <p className="text-xs font-medium text-gray-700 dark:text-gray-200">New change request</p>
+          <p className="mt-0.5 text-[11px] text-gray-500">Describe the outcome you want. No files are changed until you review and apply a staged patch.</p>
+          <div className="mt-3 grid gap-2 md:grid-cols-[130px_minmax(180px,0.35fr)_1fr_auto]">
+            <select
+              value={newRequestType}
+              onChange={(event) => setNewRequestType(event.target.value as CodeChangeRequestType)}
+              aria-label="Change request type"
+              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-xs dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+            >
+              <option value="edit">Edit</option>
+              <option value="refactor">Refactor</option>
+              <option value="bugfix">Bug fix</option>
+              <option value="investigation">Investigation</option>
+            </select>
+            <input
+              value={newRequestTitle}
+              onChange={(event) => setNewRequestTitle(event.target.value)}
+              placeholder="Short title"
+              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-xs dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+            />
+            <input
+              value={newRequestDescription}
+              onChange={(event) => setNewRequestDescription(event.target.value)}
+              placeholder="What should change, and what should remain unchanged?"
+              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-xs dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+            />
+            <Button
+              variant="primary"
+              disabled={!workspaceBinding.isConnected || !newRequestTitle.trim() || creatingRequest}
+              onClick={() => void handleCreateRequest()}
+            >
+              {creatingRequest ? 'Creating...' : 'Create request'}
+            </Button>
+          </div>
+        </div>
+
         {/* Debug logging */}
         <div className="flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-700 p-4">
           <div>
@@ -1103,12 +1215,12 @@ export function RemoteEditPanel() {
           </button>
         </div>
 
-        {/* Remote Edit investigation */}
+        {/* Code change request history and review */}
         <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
             <div>
-              <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Remote Edit investigations</p>
-              <p className="text-[11px] text-gray-500">Review edit requests and run AI analysis and fixes.</p>
+              <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Change requests</p>
+              <p className="text-[11px] text-gray-500">Continue requests, review patches, and inspect history.</p>
               {investigationStatus && (
                 <p className="mt-1 text-[11px] text-blue-600 dark:text-blue-300">{investigationStatus}</p>
               )}
@@ -1192,6 +1304,12 @@ export function RemoteEditPanel() {
                 ) : (
                   reports.map((report) => {
                     const reportBusy = isReportBusy(report.id)
+                    const request = toCodeChangeRequest(report, { workspaceRoot: workspaceBinding.rootDirectory || null })
+                    const phase = deriveCodeChangePhase(
+                      report,
+                      verificationRuns[report.id]?.[0] ?? null,
+                      gitPrepare[report.id]?.canCommit === false,
+                    )
                     return (
                       <div
                         key={report.id}
@@ -1204,9 +1322,9 @@ export function RemoteEditPanel() {
                           onClick={() => setSelectedReportId(report.id)}
                           className="min-w-0 flex-1 text-left"
                         >
-                          <span className="block truncate font-medium text-gray-700 dark:text-gray-200">{report.title}</span>
+                          <span className="block truncate font-medium text-gray-700 dark:text-gray-200">{request.title}</span>
                           <span className="mt-0.5 block text-[11px] text-gray-400">
-                            {report.status} · {new Date(report.created_at).toLocaleString()}
+                            {CODE_CHANGE_PHASE_LABELS[phase]} · {new Date(request.createdAt).toLocaleString()}
                           </span>
                         </button>
                         <button
@@ -1217,7 +1335,7 @@ export function RemoteEditPanel() {
                           }}
                           disabled={reportBusy}
                           className="invisible shrink-0 rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-40 group-hover:visible dark:hover:bg-red-900/20"
-                          title={reportBusy ? 'Wait for the current Remote Edit action to finish before deleting' : 'Delete report'}
+                          title={reportBusy ? 'Wait for the current Code Changes action to finish before deleting' : 'Delete request'}
                           aria-label={`Delete ${report.title}`}
                         >
                           <Trash2 className="h-3 w-3" />
@@ -1231,24 +1349,27 @@ export function RemoteEditPanel() {
             <div className="min-h-72 p-3">
               {selectedReport ? (
                 <div className="space-y-3">
-                  <RemoteEditPhaseBar
-                    phase={deriveRemoteEditPhase(
-                      selectedReport,
-                      verificationRuns[selectedReport.id]?.[0] ?? null,
-                      recoveryRuns[selectedReport.id]?.[0] ?? null,
-                      gitPrepare[selectedReport.id]?.canCommit === false,
-                    )}
-                  />
+                  {selectedPhase && <CodeChangePhaseBar phase={selectedPhase} />}
+                  {selectedPhase && (
+                    <div className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2 dark:border-blue-900 dark:bg-blue-950/20">
+                      <p className="text-[11px] font-medium text-blue-800 dark:text-blue-200">
+                        Next step: {CODE_CHANGE_PHASE_LABELS[selectedPhase]}
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-blue-700 dark:text-blue-300">
+                        {CODE_CHANGE_PHASE_GUIDANCE[selectedPhase]}
+                      </p>
+                    </div>
+                  )}
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="text-xs font-medium text-gray-800 dark:text-gray-100">{selectedReport.title}</p>
-                      <p className="mt-1 text-xs text-gray-500 break-words">{selectedReport.description || 'No description.'}</p>
+                      <p className="text-xs font-medium text-gray-800 dark:text-gray-100">{selectedRequest?.title}</p>
+                      <p className="mt-1 text-xs text-gray-500 break-words">{selectedRequest?.description || 'No description.'}</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <Button
                         variant="primary"
                         onClick={() => void handleStartInvestigation(selectedReport.id)}
-                        disabled={runningReportId !== null}
+                        disabled={runningReportId !== null || !workspaceBinding.isConnected}
                       >
                         {runningReportId === selectedReport.id && reviewAction !== 'revise' ? 'Analysing...' : 'Analyse'}
                       </Button>
@@ -1257,7 +1378,7 @@ export function RemoteEditPanel() {
                         onClick={() => setPendingDeleteReport(selectedReport)}
                         disabled={selectedReportBusy}
                         className="px-2"
-                        title={selectedReportBusy ? 'Wait for the current Remote Edit action to finish before deleting' : 'Delete report'}
+                        title={selectedReportBusy ? 'Wait for the current Code Changes action to finish before deleting' : 'Delete request'}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                         {deletingReportId === selectedReport.id ? 'Deleting...' : 'Delete'}
@@ -1331,7 +1452,7 @@ export function RemoteEditPanel() {
                         onClick={() => void handleStartFix(selectedReport.id)}
                         disabled={fixRunning !== null}
                       >
-                        {fixRunning === selectedReport.id ? 'Generating fix...' : 'Generate Fix'}
+                        {fixRunning === selectedReport.id ? 'Generating patch...' : 'Generate staged patch'}
                       </Button>
                     </div>
                   )}
@@ -1380,7 +1501,7 @@ export function RemoteEditPanel() {
           </div>
         </div>
 
-        {/* Remote Edit history */}
+        {/* Code Changes history */}
         <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
             <button
@@ -1388,8 +1509,8 @@ export function RemoteEditPanel() {
               onClick={() => setHistoryCollapsed((collapsed) => !collapsed)}
               className="text-left"
             >
-              <p className="text-xs font-medium text-gray-700 dark:text-gray-300">{historyCollapsed ? '▸' : '▾'} Remote Edit history</p>
-              <p className="text-[11px] text-gray-500">Audit trail of all remote-edit runs.</p>
+              <p className="text-xs font-medium text-gray-700 dark:text-gray-300">{historyCollapsed ? '▸' : '▾'} Code Changes history</p>
+              <p className="text-[11px] text-gray-500">Audit trail of investigations, patches, verification, and git actions.</p>
             </button>
             <Button
               variant="secondary"
@@ -1403,12 +1524,12 @@ export function RemoteEditPanel() {
           {!historyCollapsed && (
           <div className="max-h-52 overflow-y-auto">
             {remoteEditHistory.length === 0 ? (
-              <p className="p-3 text-xs text-gray-400">No remote-edit history yet.</p>
+              <p className="p-3 text-xs text-gray-400">No Code Changes history yet.</p>
             ) : (
               <table className="w-full text-[11px]">
                 <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800/70">
                   <tr className="border-b border-gray-100 dark:border-gray-800">
-                    <th className="px-3 py-1.5 text-left font-medium text-gray-500">Report</th>
+                    <th className="px-3 py-1.5 text-left font-medium text-gray-500">Request</th>
                     <th className="px-2 py-1.5 text-left font-medium text-gray-500">Status</th>
                     <th className="px-2 py-1.5 text-left font-medium text-gray-500">Model</th>
                     <th className="px-2 py-1.5 text-left font-medium text-gray-500">Steps</th>

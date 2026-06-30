@@ -530,7 +530,7 @@ export function DeveloperTab({
                     disabled={remoteEditReportingBuildId === latestDesktopBuild.id}
                     className="rounded border border-current/25 px-2 py-0.5 text-[11px] font-medium hover:bg-white/40 disabled:opacity-50 dark:hover:bg-white/10"
                   >
-                    {remoteEditReportingBuildId === latestDesktopBuild.id ? 'Creating report...' : 'Fix with Remote Edit'}
+                    {remoteEditReportingBuildId === latestDesktopBuild.id ? 'Creating request...' : 'Create code change'}
                   </button>
                 )}
               </div>
@@ -587,7 +587,7 @@ export function DeveloperTab({
                               disabled={remoteEditReportingBuildId === rec.id}
                               className="text-[11px] px-2 py-1 rounded border border-blue-300 text-blue-700 hover:bg-blue-50 disabled:opacity-50 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-950/30"
                             >
-                              {remoteEditReportingBuildId === rec.id ? 'Creating report...' : 'Fix with Remote Edit'}
+                              {remoteEditReportingBuildId === rec.id ? 'Creating request...' : 'Create code change'}
                             </button>
                           )}
                         </div>

@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, type ReactNode } from 'react'
-import { Plus, MessageSquare, Settings, FolderOpen, Bot, Wrench, Package, Bug, SquareArrowOutUpRight, Loader2, Clock } from 'lucide-react'
+import { Plus, MessageSquare, FolderOpen, Bot, Wrench, Package, SquareArrowOutUpRight, Loader2, Clock } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import { ResizeHandle } from './ResizeHandle'
 import { Button } from './ui/primitives'
@@ -62,7 +62,6 @@ export function Sidebar() {
   const logout = useAppStore((s) => s.logout)
   const setShowSettings = useAppStore((s) => s.setShowSettings)
   const setShowRemoteEditPanel = useAppStore((s) => s.setShowRemoteEditPanel)
-  const openBugReport = useAppStore((s) => s.openBugReport)
   const activeSectionPane = useAppStore((s) => s.activeSectionPane)
   const openSectionPane = useAppStore((s) => s.openSectionPane)
   const setHistoryProjectId = useAppStore((s) => s.setHistoryProjectId)
@@ -197,17 +196,10 @@ export function Sidebar() {
         <hr className="border-gray-200 dark:border-gray-700/80" />
         <NavButton
           icon={<Wrench className="w-3.5 h-3.5" />}
-          label="Remote Edit"
+          label="Code Changes"
           onClick={() => setShowRemoteEditPanel(true)}
           badgeCount={openReportCount}
-          ariaLabel={`Open Remote Edit${openReportCount > 0 ? ` (${openReportCount} new report${openReportCount === 1 ? '' : 's'})` : ''}`}
-          modal
-        />
-        <NavButton
-          icon={<Bug className="w-3.5 h-3.5" />}
-          label="Report a bug"
-          onClick={() => openBugReport()}
-          ariaLabel="Report a bug"
+          ariaLabel={`Open Code Changes${openReportCount > 0 ? ` (${openReportCount} open request${openReportCount === 1 ? '' : 's'})` : ''}`}
           modal
         />
       </div>

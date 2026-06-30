@@ -91,7 +91,7 @@ describe('SettingsPanel', () => {
 
     render(<SettingsPanel />)
     await user.click(screen.getByText('Developer'))
-    await user.click(await screen.findByText('Fix with Remote Edit'))
+    await user.click(await screen.findByText('Create code change'))
 
     await waitFor(() => {
       expect(mockApi.captureErrorReport).toHaveBeenCalledWith(expect.objectContaining({

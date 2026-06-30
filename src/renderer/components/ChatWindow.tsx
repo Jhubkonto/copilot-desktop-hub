@@ -74,6 +74,8 @@ export function ChatWindow() {
   const newChat = useAppStore((state) => state.newChat)
   const openSectionPane = useAppStore((state) => state.openSectionPane)
   const openArtifactPanel = useAppStore((state) => state.openArtifactPanel)
+  const setShowRemoteEditPanel = useAppStore((state) => state.setShowRemoteEditPanel)
+  const setPendingRemoteEditReportId = useAppStore((state) => state.setPendingRemoteEditReportId)
   const selectConversation = useAppStore((state) => state.selectConversation)
   const setTheme = useAppStore((state) => state.setTheme)
   const logout = useAppStore((state) => state.logout)
@@ -358,6 +360,28 @@ export function ChatWindow() {
       saving: false,
     })
   }, [chatProjectId, currentConversation?.title])
+
+  const handleCreateCodeChange = useCallback(async (_messageId: string, content: string) => {
+    const plainContent = content.replace(/\s+/g, ' ').trim()
+    try {
+      const workspace = await window.api.buildGetWorkspaceInfo()
+      const result = await window.api.captureErrorReport({
+        title: plainContent.slice(0, 80) || 'Code change from chat',
+        description: content.trim(),
+        includeLog: false,
+        includeScreenshot: false,
+        requestType: 'edit',
+        origin: 'chat',
+        workspaceRoot: workspace.path || null,
+        projectId: chatProjectId && chatProjectId !== '__none__' ? chatProjectId : null,
+      })
+      setPendingRemoteEditReportId(result.reportId)
+      setShowRemoteEditPanel(true)
+      addToast('Code change request created', 'success')
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : 'Failed to create code change request', 'error')
+    }
+  }, [addToast, chatProjectId, setPendingRemoteEditReportId, setShowRemoteEditPanel])
 
   const handleConfirmArtifactPromotion = useCallback(async () => {
     if (!conversationId || !artifactPromotion) return
@@ -1478,6 +1502,7 @@ export function ChatWindow() {
           onCopy={handleCopy}
           onSaveToWiki={chatProjectId && chatProjectId !== '__none__' ? handleSaveToWiki : undefined}
           onPromoteArtifact={handleOpenArtifactPromotion}
+          onCreateCodeChange={(messageId, content) => void handleCreateCodeChange(messageId, content)}
           wikiMessageIds={wikiMessageIds}
           onRegenerate={chat.handleRegenerate}
           onEdit={handleEditMessage}

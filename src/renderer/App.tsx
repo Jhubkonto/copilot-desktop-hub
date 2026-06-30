@@ -82,8 +82,6 @@ export default function App() {
   const openBugReport = useAppStore((s) => s.openBugReport)
   const closeBugReport = useAppStore((s) => s.closeBugReport)
   const viewingArtifactId = useAppStore((s) => s.viewingArtifactId)
-  const setShowRemoteEditPanel = useAppStore((s) => s.setShowRemoteEditPanel)
-  const setPendingRemoteEditReportId = useAppStore((s) => s.setPendingRemoteEditReportId)
   const incrementPendingErrorCount = useAppStore((s) => s.incrementPendingErrorCount)
 
   const markConversationGenerating = useAppStore((s) => s.markConversationGenerating)
@@ -102,33 +100,6 @@ export default function App() {
     },
     []
   )
-
-  const createCrashRemoteEditReport = useCallback(async (draft: { title: string; description: string }) => {
-    let screenshotDataUrl: string | null = null
-    try {
-      const screenshot = await window.api.captureWindowScreenshot()
-      if (screenshot && typeof screenshot === 'object' && 'dataUrl' in screenshot) {
-        screenshotDataUrl = screenshot.dataUrl
-      }
-    } catch {
-      screenshotDataUrl = null
-    }
-
-    const result = await window.api.captureErrorReport({
-      title: draft.title,
-      description: draft.description,
-      includeLog: true,
-      includeScreenshot: screenshotDataUrl !== null,
-      screenshotDataUrl,
-    })
-    return result.reportId
-  }, [])
-
-  const openCrashRemoteEditReport = useCallback((reportId: string) => {
-    setPendingRemoteEditReportId(reportId)
-    setShowRemoteEditPanel(true)
-    addToast(`Bug report captured (${reportId.slice(0, 8)}) - now in Remote Edit`, 'success')
-  }, [addToast, setPendingRemoteEditReportId, setShowRemoteEditPanel])
 
   // Hydrate store on mount
   useEffect(() => {
@@ -269,8 +240,6 @@ export default function App() {
   return (
     <ErrorBoundary
       onReportBug={openBugReport}
-      onCreateRemoteEditReport={createCrashRemoteEditReport}
-      onOpenRemoteEditReport={openCrashRemoteEditReport}
     >
     <div className={`flex flex-col h-full w-full overflow-hidden ${theme === 'dark' ? 'dark' : ''}`} role="application">
       {/* Custom frameless titlebar */}
@@ -379,13 +348,7 @@ export default function App() {
           onClose={closeBugReport}
           onSubmitted={(reportId) => {
             closeBugReport()
-            addToast(`Bug report captured (${reportId.slice(0, 8)}) — now in Remote Edit`, 'success', {
-              label: 'View',
-              onClick: () => {
-                setPendingRemoteEditReportId(reportId)
-                setShowRemoteEditPanel(true)
-              },
-            })
+            addToast(`Diagnostic report captured (${reportId.slice(0, 8)})`, 'success')
           }}
         />
       )}

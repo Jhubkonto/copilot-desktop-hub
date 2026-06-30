@@ -13,30 +13,23 @@ describe('ErrorBoundary', () => {
     vi.restoreAllMocks()
   })
 
-  it('can create and open a Remote Edit report from the crash fallback', async () => {
+  it('keeps crash diagnostics separate from Code Changes', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const user = userEvent.setup()
-    const onCreateRemoteEditReport = vi.fn().mockResolvedValue('report-123456')
-    const onOpenRemoteEditReport = vi.fn()
+    const onReportBug = vi.fn()
 
     render(
-      <ErrorBoundary
-        onReportBug={vi.fn()}
-        onCreateRemoteEditReport={onCreateRemoteEditReport}
-        onOpenRemoteEditReport={onOpenRemoteEditReport}
-      >
+      <ErrorBoundary onReportBug={onReportBug}>
         <Boom />
       </ErrorBoundary>,
     )
 
     expect(screen.getByText('Something went wrong')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /create self-heal report/i }))
-
-    expect(onCreateRemoteEditReport).toHaveBeenCalledWith(expect.objectContaining({
+    expect(screen.queryByText(/self-heal/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/remote edit/i)).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /report manually/i }))
+    expect(onReportBug).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Rendered fewer hooks than expected',
     }))
-
-    await user.click(await screen.findByRole('button', { name: /open remote edit/i }))
-    expect(onOpenRemoteEditReport).toHaveBeenCalledWith('report-123456')
   })
 })

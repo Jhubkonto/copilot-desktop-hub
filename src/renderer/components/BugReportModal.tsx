@@ -60,6 +60,7 @@ export function BugReportModal({ draft, onClose, onSubmitted }: BugReportModalPr
         includeLog,
         includeScreenshot,
         screenshotDataUrl,
+        origin: 'legacy-bug-report',
       })
       onSubmitted(result.reportId)
     } catch (err) {

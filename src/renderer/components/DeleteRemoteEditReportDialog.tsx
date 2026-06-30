@@ -28,7 +28,7 @@ export function DeleteRemoteEditReportDialog({
 
   return (
     <ModalShell
-      title="Delete Self-Heal report"
+      title="Delete change request"
       ariaLabel={`Delete ${reportTitle}`}
       maxWidth="max-w-md"
       height=""
@@ -45,7 +45,7 @@ export function DeleteRemoteEditReportDialog({
             disabled={deleting}
             className="px-4 py-2 text-sm bg-red-600 hover:bg-red-700 dark:bg-red-600 dark:hover:bg-red-700 dark:text-white"
           >
-            {deleting ? 'Deleting...' : 'Delete Report'}
+            {deleting ? 'Deleting...' : 'Delete request'}
           </Button>
         </>
       }
@@ -60,7 +60,7 @@ export function DeleteRemoteEditReportDialog({
       </div>
 
       <div className="text-sm text-gray-600 dark:text-gray-300 space-y-1">
-        <p>This will remove the captured report, investigation notes, Self-Heal run history, staged diffs, and generated report artifacts.</p>
+        <p>This removes the request, investigation notes, staged diffs, verification history, and generated artifacts.</p>
       </div>
 
       <p className="text-xs text-gray-400 dark:text-gray-500 font-medium">

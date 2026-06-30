@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { Copy, RotateCcw, Pencil, AlertTriangle, RefreshCw, LogIn, StopCircle, CheckCircle, BookOpen } from 'lucide-react'
+import { Copy, RotateCcw, Pencil, AlertTriangle, RefreshCw, LogIn, StopCircle, CheckCircle, BookOpen, Wrench } from 'lucide-react'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import type { ContextSnapshot } from '../hooks/chat-types'
 import { ContextSnapshotBadge } from './ContextInspector'
@@ -96,6 +96,7 @@ interface MessageBubbleProps {
   onEdit?: (index: number) => void
   onSaveToWiki?: (messageId: string, content: string) => void
   onSaveAsArtifact?: (messageId: string, content: string) => void
+  onCreateCodeChange?: (messageId: string, content: string) => void
   hasWikiEntry?: boolean
   timestamp?: number
   isHighlighted?: boolean
@@ -126,6 +127,7 @@ export function MessageBubbleBase({
   onEdit,
   onSaveToWiki,
   onSaveAsArtifact,
+  onCreateCodeChange,
   hasWikiEntry,
   onRetry,
   onSignIn,
@@ -228,6 +230,13 @@ export function MessageBubbleBase({
                   icon={BookOpen}
                   label="Save as artifact"
                   onClick={() => onSaveAsArtifact(id, content)}
+                />
+              )}
+              {onCreateCodeChange && (
+                <ActionButton
+                  icon={Wrench}
+                  label="Create code change"
+                  onClick={() => onCreateCodeChange(id, content)}
                 />
               )}
               {isLastAssistant && onRegenerate && (
