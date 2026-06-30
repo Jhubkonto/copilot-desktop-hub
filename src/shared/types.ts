@@ -215,8 +215,45 @@ export interface ProjectWorkspaceMetadata {
   scannedAt: number
 }
 
-export type ProjectEditSource = 'chat-tool' | 'remote-edit' | 'self-heal' | 'manual-apply'
+export type ProjectEditSource = 'chat-tool' | 'remote-edit' | 'self-heal' | 'manual-apply' | 'code-changes'
 export type ProjectTouchedFileStatus = 'modified' | 'created' | 'deleted'
+
+export type CodeChangeRequestType = 'edit' | 'refactor' | 'bugfix' | 'investigation'
+export type CodeChangeRequestOrigin = 'chat' | 'android' | 'manual' | 'build-failure' | 'legacy-bug-report'
+export type CodeChangeRequestPhase =
+  | 'draft'
+  | 'investigating'
+  | 'patch-ready'
+  | 'ready-to-apply'
+  | 'applied'
+  | 'verifying'
+  | 'ready-to-commit'
+  | 'committed'
+  | 'needs-attention'
+
+export interface CodeChangesWorkspaceBinding {
+  rootDirectory: string
+  isGitRepo: boolean
+  repoRoot: string | null
+  branch: string | null
+  dirty: boolean
+  isConnected: boolean
+  lastValidatedAt: number | null
+}
+
+export interface CodeChangeRequest {
+  id: string
+  title: string
+  description: string
+  requestType: CodeChangeRequestType
+  workspaceRoot: string | null
+  projectId: string | null
+  origin: CodeChangeRequestOrigin
+  status: ErrorReportStatus
+  createdAt: number
+  updatedAt: number
+  legacyReport: ErrorReportEntry
+}
 
 export interface ProjectEditSession {
   id: string
@@ -331,6 +368,10 @@ export interface ErrorReportCaptureInput {
   includeScreenshot?: boolean
   includeLog?: boolean
   screenshotDataUrl?: string | null
+  requestType?: CodeChangeRequestType
+  origin?: CodeChangeRequestOrigin
+  workspaceRoot?: string | null
+  projectId?: string | null
 }
 
 export interface ErrorReportCaptureResult {
@@ -627,6 +668,10 @@ export interface ErrorReportEntry {
   fix_error: string | null
   created_at: number
   updated_at: number
+  request_type?: CodeChangeRequestType | null
+  request_origin?: CodeChangeRequestOrigin | null
+  workspace_root?: string | null
+  project_id?: string | null
 }
 
 // ---------------------------------------------------------------------------

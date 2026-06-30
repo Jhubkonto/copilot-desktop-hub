@@ -48,13 +48,23 @@ export function classifyGitFailure(error: unknown): GitFailureInfo {
     combined.includes('fatal: could not read from remote repository') ||
     combined.includes('fatal: authentication') ||
     combined.includes('access denied')
+  const noUpstream =
+    combined.includes('has no upstream branch') ||
+    combined.includes('no configured push destination')
+  const nonFastForward =
+    combined.includes('non-fast-forward') ||
+    combined.includes('fetch first')
 
   return {
     message: stderr.trim() || message,
     authRequired,
     authHelp: authRequired
-      ? 'Remote git auth failed. Use your system git login or credential manager, or run the relevant CLI login for this remote, then retry the repo operation.'
-      : undefined,
+      ? 'Authentication failed. Sign in with your system credential manager or the provider CLI used by this remote, confirm you have repository access, then retry.'
+      : noUpstream
+        ? 'This branch has no upstream. Run `git push --set-upstream <remote> <branch>` once in the connected workspace, then retry.'
+        : nonFastForward
+          ? 'The remote contains newer commits. Fetch and integrate them in the connected workspace, rerun verification, then push again.'
+          : undefined,
   }
 }
 
@@ -77,7 +87,8 @@ function parseStatusPorcelain(output: string): { branch: string | null; ahead: n
   for (const line of lines) {
     if (line.startsWith('## ')) {
       const branchPart = line.slice(3)
-      branch = branchPart.split('...')[0]?.trim() || null
+      const parsedBranch = branchPart.split('...')[0]?.trim() || null
+      branch = parsedBranch === 'HEAD (no branch)' ? null : parsedBranch
       const aheadMatch = /ahead (\d+)/.exec(branchPart)
       const behindMatch = /behind (\d+)/.exec(branchPart)
       ahead = aheadMatch ? Number(aheadMatch[1]) : 0
@@ -163,10 +174,11 @@ export async function prepareRemoteEditCommit(reportId: string): Promise<RemoteE
   const report = readReport(reportId)
   const status = await getRemoteEditGitStatus(reportId)
   const files = report ? getAppliedFiles(report) : []
-  const suggestedMessage = report ? `fix: remote-edit ${report.title}` : 'fix: remote-edit update'
+  const suggestedMessage = report ? `fix: ${report.title}` : 'fix: apply code change'
 
   let reason: string | undefined
   if (!status.isRepo) reason = status.error ?? 'Workspace is not a git repository'
+  else if (!status.branch) reason = 'The repository is in detached HEAD state. Check out or create a branch before committing.'
   else if (!report) reason = 'Report was not found'
   else if (report.fix_status !== 'applied') reason = 'Fix must be applied before committing'
   else if (!latestVerificationPassed(reportId)) reason = 'Verification must pass before committing'
@@ -246,7 +258,7 @@ export function registerRemoteEditGitHandlers(mainWindow?: BrowserWindow): void 
     emitGitEvent(mainWindow, {
       reportId,
       type: 'prepare',
-      label: result.canCommit ? 'Ready to commit remote-edit fix' : result.reason ?? 'Unable to prepare commit',
+      label: result.canCommit ? 'Ready to commit code changes' : result.reason ?? 'Unable to prepare commit',
       status: result.status,
       error: result.reason,
       authRequired: result.authRequired,
@@ -256,7 +268,7 @@ export function registerRemoteEditGitHandlers(mainWindow?: BrowserWindow): void 
   })
 
   safeHandle('remote-edit:git-commit', async (_event, reportId: string, message: string) => {
-    emitGitEvent(mainWindow, { reportId, type: 'commit', label: 'Committing remote-edit fix' })
+    emitGitEvent(mainWindow, { reportId, type: 'commit', label: 'Committing code changes' })
     const result = await commitRemoteEditFix(reportId, message)
     emitGitEvent(mainWindow, {
       reportId,
@@ -275,7 +287,7 @@ export function registerRemoteEditGitHandlers(mainWindow?: BrowserWindow): void 
   })
 
   safeHandle('remote-edit:git-push', async (_event, reportId: string) => {
-    emitGitEvent(mainWindow, { reportId, type: 'push', label: 'Pushing remote-edit fix' })
+    emitGitEvent(mainWindow, { reportId, type: 'push', label: 'Pushing code changes' })
     const result = await pushRemoteEditFix(reportId)
     emitGitEvent(mainWindow, {
       reportId,

@@ -623,6 +623,19 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
         ON project_touched_files(session_id, last_touched_at DESC);
     `,
   },
+  {
+    version: 46,
+    sql: `
+      ALTER TABLE error_reports ADD COLUMN request_type TEXT
+        CHECK (request_type IN ('edit', 'refactor', 'bugfix', 'investigation'));
+      ALTER TABLE error_reports ADD COLUMN request_origin TEXT
+        CHECK (request_origin IN ('chat', 'android', 'manual', 'build-failure', 'legacy-bug-report'));
+      ALTER TABLE error_reports ADD COLUMN workspace_root TEXT;
+      ALTER TABLE error_reports ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE SET NULL;
+      CREATE INDEX IF NOT EXISTS idx_error_reports_origin
+        ON error_reports(request_origin, created_at DESC);
+    `,
+  },
 ];
 
 

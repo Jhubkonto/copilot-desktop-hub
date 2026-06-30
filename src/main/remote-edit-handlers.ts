@@ -87,7 +87,7 @@ export function registerRemoteEditHandlers(mainWindow?: BrowserWindow): void {
           reportTitle: title,
         })
         if (result.status === 'done') {
-          sendDesktopNotification('Self-Heal', `Investigation complete for "${title}". Review the plan.`)
+          sendDesktopNotification('Code Changes', `Investigation complete for "${title}". Review the proposed approach.`)
           void sendRemoteEditNotification(getDatabase(), { type: 'investigation-done', reportId, title })
         }
       })
@@ -278,12 +278,12 @@ export function registerRemoteEditHandlers(mainWindow?: BrowserWindow): void {
         const title = (getDatabase().prepare('SELECT title FROM error_reports WHERE id = ?').get(reportId) as { title: string } | undefined)?.title ?? ''
         if (result.status === 'success') {
           updateHistoryEntry(reportId, { verificationPassed: true, status: 'verified' })
-          sendDesktopNotification('Self-Heal', `Verification passed for "${title}". Ready to commit.`)
+          sendDesktopNotification('Code Changes', `Verification passed for "${title}". Ready to commit.`)
           void sendRemoteEditNotification(getDatabase(), { type: 'verification-passed', reportId, title })
         } else {
           const failedStep = result.steps.find((s) => s.status === 'failed')?.command ?? null
           updateHistoryEntry(reportId, { verificationPassed: false, verificationFailedStep: failedStep, status: 'verify-failed' })
-          sendDesktopNotification('Self-Heal', `Verification failed (${failedStep ?? 'unknown step'}) for "${title}".`)
+          sendDesktopNotification('Code Changes', `Verification failed (${failedStep ?? 'unknown step'}) for "${title}".`)
           void sendRemoteEditNotification(getDatabase(), { type: 'verification-failed', reportId, title, failedStep })
         }
       })

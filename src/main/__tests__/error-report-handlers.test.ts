@@ -99,6 +99,25 @@ describe('error report handlers', () => {
     expect(reports).toEqual([expect.objectContaining({ id: result.reportId, title: 'Edit request' })])
   })
 
+  it('persists neutral code-change metadata', async () => {
+    const { createErrorReport, rowToErrorReport } = await import('../error-report-handlers')
+    const result = createErrorReport({
+      title: 'Extract parser',
+      requestType: 'refactor',
+      origin: 'chat',
+      workspaceRoot: 'C:\\work\\repo',
+      projectId: null,
+    })
+
+    const row = db.prepare('SELECT * FROM error_reports WHERE id = ?').get(result.reportId) as Record<string, unknown>
+    expect(rowToErrorReport(row)).toEqual(expect.objectContaining({
+      request_type: 'refactor',
+      request_origin: 'chat',
+      workspace_root: 'C:\\work\\repo',
+      project_id: null,
+    }))
+  })
+
   it('deletes a report, its remote-edit rows, and its artifact folders', async () => {
     const { registerErrorReportHandlers } = await import('../error-report-handlers')
     registerErrorReportHandlers()

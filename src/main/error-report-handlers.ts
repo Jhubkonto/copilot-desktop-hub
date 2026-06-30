@@ -45,6 +45,14 @@ export function rowToErrorReport(row: Record<string, unknown>): ErrorReportEntry
     fix_error: typeof row.fix_error === 'string' ? row.fix_error : null,
     created_at: Number(row.created_at),
     updated_at: Number(row.updated_at),
+    request_type: typeof row.request_type === 'string'
+      ? row.request_type as ErrorReportEntry['request_type']
+      : null,
+    request_origin: typeof row.request_origin === 'string'
+      ? row.request_origin as ErrorReportEntry['request_origin']
+      : null,
+    workspace_root: typeof row.workspace_root === 'string' ? row.workspace_root : null,
+    project_id: typeof row.project_id === 'string' ? row.project_id : null,
   }
 }
 
@@ -92,13 +100,20 @@ export function createErrorReport(input: ErrorReportCaptureInput): ErrorReportCa
   const description = normalizeDescription(input.description)
   const screenshotPath = input.includeScreenshot ? writeScreenshot(id, input.screenshotDataUrl) : null
   const logSnapshot = input.includeLog ? readLogSnapshot() : null
+  const requestType = ['edit', 'refactor', 'bugfix', 'investigation'].includes(input.requestType ?? '')
+    ? input.requestType!
+    : null
+  const requestOrigin = ['chat', 'android', 'manual', 'build-failure', 'legacy-bug-report'].includes(input.origin ?? '')
+    ? input.origin!
+    : null
 
   getDatabase()
     .prepare(
       `INSERT INTO error_reports (
         id, title, description, screenshot_path, log_snapshot, status,
-        app_version, platform, os_version, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?)`,
+        app_version, platform, os_version, request_type, request_origin,
+        workspace_root, project_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       id,
@@ -109,6 +124,10 @@ export function createErrorReport(input: ErrorReportCaptureInput): ErrorReportCa
       typeof app.getVersion === 'function' ? app.getVersion() : null,
       process.platform,
       os.release(),
+      requestType,
+      requestOrigin,
+      input.workspaceRoot?.trim() || null,
+      input.projectId?.trim() || null,
       now,
       now,
     )

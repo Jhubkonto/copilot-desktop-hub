@@ -206,6 +206,11 @@ export function registerWsHandlers(): void {
           description: typeof data.description === 'string' ? data.description : 'Requested from Android.',
           includeLog: data.includeLog !== false,
           includeScreenshot: false,
+          requestType: 'edit',
+          origin: 'android',
+          workspaceRoot: (getDatabase()
+            .prepare("SELECT value FROM settings WHERE key = 'build_workspace_path'")
+            .get() as { value: string } | undefined)?.value ?? process.cwd(),
         })
         reply({ event: 'error-report:captured', data: result })
       } catch (error) {

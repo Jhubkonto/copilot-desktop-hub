@@ -178,7 +178,7 @@ function buildFixPrompt(
     {
       role: 'system',
       content:
-        'You are the Nexy remote-edit fix agent. ' +
+        'You are the Nexy code changes agent. ' +
         'Based on the investigation report, produce a complete corrected version of every affected file. ' +
         'For each file output it in this EXACT format (no other text before or after):\n\n' +
         '<<<NEXY_FIX_FILE:relative/path/to/file.ts>>>\n' +
@@ -391,7 +391,7 @@ export async function runFix(
     `UPDATE error_reports SET fix_status = 'staged', fix_staged_files = ?, fix_completed_at = ?, updated_at = ? WHERE id = ?`,
   ).run(JSON.stringify(stagedFiles), completedAt, completedAt, reportId)
 
-  callbacks.onEvent({ reportId, type: 'status', label: 'Fix staging complete' })
+  callbacks.onEvent({ reportId, type: 'status', label: 'Staged patch ready' })
 
   return {
     reportId,

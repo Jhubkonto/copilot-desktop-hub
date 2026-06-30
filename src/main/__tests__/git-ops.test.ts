@@ -74,7 +74,7 @@ describe('remote-edit git operations', () => {
 
     expect(prepared.canCommit).toBe(true)
     expect(prepared.files).toEqual(['src/example.ts'])
-    expect(prepared.suggestedMessage).toBe('fix: remote-edit Renderer crash')
+    expect(prepared.suggestedMessage).toBe('fix: Renderer crash')
     expect(prepared.status.files).toEqual([
       expect.objectContaining({ path: 'src/example.ts', status: 'modified' }),
     ])
@@ -111,5 +111,14 @@ describe('remote-edit git operations', () => {
 
     expect(result.authRequired).toBe(true)
     expect(result.authHelp).toMatch(/system git login|credential manager/i)
+  })
+
+  it('provides actionable guidance when a branch has no upstream', async () => {
+    const { classifyGitFailure } = await import('../remote-edit/git-ops')
+
+    const result = classifyGitFailure(new Error("fatal: The current branch feature has no upstream branch."))
+
+    expect(result.authRequired).toBe(false)
+    expect(result.authHelp).toMatch(/--set-upstream/)
   })
 })
