@@ -840,6 +840,21 @@ export interface ArtifactGeneratorRun {
   updatedAt: number
 }
 
+export interface ArtifactPromotionRequest {
+  conversationId: string
+  messageId: string
+  title: string
+  kind: Extract<ArtifactKind, 'document' | 'prompt' | 'plan' | 'code' | 'other'>
+  scope: { type: 'global' | 'project'; projectId?: string }
+  filePath: string
+}
+
+export interface ArtifactPromotionResult {
+  artifactId: string
+  versionId: string
+  title: string
+}
+
 // ---------------------------------------------------------------------------
 // Auth
 // ---------------------------------------------------------------------------
@@ -1833,6 +1848,7 @@ export type IpcReturnMap = {
   'artifact:get-version': ArtifactVersion | null
   'artifact:delete': { deleted: boolean }
   'artifact:move-to-project': { ok: boolean }
+  'artifact:promote-message': ArtifactPromotionResult
   'artifact:export': { exportPath: string }
   'artifact:open-folder': { ok: boolean }
   'artifact-generator:chat': { started: boolean }
@@ -2191,6 +2207,7 @@ export type IpcChannels =
   | 'artifact:delete'
   | 'artifact:export'
   | 'artifact:open-folder'
+  | 'artifact:promote-message'
   | 'artifact-generator:chat'
   | 'artifact-generator:generate'
   | 'artifact-generator:get-runs'

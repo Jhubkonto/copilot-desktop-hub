@@ -42,6 +42,7 @@ import {
   updateArtifactGeneratorRunRecord,
   getArtifactGeneratorModel,
 } from './artifact-generator'
+import { promoteConversationMessageToArtifact } from './artifacts'
 import {
   getManualWorkflowGeneratorModel,
   runManualWorkflowGeneratorChatForAndroid,
@@ -1669,6 +1670,32 @@ export function registerWsHandlers(): void {
       db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(now, conversationId)
       const row = db.prepare('SELECT * FROM messages WHERE id = ?').get(id) as Record<string, unknown>
       reply({ event: 'message:inserted', data: { conversationId, message: row } })
+      return
+    }
+
+    if (command === 'artifact:promote-message') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+      const messageId = typeof data.messageId === 'string' ? data.messageId : ''
+      const title = typeof data.title === 'string' ? data.title : ''
+      const kind = typeof data.kind === 'string' ? data.kind : 'document'
+      const filePath = typeof data.filePath === 'string' ? data.filePath : ''
+      const scopeObj = typeof data.scope === 'object' && data.scope !== null ? data.scope as Record<string, unknown> : {}
+      const scopeType = scopeObj.type === 'project' ? 'project' : 'global'
+      const scopeProjectId = typeof scopeObj.projectId === 'string' ? scopeObj.projectId : undefined
+      if (!conversationId || !messageId || !filePath) return
+      try {
+        const result = promoteConversationMessageToArtifact({
+          conversationId,
+          messageId,
+          title,
+          kind: (['document', 'prompt', 'plan', 'code', 'other'].includes(kind) ? kind : 'document') as 'document' | 'prompt' | 'plan' | 'code' | 'other',
+          scope: scopeType === 'project' ? { type: 'project', projectId: scopeProjectId } : { type: 'global' },
+          filePath,
+        })
+        reply({ event: 'artifact:promoted', data: { ...result, messageId } })
+      } catch (error) {
+        reply({ event: 'artifact:promote-error', data: { message: error instanceof Error ? error.message : String(error), messageId } })
+      }
       return
     }
 

@@ -39,10 +39,8 @@ import type {
   ManualWorkflowGeneratorMessage,
   ManualWorkflowSpec,
   ArtifactGeneratorMessage,
+  ArtifactPromotionRequest,
   ArtifactSpec,
-  ArtifactRow,
-  ArtifactVersion,
-  ArtifactGeneratorRun,
   McpServerWithStatus,
 } from '../shared/types'
 
@@ -807,6 +805,8 @@ const api = {
     typedInvoke('artifact:delete', id),
   artifactMoveToProject: (artifactId: string, projectId: string | null) =>
     typedInvoke('artifact:move-to-project', artifactId, projectId),
+  artifactPromoteMessage: (input: ArtifactPromotionRequest) =>
+    typedInvoke('artifact:promote-message', input),
   artifactExport: (versionId: string, format: string) =>
     typedInvoke('artifact:export', versionId, format),
   artifactOpenFolder: (absolutePath: string) =>

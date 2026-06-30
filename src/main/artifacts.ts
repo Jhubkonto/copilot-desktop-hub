@@ -1,8 +1,19 @@
 import { safeHandle } from './safe-handle'
 import { getDatabase } from './database'
-import type { ArtifactRow, ArtifactVersion, ArtifactFile, ArtifactKind, ArtifactStatus, ArtifactExportFormat } from '../shared/types'
+import type {
+  ArtifactRow,
+  ArtifactVersion,
+  ArtifactFile,
+  ArtifactKind,
+  ArtifactStatus,
+  ArtifactExportFormat,
+  ArtifactPromotionRequest,
+  ArtifactPromotionResult,
+} from '../shared/types'
 import { exportArtifactVersion } from './artifact-export'
 import { app, shell } from 'electron'
+import { randomUUID } from 'crypto'
+import { mkdirSync, statSync, writeFileSync } from 'fs'
 import path from 'path'
 
 // ---------------------------------------------------------------------------
@@ -84,6 +95,144 @@ function getVersionsWithFilesBatch(versionIds: string[]): Map<string, ArtifactVe
   return result
 }
 
+function getStorageRoot(): string {
+  const db = getDatabase()
+  const row = db.prepare("SELECT value FROM settings WHERE key = 'artifact_storage_root'").get() as { value: string } | undefined
+  return row?.value ?? path.join(app.getPath('userData'), 'artifacts')
+}
+
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 60) || 'artifact'
+}
+
+function sanitizeRelativeArtifactPath(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, '/').trim().replace(/^\/+/, '')
+  if (!normalized) throw new Error('File path is required')
+  if (path.isAbsolute(normalized)) throw new Error('File path must be relative')
+  const segments = normalized.split('/').filter(Boolean)
+  if (segments.length === 0 || segments.some((segment) => segment === '.' || segment === '..')) {
+    throw new Error('File path must stay within the artifact folder')
+  }
+  return segments.join('/')
+}
+
+function guessMediaType(kind: ArtifactPromotionRequest['kind'], filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase()
+  if (ext === '.md' || kind === 'document' || kind === 'prompt' || kind === 'plan') return 'text/markdown'
+  if (['.ts', '.tsx', '.js', '.jsx', '.json', '.css', '.html'].includes(ext)) {
+    if (ext === '.json') return 'application/json'
+    if (ext === '.css') return 'text/css'
+    if (ext === '.html') return 'text/html'
+    return 'text/plain'
+  }
+  if (ext === '.txt') return 'text/plain'
+  return kind === 'code' ? 'text/plain' : 'text/plain'
+}
+
+function deriveArtifactTitle(inputTitle: string, messageContent: string, conversationTitle: string | null): string {
+  const explicit = inputTitle.trim()
+  if (explicit) return explicit
+  const headingMatch = messageContent.match(/^\s{0,3}#{1,6}\s+(.+?)\s*$/m)
+  if (headingMatch?.[1]?.trim()) return headingMatch[1].trim()
+  if (conversationTitle?.trim()) return conversationTitle.trim()
+  return 'New Artifact'
+}
+
+export function promoteConversationMessageToArtifact(input: ArtifactPromotionRequest): ArtifactPromotionResult {
+  const db = getDatabase()
+  const row = db.prepare(
+    `SELECT
+        m.id,
+        m.conversation_id,
+        m.role,
+        m.content,
+        c.title AS conversation_title,
+        c.project_id AS conversation_project_id
+      FROM messages m
+      JOIN conversations c ON c.id = m.conversation_id
+      WHERE m.id = ?`
+  ).get(input.messageId) as
+    | {
+      id: string
+      conversation_id: string
+      role: string
+      content: string
+      conversation_title: string | null
+      conversation_project_id: string | null
+    }
+    | undefined
+  if (!row) throw new Error('Message not found')
+  if (row.conversation_id !== input.conversationId) throw new Error('Message does not belong to this conversation')
+  if (row.role !== 'assistant') throw new Error('Only assistant messages can be saved as artifacts')
+  const content = String(row.content ?? '').trim()
+  if (!content) throw new Error('Message has no content to save')
+
+  const storageRoot = getStorageRoot()
+  const title = deriveArtifactTitle(input.title, content, row.conversation_title)
+  const projectId = input.scope.type === 'project' ? (input.scope.projectId ?? row.conversation_project_id ?? null) : null
+  if (input.scope.type === 'project' && !projectId) throw new Error('A project artifact requires a project ID')
+  const relativePath = sanitizeRelativeArtifactPath(input.filePath)
+  const artifactId = randomUUID()
+  const versionId = randomUUID()
+  const now = Date.now()
+  const versionDir = projectId
+    ? path.join(storageRoot, 'projects', projectId, slugify(title), 'v1')
+    : path.join(storageRoot, 'global', slugify(title), 'v1')
+  const absolutePath = path.join(versionDir, ...relativePath.split('/'))
+  mkdirSync(path.dirname(absolutePath), { recursive: true })
+  writeFileSync(absolutePath, content, 'utf8')
+  const sizeBytes = statSync(absolutePath).size
+  const manifestJson = JSON.stringify({
+    artifactId,
+    versionId,
+    version: 1,
+    title,
+    kind: input.kind,
+    createdAt: now,
+    source: {
+      conversationId: input.conversationId,
+      messageId: input.messageId,
+    },
+    files: [{ path: relativePath, mediaType: guessMediaType(input.kind, relativePath), role: 'primary' }],
+  })
+
+  db.transaction(() => {
+    db.prepare(
+      `INSERT INTO artifacts (id, project_id, title, kind, description, storage_root, current_version_id, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?)`
+    ).run(artifactId, projectId, title, input.kind, `Saved from chat message ${input.messageId}`, storageRoot, versionId, now, now)
+    db.prepare(
+      `INSERT INTO artifact_versions (id, artifact_id, version_number, title, notes, spec_json, manifest_json, source_conversation_id, source_message_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      versionId,
+      artifactId,
+      1,
+      title,
+      'Promoted from assistant chat response',
+      null,
+      manifestJson,
+      input.conversationId,
+      input.messageId,
+      now,
+    )
+    db.prepare(
+      `INSERT INTO artifact_files (id, version_id, relative_path, absolute_path, media_type, role, size_bytes)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(randomUUID(), versionId, relativePath, absolutePath, guessMediaType(input.kind, relativePath), 'primary', sizeBytes)
+    db.prepare(
+      `INSERT INTO artifact_chat_refs (id, artifact_id, version_id, project_id, conversation_id, message_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(randomUUID(), artifactId, versionId, projectId, input.conversationId, input.messageId, now)
+  })()
+
+  return { artifactId, versionId, title }
+}
+
 // ---------------------------------------------------------------------------
 // Handler registration
 // ---------------------------------------------------------------------------
@@ -137,6 +286,10 @@ export function registerArtifactHandlers(): void {
       ? db.prepare('UPDATE artifacts SET project_id = ?, updated_at = ? WHERE id = ?').run(projectId, Date.now(), artifactId)
       : db.prepare('UPDATE artifacts SET project_id = NULL, updated_at = ? WHERE id = ?').run(Date.now(), artifactId)
     return { ok: info.changes > 0 }
+  })
+
+  safeHandle('artifact:promote-message', (_event, input: ArtifactPromotionRequest) => {
+    return promoteConversationMessageToArtifact(input)
   })
 
   safeHandle('artifact:export', async (_event, versionId: string, format: string) => {
