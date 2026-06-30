@@ -296,8 +296,8 @@ private fun FileStatusBadge(status: String) {
 }
 
 private fun sessionSourceLabel(source: String): String = when (source) {
-    "remote-edit" -> "Remote Edit"
-    "self-heal" -> "Self-heal"
+    "remote-edit" -> "Code Changes"
+    "self-heal" -> "Legacy code repair"
     "manual-apply" -> "Manual apply"
     "chat-tool" -> "Chat tool"
     else -> source.ifBlank { "Unknown" }

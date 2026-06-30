@@ -16,8 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.BugReport
-import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Button
@@ -26,8 +25,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -42,7 +39,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -69,11 +65,6 @@ fun RemoteEditReportDetailScreen(
     val diffContents = remember { mutableStateMapOf<String, String?>() }
     var investigationRunning by remember { mutableStateOf(false) }
     var fixRunning by remember { mutableStateOf(false) }
-    var commitRunning by remember { mutableStateOf(false) }
-    var commitSha by remember { mutableStateOf<String?>(null) }
-    var commitMessage by remember { mutableStateOf("") }
-    var showCommitField by remember { mutableStateOf(false) }
-    var rebuildStarted by remember { mutableStateOf(false) }
 
     LaunchedEffect(reportId) {
         WsRepository.listStagedFiles(reportId)
@@ -96,16 +87,6 @@ fun RemoteEditReportDetailScreen(
                 event is WsEvent.RemoteEditStagedDiff && event.reportId == reportId -> {
                     diffContents[event.relativePath] = event.hunksJson?.let { renderDiffHunks(it) }
                 }
-                event is WsEvent.RemoteEditGitCommitResult && event.reportId == reportId -> {
-                    commitRunning = false
-                    if (event.error != null) {
-                        snackbarHostState.showSnackbar("Commit failed: ${event.error}")
-                    } else {
-                        commitSha = event.sha
-                        showCommitField = false
-                        vm.refresh()
-                    }
-                }
                 else -> {}
             }
         }
@@ -115,7 +96,7 @@ fun RemoteEditReportDetailScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             NexyTopAppBar(
-                titleContent = { Text(report?.title ?: "Report") },
+                titleContent = { Text(report?.title ?: "Change request") },
                 onBack = onBack,
             )
         },
@@ -123,7 +104,7 @@ fun RemoteEditReportDetailScreen(
         if (report == null) {
             Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 Text(
-                    "Report not found.",
+                    "Change request not found.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -141,7 +122,7 @@ fun RemoteEditReportDetailScreen(
         ) {
             // Status row
             Text(
-                "Status: ${report.status}  ·  Fix: ${report.fixStatus}",
+                "Phase: ${detailPhase(report.status, report.fixStatus)}",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -197,7 +178,7 @@ fun RemoteEditReportDetailScreen(
                         enabled = !investigationRunning,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Icon(Icons.Default.BugReport, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                        Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                         Text(if (investigationRunning) "Investigating…" else "Run Analysis")
                     }
                 }
@@ -210,14 +191,14 @@ fun RemoteEditReportDetailScreen(
                         enabled = !fixRunning,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(if (fixRunning) "Applying fix…" else "Apply AI Fix")
+                        Text(if (fixRunning) "Generating patch…" else "Generate staged patch")
                     }
                 }
             }
 
             // Per-file diff cards
             if (stagedFiles.isNotEmpty()) {
-                Text("Staged Changes", style = MaterialTheme.typography.titleSmall)
+                Text("Staged patch", style = MaterialTheme.typography.titleSmall)
                 stagedFiles.forEach { path ->
                     val expanded = expandedDiffs[path] == true
                     val diff = diffContents[path]
@@ -271,65 +252,21 @@ fun RemoteEditReportDetailScreen(
                     }
                 }
 
-                // Git commit section
-                if (fixStatus == "staged" && commitSha == null) {
-                    if (!showCommitField) {
-                        Button(
-                            onClick = { showCommitField = true },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text("Commit Changes")
-                        }
-                    } else {
-                        OutlinedTextField(
-                            value = commitMessage,
-                            onValueChange = { commitMessage = it },
-                            label = { Text("Commit message") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        Button(
-                            onClick = {
-                                if (commitMessage.isNotBlank() && !commitRunning) {
-                                    commitRunning = true
-                                    WsRepository.remoteEditGitCommit(reportId, commitMessage)
-                                }
-                            },
-                            enabled = commitMessage.isNotBlank() && !commitRunning,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text(if (commitRunning) "Committing…" else "Commit")
-                        }
-                    }
-                }
-            }
-
-            // Rebuild now button — shown after successful commit
-            commitSha?.let { sha ->
                 Text(
-                    "Committed: ${sha.take(8)}",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color(0xFF22C55E),
+                    "Review the diffs here, then use Nexy desktop to apply the patch, run verification, and commit.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (!rebuildStarted) {
-                    OutlinedButton(
-                        onClick = {
-                            rebuildStarted = true
-                            WsRepository.startDesktopBuild("build")
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Icon(Icons.Default.Build, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                        Text("Rebuild now")
-                    }
-                } else {
-                    Text(
-                        "Build started — check Build Dashboard for progress.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+
             }
         }
     }
+}
+
+private fun detailPhase(status: String, fixStatus: String): String = when {
+    fixStatus == "failed" || status == "rejected" -> "Needs attention"
+    fixStatus == "applied" || status == "fixed" -> "Applied"
+    fixStatus in listOf("staging", "staged", "applying") || status == "investigated" -> "Patch ready"
+    status == "investigating" -> "Investigating"
+    else -> "Draft"
 }

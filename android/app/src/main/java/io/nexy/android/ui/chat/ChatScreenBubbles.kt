@@ -336,7 +336,7 @@ fun MessageBubble(
                     if (onBranch != null) DropdownMenuItem(text = { Text("Branch in new chat") }, onClick = { menuExpanded = false; onBranch() })
                     if (onAddToProject != null) DropdownMenuItem(text = { Text("Add to project sources") }, onClick = { menuExpanded = false; onAddToProject() })
                     if (onSaveAsArtifact != null) DropdownMenuItem(text = { Text("Save as artifact") }, onClick = { menuExpanded = false; onSaveAsArtifact() })
-                    if (onInvestigateWithAi != null) DropdownMenuItem(text = { Text("Remote Edit") }, onClick = { menuExpanded = false; onInvestigateWithAi() })
+                    if (onInvestigateWithAi != null) DropdownMenuItem(text = { Text("Create code change") }, onClick = { menuExpanded = false; onInvestigateWithAi() })
                     if (onReadAloud != null) DropdownMenuItem(text = { Text("Read aloud") }, onClick = { menuExpanded = false; onReadAloud() })
                     if (onDelete != null) DropdownMenuItem(text = { Text("Delete") }, onClick = { menuExpanded = false; onDelete() })
                     if (onDeleteAfter != null) DropdownMenuItem(text = { Text("Delete from here") }, onClick = { menuExpanded = false; onDeleteAfter() })
@@ -424,7 +424,7 @@ fun MessageBubble(
                             if (onBranch != null) DropdownMenuItem(text = { Text("Branch in new chat") }, onClick = { overflowExpanded = false; onBranch() })
                             if (onAddToProject != null) DropdownMenuItem(text = { Text("Add to project sources") }, onClick = { overflowExpanded = false; onAddToProject() })
                             if (onSaveAsArtifact != null) DropdownMenuItem(text = { Text("Save as artifact") }, onClick = { overflowExpanded = false; onSaveAsArtifact() })
-                            if (onInvestigateWithAi != null) DropdownMenuItem(text = { Text("Remote Edit") }, onClick = { overflowExpanded = false; onInvestigateWithAi() })
+                            if (onInvestigateWithAi != null) DropdownMenuItem(text = { Text("Create code change") }, onClick = { overflowExpanded = false; onInvestigateWithAi() })
                             DropdownMenuItem(text = { Text("Delete") }, onClick = { overflowExpanded = false; onDelete?.invoke() }, enabled = onDelete != null)
                         }
                     }

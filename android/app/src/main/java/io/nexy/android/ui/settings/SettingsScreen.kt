@@ -113,8 +113,8 @@ fun SettingsScreen(
                 onClick = onOpenBuildDashboard,
             )
             SettingsNavRow(
-                title = "Remote Edit",
-                detail = "Review AI edit requests and apply fixes",
+                title = "Code Changes",
+                detail = "Review repo-connected requests and staged patches",
                 onClick = onOpenRemoteEdit,
             )
             SettingsNavRow(

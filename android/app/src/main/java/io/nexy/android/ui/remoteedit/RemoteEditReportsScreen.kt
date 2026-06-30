@@ -50,6 +50,7 @@ fun RemoteEditReportsScreen(
 ) {
     val reports by vm.errorReports.collectAsState()
     val isRefreshing by vm.isRefreshing.collectAsState()
+    val workspaceInfo by vm.workspaceInfo.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
     var statusFilter by remember { mutableStateOf<String?>(null) }
     val statusValues = remember(reports) { reports.map { it.status }.distinct().sorted() }
@@ -73,7 +74,7 @@ fun RemoteEditReportsScreen(
     Scaffold(
         topBar = {
             NexyTopAppBar(
-                titleContent = { Text("Remote Edit") },
+                titleContent = { Text("Code Changes") },
                 onBack = onBack,
                 subtitle = "Settings › Developer",
             )
@@ -85,21 +86,25 @@ fun RemoteEditReportsScreen(
             modifier = Modifier.fillMaxSize().padding(padding),
         ) {
             if (reports.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    NexyEmptyState(
-                        title = "No edit requests yet.",
-                        detail = "Start a remote edit from chat to describe a change or fix.",
-                        action = {
-                            TextButton(onClick = { vm.refresh() }) { Text("Refresh") }
-                        },
-                    )
+                Column(modifier = Modifier.fillMaxSize()) {
+                    WorkspaceSummary(workspaceInfo)
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        NexyEmptyState(
+                            title = "No edit requests yet.",
+                            detail = "Create a code change from chat or the desktop Code Changes screen.",
+                            action = {
+                                TextButton(onClick = { vm.refresh() }) { Text("Refresh") }
+                            },
+                        )
+                    }
                 }
             } else {
                 Column(modifier = Modifier.fillMaxSize()) {
+                    WorkspaceSummary(workspaceInfo)
                     NexySearchField(
                         query = searchQuery,
                         onQueryChange = { searchQuery = it },
-                        placeholder = "Search reports",
+                        placeholder = "Search change requests",
                     )
                     if (statusValues.size > 1) {
                         LazyRow(
@@ -125,7 +130,7 @@ fun RemoteEditReportsScreen(
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     if (filteredReports.isEmpty()) {
                         NexyEmptyState(
-                            title = "No matching reports.",
+                            title = "No matching requests.",
                             detail = "Try a different title, status, or root cause.",
                             modifier = Modifier.weight(1f),
                             action = { TextButton(onClick = { searchQuery = "" }) { Text("Clear search") } },
@@ -139,6 +144,41 @@ fun RemoteEditReportsScreen(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkspaceSummary(workspace: io.nexy.android.data.model.WsEvent.BuildWorkspaceInfo?) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+    ) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(
+                text = if (workspace?.path.isNullOrBlank()) "No desktop workspace connected" else "Connected desktop workspace",
+                style = MaterialTheme.typography.labelMedium,
+            )
+            Text(
+                text = workspace?.path?.takeIf { it.isNotBlank() }
+                    ?: "Connect a workspace from Nexy desktop before creating a code change.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            workspace?.takeIf { it.path.isNotBlank() }?.let { info ->
+                Text(
+                    text = listOfNotNull(
+                        if (info.isGitRepo) "Git repository" else "Folder workspace",
+                        info.branch,
+                        if (info.dirty) "Uncommitted changes" else null,
+                    ).joinToString(" · "),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (info.dirty) Color(0xFFE65100) else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }
@@ -168,7 +208,7 @@ private fun ReportRow(report: ErrorReport, onClick: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            StatusBadge(status = report.status)
+            StatusBadge(status = presentationPhase(report))
         }
     }
 }
@@ -176,11 +216,11 @@ private fun ReportRow(report: ErrorReport, onClick: () -> Unit) {
 @Composable
 private fun StatusBadge(status: String) {
     val (label, color) = when (status) {
-        "open" -> "Open" to Color(0xFFB00020)
+        "draft" -> "Draft" to Color(0xFF616161)
         "investigating" -> "Investigating" to Color(0xFFE65100)
-        "investigated" -> "Investigated" to Color(0xFF1565C0)
-        "fixed" -> "Fixed" to Color(0xFF2E7D32)
-        "rejected" -> "Rejected" to Color(0xFF616161)
+        "patch-ready" -> "Patch ready" to Color(0xFF1565C0)
+        "applied" -> "Applied" to Color(0xFF2E7D32)
+        "needs-attention" -> "Needs attention" to Color(0xFFB00020)
         else -> status.replaceFirstChar { it.uppercase() } to Color(0xFF616161)
     }
     NexyStatusBadge(
@@ -188,6 +228,14 @@ private fun StatusBadge(status: String) {
         containerColor = color.copy(alpha = 0.15f),
         contentColor = color,
     )
+}
+
+private fun presentationPhase(report: ErrorReport): String = when {
+    report.fixStatus == "failed" || report.status == "rejected" -> "needs-attention"
+    report.fixStatus == "applied" || report.status == "fixed" -> "applied"
+    report.fixStatus in listOf("staging", "staged", "applying") || report.status == "investigated" -> "patch-ready"
+    report.status == "investigating" || !report.investigationMarkdown.isNullOrBlank() -> "investigating"
+    else -> "draft"
 }
 
 private fun formatTimestamp(ms: Long): String {

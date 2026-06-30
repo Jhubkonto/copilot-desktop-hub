@@ -58,7 +58,7 @@ fun RemoteEditStartScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             NexyTopAppBar(
-                titleContent = { Text("Remote Edit") },
+                titleContent = { Text("New code change") },
                 onBack = onBack,
             )
         },
@@ -72,7 +72,7 @@ fun RemoteEditStartScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(
-                "Describe the change or problem. The AI will investigate the codebase and apply a fix.",
+                "Describe the intended outcome. Nexy will investigate the connected desktop workspace and stage a patch for review.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -102,7 +102,7 @@ fun RemoteEditStartScreen(
                 enabled = description.isNotBlank() && !isSubmitting,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(if (isSubmitting) "Creating request…" else "Start Remote Edit")
+                Text(if (isSubmitting) "Creating request…" else "Create change request")
             }
         }
     }
