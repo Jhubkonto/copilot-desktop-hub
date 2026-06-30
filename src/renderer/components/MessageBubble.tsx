@@ -95,6 +95,7 @@ interface MessageBubbleProps {
   onRegenerate?: () => void
   onEdit?: (index: number) => void
   onSaveToWiki?: (messageId: string, content: string) => void
+  onSaveAsArtifact?: (messageId: string, content: string) => void
   hasWikiEntry?: boolean
   timestamp?: number
   isHighlighted?: boolean
@@ -124,6 +125,7 @@ export function MessageBubbleBase({
   onRegenerate,
   onEdit,
   onSaveToWiki,
+  onSaveAsArtifact,
   hasWikiEntry,
   onRetry,
   onSignIn,
@@ -219,6 +221,13 @@ export function MessageBubbleBase({
                   label={hasWikiEntry ? 'Saved' : 'Save to wiki'}
                   onClick={() => onSaveToWiki(id, content)}
                   highlight={hasWikiEntry}
+                />
+              )}
+              {onSaveAsArtifact && (
+                <ActionButton
+                  icon={BookOpen}
+                  label="Save as artifact"
+                  onClick={() => onSaveAsArtifact(id, content)}
                 />
               )}
               {isLastAssistant && onRegenerate && (

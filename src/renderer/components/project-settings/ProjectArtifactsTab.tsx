@@ -133,10 +133,11 @@ export function ProjectArtifactsTab({ projectId }: { projectId: string }) {
         </span>
         <button
           onClick={() => setShowGenerator(true)}
-          className="flex items-center gap-1 text-xs text-indigo-500 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-200 px-2 py-1 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
+          className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-indigo-700 dark:hover:text-indigo-200 px-2 py-1 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
+          aria-label="Open artifact generator"
         >
           <Sparkles className="w-3.5 h-3.5" />
-          Generate
+          Artifact generator
         </button>
       </div>
 
@@ -182,7 +183,7 @@ export function ProjectArtifactsTab({ projectId }: { projectId: string }) {
               <p className="text-center text-xs text-gray-400 dark:text-gray-500 pt-6 italic">
                 {deferredQuery
                   ? `No artifacts match "${deferredQuery}"`
-                  : 'No artifacts for this project yet — generate one above'}
+                  : 'No artifacts for this project yet'}
               </p>
             ) : (
               filtered.map((artifact) => (

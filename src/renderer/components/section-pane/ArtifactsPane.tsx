@@ -1,5 +1,5 @@
 import { useDeferredValue, useEffect, useMemo, useState, useCallback } from 'react'
-import { Download, Loader2, Package, Plus, Search, Sparkles, Trash2, X } from 'lucide-react'
+import { Download, Loader2, Package, Search, Sparkles, Trash2, X } from 'lucide-react'
 import type { ArtifactRow } from '../../../shared/types'
 import { useAppStore } from '../../store/app-store'
 import { ArtifactGeneratorModal } from '../ArtifactGeneratorModal'
@@ -36,7 +36,7 @@ function ElapsedTimer({ startedAt }: { startedAt: number }) {
 // Scope types
 // ---------------------------------------------------------------------------
 
-type ArtifactScope = 'global' | 'project' | 'all'
+type ArtifactScope = 'project' | 'all'
 
 // ---------------------------------------------------------------------------
 // ArtifactListItem row
@@ -64,7 +64,6 @@ function ArtifactListItem({ artifact, onDelete, onExport, onClick }: {
               {artifact.currentVersion ? `v${artifact.currentVersion.versionNumber}` : '—'}
               {' · '}
               {artifact.status}
-              {!artifact.projectId && ' · Global'}
             </>
           )}
         </p>
@@ -108,7 +107,7 @@ export function ArtifactsPane() {
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
-  const [scope, setScope] = useState<ArtifactScope>('global')
+  const [scope, setScope] = useState<ArtifactScope>('all')
   const [scopeProjectId, setScopeProjectId] = useState(projects[0]?.id ?? '')
   const [showGenerator, setShowGenerator] = useState(false)
 
@@ -183,19 +182,11 @@ export function ArtifactsPane() {
         <div className="flex items-center gap-1">
           <button
             onClick={() => setShowGenerator(true)}
-            className="flex items-center gap-1 text-xs text-indigo-500 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-200 px-2 py-1 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
-            aria-label="Generate artifact with AI"
+            className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-indigo-700 dark:hover:text-indigo-200 px-2 py-1 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
+            aria-label="Open artifact generator"
           >
             <Sparkles className="w-3.5 h-3.5" />
-            Generate
-          </button>
-          <button
-            onClick={() => setShowGenerator(true)}
-            className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 px-2 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-            aria-label="New artifact"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            New
+            Artifact generator
           </button>
         </div>
       </div>
@@ -225,7 +216,7 @@ export function ArtifactsPane() {
 
       {/* Scope pills */}
       <div className="flex items-center gap-1.5 px-3 py-2 border-b border-gray-100 dark:border-gray-800 flex-wrap">
-        {(['global', 'project', 'all'] as ArtifactScope[]).map((s) => (
+        {(['all', 'project'] as ArtifactScope[]).map((s) => (
           <button
             key={s}
             type="button"
@@ -236,7 +227,7 @@ export function ArtifactsPane() {
                 : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
             }`}
           >
-            {s === 'global' ? 'Global' : s === 'project' ? 'This Project' : 'All'}
+            {s === 'project' ? 'Project' : 'All'}
           </button>
         ))}
         {(scope === 'project' || scope === 'all') && projects.length > 0 && (
@@ -272,12 +263,10 @@ export function ArtifactsPane() {
             {filtered.length === 0 && !pendingGen ? (
               <p className="text-center text-xs text-gray-400 dark:text-gray-500 pt-8 italic">
                 {deferredQuery
-                  ? `No artifacts match "${deferredQuery}"`
-                  : scope === 'global'
-                    ? 'No global artifacts yet — generate one above'
+                    ? `No artifacts match "${deferredQuery}"`
                     : scope === 'project'
                       ? 'No artifacts for this project yet'
-                      : 'No artifacts yet — generate one above'}
+                      : 'No artifacts yet'}
               </p>
             ) : (
               filtered.map((artifact) => (

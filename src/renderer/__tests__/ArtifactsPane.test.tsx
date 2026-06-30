@@ -73,7 +73,7 @@ describe('ArtifactsPane', () => {
   it('calls artifactList on mount', async () => {
     render(<ArtifactsPane />)
     await waitFor(() => {
-      expect(mockApi.artifactList).toHaveBeenCalledWith(undefined)
+      expect(mockApi.artifactList).toHaveBeenCalledWith()
     })
   })
 
@@ -88,7 +88,7 @@ describe('ArtifactsPane', () => {
     mockApi.artifactList.mockResolvedValue([])
     render(<ArtifactsPane />)
     await waitFor(() => {
-      expect(screen.getByText(/no global artifacts yet/i)).toBeInTheDocument()
+      expect(screen.getByText(/^no artifacts yet$/i)).toBeInTheDocument()
     })
   })
 
@@ -115,9 +115,9 @@ describe('ArtifactsPane', () => {
     })
   })
 
-  it('opens generator modal when Generate button is clicked', async () => {
+  it('opens generator modal when generator button is clicked', async () => {
     render(<ArtifactsPane />)
-    const generateBtn = screen.getByRole('button', { name: /generate artifact with ai/i })
+    const generateBtn = screen.getByRole('button', { name: /open artifact generator/i })
     await userEvent.click(generateBtn)
     await waitFor(() => {
       expect(screen.getByTestId('generator-modal')).toBeInTheDocument()
@@ -159,8 +159,8 @@ describe('ArtifactsPane', () => {
 
   it('shows scope filter pills', async () => {
     render(<ArtifactsPane />)
-    expect(screen.getByRole('button', { name: /^global$/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^this project$/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /^all$/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^project$/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^global$/i })).not.toBeInTheDocument()
   })
 })

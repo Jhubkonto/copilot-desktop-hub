@@ -129,9 +129,9 @@ describe('ProjectArtifactsTab', () => {
     })
   })
 
-  it('opens generator modal when Generate is clicked', async () => {
+  it('opens generator modal when generator button is clicked', async () => {
     render(<ProjectArtifactsTab projectId="proj-1" />)
-    await userEvent.click(screen.getByRole('button', { name: /generate/i }))
+    await userEvent.click(screen.getByRole('button', { name: /open artifact generator/i }))
     await waitFor(() => {
       expect(screen.getByTestId('generator-modal')).toBeInTheDocument()
     })

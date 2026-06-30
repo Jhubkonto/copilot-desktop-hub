@@ -28,6 +28,7 @@ interface ChatMessagesProps {
   onScroll?: () => void
   onCopy: (content: string) => void
   onSaveToWiki?: (messageId: string, content: string) => void
+  onPromoteArtifact?: (messageId: string, content: string) => void
   wikiMessageIds: Set<string>
   onRegenerate: (modelOverride?: string) => void | Promise<void>
   onEdit: (index: number) => void
@@ -82,6 +83,7 @@ export function ChatMessagesBase({
   onScroll,
   onCopy,
   onSaveToWiki,
+  onPromoteArtifact,
   wikiMessageIds,
   onRegenerate,
   onEdit,
@@ -429,6 +431,7 @@ export function ChatMessagesBase({
                 isHighlighted={main.id === highlightedRequestId}
                 onCopy={onCopy}
                 onSaveToWiki={main.role === 'assistant' ? onSaveToWiki : undefined}
+                onSaveAsArtifact={main.role === 'assistant' ? onPromoteArtifact : undefined}
                 hasWikiEntry={wikiMessageIds.has(main.id)}
                 onRegenerate={index === lastAssistantIndex ? onRegenerate : undefined}
                 onEdit={main.role === 'user' ? onEdit : undefined}

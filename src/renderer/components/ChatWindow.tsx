@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { BookOpen, BrainCircuit, CheckCircle, ChevronDown, ChevronRight, Download, Loader2, Lock, MoreHorizontal, Pin, PinOff, Sparkles, Upload, Zap } from 'lucide-react'
 import { getAvailableModelIds, getModelLabel, modelIdSupportsTools } from '../../shared/models'
-import { isApiError, type AgentConfig, type AvailableModelEntry, type AvailableModelGroup, type ConversationExportPackFormat, type WikiCandidate } from '../../shared/types'
+import { isApiError, type AgentConfig, type ArtifactPromotionRequest, type AvailableModelEntry, type AvailableModelGroup, type ConversationExportPackFormat, type WikiCandidate } from '../../shared/types'
 import type { ContextRef, ToastType } from '../hooks/chat-types'
 import { useAtMenu } from '../hooks/useAtMenu'
 import { useChat } from '../hooks/useChat'
@@ -32,6 +32,29 @@ const FALLBACK_CODEX_MODELS = [
   { id: 'gpt-5.4-mini', label: 'GPT-5.4-Mini' },
 ]
 
+const PROMOTABLE_ARTIFACT_KINDS: ArtifactPromotionRequest['kind'][] = ['document', 'prompt', 'plan', 'code', 'other']
+
+function deriveArtifactPromotionTitle(messageContent: string, conversationTitle?: string | null): string {
+  const heading = messageContent.match(/^\s{0,3}#{1,6}\s+(.+?)\s*$/m)?.[1]?.trim()
+  return heading || conversationTitle?.trim() || 'New Artifact'
+}
+
+function defaultArtifactFilePath(kind: ArtifactPromotionRequest['kind']): string {
+  switch (kind) {
+    case 'prompt':
+      return 'prompt.md'
+    case 'plan':
+      return 'output.md'
+    case 'code':
+      return 'output.ts'
+    case 'other':
+      return 'output.txt'
+    case 'document':
+    default:
+      return 'output.md'
+  }
+}
+
 export function ChatWindow() {
   const conversationId = useAppStore((state) => state.currentConversationId)
   const activeAgentId = useAppStore((state) => state.activeAgentId)
@@ -50,12 +73,14 @@ export function ChatWindow() {
   const loadAgents = useAppStore((state) => state.loadAgents)
   const newChat = useAppStore((state) => state.newChat)
   const openSectionPane = useAppStore((state) => state.openSectionPane)
+  const openArtifactPanel = useAppStore((state) => state.openArtifactPanel)
   const selectConversation = useAppStore((state) => state.selectConversation)
   const setTheme = useAppStore((state) => state.setTheme)
   const logout = useAppStore((state) => state.logout)
   const addToast = useAppStore((state) => state.addToast) as (
     message: string,
     type?: ToastType,
+    action?: { label: string; onClick: () => void }
   ) => void
   const markConversationUnread = useAppStore((state) => state.markConversationUnread)
   const catalogModels = useAppStore((state) => state.catalogModels)
@@ -98,6 +123,16 @@ export function ChatWindow() {
   const [showQuizModal, setShowQuizModal] = useState(false)
   const [pendingInitialDebrief, setPendingInitialDebrief] = useState<import('../../shared/types').Debrief | null | undefined>(undefined)
   const [showPromptLibrary, setShowPromptLibrary] = useState(false)
+  const [artifactPromotion, setArtifactPromotion] = useState<{
+    messageId: string
+    content: string
+    title: string
+    kind: ArtifactPromotionRequest['kind']
+    scopeType: 'global' | 'project'
+    projectId: string
+    filePath: string
+    saving: boolean
+  } | null>(null)
   const completedConversationIds = useAppStore((state) => state.completedConversationIds)
   const markConversationCompleteFn = useAppStore((state) => state.markConversationComplete)
   const handleVoiceText = useCallback((text: string) => {
@@ -310,6 +345,48 @@ export function ChatWindow() {
     const floor = inputPanelHeight ?? 0
     element.style.height = `${Math.min(Math.max(floor, element.scrollHeight), 400)}px`
   }, [input, inputPanelHeight])
+
+  const handleOpenArtifactPromotion = useCallback((messageId: string, content: string) => {
+    setArtifactPromotion({
+      messageId,
+      content,
+      title: deriveArtifactPromotionTitle(content, currentConversation?.title),
+      kind: 'document',
+      scopeType: chatProjectId && chatProjectId !== '__none__' ? 'project' : 'global',
+      projectId: chatProjectId && chatProjectId !== '__none__' ? chatProjectId : '',
+      filePath: defaultArtifactFilePath('document'),
+      saving: false,
+    })
+  }, [chatProjectId, currentConversation?.title])
+
+  const handleConfirmArtifactPromotion = useCallback(async () => {
+    if (!conversationId || !artifactPromotion) return
+    const scope = artifactPromotion.scopeType === 'project'
+      ? { type: 'project' as const, projectId: artifactPromotion.projectId }
+      : { type: 'global' as const }
+    setArtifactPromotion((current) => current ? { ...current, saving: true } : current)
+    try {
+      const result = await window.api.artifactPromoteMessage({
+        conversationId,
+        messageId: artifactPromotion.messageId,
+        title: artifactPromotion.title.trim(),
+        kind: artifactPromotion.kind,
+        scope,
+        filePath: artifactPromotion.filePath.trim(),
+      })
+      setArtifactPromotion(null)
+      addToast('Artifact saved', 'success', {
+        label: 'View artifact',
+        onClick: () => {
+          openSectionPane('artifacts')
+          openArtifactPanel(result.artifactId)
+        },
+      })
+    } catch (error) {
+      setArtifactPromotion((current) => current ? { ...current, saving: false } : current)
+      addToast(error instanceof Error ? error.message : 'Failed to save artifact', 'error')
+    }
+  }, [addToast, artifactPromotion, conversationId, openArtifactPanel, openSectionPane])
 
   useEffect(() => {
     const goOnline = () => setIsOnline(true)
@@ -1400,6 +1477,7 @@ export function ChatWindow() {
           onScroll={handleScrollContainerScroll}
           onCopy={handleCopy}
           onSaveToWiki={chatProjectId && chatProjectId !== '__none__' ? handleSaveToWiki : undefined}
+          onPromoteArtifact={handleOpenArtifactPromotion}
           wikiMessageIds={wikiMessageIds}
           onRegenerate={chat.handleRegenerate}
           onEdit={handleEditMessage}
@@ -1466,6 +1544,91 @@ export function ChatWindow() {
         )}
         {showQuizModal && conversationId && (
           <QuizModal conversationId={conversationId} onClose={() => setShowQuizModal(false)} />
+        )}
+        {artifactPromotion && (
+          <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/50 px-4">
+            <div className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl dark:border-gray-700 dark:bg-gray-900">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Save As Artifact</h2>
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Create a saved, versioned artifact from this assistant response.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => artifactPromotion.saving ? undefined : setArtifactPromotion(null)}
+                  className="text-xs text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100"
+                >
+                  Close
+                </button>
+              </div>
+              <div className="mt-4 space-y-3">
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">Title</span>
+                  <input
+                    type="text"
+                    value={artifactPromotion.title}
+                    onChange={(event) => setArtifactPromotion((current) => current ? { ...current, title: event.target.value } : current)}
+                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+                  />
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">Kind</span>
+                    <select
+                      value={artifactPromotion.kind}
+                      onChange={(event) => {
+                        const kind = event.target.value as ArtifactPromotionRequest['kind']
+                        setArtifactPromotion((current) => current ? { ...current, kind, filePath: defaultArtifactFilePath(kind) } : current)
+                      }}
+                      className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+                    >
+                      {PROMOTABLE_ARTIFACT_KINDS.map((kind) => (
+                        <option key={kind} value={kind}>{kind}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">Scope</span>
+                    <select
+                      value={artifactPromotion.scopeType}
+                      onChange={(event) => setArtifactPromotion((current) => current ? { ...current, scopeType: event.target.value as 'global' | 'project' } : current)}
+                      className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+                    >
+                      <option value="global">Global</option>
+                      <option value="project" disabled={!chatProjectId || chatProjectId === '__none__'}>This project</option>
+                    </select>
+                  </label>
+                </div>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">File path</span>
+                  <input
+                    type="text"
+                    value={artifactPromotion.filePath}
+                    onChange={(event) => setArtifactPromotion((current) => current ? { ...current, filePath: event.target.value } : current)}
+                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+                  />
+                </label>
+              </div>
+              <div className="mt-5 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setArtifactPromotion(null)}
+                  disabled={artifactPromotion.saving}
+                  className="rounded-lg px-3 py-2 text-xs font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-60 dark:text-gray-300 dark:hover:bg-gray-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { void handleConfirmArtifactPromotion() }}
+                  disabled={artifactPromotion.saving || !artifactPromotion.filePath.trim()}
+                  className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+                >
+                  {artifactPromotion.saving ? 'Saving…' : 'Save artifact'}
+                </button>
+              </div>
+            </div>
+          </div>
         )}
         {promptLibraryModal}
       </div>
