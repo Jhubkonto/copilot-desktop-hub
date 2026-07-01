@@ -79,6 +79,10 @@ export function useChat({
   // Holds the previous assistant message during regeneration so it can be
   // restored to the UI if the API call fails, and deleted from the DB on success.
   const pendingDeleteMessageRef = useRef<ChatMessage | null>(null)
+  // Tracks the in-flight regen-cleanup deleteMessage IPC call so reloadMessages can
+  // wait for it — otherwise a reload can race ahead of the delete and briefly show
+  // both the old (pre-regen) and new assistant messages until the delete lands.
+  const pendingDeletePromiseRef = useRef<Promise<unknown> | null>(null)
   const preRegenMessagesRef = useRef<ChatMessage[] | null>(null)
   // Stable ref so stream-event closures always call the current addToast.
   const addToastRef = useRef(addToast)
@@ -247,7 +251,9 @@ export function useChat({
   // requiring the user to navigate away and back.
   const reloadMessages = useCallback(() => {
     if (!conversationId) return
-    void window.api.getMessages(conversationId).then((dbMessages) => {
+    // Wait for any in-flight regen cleanup delete so we don't fetch the DB mid-race
+    // and briefly display both the pre-regen and newly-streamed assistant messages.
+    void Promise.resolve(pendingDeletePromiseRef.current).then(() => window.api.getMessages(conversationId)).then((dbMessages) => {
       setMessages((prev) => {
         const imageMap = new Map(
           prev.filter((m) => m.images).map((m) => [m.id, m.images!]),
@@ -437,6 +443,13 @@ export function useChat({
 
         streamingContentRef.current = ''
         streamModelRef.current = null
+        // Now that the new response arrived, delete the old assistant message from DB
+        // (regen cleanup) before any reload — reloadMessages awaits this promise so a
+        // re-fetch can never race ahead of the delete and briefly show both messages.
+        if (pendingDeleteMessageRef.current) {
+          pendingDeletePromiseRef.current = window.api.deleteMessage(pendingDeleteMessageRef.current.id).catch(() => {})
+          pendingDeleteMessageRef.current = null
+        }
         // Signal stream end — actual isGenerating=false deferred until drain queue empties
         // so the streaming cursor stays visible until all buffered chars are rendered.
         setStreamingContent('')
@@ -451,11 +464,6 @@ export function useChat({
           setLiveTeamActivity([])
           liveToolCallsRef.current = []
           reloadMessagesRef.current()
-        }
-        // Now that the new response arrived, delete the old assistant message from DB.
-        if (pendingDeleteMessageRef.current) {
-          void window.api.deleteMessage(pendingDeleteMessageRef.current.id)
-          pendingDeleteMessageRef.current = null
         }
         preRegenMessagesRef.current = null
         return

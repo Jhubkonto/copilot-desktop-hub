@@ -26,6 +26,7 @@ interface ChatMessagesProps {
   messagesEndRef: RefObject<HTMLDivElement | null>
   scrollContainerRef?: RefObject<HTMLDivElement | null>
   onScroll?: () => void
+  onNavigateToRequest?: () => void
   onCopy: (content: string) => void
   onSaveToWiki?: (messageId: string, content: string) => void
   onPromoteArtifact?: (messageId: string, content: string) => void
@@ -82,6 +83,7 @@ export function ChatMessagesBase({
   messagesEndRef,
   scrollContainerRef,
   onScroll,
+  onNavigateToRequest,
   onCopy,
   onSaveToWiki,
   onPromoteArtifact,
@@ -244,11 +246,12 @@ export function ChatMessagesBase({
   const handleScrollToRequest = useCallback((requestId: string) => {
     const element = messageElementsRef.current.get(requestId)
     if (!element) return
+    onNavigateToRequest?.()
     element.scrollIntoView({ behavior: 'smooth', block: 'center' })
     setHighlightedRequestId(requestId)
     if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
     highlightTimerRef.current = setTimeout(() => setHighlightedRequestId(null), 1600)
-  }, [])
+  }, [onNavigateToRequest])
 
   const handleScroll = useCallback(() => {
     onScroll?.()
@@ -502,7 +505,7 @@ export function ChatMessagesBase({
               </div>
             )}
             {isGenerating && (streamingContent || liveRenderItems.some((item) => item.type === 'live-assistant-text')) && (
-              <div className="pl-3 border-l-2 border-gray-200 dark:border-gray-700 text-sm text-gray-900 dark:text-gray-100">
+              <div className="message-enter pl-3 border-l-2 border-gray-200 dark:border-gray-700 text-sm text-gray-900 dark:text-gray-100">
                 <MarkdownRenderer content={streamingContent} />
                 <span className="animate-pulse text-gray-400">▊</span>
               </div>

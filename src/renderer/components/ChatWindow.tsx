@@ -149,6 +149,11 @@ export function ChatWindow() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const isUserScrolledUpRef = useRef(false)
+  // Set while a manual "scroll to request" jump is in flight so the generation
+  // auto-follow effect doesn't fight it and drag the view back to the bottom.
+  const suppressAutoFollowUntilRef = useRef(0)
+  // Coalesces auto-follow into at most one pending rAF at a time.
+  const autoFollowRafRef = useRef<number | null>(null)
   const prevGeneratingRef = useRef(false)
   const prevMessagesLengthRef = useRef(0)
   const modelPickerRef = useRef<HTMLButtonElement>(null)
@@ -570,16 +575,33 @@ export function ChatWindow() {
     }
   }, [conversationId, markConversationRead])
 
-  // Auto-scroll only when user is at the bottom.
-  // Fires on displayedContent (the drained queue output) so the DOM has already been
-  // updated with the new characters before we measure scrollHeight (C3).
+  // Cancel any pending coalesced auto-follow rAF on unmount.
   useEffect(() => {
-    if (!isUserScrolledUpRef.current) {
-      // Use rAF so the scroll happens after the browser has painted the new content.
-      requestAnimationFrame(() => {
-        if (shouldFollowAnimatedGrowth(isUserScrolledUpRef.current)) scrollToBottom()
-      })
+    return () => {
+      if (autoFollowRafRef.current !== null) cancelAnimationFrame(autoFollowRafRef.current)
     }
+  }, [])
+
+  // Suppresses the generation auto-follow effects for a short window so a manual
+  // "scroll to request" jump isn't immediately dragged back to the bottom.
+  const handleNavigateToRequest = useCallback(() => {
+    suppressAutoFollowUntilRef.current = Date.now() + 2000
+  }, [])
+
+  // Auto-scroll only when user is at the bottom.
+  // Fires on displayedContent (the drained queue output), which now updates on
+  // nearly every animation frame while text streams in. Coalesce into at most one
+  // pending rAF so we don't stack a scrollTo() call (and its forced layout read)
+  // on every single tick, and skip entirely while a manual navigation (e.g. jump
+  // to the in-reply-to request) is in flight so this doesn't drag the view back.
+  useEffect(() => {
+    if (isUserScrolledUpRef.current) return
+    if (autoFollowRafRef.current !== null) return
+    autoFollowRafRef.current = requestAnimationFrame(() => {
+      autoFollowRafRef.current = null
+      if (Date.now() < suppressAutoFollowUntilRef.current) return
+      if (shouldFollowAnimatedGrowth(isUserScrolledUpRef.current)) scrollToBottom('auto')
+    })
   }, [chat.messages, chat.displayedContent, chat.liveTeamActivity, scrollToBottom])
 
   // Track new content arriving while user is scrolled up → mark unread
@@ -602,12 +624,17 @@ export function ChatWindow() {
   }, [chat.isGenerating, scrollToBottom])
 
   // Scroll when live thinking blocks expand (new block added or content grows).
+  // Shares the same coalesced-rAF + suppression guard as the content auto-follow
+  // effect above — thinking blocks get a new Map reference on every streamed
+  // chunk, so without coalescing this fires at the same high frequency.
   useEffect(() => {
-    if (!isUserScrolledUpRef.current && chat.liveTurnState.thinkingBlocks.size > 0) {
-      requestAnimationFrame(() => {
-        if (!isUserScrolledUpRef.current) scrollToBottom()
-      })
-    }
+    if (isUserScrolledUpRef.current || chat.liveTurnState.thinkingBlocks.size === 0) return
+    if (autoFollowRafRef.current !== null) return
+    autoFollowRafRef.current = requestAnimationFrame(() => {
+      autoFollowRafRef.current = null
+      if (Date.now() < suppressAutoFollowUntilRef.current) return
+      if (!isUserScrolledUpRef.current) scrollToBottom('auto')
+    })
   }, [chat.liveTurnState.thinkingBlocks, scrollToBottom])
 
   // Reset scroll state on conversation switch
@@ -1511,6 +1538,7 @@ export function ChatWindow() {
           messagesEndRef={messagesEndRef}
           scrollContainerRef={scrollContainerRef}
           onScroll={handleScrollContainerScroll}
+          onNavigateToRequest={handleNavigateToRequest}
           onCopy={handleCopy}
           onSaveToWiki={chatProjectId && chatProjectId !== '__none__' ? handleSaveToWiki : undefined}
           onPromoteArtifact={handleOpenArtifactPromotion}

@@ -7,11 +7,12 @@ interface ThinkingBlockProps {
   label?: string
 }
 
-// Fixed viewport height for the reasoning text — roughly six lines. Content scrolls
-// within this window instead of the bubble growing, so the surrounding layout never
-// shifts while reasoning streams in, and stays exactly the same size once done —
-// no auto-collapse, so there's no jarring shrink right as the answer arrives.
-const VIEWPORT_CLASS = 'h-[7.5rem]'
+// Cap on the reasoning viewport — roughly six lines. Short content sizes to itself;
+// once content exceeds this height it scrolls within the window instead of the
+// bubble growing further, so the surrounding layout never shifts unboundedly while
+// reasoning streams in, and stays exactly the same size once done — no auto-collapse,
+// so there's no jarring shrink right as the answer arrives.
+const VIEWPORT_CLASS = 'max-h-[7.5rem]'
 
 export function ThinkingBlock({ content, done, label = 'Reasoning' }: ThinkingBlockProps) {
   const [collapsed, setCollapsed] = useState(false)
@@ -32,7 +33,7 @@ export function ThinkingBlock({ content, done, label = 'Reasoning' }: ThinkingBl
   }
 
   return (
-    <div className="my-1 overflow-hidden rounded-lg border border-purple-200 bg-purple-50 text-xs shadow-sm dark:border-purple-900/60 dark:bg-purple-950/30">
+    <div className="message-enter my-1 overflow-hidden rounded-lg border border-purple-200 bg-purple-50 text-xs shadow-sm dark:border-purple-900/60 dark:bg-purple-950/30">
       <button
         type="button"
         onClick={handleToggle}
