@@ -32,3 +32,13 @@ val Green700 = Color(0xFF15803D)
 
 // Nexy brand violet
 val NexyViolet = Color(0xFFA78BFA)
+
+// Purple accent — matches desktop's Tailwind purple palette used for reasoning/thinking bubbles
+val Purple50  = Color(0xFFFAF5FF)
+val Purple100 = Color(0xFFF3E8FF)
+val Purple200 = Color(0xFFE9D5FF)
+val Purple400 = Color(0xFFC084FC)
+val Purple500 = Color(0xFFA855F7)
+val Purple700 = Color(0xFF7E22CE)
+val Purple900 = Color(0xFF581C87)
+val Purple950 = Color(0xFF3B0764)

@@ -35,6 +35,9 @@ import io.nexy.android.data.model.PromptVersion
 import io.nexy.android.data.model.PromptVersionDiff
 import io.nexy.android.data.model.WikiEntry
 import io.nexy.android.data.model.CompressionSections
+import io.nexy.android.data.model.ContextInspectorAttachmentSnapshot
+import io.nexy.android.data.model.ContextInspectorRefSnapshot
+import io.nexy.android.data.model.ContextInspectorSnapshot
 import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.ErrorReport
 import io.nexy.android.data.model.HistoryMessage
@@ -509,6 +512,45 @@ fun parseWsEvent(
             )
 
             "conversation:compression-error" -> WsEvent.CompressionError(data?.optString("message") ?: "Compression failed")
+
+            "context:inspector-snapshot" -> {
+                val snapshot = if (data == null) null else {
+                    val refsArray = data.optJSONArray("contextRefs") ?: JSONArray()
+                    val refs = (0 until refsArray.length()).map { i ->
+                        val r = refsArray.getJSONObject(i)
+                        ContextInspectorRefSnapshot(
+                            token = r.optString("token"),
+                            key = r.optString("key"),
+                            estimatedTokens = r.optInt("estimatedTokens"),
+                        )
+                    }
+                    val attachmentsArray = data.optJSONArray("attachments") ?: JSONArray()
+                    val attachments = (0 until attachmentsArray.length()).map { i ->
+                        val a = attachmentsArray.getJSONObject(i)
+                        ContextInspectorAttachmentSnapshot(
+                            name = a.optString("name"),
+                            size = a.optLong("size"),
+                            estimatedTokens = a.optInt("estimatedTokens"),
+                        )
+                    }
+                    ContextInspectorSnapshot(
+                        conversationId = data.nullableString("conversationId"),
+                        model = data.optString("model"),
+                        systemPrompt = data.optString("systemPrompt"),
+                        systemPromptTokens = data.optInt("systemPromptTokens"),
+                        contextRefs = refs,
+                        attachments = attachments,
+                        imageCount = data.optInt("imageCount"),
+                        historyMessageCount = data.optInt("historyMessageCount"),
+                        currentInputTokens = data.optInt("currentInputTokens"),
+                        totalTokens = data.optInt("totalTokens"),
+                        maxTokens = data.optInt("maxTokens", 16000),
+                    )
+                }
+                WsEvent.InspectorSnapshot(snapshot)
+            }
+
+            "context:inspector-snapshot-error" -> WsEvent.InspectorSnapshotError(data?.optString("message") ?: "Unable to load context inspector")
 
             "self-heal:reports" -> {
                 val reportsArray = data?.optJSONArray("reports") ?: JSONArray()

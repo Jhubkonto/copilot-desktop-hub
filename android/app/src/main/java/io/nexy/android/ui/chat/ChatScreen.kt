@@ -75,6 +75,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -87,8 +88,13 @@ import io.nexy.android.data.model.PromptEntry
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.snapshotFlow
+import io.noties.markwon.AbstractMarkwonPlugin
 import io.noties.markwon.Markwon
+import io.noties.markwon.core.MarkwonTheme
+import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
 import io.noties.markwon.ext.tables.TablePlugin
+import io.noties.markwon.ext.tables.TableTheme
+import io.noties.markwon.ext.tasklist.TaskListPlugin
 import io.noties.markwon.linkify.LinkifyPlugin
 import io.noties.markwon.syntax.Prism4jTheme
 import io.noties.markwon.syntax.SyntaxHighlightPlugin
@@ -710,28 +716,11 @@ fun ChatScreen(
     }
 
     if (showInspectorSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showInspectorSheet = false },
+        ContextInspectorSheet(
+            conversationId = conversationId,
+            onDismiss = { showInspectorSheet = false },
             sheetState = inspectorSheetState,
-            containerColor = MaterialTheme.colorScheme.surface,
-        ) {
-            Text(
-                "Context Inspector",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-            )
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                InspectorRow("Model", activeModelLabel)
-                if (agentLabel != null) InspectorRow("Agent", agentLabel)
-                if (projectLabel != null) InspectorRow("Project", projectLabel)
-                val msgCount = messages.size
-                InspectorRow("Messages", "$msgCount message${if (msgCount != 1) "s" else ""} in context")
-                val backend = chatAgent?.backend
-                if (!backend.isNullOrBlank()) InspectorRow("Backend", backend)
-            }
-            Spacer(Modifier.padding(bottom = 16.dp))
-        }
+        )
     }
 
     deletingMessage?.let { message ->
@@ -898,7 +887,8 @@ fun ChatScreen(
         onDispose { tts.stop(); tts.shutdown() }
     }
 
-    val markwon = remember(context) {
+    val colorScheme = MaterialTheme.colorScheme
+    val markwon = remember(context, colorScheme) {
         val prism4j = Prism4j(io.nexy.android.GrammarLocatorDef())
         // Custom theme: subtle tinted background with readable dark text instead of Darkula black
         val codeTheme = object : Prism4jTheme {
@@ -906,10 +896,36 @@ fun ChatScreen(
             override fun textColor(): Int = 0xFFE8EAF6.toInt() // soft lavender-white
             override fun apply(language: String, syntax: io.noties.prism4j.Prism4j.Syntax, builder: SpannableStringBuilder, start: Int, end: Int) = Unit
         }
+        val dip = io.noties.markwon.utils.Dip.create(context)
+        val tableTheme = TableTheme.emptyBuilder()
+            .tableBorderColor(colorScheme.outlineVariant.toArgb())
+            .tableBorderWidth(dip.toPx(1))
+            .tableCellPadding(dip.toPx(8))
+            .tableHeaderRowBackgroundColor(colorScheme.surfaceVariant.toArgb())
+            .tableEvenRowBackgroundColor(colorScheme.surface.toArgb())
+            .tableOddRowBackgroundColor(colorScheme.surfaceVariant.copy(alpha = 0.3f).toArgb())
+            .build()
         Markwon.builder(context)
-            .usePlugin(TablePlugin.create(context))
+            .usePlugin(TablePlugin.create(tableTheme))
             .usePlugin(LinkifyPlugin.create())
             .usePlugin(SyntaxHighlightPlugin.create(prism4j, codeTheme))
+            .usePlugin(StrikethroughPlugin.create())
+            .usePlugin(
+                TaskListPlugin.create(
+                    colorScheme.primary.toArgb(),
+                    colorScheme.onPrimary.toArgb(),
+                    colorScheme.outline.toArgb(),
+                ),
+            )
+            .usePlugin(object : AbstractMarkwonPlugin() {
+                override fun configureTheme(builder: MarkwonTheme.Builder) {
+                    builder
+                        .linkColor(colorScheme.primary.toArgb())
+                        .codeTextColor(colorScheme.onSurfaceVariant.toArgb())
+                        .codeBackgroundColor(colorScheme.surfaceVariant.toArgb())
+                        .blockQuoteColor(colorScheme.outline.toArgb())
+                }
+            })
             .build()
     }
     CompositionLocalProvider(LocalMarkwon provides markwon) {
@@ -1313,10 +1329,3 @@ private fun InReplyToBanner(
     }
 }
 
-@Composable
-private fun InspectorRow(label: String, value: String) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.bodyMedium)
-    }
-}

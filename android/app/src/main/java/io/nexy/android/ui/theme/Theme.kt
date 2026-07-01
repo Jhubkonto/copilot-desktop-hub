@@ -12,10 +12,10 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
-data class NexyExtendedColors(val success: Color, val onSuccess: Color)
+data class NexyExtendedColors(val success: Color, val onSuccess: Color, val isDark: Boolean = false)
 
 val LocalNexyColors = staticCompositionLocalOf {
-    NexyExtendedColors(success = Green500, onSuccess = Color.White)
+    NexyExtendedColors(success = Green500, onSuccess = Color.White, isDark = false)
 }
 
 private val DarkColorScheme = darkColorScheme(
@@ -101,9 +101,9 @@ fun NexyTheme(
 ) {
     val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
     val extendedColors = if (darkTheme) {
-        NexyExtendedColors(success = Green500, onSuccess = Color.White)
+        NexyExtendedColors(success = Green500, onSuccess = Color.White, isDark = true)
     } else {
-        NexyExtendedColors(success = Green700, onSuccess = Color.White)
+        NexyExtendedColors(success = Green700, onSuccess = Color.White, isDark = false)
     }
 
     CompositionLocalProvider(LocalNexyColors provides extendedColors) {

@@ -205,6 +205,8 @@ sealed class WsEvent {
     ) : WsEvent()
     data class CompressionSaved(val conversationId: String, val hasSummary: Boolean, val summarizedMessageCount: Int, val retainedMessageCount: Int) : WsEvent()
     data class CompressionError(val message: String) : WsEvent()
+    data class InspectorSnapshot(val snapshot: ContextInspectorSnapshot?) : WsEvent()
+    data class InspectorSnapshotError(val message: String) : WsEvent()
     data class ProjectGeneratorToken(val sessionId: String?, val chunk: String) : WsEvent()
     data class ProjectGeneratorTurnComplete(val sessionId: String?, val content: String, val hasSpec: Boolean = false) : WsEvent()
     data class ProjectGeneratorSpecReady(val sessionId: String?, val spec: ProjectGeneratorSpec) : WsEvent()
@@ -392,6 +394,33 @@ data class CompressionSections(
 
 typealias CompressionPreview = WsEvent.CompressionPreview
 typealias CompressionDraft = WsEvent.CompressionDraft
+
+data class ContextInspectorRefSnapshot(
+    val token: String,
+    val key: String,
+    val estimatedTokens: Int,
+)
+
+data class ContextInspectorAttachmentSnapshot(
+    val name: String,
+    val size: Long,
+    val estimatedTokens: Int,
+)
+
+/** Mirrors the desktop's ContextInspectorSnapshot (src/shared/types.ts) relayed from the focused Electron window. */
+data class ContextInspectorSnapshot(
+    val conversationId: String?,
+    val model: String,
+    val systemPrompt: String,
+    val systemPromptTokens: Int,
+    val contextRefs: List<ContextInspectorRefSnapshot> = emptyList(),
+    val attachments: List<ContextInspectorAttachmentSnapshot> = emptyList(),
+    val imageCount: Int,
+    val historyMessageCount: Int,
+    val currentInputTokens: Int,
+    val totalTokens: Int,
+    val maxTokens: Int,
+)
 
 data class ProjectAgentEntry(
     val agentId: String,

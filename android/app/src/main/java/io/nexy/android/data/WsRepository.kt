@@ -745,6 +745,7 @@ object WsRepository : WsClient {
     fun deleteMessagesAfter(conversationId: String, timestamp: Long) {
         send("message:delete-after", mapOf("conversationId" to conversationId, "timestamp" to timestamp))
     }
+    fun getInspectorSnapshot(conversationId: String) { send("context:inspector-snapshot", mapOf("conversationId" to conversationId)) }
     fun getCompressionPreview(conversationId: String) { send("conversation:compression-preview", mapOf("conversationId" to conversationId)) }
     fun prepareCompressionSummary(conversationId: String) { send("conversation:prepare-compression-summary", mapOf("conversationId" to conversationId)) }
     fun saveCompressionSummary(conversationId: String, draft: Map<String, Any>) {

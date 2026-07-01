@@ -71,6 +71,8 @@ dependencies {
     implementation(libs.zxing.android.embedded)
     implementation(libs.markwon.core)
     implementation(libs.markwon.ext.tables)
+    implementation(libs.markwon.ext.strikethrough)
+    implementation(libs.markwon.ext.tasklist)
     implementation(libs.markwon.linkify)
     implementation(libs.markwon.syntax.highlight)
     implementation(libs.prism4j)

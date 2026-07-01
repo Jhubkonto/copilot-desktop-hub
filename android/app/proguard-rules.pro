@@ -5,12 +5,13 @@
 # For more details, see
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# WebView JS interface for the code-block syntax-highlighting island
+# (CodeBlockWebView.kt) — keeps @JavascriptInterface methods from being
+# stripped/renamed in release builds, which would silently break copy-to-
+# clipboard and WebView height reporting.
+-keepclassmembers class io.nexy.android.ui.chat.CodeBlockBridge {
+    public *;
+}
 
 # Uncomment this to preserve the line number information for
 # debugging stack traces.

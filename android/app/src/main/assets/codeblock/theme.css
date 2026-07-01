@@ -1,0 +1,175 @@
+/*
+ * Ported from src/renderer/styles/global.css — keep hex values identical.
+ * Catppuccin Mocha syntax theme + code-block chrome, mirroring desktop's
+ * CodeBlockWrapper (src/renderer/components/MarkdownRenderer.tsx).
+ */
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.code-wrapper {
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: #181825;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.code-header .lang {
+  font-size: 11px;
+  font-family: 'Roboto Mono', monospace;
+  font-weight: 500;
+  color: #9399b2;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.code-header button {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #bac2de;
+  border: none;
+  font-family: inherit;
+}
+
+.code-header button:active {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+pre {
+  overflow-x: auto;
+  margin: 0;
+  padding: 16px;
+  background: #1e1e2e;
+  color: #cdd6f4;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+pre::-webkit-scrollbar {
+  height: 5px;
+}
+
+pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+pre::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.45);
+  border-radius: 9999px;
+}
+
+code {
+  font-family: 'Roboto Mono', monospace;
+}
+
+.hljs {
+  color: #cdd6f4;
+  background: #1e1e2e;
+}
+
+.hljs-keyword,
+.hljs-selector-tag {
+  color: #cba6f7;
+}
+
+.hljs-string,
+.hljs-selector-class {
+  color: #a6e3a1;
+}
+
+.hljs-number,
+.hljs-literal {
+  color: #fab387;
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: #6c7086;
+  font-style: italic;
+}
+
+.hljs-function,
+.hljs-title,
+.hljs-title.function_ {
+  color: #89b4fa;
+}
+
+.hljs-built_in {
+  color: #f38ba8;
+}
+
+.hljs-type,
+.hljs-title.class_ {
+  color: #f9e2af;
+}
+
+.hljs-params {
+  color: #cdd6f4;
+}
+
+.hljs-meta,
+.hljs-meta .hljs-keyword {
+  color: #f5c2e7;
+}
+
+.hljs-attr,
+.hljs-attribute {
+  color: #89dceb;
+}
+
+.hljs-variable,
+.hljs-template-variable {
+  color: #cdd6f4;
+}
+
+.hljs-tag {
+  color: #f38ba8;
+}
+
+.hljs-name {
+  color: #89b4fa;
+}
+
+.hljs-addition {
+  color: #a6e3a1;
+  background: rgba(166, 227, 161, 0.1);
+}
+
+.hljs-deletion {
+  color: #f38ba8;
+  background: rgba(243, 139, 168, 0.1);
+}
+
+.hljs-regexp {
+  color: #f5c2e7;
+}
+
+.hljs-symbol {
+  color: #f2cdcd;
+}
+
+.hljs-property {
+  color: #89dceb;
+}
+
+.hljs-operator {
+  color: #94e2d5;
+}
+
+.hljs-punctuation {
+  color: #bac2de;
+}

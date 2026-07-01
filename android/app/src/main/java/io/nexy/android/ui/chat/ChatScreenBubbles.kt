@@ -18,6 +18,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -59,6 +60,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -77,7 +79,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.foundation.BorderStroke
 import io.nexy.android.data.model.ThinkingBlock
+import io.nexy.android.ui.theme.LocalNexyColors
+import io.nexy.android.ui.theme.Purple50
+import io.nexy.android.ui.theme.Purple200
+import io.nexy.android.ui.theme.Purple400
+import io.nexy.android.ui.theme.Purple500
+import io.nexy.android.ui.theme.Purple700
+import io.nexy.android.ui.theme.Purple900
+import io.nexy.android.ui.theme.Purple950
 import io.noties.markwon.Markwon
 import kotlinx.coroutines.delay
 
@@ -123,33 +134,47 @@ fun ThinkingBubble(label: String, generationStartedAt: Long? = null) {
             delay(250L)
         }
     }
+    val isDark = LocalNexyColors.current.isDark
+    val bubbleColor = if (isDark) Purple950.copy(alpha = 0.3f) else Purple50
+    val borderColor = if (isDark) Purple900.copy(alpha = 0.6f) else Purple200
+    val textColor = if (isDark) Purple400 else Purple700
+    val dotColor = if (isDark) Purple400 else Purple500
+
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
         horizontalArrangement = Arrangement.Start,
     ) {
         Surface(
             shape = RoundedCornerShape(topStart = 4.dp, topEnd = 16.dp, bottomStart = 16.dp, bottomEnd = 16.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant,
+            color = bubbleColor,
+            border = BorderStroke(1.dp, borderColor),
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                Icon(
+                    Icons.Default.Psychology,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = dotColor,
+                )
                 val displayLabel = if (elapsedSec > 0) "$label · ${elapsedSec}s" else label
                 Text(
                     displayLabel,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.Medium,
+                    color = textColor,
                 )
-                TypingDots()
+                TypingDots(dotColor)
             }
         }
     }
 }
 
 @Composable
-fun TypingDots() {
+fun TypingDots(dotColor: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
     val transition = rememberInfiniteTransition(label = "typing-dots")
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
         repeat(3) { index ->
@@ -176,7 +201,7 @@ fun TypingDots() {
                     .size(8.dp)
                     .alpha(alpha)
                     .background(
-                        MaterialTheme.colorScheme.onSurfaceVariant,
+                        dotColor,
                         CircleShape,
                     ),
                 contentAlignment = Alignment.Center,
@@ -184,7 +209,7 @@ fun TypingDots() {
                 Box(
                     modifier = Modifier
                         .size((8 * scale).dp)
-                        .background(MaterialTheme.colorScheme.onSurfaceVariant, CircleShape),
+                        .background(dotColor, CircleShape),
                 )
             }
         }
@@ -220,53 +245,61 @@ fun ThinkingHistoryBubble(
     val alpha = remember { Animatable(0f) }
     LaunchedEffect(Unit) { alpha.animateTo(1f, animationSpec = tween(280, easing = FastOutSlowInEasing)) }
 
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp).alpha(alpha.value)) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { collapsed = !collapsed }
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Icon(
-                Icons.Default.Psychology,
-                contentDescription = null,
-                modifier = Modifier.size(14.dp),
-                tint = MaterialTheme.colorScheme.tertiary,
-            )
-            Text(
-                if (isLive) "Reasoning…" else "Reasoning · ${if (totalChars > 2000) ">${totalChars / 1000}k" else "~${maxOf(100, totalChars / 100 * 100)}"} chars",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.tertiary,
-                modifier = Modifier.weight(1f),
-            )
-            Icon(
-                if (collapsed) Icons.AutoMirrored.Filled.KeyboardArrowRight else Icons.Default.KeyboardArrowDown,
-                contentDescription = if (collapsed) "Expand thinking" else "Collapse thinking",
-                modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        if (!collapsed) {
-            Column(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+    val isDark = LocalNexyColors.current.isDark
+    val bubbleColor = if (isDark) Purple950.copy(alpha = 0.3f) else Purple50
+    val borderColor = if (isDark) Purple900.copy(alpha = 0.6f) else Purple200
+    val textColor = if (isDark) Purple400 else Purple700
+    val iconColor = if (isDark) Purple400 else Purple500
+    val contentTextColor = if (isDark) Color(0xFFE9D5FF) else Purple900
+
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = bubbleColor,
+        border = BorderStroke(1.dp, borderColor),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp).alpha(alpha.value),
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { collapsed = !collapsed }
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    modifier = Modifier.fillMaxWidth(),
+                Icon(
+                    Icons.Default.Psychology,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = iconColor,
+                )
+                Text(
+                    if (isLive) "Reasoning…" else "Reasoning · ${if (totalChars > 2000) ">${totalChars / 1000}k" else "~${maxOf(100, totalChars / 100 * 100)}"} chars",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = textColor,
+                    modifier = Modifier.weight(1f),
+                )
+                Icon(
+                    if (collapsed) Icons.AutoMirrored.Filled.KeyboardArrowRight else Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (collapsed) "Expand thinking" else "Collapse thinking",
+                    modifier = Modifier.size(16.dp),
+                    tint = iconColor,
+                )
+            }
+            if (!collapsed) {
+                HorizontalDivider(color = borderColor, thickness = 1.dp)
+                SelectionContainer(
+                    modifier = Modifier
+                        .padding(12.dp)
+                        .heightIn(max = THINKING_VIEWPORT_MAX_HEIGHT)
+                        .verticalScroll(scrollState)
+                        .fillMaxWidth(),
                 ) {
                     Text(
                         combinedContent,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier
-                            .padding(8.dp)
-                            .heightIn(max = THINKING_VIEWPORT_MAX_HEIGHT)
-                            .verticalScroll(scrollState)
-                            .fillMaxWidth(),
+                        color = contentTextColor,
                     )
                 }
             }
@@ -343,29 +376,73 @@ fun MessageBubble(
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         if (msg.text.isNotBlank()) {
-                            // Always the same TextView instance — switching between a Compose Text
-                            // and this AndroidView based on isStreaming caused a hard view-type
-                            // swap (a visible pop) the instant streaming ended. Plain text is set
-                            // directly while streaming to avoid re-parsing markdown on every chunk;
-                            // Markwon only parses once the message settles.
-                            AndroidView(
-                                modifier = Modifier.fillMaxWidth(),
-                                factory = { ctx ->
-                                    TextView(ctx).also { tv ->
-                                        tv.setTextColor(textColorArgb)
-                                        tv.textSize = 14f
-                                        tv.setTextIsSelectable(true)
+                            // Fenced code blocks are pulled out of the markdown before Markwon
+                            // ever sees it and rendered by a dedicated composable (plain text
+                            // while streaming, a syntax-highlighted WebView island once
+                            // settled) — everything else still goes through Markwon/TextView.
+                            val segments = remember(msg.text) { splitCodeBlocks(msg.text) }
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                segments.forEachIndexed { index, segment ->
+                                    key(index) {
+                                        when (segment) {
+                                            is MessageSegment.Text -> {
+                                                if (segment.markdown.isNotBlank()) {
+                                                    // Always the same TextView instance — switching between a
+                                                    // Compose Text and this AndroidView based on isStreaming
+                                                    // caused a hard view-type swap (a visible pop) the instant
+                                                    // streaming ended. Plain text is set directly while
+                                                    // streaming to avoid re-parsing markdown on every chunk;
+                                                    // Markwon only parses once the message settles.
+                                                    AndroidView(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        factory = { ctx ->
+                                                            TextView(ctx).also { tv ->
+                                                                tv.setTextColor(textColorArgb)
+                                                                tv.textSize = 14f
+                                                                tv.setTextIsSelectable(true)
+                                                            }
+                                                        },
+                                                        update = { tv ->
+                                                            tv.setTextColor(textColorArgb)
+                                                            if (msg.isStreaming) {
+                                                                tv.text = segment.markdown
+                                                            } else {
+                                                                markwon.setMarkdown(tv, segment.markdown)
+                                                            }
+                                                        },
+                                                    )
+                                                }
+                                            }
+                                            is MessageSegment.Code -> {
+                                                if (msg.isStreaming) {
+                                                    // No WebView while streaming — creating/tearing one
+                                                    // down on every streamed chunk would be expensive and
+                                                    // jank-prone. Real syntax highlighting kicks in once
+                                                    // the message settles, matching the Markwon text swap.
+                                                    Surface(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        color = Color(0xFF1E1E2E),
+                                                        shape = RoundedCornerShape(8.dp),
+                                                    ) {
+                                                        Text(
+                                                            segment.code,
+                                                            modifier = Modifier.padding(12.dp),
+                                                            color = Color(0xFFCDD6F4),
+                                                            fontFamily = FontFamily.Monospace,
+                                                            style = MaterialTheme.typography.bodySmall,
+                                                        )
+                                                    }
+                                                } else {
+                                                    CodeBlockWebView(
+                                                        language = segment.language,
+                                                        code = segment.code,
+                                                    )
+                                                }
+                                            }
+                                        }
                                     }
-                                },
-                                update = { tv ->
-                                    tv.setTextColor(textColorArgb)
-                                    if (msg.isStreaming) {
-                                        tv.text = msg.text
-                                    } else {
-                                        markwon.setMarkdown(tv, msg.text)
-                                    }
-                                },
-                            )
+                                }
+                            }
                         }
                         if (!msg.isStreaming && (msg.inputTokens > 0 || msg.outputTokens > 0)) {
                             Text(
