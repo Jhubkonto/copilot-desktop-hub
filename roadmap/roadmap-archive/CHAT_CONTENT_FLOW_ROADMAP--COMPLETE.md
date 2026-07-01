@@ -132,12 +132,12 @@ Major refactoring is needed, but it should be phased. Keep existing IPC and WebS
   - [x] OpenAI/OpenRouter text-only response
   - [x] Anthropic/Codex/Claude reasoning response
   - [x] CLI tool call with text before and after tool execution
-  - [ ] provider MCP tool loop
-  - [ ] stop generation mid-stream
-  - [ ] regenerate last assistant response
-  - [ ] switch away from active conversation and return
-  - [ ] Android reconnect during active stream
-  - [ ] Android history refresh while stream is active
+  - [x] provider MCP tool loop
+  - [x] stop generation mid-stream
+  - [x] regenerate last assistant response
+  - [x] switch away from active conversation and return
+  - [x] Android reconnect during active stream
+  - [x] Android history refresh while stream is active
 
 ## Assumptions
 
