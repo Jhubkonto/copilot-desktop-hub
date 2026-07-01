@@ -20,3 +20,9 @@ Normalized `chat:turn-event` sequence numbers provide turn isolation and duplica
 suppression. Android ignores compatibility chunk/end events in production. Terminal
 events flush authoritative text, and reduced-motion mode flushes desktop text
 without animation.
+
+Both clients expose in-memory diagnostics for backlog length, reveal lag, duplicate
+events, sequence gaps, and snapshot recovery. Desktop diagnostics are available from
+the active-turn registry and streaming queue modules; Android diagnostics are part
+of each conversation's `ChatAnimationState`. These counters contain no message
+content and are reset with their in-memory animation state.

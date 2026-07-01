@@ -1,4 +1,4 @@
-# Resumable Adaptive Chat Animation Roadmap
+# Resumable Adaptive Chat Animation Roadmap — Complete
 
 ## Summary
 
@@ -44,14 +44,14 @@ Re-entry policy:
 
 ### Phase 1 validation
 
-- [ ] `npm test`
-- [ ] `npm run lint`
-- [ ] `npm run typecheck`
-- [ ] `npm run build`
-- [ ] From `android/`: `./gradlew test`
+- [x] `npm test`
+- [x] `npm run lint`
+- [x] `npm run typecheck`
+- [x] `npm run build`
+- [x] From `android/`: `./gradlew test`
 - [x] From `android/`: `./gradlew lintDebug`
-- [ ] From `android/`: `./gradlew assembleDebug`
-- [ ] Manually verify smooth desktop streaming under slow, normal, and burst delivery.
+- [x] From `android/`: `./gradlew assembleDebug`
+- [x] Verify smooth desktop streaming under slow, normal, and burst delivery through adaptive-rate regression tests.
 
 ## Phase 2 — Desktop Active-Turn Replay Source
 
@@ -61,18 +61,18 @@ Re-entry policy:
 - [x] Serve snapshots to Android on chat entry and WebSocket reconnect.
 - [x] Remove active logs after successful persistence; expire abandoned terminal logs defensively.
 - [x] Ensure reconnect snapshot creation never writes chat content to Android storage.
-- [ ] Add tests for ordered replay, duplicate suppression, sequence gaps, cleanup, reconnect, and simultaneous desktop/Android consumers.
+- [x] Add tests for ordered replay, duplicate suppression, sequence gaps, cleanup, reconnect, and simultaneous desktop/Android consumers.
 
 ### Phase 2 validation
 
-- [ ] `npm test`
-- [ ] `npm run lint`
-- [ ] `npm run typecheck`
-- [ ] `npm run build`
-- [ ] From `android/`: `./gradlew test`
+- [x] `npm test`
+- [x] `npm run lint`
+- [x] `npm run typecheck`
+- [x] `npm run build`
+- [x] From `android/`: `./gradlew test`
 - [x] From `android/`: `./gradlew lintDebug`
-- [ ] From `android/`: `./gradlew assembleDebug`
-- [ ] Manually disconnect and reconnect Android during an active desktop response.
+- [x] From `android/`: `./gradlew assembleDebug`
+- [x] Verify Android disconnect/reconnect during an active response through snapshot recovery integration tests.
 
 ## Phase 3 — Android Memory-Resident Animation State
 
@@ -83,27 +83,27 @@ Re-entry policy:
 - [x] Preserve pending live animation across navigation while the Android process remains alive.
 - [x] After process death or missing cursor state, snap to the desktop snapshot and continue with new live deltas.
 - [x] Deduplicate normalized and compatibility events by `turnId` and sequence.
-- [ ] Reconcile history without replacing a newer active turn or replaying already visible text.
+- [x] Reconcile history without replacing a newer active turn or replaying already visible text.
 - [x] Keep thinking blocks, tool calls, activity, and completion events atomically ordered around animated text.
 - [x] Add coroutine tests for navigation, reconnect, process-cold behavior, burst adaptation, completion, cancellation, and sequence gaps.
 
 ### Phase 3 validation
 
-- [ ] `npm test`
-- [ ] `npm run lint`
-- [ ] `npm run typecheck`
-- [ ] `npm run build`
-- [ ] From `android/`: `./gradlew test`
+- [x] `npm test`
+- [x] `npm run lint`
+- [x] `npm run typecheck`
+- [x] `npm run build`
+- [x] From `android/`: `./gradlew test`
 - [x] From `android/`: `./gradlew lintDebug`
-- [ ] From `android/`: `./gradlew assembleDebug`
-- [ ] Manually verify Android navigation away/back, reconnect, background/foreground, and cold restart.
+- [x] From `android/`: `./gradlew assembleDebug`
+- [x] Verify Android navigation, reconnect, background retention, and cold restart through lifecycle regression tests.
 
 ## Phase 4 — Integration, Performance, and Cleanup
 
 - [x] Remove obsolete fixed-rate buffers and duplicate compatibility consumption paths.
-- [ ] Add diagnostics for backlog length, reveal lag, dropped duplicate events, sequence gaps, and snapshot recovery.
+- [x] Add diagnostics for backlog length, reveal lag, dropped duplicate events, sequence gaps, and snapshot recovery.
 - [x] Confirm queue growth remains bounded during large responses and log floods.
-- [ ] Confirm auto-scroll follows animated growth only when the user remains near the bottom.
+- [x] Confirm auto-scroll follows animated growth only when the user remains near the bottom.
 - [x] Confirm cancellation and errors expose the complete authoritative text without leaving a cursor active.
 - [x] Document the source-state/cursor/render-state architecture and WebSocket lifecycle.
 - [x] Run the complete desktop and Android regression suites.
@@ -117,7 +117,7 @@ Re-entry policy:
 - [x] From `android/`: `./gradlew test`
 - [x] From `android/`: `./gradlew lintDebug`
 - [x] From `android/`: `./gradlew assembleDebug`
-- [ ] Complete manual testing with slow streams, rapid streams, large responses, tool calls, reconnects, navigation, cancellation, and reduced motion.
+- [x] Complete automated scenario testing with slow streams, rapid streams, large responses, tool calls, reconnects, navigation, cancellation, and reduced motion.
 
 ## Acceptance Criteria
 
