@@ -7,6 +7,7 @@ import type {
   StructuredConversationSummary,
 } from '../../shared/types'
 import { Button, InfoRow, ModalShell, StatCard, TextareaField } from './ui/primitives'
+import { CONTEXT_INSPECTOR_MAX_TOKENS, REF_TOKEN_ESTIMATE, estimateTokens } from '../lib/context-token-estimate'
 
 interface Attachment {
   id: string
@@ -33,25 +34,12 @@ interface ContextInspectorProps {
   onClose: () => void
 }
 
-/** Tokens per resolved @ref (rough estimate before actual resolution). */
-const REF_TOKEN_ESTIMATE: Record<string, number> = {
-  workspace: 500,
-  git: 200,
-  'git-diff': 800,
-  file: 300,
-  wiki: 1000,
-}
-
-function estimateTokens(chars: number): number {
-  return Math.max(1, Math.ceil(chars / 4))
-}
-
 function fmtTokens(n: number): string {
   if (n >= 1000) return `~${(n / 1000).toFixed(1)}k`
   return `~${n}`
 }
 
-const MAX_TOKENS = 16000
+const MAX_TOKENS = CONTEXT_INSPECTOR_MAX_TOKENS
 
 const SUMMARY_SECTION_LABELS: Array<[keyof StructuredConversationSummary, string]> = [
   ['goals', 'Goals'],

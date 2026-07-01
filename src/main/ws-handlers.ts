@@ -1,4 +1,4 @@
-import { BrowserWindow } from 'electron'
+import { BrowserWindow, ipcMain } from 'electron'
 import { randomUUID } from 'crypto'
 import { safeHandle } from './safe-handle'
 import { getDatabase } from './database'
@@ -65,6 +65,7 @@ import {
   updatePromptLibraryEntry,
 } from './prompt-handlers'
 import { buildConversationExportPack, forkConversation, importConversationExport, getConversationCompressionPreview, prepareConversationCompressionSummary, saveConversationCompressionSummary } from './conversation-handlers'
+import type { ContextInspectorSnapshot } from '../shared/types'
 import { getProjectAuditDiff, getRemoteEditAuditDiff, listProjectAuditFiles, listProjectAuditSessions } from './project-audit'
 import { parseProjectConfig } from './project-handlers'
 import {
@@ -138,6 +139,36 @@ function mobilePromptVersion(version: PromptLibraryVersion): Record<string, unkn
 // Tracks conversationIds currently being dispatched from Android to prevent
 // duplicate streams when the Android client reconnects mid-send (race-connect).
 const activeAndroidDispatches = new Set<string>()
+
+/**
+ * Asks the focused renderer window for its live composer/draft state (system prompt,
+ * @refs, attachments, current input) so the Android companion can render the same
+ * "Context inspector" breakdown as the desktop app. Times out with null if no window
+ * is open or the renderer doesn't reply (e.g. a different conversation is focused).
+ */
+function requestInspectorSnapshotFromRenderer(conversationId: string | null): Promise<ContextInspectorSnapshot | null> {
+  const win = BrowserWindow.getAllWindows()[0]
+  if (!win || win.isDestroyed()) return Promise.resolve(null)
+
+  const requestId = randomUUID()
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = (snapshot: ContextInspectorSnapshot | null) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      ipcMain.off('context:inspector-snapshot-reply', replyHandler)
+      resolve(snapshot)
+    }
+    const replyHandler = (_event: Electron.IpcMainEvent, incomingRequestId: string, snapshot: ContextInspectorSnapshot | null) => {
+      if (incomingRequestId !== requestId) return
+      finish(snapshot)
+    }
+    const timer = setTimeout(() => finish(null), 2000)
+    ipcMain.on('context:inspector-snapshot-reply', replyHandler)
+    win.webContents.send('context:request-inspector-snapshot', { requestId, conversationId })
+  })
+}
 
 export function registerWsHandlers(): void {
   setWsCommandHandler((command, data, reply) => {
@@ -1779,6 +1810,18 @@ export function registerWsHandlers(): void {
       } catch (err) {
         reply({ event: 'conversation:compression-error', data: { message: String(err) } })
       }
+      return
+    }
+
+    if (command === 'context:inspector-snapshot') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : null
+      requestInspectorSnapshotFromRenderer(conversationId)
+        .then((snapshot) => {
+          reply({ event: 'context:inspector-snapshot', data: snapshot })
+        })
+        .catch((err) => {
+          reply({ event: 'context:inspector-snapshot-error', data: { message: String(err) } })
+        })
       return
     }
 

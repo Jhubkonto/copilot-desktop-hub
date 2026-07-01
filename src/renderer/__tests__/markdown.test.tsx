@@ -63,4 +63,42 @@ describe('MarkdownRenderer', () => {
     const copyBtn = screen.getByText('Copy')
     expect(copyBtn).toBeInTheDocument()
   })
+
+  it('renders strikethrough text', () => {
+    const { container } = render(<MarkdownRenderer content="~~struck~~" />)
+    expect(container.querySelector('del')).toBeInTheDocument()
+    expect(container.querySelector('del')).toHaveTextContent('struck')
+  })
+
+  it('renders task list checkboxes', () => {
+    const md = '- [ ] todo\n- [x] done'
+    const { container } = render(<MarkdownRenderer content={md} />)
+    const checkboxes = container.querySelectorAll('input[type="checkbox"]')
+    expect(checkboxes.length).toBe(2)
+    expect(checkboxes[0]).toBeDisabled()
+    expect(checkboxes[0]).not.toBeChecked()
+    expect(checkboxes[1]).toBeDisabled()
+    expect(checkboxes[1]).toBeChecked()
+  })
+
+  it('renders blockquotes', () => {
+    const { container } = render(<MarkdownRenderer content="> quoted text" />)
+    const blockquote = container.querySelector('blockquote')
+    expect(blockquote).toBeInTheDocument()
+    expect(blockquote).toHaveTextContent('quoted text')
+  })
+
+  it('renders headings with correct tags', () => {
+    const { container } = render(<MarkdownRenderer content={'# H1\n## H2'} />)
+    expect(container.querySelector('h1')).toBeInTheDocument()
+    expect(container.querySelector('h2')).toBeInTheDocument()
+  })
+
+  it('renders images with alt attribute', () => {
+    const { container } = render(<MarkdownRenderer content="![a diagram](diagram.png)" />)
+    const img = container.querySelector('img')
+    expect(img).toBeInTheDocument()
+    expect(img).toHaveAttribute('alt', 'a diagram')
+    expect(img).toHaveAttribute('src', 'diagram.png')
+  })
 })

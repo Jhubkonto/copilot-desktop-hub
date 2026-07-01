@@ -13,6 +13,8 @@ import { useSlashMenu } from '../hooks/useSlashMenu'
 import { useRateLimitTimer } from '../hooks/useRateLimitTimer'
 import { useVoiceInput } from '../hooks/useVoiceInput'
 import { useAppStore } from '../store/app-store'
+import { CONTEXT_INSPECTOR_MAX_TOKENS, estimateRefTokens, estimateTokens } from '../lib/context-token-estimate'
+import type { ContextInspectorSnapshot } from '../../shared/types'
 import { ChatComposer } from './chat/ChatComposer'
 import { ChatMessages } from './chat/ChatMessages'
 import { DebriefModal } from './DebriefModal'
@@ -152,7 +154,7 @@ export function ChatWindow() {
   // Set immediately before a programmatic scroll and cleared a frame later. Content
   // growing taller between the scrollTo() call and the browser's resulting scroll
   // event can make the container look momentarily short of the bottom by the
-  // SCROLL_UP_THRESHOLD check — without this guard that misfire latches
+  // SCROLL_BOTTOM_THRESHOLD check — without this guard that misfire latches
   // isUserScrolledUpRef permanently true, silently breaking auto-follow for the
   // rest of the generation since nothing else resets it except the user manually
   // scrolling back down themselves.
@@ -164,6 +166,11 @@ export function ChatWindow() {
   const autoFollowRafRef = useRef<number | null>(null)
   const prevGeneratingRef = useRef(false)
   const prevMessagesLengthRef = useRef(0)
+  // Single threshold for "is the view at the bottom", shared by scrollToBottom's
+  // corrective-jump check and handleScrollContainerScroll's at-bottom classification.
+  // They must agree — see scrollToBottom's comment for why a mismatch causes a
+  // visible pause-then-jump.
+  const SCROLL_BOTTOM_THRESHOLD = 80
   const modelPickerRef = useRef<HTMLButtonElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const inputPanelResizeRef = useRef<{ startY: number; startHeight: number } | null>(null)
@@ -526,6 +533,70 @@ export function ChatWindow() {
     return unsubscribe
   }, [chat.setMessages])
 
+  const inspectorSnapshotStateRef = useRef({
+    conversationId,
+    effectiveModel,
+    chatAgent,
+    mergedContextRefs,
+    pendingAttachments: fileInput.pendingAttachments,
+    pendingImages: fileInput.pendingImages,
+    historyMessages: chat.messages,
+    input,
+  })
+  inspectorSnapshotStateRef.current = {
+    conversationId,
+    effectiveModel,
+    chatAgent,
+    mergedContextRefs,
+    pendingAttachments: fileInput.pendingAttachments,
+    pendingImages: fileInput.pendingImages,
+    historyMessages: chat.messages,
+    input,
+  }
+
+  useEffect(() => {
+    if (typeof window.api.onRequestInspectorSnapshot !== 'function') return
+    const unsubscribe = window.api.onRequestInspectorSnapshot(({ requestId, conversationId: requestedConversationId }) => {
+      const state = inspectorSnapshotStateRef.current
+      if (requestedConversationId && state.conversationId !== requestedConversationId) {
+        window.api.replyInspectorSnapshot(requestId, null)
+        return
+      }
+      const systemPrompt = state.chatAgent?.systemPrompt ?? ''
+      const systemPromptTokens = estimateTokens(systemPrompt.length)
+      const contextRefs = state.mergedContextRefs.map((ref) => ({
+        token: ref.token,
+        key: ref.key,
+        estimatedTokens: estimateRefTokens(ref),
+      }))
+      const attachments = state.pendingAttachments.map((att) => ({
+        name: att.name,
+        size: att.size,
+        estimatedTokens: estimateTokens(att.size),
+      }))
+      const historyMessages = state.historyMessages.filter((message) => message.role !== 'system')
+      const currentInputTokens = estimateTokens(state.input.length)
+      const refTokens = contextRefs.reduce((sum, r) => sum + r.estimatedTokens, 0)
+      const attachTokens = attachments.reduce((sum, a) => sum + a.estimatedTokens, 0)
+      const historyTokens = historyMessages.length * 200
+      const snapshot: ContextInspectorSnapshot = {
+        conversationId: state.conversationId,
+        model: state.effectiveModel,
+        systemPrompt,
+        systemPromptTokens,
+        contextRefs,
+        attachments,
+        imageCount: state.pendingImages.length,
+        historyMessageCount: historyMessages.length,
+        currentInputTokens,
+        totalTokens: systemPromptTokens + refTokens + attachTokens + historyTokens + currentInputTokens,
+        maxTokens: CONTEXT_INSPECTOR_MAX_TOKENS,
+      }
+      window.api.replyInspectorSnapshot(requestId, snapshot)
+    })
+    return unsubscribe
+  }, [])
+
   useEffect(() => {
     if (typeof window.api.onToolAutoApproved !== 'function') return
     const unsubscribe = window.api.onToolAutoApproved(({ toolName }) => {
@@ -551,17 +622,20 @@ export function ChatWindow() {
     void chat.attachArtifact(artifactId, versionId)
   }, [pendingArtifactAttach, conversationId, clearPendingArtifactAttach, chat.attachArtifact])
 
-  const SCROLL_BOTTOM_EPSILON = 4
-
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
     const el = scrollContainerRef.current
     if (!el) return
     // Skip the programmatic scroll entirely if we're already at (or essentially at) the
     // bottom — e.g. right after the user manually scrolled there themselves. Calling
     // scrollTo() again here would re-animate over their own scroll gesture and read as
-    // a jarring correction at the exact moment they reach the bottom.
+    // a jarring correction at the exact moment they reach the bottom. Uses the same
+    // SCROLL_BOTTOM_THRESHOLD as handleScrollContainerScroll's at-bottom check below —
+    // a mismatch here previously let a manual scroll/click land just inside the "at
+    // bottom" zone while still outside this narrower epsilon, so a subsequent auto-follow
+    // effect would issue one last corrective scrollTo() a tick later: a visible
+    // pause-then-jump right as the user reached the end of the chat.
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-    if (distanceFromBottom > SCROLL_BOTTOM_EPSILON) {
+    if (distanceFromBottom > SCROLL_BOTTOM_THRESHOLD) {
       isProgrammaticScrollRef.current = true
       el.scrollTo({ top: el.scrollHeight, behavior })
       // Cleared a frame later rather than synchronously — the resulting native scroll
@@ -583,8 +657,7 @@ export function ChatWindow() {
     // as "short of the bottom" if content grew taller in the interim — don't let that
     // misclassify as the user having scrolled up (see isProgrammaticScrollRef).
     if (isProgrammaticScrollRef.current) return
-    const SCROLL_UP_THRESHOLD = 80
-    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - SCROLL_UP_THRESHOLD
+    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - SCROLL_BOTTOM_THRESHOLD
     isUserScrolledUpRef.current = !atBottom
     setIsUserScrolledUp(!atBottom)
     if (atBottom) {

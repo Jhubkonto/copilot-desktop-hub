@@ -2,6 +2,7 @@ import { memo, useRef, useState, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
+import { Copy, Check } from 'lucide-react'
 
 function CopyButton({ getText }: { getText: () => string }) {
   const [copied, setCopied] = useState(false)
@@ -15,9 +16,10 @@ function CopyButton({ getText }: { getText: () => string }) {
   return (
     <button
       onClick={handleCopy}
-      className="px-2 py-0.5 text-[11px] rounded bg-gray-700/80 text-gray-300 opacity-0 group-hover:opacity-100 hover:bg-gray-600 transition-all shrink-0"
+      className="flex items-center gap-1 px-2 py-0.5 text-[11px] rounded bg-gray-700/80 text-gray-300 opacity-0 group-hover:opacity-100 hover:bg-gray-600 transition-all shrink-0"
     >
-      {copied ? '✓ Copied' : 'Copy'}
+      {copied ? <Check size={12} /> : <Copy size={12} />}
+      {copied ? 'Copied' : 'Copy'}
     </button>
   )
 }
@@ -28,6 +30,9 @@ function extractLang(className?: string): string | null {
   return match ? match[1] : null
 }
 
+// Fenced code blocks are intentionally dark-only (Catppuccin Mocha), regardless of
+// app light/dark theme — deliberate editor-style chrome, mirrors Android's WebView
+// code island. Do not make this `dark:` aware.
 function CodeBlockWrapper({ children, lang }: { children: ReactNode; lang: string | null }) {
   const wrapperRef = useRef<HTMLDivElement>(null)
 
@@ -58,8 +63,11 @@ function MarkdownRendererBase({ content }: MarkdownRendererProps) {
       prose-blockquote:bg-gray-50 dark:prose-blockquote:bg-gray-800/40
       prose-blockquote:px-3 prose-blockquote:py-0.5 prose-blockquote:rounded-r
       prose-blockquote:not-italic prose-blockquote:text-gray-600 dark:prose-blockquote:text-gray-400
-      prose-ul:my-1 prose-ol:my-1
+      prose-p:my-2 prose-ul:my-1 prose-ol:my-1
       prose-li:my-0.5
+      prose-headings:mt-3 prose-headings:mb-1.5 prose-headings:font-semibold first:prose-headings:mt-0
+      prose-h1:text-base prose-h2:text-[0.95rem] prose-h3:text-sm prose-h4:text-sm
+      prose-del:text-gray-500 dark:prose-del:text-gray-400
       prose-th:bg-gray-100 dark:prose-th:bg-gray-800
       prose-tr:even:bg-gray-50 dark:prose-tr:even:bg-gray-800/40"
     >
@@ -100,18 +108,50 @@ function MarkdownRendererBase({ content }: MarkdownRendererProps) {
               {children}
             </a>
           ),
+          li: ({ className, children, ...props }) => {
+            if (className?.includes('task-list-item')) {
+              return (
+                <li className={`${className} !list-none !pl-0 flex items-start gap-2`} {...props}>
+                  {children}
+                </li>
+              )
+            }
+            return <li className={className} {...props}>{children}</li>
+          },
+          input: ({ type, checked, ...props }) => {
+            if (type === 'checkbox') {
+              return (
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  disabled
+                  className="mt-1 rounded border-gray-300 dark:border-gray-600 text-blue-500 focus:ring-0 focus:ring-offset-0"
+                  {...props}
+                />
+              )
+            }
+            return <input type={type} {...props} />
+          },
+          img: ({ src, alt }) => (
+            <img
+              src={src}
+              alt={alt}
+              loading="lazy"
+              className="!rounded-lg !border !border-gray-200 dark:!border-gray-700 max-w-full"
+            />
+          ),
           table: ({ children }) => (
             <div className="overflow-x-auto my-3 rounded-lg border border-gray-200 dark:border-gray-700">
-              <table className="!text-sm !my-0 w-full">{children}</table>
+              <table className="!text-sm !my-0 w-full divide-y divide-gray-100 dark:divide-gray-800">{children}</table>
             </div>
           ),
           th: ({ children }) => (
-            <th className="!px-3 !py-2 !text-left !font-semibold !text-xs !uppercase !tracking-wide !text-gray-500 dark:!text-gray-400">
+            <th className="!px-2.5 !py-1.5 !text-left !font-semibold !text-xs !uppercase !tracking-wide !text-gray-500 dark:!text-gray-400">
               {children}
             </th>
           ),
           td: ({ children }) => (
-            <td className="!px-3 !py-2 !text-sm">{children}</td>
+            <td className="!px-2.5 !py-1.5 !text-sm">{children}</td>
           ),
         }}
       >

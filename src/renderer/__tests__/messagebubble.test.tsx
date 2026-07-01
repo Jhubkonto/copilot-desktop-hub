@@ -81,7 +81,7 @@ describe('MessageBubble', () => {
 
     // Label stays "Copy"; button gets green highlight classes
     expect(screen.getByText('Copy')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Copy' })).toHaveClass('bg-green-100')
+    expect(screen.getByRole('button', { name: 'Copy' })).toHaveClass('bg-green-50')
   })
 
   it('shows save to wiki action for assistant messages and calls handler', () => {
@@ -114,7 +114,7 @@ describe('MessageBubble', () => {
     const container = screen.getByText('Hello there').closest('.group')!
     fireEvent.mouseEnter(container)
 
-    expect(screen.getByRole('button', { name: 'Saved' })).toHaveClass('bg-green-100')
+    expect(screen.getByRole('button', { name: 'Saved' })).toHaveClass('bg-green-50')
   })
 
   it('shows regenerate action for last assistant message', () => {

@@ -9,6 +9,7 @@ import type {
   BuildStatus,
   CatalogModel,
   ConversationCompressionSaveInput,
+  ContextInspectorSnapshot,
   ErrorReportCaptureInput,
   RemoteEditInvestigationActivity,
   RemoteEditInvestigationChunk,
@@ -206,6 +207,15 @@ const api = {
       callback(data)
     typedOn('chat:remote-message', handler)
     return () => typedOff('chat:remote-message', handler)
+  },
+  onRequestInspectorSnapshot: (callback: (data: { requestId: string; conversationId: string | null }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { requestId: string; conversationId: string | null }) =>
+      callback(data)
+    typedOn('context:request-inspector-snapshot', handler)
+    return () => typedOff('context:request-inspector-snapshot', handler)
+  },
+  replyInspectorSnapshot: (requestId: string, snapshot: ContextInspectorSnapshot | null) => {
+    ipcRenderer.send('context:inspector-snapshot-reply', requestId, snapshot)
   },
   onStreamError: (callback: (error: { type: string; message: string; retryable: boolean; retryAfterSeconds?: number }) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, error: { type: string; message: string; retryable: boolean; retryAfterSeconds?: number }) =>

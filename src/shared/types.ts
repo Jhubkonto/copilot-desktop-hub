@@ -1101,6 +1101,33 @@ export interface ConversationCompressionSaveInput {
   sections: StructuredConversationSummary
 }
 
+export interface ContextInspectorRefSnapshot {
+  token: string
+  key: string
+  estimatedTokens: number
+}
+
+export interface ContextInspectorAttachmentSnapshot {
+  name: string
+  size: number
+  estimatedTokens: number
+}
+
+/** Live composer/draft breakdown for the focused desktop window, relayed to the Android companion. */
+export interface ContextInspectorSnapshot {
+  conversationId: string | null
+  model: string
+  systemPrompt: string
+  systemPromptTokens: number
+  contextRefs: ContextInspectorRefSnapshot[]
+  attachments: ContextInspectorAttachmentSnapshot[]
+  imageCount: number
+  historyMessageCount: number
+  currentInputTokens: number
+  totalTokens: number
+  maxTokens: number
+}
+
 export interface KnowledgeFile {
   id: string
   agent_id: string
@@ -1629,6 +1656,8 @@ export type IpcReturnMap = {
   'context:git-diff': string
   'context:read-file': ContextFileResult
   'context:workspace-summary': string
+  'context:request-inspector-snapshot': void
+  'context:inspector-snapshot-reply': void
   // Conversation
   'conversation:create': ConversationRow
   'conversation:compression-preview': ConversationCompressionPreview
@@ -2007,6 +2036,8 @@ export type IpcChannels =
   | 'context:git-diff'
   | 'context:read-file'
   | 'context:workspace-summary'
+  | 'context:request-inspector-snapshot'
+  | 'context:inspector-snapshot-reply'
   | 'conversation:create'
   | 'conversation:compression-preview'
   | 'conversation:prepare-compression-summary'

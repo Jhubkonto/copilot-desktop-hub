@@ -142,18 +142,28 @@ body {
   margin-bottom: 0 !important;
 }
 
-.markdown-body p {
-  margin-top: 0.5em;
-  margin-bottom: 0.5em;
-}
-
-.markdown-body ul,
-.markdown-body ol {
-  margin-top: 0.25em;
-  margin-bottom: 0.25em;
-}
-
-/* highlight.js syntax theme (Catppuccin Mocha) */
+/*
+ * highlight.js syntax theme (Catppuccin Mocha) — canonical palette reference.
+ * This is the source of truth copied when porting the code-block theme to the
+ * Android app's WebView asset (android/app/src/main/assets/codeblock/theme.css).
+ * Keep hex values identical across both platforms.
+ *
+ *   #1e1e2e — base      — code block background
+ *   #cdd6f4 — text      — default code text
+ *   #cba6f7 — mauve     — keyword / selector-tag
+ *   #a6e3a1 — green     — string / selector-class / diff addition
+ *   #fab387 — peach     — number / literal
+ *   #6c7086 — overlay0  — comment / quote
+ *   #89b4fa — blue      — function / title / tag name
+ *   #f38ba8 — red       — built_in / tag / diff deletion
+ *   #f9e2af — yellow    — type / title.class_
+ *   #f5c2e7 — pink      — meta / regexp
+ *   #89dceb — sky       — attr / attribute / property
+ *   #f2cdcd — flamingo  — symbol
+ *   #94e2d5 — teal      — operator
+ *   #bac2de — subtext1  — punctuation
+ *   #181825 — mantle    — code block header bar background
+ */
 .hljs {
   color: #cdd6f4;
   background: #1e1e2e;

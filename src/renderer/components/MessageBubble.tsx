@@ -257,17 +257,17 @@ export function MessageBubbleBase({
                 <div className="whitespace-pre-wrap break-words">{content}</div>
                 <div className="flex gap-2 mt-3">
                   {retryable && onRetry && (
-                    <button onClick={onRetry} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/60 transition-colors">
+                    <button onClick={onRetry} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border border-red-200 dark:border-red-800/60 bg-red-100/80 dark:bg-red-900/40 text-red-700 dark:text-red-300 shadow-sm transition-all duration-150 hover:shadow-md hover:bg-red-200 dark:hover:bg-red-900/60 active:scale-95">
                       <RefreshCw className="w-3 h-3" />Retry
                     </button>
                   )}
                   {errorType === 'auth' && onSignIn && (
-                    <button onClick={onSignIn} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors">
+                    <button onClick={onSignIn} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border border-blue-200 dark:border-blue-800/60 bg-blue-100/80 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 shadow-sm transition-all duration-150 hover:shadow-md hover:bg-blue-200 dark:hover:bg-blue-900/60 active:scale-95">
                       <LogIn className="w-3 h-3" />Sign in again
                     </button>
                   )}
                   {errorType === 'model_not_available' && onPickModel && (
-                    <button onClick={onPickModel} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                    <button onClick={onPickModel} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-gray-800/90 text-gray-700 dark:text-gray-200 shadow-sm transition-all duration-150 hover:shadow-md hover:bg-gray-100 dark:hover:bg-gray-700 active:scale-95">
                       Choose model
                     </button>
                   )}
@@ -382,10 +382,10 @@ function ActionButton({
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors whitespace-nowrap shadow-sm ${
+      className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full border whitespace-nowrap backdrop-blur-sm transition-all duration-150 active:scale-95 ${
         highlight
-          ? 'bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400'
-          : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-200'
+          ? 'bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-800/60 text-green-600 dark:text-green-400 shadow-sm'
+          : 'bg-white/90 dark:bg-gray-800/90 border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 shadow-sm hover:shadow-md hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700/80 hover:text-gray-800 dark:hover:text-gray-100'
       }`}
       title={label}
       aria-label={label}
