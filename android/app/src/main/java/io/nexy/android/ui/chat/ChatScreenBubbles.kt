@@ -30,6 +30,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -188,53 +190,33 @@ fun TypingDots() {
     }
 }
 
+// Fixed viewport height for the reasoning text — roughly six lines. Content scrolls
+// within this window instead of the bubble growing, so the surrounding layout never
+// shifts while reasoning streams in, and stays exactly the same size once done — no
+// auto-collapse, so there's no jarring shrink right as the answer arrives.
+private val THINKING_VIEWPORT_HEIGHT = 120.dp
+
 @Composable
 fun ThinkingHistoryBubble(
     blocks: List<ThinkingBlock>,
     isLive: Boolean = false,
-    responseIsStreaming: Boolean = false,
 ) {
     if (blocks.isEmpty()) return
-    var expanded by remember { mutableStateOf(false) }
-    var userCollapsed by remember { mutableStateOf(false) }
+    var collapsed by remember { mutableStateOf(false) }
     val totalChars = blocks.sumOf { it.content.length }
+    val combinedContent = remember(blocks) { blocks.joinToString("\n\n") { it.content } }
+    val scrollState = rememberScrollState()
 
-    // Track hasContent without restarting the collapse timer on every chunk (M4).
-    val hasContent = totalChars > 0
-
-    // Expand when live blocks arrive; collapse immediately when response starts streaming.
-    // Only depends on isLive and hasContent — totalChars changes do NOT restart the effect.
-    LaunchedEffect(isLive, hasContent) {
-        if (isLive && hasContent && !userCollapsed) expanded = true
-    }
-
-    // Collapse immediately when the response starts streaming.
-    LaunchedEffect(responseIsStreaming) {
-        if (responseIsStreaming && !isLive) {
-            expanded = false
-            userCollapsed = false
-        }
-    }
-
-    // Auto-collapse 2s after done — only fires once when isLive flips false.
-    LaunchedEffect(isLive) {
-        if (!isLive && !responseIsStreaming && expanded) {
-            delay(2000)
-            expanded = false
-            userCollapsed = false
-        }
+    // Keep the viewport scrolled to the latest reasoning text as it streams in.
+    LaunchedEffect(combinedContent, isLive, collapsed) {
+        if (isLive && !collapsed) scrollState.scrollTo(scrollState.maxValue)
     }
 
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable {
-                    val next = !expanded
-                    expanded = next
-                    if (!next && isLive) userCollapsed = true
-                    if (next) userCollapsed = false
-                }
+                .clickable { collapsed = !collapsed }
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -252,38 +234,32 @@ fun ThinkingHistoryBubble(
                 modifier = Modifier.weight(1f),
             )
             Icon(
-                if (expanded) Icons.Default.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = if (expanded) "Collapse thinking" else "Expand thinking",
+                if (collapsed) Icons.AutoMirrored.Filled.KeyboardArrowRight else Icons.Default.KeyboardArrowDown,
+                contentDescription = if (collapsed) "Expand thinking" else "Collapse thinking",
                 modifier = Modifier.size(16.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        AnimatedVisibility(
-            visible = expanded,
-            enter = expandVertically() + fadeIn(),
-            exit = shrinkVertically() + fadeOut(),
-        ) {
+        if (!collapsed) {
             Column(
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                blocks.forEach { block ->
-                    if (block.content.isNotBlank()) {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text(
-                                block.content,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(8.dp),
-                                maxLines = 30,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        combinedContent,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .padding(8.dp)
+                            .height(THINKING_VIEWPORT_HEIGHT)
+                            .verticalScroll(scrollState)
+                            .fillMaxWidth(),
+                    )
                 }
             }
         }

@@ -1,8 +1,11 @@
 package io.nexy.android.data
 
 import io.nexy.android.data.model.WsEvent
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -12,13 +15,27 @@ class ChatAnimationRepositoryTest {
     private fun event(sequence: Long, type: String, payload: String): WsEvent.ChatTurnEvent =
         WsEvent.ChatTurnEvent("conv-animation", "turn-1", sequence, type, sequence, payload)
 
+    // The drain loop runs on a real background dispatcher outside runTest's virtual
+    // clock. Polling must happen on a real dispatcher too — polling from runTest's own
+    // TestDispatcher would advance virtual time instantly without ever yielding real
+    // wall-clock time for the background drain job to make progress.
+    private suspend fun awaitDisplayedText(conversationId: String, expected: String) {
+        withContext(Dispatchers.Default) {
+            withTimeout(5_000) {
+                while (ChatAnimationRepository.observe(conversationId).value.displayedText != expected) {
+                    delay(10)
+                }
+            }
+        }
+    }
+
     @Test
     fun deduplicatesDeltasAndDrainsAdaptively() = runTest {
         ChatAnimationRepository.clear("conv-animation")
         ChatAnimationRepository.accept(event(1, "turn_started", "{}"))
         ChatAnimationRepository.accept(event(2, "assistant_text_delta", """{"chunk":"hello"}"""))
         ChatAnimationRepository.accept(event(2, "assistant_text_delta", """{"chunk":"duplicate"}"""))
-        delay(40)
+        awaitDisplayedText("conv-animation", "hello")
         val state = ChatAnimationRepository.observe("conv-animation").value
         assertEquals("hello", state.authoritativeText)
         assertEquals("hello", state.displayedText)

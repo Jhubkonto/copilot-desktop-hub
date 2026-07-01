@@ -1116,11 +1116,11 @@ fun ChatScreen(
                                 androidx.compose.foundation.layout.Column {
                                     // Live thinking blocks pre-filtered by buildChatRenderItems (C1 guard)
                                     if (item.liveThinkingBlocks.isNotEmpty()) {
-                                        ThinkingHistoryBubble(item.liveThinkingBlocks, isLive = true, responseIsStreaming = msg.text.isNotEmpty())
+                                        ThinkingHistoryBubble(item.liveThinkingBlocks, isLive = true)
                                     }
                                     // Historical thinking: skip if live blocks cover same content
                                     if (msg.thinkingBlocks.isNotEmpty() && item.liveThinkingBlocks.isEmpty()) {
-                                        ThinkingHistoryBubble(msg.thinkingBlocks, isLive = false, responseIsStreaming = msg.isStreaming)
+                                        ThinkingHistoryBubble(msg.thinkingBlocks, isLive = false)
                                     }
                                     // Tool calls grouped inline above the response text
                                     msg.toolCalls.forEach { tc ->

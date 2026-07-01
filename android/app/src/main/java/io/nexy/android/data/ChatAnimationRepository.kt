@@ -36,9 +36,9 @@ data class ChatAnimationState(
  */
 object ChatAnimationRepository {
     private const val FRAME_MS = 16L
-    private const val TARGET_CATCH_UP_MS = 750L
-    private const val MIN_CHARS_PER_FRAME = 12
-    private const val MAX_CHARS_PER_FRAME = 320
+    private const val TARGET_CATCH_UP_MS = 2800L
+    private const val MIN_CHARS_PER_FRAME = 2
+    private const val MAX_CHARS_PER_FRAME = 64
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val states = mutableMapOf<String, MutableStateFlow<ChatAnimationState>>()
