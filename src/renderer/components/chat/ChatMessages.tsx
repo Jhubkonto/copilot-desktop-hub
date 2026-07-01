@@ -481,7 +481,11 @@ export function ChatMessagesBase({
                     <ThinkingBlock
                       key={block.blockId}
                       content={block.content}
-                      done={block.done}
+                      // The reducer marks blocks done the instant the backend's turn-completion
+                      // event arrives, ahead of the text reveal animation. Keep showing the
+                      // live/streaming style for as long as isGenerating is true (i.e. until the
+                      // reveal animation actually finishes draining) so the two don't decouple.
+                      done={block.done && !isGenerating}
                       label={getThinkingBlockLabel(block.blockId)}
                     />
                   ))}

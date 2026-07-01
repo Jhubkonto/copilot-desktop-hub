@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { useChat } from '../../../renderer/hooks/useChat'
 import { setupMockApi, type MockApi } from '../../../test/mocks/api'
@@ -14,6 +14,12 @@ beforeEach(() => {
   streamCallback = null
   remoteMessageCallback = null
   chatTurnEventCallback = null
+  // useStreamingQueue reveals text via requestAnimationFrame, which isn't reliably
+  // driven in this test environment. Report prefers-reduced-motion so enqueue()
+  // deposits content synchronously — this hook's tests care about the stream
+  // lifecycle (message commit timing, isGenerating transitions), not the reveal
+  // animation itself, which is covered separately in chat-animation.test.ts.
+  vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }))
   mockApi.onStreamResponse.mockImplementation((cb: (chunk: string | null) => void) => {
     streamCallback = cb
     return () => {
@@ -34,6 +40,10 @@ beforeEach(() => {
   })
   mockApi.onStreamError.mockImplementation(() => () => undefined)
   mockApi.onTeamActivity.mockImplementation(() => () => undefined)
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
 })
 
 describe('useChat', () => {

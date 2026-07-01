@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, act, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChatWindow } from "../../renderer/components/ChatWindow";
@@ -95,6 +95,16 @@ beforeEach(() => {
     authState: { authenticated: true, user: null },
   });
   setupStoreMock(useAppStore, mockStore);
+
+  // useStreamingQueue reveals text via requestAnimationFrame, which isn't reliably
+  // driven in this test environment. Report prefers-reduced-motion so enqueue()
+  // deposits content synchronously — these tests care about render/lifecycle
+  // behavior, not the reveal animation itself (covered in chat-animation.test.ts).
+  vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: true }));
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe("ChatWindow — Empty State", () => {

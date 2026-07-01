@@ -55,6 +55,12 @@ export function useChat({
   const [generationStartedAt, setGenerationStartedAt] = useState<number | null>(null)
   const liveTurnStateRef = useRef(liveTurnState)
   liveTurnStateRef.current = liveTurnState
+  // The onStreamResponse handler below is registered in a useEffect whose deps don't
+  // include isDraining (re-subscribing on every drain tick would be wasteful/racy) —
+  // read the live value through this ref instead of the closed-over state value, which
+  // would otherwise stay frozen at whatever isDraining was when the effect last ran.
+  const isDrainingRef = useRef(isDraining)
+  isDrainingRef.current = isDraining
 
   const streamingContentRef = useRef('')
   const ignoreRemoteStreamRef = useRef(false)
@@ -83,6 +89,14 @@ export function useChat({
   // wait for it — otherwise a reload can race ahead of the delete and briefly show
   // both the old (pre-regen) and new assistant messages until the delete lands.
   const pendingDeletePromiseRef = useRef<Promise<unknown> | null>(null)
+  // Holds the work computed at stream-end (final message to commit, frozen thinking
+  // blocks) so it can be applied once the reveal animation actually finishes draining,
+  // instead of immediately when the backend's turn-completion event arrives — otherwise
+  // the reasoning bubble and full answer text pop in ahead of the in-progress animation.
+  const pendingFinalizeRef = useRef<{
+    assistantMessage: ChatMessage | null
+    frozenThinking: Map<string, { blockId: string; content: string; done: boolean }> | null
+  } | null>(null)
   const preRegenMessagesRef = useRef<ChatMessage[] | null>(null)
   // Stable ref so stream-event closures always call the current addToast.
   const addToastRef = useRef(addToast)
@@ -302,11 +316,36 @@ export function useChat({
   const reloadMessagesRef = useRef(reloadMessages)
   reloadMessagesRef.current = reloadMessages
 
+  // Commits the message/thinking-block work computed at stream-end, once the reveal
+  // animation has actually caught up — see pendingFinalizeRef for why this is deferred.
+  const applyPendingFinalize = useCallback(() => {
+    const pending = pendingFinalizeRef.current
+    pendingFinalizeRef.current = null
+    if (!pending) return
+    if (pending.assistantMessage) {
+      const assistantMessage = pending.assistantMessage
+      setMessages((prev) => [...prev, assistantMessage])
+    } else if (pending.frozenThinking) {
+      const frozenThinking = pending.frozenThinking
+      setMessages((prev) => {
+        const lastIdx = [...prev].map((m) => m.role).lastIndexOf('assistant')
+        if (lastIdx === -1) return prev
+        const updated = [...prev]
+        updated[lastIdx] = { ...updated[lastIdx], thinkingBlocks: frozenThinking }
+        return updated
+      })
+    }
+  }, [])
+
   // Defer isGenerating=false until the drain queue empties so the streaming cursor
   // stays visible until the last buffered character has actually been rendered.
+  // Also the trigger point for committing the finished message (see applyPendingFinalize)
+  // so the settled appearance lands in the same moment the animation finishes catching up.
   useEffect(() => {
     if (!isDraining && streamEndedRef.current) {
       streamEndedRef.current = false
+      applyPendingFinalize()
+      setStreamingContent('')
       setIsGenerating(false)
       setLoadingFailed(false)
       setGenerationStartedAt(null)
@@ -314,7 +353,7 @@ export function useChat({
       liveToolCallsRef.current = []
       reloadMessagesRef.current()
     }
-  }, [isDraining])
+  }, [isDraining, applyPendingFinalize])
 
   // React to turn_failed reducer state — handle regen rollback or append error message.
   // Transport-level cleanup (refs, generating state) happens in onStreamError; this
@@ -417,26 +456,22 @@ export function useChat({
             ? new Map(Array.from(currentBlocks.entries()).map(([k, v]) => [k, { ...v, done: true }]))
             : null
 
-        // Batch the message append in one state update cycle (C1).
-        if (displayContent) {
-          const assistantMessage: ChatMessage = {
-            id: crypto.randomUUID(),
-            role: 'assistant',
-            content: displayContent,
-            timestamp: Date.now(),
-            model: streamModelRef.current,
-            ...(frozenThinking ? { thinkingBlocks: frozenThinking } : {}),
-          }
-          setMessages((prev) => [...prev, assistantMessage])
-        } else if (frozenThinking) {
-          // No text content but there were thinking blocks — attach to last assistant message
-          setMessages((prev) => {
-            const lastIdx = [...prev].map((m) => m.role).lastIndexOf('assistant')
-            if (lastIdx === -1) return prev
-            const updated = [...prev]
-            updated[lastIdx] = { ...updated[lastIdx], thinkingBlocks: frozenThinking }
-            return updated
-          })
+        // Defer committing the finished message (and freezing thinking blocks) until
+        // the reveal animation actually finishes draining — computed here from the
+        // now-complete backend data, but only applied once isDraining goes false so
+        // the settled appearance never pops in ahead of the in-progress animation.
+        pendingFinalizeRef.current = {
+          assistantMessage: displayContent
+            ? {
+                id: crypto.randomUUID(),
+                role: 'assistant',
+                content: displayContent,
+                timestamp: Date.now(),
+                model: streamModelRef.current,
+                ...(frozenThinking ? { thinkingBlocks: frozenThinking } : {}),
+              }
+            : null,
+          frozenThinking: !displayContent ? frozenThinking : null,
         }
         pendingThinkingEndsRef.current.clear()
         streamClosedRef.current = false
@@ -452,12 +487,14 @@ export function useChat({
         }
         // Signal stream end — actual isGenerating=false deferred until drain queue empties
         // so the streaming cursor stays visible until all buffered chars are rendered.
-        setStreamingContent('')
         streamEndedRef.current = true
         // If the queue is already empty (no buffered content), the useEffect won't fire
-        // because isDraining never changes — clear immediately in that case.
-        if (!isDraining) {
+        // because isDraining never changes — apply the finalize immediately in that case.
+        // Read via ref: isDraining in this closure is stale (see isDrainingRef above).
+        if (!isDrainingRef.current) {
           streamEndedRef.current = false
+          applyPendingFinalize()
+          setStreamingContent('')
           setIsGenerating(false)
           setLoadingFailed(false)
           setGenerationStartedAt(null)
