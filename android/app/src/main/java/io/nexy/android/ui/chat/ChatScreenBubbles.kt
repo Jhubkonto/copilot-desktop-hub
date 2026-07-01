@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.StartOffset
 import androidx.compose.animation.core.animateFloat
@@ -19,13 +20,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -190,11 +191,12 @@ fun TypingDots() {
     }
 }
 
-// Fixed viewport height for the reasoning text — roughly six lines. Content scrolls
-// within this window instead of the bubble growing, so the surrounding layout never
-// shifts while reasoning streams in, and stays exactly the same size once done — no
-// auto-collapse, so there's no jarring shrink right as the answer arrives.
-private val THINKING_VIEWPORT_HEIGHT = 120.dp
+// Cap on the reasoning viewport — roughly six lines. Short content sizes to itself;
+// once content exceeds this height it scrolls within the window instead of the bubble
+// growing further, so the surrounding layout never shifts unboundedly while reasoning
+// streams in, and stays exactly the same size once done — no auto-collapse, so there's
+// no jarring shrink right as the answer arrives.
+private val THINKING_VIEWPORT_MAX_HEIGHT = 120.dp
 
 @Composable
 fun ThinkingHistoryBubble(
@@ -212,7 +214,13 @@ fun ThinkingHistoryBubble(
         if (isLive && !collapsed) scrollState.scrollTo(scrollState.maxValue)
     }
 
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+    // Fade in on first appearance — this bubble is often nested inline inside an
+    // AssistantMessage item rather than its own lazy item, so it doesn't get the
+    // LazyColumn's animateItem() fade; animate it directly instead.
+    val alpha = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { alpha.animateTo(1f, animationSpec = tween(280, easing = FastOutSlowInEasing)) }
+
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp).alpha(alpha.value)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -256,7 +264,7 @@ fun ThinkingHistoryBubble(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier
                             .padding(8.dp)
-                            .height(THINKING_VIEWPORT_HEIGHT)
+                            .heightIn(max = THINKING_VIEWPORT_MAX_HEIGHT)
                             .verticalScroll(scrollState)
                             .fillMaxWidth(),
                     )
@@ -335,32 +343,29 @@ fun MessageBubble(
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         if (msg.text.isNotBlank()) {
-                            if (msg.isStreaming) {
-                                // Plain text during streaming — avoids re-parsing markdown on every chunk
-                                SelectionContainer {
-                                    Text(
-                                        text = msg.text,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = textColor,
-                                    )
-                                }
-                            } else {
-                                AndroidView(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    factory = { ctx ->
-                                        TextView(ctx).also { tv ->
-                                            tv.setTextColor(textColorArgb)
-                                            tv.textSize = 14f
-                                            tv.setTextIsSelectable(true)
-                                            markwon.setMarkdown(tv, msg.text)
-                                        }
-                                    },
-                                    update = { tv ->
+                            // Always the same TextView instance — switching between a Compose Text
+                            // and this AndroidView based on isStreaming caused a hard view-type
+                            // swap (a visible pop) the instant streaming ended. Plain text is set
+                            // directly while streaming to avoid re-parsing markdown on every chunk;
+                            // Markwon only parses once the message settles.
+                            AndroidView(
+                                modifier = Modifier.fillMaxWidth(),
+                                factory = { ctx ->
+                                    TextView(ctx).also { tv ->
                                         tv.setTextColor(textColorArgb)
+                                        tv.textSize = 14f
+                                        tv.setTextIsSelectable(true)
+                                    }
+                                },
+                                update = { tv ->
+                                    tv.setTextColor(textColorArgb)
+                                    if (msg.isStreaming) {
+                                        tv.text = msg.text
+                                    } else {
                                         markwon.setMarkdown(tv, msg.text)
-                                    },
-                                )
-                            }
+                                    }
+                                },
+                            )
                         }
                         if (!msg.isStreaming && (msg.inputTokens > 0 || msg.outputTokens > 0)) {
                             Text(

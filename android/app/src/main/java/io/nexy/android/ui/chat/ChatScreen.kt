@@ -1076,6 +1076,21 @@ fun ChatScreen(
                             }
                         },
                     ) { item ->
+                        // animateItem() smooths reordering/insertion/removal within the list —
+                        // most notably the live-thinking/live-activity items being swapped out
+                        // for the settled AssistantMessage item once the turn completes, which
+                        // otherwise pops instantly since they're different keys/content types.
+                        // Slightly longer, gentler fade than the default to match the desktop
+                        // client's 200ms message-enter fade and read as fluid rather than snappy.
+                        Column(
+                            modifier = Modifier
+                                .animateItem(
+                                    fadeInSpec = tween(280, easing = FastOutSlowInEasing),
+                                    fadeOutSpec = tween(180, easing = FastOutSlowInEasing),
+                                    placementSpec = tween(320, easing = FastOutSlowInEasing),
+                                )
+                                .fillMaxWidth(),
+                        ) {
                         when (item) {
                             is ChatRenderItem.ToolCall -> {
                                 ToolCallBubble(item.message, inProgress = false)
@@ -1176,6 +1191,7 @@ fun ChatScreen(
                                     )
                                 }
                             }
+                        }
                         }
                     }
                     pendingApproval?.let { approval ->
