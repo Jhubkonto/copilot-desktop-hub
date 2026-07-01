@@ -9,14 +9,6 @@ import type { ArtifactRow } from '../../shared/types'
 const { useAppStore } = vi.hoisted(() => ({ useAppStore: vi.fn() }))
 vi.mock('../store/app-store', () => ({ useAppStore }))
 
-vi.mock('../components/ArtifactGeneratorModal', () => ({
-  ArtifactGeneratorModal: ({ onClose }: { onClose: () => void }) => (
-    <div data-testid="generator-modal">
-      <button onClick={onClose}>Close generator</button>
-    </div>
-  ),
-}))
-
 const PROJECT_ARTIFACT: ArtifactRow = {
   id: 'art-p1',
   projectId: 'proj-1',
@@ -129,12 +121,10 @@ describe('ProjectArtifactsTab', () => {
     })
   })
 
-  it('opens generator modal when generator button is clicked', async () => {
+  it('does not offer standalone artifact generation', async () => {
     render(<ProjectArtifactsTab projectId="proj-1" />)
-    await userEvent.click(screen.getByRole('button', { name: /open artifact generator/i }))
-    await waitFor(() => {
-      expect(screen.getByTestId('generator-modal')).toBeInTheDocument()
-    })
+    await waitFor(() => expect(screen.getByText('1 artifact')).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: /artifact generator/i })).not.toBeInTheDocument()
   })
 
   it('shows pending generation indicator when store has pendingArtifactGeneration', async () => {

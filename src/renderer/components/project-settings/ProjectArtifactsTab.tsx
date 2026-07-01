@@ -1,8 +1,7 @@
 import { useDeferredValue, useCallback, useEffect, useMemo, useState } from 'react'
-import { Download, Loader2, Search, Sparkles, Trash2, X } from 'lucide-react'
+import { Download, Loader2, Search, Trash2, X } from 'lucide-react'
 import type { ArtifactRow } from '../../../shared/types'
 import { useAppStore } from '../../store/app-store'
-import { ArtifactGeneratorModal } from '../ArtifactGeneratorModal'
 
 const KIND_LABELS: Record<string, string> = {
   document: 'Doc', code: 'Code', ui: 'UI', data: 'Data',
@@ -77,7 +76,6 @@ export function ProjectArtifactsTab({ projectId }: { projectId: string }) {
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
-  const [showGenerator, setShowGenerator] = useState(false)
 
   const loadAll = useCallback(async () => {
     setLoading(true)
@@ -131,14 +129,6 @@ export function ProjectArtifactsTab({ projectId }: { projectId: string }) {
         <span className="text-xs text-gray-400 dark:text-gray-500">
           {artifacts.length} artifact{artifacts.length !== 1 ? 's' : ''}
         </span>
-        <button
-          onClick={() => setShowGenerator(true)}
-          className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-indigo-700 dark:hover:text-indigo-200 px-2 py-1 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
-          aria-label="Open artifact generator"
-        >
-          <Sparkles className="w-3.5 h-3.5" />
-          Artifact generator
-        </button>
       </div>
 
       {/* Search */}
@@ -200,13 +190,6 @@ export function ProjectArtifactsTab({ projectId }: { projectId: string }) {
         )}
       </div>
 
-      {showGenerator && (
-        <ArtifactGeneratorModal
-          projectId={projectId}
-          onClose={() => setShowGenerator(false)}
-          onArtifactCreated={() => { void loadAll() }}
-        />
-      )}
     </div>
   )
 }

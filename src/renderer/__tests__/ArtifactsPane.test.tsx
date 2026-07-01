@@ -9,15 +9,6 @@ import type { ArtifactRow } from '../../shared/types'
 const { useAppStore } = vi.hoisted(() => ({ useAppStore: vi.fn() }))
 vi.mock('../store/app-store', () => ({ useAppStore }))
 
-// Stub ArtifactGeneratorModal so we don't need full modal setup
-vi.mock('../components/ArtifactGeneratorModal', () => ({
-  ArtifactGeneratorModal: ({ onClose }: { onClose: () => void }) => (
-    <div data-testid="generator-modal">
-      <button onClick={onClose}>Close generator</button>
-    </div>
-  ),
-}))
-
 const ARTIFACT_READY: ArtifactRow = {
   id: 'art-1',
   projectId: null,
@@ -115,13 +106,10 @@ describe('ArtifactsPane', () => {
     })
   })
 
-  it('opens generator modal when generator button is clicked', async () => {
+  it('does not offer standalone artifact generation', async () => {
     render(<ArtifactsPane />)
-    const generateBtn = screen.getByRole('button', { name: /open artifact generator/i })
-    await userEvent.click(generateBtn)
-    await waitFor(() => {
-      expect(screen.getByTestId('generator-modal')).toBeInTheDocument()
-    })
+    await waitFor(() => expect(screen.getByText('1 artifact')).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: /artifact generator/i })).not.toBeInTheDocument()
   })
 
   it('calls openArtifactPanel when a row is clicked', async () => {

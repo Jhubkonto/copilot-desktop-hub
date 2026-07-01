@@ -1,8 +1,7 @@
 import { useDeferredValue, useEffect, useMemo, useState, useCallback } from 'react'
-import { Download, Loader2, Package, Search, Sparkles, Trash2, X } from 'lucide-react'
+import { Download, Loader2, Search, Trash2, X } from 'lucide-react'
 import type { ArtifactRow } from '../../../shared/types'
 import { useAppStore } from '../../store/app-store'
-import { ArtifactGeneratorModal } from '../ArtifactGeneratorModal'
 
 // ---------------------------------------------------------------------------
 // KindBadge (local; also duplicated in ProjectArtifactsTab)
@@ -109,7 +108,6 @@ export function ArtifactsPane() {
   const deferredQuery = useDeferredValue(query)
   const [scope, setScope] = useState<ArtifactScope>('all')
   const [scopeProjectId, setScopeProjectId] = useState(projects[0]?.id ?? '')
-  const [showGenerator, setShowGenerator] = useState(false)
 
   const loadAll = useCallback(async () => {
     setLoading(true)
@@ -170,8 +168,6 @@ export function ArtifactsPane() {
     }
   }
 
-  const generatorProjectId = scope === 'project' ? scopeProjectId : undefined
-
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
@@ -179,16 +175,6 @@ export function ArtifactsPane() {
         <span className="text-xs text-gray-400 dark:text-gray-500">
           {artifacts.length} artifact{artifacts.length !== 1 ? 's' : ''}
         </span>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => setShowGenerator(true)}
-            className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-indigo-700 dark:hover:text-indigo-200 px-2 py-1 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
-            aria-label="Open artifact generator"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            Artifact generator
-          </button>
-        </div>
       </div>
 
       {/* Search */}
@@ -283,17 +269,6 @@ export function ArtifactsPane() {
         )}
       </div>
 
-      {/* Generator modal */}
-      {showGenerator && (
-        <ArtifactGeneratorModal
-          projectId={generatorProjectId}
-          onClose={() => setShowGenerator(false)}
-          onArtifactCreated={() => { void loadAll() }}
-        />
-      )}
-
-      {/* Invisible anchor for Package icon import */}
-      <Package className="hidden" />
     </div>
   )
 }
