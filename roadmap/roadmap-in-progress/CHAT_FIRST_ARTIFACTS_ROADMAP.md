@@ -2,7 +2,7 @@
 
 ## Summary
 
-Shift artifacts from a standalone creation-first feature to a chat-first persistence feature. Keep artifacts as a durable, versioned output system, but make normal chat the default place users ask for content. The main new flow is: generate in chat, then promote a useful assistant reply into an artifact. Preserve the existing list-first artifact entry points on both platforms.
+Shift artifacts from a standalone creation-first feature to a chat-first persistence feature. Keep artifacts as a durable, versioned output system, but make normal chat the place users ask for content. The main flow is: generate in chat, then promote a useful assistant reply into an artifact. Preserve the existing list-first artifact history entry points on both platforms.
 
 ## Key Changes
 
@@ -12,16 +12,16 @@ Shift artifacts from a standalone creation-first feature to a chat-first persist
 - Preserve current list-first navigation:
   - Desktop `Artifacts` continues opening the `SectionPane` list.
   - Android `Artifacts` continues opening `ArtifactsScreen` list before any detail view.
-- Demote, but do not remove, the standalone generator:
-  - Desktop: remove the duplicated `Generate` + `New` header pattern in `ArtifactsPane`; replace with one lower-emphasis generator entry.
-  - Android: move the top-bar `Generate` action out of primary emphasis and treat it as a secondary action.
+- Remove standalone new-artifact generation from artifact history:
+  - Desktop artifact lists are browse/history surfaces with no generator entry.
+  - Android `ArtifactsScreen` has no generator action or standalone generator route.
 - Define the primary artifact creation path as `Save as artifact` / `Promote to artifact` from assistant output.
 
 #### Action checklist
 
-- [ ] Audit current desktop artifact toolbar actions and remove the duplicated primary-entry pattern.
-- [x] Replace desktop artifact-pane header actions with a single lower-emphasis generator entry.
-- [x] Audit Android `ArtifactsScreen` top-bar actions and reduce generator prominence.
+- [x] Audit current desktop artifact toolbar actions and remove standalone generation.
+- [x] Remove generator actions from the desktop artifact pane and project artifact list.
+- [x] Remove the Android `ArtifactsScreen` generator action and standalone route.
 - [x] Verify desktop artifact navigation still opens the existing `SectionPane` list.
 - [x] Verify Android artifact navigation still lands on `ArtifactsScreen` list-first.
 - [x] Update any roadmap-adjacent docs or labels that still imply artifacts are a primary creation surface.
@@ -96,13 +96,14 @@ Shift artifacts from a standalone creation-first feature to a chat-first persist
   - add optional `Open artifacts` shortcut in the chat action menu only if no artifact browser is open
 - Desktop artifacts pane:
   - keep list behavior unchanged
-  - reduce generator emphasis in the toolbar
+  - do not expose standalone new-artifact generation
   - keep artifact detail side panel and version/export/revise actions unchanged
 - Android chat:
   - add `Save as artifact` to assistant message overflow/actions
   - use a bottom sheet for promotion metadata entry
 - Android artifacts:
   - keep `ArtifactsScreen` as the first destination when tapping artifacts
+  - do not expose standalone new-artifact generation
   - keep current detail-after-selection behavior for this roadmap; do not require a new detail route in this pass
 
 #### Action checklist
@@ -151,7 +152,7 @@ Do not mark any key change complete until all of the following are done for that
 
 ## Assumptions and defaults
 
-- Keep standalone generator reachable, but visually secondary.
+- Create artifacts from chat; artifact lists are history/browser surfaces.
 - Keep Android list-first artifact navigation as-is.
 - Make reply promotion the primary v1 artifact-entry path.
 - Do not add a pre-send `Generate as artifact` composer action in v1. That can be a later phase after promotion proves useful.
