@@ -33,6 +33,7 @@ import { dispatchToProvider } from './chat-provider-dispatch'
 import type { MobileChatActivity } from './chat-context-builder'
 import { debugLog } from './debug-mode'
 import { ChatTurnEmitter } from './chat-turn-emitter'
+import { clearActiveChatTurn } from './active-chat-turns'
 import { formatWikiSection, getRelevantWikiEntries } from './wiki-context'
 
 export { clearDirListingCache } from './chat-context-builder'
@@ -204,6 +205,7 @@ export async function dispatchChatSend(
   }
   const sendStreamEnd = () => {
     turnEmitter.streamEnd()
+    clearActiveChatTurn(conversationId, turnEmitter.turnId)
     sendActivity({ state: 'complete', label: 'Complete' })
     const db = getDatabase()
     const convTitle = (db.prepare('SELECT title FROM conversations WHERE id = ?').get(conversationId) as { title: string } | undefined)?.title ?? 'Chat'

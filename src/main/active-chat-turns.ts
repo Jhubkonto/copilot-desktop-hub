@@ -1,4 +1,5 @@
 import type { ActiveChatTurnSnapshot, ChatTurnEvent } from '../shared/chat-turn-types'
+import { ChatAnimationDiagnostics } from '../shared/chat-animation-diagnostics'
 
 const TERMINAL_TTL_MS = 30_000
 
@@ -7,6 +8,7 @@ interface StoredTurn extends ActiveChatTurnSnapshot {
 }
 
 const turns = new Map<string, StoredTurn>()
+export const activeChatTurnDiagnostics = new ChatAnimationDiagnostics()
 
 export function recordActiveChatTurnEvent(event: ChatTurnEvent): void {
   pruneActiveChatTurns()
@@ -21,7 +23,9 @@ export function recordActiveChatTurnEvent(event: ChatTurnEvent): void {
     return
   }
   const current = turns.get(event.conversationId)
-  if (!current || current.turnId !== event.turnId || event.sequence <= current.latestSequence) return
+  if (!current || current.turnId !== event.turnId) return
+  activeChatTurnDiagnostics.recordSequence(current.latestSequence, event.sequence)
+  if (event.sequence <= current.latestSequence) return
   current.latestSequence = event.sequence
   if (event.type === 'assistant_text_delta') current.assistantText += event.chunk
   if (event.type === 'turn_completed' || event.type === 'turn_failed') {
@@ -55,4 +59,5 @@ export function pruneActiveChatTurns(now = Date.now()): void {
 
 export function resetActiveChatTurnsForTest(): void {
   turns.clear()
+  activeChatTurnDiagnostics.reset()
 }
