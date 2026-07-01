@@ -1,9 +1,9 @@
+/* eslint-disable react-hooks/exhaustive-deps -- subscriptions use refs to avoid resubscribing during active streams. */
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
 import { getModelLabel } from '../../shared/models'
 import type { CatalogModel } from '../../shared/types'
 import type {
   ChatMessage,
-  ConversationDbMessage,
   TeamActivityStep,
   ToolCallEvent,
   ToastType,
@@ -43,7 +43,7 @@ export function useChat({
   isConversationGenerating,
   conversationGenerationStartedAt,
 }: UseChatParams) {
-  const { displayedContent, isDraining, enqueue, flush, reset: resetQueue } = useStreamingQueue()
+  const { displayedContent, isDraining, enqueue, flush, reset: resetQueue, snap: snapQueue } = useStreamingQueue()
   const liveTurnState = useChatLiveTurn(conversationId)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isGenerating, setIsGenerating] = useState(false)
@@ -145,6 +145,17 @@ export function useChat({
 
     if (conversationId) {
       setIsLoadingMessages(true)
+      void window.api.getActiveChatTurn(conversationId).then((snapshot) => {
+        if (!snapshot || snapshot.conversationId !== activeConversationRef.current) return
+        streamingConversationRef.current = snapshot.conversationId
+        streamingContentRef.current = snapshot.assistantText
+        setStreamingContent(snapshot.assistantText)
+        snapQueue(snapshot.assistantText)
+        if (snapshot.status === 'active') {
+          setIsGenerating(true)
+          markConversationGenerating(snapshot.conversationId)
+        }
+      })
       window.api
         .getMessages(conversationId)
         .then((dbMessages) => {
@@ -229,7 +240,7 @@ export function useChat({
     streamClosedRef.current = false
     pendingThinkingEndsRef.current.clear()
     setLoadingFailed(false)
-  }, [conversationId, addToast])
+  }, [conversationId, addToast, snapQueue])
 
   // Re-fetch messages from DB and update state, preserving any in-memory images.
   // Called after stream end so the persisted team-activity row becomes visible without

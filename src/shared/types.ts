@@ -1599,6 +1599,7 @@ export type IpcReturnMap = {
   'auth:status': AuthStatus
   // Chat
   'chat:new': void
+  'chat:get-active-turn': import('./chat-turn-types').ActiveChatTurnSnapshot | null
   'chat:send-message': void
   'chat:stop-generation': void
   'chat:stream-error': void
@@ -1994,6 +1995,7 @@ export type IpcChannels =
   | 'chat:thinking-end'
   | 'chat:wiki-injected'
   | 'chat:remote-message'
+  | 'chat:get-active-turn'
   | 'clipboard:auto-focus'
   | 'clipboard:read-content'
   | 'clipboard:read-image'

@@ -1,9 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-
-// Characters revealed per animation frame (~16ms at 60fps).
-// At 60fps this gives ~3600 chars/sec — fast enough to feel instant
-// for normal responses while still being smooth and non-sprinting.
-const CHARS_PER_FRAME = 60
+import { revealFrameSize } from '../../shared/chat-animation'
 
 interface UseStreamingQueueReturn {
   /** The smoothly drained display string — use this instead of raw streamingContent */
@@ -16,6 +12,8 @@ interface UseStreamingQueueReturn {
   flush: () => void
   /** Reset everything — call when starting a new stream or switching conversations */
   reset: () => void
+  /** Restore authoritative text as already revealed (navigation/reconnect policy). */
+  snap: (text: string) => void
 }
 
 export function useStreamingQueue(): UseStreamingQueueReturn {
@@ -33,8 +31,9 @@ export function useStreamingQueue(): UseStreamingQueueReturn {
       return
     }
 
-    const slice = queueRef.current.slice(0, CHARS_PER_FRAME)
-    queueRef.current = queueRef.current.slice(CHARS_PER_FRAME)
+    const frameSize = revealFrameSize(queueRef.current.length)
+    const slice = queueRef.current.slice(0, frameSize)
+    queueRef.current = queueRef.current.slice(frameSize)
     displayedRef.current += slice
     setDisplayedContent(displayedRef.current)
 
@@ -43,6 +42,13 @@ export function useStreamingQueue(): UseStreamingQueueReturn {
 
   const enqueue = useCallback((chunk: string) => {
     queueRef.current += chunk
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      displayedRef.current += queueRef.current
+      queueRef.current = ''
+      setDisplayedContent(displayedRef.current)
+      setIsDraining(false)
+      return
+    }
     setIsDraining(true)
     if (rafRef.current === null) {
       rafRef.current = requestAnimationFrame(drain)
@@ -71,6 +77,15 @@ export function useStreamingQueue(): UseStreamingQueueReturn {
     setIsDraining(false)
   }, [])
 
+  const snap = useCallback((text: string) => {
+    if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
+    rafRef.current = null
+    queueRef.current = ''
+    displayedRef.current = text
+    setDisplayedContent(text)
+    setIsDraining(false)
+  }, [])
+
   // Cancel RAF on unmount
   useEffect(() => {
     return () => {
@@ -78,5 +93,5 @@ export function useStreamingQueue(): UseStreamingQueueReturn {
     }
   }, [])
 
-  return { displayedContent, isDraining, enqueue, flush, reset }
+  return { displayedContent, isDraining, enqueue, flush, reset, snap }
 }

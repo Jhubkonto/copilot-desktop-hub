@@ -293,6 +293,8 @@ const api = {
     typedInvoke('conversation:import-json', { targetConversationId: targetConversationId ?? null }),
   getMessages: (conversationId: string) =>
     typedInvoke('conversation:get-messages', conversationId),
+  getActiveChatTurn: (conversationId: string) =>
+    typedInvoke('chat:get-active-turn', conversationId),
   insertConversationMessage: (conversationId: string, role: string, content: string) =>
     typedInvoke('conversation:insert-message', conversationId, role, content),
   searchConversations: (query: string) =>

@@ -250,6 +250,7 @@ export function createMockApi() {
       imported_into_existing: false,
     }),
     getMessages: vi.fn().mockResolvedValue([]),
+    getActiveChatTurn: vi.fn().mockResolvedValue(null),
     insertConversationMessage: vi.fn().mockResolvedValue({
       id: 'msg-artifact-ref', conversation_id: 'conv-1', role: 'system', content: '', model: null, is_edited: 0, previous_content: null, timestamp: Date.now(), tool_calls: null, attachments: null, context_snapshot: null,
     }),

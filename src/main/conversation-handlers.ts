@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { getActiveChatTurnSnapshot } from "./active-chat-turns";
 import { BrowserWindow, dialog } from "electron";
 import { readFileSync } from "fs";
 import { getDatabase } from "./database";
@@ -121,6 +122,10 @@ export function registerConversationHandlers(): void {
         "SELECT * FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC",
       )
       .all(conversationId);
+  });
+
+  safeHandle("chat:get-active-turn", (_event, conversationId: string) => {
+    return getActiveChatTurnSnapshot(conversationId);
   });
 
   safeHandle(

@@ -1,0 +1,58 @@
+import type { ActiveChatTurnSnapshot, ChatTurnEvent } from '../shared/chat-turn-types'
+
+const TERMINAL_TTL_MS = 30_000
+
+interface StoredTurn extends ActiveChatTurnSnapshot {
+  terminalAt?: number
+}
+
+const turns = new Map<string, StoredTurn>()
+
+export function recordActiveChatTurnEvent(event: ChatTurnEvent): void {
+  pruneActiveChatTurns()
+  if (event.type === 'turn_started') {
+    turns.set(event.conversationId, {
+      conversationId: event.conversationId,
+      turnId: event.turnId,
+      latestSequence: event.sequence,
+      assistantText: '',
+      status: 'active',
+    })
+    return
+  }
+  const current = turns.get(event.conversationId)
+  if (!current || current.turnId !== event.turnId || event.sequence <= current.latestSequence) return
+  current.latestSequence = event.sequence
+  if (event.type === 'assistant_text_delta') current.assistantText += event.chunk
+  if (event.type === 'turn_completed' || event.type === 'turn_failed') {
+    current.status = event.type === 'turn_completed' ? 'completed' : 'failed'
+    current.terminalAt = Date.now()
+  }
+}
+
+export function getActiveChatTurnSnapshot(conversationId: string): ActiveChatTurnSnapshot | null {
+  pruneActiveChatTurns()
+  const turn = turns.get(conversationId)
+  return turn ? {
+    conversationId: turn.conversationId,
+    turnId: turn.turnId,
+    latestSequence: turn.latestSequence,
+    assistantText: turn.assistantText,
+    status: turn.status,
+  } : null
+}
+
+export function clearActiveChatTurn(conversationId: string, turnId?: string): void {
+  const current = turns.get(conversationId)
+  if (current && (!turnId || current.turnId === turnId)) turns.delete(conversationId)
+}
+
+export function pruneActiveChatTurns(now = Date.now()): void {
+  for (const [conversationId, turn] of turns) {
+    if (turn.terminalAt && now - turn.terminalAt >= TERMINAL_TTL_MS) turns.delete(conversationId)
+  }
+}
+
+export function resetActiveChatTurnsForTest(): void {
+  turns.clear()
+}

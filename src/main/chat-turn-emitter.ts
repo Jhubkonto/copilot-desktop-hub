@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto'
 import type { ChatTurnEvent, ChatActivityState } from '../shared/chat-turn-types'
 import type { WsPushEvent } from './ws-server'
 import { debugLog } from './debug-mode'
+import { recordActiveChatTurnEvent } from './active-chat-turns'
 
 export interface ChatTurnEmitterSinks {
   sendDesktop?: (channel: string, ...args: unknown[]) => void
@@ -188,6 +189,7 @@ export class ChatTurnEmitter {
       sequence: ++this.sequence,
       timestamp: Date.now(),
     } as ChatTurnEvent
+    recordActiveChatTurnEvent(event)
     this.sinks.sendDesktop?.('chat:turn-event', event)
     this.sinks.broadcastMobile?.({ event: 'chat:turn-event', data: event })
     debugLog('chat-turn', `${event.conversationId} ${event.turnId} #${event.sequence} ${event.type}`)

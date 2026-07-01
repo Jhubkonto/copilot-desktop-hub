@@ -1,0 +1,55 @@
+export const CHAT_REVEAL_TARGET_MS = 750
+export const CHAT_REVEAL_MIN_PER_FRAME = 12
+export const CHAT_REVEAL_MAX_PER_FRAME = 320
+
+export interface ChatAnimationState {
+  turnId: string | null
+  authoritativeText: string
+  displayedOffset: number
+  lastSequence: number
+}
+
+export function createChatAnimationState(): ChatAnimationState {
+  return { turnId: null, authoritativeText: '', displayedOffset: 0, lastSequence: 0 }
+}
+
+export function appendChatDelta(
+  state: ChatAnimationState,
+  event: { turnId: string; sequence: number; chunk: string },
+): ChatAnimationState {
+  if (state.turnId && state.turnId !== event.turnId) return state
+  if (event.sequence <= state.lastSequence) return state
+  return {
+    ...state,
+    turnId: event.turnId,
+    authoritativeText: state.authoritativeText + event.chunk,
+    lastSequence: event.sequence,
+  }
+}
+
+export function snapChatAnimation(
+  turnId: string,
+  authoritativeText: string,
+  lastSequence: number,
+): ChatAnimationState {
+  return {
+    turnId,
+    authoritativeText,
+    displayedOffset: authoritativeText.length,
+    lastSequence,
+  }
+}
+
+export function revealFrameSize(
+  backlog: number,
+  frameMs = 1000 / 60,
+  targetMs = CHAT_REVEAL_TARGET_MS,
+): number {
+  if (backlog <= 0) return 0
+  const framesToTarget = Math.max(1, targetMs / frameMs)
+  return Math.min(
+    backlog,
+    CHAT_REVEAL_MAX_PER_FRAME,
+    Math.max(CHAT_REVEAL_MIN_PER_FRAME, Math.ceil(backlog / framesToTarget)),
+  )
+}

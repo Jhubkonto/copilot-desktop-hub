@@ -119,3 +119,10 @@ export type ChatTurnEvent =
   | ChatTurnFailedEvent
   | ChatHistorySnapshotReceivedEvent
 
+export interface ActiveChatTurnSnapshot {
+  conversationId: string
+  turnId: string
+  latestSequence: number
+  assistantText: string
+  status: 'active' | 'completed' | 'failed'
+}

@@ -7,7 +7,6 @@ import { dispatchChatSend } from './chat-handlers'
 import { debugLog } from './debug-mode'
 import { getCliModels } from './cli-detection'
 import { getCachedCatalog } from './model-catalog'
-import { retrieveAuthMode } from './auth'
 import { getAndroidUpdateManifest, getAndroidWorkspaceInfo, computeSha256 } from './android-handlers'
 import { getWorkspaceInfo, startBuildFromMobile, cancelMobileBuild, publishArtifactToFeed } from './build-handlers'
 import { dbListTasks, dbGetTask, dbCreateTask, dbUpdateTask, dbDeleteTask, dbSetTaskEnabled, dbListRuns, schedulerEngine } from './scheduler-engine'
@@ -43,6 +42,7 @@ import {
   getArtifactGeneratorModel,
 } from './artifact-generator'
 import { promoteConversationMessageToArtifact } from './artifacts'
+import { getActiveChatTurnSnapshot } from './active-chat-turns'
 import {
   getManualWorkflowGeneratorModel,
   runManualWorkflowGeneratorChatForAndroid,
@@ -775,6 +775,19 @@ export function registerWsHandlers(): void {
       const merged = { ...current, ...patch }
       db.prepare('UPDATE projects SET config_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(merged), Date.now(), id)
       broadcastToMobile({ event: 'project:config-updated', data: { id, config: parseProjectConfig(JSON.stringify(merged)) } })
+      return
+    }
+
+    if (command === 'chat:get-active-turn') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+      if (!conversationId) return
+      reply({
+        event: 'chat:active-turn-snapshot',
+        data: {
+          conversationId,
+          snapshot: getActiveChatTurnSnapshot(conversationId),
+        },
+      })
       return
     }
 
