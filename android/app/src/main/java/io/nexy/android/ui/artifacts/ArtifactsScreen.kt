@@ -74,7 +74,6 @@ fun ArtifactsScreen(
     onBack: () -> Unit,
     projectId: String? = null,
     initialArtifactId: String? = null,
-    onOpenGenerator: (() -> Unit)? = null,
     vm: ArtifactsViewModel = viewModel(),
 ) {
     val artifacts by vm.artifacts.collectAsState()
@@ -163,9 +162,6 @@ fun ArtifactsScreen(
                 titleContent = { Text("Artifacts", style = MaterialTheme.typography.titleMedium) },
                 onBack = onBack,
                 actions = {
-                    if (onOpenGenerator != null) {
-                        TextButton(onClick = onOpenGenerator) { Text("Generator") }
-                    }
                     if (artifacts.isNotEmpty()) {
                         IconButton(onClick = { showSortSheet = true }) {
                             Icon(Icons.Default.Sort, contentDescription = "Sort artifacts")
