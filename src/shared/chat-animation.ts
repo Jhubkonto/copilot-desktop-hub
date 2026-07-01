@@ -1,6 +1,6 @@
-export const CHAT_REVEAL_TARGET_MS = 750
-export const CHAT_REVEAL_MIN_PER_FRAME = 12
-export const CHAT_REVEAL_MAX_PER_FRAME = 320
+export const CHAT_REVEAL_TARGET_MS = 2800
+export const CHAT_REVEAL_MIN_PER_FRAME = 2
+export const CHAT_REVEAL_MAX_PER_FRAME = 64
 
 export interface ChatAnimationState {
   turnId: string | null

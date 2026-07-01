@@ -714,6 +714,7 @@ export function useChat({
     streamingContent,
     displayedContent,
     isDraining,
+    resetQueue,
     setStreamingContent,
     loadingFailed,
     setLoadingFailed,

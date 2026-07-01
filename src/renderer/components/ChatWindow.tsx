@@ -325,6 +325,7 @@ export function ChatWindow() {
     setIsGenerating: chat.setIsGenerating,
     setGenerationStartedAt: chat.setGenerationStartedAt,
     setStreamingContent: chat.setStreamingContent,
+    resetQueue: chat.resetQueue,
     setLoadingFailed: chat.setLoadingFailed,
     setLiveTeamActivity: chat.setLiveTeamActivity,
     addToast,
@@ -537,10 +538,19 @@ export function ChatWindow() {
     void chat.attachArtifact(artifactId, versionId)
   }, [pendingArtifactAttach, conversationId, clearPendingArtifactAttach, chat.attachArtifact])
 
-  const scrollToBottom = useCallback(() => {
+  const SCROLL_BOTTOM_EPSILON = 4
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
     const el = scrollContainerRef.current
     if (!el) return
-    el.scrollTop = el.scrollHeight
+    // Skip the programmatic scroll entirely if we're already at (or essentially at) the
+    // bottom — e.g. right after the user manually scrolled there themselves. Calling
+    // scrollTo() again here would re-animate over their own scroll gesture and read as
+    // a jarring correction at the exact moment they reach the bottom.
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    if (distanceFromBottom > SCROLL_BOTTOM_EPSILON) {
+      el.scrollTo({ top: el.scrollHeight, behavior })
+    }
     isUserScrolledUpRef.current = false
     setIsUserScrolledUp(false)
     setHasUnreadBelow(false)
@@ -587,7 +597,7 @@ export function ChatWindow() {
   // Force scroll to bottom whenever a new generation begins (user just sent a message)
   useEffect(() => {
     if (chat.isGenerating) {
-      scrollToBottom()
+      scrollToBottom('auto')
     }
   }, [chat.isGenerating, scrollToBottom])
 
@@ -608,7 +618,7 @@ export function ChatWindow() {
     setHasUnreadBelow(false)
     if (conversationId) markConversationRead(conversationId)
     // Defer so the new messages have rendered before scrolling
-    requestAnimationFrame(() => scrollToBottom())
+    requestAnimationFrame(() => scrollToBottom('auto'))
   }, [conversationId, scrollToBottom, markConversationRead])
 
   // Completion notification — only for successful responses (not stopped/errored)
@@ -1522,7 +1532,7 @@ export function ChatWindow() {
         {isUserScrolledUp && (
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
             <button
-              onClick={scrollToBottom}
+              onClick={() => scrollToBottom('smooth')}
               className={`pointer-events-auto flex items-center justify-center w-8 h-8 rounded-full shadow-lg transition-colors ${
                 hasUnreadBelow
                   ? 'bg-blue-600 dark:bg-blue-500 text-white hover:bg-blue-700 dark:hover:bg-blue-400 animate-bounce hover:animate-none'

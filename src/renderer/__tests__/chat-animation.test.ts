@@ -21,8 +21,8 @@ describe('chat animation model', () => {
 
   it('snaps restored text and adapts frame work to backlog', () => {
     expect(snapChatAnimation('turn-1', 'restored', 8).displayedOffset).toBe(8)
-    expect(revealFrameSize(10)).toBe(10)
+    expect(revealFrameSize(2)).toBe(2)
     expect(revealFrameSize(10_000)).toBeGreaterThan(revealFrameSize(100))
-    expect(revealFrameSize(10_000)).toBeLessThanOrEqual(320)
+    expect(revealFrameSize(10_000)).toBeLessThanOrEqual(64)
   })
 })

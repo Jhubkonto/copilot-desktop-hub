@@ -480,7 +480,6 @@ export function ChatMessagesBase({
                       content={block.content}
                       done={block.done}
                       label={getThinkingBlockLabel(block.blockId)}
-                      isResponseStreaming={!!streamingContent}
                     />
                   ))}
                 </div>

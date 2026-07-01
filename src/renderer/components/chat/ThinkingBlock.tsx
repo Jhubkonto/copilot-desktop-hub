@@ -5,60 +5,30 @@ interface ThinkingBlockProps {
   content: string
   done: boolean
   label?: string
-  isResponseStreaming?: boolean
 }
 
-const AUTO_COLLAPSE_DELAY = 2000
+// Fixed viewport height for the reasoning text — roughly six lines. Content scrolls
+// within this window instead of the bubble growing, so the surrounding layout never
+// shifts while reasoning streams in, and stays exactly the same size once done —
+// no auto-collapse, so there's no jarring shrink right as the answer arrives.
+const VIEWPORT_CLASS = 'h-[7.5rem]'
 
-export function ThinkingBlock({ content, done, label = 'Reasoning', isResponseStreaming = false }: ThinkingBlockProps) {
-  const [expanded, setExpanded] = useState(false)
-  const userCollapsedRef = useRef(false)
-  const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const hasContentRef = useRef(false)
+export function ThinkingBlock({ content, done, label = 'Reasoning' }: ThinkingBlockProps) {
+  const [collapsed, setCollapsed] = useState(false)
+  const contentRef = useRef<HTMLPreElement | null>(null)
 
   const charCount = content.length
-  hasContentRef.current = charCount > 0
 
-  // Collapse immediately when response starts streaming
+  // Keep the viewport scrolled to the latest reasoning text as it streams in.
   useEffect(() => {
-    if (isResponseStreaming) {
-      if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current)
-      setExpanded(false)
-      userCollapsedRef.current = false
-    }
-  }, [isResponseStreaming])
-
-  // Auto-expand when block goes live; auto-collapse after done (unless user collapsed it).
-  // Only depends on `done` — content length changes do not reschedule the collapse timer (M4).
-  useEffect(() => {
-    if (!done) {
-      if (!userCollapsedRef.current && hasContentRef.current) {
-        setExpanded(true)
-      }
-    } else {
-      if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current)
-      collapseTimerRef.current = setTimeout(() => {
-        setExpanded(false)
-      }, AUTO_COLLAPSE_DELAY)
-    }
-
-    return () => {
-      if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current)
-    }
-  }, [done])
+    const el = contentRef.current
+    if (!el || done || collapsed) return
+    el.scrollTop = el.scrollHeight
+  }, [content, done, collapsed])
 
   const handleToggle = () => {
     if (content.length === 0) return
-    const next = !expanded
-    setExpanded(next)
-    // If user explicitly collapses a live block, remember that choice
-    if (!next && !done) {
-      userCollapsedRef.current = true
-    }
-    // If user manually expands, clear the override so auto-collapse can still fire
-    if (next) {
-      userCollapsedRef.current = false
-    }
+    setCollapsed((prev) => !prev)
   }
 
   return (
@@ -67,7 +37,7 @@ export function ThinkingBlock({ content, done, label = 'Reasoning', isResponseSt
         type="button"
         onClick={handleToggle}
         className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-purple-100 dark:hover:bg-purple-900/30"
-        aria-expanded={expanded}
+        aria-expanded={!collapsed}
         disabled={content.length === 0}
       >
         <Brain className="h-3.5 w-3.5 shrink-0 text-purple-500 dark:text-purple-400" />
@@ -77,22 +47,20 @@ export function ThinkingBlock({ content, done, label = 'Reasoning', isResponseSt
             : `${label}…`}
         </span>
         {!done && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-purple-400" />}
-        {content.length > 0 && (expanded
-          ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-purple-400" />
-          : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-purple-400" />)}
+        {content.length > 0 && (collapsed
+          ? <ChevronRight className="h-3.5 w-3.5 shrink-0 text-purple-400" />
+          : <ChevronDown className="h-3.5 w-3.5 shrink-0 text-purple-400" />)}
       </button>
-      <div
-        className="grid transition-[grid-template-rows] duration-300 ease-in-out"
-        style={{ gridTemplateRows: expanded && content.length > 0 ? '1fr' : '0fr' }}
-      >
-        <div className="overflow-hidden">
-          <div className="border-t border-purple-200 px-3 py-2 dark:border-purple-900/60">
-            <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap text-[13px] leading-relaxed text-purple-800 dark:text-purple-200">
-              {content}
-            </pre>
-          </div>
+      {!collapsed && content.length > 0 && (
+        <div className="border-t border-purple-200 px-3 py-2 dark:border-purple-900/60">
+          <pre
+            ref={contentRef}
+            className={`${VIEWPORT_CLASS} overflow-y-auto whitespace-pre-wrap text-[13px] leading-relaxed text-purple-800 dark:text-purple-200`}
+          >
+            {content}
+          </pre>
         </div>
-      </div>
+      )}
     </div>
   )
 }

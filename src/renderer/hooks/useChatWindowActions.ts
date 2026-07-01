@@ -77,6 +77,7 @@ interface UseChatWindowActionsParams {
   setIsGenerating: Dispatch<SetStateAction<boolean>>
   setGenerationStartedAt: Dispatch<SetStateAction<number | null>>
   setStreamingContent: Dispatch<SetStateAction<string>>
+  resetQueue: () => void
   setLoadingFailed: Dispatch<SetStateAction<boolean>>
   setLiveTeamActivity: Dispatch<SetStateAction<TeamActivityStep[]>>
   addToast: (message: string, type?: ToastType) => void
@@ -146,6 +147,7 @@ export function useChatWindowActions({
   setIsGenerating,
   setGenerationStartedAt,
   setStreamingContent,
+  resetQueue,
   setLoadingFailed,
   setLiveTeamActivity,
   addToast,
@@ -383,6 +385,7 @@ export function useChatWindowActions({
     setLoadingFailed(false)
     setIsGenerating(true)
     setGenerationStartedAt(Date.now())
+    resetQueue()
     setStreamingContent('')
     setLiveTeamActivity([])
     streamingContentRef.current = ''
@@ -476,6 +479,7 @@ export function useChatWindowActions({
     setIsGenerating,
     setGenerationStartedAt,
     setStreamingContent,
+    resetQueue,
     setLiveTeamActivity,
     streamingContentRef,
     streamModelRef,
@@ -511,6 +515,7 @@ export function useChatWindowActions({
     markConversationGenerating(conversation)
     setIsGenerating(true)
     setGenerationStartedAt(Date.now())
+    resetQueue()
     setStreamingContent('')
     streamingContentRef.current = ''
 
@@ -535,6 +540,7 @@ export function useChatWindowActions({
     setIsGenerating,
     setGenerationStartedAt,
     setStreamingContent,
+    resetQueue,
     streamingContentRef,
     streamingConversationRef,
     activeConversationRef,
