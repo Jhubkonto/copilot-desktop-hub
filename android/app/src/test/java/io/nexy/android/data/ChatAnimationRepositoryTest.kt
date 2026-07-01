@@ -88,6 +88,24 @@ class ChatAnimationRepositoryTest {
     }
 
     @Test
+    fun clearRemovesStateSoARetriedTurnStartsFresh() = runTest {
+        ChatAnimationRepository.clear("conv-animation")
+        ChatAnimationRepository.accept(event(1, "turn_started", "{}"))
+        ChatAnimationRepository.accept(event(2, "assistant_text_delta", """{"chunk":"first answer"}"""))
+        ChatAnimationRepository.accept(event(3, "turn_completed", "{}"))
+        awaitDisplayedText("conv-animation", "first answer")
+
+        // Simulate what ChatViewModel.sendMessage() now does when the user taps Retry:
+        // clear the stale, already-terminal state for this conversation before the new
+        // turn's events arrive, so no leftover frame from turn 1 can replay afterwards.
+        ChatAnimationRepository.clear("conv-animation")
+        val fresh = ChatAnimationRepository.observe("conv-animation").value
+        assertEquals("", fresh.authoritativeText)
+        assertEquals("", fresh.displayedText)
+        assertFalse(fresh.terminal)
+    }
+
+    @Test
     fun olderHistoryCannotReplaceANewerActiveTurn() = runTest {
         ChatAnimationRepository.clear("conv-animation")
         ChatAnimationRepository.restore(

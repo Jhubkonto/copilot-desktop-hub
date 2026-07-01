@@ -170,9 +170,15 @@ class ChatViewModel(
                         isStreaming = !settled,
                         thinkingBlocks = if (settled) _liveTurnState.value.thinkingBlocks else emptyList(),
                     )
+                    val lastAssistant = current.lastOrNull { !it.isUser && !it.isToolCall }
+                    // A settled animation frame whose text already matches the last persisted
+                    // assistant message is a stale replay racing a history sync (e.g. after
+                    // Retry) — applying it would append a second copy of the same answer.
+                    val isStaleReplay = settled && lastAssistant != null &&
+                        !lastAssistant.isStreaming && lastAssistant.text == animation.displayedText
                     _messages.value = if (streamingIdx >= 0) {
                         current.toMutableList().also { it[streamingIdx] = message }
-                    } else if (animation.displayedText.isNotEmpty()) {
+                    } else if (animation.displayedText.isNotEmpty() && !isStaleReplay) {
                         current + message
                     } else current
                     _drainActive.value = animation.backlogLength > 0
@@ -482,6 +488,10 @@ class ChatViewModel(
             status = ChatTurnStatus.Active,
             generationStartedAt = System.currentTimeMillis(),
         )
+        // Drop any stale animation state from a prior turn (e.g. Retry) so the observer
+        // below can't replay an already-settled ChatAnimationState against the freshly
+        // synced history and append a duplicate copy of the previous answer.
+        if (wsClient === WsRepository) ChatAnimationRepository.clear(conversationId)
         startActiveHistoryPolling()
 
         val connState = if (wsClient === WsRepository) WsRepository.connectionState.value else null
