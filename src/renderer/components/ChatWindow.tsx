@@ -149,6 +149,14 @@ export function ChatWindow() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const isUserScrolledUpRef = useRef(false)
+  // Set immediately before a programmatic scroll and cleared a frame later. Content
+  // growing taller between the scrollTo() call and the browser's resulting scroll
+  // event can make the container look momentarily short of the bottom by the
+  // SCROLL_UP_THRESHOLD check — without this guard that misfire latches
+  // isUserScrolledUpRef permanently true, silently breaking auto-follow for the
+  // rest of the generation since nothing else resets it except the user manually
+  // scrolling back down themselves.
+  const isProgrammaticScrollRef = useRef(false)
   // Set while a manual "scroll to request" jump is in flight so the generation
   // auto-follow effect doesn't fight it and drag the view back to the bottom.
   const suppressAutoFollowUntilRef = useRef(0)
@@ -554,7 +562,13 @@ export function ChatWindow() {
     // a jarring correction at the exact moment they reach the bottom.
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
     if (distanceFromBottom > SCROLL_BOTTOM_EPSILON) {
+      isProgrammaticScrollRef.current = true
       el.scrollTo({ top: el.scrollHeight, behavior })
+      // Cleared a frame later rather than synchronously — the resulting native scroll
+      // event(s) can land a tick after this call, especially with behavior: 'smooth'.
+      requestAnimationFrame(() => {
+        isProgrammaticScrollRef.current = false
+      })
     }
     isUserScrolledUpRef.current = false
     setIsUserScrolledUp(false)
@@ -565,6 +579,10 @@ export function ChatWindow() {
   const handleScrollContainerScroll = useCallback(() => {
     const el = scrollContainerRef.current
     if (!el) return
+    // A scroll event immediately following our own programmatic scrollTo() can read
+    // as "short of the bottom" if content grew taller in the interim — don't let that
+    // misclassify as the user having scrolled up (see isProgrammaticScrollRef).
+    if (isProgrammaticScrollRef.current) return
     const SCROLL_UP_THRESHOLD = 80
     const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - SCROLL_UP_THRESHOLD
     isUserScrolledUpRef.current = !atBottom
@@ -594,13 +612,21 @@ export function ChatWindow() {
   // pending rAF so we don't stack a scrollTo() call (and its forced layout read)
   // on every single tick, and skip entirely while a manual navigation (e.g. jump
   // to the in-reply-to request) is in flight so this doesn't drag the view back.
+  // Uses a double rAF: a single rAF only guarantees "before the next paint", which
+  // for a large one-shot layout change (e.g. the reasoning bubble mounting at up to
+  // ~7.5rem tall in one render, as opposed to gradual per-character text growth)
+  // can still read a stale scrollHeight from before that layout was committed —
+  // scrolling to the wrong, too-short "bottom" and silently leaving the view behind.
+  // The second rAF runs after the browser has actually painted the new layout.
   useEffect(() => {
     if (isUserScrolledUpRef.current) return
     if (autoFollowRafRef.current !== null) return
     autoFollowRafRef.current = requestAnimationFrame(() => {
-      autoFollowRafRef.current = null
-      if (Date.now() < suppressAutoFollowUntilRef.current) return
-      if (shouldFollowAnimatedGrowth(isUserScrolledUpRef.current)) scrollToBottom('auto')
+      autoFollowRafRef.current = requestAnimationFrame(() => {
+        autoFollowRafRef.current = null
+        if (Date.now() < suppressAutoFollowUntilRef.current) return
+        if (shouldFollowAnimatedGrowth(isUserScrolledUpRef.current)) scrollToBottom('auto')
+      })
     })
   }, [chat.messages, chat.displayedContent, chat.liveTeamActivity, scrollToBottom])
 
@@ -616,11 +642,16 @@ export function ChatWindow() {
     prevMessagesLengthRef.current = chat.messages.length
   }, [chat.messages, chat.streamingContent, chat.liveTeamActivity, conversationId, markConversationUnread])
 
-  // Force scroll to bottom whenever a new generation begins (user just sent a message)
+  // Force scroll to bottom whenever a new generation begins (user just sent a message,
+  // or regenerate just removed the previous — potentially very tall — assistant message).
+  // Double rAF: a single rAF can still read scrollHeight from before the message-list
+  // change has actually been painted, landing on a stale, too-tall "bottom".
   useEffect(() => {
-    if (chat.isGenerating) {
-      scrollToBottom('auto')
-    }
+    if (!chat.isGenerating) return
+    const raf1 = requestAnimationFrame(() => {
+      requestAnimationFrame(() => scrollToBottom('auto'))
+    })
+    return () => cancelAnimationFrame(raf1)
   }, [chat.isGenerating, scrollToBottom])
 
   // Scroll when live thinking blocks expand (new block added or content grows).
@@ -631,9 +662,11 @@ export function ChatWindow() {
     if (isUserScrolledUpRef.current || chat.liveTurnState.thinkingBlocks.size === 0) return
     if (autoFollowRafRef.current !== null) return
     autoFollowRafRef.current = requestAnimationFrame(() => {
-      autoFollowRafRef.current = null
-      if (Date.now() < suppressAutoFollowUntilRef.current) return
-      if (!isUserScrolledUpRef.current) scrollToBottom('auto')
+      autoFollowRafRef.current = requestAnimationFrame(() => {
+        autoFollowRafRef.current = null
+        if (Date.now() < suppressAutoFollowUntilRef.current) return
+        if (!isUserScrolledUpRef.current) scrollToBottom('auto')
+      })
     })
   }, [chat.liveTurnState.thinkingBlocks, scrollToBottom])
 
