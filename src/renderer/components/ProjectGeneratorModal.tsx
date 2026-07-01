@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/exhaustive-deps -- callbacks intentionally retain the run-start configuration. */
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { X, Send, Loader2, ChevronRight, Crown, UserPlus, Sparkles, Pencil, Plus, Trash2, FolderOpen, BookOpen, ClipboardPaste } from 'lucide-react'
 import { useAppStore } from '../store/app-store'

@@ -88,7 +88,6 @@ vi.mock('https', () => ({
 
 // ── Test helpers ───────────────────────────────────────────────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function invokeHandler(channel: string, ...args: unknown[]): Promise<any> {
   const handler = ipcHandlers.get(channel)
   if (!handler) throw new Error(`No handler for ${channel}`)

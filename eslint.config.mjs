@@ -18,5 +18,12 @@ export default tseslint.config(
   },
   {
     ignores: ['dist/', 'release/', 'node_modules/', '*.config.*']
+  },
+  {
+    files: ['src/**/__tests__/**/*.{ts,tsx}', 'src/test/mocks/**/*.ts'],
+    rules: {
+      // Test adapters intentionally bridge loosely typed Electron/sql.js mocks.
+      '@typescript-eslint/no-explicit-any': 'off'
+    }
   }
 )

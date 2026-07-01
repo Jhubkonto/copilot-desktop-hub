@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/exhaustive-deps -- projectRootDir is read from the current async search context. */
 import { useCallback, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 import { AT_CONTEXT_OPTIONS, type ContextRef } from './chat-types'
 

@@ -479,7 +479,6 @@ const BLANK_SPEC: AgentGeneratorSpec = {
 // ─── Main modal ───────────────────────────────────────────────────────────────
 
 export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
-  const agents = useAppStore((s) => s.agents)
   const catalogModels = useAppStore((s) => s.catalogModels)
   const globalDefaultModel = useAppStore((s) => s.globalDefaultModel)
   const addToast = useAppStore((s) => s.addToast)
@@ -640,7 +639,7 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
       setCreationError(err instanceof Error ? err.message : 'Creation failed')
       setCreationStep(-1)
     }
-  }, [addToast, loadAgents, onClose])
+  }, [loadAgents])
 
   return (
     <div

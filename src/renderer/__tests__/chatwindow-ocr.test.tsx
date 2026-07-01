@@ -15,18 +15,15 @@ vi.mock('../../renderer/store/app-store', () => ({
 
 let mockApi: MockApi
 let mockStore: ReturnType<typeof createMockAppStore>
-let autoClipboardFocusCallback: (() => void | Promise<void>) | null = null
 
 beforeEach(() => {
   mockApi = setupMockApi()
-  autoClipboardFocusCallback = null
 
   mockApi.getMessages.mockResolvedValue([])
   mockApi.onStreamResponse.mockReturnValue(() => {})
   mockApi.onStreamError.mockReturnValue(() => {})
-  mockApi.onAutoClipboardFocus.mockImplementation((cb: () => void | Promise<void>) => {
-    autoClipboardFocusCallback = cb
-    return () => { autoClipboardFocusCallback = null }
+  mockApi.onAutoClipboardFocus.mockImplementation((_cb: () => void | Promise<void>) => {
+    return () => {}
   })
 
   mockApi.captureScreen.mockResolvedValue({

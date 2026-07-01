@@ -14,6 +14,7 @@ import type { ProviderMessage } from './provider-core-types'
 import type { ArtifactSpec, ArtifactGeneratorMessage, ArtifactGeneratorRun, ArtifactKind, ArtifactExportFormat } from '../shared/types'
 import { getDatabase } from './database'
 import { recordProjectAuditChange } from './project-audit'
+import { broadcastToMobile } from './ws-server'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -511,7 +512,6 @@ export async function runArtifactGeneratorChatForAndroid(
   sessionId: string,
   modelOverride?: string,
 ): Promise<void> {
-  const { broadcastToMobile } = await import('./ws-server')
   const fakeWin = {
     isDestroyed: () => false,
     webContents: {

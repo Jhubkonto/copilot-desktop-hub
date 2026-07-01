@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/exhaustive-deps -- chat/actions are aggregate hook objects; individual members are stable. */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { BookOpen, BrainCircuit, CheckCircle, ChevronDown, ChevronRight, Download, Loader2, Lock, MoreHorizontal, Pin, PinOff, Sparkles, Upload, Zap } from 'lucide-react'
 import { getAvailableModelIds, getModelLabel, modelIdSupportsTools } from '../../shared/models'

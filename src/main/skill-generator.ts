@@ -18,6 +18,7 @@ import type { ProviderMessage } from './provider-core-types'
 import type { SkillGeneratorMessage, SkillGeneratorSpec } from '../shared/types'
 import { getDatabase } from './database'
 import { broadcastToMobile } from './ws-server'
+import { createSkillConfig } from './skills'
 
 const SPEC_OPEN_TAG = '<skill-spec>'
 const SPEC_CLOSE_TAG = '</skill-spec>'
@@ -279,7 +280,6 @@ export async function runSkillGeneratorChatForAndroid(
 }
 
 export async function createSkillFromSpec(spec: SkillGeneratorSpec): Promise<{ skillId: string; name: string }> {
-  const { createSkillConfig } = await import('./skills')
   const result = await createSkillConfig({
     name: spec.name,
     icon: spec.icon,

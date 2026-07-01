@@ -21,7 +21,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -208,7 +208,7 @@ fun PairingScreen(
             }
 
             if (discoveredServices.isNotEmpty()) {
-                Divider()
+                HorizontalDivider()
                 Text(
                     "Found on network",
                     style = MaterialTheme.typography.labelMedium,

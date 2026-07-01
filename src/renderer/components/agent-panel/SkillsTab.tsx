@@ -24,7 +24,7 @@ interface Props {
 
 export function SkillsTab({
   config, isEditing,
-  agentMcpTools, mcpToolOverrides, globalMcpServers,
+  agentMcpTools, globalMcpServers,
   skills, attachedSkillIds, onAttachSkill, onDetachSkill, onMoveSkill,
   onUpdateField, onToggleServerAssignment,
   onGetServerTierValue, onSetServerTier,

@@ -21,7 +21,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Card
@@ -193,7 +193,7 @@ fun SkillsScreen(
                     }
                     if (state.skills.isNotEmpty()) {
                         IconButton(onClick = { showSortSheet = true }) {
-                            Icon(Icons.Default.Sort, contentDescription = "Sort skills")
+                            Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort skills")
                         }
                     }
                     IconButton(onClick = { vm.load() }) {

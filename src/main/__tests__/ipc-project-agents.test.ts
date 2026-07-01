@@ -108,7 +108,6 @@ vi.mock('fs', () => ({ readFileSync: vi.fn(), writeFileSync: vi.fn() }))
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function invoke(channel: string, ...args: unknown[]): Promise<any> {
   const handler = ipcHandlers.get(channel)
   if (!handler) throw new Error(`No handler registered for "${channel}"`)

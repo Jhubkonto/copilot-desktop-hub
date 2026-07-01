@@ -1,5 +1,5 @@
 import path from 'path'
-import { mkdirSync, cpSync, readdirSync, copyFileSync } from 'fs'
+import { mkdirSync, cpSync, copyFileSync } from 'fs'
 import type { ArtifactExportFormat } from '../shared/types'
 import { getDatabase } from './database'
 

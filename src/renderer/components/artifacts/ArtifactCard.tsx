@@ -10,7 +10,7 @@ const KIND_LABELS: Record<string, string> = {
 
 const SUPPORTED_EXPORT_FORMATS = ['raw-files', 'markdown', 'json']
 
-export function ArtifactCard({ artifactId, versionId }: { artifactId: string; versionId?: string }) {
+export function ArtifactCard({ artifactId, versionId: _versionId }: { artifactId: string; versionId?: string }) {
   const [artifact, setArtifact] = useState<ArtifactRow | null>(null)
   const [copying, setCopying] = useState(false)
   const [exporting, setExporting] = useState(false)

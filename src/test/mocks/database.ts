@@ -5,22 +5,16 @@ import { vi } from 'vitest'
 
 const store = new Map<string, string>()
 
-const mockStatement = {
-  run: vi.fn((...args: unknown[]) => {
-    // For INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)
-    // We can capture this from the SQL string in prepare()
-    return { changes: 1 }
-  }),
-  get: vi.fn((..._args: unknown[]): { value: string } | undefined => {
-    return undefined
-  }),
-  all: vi.fn(() => [])
+type MockStatement = {
+  run: ReturnType<typeof vi.fn>
+  get: ReturnType<typeof vi.fn>
+  all: ReturnType<typeof vi.fn>
 }
 
 export function createMockDatabase() {
   store.clear()
 
-  const preparedStatements = new Map<string, typeof mockStatement>()
+  const preparedStatements = new Map<string, MockStatement>()
 
   const db = {
     prepare: vi.fn((sql: string) => {

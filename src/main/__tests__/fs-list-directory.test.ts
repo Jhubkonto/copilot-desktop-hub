@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from 'fs'
-import { join, sep } from 'path'
+import { join } from 'path'
 import { tmpdir } from 'os'
 import { listDirectoryEntries } from '../ipc-handlers'
 

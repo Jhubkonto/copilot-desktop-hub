@@ -21,7 +21,7 @@ let mockApi: ReturnType<typeof setupMockApi>
 const onClose = vi.fn()
 const onArtifactCreated = vi.fn()
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 type Listener = (arg: any) => void
 type MockableEvent = { mockImplementation: (fn: (listener: Listener) => () => void) => void }
 

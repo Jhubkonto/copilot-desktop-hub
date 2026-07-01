@@ -133,8 +133,8 @@ fun NexyInfoDialog(
 @Composable
 fun NexyEmptyState(
     title: String,
-    detail: String? = null,
     modifier: Modifier = Modifier,
+    detail: String? = null,
     action: (@Composable () -> Unit)? = null,
 ) {
     Column(

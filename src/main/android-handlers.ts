@@ -11,7 +11,7 @@ import { BrowserWindow } from 'electron'
 import type Database from 'better-sqlite3'
 import { safeHandle } from './safe-handle'
 import { getDatabase } from './database'
-import { startFeedServer, isFeedRunning, getFeedLanUrl } from './local-feed-server'
+import { startFeedServer, getFeedLanUrl } from './local-feed-server'
 import { debugTime, debugTimeEnd } from './debug-mode'
 import type {
   AndroidBuildCommandName,

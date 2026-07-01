@@ -22,7 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -164,7 +164,7 @@ fun ArtifactsScreen(
                 actions = {
                     if (artifacts.isNotEmpty()) {
                         IconButton(onClick = { showSortSheet = true }) {
-                            Icon(Icons.Default.Sort, contentDescription = "Sort artifacts")
+                            Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort artifacts")
                         }
                     }
                     IconButton(onClick = { vm.refresh(projectId) }) {

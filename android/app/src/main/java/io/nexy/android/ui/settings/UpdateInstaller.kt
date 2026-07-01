@@ -54,9 +54,7 @@ internal fun openPackageInstaller(
     apk: File,
     onNeedsPermission: (String) -> Unit,
 ) {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-        !app.packageManager.canRequestPackageInstalls()
-    ) {
+    if (!app.packageManager.canRequestPackageInstalls()) {
         onNeedsPermission("Allow installs from Nexy, then tap Install update again.")
         val settingsIntent = Intent(
             Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,

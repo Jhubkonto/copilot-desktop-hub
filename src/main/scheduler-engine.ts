@@ -227,14 +227,6 @@ function pushTaskUpdated(task: ScheduledTask): void {
   }
 }
 
-function pushTaskDeleted(taskId: string): void {
-  broadcastToMobile({ event: 'scheduler:task-deleted', data: { taskId } })
-  const win = BrowserWindow.getAllWindows()[0]
-  if (win && !win.webContents.isDestroyed()) {
-    win.webContents.send('scheduler:task-deleted', taskId)
-  }
-}
-
 function pushRunUpdated(run: ScheduledRun): void {
   broadcastToMobile({ event: 'scheduler:run-updated', data: run })
   const win = BrowserWindow.getAllWindows()[0]

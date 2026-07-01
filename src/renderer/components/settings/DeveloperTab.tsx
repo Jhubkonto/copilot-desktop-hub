@@ -295,7 +295,6 @@ export function DeveloperTab({
   onRefreshAdbDevices, onAndroidInstallApk,
   androidPublishResult, androidUpdateManifest, androidPublishHistory, androidRestoring,
   onAndroidPublishUpdate, onAndroidRestoreVersion,
-  debugLogging, onToggleDebugLogging,
   remoteEditReportingBuildId, desktopPackagingBlocked, onFixBuildWithRemoteEdit,
 }: Props) {
   const [developerTab, setDeveloperTab] = useState<DeveloperInnerTab>('desktop')

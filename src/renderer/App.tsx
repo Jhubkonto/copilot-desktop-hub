@@ -48,7 +48,6 @@ const ArtifactPanel = lazy(() =>
 export default function App() {
   const theme = useAppStore((s) => s.theme)
   const showAgentPanel = useAppStore((s) => s.showAgentPanel)
-  const showSettings = useAppStore((s) => s.showSettings)
   const showOnboarding = useAppStore((s) => s.showOnboarding)
   const showSidebar = useAppStore((s) => s.showSidebar)
   const activeSectionPane = useAppStore((s) => s.activeSectionPane)

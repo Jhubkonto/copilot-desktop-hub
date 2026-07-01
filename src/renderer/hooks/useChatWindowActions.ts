@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/exhaustive-deps -- callbacks use stable store functions and refs across conversations. */
 import { useCallback, useMemo, useRef, type Dispatch, type MutableRefObject, type RefObject, type SetStateAction } from 'react'
 import { getModelLabel } from '../../shared/models'
 import type { AgentConfig, CatalogModel } from '../../shared/types'

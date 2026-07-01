@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/exhaustive-deps -- polling is keyed by report identity; status is handled inside. */
 import { useEffect, useState } from 'react'
 import { Trash2, Wrench } from 'lucide-react'
 import type {
@@ -688,7 +689,7 @@ export function RemoteEditPanel() {
     void loadAvailableModels()
     void refreshWorkspace()
     window.api.getInvestigationSettings().then(setInvestigationSettings).catch(() => {})
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [visible, pendingRemoteEditReportId])
 
   useEffect(() => {
@@ -723,7 +724,7 @@ export function RemoteEditPanel() {
       offChunk()
       offDone()
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [])
 
   useEffect(() => {
@@ -745,7 +746,7 @@ export function RemoteEditPanel() {
       offEvent()
       offDone()
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [])
 
   useEffect(() => {

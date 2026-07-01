@@ -33,6 +33,7 @@ import { dispatchToProvider } from './chat-provider-dispatch'
 import type { MobileChatActivity } from './chat-context-builder'
 import { debugLog } from './debug-mode'
 import { ChatTurnEmitter } from './chat-turn-emitter'
+import { formatWikiSection, getRelevantWikiEntries } from './wiki-context'
 
 export { clearDirListingCache } from './chat-context-builder'
 
@@ -854,7 +855,6 @@ export async function dispatchChatSend(
 
   // CCMP.7: inject relevant wiki entries into restored context after compression
   if (compressedContext.summary !== null && wikiProjectId && effectiveContextMessages.length > 0) {
-    const { getRelevantWikiEntries, formatWikiSection } = await import('./wiki-context')
     const ss = compressedContext.summary.structuredSummary
     const wikiSearchQuery = [...ss.goals, ...ss.filesTouched, ...ss.decisions].join(' ')
     const wikiEntries = getRelevantWikiEntries(db, wikiProjectId, wikiSearchQuery, 3)

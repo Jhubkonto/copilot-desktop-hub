@@ -119,7 +119,6 @@ const SAMPLE_ROW = {
   updated_at: 1000
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function invokeHandler(channel: string, ...args: unknown[]): Promise<any> {
   const handler = ipcHandlers.get(channel)
   if (!handler) throw new Error(`No handler for ${channel}`)

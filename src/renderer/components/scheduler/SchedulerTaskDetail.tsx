@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/exhaustive-deps -- loadRuns is invoked only when the selected task changes. */
 import { useState, useEffect } from 'react'
 import { ArrowLeft, Play, Pause, Pencil, Trash2, MessageSquare, Loader2, CheckCircle2, XCircle, AlertTriangle, Clock } from 'lucide-react'
 import type { ScheduledTask, ScheduledRun } from '../../../shared/types'

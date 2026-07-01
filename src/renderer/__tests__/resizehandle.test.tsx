@@ -8,7 +8,7 @@ function Wrapper({
   direction = "horizontal",
   align = "end",
   scrollableChild = false,
-  scrollableChildRight = 0,
+  scrollableChildRight: _scrollableChildRight = 0,
 }: {
   direction?: "horizontal" | "vertical";
   align?: "start" | "end";

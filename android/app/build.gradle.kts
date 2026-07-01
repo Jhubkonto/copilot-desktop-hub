@@ -39,8 +39,8 @@ android {
         compose = true
     }
     lint {
-        baseline = file("lint-baseline.xml")
         abortOnError = true
+        warningsAsErrors = true
     }
 }
 
@@ -56,6 +56,7 @@ configurations.configureEach {
 dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.fragment.ktx)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.compose.ui)

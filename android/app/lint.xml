@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!-- Dependency/toolchain upgrades are handled as scheduled compatibility work,
+         not mixed into feature changes. -->
+    <issue id="GradleDependency,NewerVersionAvailable,OldTargetApi" severity="ignore" />
+
+    <!-- The paired desktop uses a self-signed certificate. WsRepository validates
+         the certificate fingerprint before promoting it to a trusted connection. -->
+    <issue id="CustomX509TrustManager,TrustAllX509TrustManager">
+        <ignore path="src/main/java/io/nexy/android/data/WsRepository.kt" />
+    </issue>
+
+    <!-- Round and standard launcher resources intentionally share artwork while
+         retaining distinct Android launcher resource contracts. -->
+    <issue id="IconDuplicates" severity="ignore" />
+
+    <!-- KTX suggestions are stylistic and would not change correctness. Keep the
+         existing SharedPreferences transaction style consistent. -->
+    <issue id="UseKtx" severity="ignore" />
+</lint>

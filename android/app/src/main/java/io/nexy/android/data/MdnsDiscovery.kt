@@ -28,10 +28,11 @@ class MdnsDiscovery(context: Context) {
         val resolveQueue = mutableListOf<NsdServiceInfo>()
         var resolving = false
 
+        @Suppress("DEPRECATION")
         fun resolveNext() {
             if (resolveQueue.isEmpty()) { resolving = false; return }
             resolving = true
-            val info = resolveQueue.removeFirst()
+            val info = resolveQueue.removeAt(0)
             val resolveListener = object : NsdManager.ResolveListener {
                 override fun onResolveFailed(si: NsdServiceInfo, err: Int) { resolveNext() }
                 override fun onServiceResolved(si: NsdServiceInfo) {
@@ -45,10 +46,7 @@ class MdnsDiscovery(context: Context) {
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 nsdManager.resolveService(info, executor, resolveListener)
-            } else {
-                @Suppress("DEPRECATION")
-                nsdManager.resolveService(info, resolveListener)
-            }
+            } else nsdManager.resolveService(info, resolveListener)
         }
 
         val dl = object : NsdManager.DiscoveryListener {

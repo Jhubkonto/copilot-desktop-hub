@@ -29,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -63,8 +64,8 @@ fun SchedulerTaskConfigScreen(
     var prompt by rememberSaveable(initial) { mutableStateOf(initial?.prompt ?: "") }
     var scheduleType by rememberSaveable(initial) { mutableStateOf(initial?.scheduleType ?: "daily") }
     var localTime by rememberSaveable(initial) { mutableStateOf(initial?.localTime ?: "09:00") }
-    var weekday by rememberSaveable(initial) { mutableStateOf(initial?.weekday ?: 1) }
-    var monthDay by rememberSaveable(initial) { mutableStateOf(initial?.monthDay ?: 1) }
+    var weekday by rememberSaveable(initial) { mutableIntStateOf(initial?.weekday ?: 1) }
+    var monthDay by rememberSaveable(initial) { mutableIntStateOf(initial?.monthDay ?: 1) }
     var timezone by rememberSaveable(initial) { mutableStateOf(initial?.timezone ?: java.util.TimeZone.getDefault().id) }
     var agentId by rememberSaveable(initial) { mutableStateOf(initial?.agentId ?: "") }
     var projectId by rememberSaveable(initial) { mutableStateOf(initial?.projectId ?: "") }
@@ -243,7 +244,7 @@ fun SchedulerTaskConfigScreen(
                         put("notificationPref", notificationPref)
                         if (!isEdit) put("enabled", true)
                     }
-                    if (isEdit && taskId != null) viewModel.update(taskId, input)
+                    if (taskId != null) viewModel.update(taskId, input)
                     else viewModel.create(input)
                     onBack()
                 },

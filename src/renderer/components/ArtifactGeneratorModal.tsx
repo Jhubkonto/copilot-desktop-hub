@@ -445,7 +445,6 @@ function clearSession() { _session = null }
 // ─── Background generation lifecycle vars ────────────────────────────────────
 // These survive modal unmount so the file-event listener stays active during generation.
 
-let _lastGeneratedAbsPath = ''
 let _cleanupFileListener: (() => void) | null = null
 let _generationInFlight = false
 
@@ -505,8 +504,7 @@ export function ArtifactGeneratorModal({ projectId, onClose, onArtifactCreated }
       setSpec(scoped)
       setMissedSpec(false)
     })
-    const offFile = window.api.onArtifactGeneratorFileEvent((e) => {
-      if (e.absolutePath) _lastGeneratedAbsPath = e.absolutePath
+    const offFile = window.api.onArtifactGeneratorFileEvent((_e) => {
     })
     _cleanupFileListener = offFile
 
