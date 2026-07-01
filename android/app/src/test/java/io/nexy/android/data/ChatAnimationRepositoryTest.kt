@@ -4,6 +4,7 @@ import io.nexy.android.data.model.WsEvent
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -46,5 +47,34 @@ class ChatAnimationRepositoryTest {
         val state = ChatAnimationRepository.observe("conv-animation").value
         assertEquals(state.authoritativeText, state.displayedText)
         assertTrue(state.terminal)
+    }
+
+    @Test
+    fun tracksDuplicatesGapsAndSnapshotRecovery() = runTest {
+        ChatAnimationRepository.clear("conv-animation")
+        ChatAnimationRepository.accept(event(1, "turn_started", "{}"))
+        ChatAnimationRepository.accept(event(3, "assistant_text_delta", """{"chunk":"gap"}"""))
+        ChatAnimationRepository.accept(event(3, "assistant_text_delta", """{"chunk":"duplicate"}"""))
+        ChatAnimationRepository.restore(
+            WsEvent.ChatActiveTurnSnapshot("conv-animation", "turn-2", 8, "restored", "active"),
+        )
+        val state = ChatAnimationRepository.observe("conv-animation").value
+        assertEquals(1L, state.sequenceGaps)
+        assertEquals(1L, state.droppedDuplicateEvents)
+        assertEquals(1L, state.snapshotRecoveries)
+        assertEquals("restored", state.displayedText)
+    }
+
+    @Test
+    fun olderHistoryCannotReplaceANewerActiveTurn() = runTest {
+        ChatAnimationRepository.clear("conv-animation")
+        ChatAnimationRepository.restore(
+            WsEvent.ChatActiveTurnSnapshot("conv-animation", "turn-new", 5, "live answer", "active"),
+        )
+        assertFalse(ChatAnimationRepository.shouldApplyPersistedHistory("conv-animation", "old answer"))
+        ChatAnimationRepository.accept(
+            WsEvent.ChatTurnEvent("conv-animation", "turn-new", 6, "turn_completed", 6, "{}"),
+        )
+        assertTrue(ChatAnimationRepository.shouldApplyPersistedHistory("conv-animation", "live answer"))
     }
 }

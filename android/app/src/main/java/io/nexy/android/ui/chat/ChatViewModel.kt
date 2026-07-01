@@ -178,7 +178,14 @@ class ChatViewModel(
                 when {
                     event is WsEvent.ConversationMessages && event.conversationId == conversationId -> {
                         val mapped = event.messages.map { msg -> msg.toChatMessage() }
-                        val historyHasAssistantResponse = mapped.lastOrNull { !it.isToolCall }?.isUser == false
+                        val persistedAssistantText = mapped.lastOrNull { !it.isUser && !it.isToolCall }?.text
+                        val historyHasAssistantResponse =
+                            mapped.lastOrNull { !it.isToolCall }?.isUser == false &&
+                            (wsClient !== WsRepository ||
+                                ChatAnimationRepository.shouldApplyPersistedHistory(
+                                    conversationId,
+                                    persistedAssistantText,
+                                ))
                         val turnTerminal = isTurnTerminal
                         val shouldApplyHistory =
                             !historyLoaded ||

@@ -21,6 +21,11 @@ data class ChatAnimationState(
     val displayedText: String = "",
     val lastSequence: Long = 0L,
     val terminal: Boolean = false,
+    val revealLagMs: Long = 0L,
+    val droppedDuplicateEvents: Long = 0L,
+    val sequenceGaps: Long = 0L,
+    val snapshotRecoveries: Long = 0L,
+    val oldestPendingAt: Long? = null,
 ) {
     val backlogLength: Int get() = authoritativeText.length - displayedText.length
 }
@@ -43,17 +48,21 @@ object ChatAnimationRepository {
     fun observe(conversationId: String): StateFlow<ChatAnimationState> =
         states.getOrPut(conversationId) { MutableStateFlow(ChatAnimationState()) }.asStateFlow()
 
+    @Synchronized
     fun accept(event: WsEvent.ChatTurnEvent) {
-        val flow = synchronized(this) {
-            states.getOrPut(event.conversationId) { MutableStateFlow(ChatAnimationState()) }
-        }
+        val flow = states.getOrPut(event.conversationId) { MutableStateFlow(ChatAnimationState()) }
         val current = flow.value
         if (event.type == "turn_started") {
             flow.value = ChatAnimationState(turnId = event.turnId, lastSequence = event.sequence)
             return
         }
         if (current.turnId != null && current.turnId != event.turnId) return
-        if (event.sequence <= current.lastSequence) return
+        if (event.sequence <= current.lastSequence) {
+            flow.value = current.copy(droppedDuplicateEvents = current.droppedDuplicateEvents + 1)
+            return
+        }
+        val sequenceGaps = current.sequenceGaps +
+            if (current.lastSequence > 0L && event.sequence > current.lastSequence + 1L) 1 else 0
         when (event.type) {
             "assistant_text_delta" -> {
                 val chunk = JSONObject(event.payloadJson).optString("chunk", "")
@@ -61,6 +70,8 @@ object ChatAnimationRepository {
                     turnId = event.turnId,
                     authoritativeText = current.authoritativeText + chunk,
                     lastSequence = event.sequence,
+                    sequenceGaps = sequenceGaps,
+                    oldestPendingAt = current.oldestPendingAt ?: System.currentTimeMillis(),
                 )
                 ensureDrain(event.conversationId, flow)
             }
@@ -70,17 +81,23 @@ object ChatAnimationRepository {
                     displayedText = current.authoritativeText,
                     lastSequence = event.sequence,
                     terminal = true,
+                    sequenceGaps = sequenceGaps,
+                    revealLagMs = 0L,
+                    oldestPendingAt = null,
                 )
                 drainJobs.remove(event.conversationId)?.cancel()
             }
-            else -> flow.value = current.copy(turnId = event.turnId, lastSequence = event.sequence)
+            else -> flow.value = current.copy(
+                turnId = event.turnId,
+                lastSequence = event.sequence,
+                sequenceGaps = sequenceGaps,
+            )
         }
     }
 
+    @Synchronized
     fun restore(snapshot: WsEvent.ChatActiveTurnSnapshot) {
-        val flow = synchronized(this) {
-            states.getOrPut(snapshot.conversationId) { MutableStateFlow(ChatAnimationState()) }
-        }
+        val flow = states.getOrPut(snapshot.conversationId) { MutableStateFlow(ChatAnimationState()) }
         val current = flow.value
         if (current.turnId == snapshot.turnId && current.lastSequence >= snapshot.latestSequence) return
         // Re-entry/cold reconnect policy: accumulated desktop text is immediately visible.
@@ -90,12 +107,24 @@ object ChatAnimationRepository {
             displayedText = snapshot.assistantText,
             lastSequence = snapshot.latestSequence,
             terminal = snapshot.status != "active",
+            droppedDuplicateEvents = current.droppedDuplicateEvents,
+            sequenceGaps = current.sequenceGaps,
+            snapshotRecoveries = current.snapshotRecoveries + 1,
         )
     }
 
+    @Synchronized
     fun clear(conversationId: String) {
-        synchronized(this) { states.remove(conversationId) }
+        states.remove(conversationId)
         drainJobs.remove(conversationId)?.cancel()
+    }
+
+    fun shouldApplyPersistedHistory(conversationId: String, persistedAssistantText: String?): Boolean {
+        val current = observe(conversationId).value
+        if (current.turnId == null) return true
+        return current.terminal &&
+            persistedAssistantText != null &&
+            persistedAssistantText == current.authoritativeText
     }
 
     private fun ensureDrain(conversationId: String, flow: MutableStateFlow<ChatAnimationState>) {
@@ -111,7 +140,15 @@ object ChatAnimationRepository {
                     min(MAX_CHARS_PER_FRAME, max(MIN_CHARS_PER_FRAME, ceil(backlog / frames).toInt())),
                 )
                 val offset = current.displayedText.length + frameSize
-                flow.value = current.copy(displayedText = current.authoritativeText.take(offset))
+                val nextText = current.authoritativeText.take(offset)
+                val stillPending = nextText.length < current.authoritativeText.length
+                flow.value = current.copy(
+                    displayedText = nextText,
+                    revealLagMs = if (stillPending) {
+                        System.currentTimeMillis() - (current.oldestPendingAt ?: System.currentTimeMillis())
+                    } else 0L,
+                    oldestPendingAt = if (stillPending) current.oldestPendingAt else null,
+                )
                 delay(FRAME_MS)
             }
             drainJobs.remove(conversationId)
