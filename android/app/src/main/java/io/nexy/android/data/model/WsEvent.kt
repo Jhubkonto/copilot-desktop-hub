@@ -40,6 +40,13 @@ sealed class WsEvent {
         val timestamp: Long,
         val payloadJson: String,
     ) : WsEvent()
+    data class ChatActiveTurnSnapshot(
+        val conversationId: String,
+        val turnId: String,
+        val latestSequence: Long,
+        val assistantText: String,
+        val status: String,
+    ) : WsEvent()
     data class ChatTeamActivity(
         val conversationId: String,
         val stepId: String,

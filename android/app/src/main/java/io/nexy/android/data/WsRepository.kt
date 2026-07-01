@@ -218,6 +218,10 @@ object WsRepository : WsClient {
         scope.launch {
             events.collect { event ->
                 when (event) {
+                    is WsEvent.ChatTurnEvent -> ChatAnimationRepository.accept(event)
+                    is WsEvent.ChatActiveTurnSnapshot -> {
+                        if (event.turnId.isNotBlank()) ChatAnimationRepository.restore(event)
+                    }
                     is WsEvent.ChatActivity -> {
                         val activeStates = setOf("active", "thinking", "tool")
                         val doneStates = setOf("complete", "error")

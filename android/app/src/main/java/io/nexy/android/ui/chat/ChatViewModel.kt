@@ -3,16 +3,19 @@ package io.nexy.android.ui.chat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.nexy.android.data.ConnectionState
+import io.nexy.android.data.ChatAnimationRepository
 import io.nexy.android.data.WsClient
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.AttachmentMeta
 import io.nexy.android.data.model.ThinkingBlock
 import io.nexy.android.data.model.WsEvent
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
+import kotlinx.coroutines.InternalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
@@ -21,11 +24,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.launch
 import java.util.UUID
 
-private const val STREAM_CHARS_PER_TICK = 60
-private const val STREAM_TICK_MS = 16L
 private const val ACTIVE_HISTORY_POLL_MS = 2_500L
-// Chunks larger than this skip the typewriter drip and are applied in one update
-private const val LARGE_CHUNK_THRESHOLD = 500
 
 data class PendingAttachment(
     val id: String,
@@ -56,6 +55,33 @@ data class ChatMessage(
     val toolCalls: List<ChatMessage> = emptyList(),
 )
 
+@OptIn(InternalCoroutinesApi::class, ExperimentalForInheritanceCoroutinesApi::class)
+private class DerivedBooleanStateFlow<A, B>(
+    private val first: StateFlow<A>,
+    private val second: StateFlow<B>,
+    private val transform: (A, B) -> Boolean,
+) : StateFlow<Boolean> {
+    override val value: Boolean get() = transform(first.value, second.value)
+    override val replayCache: List<Boolean> get() = listOf(value)
+    override suspend fun collect(collector: FlowCollector<Boolean>): Nothing {
+        combine(first, second, transform).collect(collector)
+        error("StateFlow collection completed unexpectedly")
+    }
+}
+
+@OptIn(InternalCoroutinesApi::class, ExperimentalForInheritanceCoroutinesApi::class)
+private class DerivedStateFlow<A, B>(
+    private val source: StateFlow<A>,
+    private val transform: (A) -> B,
+) : StateFlow<B> {
+    override val value: B get() = transform(source.value)
+    override val replayCache: List<B> get() = listOf(value)
+    override suspend fun collect(collector: FlowCollector<B>): Nothing {
+        source.map(transform).collect(collector)
+        error("StateFlow collection completed unexpectedly")
+    }
+}
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class ChatViewModel(
     private val conversationId: String,
@@ -76,23 +102,23 @@ class ChatViewModel(
 
     // isStreaming: true while the typewriter drain is active (cursor shown in message bubble).
     // Combining drainActive with Streaming status handles the gap between status update and drain start.
-    val isStreaming: StateFlow<Boolean> = combine(_liveTurnState, _drainActive) { state, drain ->
+    val isStreaming: StateFlow<Boolean> = DerivedBooleanStateFlow(_liveTurnState, _drainActive) { state, drain ->
         drain || state.status == ChatTurnStatus.Streaming
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    }
 
     // isAwaitingResponse: true while waiting for first token (Active) but NOT while streaming text.
     // The thinking bubble shows when Active; hides when Streaming or Idle/Completed/Failed.
-    val isAwaitingResponse: StateFlow<Boolean> = combine(_liveTurnState, _drainActive) { state, drain ->
+    val isAwaitingResponse: StateFlow<Boolean> = DerivedBooleanStateFlow(_liveTurnState, _drainActive) { state, drain ->
         state.status == ChatTurnStatus.Active && !drain
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    }
 
     val activityLabel: StateFlow<String> = _liveTurnState.map { state ->
         state.activity?.label?.takeIf { it.isNotBlank() } ?: "Assistant is thinking"
     }.stateIn(viewModelScope, SharingStarted.Eagerly, "Assistant is thinking")
 
-    val liveThinkingBlocks: StateFlow<List<ThinkingBlock>> = _liveTurnState.map { state ->
+    val liveThinkingBlocks: StateFlow<List<ThinkingBlock>> = DerivedStateFlow(_liveTurnState) { state ->
         state.thinkingBlocks
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    }
 
     val generationStartedAt: StateFlow<Long?> = _liveTurnState.map { state ->
         state.generationStartedAt
@@ -118,9 +144,6 @@ class ChatViewModel(
 
     private var historyLoaded = false
 
-    // Buffer incoming stream chunks; drain coroutine emits to _messages at a fixed rate.
-    // null sentinel signals end-of-stream so the drain coroutine can clear isStreaming.
-    private val streamBuffer = Channel<String?>(Channel.UNLIMITED)
     private var activeHistoryPollJob: Job? = null
 
     private val isTurnTerminal: Boolean
@@ -129,72 +152,24 @@ class ChatViewModel(
 
     init {
         refreshMessages()
-        // Drain coroutine: consume buffer at ~60 chars per 16ms frame.
-        // streamEndPending defers _drainActive=false until the last queued chunk finishes rendering.
-        viewModelScope.launch {
-            var streamEndPending = false
-            fun finalizeRenderedStream() {
-                val current = _messages.value
-                val streamingIdx = current.indexOfLast { it.isStreaming }
-                val thinkingSnapshot = _liveTurnState.value.thinkingBlocks
-                if (streamingIdx >= 0) {
-                    _messages.value = current.toMutableList().also { list ->
-                        val msg = list[streamingIdx]
-                        list[streamingIdx] = msg.copy(
-                            isStreaming = false,
-                            thinkingBlocks = if (thinkingSnapshot.isNotEmpty() && msg.thinkingBlocks.isEmpty())
-                                thinkingSnapshot else msg.thinkingBlocks,
-                        )
-                    }
-                }
-                // Clear live thinking blocks after committing them to the message
-                _liveTurnState.value = _liveTurnState.value.copy(thinkingBlocks = emptyList())
-                _drainActive.value = false
-                streamEndPending = false
-            }
-            for (chunk in streamBuffer) {
-                if (chunk == null) {
-                    // Null sentinel signals end-of-stream. Defer the drain-active clear until
-                    // after the last real chunk's while-loop finishes so the cursor stays visible.
-                    streamEndPending = true
-                    if (streamBuffer.isEmpty) {
-                        finalizeRenderedStream()
-                    }
-                    continue
-                }
-                // Large chunks skip the typewriter drip to avoid hundreds of rapid recompositions
-                if (chunk.length >= LARGE_CHUNK_THRESHOLD) {
+        if (wsClient === WsRepository) {
+            viewModelScope.launch {
+                ChatAnimationRepository.observe(conversationId).collect { animation ->
+                    if (animation.turnId == null) return@collect
                     val current = _messages.value
-                    val streamingIdx = current.indexOfLast { it.isStreaming }
-                    if (streamingIdx >= 0) {
-                        _messages.value = current.toMutableList().also { list ->
-                            list[streamingIdx] = list[streamingIdx].copy(text = list[streamingIdx].text + chunk)
-                        }
-                    } else {
-                        _messages.value = current + ChatMessage(text = chunk, isUser = false, isStreaming = true)
-                    }
-                } else {
-                    var remaining: String = chunk
-                    while (remaining.isNotEmpty()) {
-                        val slice = remaining.take(STREAM_CHARS_PER_TICK)
-                        remaining = remaining.drop(STREAM_CHARS_PER_TICK)
-                        val current = _messages.value
-                        val streamingIdx = current.indexOfLast { it.isStreaming }
-                        if (streamingIdx >= 0) {
-                            _messages.value = current.toMutableList().also { list ->
-                                list[streamingIdx] = list[streamingIdx].copy(text = list[streamingIdx].text + slice)
-                            }
-                        } else {
-                            _messages.value = current + ChatMessage(text = slice, isUser = false, isStreaming = true)
-                        }
-                        if (remaining.isNotEmpty()) delay(STREAM_TICK_MS)
-                    }
-                }
-                // After the last chunk's characters are rendered, clear streaming state.
-                // Transfer thinkingBlocks from liveTurnState into the message so thinking content
-                // stays visible during the 400ms gap before the history re-fetch completes.
-                if (streamEndPending && streamBuffer.isEmpty) {
-                    finalizeRenderedStream()
+                    val streamingIdx = current.indexOfLast { it.isStreaming && !it.isToolCall }
+                    val message = ChatMessage(
+                        text = animation.displayedText,
+                        isUser = false,
+                        isStreaming = !animation.terminal,
+                        thinkingBlocks = if (animation.terminal) _liveTurnState.value.thinkingBlocks else emptyList(),
+                    )
+                    _messages.value = if (streamingIdx >= 0) {
+                        current.toMutableList().also { it[streamingIdx] = message }
+                    } else if (animation.displayedText.isNotEmpty()) {
+                        current + message
+                    } else current
+                    _drainActive.value = animation.backlogLength > 0
                 }
             }
         }
@@ -284,6 +259,10 @@ class ChatViewModel(
                     }
                     event is WsEvent.ChatTurnEvent && event.conversationId == conversationId -> {
                         _liveTurnState.value = reduceChatTurn(_liveTurnState.value, event)
+                        if (event.type == "turn_completed" || event.type == "turn_failed") {
+                            _drainActive.value = false
+                            stopActiveHistoryPolling()
+                        }
                     }
                     event is WsEvent.ChatActivity && event.conversationId == conversationId -> {
                         if (event.state == "complete" || event.state == "error") {
@@ -362,28 +341,45 @@ class ChatViewModel(
                         }
                     }
                     event is WsEvent.ChatStreamChunk && event.conversationId == conversationId -> {
-                        stopActiveHistoryPolling()
-                        if (!_drainActive.value) {
+                        // Legacy/test transports may not emit normalized events. Production
+                        // WsRepository consumes chat:turn-event as the canonical source.
+                        if (wsClient !== WsRepository) {
+                            stopActiveHistoryPolling()
                             _drainActive.value = true
+                            _liveTurnState.value = _liveTurnState.value.copy(
+                                status = ChatTurnStatus.Streaming,
+                                activity = null,
+                            )
+                            val current = _messages.value
+                            val index = current.indexOfLast { it.isStreaming && !it.isToolCall }
+                            _messages.value = if (index >= 0) {
+                                current.toMutableList().also {
+                                    it[index] = it[index].copy(text = it[index].text + event.text)
+                                }
+                            } else current + ChatMessage(text = event.text, isUser = false, isStreaming = true)
                         }
-                        _liveTurnState.value = _liveTurnState.value.copy(
-                            status = ChatTurnStatus.Streaming,
-                            activity = null,
-                        )
-                        streamBuffer.send(event.text)
                     }
                     event is WsEvent.ChatStreamEnd && event.conversationId == conversationId -> {
-                        _liveTurnState.value = _liveTurnState.value.copy(
-                            status = ChatTurnStatus.Completed,
-                            thinkingBlocks = _liveTurnState.value.thinkingBlocks.map { it.copy(done = true) },
-                            pendingThinkingEnds = emptySet(),
-                            generationStartedAt = null,
-                        )
-                        stopActiveHistoryPolling()
-                        // Null sentinel triggers drain finalization
-                        streamBuffer.send(null)
-                        // Optimistic finalization: immediately re-fetch so tool calls persisted by the
-                        // desktop appear without a hardcoded delay.
+                        // Compatibility event; normalized completion owns terminal state.
+                        if (wsClient !== WsRepository) {
+                            val current = _messages.value
+                            val index = current.indexOfLast { it.isStreaming && !it.isToolCall }
+                            if (index >= 0) {
+                                _messages.value = current.toMutableList().also {
+                                    it[index] = it[index].copy(
+                                        isStreaming = false,
+                                        thinkingBlocks = _liveTurnState.value.thinkingBlocks,
+                                    )
+                                }
+                            }
+                            _drainActive.value = false
+                            _liveTurnState.value = _liveTurnState.value.copy(
+                                status = ChatTurnStatus.Completed,
+                                thinkingBlocks = emptyList(),
+                                pendingThinkingEnds = emptySet(),
+                                generationStartedAt = null,
+                            )
+                        }
                         viewModelScope.launch {
                             historyLoaded = false
                             wsClient.send("conversation:get-messages", mapOf("conversationId" to conversationId))
@@ -427,6 +423,9 @@ class ChatViewModel(
         historyLoaded = false
         _liveTurnState.value = _liveTurnState.value.copy(thinkingBlocks = emptyList(), generationStartedAt = null)
         wsClient.send("conversation:get-messages", mapOf("conversationId" to conversationId))
+        if (wsClient === WsRepository) {
+            wsClient.send("chat:get-active-turn", mapOf("conversationId" to conversationId))
+        }
     }
 
     fun loadModel(model: String?) {
@@ -505,20 +504,12 @@ class ChatViewModel(
             activity = null,
         )
         stopActiveHistoryPolling()
-        // Drain any buffered chunks immediately, then mark done
-        val buffered = buildString {
-            while (true) {
-                val r = streamBuffer.tryReceive()
-                val v = r.getOrNull() ?: break
-                append(v)
-            }
-        }
         val current = _messages.value
         val streamingIdx = current.indexOfLast { it.isStreaming }
         if (streamingIdx >= 0) {
             _messages.value = current.toMutableList().also { list ->
                 list[streamingIdx] = list[streamingIdx].copy(
-                    text = list[streamingIdx].text + buffered,
+                    text = list[streamingIdx].text,
                     isStreaming = false,
                 )
             }
@@ -555,4 +546,3 @@ class ChatViewModel(
     }
 
 }
-

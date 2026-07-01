@@ -909,6 +909,27 @@ fun parseWsEvent(
                 deleted = data?.optBoolean("deleted", false) ?: false,
             )
 
+            "chat:active-turn-snapshot" -> {
+                val snapshot = data?.optJSONObject("snapshot")
+                if (snapshot == null) {
+                    WsEvent.ChatActiveTurnSnapshot(
+                        conversationId = data?.optString("conversationId") ?: "",
+                        turnId = "",
+                        latestSequence = 0L,
+                        assistantText = "",
+                        status = "completed",
+                    )
+                } else {
+                    WsEvent.ChatActiveTurnSnapshot(
+                        conversationId = snapshot.optString("conversationId"),
+                        turnId = snapshot.optString("turnId"),
+                        latestSequence = snapshot.optLong("latestSequence"),
+                        assistantText = snapshot.optString("assistantText"),
+                        status = snapshot.optString("status", "active"),
+                    )
+                }
+            }
+
             "artifact:promoted" -> WsEvent.ArtifactPromoted(
                 artifactId = data?.optString("artifactId") ?: "",
                 versionId = data?.optString("versionId") ?: "",
