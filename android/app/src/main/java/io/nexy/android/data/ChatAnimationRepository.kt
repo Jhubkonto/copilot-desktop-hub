@@ -76,16 +76,18 @@ object ChatAnimationRepository {
                 ensureDrain(event.conversationId, flow)
             }
             "turn_completed", "turn_failed" -> {
+                // Mark terminal but do NOT snap displayedText to the full authoritativeText
+                // or cancel the drain job here — that would cut the reveal animation short
+                // the instant the backend finishes, decoupled from how much backlog is left.
+                // The drain loop keeps running and reveals any remaining backlog at the
+                // normal pace; it naturally stops once backlog reaches zero.
                 flow.value = current.copy(
                     turnId = event.turnId,
-                    displayedText = current.authoritativeText,
                     lastSequence = event.sequence,
                     terminal = true,
                     sequenceGaps = sequenceGaps,
-                    revealLagMs = 0L,
-                    oldestPendingAt = null,
                 )
-                drainJobs.remove(event.conversationId)?.cancel()
+                ensureDrain(event.conversationId, flow)
             }
             else -> flow.value = current.copy(
                 turnId = event.turnId,
@@ -133,7 +135,9 @@ object ChatAnimationRepository {
             while (true) {
                 val current = flow.value
                 val backlog = current.backlogLength
-                if (backlog <= 0 || current.terminal) break
+                // Only stop once the backlog is actually drained — `terminal` marks that the
+                // backend has finished sending text, not that the reveal animation should stop.
+                if (backlog <= 0) break
                 val frames = max(1.0, TARGET_CATCH_UP_MS.toDouble() / FRAME_MS)
                 val frameSize = min(
                     backlog,

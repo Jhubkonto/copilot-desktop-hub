@@ -56,11 +56,16 @@ class ChatAnimationRepositoryTest {
     }
 
     @Test
-    fun completionFlushesAuthoritativeText() = runTest {
+    fun completionEventuallyDrainsToAuthoritativeText() = runTest {
         ChatAnimationRepository.clear("conv-animation")
         ChatAnimationRepository.accept(event(1, "turn_started", "{}"))
         ChatAnimationRepository.accept(event(2, "assistant_text_delta", """{"chunk":"final"}"""))
         ChatAnimationRepository.accept(event(3, "turn_completed", "{}"))
+        // turn_completed marks the state terminal immediately, but must not cut the reveal
+        // animation short — displayedText should keep draining until it catches up rather
+        // than snapping to the full authoritativeText the instant the turn completes.
+        assertTrue(ChatAnimationRepository.observe("conv-animation").value.terminal)
+        awaitDisplayedText("conv-animation", "final")
         val state = ChatAnimationRepository.observe("conv-animation").value
         assertEquals(state.authoritativeText, state.displayedText)
         assertTrue(state.terminal)

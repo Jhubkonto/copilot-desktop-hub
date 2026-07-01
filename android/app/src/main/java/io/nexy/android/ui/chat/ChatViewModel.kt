@@ -158,11 +158,17 @@ class ChatViewModel(
                     if (animation.turnId == null) return@collect
                     val current = _messages.value
                     val streamingIdx = current.indexOfLast { it.isStreaming && !it.isToolCall }
+                    // "Settled" requires both the backend turn to be terminal AND the reveal
+                    // animation to have actually caught up (no backlog left) — using `terminal`
+                    // alone would flip the message to its done/frozen appearance (spinner gone,
+                    // thinking blocks attached) the instant the backend finishes, ahead of
+                    // whatever text is still being animated in.
+                    val settled = animation.terminal && animation.backlogLength <= 0
                     val message = ChatMessage(
                         text = animation.displayedText,
                         isUser = false,
-                        isStreaming = !animation.terminal,
-                        thinkingBlocks = if (animation.terminal) _liveTurnState.value.thinkingBlocks else emptyList(),
+                        isStreaming = !settled,
+                        thinkingBlocks = if (settled) _liveTurnState.value.thinkingBlocks else emptyList(),
                     )
                     _messages.value = if (streamingIdx >= 0) {
                         current.toMutableList().also { it[streamingIdx] = message }
