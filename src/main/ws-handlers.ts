@@ -15,7 +15,8 @@ import { writeFile as fsWriteFile, readFile as fsReadFile } from 'fs/promises'
 import pathModule from 'path'
 import { networkInterfaces } from 'os'
 import { startFeedServer, getFeedLanUrl } from './local-feed-server'
-import { createErrorReport, rowToErrorReport } from './error-report-handlers'
+import { createErrorReport, rowToErrorReport, deleteErrorReport } from './error-report-handlers'
+import { applyStagedPatchToWorkspace } from './remote-edit-handlers'
 import { listHistory } from './remote-edit/history'
 import {
   emitInvestigationEvent,
@@ -436,6 +437,42 @@ export function registerWsHandlers(): void {
       void rollbackHeal(recoveryId, (event) => {
         broadcastToMobile({ event: 'self-heal:recovery-event', data: event })
       })
+      return
+    }
+
+    if (command === 'self-heal:delete-report') {
+      const reportId = typeof data.reportId === 'string' ? data.reportId : ''
+      if (!reportId) return
+      debugLog('ws', `self-heal:delete-report reportId=${reportId}`)
+      try {
+        const deleted = deleteErrorReport(reportId)
+        broadcastToMobile({ event: 'self-heal:report-deleted', data: { reportId, deleted } })
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err)
+        broadcastToMobile({ event: 'self-heal:report-deleted', data: { reportId, deleted: false, error: errorMsg } })
+      }
+      return
+    }
+
+    if (command === 'self-heal:apply-staged-patch') {
+      const reportId = typeof data.reportId === 'string' ? data.reportId : ''
+      if (!reportId) return
+      debugLog('ws', `self-heal:apply-staged-patch reportId=${reportId}`)
+      try {
+        const result = applyStagedPatchToWorkspace(reportId)
+        if (!result) {
+          reply({ event: 'self-heal:apply-result', data: { reportId, error: 'Nothing to apply' } })
+          return
+        }
+        if ('error' in result) {
+          reply({ event: 'self-heal:apply-result', data: { reportId, error: result.error } })
+          return
+        }
+        reply({ event: 'self-heal:apply-result', data: { reportId, ...result } })
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err)
+        reply({ event: 'self-heal:apply-result', data: { reportId, error: errorMsg } })
+      }
       return
     }
 

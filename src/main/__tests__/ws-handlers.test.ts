@@ -17,6 +17,10 @@ const state = vi.hoisted(() => {
   const runManualWorkflowGeneratorChatForAndroid = vi.fn()
   const getManualWorkflowGeneratorModel = vi.fn(() => 'gpt-5.5')
   const setManualWorkflowGeneratorModel = vi.fn()
+  const deleteErrorReport = vi.fn<(reportId: string) => boolean>(() => true)
+  const applyStagedPatchToWorkspace = vi.fn<
+    (reportId: string) => { appliedFiles: string[]; backupPaths: string[] } | { error: string } | null
+  >(() => null)
 
   return {
     get commandHandler() { return commandHandler },
@@ -34,6 +38,8 @@ const state = vi.hoisted(() => {
     runManualWorkflowGeneratorChatForAndroid,
     getManualWorkflowGeneratorModel,
     setManualWorkflowGeneratorModel,
+    deleteErrorReport,
+    applyStagedPatchToWorkspace,
     get projectConfigJson() { return projectConfigJson },
     set projectConfigJson(value) { projectConfigJson = value },
   }
@@ -153,6 +159,18 @@ vi.mock('../manual-workflow-generator', () => ({
   setManualWorkflowGeneratorModel: state.setManualWorkflowGeneratorModel,
 }))
 
+vi.mock('../error-report-handlers', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../error-report-handlers')>()
+  return {
+    ...actual,
+    deleteErrorReport: state.deleteErrorReport,
+  }
+})
+
+vi.mock('../remote-edit-handlers', () => ({
+  applyStagedPatchToWorkspace: state.applyStagedPatchToWorkspace,
+}))
+
 import { registerWsHandlers, registerApprovalResolver } from '../ws-handlers'
 import { retrieveAuthMode } from '../auth'
 import { getAndroidUpdateManifest } from '../android-handlers'
@@ -190,6 +208,10 @@ describe('ws handlers', () => {
     state.getManualWorkflowGeneratorModel.mockReset()
     state.getManualWorkflowGeneratorModel.mockReturnValue('gpt-5.5')
     state.setManualWorkflowGeneratorModel.mockReset()
+    state.deleteErrorReport.mockReset()
+    state.deleteErrorReport.mockReturnValue(true)
+    state.applyStagedPatchToWorkspace.mockReset()
+    state.applyStagedPatchToWorkspace.mockReturnValue(null)
     vi.mocked(retrieveAuthMode).mockReturnValue('byok')
     vi.mocked(getAndroidUpdateManifest).mockResolvedValue(null)
     vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(false)
@@ -476,6 +498,109 @@ describe('ws handlers', () => {
         hunks: [{ header: '@@ -1,1 +1,1 @@', lines: [] }],
       },
     })
+  })
+
+  it('broadcasts a successful delete for self-heal:delete-report', () => {
+    state.deleteErrorReport.mockReturnValue(true)
+
+    sendCommand('self-heal:delete-report', { reportId: 'report-1' })
+
+    expect(state.deleteErrorReport).toHaveBeenCalledWith('report-1')
+    expect(state.broadcastToMobile).toHaveBeenCalledWith({
+      event: 'self-heal:report-deleted',
+      data: { reportId: 'report-1', deleted: true },
+    })
+  })
+
+  it('broadcasts an unambiguous failure for self-heal:delete-report when nothing was deleted', () => {
+    state.deleteErrorReport.mockReturnValue(false)
+
+    sendCommand('self-heal:delete-report', { reportId: 'missing-report' })
+
+    expect(state.broadcastToMobile).toHaveBeenCalledWith({
+      event: 'self-heal:report-deleted',
+      data: { reportId: 'missing-report', deleted: false },
+    })
+  })
+
+  it('broadcasts an error for self-heal:delete-report when the handler throws', () => {
+    state.deleteErrorReport.mockImplementation(() => {
+      throw new Error('database is locked')
+    })
+
+    sendCommand('self-heal:delete-report', { reportId: 'report-1' })
+
+    expect(state.broadcastToMobile).toHaveBeenCalledWith({
+      event: 'self-heal:report-deleted',
+      data: { reportId: 'report-1', deleted: false, error: 'database is locked' },
+    })
+  })
+
+  it('ignores self-heal:delete-report with no reportId', () => {
+    sendCommand('self-heal:delete-report', {})
+
+    expect(state.deleteErrorReport).not.toHaveBeenCalled()
+    expect(state.broadcastToMobile).not.toHaveBeenCalled()
+  })
+
+  it('replies with applied files for self-heal:apply-staged-patch on success', () => {
+    state.applyStagedPatchToWorkspace.mockReturnValue({
+      appliedFiles: ['src/App.tsx'],
+      backupPaths: ['/backups/report-1/src/App.tsx'],
+    })
+
+    const reply = sendCommand('self-heal:apply-staged-patch', { reportId: 'report-1' })
+
+    expect(state.applyStagedPatchToWorkspace).toHaveBeenCalledWith('report-1')
+    expect(reply).toHaveBeenCalledWith({
+      event: 'self-heal:apply-result',
+      data: {
+        reportId: 'report-1',
+        appliedFiles: ['src/App.tsx'],
+        backupPaths: ['/backups/report-1/src/App.tsx'],
+      },
+    })
+  })
+
+  it('replies with an error for self-heal:apply-staged-patch when there is nothing staged', () => {
+    state.applyStagedPatchToWorkspace.mockReturnValue(null)
+
+    const reply = sendCommand('self-heal:apply-staged-patch', { reportId: 'report-1' })
+
+    expect(reply).toHaveBeenCalledWith({
+      event: 'self-heal:apply-result',
+      data: { reportId: 'report-1', error: 'Nothing to apply' },
+    })
+  })
+
+  it('replies with an error for self-heal:apply-staged-patch when applying fails', () => {
+    state.applyStagedPatchToWorkspace.mockReturnValue({ error: 'permission denied' })
+
+    const reply = sendCommand('self-heal:apply-staged-patch', { reportId: 'report-1' })
+
+    expect(reply).toHaveBeenCalledWith({
+      event: 'self-heal:apply-result',
+      data: { reportId: 'report-1', error: 'permission denied' },
+    })
+  })
+
+  it('replies with an error for self-heal:apply-staged-patch when the handler throws', () => {
+    state.applyStagedPatchToWorkspace.mockImplementation(() => {
+      throw new Error('disk full')
+    })
+
+    const reply = sendCommand('self-heal:apply-staged-patch', { reportId: 'report-1' })
+
+    expect(reply).toHaveBeenCalledWith({
+      event: 'self-heal:apply-result',
+      data: { reportId: 'report-1', error: 'disk full' },
+    })
+  })
+
+  it('ignores self-heal:apply-staged-patch with no reportId', () => {
+    sendCommand('self-heal:apply-staged-patch', {})
+
+    expect(state.applyStagedPatchToWorkspace).not.toHaveBeenCalled()
   })
 
   it('normalizes project:get-config workflow mode for mobile consumers', () => {

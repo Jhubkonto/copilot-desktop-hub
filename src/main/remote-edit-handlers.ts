@@ -49,6 +49,83 @@ const activeInvestigations = new Set<string>()
 const activeFixRuns = new Set<string>()
 const activeVerificationRuns = new Set<string>()
 
+export function applyStagedPatchToWorkspace(
+  reportId: string,
+): { appliedFiles: string[]; backupPaths: string[] } | { error: string } | null {
+  if (!reportId) return null
+  const db = getDatabase()
+  const row = db
+    .prepare('SELECT fix_staged_files FROM error_reports WHERE id = ?')
+    .get(reportId) as { fix_staged_files: string } | undefined
+  if (!row) return null
+
+  const staged: RemoteEditStagedFileEntry[] = JSON.parse(row.fix_staged_files || '[]')
+  if (staged.length === 0) return null
+
+  const workspacePath = getWorkspacePath()
+  const projectId = inferProjectIdForWorkspace(workspacePath)
+  const reportMeta = db.prepare(
+    'SELECT title FROM error_reports WHERE id = ?'
+  ).get(reportId) as { title: string } | undefined
+  const backupDir = getBackupDir(reportId)
+  mkdirSync(backupDir, { recursive: true })
+
+  const now = Date.now()
+  db.prepare(`UPDATE error_reports SET fix_status = 'applying', updated_at = ? WHERE id = ?`).run(now, reportId)
+
+  const appliedFiles: string[] = []
+  const backupPaths: string[] = []
+  const updatedStaged: RemoteEditStagedFileEntry[] = staged.map((e) => ({ ...e }))
+
+  try {
+    for (let i = 0; i < staged.length; i++) {
+      const entry = staged[i]
+      const workspaceFilePath = resolveInsideWorkspace(workspacePath, entry.relativePath)
+      const backupPath = path.join(backupDir, entry.relativePath)
+
+      if (existsSync(workspaceFilePath)) {
+        mkdirSync(path.dirname(backupPath), { recursive: true })
+        copyFileSync(workspaceFilePath, backupPath)
+        updatedStaged[i] = { ...updatedStaged[i], backupPath }
+        backupPaths.push(backupPath)
+      }
+
+      mkdirSync(path.dirname(workspaceFilePath), { recursive: true })
+      copyFileSync(entry.stagingPath, workspaceFilePath)
+      appliedFiles.push(entry.relativePath)
+
+      const diffRow = db
+        .prepare('SELECT diff_json FROM remote_edit_diffs WHERE report_id = ? AND relative_path = ?')
+        .get(reportId, entry.relativePath) as { diff_json: string } | undefined
+      recordProjectAuditChange({
+        sessionId: `remote-edit:${reportId}`,
+        projectId,
+        title: reportMeta?.title?.trim() || `Remote edit ${reportId}`,
+        source: 'remote-edit',
+        relativePath: entry.relativePath,
+        status: existsSync(backupPath) ? 'modified' : 'created',
+        lastOperation: 'apply',
+        diff: diffRow?.diff_json ? (JSON.parse(diffRow.diff_json) as { hunks: unknown[] }) : null,
+      })
+    }
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err)
+    const completedAt = Date.now()
+    db.prepare(
+      `UPDATE error_reports SET fix_status = 'failed', fix_error = ?, fix_completed_at = ?, updated_at = ? WHERE id = ?`,
+    ).run(errorMsg, completedAt, completedAt, reportId)
+    return { error: errorMsg }
+  }
+
+  const completedAt = Date.now()
+  db.prepare(
+    `UPDATE error_reports SET fix_status = 'applied', status = 'fixed', fix_staged_files = ?, fix_completed_at = ?, updated_at = ? WHERE id = ?`,
+  ).run(JSON.stringify(updatedStaged), completedAt, completedAt, reportId)
+
+  updateHistoryEntry(reportId, { fixAppliedAt: completedAt, status: 'fix-applied' })
+  return { appliedFiles, backupPaths }
+}
+
 export function registerRemoteEditHandlers(mainWindow?: BrowserWindow): void {
   safeHandle('remote-edit:get-investigation-settings', () => loadInvestigationSettings())
 
@@ -173,78 +250,9 @@ export function registerRemoteEditHandlers(mainWindow?: BrowserWindow): void {
   })
 
   safeHandle('remote-edit:commit-to-workspace', (_event, reportId: string) => {
-    if (!reportId) return null
-    const db = getDatabase()
-    const row = db
-      .prepare('SELECT fix_staged_files FROM error_reports WHERE id = ?')
-      .get(reportId) as { fix_staged_files: string } | undefined
-    if (!row) return null
-
-    const staged: RemoteEditStagedFileEntry[] = JSON.parse(row.fix_staged_files || '[]')
-    if (staged.length === 0) return null
-
-    const workspacePath = getWorkspacePath()
-    const projectId = inferProjectIdForWorkspace(workspacePath)
-    const reportMeta = db.prepare(
-      'SELECT title FROM error_reports WHERE id = ?'
-    ).get(reportId) as { title: string } | undefined
-    const backupDir = getBackupDir(reportId)
-    mkdirSync(backupDir, { recursive: true })
-
-    const now = Date.now()
-    db.prepare(`UPDATE error_reports SET fix_status = 'applying', updated_at = ? WHERE id = ?`).run(now, reportId)
-
-    const appliedFiles: string[] = []
-    const backupPaths: string[] = []
-    const updatedStaged: RemoteEditStagedFileEntry[] = staged.map((e) => ({ ...e }))
-
-    try {
-      for (let i = 0; i < staged.length; i++) {
-        const entry = staged[i]
-        const workspaceFilePath = resolveInsideWorkspace(workspacePath, entry.relativePath)
-        const backupPath = path.join(backupDir, entry.relativePath)
-
-        if (existsSync(workspaceFilePath)) {
-          mkdirSync(path.dirname(backupPath), { recursive: true })
-          copyFileSync(workspaceFilePath, backupPath)
-          updatedStaged[i] = { ...updatedStaged[i], backupPath }
-          backupPaths.push(backupPath)
-        }
-
-        mkdirSync(path.dirname(workspaceFilePath), { recursive: true })
-        copyFileSync(entry.stagingPath, workspaceFilePath)
-        appliedFiles.push(entry.relativePath)
-
-        const diffRow = db
-          .prepare('SELECT diff_json FROM remote_edit_diffs WHERE report_id = ? AND relative_path = ?')
-          .get(reportId, entry.relativePath) as { diff_json: string } | undefined
-        recordProjectAuditChange({
-          sessionId: `remote-edit:${reportId}`,
-          projectId,
-          title: reportMeta?.title?.trim() || `Remote edit ${reportId}`,
-          source: 'remote-edit',
-          relativePath: entry.relativePath,
-          status: existsSync(backupPath) ? 'modified' : 'created',
-          lastOperation: 'apply',
-          diff: diffRow?.diff_json ? (JSON.parse(diffRow.diff_json) as { hunks: unknown[] }) : null,
-        })
-      }
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err)
-      const completedAt = Date.now()
-      db.prepare(
-        `UPDATE error_reports SET fix_status = 'failed', fix_error = ?, fix_completed_at = ?, updated_at = ? WHERE id = ?`,
-      ).run(errorMsg, completedAt, completedAt, reportId)
-      return null
-    }
-
-    const completedAt = Date.now()
-    db.prepare(
-      `UPDATE error_reports SET fix_status = 'applied', status = 'fixed', fix_staged_files = ?, fix_completed_at = ?, updated_at = ? WHERE id = ?`,
-    ).run(JSON.stringify(updatedStaged), completedAt, completedAt, reportId)
-
-    updateHistoryEntry(reportId, { fixAppliedAt: completedAt, status: 'fix-applied' })
-    return { appliedFiles, backupPaths }
+    const result = applyStagedPatchToWorkspace(reportId)
+    if (result && 'error' in result) return null
+    return result
   })
 
   safeHandle('remote-edit:get-verification-runs', (_event, reportId: string) => {
