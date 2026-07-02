@@ -777,6 +777,26 @@ object WsRepository : WsClient {
     fun remoteEditGitCommit(reportId: String, message: String) {
         send("self-heal:git-commit", mapOf("reportId" to reportId, "message" to message))
     }
+    fun deleteRemoteEditReport(reportId: String) {
+        sendLog("RemoteEdit", "deleteRemoteEditReport: reportId=$reportId")
+        send("self-heal:delete-report", mapOf("reportId" to reportId))
+    }
+    fun applyStagedPatch(reportId: String) {
+        sendLog("RemoteEdit", "applyStagedPatch: reportId=$reportId")
+        send("self-heal:apply-staged-patch", mapOf("reportId" to reportId))
+    }
+    fun startVerification(reportId: String) {
+        sendLog("RemoteEdit", "startVerification: reportId=$reportId")
+        send("self-heal:start-verification", mapOf("reportId" to reportId))
+    }
+    fun pushRemoteEditFix(reportId: String) {
+        sendLog("RemoteEdit", "pushRemoteEditFix: reportId=$reportId")
+        send("self-heal:git-push", mapOf("reportId" to reportId))
+    }
+    fun requestRemoteEditRollback(recoveryId: String) {
+        sendLog("RemoteEdit", "requestRemoteEditRollback: recoveryId=$recoveryId")
+        send("self-heal:request-rollback", mapOf("recoveryId" to recoveryId))
+    }
     fun createProject(name: String, color: String) { send("project:create", mapOf("name" to name, "color" to color)) }
     fun renameProject(id: String, name: String) { send("project:rename", mapOf("id" to id, "name" to name)) }
     fun deleteProject(id: String) { send("project:delete", mapOf("id" to id)) }

@@ -323,6 +323,36 @@ fun parseWsEvent(
                 error = data?.nullableString("error"),
             )
 
+            "self-heal:report-deleted" -> {
+                val reportId = data?.optString("reportId") ?: ""
+                val deleted = data?.optBoolean("deleted", false) ?: false
+                if (deleted) {
+                    errorReports.value = errorReports.value.filter { it.id != reportId }
+                }
+                WsEvent.RemoteEditReportDeleted(
+                    reportId = reportId,
+                    deleted = deleted,
+                    error = data?.nullableString("error"),
+                )
+            }
+
+            "self-heal:apply-result" -> {
+                val filesArr = data?.optJSONArray("appliedFiles")
+                val appliedFiles = if (filesArr != null) {
+                    (0 until filesArr.length()).map { i -> filesArr.optString(i) ?: "" }.filter { it.isNotEmpty() }
+                } else emptyList()
+                val backupsArr = data?.optJSONArray("backupPaths")
+                val backupPaths = if (backupsArr != null) {
+                    (0 until backupsArr.length()).map { i -> backupsArr.optString(i) ?: "" }.filter { it.isNotEmpty() }
+                } else emptyList()
+                WsEvent.RemoteEditApplyResult(
+                    reportId = data?.optString("reportId") ?: "",
+                    appliedFiles = appliedFiles,
+                    backupPaths = backupPaths,
+                    error = data?.nullableString("error"),
+                )
+            }
+
             "self-heal:fix-done" -> {
                 val filesArr = data?.optJSONArray("stagedFiles")
                 val files = if (filesArr != null) {

@@ -26,7 +26,6 @@ fun SettingsScreen(
     onOpenNotifications: () -> Unit = {},
     onOpenUpdates: () -> Unit = {},
     onOpenDiagnostics: () -> Unit = {},
-    onOpenRemoteEdit: () -> Unit = {},
     onOpenProviders: () -> Unit = {},
     onOpenPromptLibrary: () -> Unit = {},
     onOpenGlobalSettings: () -> Unit = {},
@@ -111,11 +110,6 @@ fun SettingsScreen(
                 title = "Build Dashboard",
                 detail = "Build records, preflight, and APK publish/restore",
                 onClick = onOpenBuildDashboard,
-            )
-            SettingsNavRow(
-                title = "Code Changes",
-                detail = "Review repo-connected requests and staged patches",
-                onClick = onOpenRemoteEdit,
             )
             SettingsNavRow(
                 title = "Diagnostics",

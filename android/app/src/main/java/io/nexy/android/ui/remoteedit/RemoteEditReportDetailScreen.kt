@@ -3,9 +3,7 @@ package io.nexy.android.ui.remoteedit
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,13 +16,16 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -36,6 +37,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,10 +45,15 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.WsRepository
+import io.nexy.android.data.model.CODE_CHANGE_PHASE_GUIDANCE
+import io.nexy.android.data.model.CODE_CHANGE_PHASE_LABELS
 import io.nexy.android.data.model.WsEvent
+import io.nexy.android.data.model.deriveCodeChangePhase
+import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyDiffContent
 import io.nexy.android.ui.components.NexyTopAppBar
 import io.nexy.android.ui.components.renderDiffHunks
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,6 +65,7 @@ fun RemoteEditReportDetailScreen(
     val reports by vm.errorReports.collectAsState()
     val report = reports.find { it.id == reportId }
     val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     var stagedFiles by remember { mutableStateOf<List<String>>(emptyList()) }
     var fixStatus by remember { mutableStateOf<String?>(null) }
@@ -65,6 +73,16 @@ fun RemoteEditReportDetailScreen(
     val diffContents = remember { mutableStateMapOf<String, String?>() }
     var investigationRunning by remember { mutableStateOf(false) }
     var fixRunning by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var showRollbackDialog by remember { mutableStateOf(false) }
+
+    val isApplying by vm.isApplying.collectAsState()
+    val verificationRunning by vm.verificationRunning.collectAsState()
+    val verificationRuns by vm.verificationRuns.collectAsState()
+    val gitPushRunning by vm.gitPushRunning.collectAsState()
+    val recoveryRuns by vm.recoveryRuns.collectAsState()
+    val latestVerificationRun = verificationRuns[reportId]?.firstOrNull()
+    val latestRecoveryRun = recoveryRuns[reportId]?.firstOrNull()
 
     LaunchedEffect(reportId) {
         WsRepository.listStagedFiles(reportId)
@@ -92,12 +110,55 @@ fun RemoteEditReportDetailScreen(
         }
     }
 
+    LaunchedEffect(Unit) {
+        vm.actionResults.collect { result ->
+            if (result.reportId == reportId || result.reportId.isBlank()) {
+                scope.launch { snackbarHostState.showSnackbar(result.message) }
+                if (result.reportId == reportId) vm.refresh()
+            }
+        }
+    }
+
+    if (showDeleteDialog) {
+        NexyConfirmDialog(
+            title = "Delete change request?",
+            message = "\"${report?.title ?: "This request"}\" and all associated data will be permanently deleted.",
+            confirmLabel = "Delete",
+            destructive = true,
+            onConfirm = {
+                showDeleteDialog = false
+                vm.deleteReport(reportId)
+                onBack()
+            },
+            onDismiss = { showDeleteDialog = false },
+        )
+    }
+
+    if (showRollbackDialog) {
+        NexyConfirmDialog(
+            title = "Roll back this change?",
+            message = "This restores the workspace to its pre-heal state and cannot be undone.",
+            confirmLabel = "Roll back",
+            destructive = true,
+            onConfirm = {
+                showRollbackDialog = false
+                latestRecoveryRun?.recoveryId?.takeIf { it.isNotBlank() }?.let { vm.requestRollback(it) }
+            },
+            onDismiss = { showRollbackDialog = false },
+        )
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             NexyTopAppBar(
                 titleContent = { Text(report?.title ?: "Change request") },
                 onBack = onBack,
+                actions = {
+                    IconButton(onClick = { showDeleteDialog = true }) {
+                        Icon(Icons.Default.Delete, contentDescription = "Delete")
+                    }
+                },
             )
         },
     ) { padding ->
@@ -121,9 +182,19 @@ fun RemoteEditReportDetailScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             // Status row
+            val phase = deriveCodeChangePhase(
+                report = report,
+                verificationStatus = latestVerificationRun?.status,
+                committed = false,
+            )
             Text(
-                "Phase: ${detailPhase(report.status, report.fixStatus)}",
+                "Phase: ${CODE_CHANGE_PHASE_LABELS.getValue(phase)}",
                 style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                CODE_CHANGE_PHASE_GUIDANCE.getValue(phase),
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
@@ -252,21 +323,69 @@ fun RemoteEditReportDetailScreen(
                     }
                 }
 
-                Text(
-                    "Review the diffs here, then use Nexy desktop to apply the patch, run verification, and commit.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                if (report.fixStatus == "staged") {
+                    Button(
+                        onClick = { vm.applyPatch(reportId) },
+                        enabled = isApplying == null,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(if (isApplying == reportId) "Applying…" else "Apply patch")
+                    }
+                }
+            }
 
+            // Verification
+            if (report.fixStatus == "applied") {
+                Text("Verification", style = MaterialTheme.typography.titleSmall)
+                Button(
+                    onClick = { vm.startVerification(reportId) },
+                    enabled = verificationRunning == null,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (verificationRunning == reportId) "Verifying…" else "Run verification")
+                }
+                latestVerificationRun?.let { run ->
+                    Text(
+                        text = "Last run: ${run.status}${run.error?.let { " — $it" } ?: ""}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (run.status == "success") {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.error
+                        },
+                    )
+                }
+
+                if (latestVerificationRun?.status == "success") {
+                    Text("Git", style = MaterialTheme.typography.titleSmall)
+                    OutlinedButton(
+                        onClick = { vm.pushFix(reportId) },
+                        enabled = gitPushRunning == null,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(if (gitPushRunning == reportId) "Pushing…" else "Push")
+                    }
+                }
+
+                // Recovery / rollback
+                latestRecoveryRun?.let { run ->
+                    Text("Recovery", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        text = "Status: ${run.status}${run.error?.let { " — $it" } ?: ""}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (run.status in listOf("reloading", "confirmed")) {
+                        OutlinedButton(
+                            onClick = { showRollbackDialog = true },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Roll back")
+                        }
+                    }
+                }
             }
         }
     }
 }
 
-private fun detailPhase(status: String, fixStatus: String): String = when {
-    fixStatus == "failed" || status == "rejected" -> "Needs attention"
-    fixStatus == "applied" || status == "fixed" -> "Applied"
-    fixStatus in listOf("staging", "staged", "applying") || status == "investigated" -> "Patch ready"
-    status == "investigating" -> "Investigating"
-    else -> "Draft"
-}

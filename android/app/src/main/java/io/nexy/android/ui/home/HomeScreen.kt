@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Difference
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.MoreVert
@@ -96,6 +97,7 @@ fun HomeScreen(
     onOpenProjectConfigNew: (String) -> Unit = onOpenProjectConfig,
     onOpenProjectGenerator: () -> Unit,
     onOpenArtifacts: () -> Unit,
+    onOpenCodeChanges: () -> Unit,
     onOpenSkills: () -> Unit,
     onOpenScheduled: () -> Unit,
     onOpenSkillGenerator: () -> Unit,
@@ -432,6 +434,9 @@ fun HomeScreen(
                     )
                     IconButton(onClick = onOpenArtifacts) {
                         Icon(Icons.Default.Inventory2, contentDescription = "Artifacts")
+                    }
+                    IconButton(onClick = onOpenCodeChanges) {
+                        Icon(Icons.Default.Difference, contentDescription = "Code Changes")
                     }
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")

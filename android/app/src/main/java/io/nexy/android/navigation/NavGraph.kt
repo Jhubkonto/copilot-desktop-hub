@@ -191,6 +191,9 @@ fun NavGraph(
                 onOpenArtifacts = {
                     navController.navigate("artifacts?artifactId=")
                 },
+                onOpenCodeChanges = {
+                    navController.navigate("remote-edit")
+                },
                 onOpenSkills = {
                     navController.navigate("skills")
                 },
@@ -307,7 +310,6 @@ fun NavGraph(
                 onOpenNotifications = { navController.navigate("settings/notifications") },
                 onOpenUpdates = { navController.navigate("settings/updates") },
                 onOpenDiagnostics = { navController.navigate("settings/diagnostics") },
-                onOpenRemoteEdit = { navController.navigate("remote-edit") },
                 onOpenProviders = { navController.navigate("providers") },
                 onOpenPromptLibrary = { navController.navigate("prompts") },
                 onOpenGlobalSettings = { navController.navigate("settings/global") },

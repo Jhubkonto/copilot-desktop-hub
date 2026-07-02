@@ -121,6 +121,17 @@ sealed class WsEvent {
         val status: String?,
         val error: String?,
     ) : WsEvent()
+    data class RemoteEditReportDeleted(
+        val reportId: String,
+        val deleted: Boolean,
+        val error: String?,
+    ) : WsEvent()
+    data class RemoteEditApplyResult(
+        val reportId: String,
+        val appliedFiles: List<String>,
+        val backupPaths: List<String>,
+        val error: String?,
+    ) : WsEvent()
     data class ConversationModelUpdated(val conversationId: String, val model: String?) : WsEvent()
     data class ConversationCreated(
         val id: String,
@@ -439,6 +450,18 @@ data class ErrorReport(
     val investigationRootCause: String?,
     val investigationMarkdown: String?,
     val createdAt: Long,
+)
+
+data class RemoteEditVerificationRun(
+    val runId: String,
+    val status: String,
+    val error: String?,
+)
+
+data class RemoteEditRecoveryRun(
+    val recoveryId: String,
+    val status: String,
+    val error: String?,
 )
 
 data class HistoryMessage(

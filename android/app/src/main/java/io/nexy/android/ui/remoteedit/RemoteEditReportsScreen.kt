@@ -11,21 +11,30 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyTopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,13 +42,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import io.nexy.android.data.model.CODE_CHANGE_PHASE_LABELS
+import io.nexy.android.data.model.CodeChangeRequestPhase
 import io.nexy.android.data.model.ErrorReport
+import io.nexy.android.data.model.deriveCodeChangePhase
 import io.nexy.android.ui.components.NexyEmptyState
 import io.nexy.android.ui.components.NexySearchField
 import io.nexy.android.ui.components.NexyStatusBadge
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,7 +66,30 @@ fun RemoteEditReportsScreen(
     val workspaceInfo by vm.workspaceInfo.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
     var statusFilter by remember { mutableStateOf<String?>(null) }
+    var pendingDeleteReport by remember { mutableStateOf<ErrorReport?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     val statusValues = remember(reports) { reports.map { it.status }.distinct().sorted() }
+
+    LaunchedEffect(Unit) {
+        vm.actionResults.collect { result ->
+            scope.launch { snackbarHostState.showSnackbar(result.message) }
+        }
+    }
+
+    pendingDeleteReport?.let { report ->
+        NexyConfirmDialog(
+            title = "Delete change request?",
+            message = "\"${report.title}\" and all associated data will be permanently deleted.",
+            confirmLabel = "Delete",
+            destructive = true,
+            onConfirm = {
+                vm.deleteReport(report.id)
+                pendingDeleteReport = null
+            },
+            onDismiss = { pendingDeleteReport = null },
+        )
+    }
     val filteredReports = remember(reports, searchQuery, statusFilter) {
         val query = searchQuery.trim()
         reports
@@ -72,11 +108,11 @@ fun RemoteEditReportsScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             NexyTopAppBar(
                 titleContent = { Text("Code Changes") },
                 onBack = onBack,
-                subtitle = "Settings › Developer",
             )
         }
     ) { padding ->
@@ -138,7 +174,11 @@ fun RemoteEditReportsScreen(
                     } else {
                         LazyColumn(modifier = Modifier.fillMaxSize()) {
                             items(filteredReports, key = { it.id }) { report ->
-                                ReportRow(report = report, onClick = { onOpenReport(report.id) })
+                                ReportRow(
+                                    report = report,
+                                    onClick = { onOpenReport(report.id) },
+                                    onDelete = { pendingDeleteReport = report },
+                                )
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                             }
                         }
@@ -185,7 +225,7 @@ private fun WorkspaceSummary(workspace: io.nexy.android.data.model.WsEvent.Build
 }
 
 @Composable
-private fun ReportRow(report: ErrorReport, onClick: () -> Unit) {
+private fun ReportRow(report: ErrorReport, onClick: () -> Unit, onDelete: () -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         color = MaterialTheme.colorScheme.surface,
@@ -208,34 +248,29 @@ private fun ReportRow(report: ErrorReport, onClick: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            StatusBadge(status = presentationPhase(report))
+            StatusBadge(phase = deriveCodeChangePhase(report))
+            IconButton(onClick = onDelete) {
+                Icon(Icons.Default.Delete, contentDescription = "Delete ${report.title}")
+            }
         }
     }
 }
 
 @Composable
-private fun StatusBadge(status: String) {
-    val (label, color) = when (status) {
-        "draft" -> "Draft" to Color(0xFF616161)
-        "investigating" -> "Investigating" to Color(0xFFE65100)
-        "patch-ready" -> "Patch ready" to Color(0xFF1565C0)
-        "applied" -> "Applied" to Color(0xFF2E7D32)
-        "needs-attention" -> "Needs attention" to Color(0xFFB00020)
-        else -> status.replaceFirstChar { it.uppercase() } to Color(0xFF616161)
+private fun StatusBadge(phase: CodeChangeRequestPhase) {
+    val color = when (phase) {
+        CodeChangeRequestPhase.DRAFT -> Color(0xFF616161)
+        CodeChangeRequestPhase.INVESTIGATING -> Color(0xFFE65100)
+        CodeChangeRequestPhase.PATCH_READY, CodeChangeRequestPhase.READY_TO_APPLY -> Color(0xFF1565C0)
+        CodeChangeRequestPhase.APPLIED, CodeChangeRequestPhase.READY_TO_COMMIT, CodeChangeRequestPhase.COMMITTED -> Color(0xFF2E7D32)
+        CodeChangeRequestPhase.VERIFYING -> Color(0xFF1565C0)
+        CodeChangeRequestPhase.NEEDS_ATTENTION -> Color(0xFFB00020)
     }
     NexyStatusBadge(
-        label = label,
+        label = CODE_CHANGE_PHASE_LABELS.getValue(phase),
         containerColor = color.copy(alpha = 0.15f),
         contentColor = color,
     )
-}
-
-private fun presentationPhase(report: ErrorReport): String = when {
-    report.fixStatus == "failed" || report.status == "rejected" -> "needs-attention"
-    report.fixStatus == "applied" || report.status == "fixed" -> "applied"
-    report.fixStatus in listOf("staging", "staged", "applying") || report.status == "investigated" -> "patch-ready"
-    report.status == "investigating" || !report.investigationMarkdown.isNullOrBlank() -> "investigating"
-    else -> "draft"
 }
 
 private fun formatTimestamp(ms: Long): String {
