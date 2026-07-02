@@ -14,7 +14,7 @@ enum class CodeChangeRequestPhase {
 
 val CODE_CHANGE_PHASE_LABELS: Map<CodeChangeRequestPhase, String> = mapOf(
     CodeChangeRequestPhase.DRAFT to "Draft",
-    CodeChangeRequestPhase.INVESTIGATING to "Investigating",
+    CodeChangeRequestPhase.INVESTIGATING to "Planning",
     CodeChangeRequestPhase.PATCH_READY to "Patch ready",
     CodeChangeRequestPhase.READY_TO_APPLY to "Ready to apply",
     CodeChangeRequestPhase.APPLIED to "Applied",
@@ -25,8 +25,8 @@ val CODE_CHANGE_PHASE_LABELS: Map<CodeChangeRequestPhase, String> = mapOf(
 )
 
 val CODE_CHANGE_PHASE_GUIDANCE: Map<CodeChangeRequestPhase, String> = mapOf(
-    CodeChangeRequestPhase.DRAFT to "Run an investigation to identify the files and approach.",
-    CodeChangeRequestPhase.INVESTIGATING to "Review the investigation before generating a patch.",
+    CodeChangeRequestPhase.DRAFT to "Plan the files and approach for this change.",
+    CodeChangeRequestPhase.INVESTIGATING to "Review the plan before generating a patch.",
     CodeChangeRequestPhase.PATCH_READY to "Review every staged file before applying changes.",
     CodeChangeRequestPhase.READY_TO_APPLY to "Apply the reviewed patch to the connected workspace.",
     CodeChangeRequestPhase.APPLIED to "Run verification against the changed workspace.",

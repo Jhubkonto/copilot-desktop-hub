@@ -144,6 +144,7 @@ sealed class WsEvent {
     data class ConversationSearchResults(val conversations: List<Conversation>) : WsEvent()
     data class MessageDeleted(val id: String) : WsEvent()
     data class RemoteEditReports(val reports: List<ErrorReport>) : WsEvent()
+    data class RemoteEditInvestigationSettingsLoaded(val settings: RemoteEditInvestigationSettings) : WsEvent()
     data class ProjectCreated(val project: Project) : WsEvent()
     data class ProjectRenamed(val id: String, val name: String) : WsEvent()
     data class ProjectDeleted(val id: String) : WsEvent()
@@ -449,6 +450,7 @@ data class ErrorReport(
     val fixStatus: String,
     val investigationRootCause: String?,
     val investigationMarkdown: String?,
+    val investigationAffectedFiles: List<String> = emptyList(),
     val createdAt: Long,
 )
 
@@ -456,6 +458,13 @@ data class RemoteEditVerificationRun(
     val runId: String,
     val status: String,
     val error: String?,
+)
+
+data class RemoteEditInvestigationSettings(
+    val backend: String,
+    val model: String,
+    val retryLimit: Int,
+    val autoApproveTools: Boolean,
 )
 
 data class RemoteEditRecoveryRun(

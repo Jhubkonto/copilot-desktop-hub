@@ -40,6 +40,7 @@ import io.nexy.android.data.model.ContextInspectorRefSnapshot
 import io.nexy.android.data.model.ContextInspectorSnapshot
 import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.ErrorReport
+import io.nexy.android.data.model.RemoteEditInvestigationSettings
 import io.nexy.android.data.model.HistoryMessage
 import io.nexy.android.data.model.ThinkingBlock
 import io.nexy.android.data.model.McpServerInfo
@@ -586,6 +587,13 @@ fun parseWsEvent(
                 val reportsArray = data?.optJSONArray("reports") ?: JSONArray()
                 val list = (0 until reportsArray.length()).map { i ->
                     val r = reportsArray.getJSONObject(i)
+                    val affectedFilesJson = r.optString("investigation_affected_files", "[]")
+                    val affectedFiles = try {
+                        val arr = JSONArray(affectedFilesJson)
+                        (0 until arr.length()).map { j -> arr.optString(j) }
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
                     ErrorReport(
                         id = r.optString("id"),
                         title = r.optString("title"),
@@ -594,12 +602,25 @@ fun parseWsEvent(
                         fixStatus = r.optString("fix_status", "none"),
                         investigationRootCause = r.nullableString("investigation_root_cause"),
                         investigationMarkdown = r.nullableString("investigation_markdown"),
+                        investigationAffectedFiles = affectedFiles,
                         createdAt = r.optLong("created_at", 0L),
                     )
                 }
                 WsRepository.sendLog("RemoteEdit", "self-heal:reports received: ${list.size} reports; ids=${list.take(5).map { it.id }}")
                 errorReports.value = list
                 WsEvent.RemoteEditReports(list)
+            }
+
+            "self-heal:investigation-settings" -> {
+                val d = data ?: return
+                WsEvent.RemoteEditInvestigationSettingsLoaded(
+                    RemoteEditInvestigationSettings(
+                        backend = d.optString("backend", "byok"),
+                        model = d.optString("model", "gpt-5-mini"),
+                        retryLimit = d.optInt("retryLimit", 1),
+                        autoApproveTools = d.optBoolean("autoApproveTools", false),
+                    ),
+                )
             }
 
             "project:created" -> {

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import io.nexy.android.data.WsClient
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.ErrorReport
+import io.nexy.android.data.model.RemoteEditInvestigationSettings
 import io.nexy.android.data.model.RemoteEditRecoveryRun
 import io.nexy.android.data.model.RemoteEditVerificationRun
 import io.nexy.android.data.model.WsEvent
@@ -54,11 +55,15 @@ class RemoteEditViewModel(
     private val _actionResults = MutableSharedFlow<RemoteEditActionResult>(extraBufferCapacity = 8)
     val actionResults: SharedFlow<RemoteEditActionResult> = _actionResults
 
+    private val _investigationSettings = MutableStateFlow<RemoteEditInvestigationSettings?>(null)
+    val investigationSettings: StateFlow<RemoteEditInvestigationSettings?> = _investigationSettings.asStateFlow()
+
     init {
         _isRefreshing.value = true
         WsRepository.sendLog("RemoteEditVM", "init: requesting reports")
         WsRepository.refreshReports()
         WsRepository.getBuildWorkspaceInfo()
+        WsRepository.getInvestigationSettings()
         viewModelScope.launch {
             wsClient.events.collect { event ->
                 when (event) {
@@ -67,6 +72,9 @@ class RemoteEditViewModel(
                         _isRefreshing.value = false
                     }
                     is WsEvent.BuildWorkspaceInfo -> _workspaceInfo.value = event
+                    is WsEvent.RemoteEditInvestigationSettingsLoaded -> {
+                        _investigationSettings.value = event.settings
+                    }
                     is WsEvent.RemoteEditReportDeleted -> {
                         _deletingReportId.value = null
                         _actionResults.tryEmit(
@@ -193,5 +201,9 @@ class RemoteEditViewModel(
     fun requestRollback(recoveryId: String) {
         _rollbackRunning.value = recoveryId
         WsRepository.requestRemoteEditRollback(recoveryId)
+    }
+
+    fun saveInvestigationSettings(settings: RemoteEditInvestigationSettings) {
+        WsRepository.setInvestigationSettings(settings)
     }
 }

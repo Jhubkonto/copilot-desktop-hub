@@ -15,10 +15,13 @@ import io.nexy.android.data.model.AndroidUpdateManifest
 import io.nexy.android.data.model.ArtifactGeneratorSpec
 import io.nexy.android.data.model.ArtifactSummary
 import io.nexy.android.data.model.CliInstallInfo
+import io.nexy.android.data.model.CodeChangeRequestType
+import io.nexy.android.data.model.codeChangeRequestTypeWireValue
 import io.nexy.android.data.model.PromptEntry
 import io.nexy.android.data.model.WikiEntry
 import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.ErrorReport
+import io.nexy.android.data.model.RemoteEditInvestigationSettings
 import io.nexy.android.data.model.McpServerInfo
 import io.nexy.android.data.model.McpToolInfo
 import io.nexy.android.data.model.WikiExtractionCandidate
@@ -756,13 +759,46 @@ object WsRepository : WsClient {
         sendLog("RemoteEdit", "refreshReports: sending self-heal:get-reports")
         send("self-heal:get-reports", emptyMap())
     }
-    fun createRemoteEditReport(title: String, description: String) {
+    fun createRemoteEditReport(
+        title: String,
+        description: String,
+        requestType: CodeChangeRequestType = CodeChangeRequestType.EDIT,
+        customTypeLabel: String? = null,
+    ) {
         sendLog("RemoteEdit", "createRemoteEditReport: title=$title")
-        send("error-report:request-capture", mapOf("title" to title, "description" to description, "includeLog" to true))
+        val payload = mutableMapOf<String, Any>(
+            "title" to title,
+            "description" to description,
+            "includeLog" to true,
+            "requestType" to codeChangeRequestTypeWireValue(requestType),
+        )
+        if (!customTypeLabel.isNullOrBlank()) payload["customTypeLabel"] = customTypeLabel
+        send("error-report:request-capture", payload)
     }
-    fun startRemoteEditInvestigation(reportId: String) {
+    fun startRemoteEditInvestigation(reportId: String, revisionNotes: String? = null) {
         sendLog("RemoteEdit", "startRemoteEditInvestigation: reportId=$reportId")
-        send("self-heal:start-investigation", mapOf("reportId" to reportId))
+        val payload = mutableMapOf<String, Any>("reportId" to reportId)
+        if (!revisionNotes.isNullOrBlank()) payload["revisionNotes"] = revisionNotes
+        send("self-heal:start-investigation", payload)
+    }
+    fun setRemoteEditReportStatus(reportId: String, status: String) {
+        sendLog("RemoteEdit", "setRemoteEditReportStatus: reportId=$reportId status=$status")
+        send("self-heal:set-report-status", mapOf("reportId" to reportId, "status" to status))
+    }
+    fun getInvestigationSettings() {
+        send("self-heal:get-investigation-settings", emptyMap())
+    }
+    fun setInvestigationSettings(settings: RemoteEditInvestigationSettings) {
+        sendLog("RemoteEdit", "setInvestigationSettings: backend=${settings.backend} model=${settings.model}")
+        send(
+            "self-heal:set-investigation-settings",
+            mapOf(
+                "backend" to settings.backend,
+                "model" to settings.model,
+                "retryLimit" to settings.retryLimit,
+                "autoApproveTools" to settings.autoApproveTools,
+            ),
+        )
     }
     fun startRemoteEditFix(reportId: String) {
         sendLog("RemoteEdit", "startRemoteEditFix: reportId=$reportId")
