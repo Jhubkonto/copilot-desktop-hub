@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import type { BrowserWindow } from 'electron'
+import { app, type BrowserWindow } from 'electron'
 import { safeHandle } from './safe-handle'
 import {
   DEFAULT_PROVIDER_MODEL,
@@ -178,7 +178,7 @@ async function runSkillGeneratorProviderChat(
       const conversationMessages = providerMessages.filter((m) => m.role !== 'system')
       return adapter.send(
         win,
-        { systemPrompt: systemMsg, messages: conversationMessages, cwd: process.cwd(), model: cliModel, conversationId: sessionId },
+        { systemPrompt: systemMsg, messages: conversationMessages, cwd: app.getPath('temp'), model: cliModel, conversationId: sessionId },
         sendChunk,
       )
     }

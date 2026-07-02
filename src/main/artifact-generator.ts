@@ -15,6 +15,7 @@ import type { ArtifactSpec, ArtifactGeneratorMessage, ArtifactGeneratorRun, Arti
 import { getDatabase } from './database'
 import { recordProjectAuditChange } from './project-audit'
 import { broadcastToMobile } from './ws-server'
+import { getProjectRootDirectory } from './project-handlers'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -227,6 +228,7 @@ async function runProviderChat(
   providerMessages: ProviderMessage[],
   sessionId: string,
   sendChunk: (chunk: string) => void,
+  cwd: string,
   modelOverride?: string,
 ): Promise<string> {
   const selectedModel = modelOverride ?? getArtifactGeneratorModel()
@@ -244,7 +246,7 @@ async function runProviderChat(
       const conversationMessages = providerMessages.filter((m) => m.role !== 'system')
       return adapter.send(
         win,
-        { systemPrompt: systemMsg, messages: conversationMessages, cwd: process.cwd(), model: cliModel, conversationId: sessionId },
+        { systemPrompt: systemMsg, messages: conversationMessages, cwd, model: cliModel, conversationId: sessionId },
         sendChunk,
       )
     }
@@ -337,6 +339,7 @@ export async function runArtifactGeneratorChat(
 ): Promise<void> {
   const providerMessages = buildChatMessages(messages)
   const sessionId = `artifact-gen-${randomUUID()}`
+  const cwd = (projectId && getProjectRootDirectory(projectId)) || app.getPath('temp')
 
   let accumulated = ''
   const fullText = await runProviderChat(
@@ -347,6 +350,7 @@ export async function runArtifactGeneratorChat(
       accumulated += chunk
       if (!win.isDestroyed()) win.webContents.send('artifact-generator:token', chunk)
     },
+    cwd,
     modelOverride,
   )
   accumulated = fullText || accumulated
@@ -398,12 +402,14 @@ export async function runArtifactGeneration(
   // Generate files via LLM
   const genMessages = buildGenerationMessages(spec)
   const genSessionId = `artifact-gen-files-${runId}`
+  const genCwd = (projectId && getProjectRootDirectory(projectId)) || app.getPath('temp')
   let accumulated = ''
   const genFullText = await runProviderChat(
     win,
     genMessages,
     genSessionId,
     (chunk) => { accumulated += chunk },
+    genCwd,
     modelOverride,
   )
   accumulated = genFullText || accumulated
@@ -529,6 +535,7 @@ export async function runArtifactGeneratorChatForAndroid(
       accumulated += chunk
       broadcastToMobile({ event: 'artifact-generator:token', data: { sessionId, chunk } })
     },
+    app.getPath('temp'),
     modelOverride,
   )
   accumulated = fullText || accumulated

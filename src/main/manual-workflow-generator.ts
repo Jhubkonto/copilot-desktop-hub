@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
 import type { BrowserWindow } from 'electron'
+import { app } from 'electron'
 import { safeHandle } from './safe-handle'
 import {
   DEFAULT_PROVIDER_MODEL,
@@ -18,6 +19,7 @@ import type { ProviderMessage } from './provider-core-types'
 import type { ManualWorkflowGeneratorMessage, ManualWorkflowSpec, ProjectConfig } from '../shared/types'
 import { getDatabase } from './database'
 import { broadcastToMobile } from './ws-server'
+import { parseProjectConfig } from './project-handlers'
 
 export const MANUAL_WORKFLOW_SPEC_OPEN_TAG = '<manual-workflow-spec>'
 export const MANUAL_WORKFLOW_SPEC_CLOSE_TAG = '</manual-workflow-spec>'
@@ -121,8 +123,7 @@ function loadProjectWorkflowContext(projectId: string): ProjectWorkflowContext {
   } | undefined
   if (!projectRow) throw new Error('Project not found')
 
-  const projectModule = require('./project-handlers') as typeof import('./project-handlers')
-  const config = projectModule.parseProjectConfig(projectRow.config_json)
+  const config = parseProjectConfig(projectRow.config_json)
   const agents = db.prepare(`
     SELECT pa.agent_id, pa.is_primary, a.config_json
     FROM project_agents pa
@@ -151,6 +152,14 @@ function loadProjectWorkflowContext(projectId: string): ProjectWorkflowContext {
   }
 }
 
+function substituteVariables(text: string, variables: ProjectConfig['variables']): string {
+  let result = text
+  for (const { key, value } of variables) {
+    result = result.replaceAll(`{{${key}}}`, value)
+  }
+  return result
+}
+
 function buildProjectContextBlock(project: ProjectWorkflowContext): string {
   const scopeLines = [
     ...project.config.inScope.map((rule) => `IN: ${rule.description}${rule.pathGlob ? ` (${rule.pathGlob})` : ''}`),
@@ -158,13 +167,14 @@ function buildProjectContextBlock(project: ProjectWorkflowContext): string {
   ]
   const milestoneLines = project.config.milestones.map((m) => `${m.status.toUpperCase()}: ${m.title}${m.description ? ` - ${m.description}` : ''}`)
   const agentLines = project.agents.map((agent) => `${agent.agentId} | ${agent.agentName}${agent.isPrimary ? ' [primary]' : ''}`)
+  const instructions = substituteVariables(project.config.instructions || '', project.config.variables)
 
   return [
     `Project: ${project.projectName}`,
     `Project ID: ${project.projectId}`,
     `Workflow mode: ${project.config.workflowMode}`,
     `Root directory: ${project.config.rootDirectory || '(not set)'}`,
-    `Project instructions: ${project.config.instructions || '(none)'}`,
+    `Project instructions: ${instructions || '(none)'}`,
     `Agents:`,
     ...(agentLines.length > 0 ? agentLines.map((line) => `- ${line}`) : ['- (no project agents assigned)']),
     `Scope:`,
@@ -174,13 +184,18 @@ function buildProjectContextBlock(project: ProjectWorkflowContext): string {
   ].join('\n')
 }
 
-function buildProviderMessages(projectId: string, messages: ManualWorkflowGeneratorMessage[]): ProviderMessage[] {
+function buildProviderMessages(projectId: string, messages: ManualWorkflowGeneratorMessage[]): { providerMessages: ProviderMessage[]; cwd: string } {
   const project = loadProjectWorkflowContext(projectId)
   const filtered = messages[0]?.role === 'assistant' ? messages.slice(1) : messages
-  return [
+  const providerMessages: ProviderMessage[] = [
     { role: 'system', content: `${MANUAL_WORKFLOW_GENERATOR_SYSTEM_PROMPT}\n\nProject context:\n${buildProjectContextBlock(project)}` },
-    ...filtered.map((message): ProviderMessage => ({ role: message.role, content: message.content })),
+    ...filtered.map((message): ProviderMessage => ({
+      role: message.role,
+      content: substituteVariables(message.content, project.config.variables),
+    })),
   ]
+  const cwd = project.config.rootDirectory?.trim() || app.getPath('temp')
+  return { providerMessages, cwd }
 }
 
 export function normalizeManualWorkflowSpec(raw: Record<string, unknown>): ManualWorkflowSpec {
@@ -240,6 +255,7 @@ async function runManualWorkflowProviderChat(
   providerMessages: ProviderMessage[],
   sessionId: string,
   sendChunk: (chunk: string) => void,
+  cwd: string,
   modelOverride?: string,
 ): Promise<string> {
   const selectedModel = modelOverride ?? getManualWorkflowGeneratorModel()
@@ -257,7 +273,7 @@ async function runManualWorkflowProviderChat(
       const conversationMessages = providerMessages.filter((message) => message.role !== 'system')
       return adapter.send(
         win,
-        { systemPrompt: systemMsg, messages: conversationMessages, cwd: process.cwd(), model: cliModel, conversationId: sessionId },
+        { systemPrompt: systemMsg, messages: conversationMessages, cwd, model: cliModel, conversationId: sessionId },
         sendChunk,
       )
     }
@@ -295,7 +311,7 @@ export async function runManualWorkflowGeneratorChat(
   messages: ManualWorkflowGeneratorMessage[],
   modelOverride?: string,
 ): Promise<void> {
-  const providerMessages = buildProviderMessages(projectId, messages)
+  const { providerMessages, cwd } = buildProviderMessages(projectId, messages)
   const sessionId = `manual-workflow-gen-${randomUUID()}`
   let accumulated = ''
 
@@ -307,6 +323,7 @@ export async function runManualWorkflowGeneratorChat(
       accumulated += chunk
       if (!win.isDestroyed()) win.webContents.send('manual-workflow-generator:token', chunk)
     },
+    cwd,
     modelOverride,
   )
 
@@ -328,7 +345,7 @@ export async function runManualWorkflowGeneratorChatForAndroid(
   sessionId = `manual-workflow-gen-android-${randomUUID()}`,
   modelOverride?: string,
 ): Promise<void> {
-  const providerMessages = buildProviderMessages(projectId, messages)
+  const { providerMessages, cwd } = buildProviderMessages(projectId, messages)
   const fakeWin = { isDestroyed: () => false, webContents: { send: () => {}, isDestroyed: () => false } } as unknown as BrowserWindow
   let accumulated = ''
 
@@ -340,6 +357,7 @@ export async function runManualWorkflowGeneratorChatForAndroid(
       accumulated += chunk
       broadcastToMobile({ event: 'manual-workflow-generator:token', data: { sessionId, chunk } })
     },
+    cwd,
     modelOverride,
   )
 

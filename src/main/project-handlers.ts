@@ -166,6 +166,14 @@ export function parseProjectConfig(
   }
 }
 
+export function getProjectRootDirectory(projectId: string): string | undefined {
+  const db = getDatabase();
+  const row = db.prepare('SELECT config_json FROM projects WHERE id = ?').get(projectId) as { config_json: string | null } | undefined;
+  if (!row) return undefined;
+  const rootDirectory = parseProjectConfig(row.config_json).rootDirectory;
+  return rootDirectory && rootDirectory.trim() ? rootDirectory.trim() : undefined;
+}
+
 function normalizeProjectConfigPatch(config: Record<string, unknown>): Record<string, unknown> {
   const normalized = { ...config }
   if (Array.isArray(normalized.rootDirectory)) {
