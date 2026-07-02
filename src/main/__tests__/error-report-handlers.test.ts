@@ -160,4 +160,24 @@ describe('error report handlers', () => {
     expect(existsSync(`${testRoot.value}/remote-edit/staging/${result.reportId}`)).toBe(false)
     expect(existsSync(`${testRoot.value}/remote-edit/backups/${result.reportId}`)).toBe(false)
   })
+
+  it('propagates a thrown error instead of returning a falsy value on delete failure', async () => {
+    const { registerErrorReportHandlers } = await import('../error-report-handlers')
+    registerErrorReportHandlers()
+
+    const result = invoke<{ reportId: string }>('error-report:capture', {
+      title: 'Delete me too',
+      includeLog: false,
+      includeScreenshot: false,
+    })
+
+    db.close()
+
+    // With the database closed, deleteErrorReport's db.prepare(...) calls throw.
+    // safeHandle (mocked here to call the raw handler) relies on this throw to
+    // eventually surface `{ error }` to the renderer instead of a bare `false`.
+    expect(() => invoke<boolean>('error-report:delete', result.reportId)).toThrow()
+
+    db = createDatabase()
+  })
 })

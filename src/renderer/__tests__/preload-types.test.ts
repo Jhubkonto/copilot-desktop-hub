@@ -31,6 +31,7 @@ import type {
   ErrorReportEntry,
   ErrorLogEntry,
   IpcReturn,
+  ApiError,
   RemoteEditInvestigationActivity,
   RemoteEditInvestigationChunk,
   RemoteEditInvestigationResult,
@@ -127,7 +128,7 @@ describe('preload IPC return types', () => {
 
   it('error report APIs are typed', () => {
     expectTypeOf<ReturnType<ElectronAPI['captureErrorReport']>>().toEqualTypeOf<Promise<ErrorReportCaptureResult>>()
-    expectTypeOf<ReturnType<ElectronAPI['deleteErrorReport']>>().toEqualTypeOf<Promise<boolean>>()
+    expectTypeOf<ReturnType<ElectronAPI['deleteErrorReport']>>().toEqualTypeOf<Promise<boolean | ApiError>>()
     expectTypeOf<ReturnType<ElectronAPI['getErrorReport']>>().toEqualTypeOf<Promise<ErrorReportEntry | null>>()
     expectTypeOf<ReturnType<ElectronAPI['listErrorReports']>>().toEqualTypeOf<Promise<ErrorReportEntry[]>>()
   })

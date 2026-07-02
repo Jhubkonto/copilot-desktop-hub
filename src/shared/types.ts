@@ -1694,7 +1694,7 @@ export type IpcReturnMap = {
   'errors:new': void
   // Error reports
   'error-report:capture': ErrorReportCaptureResult
-  'error-report:delete': boolean
+  'error-report:delete': boolean | ApiError
   'error-report:get': ErrorReportEntry | null
   'error-report:list': ErrorReportEntry[]
   // Self-heal investigation

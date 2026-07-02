@@ -1,6 +1,6 @@
 /* eslint-disable react-hooks/exhaustive-deps -- polling is keyed by report identity; status is handled inside. */
 import { useEffect, useState } from 'react'
-import { Trash2, Wrench } from 'lucide-react'
+import { Wrench } from 'lucide-react'
 import type {
   AvailableModelEntry,
   AvailableModelGroup,
@@ -24,16 +24,19 @@ import type {
   WorkspaceInfo,
   CodeChangeRequestType,
 } from '@shared/types'
+import { isApiError } from '@shared/types'
 import {
-  CODE_CHANGE_PHASE_GUIDANCE,
   CODE_CHANGE_PHASE_LABELS,
   deriveCodeChangePhase,
   toCodeChangeRequest,
 } from '@shared/code-changes'
 import { useAppStore } from '../store/app-store'
 import { Button, ModalShell, PhaseBar } from './ui/primitives'
-import { ModelPicker } from './chat/ModelPicker'
 import { DeleteRemoteEditReportDialog } from './DeleteRemoteEditReportDialog'
+import { CodeChangeListView } from './CodeChangeListView'
+import { CodeChangeDetailView } from './CodeChangeDetailView'
+import { CodeChangeHistorySection } from './CodeChangeHistorySection'
+import { CodeChangeNewRequestForm } from './CodeChangeNewRequestForm'
 
 // ---------------------------------------------------------------------------
 // Remote Edit Diff Viewer sub-component
@@ -502,6 +505,7 @@ export function RemoteEditPanel() {
   const [newRequestDescription, setNewRequestDescription] = useState('')
   const [creatingRequest, setCreatingRequest] = useState(false)
   const [newRequestType, setNewRequestType] = useState<CodeChangeRequestType>('edit')
+  const [newRequestFormOpen, setNewRequestFormOpen] = useState(false)
 
   const selectedReport = reports.find((report) => report.id === selectedReportId) ?? reports[0] ?? null
   const workspaceBinding = {
@@ -669,6 +673,7 @@ export function RemoteEditPanel() {
       })
       setNewRequestTitle('')
       setNewRequestDescription('')
+      setNewRequestFormOpen(false)
       await loadReports(result.reportId)
       setInvestigationStatus('Change request created')
     } finally {
@@ -1082,9 +1087,15 @@ export function RemoteEditPanel() {
     setDeletingReportId(reportId)
     setInvestigationStatus('Deleting change request...')
     try {
-      const deleted = await window.api.deleteErrorReport(reportId)
-      if (!deleted) {
+      const result = await window.api.deleteErrorReport(reportId)
+      if (isApiError(result)) {
+        setInvestigationStatus(result.error)
+        addToast(result.error, 'error')
+        return
+      }
+      if (!result) {
         setInvestigationStatus('Report was already deleted')
+        addToast('Report was already deleted', 'error')
         await loadReports(null)
         return
       }
@@ -1095,11 +1106,14 @@ export function RemoteEditPanel() {
       setGitPrepare((prev) => { const next = { ...prev }; delete next[reportId]; return next })
       setGitMessage((prev) => { const next = { ...prev }; delete next[reportId]; return next })
       setInvestigationStatus('Change request deleted')
+      addToast('Change request deleted', 'success')
       setPendingDeleteReport(null)
       await loadReports(null)
       await loadRemoteEditHistory()
     } catch (error) {
-      setInvestigationStatus(error instanceof Error ? error.message : String(error))
+      const message = error instanceof Error ? error.message : String(error)
+      setInvestigationStatus(message)
+      addToast(message, 'error')
     } finally {
       setDeletingReportId(null)
     }
@@ -1163,42 +1177,20 @@ export function RemoteEditPanel() {
           )}
         </div>
 
-        <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
-          <p className="text-xs font-medium text-gray-700 dark:text-gray-200">New change request</p>
-          <p className="mt-0.5 text-[11px] text-gray-500">Describe the outcome you want. No files are changed until you review and apply a staged patch.</p>
-          <div className="mt-3 grid gap-2 md:grid-cols-[130px_minmax(180px,0.35fr)_1fr_auto]">
-            <select
-              value={newRequestType}
-              onChange={(event) => setNewRequestType(event.target.value as CodeChangeRequestType)}
-              aria-label="Change request type"
-              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-xs dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-            >
-              <option value="edit">Edit</option>
-              <option value="refactor">Refactor</option>
-              <option value="bugfix">Bug fix</option>
-              <option value="investigation">Investigation</option>
-            </select>
-            <input
-              value={newRequestTitle}
-              onChange={(event) => setNewRequestTitle(event.target.value)}
-              placeholder="Short title"
-              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-xs dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-            />
-            <input
-              value={newRequestDescription}
-              onChange={(event) => setNewRequestDescription(event.target.value)}
-              placeholder="What should change, and what should remain unchanged?"
-              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-xs dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-            />
-            <Button
-              variant="primary"
-              disabled={!workspaceBinding.isConnected || !newRequestTitle.trim() || creatingRequest}
-              onClick={() => void handleCreateRequest()}
-            >
-              {creatingRequest ? 'Creating...' : 'Create request'}
-            </Button>
-          </div>
-        </div>
+        <CodeChangeNewRequestForm
+          open={newRequestFormOpen}
+          onOpen={() => setNewRequestFormOpen(true)}
+          onClose={() => setNewRequestFormOpen(false)}
+          requestType={newRequestType}
+          onSetRequestType={setNewRequestType}
+          title={newRequestTitle}
+          onSetTitle={setNewRequestTitle}
+          description={newRequestDescription}
+          onSetDescription={setNewRequestDescription}
+          isWorkspaceConnected={workspaceBinding.isConnected}
+          creating={creatingRequest}
+          onCreate={() => void handleCreateRequest()}
+        />
 
         {/* Debug logging */}
         <div className="flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-700 p-4">
@@ -1236,229 +1228,50 @@ export function RemoteEditPanel() {
             </Button>
           </div>
           <div className="grid gap-0 md:grid-cols-[260px_1fr]">
-            <div className="border-b md:border-b-0 md:border-r border-gray-200 dark:border-gray-700">
-              <div className="p-3 space-y-2 border-b border-gray-100 dark:border-gray-800">
-                <div className="grid grid-cols-2 gap-2">
-                  <label className="text-[11px] text-gray-500">
-                    Backend
-                    <select
-                      value={investigationSettings.backend}
-                      onChange={(event) => handleSetBackend(event.target.value as RemoteEditBackend)}
-                      className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-                    >
-                      {backendOptions.map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="text-[11px] text-gray-500">
-                    Retries
-                    <input
-                      type="number"
-                      min={0}
-                      max={5}
-                      value={investigationSettings.retryLimit}
-                      onChange={(event) => setInvestigationSettings((s) => ({ ...s, retryLimit: Number(event.target.value) }))}
-                      className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-                    />
-                  </label>
-                </div>
-                <div className="text-[11px] text-gray-500">
-                  <p>Model</p>
-                  <ModelPicker
-                    value={investigationSettings.model}
-                    sourceLabel={selectedModelSourceLabel}
-                    availableGroups={remoteEditModelGroups}
-                    catalogModels={catalogModels}
-                    includeDefault={false}
-                    emptyLabel={
-                      investigationSettings.backend === 'codex-cli'
-                        ? 'Codex CLI is not available'
-                        : investigationSettings.backend === 'claude-cli'
-                          ? 'Claude CLI is not available'
-                          : 'No provider models configured'
-                    }
-                    buttonClassName="mt-1 flex w-full items-center justify-between gap-2 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-800 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-                    menuClassName="left-0 right-auto"
-                    onSelectAvailableModel={handleSelectRemoteEditModel}
-                  />
-                </div>
-                <label className="flex items-center gap-2 text-[11px] text-gray-500">
-                  <input
-                    type="checkbox"
-                    checked={investigationSettings.autoApproveTools}
-                    onChange={(event) => setInvestigationSettings((s) => ({ ...s, autoApproveTools: event.target.checked }))}
-                  />
-                  Auto-approve investigator tools
-                </label>
-                <Button
-                  variant="secondary"
-                  onClick={() => void handleSaveInvestigationSettings()}
-                  className="text-[11px] px-2 py-1"
-                >
-                  Save settings
-                </Button>
-              </div>
-              <div className="max-h-72 overflow-y-auto">
-                {reports.length === 0 ? (
-                  <p className="p-3 text-xs text-gray-400">No edit requests yet.</p>
-                ) : (
-                  reports.map((report) => {
-                    const reportBusy = isReportBusy(report.id)
-                    const request = toCodeChangeRequest(report, { workspaceRoot: workspaceBinding.rootDirectory || null })
-                    const phase = deriveCodeChangePhase(
-                      report,
-                      verificationRuns[report.id]?.[0] ?? null,
-                      gitPrepare[report.id]?.canCommit === false,
-                    )
-                    return (
-                      <div
-                        key={report.id}
-                        className={`group flex items-start gap-2 border-b border-gray-100 px-3 py-2 text-xs dark:border-gray-800 ${
-                          selectedReport?.id === report.id ? 'bg-blue-50 dark:bg-blue-950/30' : 'hover:bg-gray-50 dark:hover:bg-gray-800/60'
-                        }`}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => setSelectedReportId(report.id)}
-                          className="min-w-0 flex-1 text-left"
-                        >
-                          <span className="block truncate font-medium text-gray-700 dark:text-gray-200">{request.title}</span>
-                          <span className="mt-0.5 block text-[11px] text-gray-400">
-                            {CODE_CHANGE_PHASE_LABELS[phase]} · {new Date(request.createdAt).toLocaleString()}
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            setPendingDeleteReport(report)
-                          }}
-                          disabled={reportBusy}
-                          className="invisible shrink-0 rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-40 group-hover:visible dark:hover:bg-red-900/20"
-                          title={reportBusy ? 'Wait for the current Code Changes action to finish before deleting' : 'Delete request'}
-                          aria-label={`Delete ${report.title}`}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </button>
-                      </div>
-                    )
-                  })
-                )}
-              </div>
-            </div>
+            <CodeChangeListView
+              reports={reports}
+              selectedReportId={selectedReport?.id ?? null}
+              workspaceRoot={workspaceBinding.rootDirectory || null}
+              verificationRuns={verificationRuns}
+              gitPrepare={gitPrepare}
+              isReportBusy={isReportBusy}
+              onSelectReport={setSelectedReportId}
+              onRequestDelete={setPendingDeleteReport}
+              investigationSettings={investigationSettings}
+              onSetInvestigationSettings={setInvestigationSettings}
+              onSetBackend={handleSetBackend}
+              backendOptions={backendOptions}
+              remoteEditModelGroups={remoteEditModelGroups}
+              selectedModelSourceLabel={selectedModelSourceLabel}
+              catalogModels={catalogModels}
+              onSelectRemoteEditModel={handleSelectRemoteEditModel}
+              onSaveInvestigationSettings={() => void handleSaveInvestigationSettings()}
+            />
             <div className="min-h-72 p-3">
               {selectedReport ? (
-                <div className="space-y-3">
-                  {selectedPhase && <CodeChangePhaseBar phase={selectedPhase} />}
-                  {selectedPhase && (
-                    <div className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2 dark:border-blue-900 dark:bg-blue-950/20">
-                      <p className="text-[11px] font-medium text-blue-800 dark:text-blue-200">
-                        Next step: {CODE_CHANGE_PHASE_LABELS[selectedPhase]}
-                      </p>
-                      <p className="mt-0.5 text-[11px] text-blue-700 dark:text-blue-300">
-                        {CODE_CHANGE_PHASE_GUIDANCE[selectedPhase]}
-                      </p>
-                    </div>
-                  )}
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-xs font-medium text-gray-800 dark:text-gray-100">{selectedRequest?.title}</p>
-                      <p className="mt-1 text-xs text-gray-500 break-words">{selectedRequest?.description || 'No description.'}</p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        variant="primary"
-                        onClick={() => void handleStartInvestigation(selectedReport.id)}
-                        disabled={runningReportId !== null || !workspaceBinding.isConnected}
-                      >
-                        {runningReportId === selectedReport.id && reviewAction !== 'revise' ? 'Analysing...' : 'Analyse'}
-                      </Button>
-                      <Button
-                        variant="danger"
-                        onClick={() => setPendingDeleteReport(selectedReport)}
-                        disabled={selectedReportBusy}
-                        className="px-2"
-                        title={selectedReportBusy ? 'Wait for the current Code Changes action to finish before deleting' : 'Delete request'}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        {deletingReportId === selectedReport.id ? 'Deleting...' : 'Delete'}
-                      </Button>
-                    </div>
-                  </div>
-                  {(selectedReport.investigation_markdown || (investigationActivity[selectedReport.id]?.length ?? 0) > 0) && (
-                    <Button
-                      variant="ghost"
-                      onClick={() => setInvestigationCollapsed((collapsed) => !collapsed)}
-                      className="px-0 py-0 text-[11px]"
-                    >
-                      {investigationCollapsed ? '▸ Show investigation' : '▾ Hide investigation'}
-                    </Button>
-                  )}
-                  {!investigationCollapsed && (
-                    <>
-                      {selectedReport.investigation_markdown && selectedReport.status === 'investigating' && (
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            onClick={() => void handleReviewInvestigation(selectedReport.id, 'investigated')}
-                            disabled={reviewAction !== null || runningReportId !== null}
-                            className="text-[11px] px-2 py-1 rounded-md border border-green-300 text-green-700 hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-green-800 dark:text-green-300 dark:hover:bg-green-950/30"
-                          >
-                            {reviewAction === 'accept' ? 'Accepting...' : 'Accept'}
-                          </button>
-                          <Button
-                            variant="danger"
-                            onClick={() => void handleReviewInvestigation(selectedReport.id, 'rejected')}
-                            disabled={reviewAction !== null || runningReportId !== null}
-                            className="text-[11px] px-2 py-1"
-                          >
-                            {reviewAction === 'reject' ? 'Rejecting...' : 'Reject'}
-                          </Button>
-                          <Button
-                            variant="secondary"
-                            onClick={() => void handleStartInvestigation(selectedReport.id, 'revise')}
-                            disabled={runningReportId !== null}
-                            className="text-[11px] px-2 py-1"
-                          >
-                            {reviewAction === 'revise' ? 'Revising...' : 'Revise'}
-                          </Button>
-                        </div>
-                      )}
-                      {selectedReport.investigation_markdown && selectedReport.status === 'rejected' && (
-                        <p className="text-[11px] font-medium text-red-600 dark:text-red-400">Investigation rejected.</p>
-                      )}
-                      {(investigationActivity[selectedReport.id]?.length ?? 0) > 0 && (
-                        <div className="rounded border border-gray-200 p-2 dark:border-gray-700">
-                          <p className="text-[11px] font-medium text-gray-500">Activity</p>
-                          <div className="mt-1 space-y-1">
-                            {investigationActivity[selectedReport.id].slice(-6).map((activity, index) => (
-                              <p key={`${activity.label}-${index}`} className="text-[11px] text-gray-500">
-                                {activity.type === 'thinking' ? 'Thinking' : activity.label}
-                              </p>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-gray-50 p-3 text-xs text-gray-700 dark:bg-gray-950/50 dark:text-gray-300">
-                        {investigationOutput[selectedReport.id] || selectedReport.investigation_markdown || 'No analysis has been run yet.'}
-                      </pre>
-                      {investigationStatus && <p className="text-[11px] text-gray-400">{investigationStatus}</p>}
-                    </>
-                  )}
-
-                  {selectedReport.status === 'investigated' && selectedReport.fix_status === 'none' && (
-                    <div className="pt-1">
-                      <Button
-                        variant="primary"
-                        onClick={() => void handleStartFix(selectedReport.id)}
-                        disabled={fixRunning !== null}
-                      >
-                        {fixRunning === selectedReport.id ? 'Generating patch...' : 'Generate staged patch'}
-                      </Button>
-                    </div>
-                  )}
-
-                  {['staging', 'staged', 'applying', 'applied', 'failed'].includes(selectedReport.fix_status) && (
+                <CodeChangeDetailView
+                  report={selectedReport}
+                  request={selectedRequest}
+                  phase={selectedPhase}
+                  phaseBar={selectedPhase && <CodeChangePhaseBar phase={selectedPhase} />}
+                  runningReportId={runningReportId}
+                  onStartInvestigation={() => void handleStartInvestigation(selectedReport.id)}
+                  isWorkspaceConnected={workspaceBinding.isConnected}
+                  onRequestDelete={() => setPendingDeleteReport(selectedReport)}
+                  reportBusy={selectedReportBusy}
+                  deleting={deletingReportId === selectedReport.id}
+                  investigationActivity={investigationActivity[selectedReport.id] ?? []}
+                  investigationOutput={investigationOutput[selectedReport.id]}
+                  investigationCollapsed={investigationCollapsed}
+                  onToggleInvestigationCollapsed={() => setInvestigationCollapsed((collapsed) => !collapsed)}
+                  reviewAction={reviewAction}
+                  investigationStatus={investigationStatus}
+                  onAcceptInvestigation={() => void handleReviewInvestigation(selectedReport.id, 'investigated')}
+                  onRejectInvestigation={() => void handleReviewInvestigation(selectedReport.id, 'rejected')}
+                  onReviseInvestigation={() => void handleStartInvestigation(selectedReport.id, 'revise')}
+                  onGeneratePatch={() => void handleStartFix(selectedReport.id)}
+                  fixRunning={fixRunning}
+                  diffViewer={(
                     <RemoteEditDiffViewer
                       report={selectedReport}
                       fixRunning={fixRunning}
@@ -1494,7 +1307,7 @@ export function RemoteEditPanel() {
                       onExpandDiff={setExpandedDiffFile}
                     />
                   )}
-                </div>
+                />
               ) : (
                 <p className="text-xs text-gray-400">Select an edit request to review.</p>
               )}
@@ -1502,79 +1315,13 @@ export function RemoteEditPanel() {
           </div>
         </div>
 
-        {/* Code Changes history */}
-        <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
-            <button
-              type="button"
-              onClick={() => setHistoryCollapsed((collapsed) => !collapsed)}
-              className="text-left"
-            >
-              <p className="text-xs font-medium text-gray-700 dark:text-gray-300">{historyCollapsed ? '▸' : '▾'} Code Changes history</p>
-              <p className="text-[11px] text-gray-500">Audit trail of investigations, patches, verification, and git actions.</p>
-            </button>
-            <Button
-              variant="secondary"
-              onClick={() => void handleRefreshHistory()}
-              disabled={historyRefreshing}
-              className="text-[11px] px-2 py-1"
-            >
-              {historyRefreshing ? 'Refreshing...' : 'Refresh'}
-            </Button>
-          </div>
-          {!historyCollapsed && (
-          <div className="max-h-52 overflow-y-auto">
-            {remoteEditHistory.length === 0 ? (
-              <p className="p-3 text-xs text-gray-400">No Code Changes history yet.</p>
-            ) : (
-              <table className="w-full text-[11px]">
-                <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800/70">
-                  <tr className="border-b border-gray-100 dark:border-gray-800">
-                    <th className="px-3 py-1.5 text-left font-medium text-gray-500">Request</th>
-                    <th className="px-2 py-1.5 text-left font-medium text-gray-500">Status</th>
-                    <th className="px-2 py-1.5 text-left font-medium text-gray-500">Model</th>
-                    <th className="px-2 py-1.5 text-left font-medium text-gray-500">Steps</th>
-                    <th className="px-2 py-1.5 text-left font-medium text-gray-500">Date</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                  {remoteEditHistory.map((entry) => (
-                    <tr key={entry.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/40">
-                      <td className="px-3 py-1.5 max-w-[140px]">
-                        <span className="block truncate text-gray-700 dark:text-gray-300 font-medium">{entry.reportTitle || entry.reportId.slice(0, 8)}</span>
-                      </td>
-                      <td className="px-2 py-1.5">
-                        <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
-                          entry.status === 'reloaded' ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300' :
-                          entry.status === 'rolled-back' ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300' :
-                          entry.status === 'failed' || entry.status === 'verify-failed' ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300' :
-                          entry.status === 'verified' || entry.status === 'committed' || entry.status === 'pushed' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' :
-                          'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
-                        }`}>{entry.status}</span>
-                      </td>
-                      <td className="px-2 py-1.5 text-gray-500 font-mono max-w-[100px]">
-                        <span className="block truncate">{entry.investigationModel ?? '—'}</span>
-                      </td>
-                      <td className="px-2 py-1.5 text-gray-400">
-                        <span className="flex gap-1">
-                          {entry.verificationPassed && <span title="Verified">✓V</span>}
-                          {entry.committed && <span title="Committed">✓C</span>}
-                          {entry.pushed && <span title="Pushed">✓P</span>}
-                          {entry.reloaded && <span title="Reloaded">✓R</span>}
-                          {entry.rolledBack && <span title="Rolled back">↩</span>}
-                        </span>
-                      </td>
-                      <td className="px-2 py-1.5 text-gray-400 whitespace-nowrap">
-                        {new Date(entry.createdAt).toLocaleDateString()}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-          )}
-        </div>
+        <CodeChangeHistorySection
+          history={remoteEditHistory}
+          collapsed={historyCollapsed}
+          onToggleCollapsed={() => setHistoryCollapsed((collapsed) => !collapsed)}
+          refreshing={historyRefreshing}
+          onRefresh={() => void handleRefreshHistory()}
+        />
       </div>
     </ModalShell>
     {pendingDeleteReport && (
