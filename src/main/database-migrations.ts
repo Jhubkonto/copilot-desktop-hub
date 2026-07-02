@@ -2,7 +2,8 @@ import Database from "better-sqlite3";
 
 export interface Migration {
   version: number;
-  sql: string;
+  sql?: string;
+  run?: (db: Database.Database) => void;
 }
 
 export const MIGRATIONS: ReadonlyArray<Migration> = [
@@ -636,6 +637,176 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
         ON error_reports(request_origin, created_at DESC);
     `,
   },
+  {
+    // Widen request_type CHECK to add 'feature'/'custom', and add custom_type_label.
+    // SQLite does not support ALTER COLUMN, so we do a table-swap migration.
+    version: 47,
+    sql: `
+      CREATE TABLE IF NOT EXISTS error_reports_v47 (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        screenshot_path TEXT,
+        log_snapshot TEXT,
+        status TEXT NOT NULL CHECK (status IN ('open', 'investigating', 'investigated', 'fixed', 'rejected')) DEFAULT 'open',
+        app_version TEXT,
+        platform TEXT,
+        os_version TEXT,
+        investigation_markdown TEXT,
+        investigation_confidence TEXT,
+        investigation_root_cause TEXT,
+        investigation_affected_files TEXT NOT NULL DEFAULT '[]',
+        investigation_started_at INTEGER,
+        investigation_completed_at INTEGER,
+        fix_status TEXT NOT NULL DEFAULT 'none',
+        fix_staged_files TEXT NOT NULL DEFAULT '[]',
+        fix_started_at INTEGER,
+        fix_completed_at INTEGER,
+        fix_error TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        request_type TEXT
+          CHECK (request_type IN ('edit', 'refactor', 'bugfix', 'feature', 'investigation', 'custom')),
+        request_origin TEXT
+          CHECK (request_origin IN ('chat', 'android', 'manual', 'build-failure', 'legacy-bug-report')),
+        workspace_root TEXT,
+        project_id TEXT,
+        custom_type_label TEXT
+      );
+      INSERT OR IGNORE INTO error_reports_v47 (
+        id, title, description, screenshot_path, log_snapshot, status,
+        app_version, platform, os_version, investigation_markdown, investigation_confidence,
+        investigation_root_cause, investigation_affected_files, investigation_started_at, investigation_completed_at,
+        fix_status, fix_staged_files, fix_started_at, fix_completed_at, fix_error,
+        created_at, updated_at, request_type, request_origin, workspace_root, project_id
+      )
+        SELECT
+          id, title, description, screenshot_path, log_snapshot, status,
+          app_version, platform, os_version, investigation_markdown, investigation_confidence,
+          investigation_root_cause, investigation_affected_files, investigation_started_at, investigation_completed_at,
+          fix_status, fix_staged_files, fix_started_at, fix_completed_at, fix_error,
+          created_at, updated_at, request_type, request_origin, workspace_root, project_id
+        FROM error_reports;
+      DROP TABLE error_reports;
+      ALTER TABLE error_reports_v47 RENAME TO error_reports;
+      CREATE INDEX IF NOT EXISTS idx_error_reports_status_created
+        ON error_reports(status, created_at);
+      CREATE INDEX IF NOT EXISTS idx_error_reports_origin
+        ON error_reports(request_origin, created_at DESC);
+    `,
+  },
+  {
+    // Migrations 28-31 were edited in place (self_heal_* -> remote_edit_* table names)
+    // instead of adding new migrations, so any DB that had already applied those
+    // versions before the edit still has the legacy self_heal_* tables and never
+    // got the remote_edit_* ones. This renames the legacy tables when present and
+    // is a no-op otherwise (fresh installs / already-migrated DBs).
+    version: 48,
+    run: (db: Database.Database) => {
+      const renames: Array<[string, string]> = [
+        ["self_heal_diffs", "remote_edit_diffs"],
+        ["self_heal_verification_runs", "remote_edit_verification_runs"],
+        ["self_heal_recovery_runs", "remote_edit_recovery_runs"],
+        ["self_heal_history", "remote_edit_history"],
+      ];
+      const tableExists = (name: string): boolean =>
+        db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !== undefined;
+
+      for (const [legacyName, currentName] of renames) {
+        if (!tableExists(legacyName)) continue;
+        if (tableExists(currentName)) {
+          // Both exist (shouldn't happen in practice): keep the current table, drop the empty legacy one.
+          db.exec(`DROP TABLE ${legacyName}`);
+          continue;
+        }
+        db.exec(`ALTER TABLE ${legacyName} RENAME TO ${currentName}`);
+      }
+    },
+  },
+  {
+    // Repairs DBs where migration 47's table-rebuild partially applied and was silently marked
+    // done by a bug in runMigrations (fixed alongside this migration): the old runner advanced
+    // user_version to the last version in a migration batch even when an earlier multi-statement
+    // migration threw a "duplicate column name" / "already exists" error partway through, so
+    // request_type / custom_type_label could end up missing despite user_version already being
+    // >= 47. This re-runs migration 47's rebuild whenever request_type is absent, and is a no-op
+    // on any DB where it already exists (fresh installs, or DBs that applied 47 correctly).
+    version: 49,
+    run: (db: Database.Database) => {
+      const hasColumn = (table: string, column: string): boolean =>
+        (db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>)
+          .some((col) => col.name === column);
+
+      // custom_type_label only exists once migration 47's rebuild has actually completed —
+      // request_type alone isn't a reliable signal, since migration 46 (a plain ALTER TABLE ADD
+      // COLUMN, unaffected by the bug this repairs) already adds it on its own.
+      if (hasColumn("error_reports", "custom_type_label")) return;
+
+      db.exec(`
+        DROP TABLE IF EXISTS error_reports_v49;
+        CREATE TABLE error_reports_v49 (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          screenshot_path TEXT,
+          log_snapshot TEXT,
+          status TEXT NOT NULL CHECK (status IN ('open', 'investigating', 'investigated', 'fixed', 'rejected')) DEFAULT 'open',
+          app_version TEXT,
+          platform TEXT,
+          os_version TEXT,
+          investigation_markdown TEXT,
+          investigation_confidence TEXT,
+          investigation_root_cause TEXT,
+          investigation_affected_files TEXT NOT NULL DEFAULT '[]',
+          investigation_started_at INTEGER,
+          investigation_completed_at INTEGER,
+          fix_status TEXT NOT NULL DEFAULT 'none',
+          fix_staged_files TEXT NOT NULL DEFAULT '[]',
+          fix_started_at INTEGER,
+          fix_completed_at INTEGER,
+          fix_error TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          request_type TEXT
+            CHECK (request_type IN ('edit', 'refactor', 'bugfix', 'feature', 'investigation', 'custom')),
+          request_origin TEXT
+            CHECK (request_origin IN ('chat', 'android', 'manual', 'build-failure', 'legacy-bug-report')),
+          workspace_root TEXT,
+          project_id TEXT,
+          custom_type_label TEXT
+        );
+      `);
+      const sourceColumns = (db.prepare("PRAGMA table_info(error_reports)").all() as Array<{ name: string }>)
+        .map((col) => col.name);
+      const targetColumns = (db.prepare("PRAGMA table_info(error_reports_v49)").all() as Array<{ name: string }>)
+        .map((col) => col.name)
+        .filter((name) => sourceColumns.includes(name));
+      const columnList = targetColumns.join(", ");
+      db.exec(`
+        INSERT OR IGNORE INTO error_reports_v49 (${columnList})
+          SELECT ${columnList} FROM error_reports;
+        DROP TABLE error_reports;
+        ALTER TABLE error_reports_v49 RENAME TO error_reports;
+        CREATE INDEX IF NOT EXISTS idx_error_reports_status_created
+          ON error_reports(status, created_at);
+        CREATE INDEX IF NOT EXISTS idx_error_reports_origin
+          ON error_reports(request_origin, created_at DESC);
+      `);
+    },
+  },
+  {
+    // Code Changes requests predate the project-scoped rework and were only ever test data —
+    // clearing them (and their dependent rows, none of which have cascading FKs) so every
+    // remaining error_reports row going forward is created through the new project-scoped flow.
+    version: 50,
+    sql: `
+      DELETE FROM remote_edit_diffs;
+      DELETE FROM remote_edit_verification_runs;
+      DELETE FROM remote_edit_recovery_runs;
+      DELETE FROM remote_edit_history;
+      DELETE FROM error_reports;
+    `,
+  },
 ];
 
 
@@ -956,9 +1127,34 @@ export function initializeBaseSchema(db: Database.Database): void {
   `);
 }
 
-function isIgnorableMigrationError(error: unknown): boolean {
+// "duplicate column name" only unambiguously proves the migration already applied when the
+// statement that threw it is itself an idempotent, self-contained ADD COLUMN — in that case the
+// desired end-state (the column exists) is already true regardless of what happened before or
+// after it. "already exists" is only trustworthy the same way for CREATE TABLE/INDEX IF NOT
+// EXISTS statements — those already declare their own idempotency, so a bare "already exists"
+// engine error on top of that (rare, but possible on odd schema states) still means the intended
+// object exists. Any other statement shape — a bare CREATE TABLE, INSERT, DROP TABLE, or RENAME,
+// the kind chained together in table-rebuild migrations — throwing "already exists" does NOT
+// prove the rebuild's end-state is correct (e.g. a stray intermediate table left by a prior
+// interrupted run); swallowing it there risks marking an incomplete rebuild as done.
+function isIgnorableStatementError(statement: string, error: unknown): boolean {
   const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
-  return message.includes("duplicate column name") || message.includes("already exists");
+  const normalized = statement.trim().toLowerCase();
+  if (message.includes("duplicate column name")) {
+    return /^alter\s+table\s+\S+\s+add\s+column\b/.test(normalized);
+  }
+  if (message.includes("already exists")) {
+    return /^create\s+(table|index)\s+if\s+not\s+exists\b/.test(normalized);
+  }
+  return false;
+}
+
+// Splits a migration's SQL into individual statements so that one statement's ignorable error
+// (see isIgnorableStatementError) doesn't prevent independent statements after it from running —
+// this matters for migrations that chain several unrelated ADD COLUMN calls, where an earlier
+// "duplicate column name" must not skip a later, still-pending column addition.
+function splitStatements(sql: string): string[] {
+  return sql.split(";").map((part) => part.trim()).filter(Boolean);
 }
 
 export function runMigrations(
@@ -974,16 +1170,25 @@ export function runMigrations(
 
   const applyPendingMigrations = db.transaction(() => {
     for (const migration of pending) {
-      try {
-        db.exec(migration.sql);
-      } catch (error: unknown) {
-        if (!isIgnorableMigrationError(error)) {
-          throw error;
+      if (migration.run) {
+        migration.run(db);
+      } else if (migration.sql) {
+        for (const statement of splitStatements(migration.sql)) {
+          try {
+            db.exec(statement);
+          } catch (error: unknown) {
+            if (!isIgnorableStatementError(statement, error)) {
+              throw error;
+            }
+          }
         }
       }
+      // The whole pending batch runs inside one transaction, so a later migration throwing a
+      // non-ignorable error rolls this bump back along with everything else in the batch —
+      // user_version only actually advances once every migration below the throwing one (and
+      // every statement within each) has genuinely completed or been safely ignored.
+      db.pragma(`user_version = ${migration.version}`);
     }
-
-    db.pragma(`user_version = ${pending[pending.length - 1].version}`);
   });
 
   applyPendingMigrations();

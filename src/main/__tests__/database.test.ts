@@ -48,7 +48,7 @@ describe('database migrations', () => {
     initializeBaseSchema(db)
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(46)
+    expect(db.pragma('user_version', { simple: true })).toBe(50)
     expect(getColumnNames(db, 'projects')).toEqual(
       expect.arrayContaining(['default_model', 'config_json'])
     )
@@ -107,6 +107,73 @@ describe('database migrations', () => {
     )
   })
 
+  it('renames legacy self_heal_* tables to remote_edit_* left behind by an in-place migration edit', () => {
+    // Simulates a real DB that had already applied migrations 28-31 back when they
+    // used self_heal_* table names, before those migration entries were edited in
+    // place (instead of appending a new migration) to use remote_edit_* names.
+    const db = createDatabase()
+    initializeBaseSchema(db)
+    const migrationsUpToLegacyNaming = MIGRATIONS.filter((migration) => migration.version <= 31).map(
+      (migration): Migration => {
+        if (migration.version !== 28 && migration.version !== 29 && migration.version !== 30 && migration.version !== 31) {
+          return migration
+        }
+        // Re-apply the pre-rename SQL these versions originally shipped with.
+        const legacySql = {
+          28: `CREATE TABLE IF NOT EXISTS self_heal_diffs (
+                 report_id TEXT NOT NULL, relative_path TEXT NOT NULL, diff_json TEXT NOT NULL,
+                 PRIMARY KEY (report_id, relative_path)
+               );`,
+          29: `CREATE TABLE IF NOT EXISTS self_heal_verification_runs (
+                 id TEXT PRIMARY KEY, report_id TEXT NOT NULL, status TEXT NOT NULL,
+                 steps_json TEXT NOT NULL DEFAULT '[]', started_at INTEGER NOT NULL,
+                 completed_at INTEGER, retry_count INTEGER NOT NULL DEFAULT 0, error TEXT
+               );`,
+          30: `CREATE TABLE IF NOT EXISTS self_heal_recovery_runs (
+                 id TEXT PRIMARY KEY, report_id TEXT NOT NULL, status TEXT NOT NULL,
+                 target_commit_sha TEXT, target_version TEXT,
+                 backup_manifest_json TEXT NOT NULL DEFAULT '[]', pre_reload_state_json TEXT NOT NULL DEFAULT '{}',
+                 created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+                 confirmed_at INTEGER, rollback_at INTEGER, error TEXT
+               );`,
+          31: `CREATE TABLE IF NOT EXISTS self_heal_history (
+                 id TEXT PRIMARY KEY, report_id TEXT NOT NULL, report_title TEXT NOT NULL DEFAULT '',
+                 investigation_model TEXT, investigation_backend TEXT, investigation_rounds INTEGER NOT NULL DEFAULT 0,
+                 fix_applied_at INTEGER, verification_passed INTEGER NOT NULL DEFAULT 0, verification_failed_step TEXT,
+                 committed INTEGER NOT NULL DEFAULT 0, commit_sha TEXT, pushed INTEGER NOT NULL DEFAULT 0,
+                 reloaded INTEGER NOT NULL DEFAULT 0, rolled_back INTEGER NOT NULL DEFAULT 0,
+                 status TEXT NOT NULL DEFAULT 'investigating', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+               );`,
+        }[migration.version]
+        return { version: migration.version, sql: legacySql }
+      },
+    )
+    runMigrations(db, migrationsUpToLegacyNaming)
+    db.prepare(
+      `INSERT INTO self_heal_history (id, report_id, report_title, status, created_at, updated_at)
+       VALUES ('hist-1', 'report-1', 'Legacy entry', 'investigating', 1, 1)`,
+    ).run()
+
+    runMigrations(db)
+
+    expect(db.pragma('user_version', { simple: true })).toBe(50)
+    const tableNames = (
+      db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>
+    ).map((row) => row.name)
+    expect(tableNames).not.toContain('self_heal_diffs')
+    expect(tableNames).not.toContain('self_heal_verification_runs')
+    expect(tableNames).not.toContain('self_heal_recovery_runs')
+    expect(tableNames).not.toContain('self_heal_history')
+    expect(tableNames).toEqual(expect.arrayContaining([
+      'remote_edit_diffs', 'remote_edit_verification_runs', 'remote_edit_recovery_runs', 'remote_edit_history',
+    ]))
+    // migration 50 (a one-time wipe of Code Changes test data, run right after this rename)
+    // intentionally clears remote_edit_history along with the rest of the Code Changes tables,
+    // so the renamed row from the legacy self_heal_history table does not survive to the end
+    // of the migration chain — only the rename itself (verified above) is under test here.
+    expect(db.prepare('SELECT * FROM remote_edit_history WHERE id = ?').get('hist-1')).toBeUndefined()
+  })
+
   it('allows persisted tool call messages on a fresh DB', () => {
     const db = createDatabase()
 
@@ -126,7 +193,7 @@ describe('database migrations', () => {
       runMigrations(db)
       runMigrations(db)
     }).not.toThrow()
-    expect(db.pragma('user_version', { simple: true })).toBe(46)
+    expect(db.pragma('user_version', { simple: true })).toBe(50)
   })
 
   it('only runs pending migrations for a partial upgrade', () => {
@@ -180,7 +247,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(46)
+    expect(db.pragma('user_version', { simple: true })).toBe(50)
     expect(getColumnNames(db, 'messages')).toEqual(
       expect.arrayContaining(['is_edited', 'previous_content', 'context_snapshot'])
     )
@@ -243,7 +310,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(46)
+    expect(db.pragma('user_version', { simple: true })).toBe(50)
     expect(() => insertMessageWithRole(db, 'tool-call')).not.toThrow()
     expect(
       db.prepare("SELECT COUNT(*) AS count FROM messages WHERE role = ?").get('assistant')
@@ -261,5 +328,111 @@ describe('database migrations', () => {
 
     expect(() => runMigrations(db, failingMigrations)).toThrow(/missing_table/)
     expect(db.pragma('user_version', { simple: true })).toBe(0)
+  })
+
+  it('rolls back the whole pending batch (leaving user_version unchanged) when a table-rebuild migration hits "already exists" on a bare CREATE TABLE', () => {
+    // Regression test: a prior bug in runMigrations treated "duplicate column name" /
+    // "already exists" as ignorable for any statement, including the bare CREATE TABLE step of
+    // a table-rebuild sequence — where the error does not prove the rebuild's end-state is
+    // correct (e.g. a stray intermediate table left by a prior interrupted run). Swallowing it
+    // there could mark an incomplete rebuild as done. A bare CREATE TABLE (not IF NOT EXISTS)
+    // must always re-throw "already exists", even though CREATE TABLE IF NOT EXISTS and plain
+    // ALTER TABLE ADD COLUMN statements may still ignore it. The whole pending batch runs in one
+    // transaction, so an unswallowed error here rolls everything in this run back — including
+    // migration 1's otherwise-successful CREATE TABLE — leaving user_version unchanged so the
+    // full batch is retried from scratch on the next app start (same as the pre-existing
+    // 're-throws genuine errors' behavior).
+    const db = createDatabase()
+    const migrations: ReadonlyArray<Migration> = [
+      { version: 1, sql: 'CREATE TABLE t_v2 (id TEXT PRIMARY KEY)' },
+      {
+        // Simulates a rebuild whose CREATE TABLE step collides with a stray leftover table
+        // from an interrupted prior run — the INSERT/DROP/RENAME steps that would complete
+        // the rebuild never run once this throws.
+        version: 2,
+        sql: `
+          CREATE TABLE t_v2 (id TEXT PRIMARY KEY, extra TEXT);
+          INSERT INTO t_v2 (id) SELECT id FROM t_v2;
+        `,
+      },
+      { version: 3, sql: 'CREATE TABLE unrelated (id TEXT PRIMARY KEY)' },
+    ]
+
+    expect(() => runMigrations(db, migrations)).toThrow(/already exists/)
+    expect(db.pragma('user_version', { simple: true })).toBe(0)
+    expect(
+      db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'unrelated'").get(),
+    ).toBeUndefined()
+  })
+
+  it('lets independent ALTER TABLE ADD COLUMN statements in the same migration proceed even if an earlier one is already applied', () => {
+    // Companion regression test: migration 22 in MIGRATIONS chains two unrelated ADD COLUMN
+    // statements, where the first can legitimately hit "duplicate column name" on a fresh
+    // install (that column already shipped in migration 21's CREATE TABLE) while the second is
+    // still genuinely pending. Fixing the table-rebuild case must not regress this — each
+    // statement's ignorable error must only affect that statement, not the ones after it.
+    const db = createDatabase()
+    const migrations: ReadonlyArray<Migration> = [
+      { version: 1, sql: 'CREATE TABLE t (id TEXT PRIMARY KEY, already_there TEXT)' },
+      {
+        version: 2,
+        sql: `
+          ALTER TABLE t ADD COLUMN already_there TEXT;
+          ALTER TABLE t ADD COLUMN still_pending TEXT;
+        `,
+      },
+    ]
+
+    expect(() => runMigrations(db, migrations)).not.toThrow()
+    expect(db.pragma('user_version', { simple: true })).toBe(2)
+    expect(getColumnNames(db, 't')).toEqual(expect.arrayContaining(['already_there', 'still_pending']))
+  })
+
+  it('still tolerates a single-statement migration re-hitting "duplicate column name"', () => {
+    const db = createDatabase()
+    const migrations: ReadonlyArray<Migration> = [
+      { version: 1, sql: 'CREATE TABLE t (id TEXT PRIMARY KEY, name TEXT)' },
+      // Simulates a column that was already added by some other path — a single ALTER TABLE
+      // ADD COLUMN statement re-hitting "duplicate column name" safely proves the column
+      // already exists, so this remains ignorable.
+      { version: 2, sql: 'ALTER TABLE t ADD COLUMN name TEXT' },
+      { version: 3, sql: 'CREATE TABLE unrelated (id TEXT PRIMARY KEY)' },
+    ]
+
+    expect(() => runMigrations(db, migrations)).not.toThrow()
+    expect(db.pragma('user_version', { simple: true })).toBe(3)
+    expect(
+      db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'unrelated'").get(),
+    ).toBeTruthy()
+  })
+
+  it('repairs a DB stuck past migration 47 without request_type, left behind by the old error-swallowing bug', () => {
+    // Simulates a real DB where migration 47's table-rebuild silently failed partway
+    // (e.g. hit "already exists" on a stray error_reports_v47 table from an interrupted
+    // prior run) and the old runMigrations bug marked user_version past 47 anyway, leaving
+    // request_type / custom_type_label permanently missing from error_reports.
+    const db = createDatabase()
+    initializeBaseSchema(db)
+    const migrationsUpTo46 = MIGRATIONS.filter((migration) => migration.version <= 46)
+    runMigrations(db, migrationsUpTo46)
+    db.prepare(
+      `INSERT INTO error_reports (id, title, description, status, created_at, updated_at)
+       VALUES ('report-1', 'Stuck report', 'desc', 'open', 1, 1)`,
+    ).run()
+    // Simulate the old bug's outcome: user_version bumped past 47 despite the rebuild
+    // never having actually happened (request_type is still absent from error_reports).
+    db.pragma('user_version = 48')
+
+    runMigrations(db)
+
+    expect(db.pragma('user_version', { simple: true })).toBe(50)
+    expect(getColumnNames(db, 'error_reports')).toEqual(
+      expect.arrayContaining(['request_type', 'request_origin', 'workspace_root', 'project_id', 'custom_type_label']),
+    )
+    // migration 50 (a one-time wipe of Code Changes test data, run right after this repair)
+    // intentionally clears error_reports along with the rest of the Code Changes tables, so
+    // the repaired row does not survive to the end of the migration chain — only the column
+    // repair itself (verified above) is under test here.
+    expect(db.prepare('SELECT * FROM error_reports WHERE id = ?').get('report-1')).toBeUndefined()
   })
 })
