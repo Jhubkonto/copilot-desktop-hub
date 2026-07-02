@@ -68,7 +68,7 @@ describe('SettingsPanel', () => {
     expect(mockApi.setSetting).toHaveBeenCalledWith('max_tokens', '4096')
   })
 
-  it('creates a remote-edit report from a failed desktop build', async () => {
+  it('creates a remote-edit report from a failed desktop build and opens the linked project', async () => {
     mockApi.buildGetRecords = vi.fn().mockResolvedValue([
       {
         id: 'build-failed-1',
@@ -88,6 +88,10 @@ describe('SettingsPanel', () => {
         finishedAt: 3000,
       },
     ])
+    mockApi.getErrorReport = vi.fn().mockResolvedValue({
+      id: 'report-1',
+      project_id: 'project-1',
+    })
 
     render(<SettingsPanel />)
     await user.click(screen.getByText('Developer'))
@@ -100,8 +104,47 @@ describe('SettingsPanel', () => {
         includeScreenshot: false,
       }))
     })
+    await waitFor(() => expect(mockApi.getErrorReport).toHaveBeenCalledWith('report-1'))
     expect(mockStore.setPendingRemoteEditReportId).toHaveBeenCalledWith('report-1')
+    expect(mockStore.setPendingCodeChangesProjectId).toHaveBeenCalledWith('project-1')
     expect(mockStore.setShowSettings).toHaveBeenCalledWith(false)
-    expect(mockStore.setShowRemoteEditPanel).toHaveBeenCalledWith(true)
+    expect(mockStore.openEditProject).toHaveBeenCalledWith('project-1')
+  })
+
+  it('shows a toast instead of navigating when the build workspace is not linked to a project', async () => {
+    mockApi.buildGetRecords = vi.fn().mockResolvedValue([
+      {
+        id: 'build-failed-1',
+        workspacePath: 'C:\\unlinked',
+        commitSha: 'abc1234',
+        branch: 'main',
+        version: '0.9.0',
+        versionCode: null,
+        platform: 'win32',
+        command: 'typecheck',
+        status: 'failed',
+        exitCode: 2,
+        artifactPaths: [],
+        artifactChecksums: {},
+        logTail: 'src/app.ts(1,1): error TS1005: expected',
+        startedAt: 1000,
+        finishedAt: 3000,
+      },
+    ])
+    mockApi.getErrorReport = vi.fn().mockResolvedValue({
+      id: 'report-1',
+      project_id: null,
+    })
+
+    render(<SettingsPanel />)
+    await user.click(screen.getByText('Developer'))
+    await user.click(await screen.findByText('Create code change'))
+
+    await waitFor(() => expect(mockApi.getErrorReport).toHaveBeenCalledWith('report-1'))
+    expect(mockStore.addToast).toHaveBeenCalledWith(
+      expect.stringContaining("isn't linked to a known project"),
+      'error',
+    )
+    expect(mockStore.openEditProject).not.toHaveBeenCalled()
   })
 })

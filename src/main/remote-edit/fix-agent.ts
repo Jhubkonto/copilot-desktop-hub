@@ -18,7 +18,7 @@ import type {
   DiffLine,
   DiffHunk,
 } from '../../shared/types'
-import { getWorkspacePath, resolveInsideWorkspace, loadInvestigationSettings } from './investigator'
+import { getWorkspacePathForReport, resolveInsideWorkspace, loadInvestigationSettings } from './investigator'
 import { parseAffectedFilesFromFrontMatter } from './yaml'
 
 const MAX_FILE_CHARS = 32000
@@ -243,7 +243,7 @@ export async function runFix(
     throw new Error('No affected files found in investigation report — accept the investigation first')
   }
 
-  const workspacePath = getWorkspacePath()
+  const workspacePath = getWorkspacePathForReport(reportId)
   const stagingDir = getStagingDir(reportId)
   mkdirSync(stagingDir, { recursive: true })
 

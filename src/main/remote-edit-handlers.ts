@@ -8,7 +8,7 @@ import {
   loadInvestigationSettings,
   runInvestigation,
   saveInvestigationSettings,
-  getWorkspacePath,
+  getWorkspacePathForReport,
   resolveInsideWorkspace,
 } from './remote-edit/investigator'
 import {
@@ -22,6 +22,7 @@ import {
   runVerification,
 } from './remote-edit/verifier'
 import { getOrCreateHistoryEntry, listHistory, updateHistoryEntry } from './remote-edit/history'
+import { prepareReload } from './remote-edit/recovery'
 import { sendRemoteEditNotification } from './fcm-sender'
 import { getDatabase } from './database'
 import { getRemoteEditAuditDiff, inferProjectIdForWorkspace, recordProjectAuditChange } from './project-audit'
@@ -62,7 +63,7 @@ export function applyStagedPatchToWorkspace(
   const staged: RemoteEditStagedFileEntry[] = JSON.parse(row.fix_staged_files || '[]')
   if (staged.length === 0) return null
 
-  const workspacePath = getWorkspacePath()
+  const workspacePath = getWorkspacePathForReport(reportId)
   const projectId = inferProjectIdForWorkspace(workspacePath)
   const reportMeta = db.prepare(
     'SELECT title FROM error_reports WHERE id = ?'
@@ -140,7 +141,7 @@ export function registerRemoteEditHandlers(mainWindow?: BrowserWindow): void {
     return getDatabase().prepare('SELECT * FROM error_reports WHERE id = ?').get(reportId) as ErrorReportEntry | null
   })
 
-  safeHandle('remote-edit:start-investigation', async (_event, reportId: string) => {
+  safeHandle('remote-edit:start-investigation', async (_event, reportId: string, revisionNotes?: string) => {
     if (!mainWindow) throw new Error('Main window is not available')
     if (activeInvestigations.has(reportId)) return { reportId }
     activeInvestigations.add(reportId)
@@ -153,7 +154,7 @@ export function registerRemoteEditHandlers(mainWindow?: BrowserWindow): void {
       onActivity: (activity) => {
         emitInvestigationEvent(mainWindow, 'remote-edit:investigation-activity', activity)
       },
-    })
+    }, revisionNotes)
       .then((result) => {
         emitInvestigationEvent(mainWindow, 'remote-edit:investigation-done', result)
         const title = (getDatabase().prepare('SELECT title FROM error_reports WHERE id = ?').get(reportId) as { title: string } | undefined)?.title ?? ''
@@ -164,7 +165,7 @@ export function registerRemoteEditHandlers(mainWindow?: BrowserWindow): void {
           reportTitle: title,
         })
         if (result.status === 'done') {
-          sendDesktopNotification('Code Changes', `Investigation complete for "${title}". Review the proposed approach.`)
+          sendDesktopNotification('Code Changes', `Planning complete for "${title}". Review the proposed approach.`)
           void sendRemoteEditNotification(getDatabase(), { type: 'investigation-done', reportId, title })
         }
       })
@@ -294,6 +295,11 @@ export function registerRemoteEditHandlers(mainWindow?: BrowserWindow): void {
           sendDesktopNotification('Code Changes', `Verification failed (${failedStep ?? 'unknown step'}) for "${title}".`)
           void sendRemoteEditNotification(getDatabase(), { type: 'verification-failed', reportId, title, failedStep })
         }
+        // Capture the backup manifest regardless of verification outcome — "Undo this change" is
+        // a pure file restore and doesn't require verification to have passed (see prepareReload()
+        // in recovery.ts). This ensures a recovery run always exists once a patch has been applied
+        // and verified, so undo is reachable on both platforms even after a failed verification.
+        void prepareReload(reportId).catch(() => {})
       })
       .finally(() => {
         activeVerificationRuns.delete(reportId)

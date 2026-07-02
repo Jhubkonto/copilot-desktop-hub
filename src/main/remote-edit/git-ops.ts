@@ -4,7 +4,7 @@ import type { BrowserWindow } from 'electron'
 import { getDatabase } from '../database'
 import { safeHandle } from '../safe-handle'
 import { broadcastToMobile } from '../ws-server'
-import { getWorkspacePath, resolveInsideWorkspace } from './investigator'
+import { getWorkspacePathForReport, resolveInsideWorkspace } from './investigator'
 import { updateHistoryEntry } from './history'
 import type {
   ErrorReportEntry,
@@ -26,7 +26,7 @@ type GitFailureInfo = {
   authHelp?: string
 }
 
-async function git(args: string[], cwd = getWorkspacePath()): Promise<string> {
+async function git(args: string[], cwd: string): Promise<string> {
   const { stdout } = await execFileAsync('git', args, { cwd, timeout: 15000 })
   return stdout.trim()
 }
@@ -112,7 +112,20 @@ function parseStatusPorcelain(output: string): { branch: string | null; ahead: n
 }
 
 export async function getRemoteEditGitStatus(reportId?: string): Promise<RemoteEditGitStatus> {
-  const workspacePath = getWorkspacePath()
+  if (!reportId) {
+    return {
+      reportId,
+      isRepo: false,
+      branch: null,
+      commitSha: null,
+      dirty: false,
+      ahead: 0,
+      behind: 0,
+      files: [],
+      error: 'No report specified',
+    }
+  }
+  const workspacePath = getWorkspacePathForReport(reportId)
   try {
     await git(['rev-parse', '--show-toplevel'], workspacePath)
     const [statusOut, commitSha] = await Promise.all([
@@ -156,8 +169,8 @@ function getAppliedFiles(report: ErrorReportEntry): string[] {
   return staged.map((file) => file.relativePath).filter(Boolean)
 }
 
-function validateWorkspaceFiles(files: string[]): void {
-  const workspacePath = getWorkspacePath()
+function validateWorkspaceFiles(reportId: string, files: string[]): void {
+  const workspacePath = getWorkspacePathForReport(reportId)
   for (const file of files) {
     resolveInsideWorkspace(workspacePath, file)
   }
@@ -206,10 +219,11 @@ export async function commitRemoteEditFix(reportId: string, message: string): Pr
   }
 
   try {
-    validateWorkspaceFiles(prepared.files)
-    await git(['add', '--', ...prepared.files])
-    await git(['commit', '-m', trimmedMessage])
-    const commitSha = await git(['rev-parse', '--short', 'HEAD']).catch(() => null)
+    const workspacePath = getWorkspacePathForReport(reportId)
+    validateWorkspaceFiles(reportId, prepared.files)
+    await git(['add', '--', ...prepared.files], workspacePath)
+    await git(['commit', '-m', trimmedMessage], workspacePath)
+    const commitSha = await git(['rev-parse', '--short', 'HEAD'], workspacePath).catch(() => null)
     const status = await getRemoteEditGitStatus(reportId)
     return { reportId, committed: true, commitSha, status }
   } catch (error) {
@@ -228,7 +242,7 @@ export async function commitRemoteEditFix(reportId: string, message: string): Pr
 
 export async function pushRemoteEditFix(reportId: string): Promise<RemoteEditGitPushResult> {
   try {
-    await git(['push'])
+    await git(['push'], getWorkspacePathForReport(reportId))
     return { reportId, pushed: true, status: await getRemoteEditGitStatus(reportId) }
   } catch (error) {
     const failure = classifyGitFailure(error)

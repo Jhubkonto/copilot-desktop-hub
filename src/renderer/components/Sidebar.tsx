@@ -13,6 +13,7 @@ function NavButton({
   ariaLabel,
   active,
   modal,
+  running,
 }: {
   icon: ReactNode
   label: string
@@ -21,16 +22,20 @@ function NavButton({
   ariaLabel?: string
   active?: boolean
   modal?: boolean
+  running?: boolean
 }) {
   return (
     <Button
       variant="ghost"
       onClick={onClick}
       className={`w-full justify-start px-3 py-1.5 ${active ? 'bg-gray-100 dark:bg-gray-800' : ''}`}
-      aria-label={ariaLabel ?? label}
+      aria-label={running ? `${ariaLabel ?? label} (working…)` : ariaLabel ?? label}
     >
       {icon}
       <span className="flex-1 text-left">{label}</span>
+      {running && (
+        <span title="Working…"><Loader2 className="w-3 h-3 text-blue-500 animate-spin shrink-0" /></span>
+      )}
       {!!badgeCount && badgeCount > 0 && (
         <span className="flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-semibold leading-none">
           {badgeCount > 9 ? '9+' : badgeCount}
@@ -61,7 +66,6 @@ export function Sidebar() {
   const newChat = useAppStore((s) => s.newChat)
   const logout = useAppStore((s) => s.logout)
   const setShowSettings = useAppStore((s) => s.setShowSettings)
-  const setShowRemoteEditPanel = useAppStore((s) => s.setShowRemoteEditPanel)
   const activeSectionPane = useAppStore((s) => s.activeSectionPane)
   const openSectionPane = useAppStore((s) => s.openSectionPane)
   const setHistoryProjectId = useAppStore((s) => s.setHistoryProjectId)
@@ -79,26 +83,12 @@ export function Sidebar() {
   const pendingNew = pendingConversationIds.filter((id) => !existingConvIds.has(id))
   const recentConvs = conversations.slice(0, Math.max(0, 5 - pendingNew.length))
 
-  const [openReportCount, setOpenReportCount] = useState(0)
   const [newArtifactCount, setNewArtifactCount] = useState(0)
   const [configuredProviderLabel, setConfiguredProviderLabel] = useState('')
 
-  const showRemoteEditPanel = useAppStore((s) => s.showRemoteEditPanel)
   const showSettings = useAppStore((s) => s.showSettings)
 
   const artifactLastOpenedRef = useRef(Date.now())
-
-  useEffect(() => {
-    if (typeof window.api.listErrorReports !== 'function') return
-    const refresh = () => {
-      window.api.listErrorReports(25)
-        .then((reports) => setOpenReportCount(reports.filter((r) => r.status === 'open').length))
-        .catch(() => {})
-    }
-    refresh()
-    const interval = setInterval(refresh, 30000)
-    return () => clearInterval(interval)
-  }, [showRemoteEditPanel])
 
   const artifactsPaneOpen = activeSectionPane === 'artifacts'
 
@@ -192,15 +182,6 @@ export function Sidebar() {
           badgeCount={newArtifactCount}
           active={activeSectionPane === 'artifacts'}
           ariaLabel={`Open Artifacts${newArtifactCount > 0 ? ` (${newArtifactCount} new)` : ''}`}
-        />
-        <hr className="border-gray-200 dark:border-gray-700/80" />
-        <NavButton
-          icon={<Wrench className="w-3.5 h-3.5" />}
-          label="Code Changes"
-          onClick={() => setShowRemoteEditPanel(true)}
-          badgeCount={openReportCount}
-          ariaLabel={`Open Code Changes${openReportCount > 0 ? ` (${openReportCount} open request${openReportCount === 1 ? '' : 's'})` : ''}`}
-          modal
         />
       </div>
 

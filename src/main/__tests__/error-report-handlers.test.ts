@@ -118,6 +118,40 @@ describe('error report handlers', () => {
     }))
   })
 
+  it('persists a custom request type and its free-text label', async () => {
+    const { createErrorReport, rowToErrorReport } = await import('../error-report-handlers')
+    const result = createErrorReport({
+      title: 'Data migration',
+      requestType: 'custom',
+      customTypeLabel: 'Data migration',
+      origin: 'manual',
+      workspaceRoot: 'C:\\work\\repo',
+      projectId: null,
+    })
+
+    const row = db.prepare('SELECT * FROM error_reports WHERE id = ?').get(result.reportId) as Record<string, unknown>
+    expect(rowToErrorReport(row)).toEqual(expect.objectContaining({
+      request_type: 'custom',
+      custom_type_label: 'Data migration',
+    }))
+  })
+
+  it('ignores a custom_type_label when the request type is not custom', async () => {
+    const { createErrorReport, rowToErrorReport } = await import('../error-report-handlers')
+    const result = createErrorReport({
+      title: 'Extract parser',
+      requestType: 'refactor',
+      customTypeLabel: 'Should be ignored',
+      origin: 'manual',
+    })
+
+    const row = db.prepare('SELECT * FROM error_reports WHERE id = ?').get(result.reportId) as Record<string, unknown>
+    expect(rowToErrorReport(row)).toEqual(expect.objectContaining({
+      request_type: 'refactor',
+      custom_type_label: null,
+    }))
+  })
+
   it('deletes a report, its remote-edit rows, and its artifact folders', async () => {
     const { registerErrorReportHandlers } = await import('../error-report-handlers')
     registerErrorReportHandlers()

@@ -97,6 +97,7 @@ interface MessageBubbleProps {
   onSaveToWiki?: (messageId: string, content: string) => void
   onSaveAsArtifact?: (messageId: string, content: string) => void
   onCreateCodeChange?: (messageId: string, content: string) => void
+  canCreateCodeChange?: boolean
   hasWikiEntry?: boolean
   timestamp?: number
   isHighlighted?: boolean
@@ -128,6 +129,7 @@ export function MessageBubbleBase({
   onSaveToWiki,
   onSaveAsArtifact,
   onCreateCodeChange,
+  canCreateCodeChange = true,
   hasWikiEntry,
   onRetry,
   onSignIn,
@@ -237,6 +239,8 @@ export function MessageBubbleBase({
                   icon={Wrench}
                   label="Create code change"
                   onClick={() => onCreateCodeChange(id, content)}
+                  disabled={!canCreateCodeChange}
+                  title={canCreateCodeChange ? 'Create code change' : 'Switch to a project to create a code change'}
                 />
               )}
               {isLastAssistant && onRegenerate && (
@@ -373,21 +377,26 @@ function ActionButton({
   label,
   onClick,
   highlight = false,
+  disabled = false,
+  title,
 }: {
   icon: React.ComponentType<{ className?: string }>
   label: string
   onClick: () => void
   highlight?: boolean
+  disabled?: boolean
+  title?: string
 }) {
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full border whitespace-nowrap backdrop-blur-sm transition-all duration-150 active:scale-95 ${
+      disabled={disabled}
+      className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full border whitespace-nowrap backdrop-blur-sm transition-all duration-150 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-sm disabled:active:scale-100 ${
         highlight
           ? 'bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-800/60 text-green-600 dark:text-green-400 shadow-sm'
           : 'bg-white/90 dark:bg-gray-800/90 border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 shadow-sm hover:shadow-md hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700/80 hover:text-gray-800 dark:hover:text-gray-100'
       }`}
-      title={label}
+      title={title ?? label}
       aria-label={label}
     >
       <Icon className="w-3 h-3" />

@@ -56,7 +56,8 @@ describe('ProjectSettingsPanel — tabs', () => {
     expect(screen.getByRole('tab', { name: /general/i })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /scope/i })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /milestones/i })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: /changes/i })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Changes' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Code Changes' })).toBeInTheDocument()
   })
 
   it('k-2: General tab is active by default', () => {
@@ -113,7 +114,7 @@ describe('ProjectSettingsPanel — changes audit', () => {
     ])
 
     render(<ProjectSettingsPanel projectId="proj-1" onClose={vi.fn()} />)
-    await user.click(screen.getByRole('tab', { name: /changes/i }))
+    await user.click(screen.getByRole('tab', { name: 'Changes' }))
 
     expect(await screen.findAllByText(/remote edit fix/i)).toHaveLength(2)
     expect(api.listProjectAuditSessions).toHaveBeenCalledWith('proj-1')
@@ -219,13 +220,16 @@ describe('ProjectSettingsPanel — manual workflow mode', () => {
 
     render(<ProjectSettingsPanel projectId="proj-1" initialTab="team" onClose={vi.fn()} />)
 
+    expect(screen.getByText(/generate a delegation plan/i)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /open workflow tab/i }))
+
     expect(screen.getByText(/manual workflow generator/i)).toBeInTheDocument()
     await user.type(screen.getByPlaceholderText(/describe the project goal/i), 'Plan a release')
     await user.click(screen.getByRole('button', { name: /generate workflow/i }))
 
     expect(api.manualWorkflowGeneratorChat).toHaveBeenCalledWith('proj-1', [
       { role: 'user', content: 'Plan a release' },
-    ])
+    ], undefined)
   })
 
   it('renders generated workflow steps and starts a step in chat', async () => {
@@ -258,7 +262,7 @@ describe('ProjectSettingsPanel — manual workflow mode', () => {
     })
     setupStoreMock(useAppStore, mockStore)
 
-    render(<ProjectSettingsPanel projectId="proj-1" initialTab="team" onClose={vi.fn()} />)
+    render(<ProjectSettingsPanel projectId="proj-1" initialTab="workflow" onClose={vi.fn()} />)
 
     onSpecReady({
       title: 'Release workflow',
@@ -311,7 +315,7 @@ describe('ProjectSettingsPanel — manual workflow mode', () => {
     })
     setupStoreMock(useAppStore, mockStore)
 
-    render(<ProjectSettingsPanel projectId="proj-1" initialTab="team" onClose={vi.fn()} />)
+    render(<ProjectSettingsPanel projectId="proj-1" initialTab="workflow" onClose={vi.fn()} />)
 
     expect(screen.getByText(/no provider or supported cli backend is configured/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /generate workflow/i })).toBeDisabled()

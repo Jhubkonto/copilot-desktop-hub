@@ -5,6 +5,7 @@ import path from 'path'
 import { app } from 'electron'
 import { getDatabase } from './database'
 import { safeHandle } from './safe-handle'
+import { inferProjectIdForWorkspace } from './project-audit'
 import type {
   ErrorLogEntry,
   ErrorReportCaptureInput,
@@ -53,6 +54,7 @@ export function rowToErrorReport(row: Record<string, unknown>): ErrorReportEntry
       : null,
     workspace_root: typeof row.workspace_root === 'string' ? row.workspace_root : null,
     project_id: typeof row.project_id === 'string' ? row.project_id : null,
+    custom_type_label: typeof row.custom_type_label === 'string' ? row.custom_type_label : null,
   }
 }
 
@@ -100,20 +102,24 @@ export function createErrorReport(input: ErrorReportCaptureInput): ErrorReportCa
   const description = normalizeDescription(input.description)
   const screenshotPath = input.includeScreenshot ? writeScreenshot(id, input.screenshotDataUrl) : null
   const logSnapshot = input.includeLog ? readLogSnapshot() : null
-  const requestType = ['edit', 'refactor', 'bugfix', 'investigation'].includes(input.requestType ?? '')
+  const requestType = ['edit', 'refactor', 'bugfix', 'feature', 'investigation', 'custom'].includes(input.requestType ?? '')
     ? input.requestType!
     : null
   const requestOrigin = ['chat', 'android', 'manual', 'build-failure', 'legacy-bug-report'].includes(input.origin ?? '')
     ? input.origin!
     : null
+  const customTypeLabel = requestType === 'custom' ? (input.customTypeLabel?.trim() || null) : null
+  const workspaceRoot = input.workspaceRoot?.trim() || null
+  const resolvedProjectId = input.projectId?.trim()
+    || (workspaceRoot ? inferProjectIdForWorkspace(workspaceRoot) : null)
 
   getDatabase()
     .prepare(
       `INSERT INTO error_reports (
         id, title, description, screenshot_path, log_snapshot, status,
         app_version, platform, os_version, request_type, request_origin,
-        workspace_root, project_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        workspace_root, project_id, custom_type_label, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       id,
@@ -126,8 +132,9 @@ export function createErrorReport(input: ErrorReportCaptureInput): ErrorReportCa
       os.release(),
       requestType,
       requestOrigin,
-      input.workspaceRoot?.trim() || null,
-      input.projectId?.trim() || null,
+      workspaceRoot,
+      resolvedProjectId || null,
+      customTypeLabel,
       now,
       now,
     )
@@ -173,11 +180,15 @@ export function deleteErrorReport(reportId: string): boolean {
 export function registerErrorReportHandlers(): void {
   safeHandle('error-report:capture', (_event, input: ErrorReportCaptureInput) => createErrorReport(input))
 
-  safeHandle('error-report:list', (_event, limit?: number) => {
+  safeHandle('error-report:list', (_event, limit?: number, projectId?: string) => {
     const safeLimit = Math.max(1, Math.min(Number(limit) || 50, 200))
-    const rows = getDatabase()
-      .prepare('SELECT * FROM error_reports ORDER BY created_at DESC LIMIT ?')
-      .all(safeLimit) as Record<string, unknown>[]
+    const rows = projectId
+      ? getDatabase()
+        .prepare('SELECT * FROM error_reports WHERE project_id = ? ORDER BY created_at DESC LIMIT ?')
+        .all(projectId, safeLimit) as Record<string, unknown>[]
+      : getDatabase()
+        .prepare('SELECT * FROM error_reports ORDER BY created_at DESC LIMIT ?')
+        .all(safeLimit) as Record<string, unknown>[]
     return rows.map(rowToErrorReport)
   })
 

@@ -1,12 +1,10 @@
-import { useEffect, useState } from 'react'
-import { Plus, X, Star, GripVertical, Copy, Play, Sparkles, Loader2 } from 'lucide-react'
+import { Plus, X, Star, GripVertical, Sparkles } from 'lucide-react'
 import { DropdownPanel } from '../DropdownPanel'
-import type { AgentConfig, ManualWorkflowSpec } from '../../../shared/types'
+import type { AgentConfig } from '../../../shared/types'
 import type { ProjectAgent, ProjectConfig } from '../../store/types'
 import { useAppStore } from '../../store/app-store'
 
 interface Props {
-  projectId: string
   agents: AgentConfig[]
   members: ProjectAgent[]
   projectConfig: ProjectConfig
@@ -21,15 +19,14 @@ interface Props {
   onSetPrimaryAgent: (agentId: string) => void
   onReorderAgents: (orderedIds: string[]) => void
   onUpdateOrchestration: (partial: Partial<Pick<ProjectConfig, 'workflowMode' | 'orchestrationEnabled' | 'maxDelegationDepth' | 'showTeamActivity'>>) => void
-  onStartWorkflowStep: (agentId: string | null, prompt: string) => Promise<void>
-  onToast: (message: string, type: 'success' | 'error' | 'info') => void
+  onGoToWorkflowTab: () => void
 }
 
 export function TeamTab({
-  projectId, agents, members, projectConfig,
+  agents, members, projectConfig,
   agentPickerQuery, showAgentPicker, teamDraggingId,
   onSetAgentPickerQuery, onSetShowAgentPicker, onSetTeamDraggingId,
-  onAddAgent, onRemoveAgent, onSetPrimaryAgent, onReorderAgents, onUpdateOrchestration, onStartWorkflowStep, onToast,
+  onAddAgent, onRemoveAgent, onSetPrimaryAgent, onReorderAgents, onUpdateOrchestration, onGoToWorkflowTab,
 }: Props) {
   const authState = useAppStore((s) => s.authState)
   const workflowMode = projectConfig.workflowMode ?? 'single-agent'
@@ -46,54 +43,6 @@ export function TeamTab({
     return false
   })
   const hasPrimaryMember = members.some((member) => member.isPrimary)
-  const [goal, setGoal] = useState('')
-  const [spec, setSpec] = useState<ManualWorkflowSpec | null>(null)
-  const [streamingText, setStreamingText] = useState('')
-  const [isGenerating, setIsGenerating] = useState(false)
-  const [missedSpec, setMissedSpec] = useState(false)
-
-  useEffect(() => {
-    const offToken = window.api.onManualWorkflowGeneratorToken((chunk) => {
-      setStreamingText((current) => current + chunk)
-    })
-    const offSpec = window.api.onManualWorkflowGeneratorSpecReady((incoming) => {
-      setSpec(incoming)
-      setMissedSpec(false)
-    })
-    const offDone = window.api.onManualWorkflowGeneratorDone(({ hasSpec }) => {
-      setIsGenerating(false)
-      if (!hasSpec) setMissedSpec(true)
-    })
-    return () => { offToken(); offSpec(); offDone() }
-  }, [])
-
-  const handleGenerateWorkflow = async () => {
-    const trimmedGoal = goal.trim()
-    if (!trimmedGoal || isGenerating) return
-    setIsGenerating(true)
-    setMissedSpec(false)
-    setStreamingText('')
-    setSpec(null)
-    try {
-      const result = await window.api.manualWorkflowGeneratorChat(projectId, [{ role: 'user', content: trimmedGoal }])
-      if (result && typeof result === 'object' && 'error' in result) {
-        throw new Error(String((result as { error: unknown }).error))
-      }
-    } catch (error) {
-      setIsGenerating(false)
-      onToast(error instanceof Error ? error.message : 'Failed to generate workflow', 'error')
-    }
-  }
-
-  const handleCopyPrompt = async (prompt: string) => {
-    try {
-      if (!navigator.clipboard?.writeText) throw new Error('Clipboard is not available')
-      await navigator.clipboard.writeText(prompt)
-      onToast('Step prompt copied', 'success')
-    } catch (error) {
-      onToast(error instanceof Error ? error.message : 'Failed to copy prompt', 'error')
-    }
-  }
 
   return (
     <div className="space-y-4">
@@ -235,102 +184,22 @@ export function TeamTab({
           </div>
         )}
         {workflowMode === 'manual-delegation' && (
-          <div className="rounded-md border border-blue-200/70 dark:border-blue-900/50 bg-blue-50/70 dark:bg-blue-950/20 p-3 space-y-3">
-            <div className="space-y-1">
-              <div className="flex items-center gap-1.5 text-blue-700 dark:text-blue-300">
-                <Sparkles className="w-3.5 h-3.5" />
-                <span className="text-xs font-semibold">Manual workflow generator</span>
-              </div>
-              <p className="text-[10px] text-blue-700/80 dark:text-blue-300/80">
-                Generate a reusable delegation plan with copyable prompts for each project step.
-              </p>
+          <div className="rounded-md border border-blue-200/70 dark:border-blue-900/50 bg-blue-50/70 dark:bg-blue-950/20 p-3 space-y-2">
+            <div className="flex items-center gap-1.5 text-blue-700 dark:text-blue-300">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span className="text-xs font-semibold">Generate a delegation plan</span>
             </div>
-            <textarea
-              value={goal}
-              onChange={(e) => setGoal(e.target.value)}
-              rows={3}
-              placeholder="Describe the project goal or milestone you want the team to execute."
-              className="w-full resize-none rounded-md border border-blue-200 dark:border-blue-900/60 bg-white/90 dark:bg-gray-900/60 px-2.5 py-2 text-xs text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-400"
-            />
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[10px] text-gray-500 dark:text-gray-400">
-                {members.length > 0 ? `${members.length} project agent${members.length === 1 ? '' : 's'} available` : 'No project agents assigned yet'}
-              </span>
-              <button
-                type="button"
-                onClick={() => { void handleGenerateWorkflow() }}
-                disabled={isGenerating || !goal.trim() || !hasGeneratorBackend}
-                className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-2.5 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {isGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-                Generate workflow
-              </button>
-            </div>
-            {isGenerating && streamingText && (
-              <div className="rounded-md border border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-900/70 px-3 py-2 text-[11px] text-gray-600 dark:text-gray-300 whitespace-pre-wrap max-h-36 overflow-y-auto">
-                {streamingText}
-              </div>
-            )}
-            {missedSpec && (
-              <p className="text-[10px] text-amber-600 dark:text-amber-400">
-                No structured workflow was returned. Try being more specific about the goal or expected deliverables.
-              </p>
-            )}
-            {spec && (
-              <div className="space-y-3 rounded-md border border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-900/70 p-3">
-                <div className="space-y-1">
-                  <p className="text-xs font-semibold text-gray-800 dark:text-gray-100">{spec.title}</p>
-                  {spec.goalSummary && (
-                    <p className="text-[11px] text-gray-600 dark:text-gray-300">{spec.goalSummary}</p>
-                  )}
-                  {spec.assumptions.length > 0 && (
-                    <p className="text-[10px] text-gray-500 dark:text-gray-400">
-                      Assumptions: {spec.assumptions.join(' • ')}
-                    </p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  {spec.steps.map((step, index) => (
-                    <div key={step.id} className="rounded-md border border-gray-200 dark:border-gray-700 px-3 py-2 space-y-2">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-[11px] font-semibold text-gray-800 dark:text-gray-100">
-                            {index + 1}. {step.title}
-                          </p>
-                          <p className="text-[10px] text-gray-500 dark:text-gray-400">
-                            {step.agentName ?? 'Unassigned'}{step.expectedOutput ? ` · Output: ${step.expectedOutput}` : ''}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => { void handleCopyPrompt(step.prompt) }}
-                            className="inline-flex items-center gap-1 rounded border border-gray-200 dark:border-gray-700 px-2 py-1 text-[10px] text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
-                          >
-                            <Copy className="w-3 h-3" />
-                            Copy
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => { void onStartWorkflowStep(step.agentId ?? null, step.prompt) }}
-                            className="inline-flex items-center gap-1 rounded border border-blue-200 dark:border-blue-900/60 px-2 py-1 text-[10px] text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/30"
-                          >
-                            <Play className="w-3 h-3" />
-                            Start in chat
-                          </button>
-                        </div>
-                      </div>
-                      {step.summary && (
-                        <p className="text-[11px] text-gray-600 dark:text-gray-300">{step.summary}</p>
-                      )}
-                      <pre className="whitespace-pre-wrap rounded bg-gray-50 dark:bg-gray-800 px-2.5 py-2 text-[10px] text-gray-700 dark:text-gray-200">
-                        {step.prompt}
-                      </pre>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+            <p className="text-[10px] text-blue-700/80 dark:text-blue-300/80">
+              Use the Workflow tab to turn a project goal into a reusable delegation plan with copyable prompts for each step.
+            </p>
+            <button
+              type="button"
+              onClick={onGoToWorkflowTab}
+              className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-2.5 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-blue-700"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              Open Workflow tab
+            </button>
           </div>
         )}
       </div>

@@ -90,8 +90,9 @@ export function SettingsPanel() {
   const toggleTheme = useAppStore((s) => s.toggleTheme)
   const setShowSettings = useAppStore((s) => s.setShowSettings)
   const setShowMcpPanel = useAppStore((s) => s.setShowMcpPanel)
-  const setShowRemoteEditPanel = useAppStore((s) => s.setShowRemoteEditPanel)
   const setPendingRemoteEditReportId = useAppStore((s) => s.setPendingRemoteEditReportId)
+  const setPendingCodeChangesProjectId = useAppStore((s) => s.setPendingCodeChangesProjectId)
+  const openEditProject = useAppStore((s) => s.openEditProject)
   const addToast = useAppStore((s) => s.addToast)
   const setGlobalDefaultModel = useAppStore((s) => s.setGlobalDefaultModel)
   const catalogModels = useAppStore((s) => s.catalogModels)
@@ -580,10 +581,16 @@ export function SettingsPanel() {
         origin: 'build-failure',
         workspaceRoot: record.workspacePath,
       })
-      setPendingRemoteEditReportId(result.reportId)
-      setShowSettings(false)
-      setShowRemoteEditPanel(true)
-      addToast('Code change request created from build failure', 'success')
+      const created = await window.api.getErrorReport(result.reportId)
+      if (created && created.project_id) {
+        setPendingRemoteEditReportId(result.reportId)
+        setPendingCodeChangesProjectId(created.project_id)
+        setShowSettings(false)
+        openEditProject(created.project_id)
+        addToast('Code change request created from build failure', 'success')
+      } else {
+        addToast("This build's workspace isn't linked to a known project — the request wasn't opened.", 'error')
+      }
     } catch {
       addToast('Failed to create code change request from build failure', 'error')
     } finally {

@@ -38,9 +38,6 @@ const SkillGeneratorModal = lazy(() =>
 const ScheduleGeneratorModal = lazy(() =>
   import('./components/ScheduleGeneratorModal').then((m) => ({ default: m.ScheduleGeneratorModal }))
 )
-const RemoteEditPanel = lazy(() =>
-  import('./components/RemoteEditPanel').then((m) => ({ default: m.RemoteEditPanel }))
-)
 const ArtifactPanel = lazy(() =>
   import('./components/ArtifactPanel').then((m) => ({ default: m.ArtifactPanel }))
 )
@@ -306,8 +303,6 @@ export default function App() {
         <McpServerPanel />
 
         <SettingsPanel />
-
-        <RemoteEditPanel />
 
         {viewingArtifactId && <ArtifactPanel artifactId={viewingArtifactId} />}
 

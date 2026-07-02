@@ -20,7 +20,9 @@ import { applyStagedPatchToWorkspace } from './remote-edit-handlers'
 import { listHistory } from './remote-edit/history'
 import {
   emitInvestigationEvent,
+  loadInvestigationSettings,
   runInvestigation,
+  saveInvestigationSettings,
 } from './remote-edit/investigator'
 import { runFix, emitFixEvent } from './remote-edit/fix-agent'
 import { emitVerificationEvent, runVerification } from './remote-edit/verifier'
@@ -66,7 +68,7 @@ import {
   updatePromptLibraryEntry,
 } from './prompt-handlers'
 import { buildConversationExportPack, forkConversation, importConversationExport, getConversationCompressionPreview, prepareConversationCompressionSummary, saveConversationCompressionSummary } from './conversation-handlers'
-import type { ContextInspectorSnapshot } from '../shared/types'
+import type { ContextInspectorSnapshot, CodeChangeRequestType, RemoteEditInvestigationSettings } from '../shared/types'
 import { getProjectAuditDiff, getRemoteEditAuditDiff, listProjectAuditFiles, listProjectAuditSessions } from './project-audit'
 import { parseProjectConfig } from './project-handlers'
 import {
@@ -233,12 +235,17 @@ export function registerWsHandlers(): void {
 
     if (command === 'error-report:request-capture') {
       try {
+        const allowedRequestTypes: CodeChangeRequestType[] = ['edit', 'refactor', 'bugfix', 'feature', 'investigation', 'custom']
+        const requestType: CodeChangeRequestType = allowedRequestTypes.includes(data.requestType as CodeChangeRequestType)
+          ? (data.requestType as CodeChangeRequestType)
+          : 'edit'
         const result = createErrorReport({
           title: typeof data.title === 'string' ? data.title : 'Android edit request',
           description: typeof data.description === 'string' ? data.description : 'Requested from Android.',
           includeLog: data.includeLog !== false,
           includeScreenshot: false,
-          requestType: 'edit',
+          requestType,
+          customTypeLabel: typeof data.customTypeLabel === 'string' ? data.customTypeLabel : null,
           origin: 'android',
           workspaceRoot: (getDatabase()
             .prepare("SELECT value FROM settings WHERE key = 'build_workspace_path'")
@@ -269,9 +276,38 @@ export function registerWsHandlers(): void {
       return
     }
 
+    if (command === 'self-heal:set-report-status') {
+      const reportId = typeof data.reportId === 'string' ? data.reportId : ''
+      const status = typeof data.status === 'string' ? data.status : ''
+      if (!reportId || !['open', 'investigating', 'investigated', 'fixed', 'rejected'].includes(status)) return
+      const now = Date.now()
+      getDatabase().prepare('UPDATE error_reports SET status = ?, updated_at = ? WHERE id = ?').run(status, now, reportId)
+      // self-heal:reports replaces the client's entire report list (see self-heal:get-reports), so
+      // resend the full set rather than just the updated row to avoid truncating Android's cache.
+      const rows = getDatabase()
+        .prepare('SELECT * FROM error_reports ORDER BY created_at DESC LIMIT 50')
+        .all() as Record<string, unknown>[]
+      const reports = rows.map(rowToErrorReport)
+      reply({ event: 'self-heal:reports', data: { reports } })
+      broadcastToMobile({ event: 'self-heal:reports', data: { reports } })
+      return
+    }
+
+    if (command === 'self-heal:get-investigation-settings') {
+      reply({ event: 'self-heal:investigation-settings', data: loadInvestigationSettings() })
+      return
+    }
+
+    if (command === 'self-heal:set-investigation-settings') {
+      const settings = saveInvestigationSettings(data as unknown as RemoteEditInvestigationSettings)
+      reply({ event: 'self-heal:investigation-settings', data: settings })
+      return
+    }
+
     if (command === 'self-heal:start-investigation') {
       const reportId = typeof data.reportId === 'string' ? data.reportId : ''
       if (!reportId) return
+      const revisionNotes = typeof data.revisionNotes === 'string' ? data.revisionNotes : undefined
       const win = BrowserWindow.getAllWindows()[0]
       if (!win) return
       debugLog('ws', `self-heal:start-investigation reportId=${reportId}`)
@@ -284,7 +320,7 @@ export function registerWsHandlers(): void {
           broadcastToMobile({ event: 'self-heal:investigation-activity', data: activity })
           emitInvestigationEvent(win, 'remote-edit:investigation-activity', activity)
         },
-      }).then((result) => {
+      }, revisionNotes).then((result) => {
         broadcastToMobile({ event: 'self-heal:investigation-done', data: result })
         emitInvestigationEvent(win, 'remote-edit:investigation-done', result)
       })

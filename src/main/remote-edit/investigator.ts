@@ -19,6 +19,7 @@ import type {
 import { broadcastToMobile } from '../ws-server'
 import { parseAffectedFilesFromFrontMatter } from './yaml'
 import { createPromptedToolCaller, injectPromptedToolSystemPrompt } from './prompted-tool-caller'
+import { getProjectRootDirectory } from '../project-handlers'
 
 const execFileAsync = promisify(execFile)
 const MAX_FILE_CHARS = 32000
@@ -29,11 +30,25 @@ interface InvestigationCallbacks {
   onActivity: (activity: RemoteEditInvestigationActivity) => void
 }
 
-export function getWorkspacePath(): string {
-  const row = getDatabase()
-    .prepare("SELECT value FROM settings WHERE key = 'build_workspace_path'")
-    .get() as { value: string } | undefined
-  return row?.value || process.cwd()
+/**
+ * Resolves the workspace directory a Code Changes request operates on. Requests are created
+ * from within a project going forward, so `project_id` is the primary source of truth (and
+ * reflects the project's *current* rootDirectory, even if it was edited after the request was
+ * created). `workspace_root` is a per-request snapshot kept for requests without a linked
+ * project (build-failure/Android origin). `process.cwd()` is a last-resort fallback that should
+ * not normally be reached.
+ */
+export function getWorkspacePathForReport(reportId: string): string {
+  const report = getDatabase()
+    .prepare('SELECT workspace_root, project_id FROM error_reports WHERE id = ?')
+    .get(reportId) as { workspace_root: string | null; project_id: string | null } | undefined
+
+  if (report?.project_id) {
+    const projectRoot = getProjectRootDirectory(report.project_id)
+    if (projectRoot) return projectRoot
+  }
+  if (report?.workspace_root) return report.workspace_root
+  return process.cwd()
 }
 
 export function resolveInsideWorkspace(workspacePath: string, requestedPath: unknown): string {
@@ -161,35 +176,57 @@ export function buildInlineHandlers(workspacePath: string, confirmedPaths?: Set<
   ])
 }
 
-function buildPrompt(report: ErrorReportEntry, workspacePath: string): ProviderMessage[] {
+const BUGFIX_REQUEST_TYPES = new Set<ErrorReportEntry['request_type']>(['bugfix', 'investigation', null, undefined])
+
+function buildPrompt(report: ErrorReportEntry, workspacePath: string, revisionNotes?: string): ProviderMessage[] {
+  const isBugfix = BUGFIX_REQUEST_TYPES.has(report.request_type)
   const logExcerpt = report.log_snapshot ? report.log_snapshot.slice(0, 20000) : '(no log snapshot)'
+  const revisionSection = revisionNotes?.trim()
+    ? `\nThe previous plan was reviewed and needs revision. Guidance from the reviewer:\n${revisionNotes.trim()}\n\nIncorporate this guidance into the new plan.\n`
+    : ''
+
+  const subject = isBugfix ? 'bug' : 'change request'
+  const taskVerb = isBugfix ? 'Investigate the captured bug' : 'Plan this change request'
+  const rootCauseInstruction = isBugfix
+    ? 'Ground every claim in the original log snapshot you were given and in the actual results returned by your tool calls, including failed ones. ' +
+      'Never invent files, error messages, stack traces, or other evidence that does not appear in the log snapshot or in a tool result you actually received. ' +
+      'Every item in the Evidence section must include a short verbatim quote from the log snapshot or a tool result, copied exactly — if you cannot quote the exact source text an item is based on, do not include that item. ' +
+      'Do not report errors, timestamps, or symptoms from outside this specific bug report — for example, do not describe unrelated runtime/console errors unless they appear verbatim in this report\'s log snapshot or tool results. '
+    : 'Ground every claim in the actual results returned by your tool calls, including failed ones — read the relevant files and directory structure before proposing a plan. ' +
+      'Never invent files, functions, or code that does not appear in a tool result you actually received. ' +
+      'Every item in the Evidence section must include a short verbatim quote from a tool result (e.g. a snippet of the file you read), copied exactly — if you cannot quote the exact source text an item is based on, do not include that item. '
+  // The YAML key is always root_cause (parsed downstream by a fixed regex, and stored in the
+  // investigation_root_cause column) regardless of request type — only what we ask the model to
+  // put in it changes, so bugfix/non-bugfix prompts share the same front-matter contract.
+  const rootCauseField = 'root_cause'
+  const rootCauseFieldDescription = isBugfix
+    ? 'a one-sentence root cause'
+    : 'a one-sentence summary of the planned approach'
+
   return [
     {
       role: 'system',
       content:
-        'You are the Nexy self-heal investigator. Investigate the captured bug using only read-only tools. ' +
+        `You are the Nexy Code Changes planner. ${taskVerb} using only read-only tools. ` +
         'Do not propose code changes yet. Return a concise Markdown investigation report with YAML front matter. ' +
-        'Ground every claim in the original log snapshot you were given and in the actual results returned by your tool calls, including failed ones. ' +
-        'Never invent files, error messages, stack traces, or other evidence that does not appear in the log snapshot or in a tool result you actually received. ' +
-        'Every item in the Evidence section must include a short verbatim quote from the log snapshot or a tool result, copied exactly — if you cannot quote the exact source text an item is based on, do not include that item. ' +
-        'Do not report errors, timestamps, or symptoms from outside this specific bug report — for example, do not describe unrelated runtime/console errors unless they appear verbatim in this report\'s log snapshot or tool results. ' +
+        rootCauseInstruction +
         'If a tool fails or is unavailable, say so plainly in the report instead of fabricating a substitute explanation. ' +
-        'Never guess a file path for read_file. Use list_directory and/or grep first to locate the real file that is actually relevant to the log snapshot, and only call read_file on a path you have confirmed exists. ' +
-        'A "File not found" result is not evidence of anything about the bug — it only means your guessed path was wrong; do not cite it in the report or list that path under affected_files. ' +
+        `Never guess a file path for read_file. Use list_directory and/or grep first to locate the real file that is actually relevant to the ${subject}, and only call read_file on a path you have confirmed exists. ` +
+        `A "File not found" result is not evidence of anything about the ${subject} — it only means your guessed path was wrong; do not cite it in the report or list that path under affected_files. ` +
         'Only list a path under affected_files if a read_file or grep call on that exact path actually succeeded — never list a path solely because it seems plausible. ' +
         'Your response must begin with exactly one YAML front matter block delimited by --- lines, appearing once, at the very start of the response, before any other text — do not duplicate it later and do not also restate it inside a fenced ```yaml block. ' +
-        'The front matter block must contain ONLY the three keys confidence, root_cause, and affected_files — nothing else. ' +
+        `The front matter block must contain ONLY the three keys confidence, ${rootCauseField}, and affected_files — nothing else. ` +
         'Summary, Evidence, and Recommended Next Steps are Markdown sections that come AFTER the closing --- of the front matter, each as a "## Heading" followed by prose or a bullet list — never as additional YAML keys inside the front matter block.',
     },
     {
       role: 'user',
       content:
-        `Investigate this bug report.\n\n` +
+        `${taskVerb}.\n\n` +
         `Workspace: ${workspacePath}\n` +
         `Title: ${report.title}\n` +
         `Description:\n${report.description || '(none)'}\n\n` +
-        `Log snapshot:\n${logExcerpt}\n\n` +
-        `Required YAML front matter keys: confidence, root_cause, affected_files. ` +
+        `Log snapshot:\n${logExcerpt}\n${revisionSection}\n` +
+        `Required YAML front matter keys: confidence, ${rootCauseField} (${rootCauseFieldDescription}), affected_files. ` +
         `Then include sections: Summary, Evidence, Recommended Next Steps.`,
     },
   ]
@@ -284,11 +321,13 @@ function ensureStructuredMarkdown(markdown: string, confirmedPaths?: Set<string>
 
 function persistResult(reportId: string, result: RemoteEditInvestigationResult): RemoteEditInvestigationResult {
   const completedAt = Date.now()
+  // status stays 'investigating' here rather than advancing straight to 'investigated' — a
+  // completed plan still needs an explicit human Accept before it's treated as approved (via
+  // remote-edit:set-report-status). Only the accept action itself sets status to 'investigated'.
   getDatabase()
     .prepare(
       `UPDATE error_reports
-       SET status = 'investigated',
-           investigation_markdown = ?,
+       SET investigation_markdown = ?,
            investigation_confidence = ?,
            investigation_root_cause = ?,
            investigation_affected_files = ?,
@@ -318,7 +357,7 @@ function persistError(reportId: string, error: unknown): RemoteEditInvestigation
     'affected_files: []',
     '---',
     '',
-    `# Investigation failed\n\n${message}`,
+    `# Planning failed\n\n${message}`,
   ].join('\n')
   getDatabase()
     .prepare(
@@ -383,10 +422,11 @@ export async function runInvestigation(
   win: BrowserWindow,
   reportId: string,
   callbacks: InvestigationCallbacks,
+  revisionNotes?: string,
 ): Promise<RemoteEditInvestigationResult> {
   const report = readReport(reportId)
   const settings = loadInvestigationSettings()
-  const workspacePath = getWorkspacePath()
+  const workspacePath = getWorkspacePathForReport(reportId)
   const startedAt = Date.now()
   getDatabase()
     .prepare("UPDATE error_reports SET status = 'investigating', investigation_started_at = ?, updated_at = ? WHERE id = ?")
@@ -396,10 +436,10 @@ export async function runInvestigation(
     callbacks.onActivity({ reportId, type: toolName ? 'tool' : 'status', label, toolName })
   }
 
-  activity('Investigation started')
+  activity('Planning started')
   for (let attempt = 0; attempt <= settings.retryLimit; attempt++) {
     try {
-      if (attempt > 0) activity(`Retrying investigation (${attempt}/${settings.retryLimit})`)
+      if (attempt > 0) activity(`Retrying plan (${attempt}/${settings.retryLimit})`)
     let markdown = ''
     let confirmedPaths: Set<string> | undefined
     if (settings.backend === 'claude-cli') {
@@ -410,7 +450,7 @@ export async function runInvestigation(
           conversationId: `self-heal-${reportId}`,
           cwd: workspacePath,
           model: settings.model,
-          messages: buildPrompt(report, workspacePath),
+          messages: buildPrompt(report, workspacePath, revisionNotes),
           systemPrompt: 'Investigate only. Return YAML front matter followed by Markdown.',
         },
         (chunk) => {
@@ -428,7 +468,7 @@ export async function runInvestigation(
           conversationId: `self-heal-${reportId}`,
           cwd: workspacePath,
           model: settings.model,
-          messages: buildPrompt(report, workspacePath),
+          messages: buildPrompt(report, workspacePath, revisionNotes),
           systemPrompt: 'Investigate only. Return YAML front matter followed by Markdown.',
         },
         (chunk) => {
@@ -461,7 +501,7 @@ export async function runInvestigation(
       }
       markdown = await runProviderMcpToolLoop(
         caller,
-        buildPrompt(report, workspacePath),
+        buildPrompt(report, workspacePath, revisionNotes),
         toolDefs,
         new Map(),
         `self-heal-${randomUUID()}`,
@@ -483,18 +523,18 @@ export async function runInvestigation(
     }
     const structured = ensureStructuredMarkdown(markdown, confirmedPaths)
     const result = persistResult(reportId, structured)
-    callbacks.onActivity({ reportId, type: 'status', label: 'Investigation complete' })
+    callbacks.onActivity({ reportId, type: 'status', label: 'Planning complete' })
     return result
     } catch (error) {
       if (attempt < settings.retryLimit) continue
       const result = persistError(reportId, error)
-      callbacks.onActivity({ reportId, type: 'status', label: `Investigation failed: ${result.error}` })
+      callbacks.onActivity({ reportId, type: 'status', label: `Planning failed: ${result.error}` })
       return result
     }
   }
 
-  const result = persistError(reportId, new Error('Investigation failed without returning a result'))
-  callbacks.onActivity({ reportId, type: 'status', label: `Investigation failed: ${result.error}` })
+  const result = persistError(reportId, new Error('Planning failed without returning a result'))
+  callbacks.onActivity({ reportId, type: 'status', label: `Planning failed: ${result.error}` })
   return result
 }
 

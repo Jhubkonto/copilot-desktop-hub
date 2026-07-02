@@ -76,14 +76,15 @@ describe('remote-edit fix staging', () => {
         id, title, description, screenshot_path, log_snapshot, status,
         app_version, platform, os_version, investigation_markdown,
         investigation_confidence, investigation_root_cause, investigation_affected_files,
-        created_at, updated_at
-      ) VALUES (?, ?, ?, NULL, NULL, 'investigated', '0.9.0-test', 'test', 'test', ?, 'high', 'bad constant', ?, 1, 1)`,
+        workspace_root, project_id, created_at, updated_at
+      ) VALUES (?, ?, ?, NULL, NULL, 'investigated', '0.9.0-test', 'test', 'test', ?, 'high', 'bad constant', ?, ?, 'proj-1', 1, 1)`,
     ).run(
       'report-1',
       'Fix me',
       'Synthetic bug',
       '---\nconfidence: high\nroot_cause: bad constant\naffected_files:\n  - "src/example.ts"\n---\nInvestigation',
       '["src/example.ts"]',
+      workspacePath,
     )
   })
 

@@ -78,8 +78,9 @@ export function ChatWindow() {
   const newChat = useAppStore((state) => state.newChat)
   const openSectionPane = useAppStore((state) => state.openSectionPane)
   const openArtifactPanel = useAppStore((state) => state.openArtifactPanel)
-  const setShowRemoteEditPanel = useAppStore((state) => state.setShowRemoteEditPanel)
-  const setPendingRemoteEditReportId = useAppStore((state) => state.setPendingRemoteEditReportId)
+  const setPendingNewRequestDraft = useAppStore((state) => state.setPendingNewRequestDraft)
+  const setPendingCodeChangesProjectId = useAppStore((state) => state.setPendingCodeChangesProjectId)
+  const openEditProject = useAppStore((state) => state.openEditProject)
   const selectConversation = useAppStore((state) => state.selectConversation)
   const setTheme = useAppStore((state) => state.setTheme)
   const logout = useAppStore((state) => state.logout)
@@ -384,27 +385,21 @@ export function ChatWindow() {
     })
   }, [chatProjectId, currentConversation?.title])
 
-  const handleCreateCodeChange = useCallback(async (_messageId: string, content: string) => {
+  const handleCreateCodeChange = useCallback((_messageId: string, content: string) => {
+    const resolvedProjectId = chatProjectId && chatProjectId !== '__none__' ? chatProjectId : null
+    if (!resolvedProjectId) return
     const plainContent = content.replace(/\s+/g, ' ').trim()
-    try {
-      const workspace = await window.api.buildGetWorkspaceInfo()
-      const result = await window.api.captureErrorReport({
-        title: plainContent.slice(0, 80) || 'Code change from chat',
-        description: content.trim(),
-        includeLog: false,
-        includeScreenshot: false,
-        requestType: 'edit',
-        origin: 'chat',
-        workspaceRoot: workspace.path || null,
-        projectId: chatProjectId && chatProjectId !== '__none__' ? chatProjectId : null,
-      })
-      setPendingRemoteEditReportId(result.reportId)
-      setShowRemoteEditPanel(true)
-      addToast('Code change request created', 'success')
-    } catch (error) {
-      addToast(error instanceof Error ? error.message : 'Failed to create code change request', 'error')
-    }
-  }, [addToast, chatProjectId, setPendingRemoteEditReportId, setShowRemoteEditPanel])
+    setPendingNewRequestDraft({
+      title: plainContent.slice(0, 80) || 'Code change from chat',
+      description: content.trim(),
+      requestType: 'edit',
+      customTypeLabel: '',
+      chatProjectId: resolvedProjectId,
+      conversationTitle: currentConversation?.title ?? null,
+    })
+    setPendingCodeChangesProjectId(resolvedProjectId)
+    openEditProject(resolvedProjectId)
+  }, [chatProjectId, currentConversation?.title, setPendingNewRequestDraft, setPendingCodeChangesProjectId, openEditProject])
 
   const handleConfirmArtifactPromotion = useCallback(async () => {
     if (!conversationId || !artifactPromotion) return
@@ -1649,6 +1644,7 @@ export function ChatWindow() {
           onSaveToWiki={chatProjectId && chatProjectId !== '__none__' ? handleSaveToWiki : undefined}
           onPromoteArtifact={handleOpenArtifactPromotion}
           onCreateCodeChange={(messageId, content) => void handleCreateCodeChange(messageId, content)}
+          canCreateCodeChange={Boolean(chatProjectId && chatProjectId !== '__none__')}
           wikiMessageIds={wikiMessageIds}
           onRegenerate={chat.handleRegenerate}
           onEdit={handleEditMessage}

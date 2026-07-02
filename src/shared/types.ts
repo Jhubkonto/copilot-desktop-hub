@@ -218,7 +218,7 @@ export interface ProjectWorkspaceMetadata {
 export type ProjectEditSource = 'chat-tool' | 'remote-edit' | 'self-heal' | 'manual-apply' | 'code-changes'
 export type ProjectTouchedFileStatus = 'modified' | 'created' | 'deleted'
 
-export type CodeChangeRequestType = 'edit' | 'refactor' | 'bugfix' | 'investigation'
+export type CodeChangeRequestType = 'edit' | 'refactor' | 'bugfix' | 'feature' | 'investigation' | 'custom'
 export type CodeChangeRequestOrigin = 'chat' | 'android' | 'manual' | 'build-failure' | 'legacy-bug-report'
 export type CodeChangeRequestPhase =
   | 'draft'
@@ -246,6 +246,7 @@ export interface CodeChangeRequest {
   title: string
   description: string
   requestType: CodeChangeRequestType
+  customTypeLabel: string | null
   workspaceRoot: string | null
   projectId: string | null
   origin: CodeChangeRequestOrigin
@@ -369,6 +370,7 @@ export interface ErrorReportCaptureInput {
   includeLog?: boolean
   screenshotDataUrl?: string | null
   requestType?: CodeChangeRequestType
+  customTypeLabel?: string | null
   origin?: CodeChangeRequestOrigin
   workspaceRoot?: string | null
   projectId?: string | null
@@ -672,6 +674,7 @@ export interface ErrorReportEntry {
   request_origin?: CodeChangeRequestOrigin | null
   workspace_root?: string | null
   project_id?: string | null
+  custom_type_label?: string | null
 }
 
 // ---------------------------------------------------------------------------

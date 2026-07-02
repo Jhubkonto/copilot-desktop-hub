@@ -2,6 +2,7 @@ import type {
   CodeChangeRequest,
   CodeChangeRequestOrigin,
   CodeChangeRequestPhase,
+  CodeChangeRequestType,
   CodeChangesWorkspaceBinding,
   ErrorReportEntry,
   ProjectWorkspaceMetadata,
@@ -21,6 +22,7 @@ export function toCodeChangeRequest(
     title: report.title,
     description: report.description,
     requestType: report.request_type ?? (context.origin === 'build-failure' ? 'bugfix' : 'edit'),
+    customTypeLabel: report.custom_type_label ?? null,
     workspaceRoot: report.workspace_root ?? context.workspaceRoot ?? null,
     projectId: report.project_id ?? context.projectId ?? null,
     origin: report.request_origin ?? context.origin ?? 'legacy-bug-report',
@@ -60,13 +62,14 @@ export function deriveCodeChangePhase(
   if (report.fix_status === 'applying') return 'ready-to-apply'
   if (report.fix_status === 'staged') return 'patch-ready'
   if (report.fix_status === 'staging' || report.status === 'investigated') return 'patch-ready'
+  if (report.status === 'open' && report.investigation_root_cause === 'investigation_failed') return 'draft'
   if (report.status === 'investigating' || report.investigation_markdown) return 'investigating'
   return 'draft'
 }
 
 export const CODE_CHANGE_PHASE_LABELS: Record<CodeChangeRequestPhase, string> = {
   draft: 'Draft',
-  investigating: 'Investigating',
+  investigating: 'Planning',
   'patch-ready': 'Patch ready',
   'ready-to-apply': 'Ready to apply',
   applied: 'Applied',
@@ -76,9 +79,34 @@ export const CODE_CHANGE_PHASE_LABELS: Record<CodeChangeRequestPhase, string> = 
   'needs-attention': 'Needs attention',
 }
 
+export const CODE_CHANGE_REQUEST_TYPE_LABELS: Record<CodeChangeRequestType, string> = {
+  edit: 'Edit',
+  refactor: 'Refactor',
+  bugfix: 'Bug fix',
+  feature: 'Feature',
+  investigation: 'Investigation',
+  custom: 'Custom',
+}
+
+export function codeChangeRequestTypeLabel(
+  requestType: CodeChangeRequestType,
+  customTypeLabel: string | null,
+): string {
+  if (requestType === 'custom' && customTypeLabel) return customTypeLabel
+  return CODE_CHANGE_REQUEST_TYPE_LABELS[requestType]
+}
+
+export function hasWorkspaceMismatch(
+  requestWorkspaceRoot: string | null,
+  currentWorkspaceRoot: string | null,
+): boolean {
+  if (!requestWorkspaceRoot || !currentWorkspaceRoot) return false
+  return requestWorkspaceRoot !== currentWorkspaceRoot
+}
+
 export const CODE_CHANGE_PHASE_GUIDANCE: Record<CodeChangeRequestPhase, string> = {
-  draft: 'Run an investigation to identify the files and approach.',
-  investigating: 'Review the investigation before generating a patch.',
+  draft: 'Plan the files and approach for this change.',
+  investigating: 'Review the plan before generating a patch.',
   'patch-ready': 'Review every staged file before applying changes.',
   'ready-to-apply': 'Apply the reviewed patch to the connected workspace.',
   applied: 'Run verification against the changed workspace.',

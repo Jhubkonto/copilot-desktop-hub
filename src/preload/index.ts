@@ -98,12 +98,13 @@ const api = {
   captureErrorReport: (input: ErrorReportCaptureInput) => typedInvoke('error-report:capture', input),
   deleteErrorReport: (id: string) => typedInvoke('error-report:delete', id),
   getErrorReport: (id: string) => typedInvoke('error-report:get', id),
-  listErrorReports: (limit?: number) => typedInvoke('error-report:list', limit),
+  listErrorReports: (limit?: number, projectId?: string) => typedInvoke('error-report:list', limit, projectId),
   getInvestigationSettings: () => typedInvoke('remote-edit:get-investigation-settings'),
   setInvestigationSettings: (input: RemoteEditInvestigationSettings) => typedInvoke('remote-edit:set-investigation-settings', input),
   setRemoteEditReportStatus: (reportId: string, status: 'open' | 'investigating' | 'investigated' | 'fixed' | 'rejected') =>
     typedInvoke('remote-edit:set-report-status', reportId, status),
-  startInvestigation: (reportId: string) => typedInvoke('remote-edit:start-investigation', reportId),
+  startInvestigation: (reportId: string, revisionNotes?: string) =>
+    typedInvoke('remote-edit:start-investigation', reportId, revisionNotes),
   onInvestigationActivity: (callback: (activity: RemoteEditInvestigationActivity) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, activity: RemoteEditInvestigationActivity) => callback(activity)
     typedOn('remote-edit:investigation-activity', handler)

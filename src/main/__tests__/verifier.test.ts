@@ -18,7 +18,7 @@ vi.mock('../ws-server', () => ({
 }))
 
 vi.mock('../remote-edit/investigator', () => ({
-  getWorkspacePath: () => workspacePath.value,
+  getWorkspacePathForReport: () => workspacePath.value,
   loadInvestigationSettings: () => ({
     backend: 'byok',
     model: 'gpt-5-mini',

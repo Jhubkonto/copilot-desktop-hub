@@ -6,13 +6,15 @@ import { GeneralTab } from './project-settings/GeneralTab'
 import { ScopeTab } from './project-settings/ScopeTab'
 import { MilestonesTab } from './project-settings/MilestonesTab'
 import { TeamTab } from './project-settings/TeamTab'
+import { WorkflowTab } from './project-settings/WorkflowTab'
 import { DraftTeamPicker } from './project-settings/DraftTeamPicker'
 import { WikiTab } from './project-settings/WikiTab'
 import { ProjectArtifactsTab } from './project-settings/ProjectArtifactsTab'
 import { AuditTab } from './project-settings/AuditTab'
+import { ProjectCodeChangesTab } from './project-settings/ProjectCodeChangesTab'
 import { SaveStatus, type SaveState } from './ui/primitives'
 
-type TabId = 'general' | 'scope' | 'milestones' | 'team' | 'changes' | 'wiki' | 'artifacts'
+type TabId = 'general' | 'scope' | 'milestones' | 'team' | 'workflow' | 'changes' | 'code-changes' | 'wiki' | 'artifacts'
 
 interface EditProps {
   projectId: string
@@ -409,7 +411,7 @@ export function ProjectSettingsPanel(props: Props) {
 
       {/* Tab bar */}
       <div className="flex items-center gap-0.5 px-3 pt-2 pb-0 flex-wrap" role="tablist">
-        {(['general', 'scope', 'milestones', 'team', ...(!isDraft ? ['changes', 'wiki', 'artifacts'] : [])] as TabId[]).map((tab) => (
+        {(['general', 'scope', 'milestones', 'team', ...(!isDraft ? ['workflow', 'changes', 'code-changes', 'wiki', 'artifacts'] : [])] as TabId[]).map((tab) => (
           <button
             key={tab}
             type="button"
@@ -430,8 +432,12 @@ export function ProjectSettingsPanel(props: Props) {
                 ? 'Scope'
                 : tab === 'team'
                   ? 'Team'
+                  : tab === 'workflow'
+                    ? 'Workflow'
                   : tab === 'changes'
                     ? 'Changes'
+                  : tab === 'code-changes'
+                    ? 'Code Changes'
                   : tab === 'wiki'
                     ? 'Wiki'
                     : tab === 'artifacts'
@@ -513,6 +519,14 @@ export function ProjectSettingsPanel(props: Props) {
           <AuditTab projectId={projectId} workspaceInfo={projectConfig.workspaceInfo} />
         )}
 
+        {activeTab === 'code-changes' && !isDraft && projectId && (
+          <ProjectCodeChangesTab
+            projectId={projectId}
+            projectConfig={projectConfig}
+            onGoToGeneralTab={() => setActiveTab('general')}
+          />
+        )}
+
         {activeTab === 'team' && isDraft && (
           <DraftTeamPicker
             agents={agents}
@@ -525,7 +539,6 @@ export function ProjectSettingsPanel(props: Props) {
 
         {activeTab === 'team' && !isDraft && projectId && (
           <TeamTab
-            projectId={projectId}
             agents={agents}
             members={members}
             projectConfig={projectConfig}
@@ -540,6 +553,15 @@ export function ProjectSettingsPanel(props: Props) {
             onSetPrimaryAgent={(agentId) => setProjectPrimaryAgent(projectId, agentId)}
             onReorderAgents={(orderedIds) => reorderProjectAgents(projectId, orderedIds)}
             onUpdateOrchestration={(partial) => updateProjectOrchestration(projectId, partial)}
+            onGoToWorkflowTab={() => setActiveTab('workflow')}
+          />
+        )}
+
+        {activeTab === 'workflow' && !isDraft && projectId && (
+          <WorkflowTab
+            projectId={projectId}
+            members={members}
+            projectConfig={projectConfig}
             onStartWorkflowStep={handleStartWorkflowStep}
             onToast={addToast}
           />

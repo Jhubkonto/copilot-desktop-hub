@@ -56,6 +56,15 @@ describe('code changes compatibility model', () => {
     expect(deriveCodeChangePhase(report(), null, true)).toBe('committed')
   })
 
+  it('reverts to draft after a failed plan, even though investigation_markdown is populated with the failure doc', () => {
+    const failed = report({
+      status: 'open',
+      investigation_markdown: '# Planning failed\n\nNo provider configured.',
+      investigation_root_cause: 'investigation_failed',
+    })
+    expect(deriveCodeChangePhase(failed, null, false)).toBe('draft')
+  })
+
   it('prefers persisted request metadata over compatibility defaults', () => {
     const request = toCodeChangeRequest(report({
       request_type: 'investigation',
@@ -69,6 +78,18 @@ describe('code changes compatibility model', () => {
       origin: 'android',
       workspaceRoot: '/repo',
       projectId: 'project-1',
+    })
+  })
+
+  it('maps custom request type and its free-text label', () => {
+    const request = toCodeChangeRequest(report({
+      request_type: 'custom',
+      custom_type_label: 'Data migration',
+    }))
+
+    expect(request).toMatchObject({
+      requestType: 'custom',
+      customTypeLabel: 'Data migration',
     })
   })
 

@@ -91,8 +91,11 @@ describe('remote-edit investigator', () => {
       affectedFiles: ['src/main/database.ts'],
     }))
     expect(chunks.join('')).toContain('# Summary')
+    // status stays 'investigating' — a completed plan still needs an explicit human Accept
+    // (remote-edit:set-report-status) before it's treated as approved and a patch can be
+    // generated from it. It does not auto-advance to 'investigated'.
     expect(row).toEqual(expect.objectContaining({
-      status: 'investigated',
+      status: 'investigating',
       investigation_root_cause: 'missing guard',
     }))
     expect(String(row.investigation_markdown)).toContain('confidence: high')
@@ -270,6 +273,67 @@ describe('remote-edit investigator', () => {
     expect(systemMessage?.content).toContain('must contain ONLY the three keys confidence, root_cause, and affected_files')
     expect(systemMessage?.content).toContain('Never guess a file path for read_file')
     expect(systemMessage?.content).toContain('is not evidence of anything about the bug')
+  })
+
+  it('includes revision notes in the prompt when revising a plan', async () => {
+    sendProviderWithToolsMock.mockResolvedValue({
+      content: ['---', 'confidence: high', 'root_cause: x', 'affected_files: []', '---', '', '# Summary'].join('\n'),
+      toolCalls: [],
+      model: 'gpt-5-mini',
+    })
+    const { runInvestigation } = await import('../remote-edit/investigator')
+    await runInvestigation(
+      { isDestroyed: () => false, webContents: { isDestroyed: () => false, send: vi.fn() } } as never,
+      'report-1',
+      { onChunk: vi.fn(), onActivity: vi.fn() },
+      'Look in src/android instead of the desktop code',
+    )
+    const messages = sendProviderWithToolsMock.mock.calls[0][3] as { role: string; content: string }[]
+    const userMessage = messages.find((m) => m.role === 'user')
+    expect(userMessage?.content).toContain('The previous plan was reviewed and needs revision')
+    expect(userMessage?.content).toContain('Look in src/android instead of the desktop code')
+  })
+
+  it('does not mention revision guidance in the prompt for a fresh plan', async () => {
+    sendProviderWithToolsMock.mockResolvedValue({
+      content: ['---', 'confidence: high', 'root_cause: x', 'affected_files: []', '---', '', '# Summary'].join('\n'),
+      toolCalls: [],
+      model: 'gpt-5-mini',
+    })
+    const { runInvestigation } = await import('../remote-edit/investigator')
+    await runInvestigation(
+      { isDestroyed: () => false, webContents: { isDestroyed: () => false, send: vi.fn() } } as never,
+      'report-1',
+      { onChunk: vi.fn(), onActivity: vi.fn() },
+    )
+    const messages = sendProviderWithToolsMock.mock.calls[0][3] as { role: string; content: string }[]
+    const userMessage = messages.find((m) => m.role === 'user')
+    expect(userMessage?.content).not.toContain('previous plan was reviewed')
+  })
+
+  it('uses plan-this-change language instead of bug-diagnosis language for a non-bugfix request type', async () => {
+    db.prepare("UPDATE error_reports SET request_type = 'refactor' WHERE id = 'report-1'").run()
+    sendProviderWithToolsMock.mockResolvedValue({
+      content: ['---', 'confidence: high', 'root_cause: x', 'affected_files: []', '---', '', '# Summary'].join('\n'),
+      toolCalls: [],
+      model: 'gpt-5-mini',
+    })
+    const { runInvestigation } = await import('../remote-edit/investigator')
+    await runInvestigation(
+      { isDestroyed: () => false, webContents: { isDestroyed: () => false, send: vi.fn() } } as never,
+      'report-1',
+      { onChunk: vi.fn(), onActivity: vi.fn() },
+    )
+    const messages = sendProviderWithToolsMock.mock.calls[0][3] as { role: string; content: string }[]
+    const systemMessage = messages.find((m) => m.role === 'system')
+    const userMessage = messages.find((m) => m.role === 'user')
+    expect(systemMessage?.content).toContain('Plan this change request')
+    expect(systemMessage?.content).not.toContain('Investigate the captured bug')
+    expect(systemMessage?.content).not.toContain('is not evidence of anything about the bug')
+    expect(systemMessage?.content).toContain('confidence, root_cause, and affected_files')
+    expect(userMessage?.content).toContain('Plan this change request.')
+    expect(userMessage?.content).not.toContain('Investigate this bug report.')
+    expect(userMessage?.content).toContain('a one-sentence summary of the planned approach')
   })
 
   it('falls back to prompted tool-calling when the provider rejects native tool use, completing a multi-turn investigation', async () => {

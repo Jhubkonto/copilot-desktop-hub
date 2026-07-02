@@ -6,11 +6,20 @@ import type {
   Toast,
   ToolApprovalRequest
 } from '../types'
-import type { AvailableModelGroup, CatalogModel } from '../../../shared/types'
+import type { AvailableModelGroup, CatalogModel, CodeChangeRequestType } from '../../../shared/types'
 
 export interface BugReportDraft {
   title?: string
   description?: string
+}
+
+export interface PendingNewRequestDraft {
+  title: string
+  description: string
+  requestType: CodeChangeRequestType
+  customTypeLabel: string
+  chatProjectId: string | null
+  conversationTitle: string | null
 }
 
 export interface UiSlice {
@@ -19,8 +28,9 @@ export interface UiSlice {
   showMcpPanel: boolean
   showSettings: boolean
   showOnboarding: boolean
-  showRemoteEditPanel: boolean
   pendingRemoteEditReportId: string | null
+  pendingNewRequestDraft: PendingNewRequestDraft | null
+  pendingCodeChangesProjectId: string | null
   pendingArtifactGeneration: { title: string; kind: string; startedAt: number } | null
   pendingArtifactAttach: { artifactId: string; versionId?: string } | null
   bugReportDraft: BugReportDraft | null
@@ -47,8 +57,9 @@ export interface UiSlice {
   toggleAgentPanel: () => void
   setShowMcpPanel: (show: boolean) => void
   setShowSettings: (show: boolean) => void
-  setShowRemoteEditPanel: (show: boolean) => void
   setPendingRemoteEditReportId: (reportId: string | null) => void
+  setPendingNewRequestDraft: (draft: PendingNewRequestDraft | null) => void
+  setPendingCodeChangesProjectId: (projectId: string | null) => void
   setPendingArtifactGeneration: (v: { title: string; kind: string; startedAt: number } | null) => void
   requestArtifactAttach: (artifactId: string, versionId?: string) => void
   clearPendingArtifactAttach: () => void
@@ -99,8 +110,9 @@ export const createUiSlice: StateCreator<
   showSettings: false,
   settingsInitialTab: null,
   showOnboarding: false,
-  showRemoteEditPanel: false,
   pendingRemoteEditReportId: null,
+  pendingNewRequestDraft: null,
+  pendingCodeChangesProjectId: null,
   pendingArtifactGeneration: null,
   pendingArtifactAttach: null,
   bugReportDraft: null,
@@ -192,15 +204,21 @@ export const createUiSlice: StateCreator<
     })
   },
 
-  setShowRemoteEditPanel: (show) => {
-    set((s) => {
-      s.showRemoteEditPanel = show
-    })
-  },
-
   setPendingRemoteEditReportId: (reportId) => {
     set((s) => {
       s.pendingRemoteEditReportId = reportId
+    })
+  },
+
+  setPendingNewRequestDraft: (draft) => {
+    set((s) => {
+      s.pendingNewRequestDraft = draft
+    })
+  },
+
+  setPendingCodeChangesProjectId: (projectId) => {
+    set((s) => {
+      s.pendingCodeChangesProjectId = projectId
     })
   },
 

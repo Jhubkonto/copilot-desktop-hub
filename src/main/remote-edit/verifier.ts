@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto'
 import type { BrowserWindow } from 'electron'
 import { getDatabase } from '../database'
 import { broadcastToMobile } from '../ws-server'
-import { getWorkspacePath, loadInvestigationSettings } from './investigator'
+import { getWorkspacePathForReport, loadInvestigationSettings } from './investigator'
 import type {
   RemoteEditVerificationCommand,
   RemoteEditVerificationDone,
@@ -124,7 +124,7 @@ export async function runVerification(
   initialRunId?: string,
   reinvestigate?: () => Promise<void>,
 ): Promise<RemoteEditVerificationDone> {
-  const workspacePath = getWorkspacePath()
+  const workspacePath = getWorkspacePathForReport(reportId)
   const settings = loadInvestigationSettings()
   const maxRetries = settings.retryLimit
   let finalRun: RemoteEditVerificationRun | null = null

@@ -6,7 +6,7 @@ import { app, type BrowserWindow } from 'electron'
 import { getDatabase } from '../database'
 import { safeHandle } from '../safe-handle'
 import { broadcastToMobile } from '../ws-server'
-import { getWorkspacePath, resolveInsideWorkspace } from './investigator'
+import { getWorkspacePathForReport, resolveInsideWorkspace } from './investigator'
 import { getRemoteEditGitStatus } from './git-ops'
 import { updateHistoryEntry } from './history'
 import type {
@@ -30,16 +30,9 @@ function readReport(reportId: string): ErrorReportEntry | null {
     .get(reportId) as ErrorReportEntry | undefined ?? null
 }
 
-function latestVerificationPassed(reportId: string): boolean {
-  const row = getDatabase()
-    .prepare('SELECT status FROM remote_edit_verification_runs WHERE report_id = ? ORDER BY started_at DESC LIMIT 1')
-    .get(reportId) as { status: string } | undefined
-  return row?.status === 'success'
-}
-
-function readWorkspaceVersion(): string | null {
+function readWorkspaceVersion(reportId: string): string | null {
   try {
-    const pkgPath = path.join(getWorkspacePath(), 'package.json')
+    const pkgPath = path.join(getWorkspacePathForReport(reportId), 'package.json')
     if (!existsSync(pkgPath)) return null
     const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: string }
     return typeof pkg.version === 'string' ? pkg.version : null
@@ -127,7 +120,7 @@ export async function prepareReload(reportId: string): Promise<RemoteEditReloadP
     relativePath: file.relativePath,
     backupPath: file.backupPath ?? null,
   }))
-  const targetVersion = readWorkspaceVersion()
+  const targetVersion = readWorkspaceVersion(reportId)
   const preReloadState: RemoteEditRecoveryPreReloadState = {
     branch: gitStatus.branch,
     commitSha: gitStatus.commitSha,
@@ -135,12 +128,16 @@ export async function prepareReload(reportId: string): Promise<RemoteEditReloadP
     version: targetVersion,
   }
 
+  // Only requires the patch to have been applied and a backup manifest to exist — this is what
+  // the "Undo this change" file-restore path actually needs. Verification-passed / clean-git-repo
+  // requirements were carried over from the original self-heal reload/relaunch flow (see
+  // startReload()/approveRelaunch(), which have no UI entry point in Code Changes), where they
+  // made sense as pre-relaunch safety checks; they don't apply to a pure file restore, and
+  // enforcing them here previously left "Undo this change" unreachable whenever verification
+  // had failed — exactly the situation the undo action exists to recover from.
   let reason: string | undefined
   if (!report) reason = 'Report was not found'
-  else if (report.fix_status !== 'applied') reason = 'Fix must be applied before reload preparation'
-  else if (!latestVerificationPassed(reportId)) reason = 'Verification must pass before reload preparation'
-  else if (!gitStatus.isRepo) reason = gitStatus.error ?? 'Workspace is not a git repository'
-  else if (gitStatus.dirty) reason = 'Workspace must be clean after committing the fix'
+  else if (report.fix_status !== 'applied') reason = 'Fix must be applied before it can be undone'
   else if (backupManifest.length === 0) reason = 'No backup manifest is available for rollback'
 
   if (reason) {
@@ -176,7 +173,7 @@ function insertReloadBuildRecord(run: RemoteEditRecoveryRun): string {
     )
     .run(
       buildId,
-      getWorkspacePath(),
+      getWorkspacePathForReport(run.reportId),
       run.targetCommitSha,
       run.preReloadState.branch,
       run.targetVersion,
@@ -219,7 +216,7 @@ export async function startReload(
     status: 'reloading',
   })
 
-  const workspacePath = getWorkspacePath()
+  const workspacePath = getWorkspacePathForReport(run.reportId)
   const child = spawn('npm', ['run', 'package'], { cwd: workspacePath, shell: true })
   const logLines: string[] = []
 
@@ -318,13 +315,13 @@ export async function rollbackHeal(
 ): Promise<{ rolledBack: boolean; error?: string }> {
   const run = getRecoveryRun(recoveryId)
   if (!run) return { rolledBack: false, error: 'Recovery run not found' }
-  if (!['reloading', 'confirmed', 'rollback-required'].includes(run.status)) {
+  if (!['prepared', 'reloading', 'confirmed', 'rollback-required'].includes(run.status)) {
     return { rolledBack: false, error: 'Nothing to roll back' }
   }
 
-  const workspacePath = getWorkspacePath()
+  const workspacePath = getWorkspacePathForReport(run.reportId)
   const pending = updateRecoveryStatus(run, 'rollback-required')
-  emit?.({ reportId: run.reportId, recoveryId, type: 'rollback', label: 'Rolling back to pre-heal state', status: 'rollback-required' })
+  emit?.({ reportId: run.reportId, recoveryId, type: 'rollback', label: 'Restoring files to their state before this change was applied', status: 'rollback-required' })
 
   try {
     for (const entry of run.backupManifest) {
