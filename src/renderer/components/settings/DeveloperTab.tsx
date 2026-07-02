@@ -296,6 +296,7 @@ export function DeveloperTab({
   androidPublishResult, androidUpdateManifest, androidPublishHistory, androidRestoring,
   onAndroidPublishUpdate, onAndroidRestoreVersion,
   remoteEditReportingBuildId, desktopPackagingBlocked, onFixBuildWithRemoteEdit,
+  debugLogging, onToggleDebugLogging,
 }: Props) {
   const [developerTab, setDeveloperTab] = useState<DeveloperInnerTab>('desktop')
 
@@ -976,6 +977,20 @@ export function DeveloperTab({
       ================================================================ */}
       {developerTab === 'console' && (
         <div className="space-y-3">
+          <div className="flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+            <div>
+              <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Debug logging</p>
+              <p className="text-xs text-gray-500 mt-0.5">Enable verbose developer diagnostics in terminal, log file, and console panel.</p>
+            </div>
+            <button
+              onClick={onToggleDebugLogging}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${debugLogging ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'}`}
+              aria-pressed={debugLogging}
+              aria-label="Toggle debug logging"
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${debugLogging ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
+          </div>
           <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
             <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
               <div>
