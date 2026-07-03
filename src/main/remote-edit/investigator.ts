@@ -189,14 +189,18 @@ function buildPrompt(report: ErrorReportEntry, workspacePath: string, revisionNo
 
   const subject = isBugfix ? 'bug' : 'change request'
   const taskVerb = isBugfix ? 'Investigate the captured bug' : 'Plan this change request'
+  // "Evidence" fits a bug investigation (verbatim log/tool-result quotes proving a root cause) but
+  // reads oddly for a plain change request, where the same section is really "what I found while
+  // looking at the codebase" rather than proof of a bug.
+  const evidenceSectionLabel = isBugfix ? 'Evidence' : 'Findings'
   const rootCauseInstruction = isBugfix
     ? 'Ground every claim in the original log snapshot you were given and in the actual results returned by your tool calls, including failed ones. ' +
       'Never invent files, error messages, stack traces, or other evidence that does not appear in the log snapshot or in a tool result you actually received. ' +
-      'Every item in the Evidence section must include a short verbatim quote from the log snapshot or a tool result, copied exactly — if you cannot quote the exact source text an item is based on, do not include that item. ' +
+      `Every item in the ${evidenceSectionLabel} section must include a short verbatim quote from the log snapshot or a tool result, copied exactly — if you cannot quote the exact source text an item is based on, do not include that item. ` +
       'Do not report errors, timestamps, or symptoms from outside this specific bug report — for example, do not describe unrelated runtime/console errors unless they appear verbatim in this report\'s log snapshot or tool results. '
     : 'Ground every claim in the actual results returned by your tool calls, including failed ones — read the relevant files and directory structure before proposing a plan. ' +
       'Never invent files, functions, or code that does not appear in a tool result you actually received. ' +
-      'Every item in the Evidence section must include a short verbatim quote from a tool result (e.g. a snippet of the file you read), copied exactly — if you cannot quote the exact source text an item is based on, do not include that item. '
+      `Every item in the ${evidenceSectionLabel} section must include a short verbatim quote from a tool result (e.g. a snippet of the file you read), copied exactly — if you cannot quote the exact source text an item is based on, do not include that item. `
   // The YAML key the model is asked to emit differs by request type — root_cause implies
   // something is broken, which is misleading for a plain change request — but both keys are
   // parsed into the same internal rootCause field / investigation_root_cause column (see
@@ -205,6 +209,8 @@ function buildPrompt(report: ErrorReportEntry, workspacePath: string, revisionNo
   const rootCauseFieldDescription = isBugfix
     ? 'a one-sentence root cause'
     : 'a one-sentence summary of the planned approach'
+  const confidenceFieldDescription = 'a whole number from 0 to 100 (no % sign, no words) reflecting how confident you are in this ' +
+    (isBugfix ? 'root cause' : 'plan')
   const reportOrPlanNoun = isBugfix ? 'report' : 'plan'
   const reportNoun = isBugfix ? 'investigation report' : reportOrPlanNoun
   const lastSectionLabel = isBugfix ? 'Recommended Next Steps' : 'Plan'
@@ -225,7 +231,8 @@ function buildPrompt(report: ErrorReportEntry, workspacePath: string, revisionNo
         'Only list a path under affected_files if a read_file or grep call on that exact path actually succeeded — never list a path solely because it seems plausible. ' +
         'Your response must begin with exactly one YAML front matter block delimited by --- lines, appearing once, at the very start of the response, before any other text — do not duplicate it later and do not also restate it inside a fenced ```yaml block. ' +
         `The front matter block must contain ONLY the three keys confidence, ${rootCauseField}, and affected_files — nothing else. ` +
-        `Summary, Evidence, and ${lastSectionLabel} are Markdown sections that come AFTER the closing --- of the front matter, each as a "## Heading" followed by prose or a bullet list — never as additional YAML keys inside the front matter block.`,
+        `confidence must be ${confidenceFieldDescription}. ` +
+        `Summary, ${evidenceSectionLabel}, and ${lastSectionLabel} are Markdown sections that come AFTER the closing --- of the front matter, each as a "## Heading" followed by prose or a bullet list — never as additional YAML keys inside the front matter block.`,
     },
     {
       role: 'user',
@@ -235,8 +242,8 @@ function buildPrompt(report: ErrorReportEntry, workspacePath: string, revisionNo
         `Title: ${report.title}\n` +
         `Description:\n${report.description || '(none)'}\n\n` +
         `Log snapshot:\n${logExcerpt}\n${revisionSection}\n` +
-        `Required YAML front matter keys: confidence, ${rootCauseField} (${rootCauseFieldDescription}), affected_files. ` +
-        `Then include sections: Summary, Evidence, ${lastSectionInstruction}.`,
+        `Required YAML front matter keys: confidence (${confidenceFieldDescription}), ${rootCauseField} (${rootCauseFieldDescription}), affected_files. ` +
+        `Then include sections: Summary, ${evidenceSectionLabel}, ${lastSectionInstruction}.`,
     },
   ]
 }
@@ -441,9 +448,15 @@ export async function runInvestigation(
   const settings = loadInvestigationSettings()
   const workspacePath = getWorkspacePathForReport(reportId)
   const startedAt = Date.now()
-  getDatabase()
-    .prepare("UPDATE error_reports SET status = 'investigating', investigation_started_at = ?, updated_at = ? WHERE id = ?")
-    .run(startedAt, startedAt, reportId)
+  if (revisionNotes?.trim()) {
+    getDatabase()
+      .prepare("UPDATE error_reports SET status = 'investigating', investigation_started_at = ?, investigation_revision_notes = ?, updated_at = ? WHERE id = ?")
+      .run(startedAt, revisionNotes.trim(), startedAt, reportId)
+  } else {
+    getDatabase()
+      .prepare("UPDATE error_reports SET status = 'investigating', investigation_started_at = ?, updated_at = ? WHERE id = ?")
+      .run(startedAt, startedAt, reportId)
+  }
 
   const activity = (label: string, toolName?: string) => {
     callbacks.onActivity({ reportId, type: toolName ? 'tool' : 'status', label, toolName })
@@ -570,6 +583,16 @@ export async function runInvestigation(
   return result
 }
 
+// The Android client's WsEventParser only recognizes the "self-heal:*" event names (its original
+// naming, from before this was renamed to "Code Changes" on desktop) — broadcasting under
+// "remote-edit:*" here silently drops the update on mobile. Desktop's webContents.send still uses
+// the "remote-edit:*" channel param as-is; only the mobile broadcast needs translating.
+const MOBILE_EVENT_NAMES: Record<string, string> = {
+  'remote-edit:investigation-activity': 'self-heal:investigation-activity',
+  'remote-edit:investigation-chunk': 'self-heal:investigation-chunk',
+  'remote-edit:investigation-done': 'self-heal:investigation-done',
+}
+
 export function emitInvestigationEvent(
   win: BrowserWindow | undefined,
   channel: 'remote-edit:investigation-activity' | 'remote-edit:investigation-chunk' | 'remote-edit:investigation-done',
@@ -578,5 +601,5 @@ export function emitInvestigationEvent(
   if (win && !win.isDestroyed()) {
     win.webContents.send(channel, payload)
   }
-  broadcastToMobile({ event: channel, data: payload })
+  broadcastToMobile({ event: MOBILE_EVENT_NAMES[channel], data: payload })
 }

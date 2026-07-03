@@ -107,6 +107,14 @@ function runNpmScript(
   })
 }
 
+// See the matching comment on emitInvestigationEvent in investigator.ts — the Android client only
+// recognizes "self-heal:*" event names, so the mobile broadcast needs translating from the
+// "remote-edit:*" channel param used for desktop's webContents.send.
+const MOBILE_EVENT_NAMES: Record<string, string> = {
+  'remote-edit:verification-event': 'self-heal:verification-event',
+  'remote-edit:verification-done': 'self-heal:verification-done',
+}
+
 export function emitVerificationEvent(
   win: BrowserWindow | undefined,
   channel: 'remote-edit:verification-event' | 'remote-edit:verification-done',
@@ -115,7 +123,7 @@ export function emitVerificationEvent(
   if (win && !win.isDestroyed()) {
     win.webContents.send(channel, payload)
   }
-  broadcastToMobile({ event: channel, data: payload })
+  broadcastToMobile({ event: MOBILE_EVENT_NAMES[channel], data: payload })
 }
 
 export async function runVerification(

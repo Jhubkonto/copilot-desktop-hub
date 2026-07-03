@@ -16,7 +16,7 @@ import pathModule from 'path'
 import { networkInterfaces } from 'os'
 import { startFeedServer, getFeedLanUrl } from './local-feed-server'
 import { createErrorReport, rowToErrorReport, deleteErrorReport } from './error-report-handlers'
-import { applyStagedPatchToWorkspace } from './remote-edit-handlers'
+import { applyStagedPatchToWorkspace, computeActiveCodeChangesByProject } from './remote-edit-handlers'
 import { listHistory } from './remote-edit/history'
 import {
   emitInvestigationEvent,
@@ -276,6 +276,11 @@ export function registerWsHandlers(): void {
       return
     }
 
+    if (command === 'self-heal:get-active-code-changes') {
+      reply({ event: 'self-heal:active-code-changes-changed', data: computeActiveCodeChangesByProject() })
+      return
+    }
+
     if (command === 'self-heal:set-report-status') {
       const reportId = typeof data.reportId === 'string' ? data.reportId : ''
       const status = typeof data.status === 'string' ? data.status : ''
@@ -313,15 +318,12 @@ export function registerWsHandlers(): void {
       debugLog('ws', `self-heal:start-investigation reportId=${reportId}`)
       void runInvestigation(win, reportId, {
         onChunk: (chunk) => {
-          broadcastToMobile({ event: 'self-heal:investigation-chunk', data: { reportId, chunk } })
           emitInvestigationEvent(win, 'remote-edit:investigation-chunk', { reportId, chunk })
         },
         onActivity: (activity) => {
-          broadcastToMobile({ event: 'self-heal:investigation-activity', data: activity })
           emitInvestigationEvent(win, 'remote-edit:investigation-activity', activity)
         },
       }, revisionNotes).then((result) => {
-        broadcastToMobile({ event: 'self-heal:investigation-done', data: result })
         emitInvestigationEvent(win, 'remote-edit:investigation-done', result)
       })
       return
@@ -335,11 +337,9 @@ export function registerWsHandlers(): void {
       debugLog('ws', `self-heal:start-fix reportId=${reportId}`)
       void runFix(win, reportId, {
         onEvent: (event) => {
-          broadcastToMobile({ event: 'self-heal:fix-event', data: event })
           emitFixEvent(win, 'remote-edit:fix-event', event)
         },
       }).then((result) => {
-        broadcastToMobile({ event: 'self-heal:fix-done', data: result })
         emitFixEvent(win, 'remote-edit:fix-done', result)
       })
       return
@@ -353,10 +353,8 @@ export function registerWsHandlers(): void {
       const runId = `${reportId}-${Date.now()}`
       debugLog('ws', `self-heal:start-verification reportId=${reportId}`)
       void runVerification(reportId, (event) => {
-        broadcastToMobile({ event: 'self-heal:verification-event', data: event })
         emitVerificationEvent(win, 'remote-edit:verification-event', event)
       }, runId).then((result) => {
-        broadcastToMobile({ event: 'self-heal:verification-done', data: result })
         emitVerificationEvent(win, 'remote-edit:verification-done', result)
       })
       return

@@ -2,15 +2,20 @@ import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initializeBaseSchema, runMigrations } from '../database-migrations'
 
-const { safeHandlers, mockRunInvestigation } = vi.hoisted(() => ({
+const { safeHandlers, mockRunInvestigation, broadcastToMobileMock } = vi.hoisted(() => ({
   safeHandlers: new Map<string, (...args: unknown[]) => unknown>(),
   mockRunInvestigation: vi.fn(),
+  broadcastToMobileMock: vi.fn(),
 }))
 
 vi.mock('../safe-handle', () => ({
   safeHandle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
     safeHandlers.set(channel, handler)
   }),
+}))
+
+vi.mock('../ws-server', () => ({
+  broadcastToMobile: broadcastToMobileMock,
 }))
 
 vi.mock('electron', () => ({
@@ -84,6 +89,7 @@ describe('remote-edit handlers', () => {
     safeHandlers.clear()
     vi.resetModules()
     mockRunInvestigation.mockReset()
+    broadcastToMobileMock.mockReset()
     getRemoteEditAuditDiff.mockReset()
     getRemoteEditAuditDiff.mockReturnValue(null)
     db = createDatabase()
@@ -161,6 +167,53 @@ describe('remote-edit handlers', () => {
       'remote-edit:investigation-done',
       expect.objectContaining({ reportId: 'report-1', status: 'done' }),
     ])
+  })
+
+  it('reports an active investigation under its project and clears it on completion', async () => {
+    db.prepare(
+      `INSERT INTO error_reports (
+        id, title, description, screenshot_path, log_snapshot, status,
+        app_version, platform, os_version, project_id, created_at, updated_at
+      ) VALUES ('report-1', 'Bug', '', NULL, NULL, 'open', NULL, NULL, NULL, 'project-1', 1, 1)`,
+    ).run()
+
+    let resolveInvestigation: (result: unknown) => void = () => {}
+    mockRunInvestigation.mockReturnValue(new Promise((resolve) => { resolveInvestigation = resolve }))
+
+    const sends: Array<[string, unknown]> = []
+    const mainWindow = {
+      isDestroyed: () => false,
+      webContents: { send: (channel: string, payload: unknown) => sends.push([channel, payload]) },
+    }
+    const { registerRemoteEditHandlers } = await import('../remote-edit-handlers')
+    registerRemoteEditHandlers(mainWindow as never)
+
+    await invoke('remote-edit:start-investigation', 'report-1')
+
+    expect(invoke('remote-edit:get-active-code-changes')).toEqual({ 'project-1': 1 })
+    expect(sends).toContainEqual(['remote-edit:active-code-changes-changed', { 'project-1': 1 }])
+    expect(broadcastToMobileMock).toHaveBeenCalledWith({
+      event: 'self-heal:active-code-changes-changed',
+      data: { 'project-1': 1 },
+    })
+
+    resolveInvestigation({
+      reportId: 'report-1',
+      status: 'done',
+      markdown: '---\nconfidence: high\nroot_cause: test\naffected_files: []\n---\nDone',
+      confidence: 'high',
+      rootCause: 'test',
+      affectedFiles: [],
+      completedAt: 1000,
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(invoke('remote-edit:get-active-code-changes')).toEqual({})
+    expect(sends).toContainEqual(['remote-edit:active-code-changes-changed', {}])
+    expect(broadcastToMobileMock).toHaveBeenCalledWith({
+      event: 'self-heal:active-code-changes-changed',
+      data: {},
+    })
   })
 
   it('updates report status for investigation review actions', async () => {

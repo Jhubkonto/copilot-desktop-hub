@@ -26,11 +26,13 @@ import { prepareReload } from './remote-edit/recovery'
 import { sendRemoteEditNotification } from './fcm-sender'
 import { getDatabase } from './database'
 import { getRemoteEditAuditDiff, inferProjectIdForWorkspace, recordProjectAuditChange } from './project-audit'
+import { broadcastToMobile } from './ws-server'
 import type {
   ErrorReportEntry,
   ErrorReportStatus,
   RemoteEditFixDone,
   RemoteEditFixEvent,
+  RemoteEditInvestigationActivity,
   RemoteEditInvestigationSettings,
   RemoteEditStagedFileDiff,
   RemoteEditStagedFileEntry,
@@ -49,6 +51,43 @@ function sendDesktopNotification(title: string, body: string): void {
 const activeInvestigations = new Set<string>()
 const activeFixRuns = new Set<string>()
 const activeVerificationRuns = new Set<string>()
+
+// Live progress for in-flight investigations, keyed by reportId. Lets a renderer that mounts (or
+// remounts, e.g. after navigating away and back) mid-run recover the running state and activity
+// log via remote-edit:get-active-investigation instead of only relying on stream events it may
+// have missed. Cleared once the run finishes (see the .finally() below).
+const investigationProgress = new Map<string, { activity: RemoteEditInvestigationActivity[]; output: string }>()
+
+/**
+ * Tallies active investigation/fix/verification runs per project so the Projects list can show a
+ * running indicator even when Project Settings (where the actual activity/plan UI lives) is
+ * closed — previously there was no visibility into background Code Changes work outside that
+ * one screen.
+ */
+export function computeActiveCodeChangesByProject(): Record<string, number> {
+  const reportIds = new Set<string>([...activeInvestigations, ...activeFixRuns, ...activeVerificationRuns])
+  if (reportIds.size === 0) return {}
+  const placeholders = [...reportIds].map(() => '?').join(', ')
+  const rows = getDatabase()
+    .prepare(`SELECT id, project_id FROM error_reports WHERE id IN (${placeholders})`)
+    .all(...reportIds) as { id: string; project_id: string | null }[]
+  const counts: Record<string, number> = {}
+  for (const row of rows) {
+    if (!row.project_id) continue
+    counts[row.project_id] = (counts[row.project_id] ?? 0) + 1
+  }
+  return counts
+}
+
+function broadcastActiveCodeChangesChanged(mainWindow?: BrowserWindow): void {
+  const counts = computeActiveCodeChangesByProject()
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('remote-edit:active-code-changes-changed', counts)
+  }
+  // Mirrors the self-heal:* naming Android's WsEventParser already recognizes for Code Changes
+  // events (see the matching comment on emitInvestigationEvent in investigator.ts).
+  broadcastToMobile({ event: 'self-heal:active-code-changes-changed', data: counts })
+}
 
 export function applyStagedPatchToWorkspace(
   reportId: string,
@@ -141,17 +180,34 @@ export function registerRemoteEditHandlers(mainWindow?: BrowserWindow): void {
     return getDatabase().prepare('SELECT * FROM error_reports WHERE id = ?').get(reportId) as ErrorReportEntry | null
   })
 
+  safeHandle('remote-edit:get-active-investigation', (_event, reportId: string) => {
+    const progress = investigationProgress.get(reportId)
+    return {
+      running: activeInvestigations.has(reportId),
+      activity: progress?.activity ?? [],
+      output: progress?.output ?? '',
+    }
+  })
+
+  safeHandle('remote-edit:get-active-code-changes', () => computeActiveCodeChangesByProject())
+
   safeHandle('remote-edit:start-investigation', async (_event, reportId: string, revisionNotes?: string) => {
     if (!mainWindow) throw new Error('Main window is not available')
     if (activeInvestigations.has(reportId)) return { reportId }
     activeInvestigations.add(reportId)
+    investigationProgress.set(reportId, { activity: [], output: '' })
+    broadcastActiveCodeChangesChanged(mainWindow)
     getOrCreateHistoryEntry(reportId)
     const settings = loadInvestigationSettings()
     void runInvestigation(mainWindow, reportId, {
       onChunk: (chunk) => {
+        const progress = investigationProgress.get(reportId)
+        if (progress) progress.output += chunk
         emitInvestigationEvent(mainWindow, 'remote-edit:investigation-chunk', { reportId, chunk })
       },
       onActivity: (activity) => {
+        const progress = investigationProgress.get(reportId)
+        if (progress) progress.activity = [...progress.activity.slice(-49), activity]
         emitInvestigationEvent(mainWindow, 'remote-edit:investigation-activity', activity)
       },
     }, revisionNotes)
@@ -171,6 +227,8 @@ export function registerRemoteEditHandlers(mainWindow?: BrowserWindow): void {
       })
       .finally(() => {
         activeInvestigations.delete(reportId)
+        investigationProgress.delete(reportId)
+        broadcastActiveCodeChangesChanged(mainWindow)
       })
     return { reportId }
   })
@@ -179,6 +237,7 @@ export function registerRemoteEditHandlers(mainWindow?: BrowserWindow): void {
     if (!mainWindow) throw new Error('Main window is not available')
     if (activeFixRuns.has(reportId)) return { reportId }
     activeFixRuns.add(reportId)
+    broadcastActiveCodeChangesChanged(mainWindow)
     void runFix(mainWindow, reportId, {
       onEvent: (event: RemoteEditFixEvent) => {
         emitFixEvent(mainWindow, 'remote-edit:fix-event', event)
@@ -209,6 +268,7 @@ export function registerRemoteEditHandlers(mainWindow?: BrowserWindow): void {
       })
       .finally(() => {
         activeFixRuns.delete(reportId)
+        broadcastActiveCodeChangesChanged(mainWindow)
       })
     return { reportId }
   })
@@ -268,6 +328,7 @@ export function registerRemoteEditHandlers(mainWindow?: BrowserWindow): void {
       return { reportId, runId: existing?.id ?? reportId }
     }
     activeVerificationRuns.add(reportId)
+    broadcastActiveCodeChangesChanged(mainWindow)
     const runId = `${reportId}-${Date.now()}`
     void runVerification(reportId, (event: RemoteEditVerificationEvent) => {
       emitVerificationEvent(mainWindow, 'remote-edit:verification-event', event)
@@ -303,6 +364,7 @@ export function registerRemoteEditHandlers(mainWindow?: BrowserWindow): void {
       })
       .finally(() => {
         activeVerificationRuns.delete(reportId)
+        broadcastActiveCodeChangesChanged(mainWindow)
       })
     return { reportId, runId }
   })

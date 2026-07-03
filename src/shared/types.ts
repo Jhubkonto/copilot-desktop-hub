@@ -404,6 +404,12 @@ export interface RemoteEditInvestigationChunk {
   chunk: string
 }
 
+export interface RemoteEditActiveInvestigation {
+  running: boolean
+  activity: RemoteEditInvestigationActivity[]
+  output: string
+}
+
 export interface RemoteEditInvestigationResult {
   reportId: string
   status: 'done' | 'error'
@@ -661,6 +667,7 @@ export interface ErrorReportEntry {
   investigation_confidence: string | null
   investigation_root_cause: string | null
   investigation_affected_files: string
+  investigation_revision_notes: string | null
   investigation_started_at: number | null
   investigation_completed_at: number | null
   fix_status: RemoteEditFixStatus
@@ -1708,6 +1715,9 @@ export type IpcReturnMap = {
   'remote-edit:investigation-activity': void
   'remote-edit:investigation-chunk': void
   'remote-edit:investigation-done': void
+  'remote-edit:get-active-investigation': RemoteEditActiveInvestigation
+  'remote-edit:get-active-code-changes': Record<string, number>
+  'remote-edit:active-code-changes-changed': void
   // Self-heal fix staging
   'remote-edit:start-fix': { reportId: string }
   'remote-edit:commit-to-workspace': { appliedFiles: string[]; backupPaths: string[] } | null
@@ -2085,6 +2095,9 @@ export type IpcChannels =
   | 'remote-edit:investigation-activity'
   | 'remote-edit:investigation-chunk'
   | 'remote-edit:investigation-done'
+  | 'remote-edit:get-active-investigation'
+  | 'remote-edit:get-active-code-changes'
+  | 'remote-edit:active-code-changes-changed'
   | 'remote-edit:start-fix'
   | 'remote-edit:commit-to-workspace'
   | 'remote-edit:revert-staged-file'

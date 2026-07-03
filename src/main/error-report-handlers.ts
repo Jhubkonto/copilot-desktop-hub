@@ -37,6 +37,7 @@ export function rowToErrorReport(row: Record<string, unknown>): ErrorReportEntry
     investigation_confidence: typeof row.investigation_confidence === 'string' ? row.investigation_confidence : null,
     investigation_root_cause: typeof row.investigation_root_cause === 'string' ? row.investigation_root_cause : null,
     investigation_affected_files: typeof row.investigation_affected_files === 'string' ? row.investigation_affected_files : '[]',
+    investigation_revision_notes: typeof row.investigation_revision_notes === 'string' ? row.investigation_revision_notes : null,
     investigation_started_at: typeof row.investigation_started_at === 'number' ? row.investigation_started_at : null,
     investigation_completed_at: typeof row.investigation_completed_at === 'number' ? row.investigation_completed_at : null,
     fix_status: (typeof row.fix_status === 'string' ? row.fix_status : 'none') as ErrorReportEntry['fix_status'],

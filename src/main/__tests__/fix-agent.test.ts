@@ -5,10 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initializeBaseSchema, runMigrations } from '../database-migrations'
 import { DEFAULT_PROJECT_CONFIG } from '../../shared/types'
 
-const { safeHandlers, testRoot, sendProviderWithToolsMock } = vi.hoisted(() => ({
+const { safeHandlers, testRoot, sendProviderWithToolsMock, broadcastToMobileMock } = vi.hoisted(() => ({
   safeHandlers: new Map<string, (...args: unknown[]) => unknown>(),
   testRoot: { value: '.test-remote-edit-fix' },
   sendProviderWithToolsMock: vi.fn(),
+  broadcastToMobileMock: vi.fn(),
 }))
 
 vi.mock('electron', () => ({
@@ -31,7 +32,7 @@ vi.mock('../providers', () => ({
 }))
 
 vi.mock('../ws-server', () => ({
-  broadcastToMobile: vi.fn(),
+  broadcastToMobile: broadcastToMobileMock,
 }))
 
 let db: Database.Database
@@ -62,6 +63,7 @@ describe('remote-edit fix staging', () => {
     safeHandlers.clear()
     vi.resetModules()
     sendProviderWithToolsMock.mockReset()
+    broadcastToMobileMock.mockReset()
     rmSync(testRoot.value, { recursive: true, force: true })
     mkdirSync(path.dirname(sourcePath), { recursive: true })
     writeFileSync(sourcePath, 'export const value = 1\n', 'utf8')
@@ -146,4 +148,23 @@ describe('remote-edit fix staging', () => {
       diff_json: expect.any(String),
     })
   }, 15000)
+})
+
+describe('emitFixEvent', () => {
+  beforeEach(() => {
+    broadcastToMobileMock.mockReset()
+  })
+
+  it('translates the desktop remote-edit:* channel to the self-heal:* name Android recognizes', async () => {
+    const { emitFixEvent } = await import('../remote-edit/fix-agent')
+    const win = { isDestroyed: () => false, webContents: { send: vi.fn() } }
+
+    emitFixEvent(win as never, 'remote-edit:fix-done', { reportId: 'r1', status: 'done' })
+
+    expect(broadcastToMobileMock).toHaveBeenCalledWith({
+      event: 'self-heal:fix-done',
+      data: { reportId: 'r1', status: 'done' },
+    })
+    expect(win.webContents.send).toHaveBeenCalledWith('remote-edit:fix-done', { reportId: 'r1', status: 'done' })
+  })
 })

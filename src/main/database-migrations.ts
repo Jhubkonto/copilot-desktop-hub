@@ -807,6 +807,13 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
       DELETE FROM error_reports;
     `,
   },
+  {
+    // Revision notes typed into "Revise plan" were only ever used to build the one-shot prompt
+    // sent to the model, then discarded — persisting the latest one so the UI can show what
+    // guidance shaped the current plan instead of losing it the moment the revision completes.
+    version: 51,
+    sql: "ALTER TABLE error_reports ADD COLUMN investigation_revision_notes TEXT",
+  },
 ];
 
 
@@ -877,6 +884,7 @@ export function initializeBaseSchema(db: Database.Database): void {
       investigation_confidence TEXT,
       investigation_root_cause TEXT,
       investigation_affected_files TEXT NOT NULL DEFAULT '[]',
+      investigation_revision_notes TEXT,
       investigation_started_at INTEGER,
       investigation_completed_at INTEGER,
       fix_status TEXT NOT NULL DEFAULT 'none',

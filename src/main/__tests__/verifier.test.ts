@@ -3,10 +3,11 @@ import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initializeBaseSchema, runMigrations } from '../database-migrations'
 
-const { spawnMock, workspacePath, retryLimit } = vi.hoisted(() => ({
+const { spawnMock, workspacePath, retryLimit, broadcastToMobileMock } = vi.hoisted(() => ({
   spawnMock: vi.fn(),
   workspacePath: { value: process.cwd() },
   retryLimit: { value: 0 },
+  broadcastToMobileMock: vi.fn(),
 }))
 
 vi.mock('child_process', () => ({
@@ -14,7 +15,7 @@ vi.mock('child_process', () => ({
 }))
 
 vi.mock('../ws-server', () => ({
-  broadcastToMobile: vi.fn(),
+  broadcastToMobile: broadcastToMobileMock,
 }))
 
 vi.mock('../remote-edit/investigator', () => ({
@@ -127,5 +128,24 @@ describe('remote-edit verifier', () => {
     ).toEqual({
       investigation_markdown: expect.stringContaining('## Verification failure context'),
     })
+  })
+})
+
+describe('emitVerificationEvent', () => {
+  beforeEach(() => {
+    broadcastToMobileMock.mockReset()
+  })
+
+  it('translates the desktop remote-edit:* channel to the self-heal:* name Android recognizes', async () => {
+    const { emitVerificationEvent } = await import('../remote-edit/verifier')
+    const win = { isDestroyed: () => false, webContents: { send: vi.fn() } }
+
+    emitVerificationEvent(win as never, 'remote-edit:verification-done', { reportId: 'r1', status: 'success' })
+
+    expect(broadcastToMobileMock).toHaveBeenCalledWith({
+      event: 'self-heal:verification-done',
+      data: { reportId: 'r1', status: 'success' },
+    })
+    expect(win.webContents.send).toHaveBeenCalledWith('remote-edit:verification-done', { reportId: 'r1', status: 'success' })
   })
 })

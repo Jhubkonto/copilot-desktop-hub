@@ -105,6 +105,13 @@ const api = {
     typedInvoke('remote-edit:set-report-status', reportId, status),
   startInvestigation: (reportId: string, revisionNotes?: string) =>
     typedInvoke('remote-edit:start-investigation', reportId, revisionNotes),
+  getActiveInvestigation: (reportId: string) => typedInvoke('remote-edit:get-active-investigation', reportId),
+  getActiveCodeChanges: () => typedInvoke('remote-edit:get-active-code-changes'),
+  onActiveCodeChangesChanged: (callback: (counts: Record<string, number>) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, counts: Record<string, number>) => callback(counts)
+    typedOn('remote-edit:active-code-changes-changed', handler)
+    return () => typedOff('remote-edit:active-code-changes-changed', handler)
+  },
   onInvestigationActivity: (callback: (activity: RemoteEditInvestigationActivity) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, activity: RemoteEditInvestigationActivity) => callback(activity)
     typedOn('remote-edit:investigation-activity', handler)

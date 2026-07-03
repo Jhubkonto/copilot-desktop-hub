@@ -2,9 +2,10 @@ import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initializeBaseSchema, runMigrations } from '../database-migrations'
 
-const { sendProviderWithToolsMock, getProviderForAgentMock } = vi.hoisted(() => ({
+const { sendProviderWithToolsMock, getProviderForAgentMock, broadcastToMobileMock } = vi.hoisted(() => ({
   sendProviderWithToolsMock: vi.fn(),
   getProviderForAgentMock: vi.fn(() => ({ provider: 'openai', model: 'gpt-5-mini' })),
+  broadcastToMobileMock: vi.fn(),
 }))
 
 vi.mock('../providers', () => ({
@@ -14,7 +15,7 @@ vi.mock('../providers', () => ({
 }))
 
 vi.mock('../ws-server', () => ({
-  broadcastToMobile: vi.fn(),
+  broadcastToMobile: broadcastToMobileMock,
 }))
 
 vi.mock('../model-catalog', () => ({
@@ -40,6 +41,7 @@ describe('remote-edit investigator', () => {
     vi.resetModules()
     sendProviderWithToolsMock.mockReset()
     getProviderForAgentMock.mockReset()
+    broadcastToMobileMock.mockReset()
     getProviderForAgentMock.mockReturnValue({ provider: 'openai', model: 'gpt-5-mini' })
     db = createDatabase()
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('build_workspace_path', ?)").run(process.cwd())
@@ -303,6 +305,26 @@ describe('remote-edit investigator', () => {
     const userMessage = messages.find((m) => m.role === 'user')
     expect(userMessage?.content).toContain('The previous plan was reviewed and needs revision')
     expect(userMessage?.content).toContain('Look in src/android instead of the desktop code')
+
+    const row = db.prepare('SELECT investigation_revision_notes FROM error_reports WHERE id = ?').get('report-1') as { investigation_revision_notes: string | null }
+    expect(row.investigation_revision_notes).toBe('Look in src/android instead of the desktop code')
+  })
+
+  it('does not clear previously persisted revision notes when re-investigating without new notes', async () => {
+    sendProviderWithToolsMock.mockResolvedValue({
+      content: ['---', 'confidence: high', 'root_cause: x', 'affected_files: []', '---', '', '# Summary'].join('\n'),
+      toolCalls: [],
+      model: 'gpt-5-mini',
+    })
+    db.prepare('UPDATE error_reports SET investigation_revision_notes = ? WHERE id = ?').run('Earlier guidance', 'report-1')
+    const { runInvestigation } = await import('../remote-edit/investigator')
+    await runInvestigation(
+      { isDestroyed: () => false, webContents: { isDestroyed: () => false, send: vi.fn() } } as never,
+      'report-1',
+      { onChunk: vi.fn(), onActivity: vi.fn() },
+    )
+    const row = db.prepare('SELECT investigation_revision_notes FROM error_reports WHERE id = ?').get('report-1') as { investigation_revision_notes: string | null }
+    expect(row.investigation_revision_notes).toBe('Earlier guidance')
   })
 
   it('does not mention revision guidance in the prompt for a fresh plan', async () => {
@@ -351,11 +373,12 @@ describe('remote-edit investigator', () => {
     // triage writeup even after the task-verb/root-cause branching was fixed.
     expect(systemMessage?.content).not.toContain('investigation report')
     expect(systemMessage?.content).toContain('Markdown plan with YAML front matter')
-    expect(systemMessage?.content).toContain('Summary, Evidence, and Plan are Markdown sections')
+    expect(systemMessage?.content).toContain('Summary, Findings, and Plan are Markdown sections')
     expect(userMessage?.content).toContain('Plan this change request.')
     expect(userMessage?.content).not.toContain('Investigate this bug report.')
     expect(userMessage?.content).toContain('a one-sentence summary of the planned approach')
-    expect(userMessage?.content).toContain('confidence, approach (a one-sentence summary')
+    expect(userMessage?.content).toContain('confidence (a whole number from 0 to 100')
+    expect(userMessage?.content).toContain('approach (a one-sentence summary')
     expect(userMessage?.content).not.toContain('Recommended Next Steps')
     expect(userMessage?.content).toContain('the concrete steps you propose to make this change')
   })
@@ -502,5 +525,24 @@ describe('remote-edit investigator', () => {
       confidence: 'low',
       rootCause: 'unknown',
     }))
+  })
+})
+
+describe('emitInvestigationEvent', () => {
+  beforeEach(() => {
+    broadcastToMobileMock.mockReset()
+  })
+
+  it('translates the desktop remote-edit:* channel to the self-heal:* name Android recognizes', async () => {
+    const { emitInvestigationEvent } = await import('../remote-edit/investigator')
+    const win = { isDestroyed: () => false, webContents: { send: vi.fn() } }
+
+    emitInvestigationEvent(win as never, 'remote-edit:investigation-done', { reportId: 'r1', status: 'done' })
+
+    expect(broadcastToMobileMock).toHaveBeenCalledWith({
+      event: 'self-heal:investigation-done',
+      data: { reportId: 'r1', status: 'done' },
+    })
+    expect(win.webContents.send).toHaveBeenCalledWith('remote-edit:investigation-done', { reportId: 'r1', status: 'done' })
   })
 })

@@ -20,6 +20,7 @@ const report = (overrides: Partial<ErrorReportEntry> = {}): ErrorReportEntry => 
   investigation_confidence: null,
   investigation_root_cause: null,
   investigation_affected_files: '[]',
+  investigation_revision_notes: null,
   investigation_started_at: null,
   investigation_completed_at: null,
   fix_status: 'none',
