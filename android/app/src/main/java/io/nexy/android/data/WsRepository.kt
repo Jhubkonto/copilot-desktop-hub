@@ -109,6 +109,12 @@ object WsRepository : WsClient {
     private val _errorReports = MutableStateFlow<List<ErrorReport>>(emptyList())
     val errorReports: StateFlow<List<ErrorReport>> = _errorReports
 
+    // Count of active Code Changes runs (investigation/fix/verification) per project, so the
+    // Projects list can show a running indicator even when no Code Changes screen is open —
+    // previously desktop-initiated activity was invisible on Android entirely.
+    private val _activeCodeChangesByProject = MutableStateFlow<Map<String, Int>>(emptyMap())
+    val activeCodeChangesByProject: StateFlow<Map<String, Int>> = _activeCodeChangesByProject
+
     data class DebugLogEntry(val tag: String, val message: String, val ts: Long)
     private val _debugLog = MutableStateFlow<List<DebugLogEntry>>(emptyList())
     val debugLog: StateFlow<List<DebugLogEntry>> = _debugLog
@@ -318,6 +324,9 @@ object WsRepository : WsClient {
                     is WsEvent.Connected -> {
                         // Desktop came back online — clear the restart-expected flag
                         _intentionalRestartExpected.value = false
+                    }
+                    is WsEvent.RemoteEditActiveCodeChangesChanged -> {
+                        _activeCodeChangesByProject.value = event.countsByProjectId
                     }
                     else -> {}
                 }
@@ -628,6 +637,7 @@ object WsRepository : WsClient {
         _androidUpdateManifest.value = null
         _serverVersion.value = null
         _errorReports.value = emptyList()
+        _activeCodeChangesByProject.value = emptyMap()
         _providers.value = emptyList()
         _mcpServers.value = emptyList()
         _skills.value = emptyList()
@@ -758,6 +768,9 @@ object WsRepository : WsClient {
     fun refreshReports() {
         sendLog("RemoteEdit", "refreshReports: sending self-heal:get-reports")
         send("self-heal:get-reports", emptyMap())
+    }
+    fun refreshActiveCodeChanges() {
+        send("self-heal:get-active-code-changes", emptyMap())
     }
     fun createRemoteEditReport(
         title: String,

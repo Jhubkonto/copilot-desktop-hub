@@ -132,6 +132,7 @@ sealed class WsEvent {
         val backupPaths: List<String>,
         val error: String?,
     ) : WsEvent()
+    data class RemoteEditActiveCodeChangesChanged(val countsByProjectId: Map<String, Int>) : WsEvent()
     data class ConversationModelUpdated(val conversationId: String, val model: String?) : WsEvent()
     data class ConversationCreated(
         val id: String,
@@ -448,6 +449,7 @@ data class ErrorReport(
     val description: String,
     val status: String,
     val fixStatus: String,
+    val investigationConfidence: String?,
     val investigationRootCause: String?,
     val investigationMarkdown: String?,
     val investigationAffectedFiles: List<String> = emptyList(),

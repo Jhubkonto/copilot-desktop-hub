@@ -112,6 +112,7 @@ fun HomeScreen(
     val conversations by vm.conversations.collectAsState()
     val agents by vm.agents.collectAsState()
     val projects by vm.projects.collectAsState()
+    val activeCodeChangesByProject by vm.activeCodeChangesByProject.collectAsState()
     val isRefreshingConversations by vm.isRefreshingConversations.collectAsState()
     val isRefreshingAgents by vm.isRefreshingAgents.collectAsState()
     val isRefreshingProjects by vm.isRefreshingProjects.collectAsState()
@@ -157,6 +158,7 @@ fun HomeScreen(
                 vm.refreshConversations()
                 vm.requestAgents()
                 vm.requestProjects()
+                vm.refreshActiveCodeChanges()
             }
             else -> {}
         }
@@ -169,7 +171,7 @@ fun HomeScreen(
     LaunchedEffect(selectedTab) {
         when (selectedTab) {
             0 -> vm.refreshConversations()
-            1 -> vm.requestProjects()
+            1 -> { vm.requestProjects(); vm.refreshActiveCodeChanges() }
             2 -> vm.requestAgents()
         }
     }
@@ -578,6 +580,7 @@ fun HomeScreen(
                     showCreateSheet = showCreateProjectSheet,
                     connectionState = connectionState,
                     highlightProjectId = highlightProjectId,
+                    activeCodeChangesByProject = activeCodeChangesByProject,
                     onHighlightConsumed = { vm.clearHighlightProject() },
                     onDismissCreateSheet = { showCreateProjectSheet = false },
                     onRefresh = { vm.requestProjects() },

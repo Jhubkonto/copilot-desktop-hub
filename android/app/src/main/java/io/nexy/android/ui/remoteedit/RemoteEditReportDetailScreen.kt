@@ -7,19 +7,23 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -29,15 +33,17 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -58,11 +64,16 @@ import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.CODE_CHANGE_PHASE_GUIDANCE
 import io.nexy.android.data.model.CODE_CHANGE_PHASE_LABELS
 import io.nexy.android.data.model.CodeChangeRequestPhase
+import io.nexy.android.data.model.ErrorReport
 import io.nexy.android.data.model.RemoteEditInvestigationSettings
 import io.nexy.android.data.model.WsEvent
 import io.nexy.android.data.model.deriveCodeChangePhase
 import io.nexy.android.ui.components.NexyConfirmDialog
+import io.nexy.android.ui.components.NexyDangerButton
 import io.nexy.android.ui.components.NexyDiffContent
+import io.nexy.android.ui.components.NexyGhostButton
+import io.nexy.android.ui.components.NexyPrimaryButton
+import io.nexy.android.ui.components.NexySecondaryButton
 import io.nexy.android.ui.components.NexyTopAppBar
 import io.nexy.android.ui.components.renderDiffHunks
 import kotlinx.coroutines.launch
@@ -128,55 +139,209 @@ private fun PhaseStepper(
     }
 }
 
+// Removes the YAML front matter block investigator.ts asks the model to emit
+// (confidence/root_cause/affected_files — already available as structured report fields, shown
+// via PlanCard instead). The model doesn't always follow the "---delimited, at the very
+// start" instruction exactly, so this mirrors the same two forms the backend parser
+// (extractFrontMatterCandidates in investigator.ts) already tolerates: a `---`-delimited block
+// (anchored to the start, per the prompt) or a ```yaml fenced block (which can appear anywhere).
+private fun stripFrontMatter(markdown: String): String {
+    return markdown
+        .replaceFirst(Regex("^---\\n[\\s\\S]*?\\n---\\s*\\n?"), "")
+        .replaceFirst(Regex("```ya?ml\\s*\\n[\\s\\S]*?```\\s*\\n?", RegexOption.IGNORE_CASE), "")
+        .trim()
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PlanCard(
+    confidence: String?,
+    rootCause: String?,
+    affectedFiles: List<String>,
+    markdown: String,
+) {
+    val normalizedConfidence = confidence?.lowercase()?.takeIf { it.isNotBlank() && it != "unknown" && it != "none" }
+    val normalizedRootCause = rootCause?.takeIf { it.isNotBlank() && it.lowercase() != "unknown" }
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (normalizedConfidence != null || normalizedRootCause != null || affectedFiles.isNotEmpty()) {
+                if (normalizedConfidence != null) {
+                    val (container, content) = when (normalizedConfidence) {
+                        "high" -> MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.onPrimaryContainer
+                        "low" -> MaterialTheme.colorScheme.errorContainer to MaterialTheme.colorScheme.onErrorContainer
+                        else -> MaterialTheme.colorScheme.secondaryContainer to MaterialTheme.colorScheme.onSecondaryContainer
+                    }
+                    Card(
+                        shape = RoundedCornerShape(50),
+                        colors = CardDefaults.cardColors(containerColor = container),
+                    ) {
+                        Text(
+                            "$normalizedConfidence confidence",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = content,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        )
+                    }
+                }
+                if (normalizedRootCause != null) {
+                    Text(normalizedRootCause, style = MaterialTheme.typography.bodyMedium)
+                }
+                if (affectedFiles.isNotEmpty()) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        affectedFiles.forEach { file ->
+                            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                                Text(
+                                    file,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontFamily = FontFamily.Monospace,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+                HorizontalDivider()
+            }
+            Text(
+                text = markdown,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+private enum class RevisePlanView { REVISE, PLAN }
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RevisePlanControl(
     running: Boolean,
     enabled: Boolean,
     modifier: Modifier = Modifier,
+    report: ErrorReport? = null,
+    investigationSettings: RemoteEditInvestigationSettings? = null,
+    onSaveInvestigationSettings: ((RemoteEditInvestigationSettings) -> Unit)? = null,
     onRevise: (String) -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
     var notes by remember { mutableStateOf("") }
+    var view by remember { mutableStateOf(RevisePlanView.REVISE) }
+    var reviseModel by remember(open, investigationSettings) { mutableStateOf(investigationSettings?.model ?: "") }
+    val hasPlan = report?.investigationMarkdown?.isNotBlank() == true
+
+    fun close() {
+        open = false
+        notes = ""
+        view = RevisePlanView.REVISE
+    }
 
     if (open) {
-        Column(
-            modifier = modifier,
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ModalBottomSheet(
+            onDismissRequest = ::close,
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         ) {
-            OutlinedTextField(
-                value = notes,
-                onValueChange = { notes = it },
-                label = { Text("What should the plan do differently?") },
-                placeholder = { Text("e.g. Look in the android module instead") },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Button(
-                    onClick = { onRevise(notes); open = false; notes = "" },
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text("Revise plan")
+            Column(modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 32.dp).imePadding()) {
+                if (hasPlan) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        SegmentedButton(
+                            text = "Revise plan",
+                            selected = view == RevisePlanView.REVISE,
+                            onClick = { view = RevisePlanView.REVISE },
+                            modifier = Modifier.weight(1f),
+                        )
+                        SegmentedButton(
+                            text = "View current plan",
+                            selected = view == RevisePlanView.PLAN,
+                            onClick = { view = RevisePlanView.PLAN },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
-                OutlinedButton(
-                    onClick = { open = false; notes = "" },
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text("Cancel")
+
+                if (view == RevisePlanView.PLAN && report != null) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        PlanCard(
+                            confidence = report.investigationConfidence,
+                            rootCause = report.investigationRootCause,
+                            affectedFiles = report.investigationAffectedFiles,
+                            markdown = report.investigationMarkdown?.let { stripFrontMatter(it) } ?: "",
+                        )
+                    }
+                    Row(modifier = Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.End) {
+                        NexySecondaryButton(text = "Back to revise plan", onClick = { view = RevisePlanView.REVISE })
+                    }
+                } else {
+                    Text(
+                        "Revise plan",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(bottom = 16.dp),
+                    )
+                    OutlinedTextField(
+                        value = notes,
+                        onValueChange = { notes = it },
+                        label = { Text("What should the plan do differently?") },
+                        placeholder = { Text("e.g. Look in the android module instead") },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (investigationSettings != null && onSaveInvestigationSettings != null) {
+                        OutlinedTextField(
+                            value = reviseModel,
+                            onValueChange = { reviseModel = it },
+                            label = { Text("Model for this revision") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        NexyGhostButton(text = "Cancel", onClick = ::close)
+                        NexyPrimaryButton(
+                            text = "Send revision",
+                            onClick = {
+                                if (investigationSettings != null && onSaveInvestigationSettings != null &&
+                                    reviseModel != investigationSettings.model
+                                ) {
+                                    onSaveInvestigationSettings(investigationSettings.copy(model = reviseModel))
+                                }
+                                onRevise(notes)
+                                close()
+                            },
+                        )
+                    }
                 }
             }
         }
-        return
     }
 
-    OutlinedButton(
+    NexySecondaryButton(
+        text = if (running) "Revising…" else "Revise plan",
         onClick = { open = true },
         enabled = enabled,
         modifier = modifier,
-    ) {
-        Text(if (running) "Revising…" else "Revise plan")
+    )
+}
+
+@Composable
+private fun SegmentedButton(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (selected) {
+        NexyPrimaryButton(text = text, onClick = onClick, modifier = modifier)
+    } else {
+        NexySecondaryButton(text = text, onClick = onClick, modifier = modifier)
     }
 }
 
@@ -208,6 +373,7 @@ fun RemoteEditReportDetailScreen(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showRollbackDialog by remember { mutableStateOf(false) }
 
+    val investigationSettings by vm.investigationSettings.collectAsState()
     val isApplying by vm.isApplying.collectAsState()
     val verificationRunning by vm.verificationRunning.collectAsState()
     val verificationRuns by vm.verificationRuns.collectAsState()
@@ -352,22 +518,6 @@ fun RemoteEditReportDetailScreen(
                 },
             ) {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            // Root cause
-            report.investigationRootCause?.takeIf { it.isNotBlank() && !planFailed }?.let { rootCause ->
-                Text("Root Cause / Plan", style = MaterialTheme.typography.titleSmall)
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                ) {
-                    Text(
-                        text = rootCause,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        modifier = Modifier.padding(12.dp),
-                    )
-                }
-            }
-
             // Planning failure
             if (planFailed) {
                 Text("Planning failed", style = MaterialTheme.typography.titleSmall)
@@ -388,13 +538,13 @@ fun RemoteEditReportDetailScreen(
                 }
             }
 
-            // Investigation markdown
             report.investigationMarkdown?.takeIf { it.isNotBlank() && !planFailed }?.let { markdown ->
                 Text("Plan", style = MaterialTheme.typography.titleSmall)
-                Text(
-                    text = markdown,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                PlanCard(
+                    confidence = report.investigationConfidence,
+                    rootCause = report.investigationRootCause,
+                    affectedFiles = report.investigationAffectedFiles,
+                    markdown = stripFrontMatter(markdown),
                 )
             }
 
@@ -424,31 +574,32 @@ fun RemoteEditReportDetailScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Button(
+                        NexyPrimaryButton(
+                            text = if (reviewAction == "accept") "Accepting…" else "Accept",
                             onClick = {
                                 reviewAction = "accept"
                                 WsRepository.setRemoteEditReportStatus(reportId, "investigated")
                             },
                             enabled = reviewAction == null && !planHasNoAffectedFiles,
                             modifier = Modifier.weight(1f),
-                        ) {
-                            Text(if (reviewAction == "accept") "Accepting…" else "Accept")
-                        }
-                        OutlinedButton(
+                        )
+                        NexyDangerButton(
+                            text = if (reviewAction == "reject") "Rejecting…" else "Reject",
                             onClick = {
                                 reviewAction = "reject"
                                 WsRepository.setRemoteEditReportStatus(reportId, "rejected")
                             },
                             enabled = reviewAction == null,
                             modifier = Modifier.weight(1f),
-                        ) {
-                            Text(if (reviewAction == "reject") "Rejecting…" else "Reject")
-                        }
+                        )
                     }
                     RevisePlanControl(
                         running = investigationRunning,
                         enabled = reviewAction == null,
                         modifier = Modifier.fillMaxWidth(),
+                        report = report,
+                        investigationSettings = investigationSettings,
+                        onSaveInvestigationSettings = { vm.saveInvestigationSettings(it) },
                         onRevise = { notes ->
                             reviewAction = "revise"
                             investigationRunning = true
@@ -491,23 +642,21 @@ fun RemoteEditReportDetailScreen(
                         }
                     }
                     if (!isPlanning) {
-                        val settings by vm.investigationSettings.collectAsState()
                         PlanningSettingsSection(
-                            settings = settings,
+                            settings = investigationSettings,
                             onSave = { vm.saveInvestigationSettings(it) },
                         )
                     }
-                    Button(
+                    NexyPrimaryButton(
+                        text = if (isPlanning) "Planning…" else if (report.investigationRootCause != null) "Retry" else "Plan change",
                         onClick = {
                             investigationRunning = true
                             WsRepository.startRemoteEditInvestigation(reportId)
                         },
                         enabled = !isPlanning,
                         modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                        Text(if (isPlanning) "Planning…" else if (report.investigationRootCause != null) "Retry" else "Plan change")
-                    }
+                        leadingIcon = Icons.Default.Search,
+                    )
                 }
                 if (report.status == "investigated") {
                     if (report.fixStatus == "failed" && fixError != null) {
@@ -523,33 +672,34 @@ fun RemoteEditReportDetailScreen(
                                 running = investigationRunning,
                                 enabled = !fixRunning && !investigationRunning,
                                 modifier = Modifier.fillMaxWidth(),
+                                report = report,
+                                investigationSettings = investigationSettings,
+                                onSaveInvestigationSettings = { vm.saveInvestigationSettings(it) },
                                 onRevise = { notes ->
                                     investigationRunning = true
                                     WsRepository.startRemoteEditInvestigation(reportId, notes)
                                 },
                             )
-                            Button(
+                            NexyPrimaryButton(
+                                text = if (fixRunning) "Generating…" else "Regenerate patch",
                                 onClick = {
                                     fixRunning = true
                                     WsRepository.startRemoteEditFix(reportId)
                                 },
                                 enabled = !fixRunning && !investigationRunning,
                                 modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Text(if (fixRunning) "Generating…" else "Regenerate patch")
-                            }
+                            )
                         }
                     } else {
-                        Button(
+                        NexyPrimaryButton(
+                            text = if (fixRunning) "Generating patch…" else "Generate staged patch",
                             onClick = {
                                 fixRunning = true
                                 WsRepository.startRemoteEditFix(reportId)
                             },
                             enabled = !fixRunning,
                             modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text(if (fixRunning) "Generating patch…" else "Generate staged patch")
-                        }
+                        )
                     }
                 }
             }
@@ -617,13 +767,12 @@ fun RemoteEditReportDetailScreen(
                 }
 
                 if (report.fixStatus == "staged") {
-                    Button(
+                    NexyPrimaryButton(
+                        text = if (isApplying == reportId) "Applying…" else "Apply patch",
                         onClick = { vm.applyPatch(reportId) },
                         enabled = isApplying == null,
                         modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(if (isApplying == reportId) "Applying…" else "Apply patch")
-                    }
+                    )
                 }
                 }
                 }
@@ -638,13 +787,12 @@ fun RemoteEditReportDetailScreen(
                 ) {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text("Verification", style = MaterialTheme.typography.titleSmall)
-                Button(
+                NexyPrimaryButton(
+                    text = if (verificationRunning == reportId) "Verifying…" else "Run verification",
                     onClick = { vm.startVerification(reportId) },
                     enabled = verificationRunning == null,
                     modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(if (verificationRunning == reportId) "Verifying…" else "Run verification")
-                }
+                )
                 latestVerificationRun?.let { run ->
                     Text(
                         text = "Last run: ${run.status}${run.error?.let { " — $it" } ?: ""}",
@@ -659,13 +807,12 @@ fun RemoteEditReportDetailScreen(
 
                 if (latestVerificationRun?.status == "success") {
                     Text("Git", style = MaterialTheme.typography.titleSmall)
-                    OutlinedButton(
+                    NexySecondaryButton(
+                        text = if (gitPushRunning == reportId) "Pushing…" else "Push",
                         onClick = { vm.pushFix(reportId) },
                         enabled = gitPushRunning == null,
                         modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(if (gitPushRunning == reportId) "Pushing…" else "Push")
-                    }
+                    )
                 }
 
                 if (latestVerificationRun?.status == "failed") {
@@ -673,6 +820,9 @@ fun RemoteEditReportDetailScreen(
                         running = investigationRunning,
                         enabled = !investigationRunning,
                         modifier = Modifier.fillMaxWidth(),
+                        report = report,
+                        investigationSettings = investigationSettings,
+                        onSaveInvestigationSettings = { vm.saveInvestigationSettings(it) },
                         onRevise = { notes ->
                             investigationRunning = true
                             WsRepository.startRemoteEditInvestigation(reportId, notes)
@@ -691,12 +841,11 @@ fun RemoteEditReportDetailScreen(
                         )
                     } else if (run.status in listOf("prepared", "reloading", "confirmed")) {
                         Text("Undo", style = MaterialTheme.typography.titleSmall)
-                        OutlinedButton(
+                        NexyDangerButton(
+                            text = "Undo this change",
                             onClick = { showRollbackDialog = true },
                             modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text("Undo this change")
-                        }
+                        )
                     }
                 }
                 }
@@ -787,7 +936,8 @@ private fun PlanningSettingsSection(
                         modifier = Modifier.padding(top = 12.dp),
                     )
                 }
-                OutlinedButton(
+                NexySecondaryButton(
+                    text = "Save settings",
                     onClick = {
                         onSave(
                             RemoteEditInvestigationSettings(
@@ -799,9 +949,7 @@ private fun PlanningSettingsSection(
                         )
                     },
                     modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Save settings")
-                }
+                )
             }
         }
     }

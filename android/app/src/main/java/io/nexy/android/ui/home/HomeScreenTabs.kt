@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
@@ -352,6 +353,7 @@ fun ProjectsTab(
     showCreateSheet: Boolean,
     connectionState: ConnectionState = ConnectionState.CONNECTED,
     highlightProjectId: String? = null,
+    activeCodeChangesByProject: Map<String, Int> = emptyMap(),
     onHighlightConsumed: () -> Unit = {},
     onDismissCreateSheet: () -> Unit,
     onRefresh: () -> Unit,
@@ -551,20 +553,47 @@ fun ProjectsTab(
                             // Center: two-line content
                             val agentCount = project.agentIcons.size
                             val chatCount = project.chatCount
+                            val activeCodeChanges = activeCodeChangesByProject[project.id] ?: 0
                             Column(
                                 modifier = Modifier
                                     .weight(1f)
                                     .padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
                                 verticalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
-                                // Line 1: project name
-                                Text(
-                                    text = project.name,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
+                                // Line 1: project name (+ running Code Changes badge, if any)
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(
+                                        text = project.name,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false),
+                                    )
+                                    if (activeCodeChanges > 0) {
+                                        Surface(
+                                            shape = RoundedCornerShape(50),
+                                            color = MaterialTheme.colorScheme.primaryContainer,
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                            ) {
+                                                CircularProgressIndicator(
+                                                    modifier = Modifier.size(8.dp),
+                                                    strokeWidth = 1.5.dp,
+                                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                )
+                                                Text(
+                                                    text = "$activeCodeChanges",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                                 // Line 2: emojis (if any) then counts
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,

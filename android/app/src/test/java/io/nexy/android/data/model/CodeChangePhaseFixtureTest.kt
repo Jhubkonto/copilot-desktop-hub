@@ -144,6 +144,7 @@ class CodeChangePhaseFixtureTest {
             description = "",
             status = "investigated",
             fixStatus = "staged",
+            investigationConfidence = null,
             investigationRootCause = null,
             investigationMarkdown = "Root cause found.",
             createdAt = 1000L,

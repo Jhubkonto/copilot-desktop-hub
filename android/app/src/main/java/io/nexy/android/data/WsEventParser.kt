@@ -291,6 +291,14 @@ fun parseWsEvent(
                 error = data?.nullableString("error"),
             )
 
+            "self-heal:active-code-changes-changed" -> {
+                val counts = mutableMapOf<String, Int>()
+                data?.keys()?.forEach { projectId ->
+                    counts[projectId] = data.optInt(projectId, 0)
+                }
+                WsEvent.RemoteEditActiveCodeChangesChanged(counts)
+            }
+
             "self-heal:verification-event" -> WsEvent.RemoteEditVerificationEvent(
                 reportId = data?.optString("reportId") ?: "",
                 runId = data?.optString("runId") ?: "",
@@ -600,6 +608,7 @@ fun parseWsEvent(
                         description = r.optString("description"),
                         status = r.optString("status", "open"),
                         fixStatus = r.optString("fix_status", "none"),
+                        investigationConfidence = r.nullableString("investigation_confidence"),
                         investigationRootCause = r.nullableString("investigation_root_cause"),
                         investigationMarkdown = r.nullableString("investigation_markdown"),
                         investigationAffectedFiles = affectedFiles,
