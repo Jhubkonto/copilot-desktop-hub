@@ -10,7 +10,7 @@ vi.mock('../mcp', () => ({
   servers: mockServers
 }))
 
-import { MCP_MAX_ITERATIONS, MCP_REQUIRED_ITERATIONS, MAX_TOOL_RESULT_CHARS, runProviderMcpToolLoop } from '../tool-loop'
+import { MCP_MAX_ITERATIONS, MCP_REQUIRED_ITERATIONS, MAX_TOOL_RESULT_CHARS, MAX_LOOP_CONTEXT_CHARS, runProviderMcpToolLoop } from '../tool-loop'
 import type { ModelToolCaller } from '../tool-loop'
 import type { ProviderMessage } from '../providers'
 import type { ToolDefinition } from '../provider-types'
@@ -535,6 +535,70 @@ describe('runProviderMcpToolLoop', () => {
     )
     expect(rendererCall).toBeDefined()
     expect(rendererCall![1].result).toBe(largeResult)
+  })
+  it('stops calling tools once accumulated context exceeds the budget and forces a final answer', async () => {
+    // Each tool result is right at MAX_TOOL_RESULT_CHARS, so a handful of rounds pushes the
+    // conversation over MAX_LOOP_CONTEXT_CHARS well before MCP_MAX_ITERATIONS is reached.
+    mockCallMcpTool.mockResolvedValue({ success: true, result: 'x'.repeat(MAX_TOOL_RESULT_CHARS) })
+
+    let toolCallCount = 0
+    const caller: ModelToolCaller = vi.fn(async (_messages, tools, toolChoice) => {
+      if (toolChoice === 'none') {
+        expect(tools).toBeUndefined()
+        return { content: 'final answer with what I have', toolCalls: [] }
+      }
+      toolCallCount++
+      return { content: null, toolCalls: [{ id: randomId(), name: 'server-1__click', arguments: {} }] }
+    })
+
+    const result = await runProviderMcpToolLoop(
+      caller,
+      [{ role: 'user', content: 'gather a lot of context' }],
+      toolDefs,
+      toolMap,
+      'agent-1',
+      null,
+      makeWebContents(),
+      vi.fn()
+    )
+
+    expect(result).toBe('final answer with what I have')
+    // Should stop well short of MCP_MAX_ITERATIONS once the budget is exceeded
+    expect(toolCallCount).toBeLessThan(MCP_MAX_ITERATIONS)
+    expect(caller).toHaveBeenLastCalledWith(expect.any(Array), undefined, 'none')
+  })
+
+  it('trims the oldest tool exchanges before the forced final call once over budget', async () => {
+    mockCallMcpTool.mockResolvedValue({ success: true, result: 'x'.repeat(MAX_TOOL_RESULT_CHARS) })
+
+    let finalMessages: unknown[] = []
+    const caller: ModelToolCaller = vi.fn(async (messages, _tools, toolChoice) => {
+      if (toolChoice === 'none') {
+        finalMessages = messages
+        return { content: 'final answer', toolCalls: [] }
+      }
+      return { content: null, toolCalls: [{ id: randomId(), name: 'server-1__click', arguments: {} }] }
+    })
+
+    await runProviderMcpToolLoop(
+      caller,
+      [{ role: 'system', content: 'system prompt' }, { role: 'user', content: 'gather a lot of context' }],
+      toolDefs,
+      toolMap,
+      'agent-1',
+      null,
+      makeWebContents(),
+      vi.fn()
+    )
+
+    const totalChars = (finalMessages as { content?: unknown }[]).reduce(
+      (sum, m) => sum + (typeof m.content === 'string' ? m.content.length : 0),
+      0
+    )
+    expect(totalChars).toBeLessThan(MAX_LOOP_CONTEXT_CHARS * 1.5)
+    // Leading system+user messages are preserved
+    expect(finalMessages[0]).toMatchObject({ role: 'system' })
+    expect(finalMessages[1]).toMatchObject({ role: 'user', content: 'gather a lot of context' })
   })
 })
 

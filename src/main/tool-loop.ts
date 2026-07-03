@@ -15,6 +15,60 @@ export const MCP_REQUIRED_ITERATIONS = 0
 export const MAX_TOOL_RESULT_CHARS = 16000
 
 /**
+ * Character budget for the accumulated loopMessages conversation (rough proxy for tokens at
+ * ~4 chars/token). Per-message truncation (MAX_TOOL_RESULT_CHARS) bounds each individual result,
+ * but with MCP_MAX_ITERATIONS rounds of tool calls the *sum* can still balloon well past what even
+ * large-context models accept — a real-world run hit ~530K tokens over ~2M characters after
+ * repeated revisions layered more tool calls onto an already-long conversation. There's no
+ * per-model context-window size tracked in the model catalog to trim against precisely, so this
+ * is a conservative, provider-agnostic ceiling (well under the smallest common ~32K-token window)
+ * rather than a per-model exact fit.
+ */
+export const MAX_LOOP_CONTEXT_CHARS = 100000
+
+function messageCharCount(message: ProviderMessage): number {
+  let total = typeof message.content === 'string' ? message.content.length : 0
+  if ('tool_calls' in message && Array.isArray(message.tool_calls)) {
+    for (const call of message.tool_calls) total += call.function.arguments.length
+  }
+  return total
+}
+
+function loopMessagesCharCount(loopMessages: ProviderMessage[]): number {
+  return loopMessages.reduce((total, message) => total + messageCharCount(message), 0)
+}
+
+/**
+ * Drops the oldest assistant/tool exchanges (keeping the leading system+user messages, which
+ * carry the actual task, and the most recent exchanges, which are most relevant to wrapping up)
+ * until the conversation fits MAX_LOOP_CONTEXT_CHARS. Used right before the forced final answer —
+ * merely stopping new tool calls isn't enough, since the oversized history already collected would
+ * still be sent as-is otherwise.
+ */
+function trimLoopMessagesToBudget(loopMessages: ProviderMessage[]): ProviderMessage[] {
+  if (loopMessagesCharCount(loopMessages) <= MAX_LOOP_CONTEXT_CHARS) return loopMessages
+
+  const leadingCount = loopMessages[0]?.role === 'system' ? 2 : 1
+  const leading = loopMessages.slice(0, leadingCount)
+  const rest = loopMessages.slice(leadingCount)
+  const leadingChars = leading.reduce((total, message) => total + messageCharCount(message), 0)
+
+  const kept: ProviderMessage[] = []
+  let keptChars = 0
+  for (let i = rest.length - 1; i >= 0; i--) {
+    const chars = messageCharCount(rest[i])
+    if (leadingChars + keptChars + chars > MAX_LOOP_CONTEXT_CHARS && kept.length > 0) break
+    kept.unshift(rest[i])
+    keptChars += chars
+  }
+  return [
+    ...leading,
+    { role: 'user' as const, content: '[Earlier tool results were dropped to stay within the context limit — proceed with the information below.]' },
+    ...kept,
+  ]
+}
+
+/**
  * Tool name fragments that indicate a read-only inspection step.
  * When the previous loop iteration consisted entirely of inspection tools,
  * a text-only response is treated as a planning step and the loop attempts
@@ -105,6 +159,11 @@ export async function runProviderMcpToolLoop(
   }
 
   for (let i = 0; i < MCP_MAX_ITERATIONS; i++) {
+    // Stop accumulating tool results once the conversation itself risks exceeding the model's
+    // context window (see MAX_LOOP_CONTEXT_CHARS) — force a final answer with what's gathered so
+    // far instead of sending an ever-larger request that the provider will simply reject.
+    if (loopMessagesCharCount(loopMessages) > MAX_LOOP_CONTEXT_CHARS) break
+
     let toolChoice: 'auto' | 'required' | 'none'
     if (forcedToolChoice) {
       toolChoice = forcedToolChoice
@@ -282,7 +341,7 @@ export async function runProviderMcpToolLoop(
   }
 
   sendActivity({ type: 'thinking' })
-  const finalResult = await caller(loopMessages, undefined, 'none')
+  const finalResult = await caller(trimLoopMessagesToBudget(loopMessages), undefined, 'none')
   if (!modelEmitted && onModel && finalResult.model) {
     onModel(finalResult.model)
   }
