@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -59,6 +60,7 @@ import kotlinx.coroutines.launch
 fun RemoteEditReportsScreen(
     onBack: () -> Unit,
     onOpenReport: (String) -> Unit,
+    onNewRequest: () -> Unit,
     vm: RemoteEditViewModel = viewModel(),
 ) {
     val reports by vm.errorReports.collectAsState()
@@ -113,6 +115,11 @@ fun RemoteEditReportsScreen(
             NexyTopAppBar(
                 titleContent = { Text("Code Changes") },
                 onBack = onBack,
+                actions = {
+                    IconButton(onClick = onNewRequest) {
+                        Icon(Icons.Default.Add, contentDescription = "New request")
+                    }
+                },
             )
         }
     ) { padding ->
@@ -129,7 +136,10 @@ fun RemoteEditReportsScreen(
                             title = "No edit requests yet.",
                             detail = "Create a code change from chat or the desktop Code Changes screen.",
                             action = {
-                                TextButton(onClick = { vm.refresh() }) { Text("Refresh") }
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    TextButton(onClick = onNewRequest) { Text("New request") }
+                                    TextButton(onClick = { vm.refresh() }) { Text("Refresh") }
+                                }
                             },
                         )
                     }

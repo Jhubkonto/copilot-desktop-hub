@@ -497,6 +497,7 @@ fun NavGraph(
             RemoteEditReportsScreen(
                 onBack = { navController.popBackStack() },
                 onOpenReport = { id -> navController.navigate("remote-edit/$id") },
+                onNewRequest = { navController.navigate("remote-edit/start") },
             )
         }
 
