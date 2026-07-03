@@ -6,7 +6,6 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -100,6 +99,7 @@ import io.nexy.android.ui.components.NexyPrimaryButton
 import io.nexy.android.ui.components.NexySecondaryButton
 import io.nexy.android.ui.components.NexyTopAppBar
 import io.nexy.android.ui.components.renderDiffHunks
+import io.nexy.android.ui.theme.LocalNexyColors
 import io.nexy.android.ui.chat.ModelPickerSheet
 import io.nexy.android.ui.chat.OnDeviceVoiceButton
 import io.nexy.android.ui.chat.PromptLibrarySheetContent
@@ -150,7 +150,7 @@ private fun PhaseStepper(
         CODE_CHANGE_PHASE_ORDER.indexOf(phase).coerceAtLeast(0)
     }
     val failed = phase == CodeChangeRequestPhase.NEEDS_ATTENTION
-    val dark = isSystemInDarkTheme()
+    val dark = LocalNexyColors.current.isDark
     val colors = phaseStepColors(dark)
     val connectorDone = Color(0xFF4ADE80)
     val connectorUpcoming = if (dark) Color(0xFF374151) else Color(0xFFE5E7EB)
@@ -923,11 +923,40 @@ fun RemoteEditReportDetailScreen(
             }
 
             if (report.status == "rejected") {
-                Text(
-                    "Plan rejected.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
+                var rejectedReviewAction by remember(reportId) { mutableStateOf<String?>(null) }
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "Plan rejected. Revise it with new instructions, delete this request, or accept the plan as-is if you've changed your mind.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                        )
+                        RevisePlanControl(
+                            running = investigationRunning,
+                            enabled = rejectedReviewAction == null,
+                            modifier = Modifier.fillMaxWidth(),
+                            report = report,
+                            investigationSettings = investigationSettings,
+                            onSaveInvestigationSettings = { vm.saveInvestigationSettings(it) },
+                            onRevise = { notes ->
+                                rejectedReviewAction = "revise"
+                                startInvestigation(notes)
+                            },
+                        )
+                        NexySecondaryButton(
+                            text = if (rejectedReviewAction == "accept") "Accepting…" else "Accept anyway",
+                            onClick = {
+                                rejectedReviewAction = "accept"
+                                WsRepository.setRemoteEditReportStatus(reportId, "investigated")
+                            },
+                            enabled = rejectedReviewAction == null && report.investigationAffectedFiles.isNotEmpty(),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
             }
             }
             }
