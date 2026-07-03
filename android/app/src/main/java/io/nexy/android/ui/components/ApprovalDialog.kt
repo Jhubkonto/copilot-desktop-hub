@@ -13,7 +13,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -87,16 +86,13 @@ fun ApprovalDialog(
             }
         },
         dismissButton = {
-            OutlinedButton(
+            NexyDangerButton(
+                text = "Reject",
                 onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     onReject()
                 },
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                shape = MaterialTheme.shapes.small,
-            ) {
-                Text("Reject", style = MaterialTheme.typography.labelLarge)
-            }
+            )
         },
     )
 }

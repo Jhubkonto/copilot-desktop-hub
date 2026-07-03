@@ -18,8 +18,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Row
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -30,6 +28,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import io.nexy.android.ui.components.NexyPrimaryButton
 import io.nexy.android.ui.components.NexyTopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -132,16 +131,11 @@ fun PairingScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Button(
+                    NexyPrimaryButton(
+                        text = "Grant Camera Permission",
                         onClick = { cameraPermissionLauncher.launch(Manifest.permission.CAMERA) },
                         modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                        ),
-                        shape = MaterialTheme.shapes.small,
-                    ) {
-                        Text("Grant Camera Permission")
-                    }
+                    )
                     OutlinedButton(
                         onClick = {
                             val intent = Intent(
@@ -187,16 +181,11 @@ fun PairingScreen(
                     ),
                 )
 
-                Button(
+                NexyPrimaryButton(
+                    text = "Connect",
                     onClick = { vm.connectManual(manualUrl) },
                     modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                    ),
-                    shape = MaterialTheme.shapes.small,
-                ) {
-                    Text("Connect")
-                }
+                )
 
                 TextButton(onClick = { showManual = false }) {
                     Text(

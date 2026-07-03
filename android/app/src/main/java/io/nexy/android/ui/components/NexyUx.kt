@@ -33,7 +33,6 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -43,7 +42,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -81,21 +79,14 @@ fun NexyConfirmDialog(
         title = { Text(title) },
         text = { Text(message) },
         confirmButton = {
-            TextButton(
-                onClick = onConfirm,
-                colors = if (destructive) {
-                    ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                } else {
-                    ButtonDefaults.textButtonColors()
-                },
-            ) {
-                Text(confirmLabel)
+            if (destructive) {
+                NexyDangerButton(text = confirmLabel, onClick = onConfirm)
+            } else {
+                NexyPrimaryButton(text = confirmLabel, onClick = onConfirm)
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
+            NexyGhostButton(text = "Cancel", onClick = onDismiss)
         },
     )
 }
@@ -115,17 +106,13 @@ fun NexyInfoDialog(
         text = { Text(message) },
         confirmButton = {
             if (actionLabel != null && onAction != null) {
-                TextButton(onClick = { onAction(); onDismiss() }) {
-                    Text(actionLabel)
-                }
+                NexyPrimaryButton(text = actionLabel, onClick = { onAction(); onDismiss() })
             } else {
-                TextButton(onClick = onDismiss) {
-                    Text(confirmLabel)
-                }
+                NexyPrimaryButton(text = confirmLabel, onClick = onDismiss)
             }
         },
         dismissButton = if (actionLabel != null) {
-            { TextButton(onClick = onDismiss) { Text(confirmLabel) } }
+            { NexyGhostButton(text = confirmLabel, onClick = onDismiss) }
         } else null,
     )
 }
@@ -261,8 +248,8 @@ fun NexyFormSheet(
                 modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
                 horizontalArrangement = Arrangement.End,
             ) {
-                TextButton(onClick = onDismiss) { Text("Cancel") }
-                TextButton(onClick = onConfirm, enabled = confirmEnabled) { Text(confirmLabel) }
+                NexyGhostButton(text = "Cancel", onClick = onDismiss)
+                NexyPrimaryButton(text = confirmLabel, onClick = onConfirm, enabled = confirmEnabled)
             }
         }
     }

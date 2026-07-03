@@ -22,7 +22,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -31,7 +30,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import io.nexy.android.ui.chat.ChatInputBar
@@ -61,6 +59,9 @@ import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.ArtifactGeneratorSpec
 import io.nexy.android.data.model.Project
 import io.nexy.android.ui.components.NexyConfirmDialog
+import io.nexy.android.ui.components.NexyGhostButton
+import io.nexy.android.ui.components.NexyPrimaryButton
+import io.nexy.android.ui.components.NexySecondaryButton
 import io.nexy.android.ui.components.NexyStepIndicator
 import io.nexy.android.ui.components.NexyTopAppBar
 import io.nexy.android.ui.model.activeModelLabel
@@ -152,7 +153,7 @@ fun ArtifactGeneratorScreen(
                         )
                     }
                     if (uiState.phase != ArtifactGenPhase.CHAT || uiState.messages.size > 1 || uiState.streamingText.isNotBlank()) {
-                        TextButton(onClick = { confirmReset = true }) { Text("Reset") }
+                        NexyGhostButton(text = "Reset", onClick = { confirmReset = true })
                     }
                 },
             )
@@ -478,8 +479,8 @@ private fun SpecReviewPhase(
             Text("Preparing…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = onBack) { Text("Back") }
-                Button(onClick = onConfirm, enabled = spec != null) { Text("Generate artifact") }
+                NexySecondaryButton(text = "Back", onClick = onBack)
+                NexyPrimaryButton(text = "Generate artifact", onClick = onConfirm, enabled = spec != null)
             }
         }
     }
@@ -537,16 +538,15 @@ private fun DonePhase(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(24.dp))
-        Button(onClick = onViewArtifacts, modifier = Modifier.fillMaxWidth()) { Text("View artifacts") }
+        NexyPrimaryButton(text = "View artifacts", onClick = onViewArtifacts, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(8.dp))
-        OutlinedButton(
+        NexySecondaryButton(
+            text = if (uiState.movedToProjectId != null) "Change project" else "Add to project",
             onClick = { showProjectPicker = true },
             modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(if (uiState.movedToProjectId != null) "Change project" else "Add to project")
-        }
+        )
         Spacer(Modifier.height(8.dp))
-        OutlinedButton(onClick = onReset, modifier = Modifier.fillMaxWidth()) { Text("Generate another artifact") }
+        NexySecondaryButton(text = "Generate another artifact", onClick = onReset, modifier = Modifier.fillMaxWidth())
     }
 
     if (showProjectPicker) {

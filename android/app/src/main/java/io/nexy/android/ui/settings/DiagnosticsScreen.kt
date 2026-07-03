@@ -27,7 +27,6 @@ fun DiagnosticsScreen(
     val activeProfileId by vm.activeProfileId.collectAsState()
     val serverVersion by vm.serverVersion.collectAsState()
     val lastError by vm.lastError.collectAsState()
-    val bugReportState by vm.bugReportState.collectAsState()
 
     val activeProfile = profiles.firstOrNull { it.id == activeProfileId }
     val connectionDiagnostics = buildConnectionDiagnostics(
@@ -55,8 +54,6 @@ fun DiagnosticsScreen(
             DiagnosticsSection(
                 connectionDiagnostics = connectionDiagnostics,
                 clientVersion = vm.clientVersion,
-                bugReportState = bugReportState,
-                onRequestBugReport = { vm.requestBugReport() },
             )
         }
     }

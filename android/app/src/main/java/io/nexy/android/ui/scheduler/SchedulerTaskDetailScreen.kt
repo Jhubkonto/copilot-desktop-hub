@@ -18,14 +18,12 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -45,6 +43,8 @@ import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.ScheduledRun
 import io.nexy.android.data.model.ScheduledTask
+import io.nexy.android.ui.components.NexyDangerButton
+import io.nexy.android.ui.components.NexySecondaryButton
 import io.nexy.android.ui.components.NexyTopAppBar
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -222,9 +222,12 @@ private fun ActionButtons(
     onDelete: () -> Unit,
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(onClick = onToggle, modifier = Modifier.weight(1f), enabled = isConnected) {
-            Text(if (task.enabled) "Pause" else "Resume")
-        }
+        NexySecondaryButton(
+            text = if (task.enabled) "Pause" else "Resume",
+            onClick = onToggle,
+            modifier = Modifier.weight(1f),
+            enabled = isConnected,
+        )
         Button(
             onClick = onRunNow,
             modifier = Modifier.weight(1f),
@@ -235,14 +238,12 @@ private fun ActionButtons(
         }
     }
     Spacer(Modifier.height(4.dp))
-    OutlinedButton(
+    NexyDangerButton(
+        text = "Delete task",
         onClick = onDelete,
         modifier = Modifier.fillMaxWidth(),
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
         enabled = isConnected,
-    ) {
-        Text("Delete task")
-    }
+    )
 }
 
 @Composable

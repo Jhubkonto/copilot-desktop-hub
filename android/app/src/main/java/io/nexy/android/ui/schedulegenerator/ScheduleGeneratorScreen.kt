@@ -17,7 +17,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -48,6 +47,9 @@ import io.nexy.android.data.model.ScheduleGeneratorSpec
 import io.nexy.android.ui.chat.ChatInputBar
 import io.nexy.android.ui.chat.rememberOnDeviceVoiceInput
 import io.nexy.android.ui.components.NexyConfirmDialog
+import io.nexy.android.ui.components.NexyGhostButton
+import io.nexy.android.ui.components.NexyPrimaryButton
+import io.nexy.android.ui.components.NexySecondaryButton
 import io.nexy.android.ui.components.NexyStepIndicator
 import io.nexy.android.ui.components.NexyTopAppBar
 import io.nexy.android.ui.model.activeModelLabel
@@ -122,7 +124,7 @@ fun ScheduleGeneratorScreen(
                         Text(activeModelLabel, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     if (uiState.phase != ScheduleGenPhase.CHAT || uiState.messages.size > 1 || uiState.streamingText.isNotBlank()) {
-                        TextButton(onClick = { confirmReset = true }) { Text("Start over") }
+                        NexyGhostButton(text = "Start over", onClick = { confirmReset = true })
                     }
                 },
             )
@@ -279,14 +281,13 @@ private fun SpecReviewPhase(
             singleLine = true,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text("Back to chat") }
-            Button(
+            NexySecondaryButton(text = "Back to chat", onClick = onBack, modifier = Modifier.weight(1f))
+            NexyPrimaryButton(
+                text = if (isLoading) "Creating..." else "Create task",
                 onClick = onConfirm,
                 enabled = !isLoading && current.name.isNotBlank() && current.prompt.isNotBlank(),
                 modifier = Modifier.weight(1f),
-            ) {
-                Text(if (isLoading) "Creating..." else "Create task")
-            }
+            )
         }
     }
 }
@@ -320,6 +321,6 @@ private fun DonePhase(taskName: String, onDone: () -> Unit, modifier: Modifier =
         Text("Scheduled task created", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Text(taskName.ifBlank { "Your task" }, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(20.dp))
-        Button(onClick = onDone, modifier = Modifier.fillMaxWidth()) { Text("Done") }
+        NexyPrimaryButton(text = "Done", onClick = onDone, modifier = Modifier.fillMaxWidth())
     }
 }

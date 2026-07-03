@@ -41,6 +41,8 @@ import io.nexy.android.data.model.AndroidUpdateManifest
 import io.nexy.android.data.model.ModelListSource
 import io.nexy.android.data.model.ModelOption
 import io.nexy.android.ui.components.NexyConfirmDialog
+import io.nexy.android.ui.components.NexyDangerButton
+import io.nexy.android.ui.components.NexySecondaryButton
 import io.nexy.android.ui.model.emptyModelListDetail
 import io.nexy.android.ui.model.modelSourceDetail
 import io.nexy.android.ui.model.modelSourceTitle
@@ -139,12 +141,8 @@ fun ConnectionSection(
                         }
                         if (profile.id != activeProfileId) {
                             Row(modifier = Modifier.padding(start = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedButton(onClick = { onSwitchProfile(profile.id) }, shape = MaterialTheme.shapes.small) { Text("Use") }
-                                OutlinedButton(
-                                    onClick = { profileToForget = profile },
-                                    shape = MaterialTheme.shapes.small,
-                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFEF4444)),
-                                ) { Text("Delete") }
+                                NexySecondaryButton(text = "Use", onClick = { onSwitchProfile(profile.id) })
+                                NexyDangerButton(text = "Delete", onClick = { profileToForget = profile })
                             }
                         }
                     }
@@ -173,20 +171,14 @@ fun ConnectionSection(
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
     Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth()) {
-        OutlinedButton(
+        NexySecondaryButton(
+            text = "Scan QR / Add server",
             onClick = onOpenPairingScan,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 12.dp),
-            shape = MaterialTheme.shapes.small,
-        ) {
-            Icon(
-                Icons.Default.QrCodeScanner,
-                contentDescription = null,
-                modifier = Modifier.padding(end = 8.dp),
-            )
-            Text("Scan QR / Add server")
-        }
+            leadingIcon = Icons.Default.QrCodeScanner,
+        )
     }
 
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -276,7 +268,7 @@ fun NotificationsSection(
                 SettingsInfoRow("Tool approvals channel", if (notificationDiagnostics.approvalChannelEnabled) "Enabled" else "Disabled")
             }
 
-            OutlinedButton(onClick = onOpenNotificationSettings, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small) { Text("Open Android settings") }
+            NexySecondaryButton(text = "Open Android settings", onClick = onOpenNotificationSettings, modifier = Modifier.fillMaxWidth())
         }
     }
 
@@ -382,14 +374,12 @@ fun UpdatesSection(
                     }
                 }
                 if (updateCanInstall) {
-                    OutlinedButton(
+                    NexySecondaryButton(
+                        text = if (updateInstallState.installing) "Preparing update..." else "Install update",
                         onClick = { onInstallUpdate(manifest) },
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !updateInstallState.installing,
-                        shape = MaterialTheme.shapes.small,
-                    ) {
-                        Text(if (updateInstallState.installing) "Preparing update..." else "Install update")
-                    }
+                    )
                 }
             }
 
@@ -416,8 +406,6 @@ fun UpdatesSection(
 fun DiagnosticsSection(
     connectionDiagnostics: ConnectionDiagnostics,
     clientVersion: String,
-    bugReportState: BugReportRequestState,
-    onRequestBugReport: () -> Unit,
 ) {
     var techExpanded by rememberSaveable { mutableStateOf(false) }
 
@@ -464,21 +452,6 @@ fun DiagnosticsSection(
                     SettingsInfoRow("mDNS name", connectionDiagnostics.mDnsName ?: "Unknown")
                     SettingsInfoRow("WoL enabled", if (connectionDiagnostics.wolEnabled) "Yes" else "No")
                 }
-            }
-
-            OutlinedButton(
-                onClick = onRequestBugReport,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = connectionDiagnostics.connectionState == ConnectionState.CONNECTED && !bugReportState.requesting,
-                shape = MaterialTheme.shapes.small,
-            ) {
-                Text(if (bugReportState.requesting) "Requesting report..." else "Report bug to desktop")
-            }
-            bugReportState.message?.let { message ->
-                Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-            }
-            bugReportState.error?.let { error ->
-                Text(error, style = MaterialTheme.typography.bodySmall, color = Color(0xFFEF4444))
             }
         }
     }
@@ -527,23 +500,18 @@ fun ActionsSection(
             ) { Text("Wake Desktop") }
         }
 
-        OutlinedButton(
+        NexySecondaryButton(
+            text = "Disconnect",
             onClick = onDisconnect,
             modifier = Modifier.fillMaxWidth(),
             enabled = connectionState != ConnectionState.DISCONNECTED,
-            shape = MaterialTheme.shapes.small,
-            colors = ButtonDefaults.outlinedButtonColors(
-                contentColor = MaterialTheme.colorScheme.onSurface,
-                disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            ),
-        ) { Text("Disconnect") }
+        )
 
-        OutlinedButton(
+        NexyDangerButton(
+            text = "Forget active server",
             onClick = { confirmForgetActive = true },
             modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.small,
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFEF4444)),
-        ) { Text("Forget active server") }
+        )
     }
 }
 

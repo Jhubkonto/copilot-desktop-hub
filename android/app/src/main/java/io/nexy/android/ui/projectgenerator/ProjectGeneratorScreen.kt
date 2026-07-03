@@ -60,6 +60,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.ProjectGeneratorSpec
 import io.nexy.android.ui.components.NexyConfirmDialog
+import io.nexy.android.ui.components.NexyGhostButton
+import io.nexy.android.ui.components.NexyPrimaryButton
+import io.nexy.android.ui.components.NexySecondaryButton
 import io.nexy.android.ui.components.NexyStepIndicator
 import io.nexy.android.ui.components.NexyTopAppBar
 import io.nexy.android.ui.model.activeModelLabel
@@ -150,7 +153,7 @@ fun ProjectGeneratorScreen(
                         )
                     }
                     if (uiState.phase != ProjectGenPhase.CHAT || uiState.messages.size > 1 || uiState.streamingText.isNotBlank()) {
-                        TextButton(onClick = { confirmReset = true }) { Text("Reset") }
+                        NexyGhostButton(text = "Reset", onClick = { confirmReset = true })
                     }
                 },
             )
@@ -502,10 +505,8 @@ private fun SpecReviewPhase(
         } else {
             val canCreate = spec?.let { it.name.isNotBlank() && !it.rootDirectory.isNullOrBlank() } ?: false
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = onBack) { Text("Back") }
-                Button(onClick = onConfirm, enabled = canCreate) {
-                    Text("Create project")
-                }
+                NexySecondaryButton(text = "Back", onClick = onBack)
+                NexyPrimaryButton(text = "Create project", onClick = onConfirm, enabled = canCreate)
             }
         }
     }
@@ -574,6 +575,6 @@ private fun DonePhase(
             )
         }
         Spacer(Modifier.height(24.dp))
-        Button(onClick = onReset) { Text("Generate another project") }
+        NexyPrimaryButton(text = "Generate another project", onClick = onReset)
     }
 }

@@ -17,15 +17,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Image
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -43,6 +40,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import io.nexy.android.data.model.WsEvent
+import io.nexy.android.ui.components.NexyDangerButton
+import io.nexy.android.ui.components.NexyPrimaryButton
 import kotlin.math.roundToInt
 
 @Composable
@@ -259,21 +258,16 @@ fun ToolApprovalCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                OutlinedButton(
+                NexyDangerButton(
+                    text = "Deny",
                     onClick = onDeny,
                     modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error,
-                    ),
-                ) {
-                    Text("Deny")
-                }
-                Button(
+                )
+                NexyPrimaryButton(
+                    text = "Approve",
                     onClick = onApprove,
                     modifier = Modifier.weight(1f),
-                ) {
-                    Text("Approve")
-                }
+                )
             }
         }
     }

@@ -22,7 +22,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -31,7 +30,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import io.nexy.android.ui.chat.ChatInputBar
@@ -62,6 +60,9 @@ import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.SkillGeneratorSpec
 import io.nexy.android.data.model.SkillGeneratorTools
 import io.nexy.android.ui.components.NexyConfirmDialog
+import io.nexy.android.ui.components.NexyGhostButton
+import io.nexy.android.ui.components.NexyPrimaryButton
+import io.nexy.android.ui.components.NexySecondaryButton
 import io.nexy.android.ui.components.NexyStepIndicator
 import io.nexy.android.ui.components.NexyTopAppBar
 import io.nexy.android.ui.model.activeModelLabel
@@ -152,7 +153,7 @@ fun SkillGeneratorScreen(
                         )
                     }
                     if (uiState.phase != SkillGenPhase.CHAT || uiState.messages.size > 1 || uiState.streamingText.isNotBlank()) {
-                        TextButton(onClick = { confirmReset = true }) { Text("Reset") }
+                        NexyGhostButton(text = "Reset", onClick = { confirmReset = true })
                     }
                 },
             )
@@ -496,8 +497,8 @@ private fun SpecReviewPhase(
         } else {
             val canCreate = spec?.name?.isNotBlank() == true
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = onBack) { Text("Back") }
-                Button(onClick = onConfirm, enabled = canCreate) { Text("Create skill") }
+                NexySecondaryButton(text = "Back", onClick = onBack)
+                NexyPrimaryButton(text = "Create skill", onClick = onConfirm, enabled = canCreate)
             }
         }
     }
@@ -544,6 +545,6 @@ private fun DonePhase(
             )
         }
         Spacer(Modifier.height(24.dp))
-        Button(onClick = onReset) { Text("Generate another skill") }
+        NexyPrimaryButton(text = "Generate another skill", onClick = onReset)
     }
 }
