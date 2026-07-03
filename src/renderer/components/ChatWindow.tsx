@@ -147,7 +147,7 @@ export function ChatWindow() {
     requestAnimationFrame(() => inputRef.current?.focus())
   }, [])
   const handleVoiceError = useCallback((message: string) => addToast(message, 'error'), [addToast])
-  const { voiceState, toggleVoice } = useVoiceInput(handleVoiceText, handleVoiceError)
+  const { voiceState, toggleVoice, cancelVoice } = useVoiceInput(handleVoiceText, handleVoiceError)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -1257,6 +1257,7 @@ export function ChatWindow() {
       onAttachArtifact={conversationId ? () => openSectionPane('artifacts') : undefined}
       voiceState={voiceState}
       onToggleVoice={toggleVoice}
+      onCancelVoice={cancelVoice}
       onToggleContextInspector={() => setShowContextInspector((value) => !value)}
       onCloseContextInspector={() => setShowContextInspector(false)}
       onRemoveAttachment={fileInput.removeAttachment}

@@ -34,6 +34,7 @@ let mockStore: ReturnType<typeof createMockAppStore>;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  setupMockApi();
   mockStore = createMockAppStore({
     activeSectionPane: "projects" as const,
     projects: [

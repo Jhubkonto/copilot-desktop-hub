@@ -48,6 +48,7 @@ interface ChatComposerProps {
   onAttachArtifact?: () => void
   voiceState: 'idle' | 'recording' | 'transcribing'
   onToggleVoice: () => void
+  onCancelVoice: () => void
   onToggleContextInspector: () => void
   onCloseContextInspector: () => void
   onRemoveAttachment: (id: string) => void
@@ -107,6 +108,7 @@ export function ChatComposer({
   onAttachArtifact,
   voiceState,
   onToggleVoice,
+  onCancelVoice,
   onToggleContextInspector,
   onCloseContextInspector,
   onRemoveAttachment,
@@ -352,6 +354,17 @@ export function ChatComposer({
                   />
                 )}
               </div>
+                {voiceState === 'recording' && (
+                  <button
+                    type="button"
+                    onClick={onCancelVoice}
+                    className="p-1.5 rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:text-gray-500 dark:hover:bg-gray-700 dark:hover:text-gray-300"
+                    title="Cancel recording"
+                    aria-label="Cancel voice recording"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={onToggleVoice}

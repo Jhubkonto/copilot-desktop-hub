@@ -1,6 +1,7 @@
 import { ArrowDown, ArrowUp, ToggleLeft, ToggleRight, X } from 'lucide-react'
 import type { AgentConfig, SkillConfig } from '../../../shared/types'
 import type { McpTool, McpServerInfo, McpToolOverride, McpTrustTier } from './types'
+import { Button } from '../ui/primitives'
 
 interface Props {
   config: AgentConfig
@@ -189,13 +190,13 @@ export function SkillsTab({
             <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">
               No MCP servers configured. Add Playwright to enable browser automation.
             </p>
-            <button
-              type="button"
+            <Button
+              variant="secondary"
               onClick={onOpenMcpPanel}
-              className="text-xs px-2 py-1 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
+              className="border-0 px-2 py-1 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
             >
               Add MCP Server
-            </button>
+            </Button>
           </div>
         ) : (
           globalMcpServers.map((server) => {

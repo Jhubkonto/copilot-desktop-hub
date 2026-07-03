@@ -1,12 +1,12 @@
 /* eslint-disable react-hooks/exhaustive-deps -- callbacks intentionally retain the run-start configuration. */
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { X, Send, Loader2, ChevronRight, Crown, UserPlus, Sparkles, Pencil, Plus, Trash2, FolderOpen, BookOpen, ClipboardPaste } from 'lucide-react'
+import { X, Send, Loader2, ChevronRight, Crown, UserPlus, Sparkles, Pencil, BookOpen, ClipboardPaste } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
-import type { ProjectGeneratorSpec, ProjectGeneratorAgentSpec, ProjectGeneratorMessage, AvailableModelGroup, AvailableModelEntry } from '../../shared/types'
-import { getAvailableModelIds, getModelLabel } from '../../shared/models'
+import type { ProjectGeneratorSpec, ProjectGeneratorMessage, AvailableModelGroup, AvailableModelEntry } from '../../shared/types'
 import { PromptLibraryModal } from './PromptLibraryModal'
 import { ModelPicker } from './chat/ModelPicker'
 import { VoiceInputButton } from './chat/VoiceInputButton'
+import { Button } from './ui/primitives'
 
 // ─── Draft preview ────────────────────────────────────────────────────────────
 
@@ -139,12 +139,9 @@ function CreationOverlay({ step, error, onRetry }: { step: number; error: string
         <>
           <p className="text-sm text-red-600 dark:text-red-400 font-medium">Creation failed</p>
           <p className="text-xs text-gray-500 max-w-sm text-center">{error}</p>
-          <button
-            onClick={onRetry}
-            className="px-4 py-2 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-sm font-medium hover:bg-gray-800 dark:hover:bg-gray-200"
-          >
+          <Button variant="primary" onClick={onRetry} className="text-sm">
             Try again
-          </button>
+          </Button>
         </>
       ) : (
         <>
@@ -167,370 +164,6 @@ function CreationOverlay({ step, error, onRetry }: { step: number; error: string
           </div>
         </>
       )}
-    </div>
-  )
-}
-
-// ─── Agent card (extracted to avoid hook-in-map) ─────────────────────────────
-
-interface AgentCardProps {
-  agent: ProjectGeneratorAgentSpec
-  index: number
-  spec: ProjectGeneratorSpec
-  onChange: (spec: ProjectGeneratorSpec) => void
-}
-
-function AgentCard({ agent, index, spec, onChange }: AgentCardProps) {
-  const [promptOpen, setPromptOpen] = useState(false)
-  const set = (patch: Partial<ProjectGeneratorSpec>) => onChange({ ...spec, ...patch })
-
-  return (
-    <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-2.5 space-y-2">
-      <div className="flex items-center gap-2">
-        {agent.existingAgentId ? (
-          <span className="text-[9px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-500 font-medium shrink-0">Existing</span>
-        ) : (
-          <input
-            value={agent.newAgent?.icon ?? '🤖'}
-            onChange={(e) => {
-              const arr = [...spec.agents]
-              arr[index] = { ...arr[index], newAgent: { ...arr[index].newAgent!, icon: e.target.value } }
-              set({ agents: arr })
-            }}
-            className="w-8 text-center text-base border border-gray-200 dark:border-gray-700 rounded px-0.5 bg-white dark:bg-gray-800 focus:outline-none"
-            maxLength={4}
-          />
-        )}
-        <input
-          value={agent.newAgent?.name ?? agent.role}
-          onChange={(e) => {
-            const arr = [...spec.agents]
-            if (arr[index].newAgent) arr[index] = { ...arr[index], newAgent: { ...arr[index].newAgent!, name: e.target.value } }
-            set({ agents: arr })
-          }}
-          disabled={!!agent.existingAgentId}
-          placeholder="Agent name"
-          className="flex-1 text-xs border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-800 focus:outline-none disabled:opacity-50"
-        />
-        <button
-          onClick={() => {
-            const arr = [...spec.agents]
-            const wasLeader = arr[index].isLeader
-            arr.forEach((a, j) => { arr[j] = { ...a, isLeader: j === index ? !wasLeader : (wasLeader ? a.isLeader : false) } })
-            set({ agents: arr })
-          }}
-          className={`p-1 rounded ${agent.isLeader ? 'text-yellow-500' : 'text-gray-300 hover:text-yellow-400'}`}
-          title={agent.isLeader ? 'Leader — click to remove' : 'Set as leader'}
-        >
-          <Crown className="w-3.5 h-3.5" />
-        </button>
-        <button onClick={() => set({ agents: spec.agents.filter((_, j) => j !== index) })} className="text-gray-400 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>
-      </div>
-      <p className="text-[10px] text-gray-400 px-0.5">{agent.role}</p>
-      {!agent.existingAgentId && (
-        <div className="space-y-1.5">
-          {/* Tool toggles */}
-          <div className="flex items-center gap-3 px-0.5">
-            {(['fileEdit', 'terminal', 'webFetch'] as const).map((toolKey) => {
-              const labels: Record<string, string> = { fileEdit: 'File Edit', terminal: 'Terminal', webFetch: 'Web Fetch' }
-              const enabled = agent.newAgent?.tools?.[toolKey] ?? false
-              return (
-                <label key={toolKey} className="flex items-center gap-1 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={enabled}
-                    onChange={(e) => {
-                      const arr = [...spec.agents]
-                      const existing = arr[index].newAgent!
-                      arr[index] = {
-                        ...arr[index],
-                        newAgent: {
-                          ...existing,
-                          tools: { fileEdit: false, terminal: false, webFetch: false, ...(existing.tools ?? {}), [toolKey]: e.target.checked },
-                        },
-                      }
-                      set({ agents: arr })
-                    }}
-                    className="w-3 h-3 rounded"
-                  />
-                  <span className="text-[10px] text-gray-500 dark:text-gray-400">{labels[toolKey]}</span>
-                </label>
-              )
-            })}
-          </div>
-          <button
-            onClick={() => setPromptOpen((p) => !p)}
-            className="text-[10px] text-indigo-500 hover:text-indigo-700"
-          >{promptOpen ? 'Hide' : 'Edit'} system prompt</button>
-          {promptOpen && (
-            <textarea
-              value={agent.newAgent?.systemPrompt ?? ''}
-              onChange={(e) => {
-                const arr = [...spec.agents]
-                arr[index] = { ...arr[index], newAgent: { ...arr[index].newAgent!, systemPrompt: e.target.value } }
-                set({ agents: arr })
-              }}
-              rows={3}
-              className="mt-1 w-full text-xs border border-gray-200 dark:border-gray-700 rounded px-2 py-1.5 bg-white dark:bg-gray-800 focus:outline-none resize-none"
-              placeholder="System prompt…"
-            />
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── Edit form ────────────────────────────────────────────────────────────────
-
-const COLOR_OPTIONS = ['blue', 'green', 'red', 'purple', 'orange', 'pink', 'yellow', 'gray'] as const
-
-interface EditFormProps {
-  spec: ProjectGeneratorSpec
-  onChange: (spec: ProjectGeneratorSpec) => void
-  onConfirm: () => void
-  onCancel: () => void
-}
-
-const INSTRUCTION_MODE_OPTIONS = [
-  { value: 'prepend', label: 'Prepend' },
-  { value: 'append', label: 'Append' },
-  { value: 'replace', label: 'Replace' },
-  { value: 'standalone', label: 'Standalone' },
-] as const
-
-function EditForm({ spec, onChange, onConfirm, onCancel }: EditFormProps) {
-  const catalogModels = useAppStore((s) => s.catalogModels)
-  const globalDefaultModel = useAppStore((s) => s.globalDefaultModel)
-  const set = (patch: Partial<ProjectGeneratorSpec>) => onChange({ ...spec, ...patch })
-  const modelIds = getAvailableModelIds(catalogModels, spec.defaultModel ?? null)
-
-  return (
-    <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-5 text-sm">
-
-        {/* Project */}
-        <section>
-          <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium mb-2">Project</p>
-          <div className="space-y-2">
-            <input
-              value={spec.name}
-              onChange={(e) => set({ name: e.target.value })}
-              placeholder="Project name"
-              className="w-full text-sm border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-400"
-            />
-            <div className="flex items-center gap-1.5">
-              {COLOR_OPTIONS.map((c) => (
-                <button
-                  key={c}
-                  onClick={() => set({ color: c })}
-                  className={`w-5 h-5 rounded-full ${COLOR_DOT[c]} ${spec.color === c ? 'ring-2 ring-offset-1 ring-indigo-500' : 'opacity-60 hover:opacity-100'} transition-opacity`}
-                  title={c}
-                />
-              ))}
-            </div>
-            {/* Root directory */}
-            <div className="flex items-center gap-2 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-800">
-              <FolderOpen className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-              <input
-                value={spec.rootDirectory ?? ''}
-                onChange={(e) => set({ rootDirectory: e.target.value || undefined })}
-                placeholder="/path/to/project"
-                className="flex-1 text-xs bg-transparent text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none font-mono"
-              />
-            </div>
-            <textarea
-              value={spec.instructions}
-              onChange={(e) => set({ instructions: e.target.value })}
-              placeholder="Project instructions…"
-              rows={3}
-              className="w-full text-xs border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-400 resize-none"
-            />
-            {/* Instruction mode */}
-            <div>
-              <p className="text-[10px] text-gray-400 mb-1">Instruction mode</p>
-              <div className="flex gap-1">
-                {INSTRUCTION_MODE_OPTIONS.map(({ value, label }) => (
-                  <button
-                    key={value}
-                    onClick={() => set({ instructionMode: value })}
-                    className={`px-2 py-1 rounded text-[10px] font-medium border transition-colors ${
-                      (spec.instructionMode ?? 'prepend') === value
-                        ? 'bg-indigo-600 border-indigo-600 text-white'
-                        : 'border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
-                    }`}
-                  >{label}</button>
-                ))}
-              </div>
-            </div>
-            {/* Model picker */}
-            <div>
-              <p className="text-[10px] text-gray-400 mb-1">Default model</p>
-              <select
-                value={spec.defaultModel ?? 'default'}
-                onChange={(e) => set({ defaultModel: e.target.value === 'default' ? undefined : e.target.value })}
-                className="w-full text-xs border border-gray-200 dark:border-gray-700 rounded px-2 py-1.5 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 focus:outline-none"
-              >
-                {modelIds.map((id) => (
-                  <option key={id} value={id}>
-                    {getModelLabel(id, catalogModels, globalDefaultModel ?? undefined)}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[10px] text-gray-400">Variables</span>
-                <button
-                  onClick={() => set({ variables: [...spec.variables, { key: '', value: '' }] })}
-                  className="text-[10px] text-indigo-500 hover:text-indigo-700"
-                >+ Add</button>
-              </div>
-              {spec.variables.map((v, i) => (
-                <div key={i} className="flex items-center gap-1.5 mb-1">
-                  <input
-                    value={v.key}
-                    onChange={(e) => { const vars = [...spec.variables]; vars[i] = { ...vars[i], key: e.target.value }; set({ variables: vars }) }}
-                    placeholder="KEY"
-                    className="w-24 text-xs border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-800 font-mono focus:outline-none"
-                  />
-                  <span className="text-gray-400">=</span>
-                  <input
-                    value={v.value}
-                    onChange={(e) => { const vars = [...spec.variables]; vars[i] = { ...vars[i], value: e.target.value }; set({ variables: vars }) }}
-                    placeholder="value"
-                    className="flex-1 text-xs border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-800 focus:outline-none"
-                  />
-                  <button onClick={() => set({ variables: spec.variables.filter((_, j) => j !== i) })} className="text-gray-400 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* Scope */}
-        <section>
-          <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium mb-2">Scope</p>
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] text-green-600 dark:text-green-400 font-medium">In scope</span>
-              <button
-                onClick={() => set({ inScope: [...spec.inScope, { description: '' }] })}
-                className="text-[10px] text-indigo-500 hover:text-indigo-700"
-              >+ Add</button>
-            </div>
-            {spec.inScope.map((s, i) => (
-              <div key={i} className="flex items-center gap-1.5">
-                <span className="text-green-500 text-[10px] shrink-0">✓</span>
-                <input
-                  value={s.description}
-                  onChange={(e) => { const arr = [...spec.inScope]; arr[i] = { ...arr[i], description: e.target.value }; set({ inScope: arr }) }}
-                  placeholder="Description"
-                  className="flex-1 text-xs border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-800 focus:outline-none"
-                />
-                <input
-                  value={s.pathGlob ?? ''}
-                  onChange={(e) => { const arr = [...spec.inScope]; arr[i] = { ...arr[i], pathGlob: e.target.value || undefined }; set({ inScope: arr }) }}
-                  placeholder="src/**"
-                  className="w-24 text-xs border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-800 font-mono focus:outline-none"
-                />
-                <button onClick={() => set({ inScope: spec.inScope.filter((_, j) => j !== i) })} className="text-gray-400 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>
-              </div>
-            ))}
-            <div className="flex items-center justify-between mt-2">
-              <span className="text-[10px] text-red-500 font-medium">Out of scope</span>
-              <button
-                onClick={() => set({ outOfScope: [...spec.outOfScope, { description: '' }] })}
-                className="text-[10px] text-indigo-500 hover:text-indigo-700"
-              >+ Add</button>
-            </div>
-            {spec.outOfScope.map((s, i) => (
-              <div key={i} className="flex items-center gap-1.5">
-                <span className="text-red-400 text-[10px] shrink-0">✕</span>
-                <input
-                  value={s.description}
-                  onChange={(e) => { const arr = [...spec.outOfScope]; arr[i] = { ...arr[i], description: e.target.value }; set({ outOfScope: arr }) }}
-                  placeholder="Description"
-                  className="flex-1 text-xs border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-800 focus:outline-none"
-                />
-                <button onClick={() => set({ outOfScope: spec.outOfScope.filter((_, j) => j !== i) })} className="text-gray-400 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* Milestones */}
-        <section>
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Milestones</p>
-            <button
-              onClick={() => set({ milestones: [...spec.milestones, { title: '', status: 'upcoming' }] })}
-              className="text-[10px] text-indigo-500 hover:text-indigo-700"
-            ><Plus className="w-3 h-3 inline" /> Add</button>
-          </div>
-          <div className="space-y-1.5">
-            {spec.milestones.map((m, i) => (
-              <div key={i} className="flex items-center gap-1.5">
-                <button
-                  onClick={() => {
-                    const arr = [...spec.milestones]
-                    arr[i] = { ...arr[i], status: arr[i].status === 'active' ? 'upcoming' : 'active' }
-                    set({ milestones: arr })
-                  }}
-                  className={`w-2.5 h-2.5 rounded-full shrink-0 border-2 ${m.status === 'active' ? 'bg-blue-500 border-blue-500' : 'border-gray-300'}`}
-                  title={m.status === 'active' ? 'Active — click to set upcoming' : 'Upcoming — click to set active'}
-                />
-                <input
-                  value={m.title}
-                  onChange={(e) => { const arr = [...spec.milestones]; arr[i] = { ...arr[i], title: e.target.value }; set({ milestones: arr }) }}
-                  placeholder="Milestone title"
-                  className="flex-1 text-xs border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-800 focus:outline-none"
-                />
-                <button onClick={() => set({ milestones: spec.milestones.filter((_, j) => j !== i) })} className="text-gray-400 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* Agents */}
-        <section>
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Agents</p>
-            <button
-              onClick={() => set({
-                agents: [...spec.agents, {
-                  role: 'Specialist', description: '', isLeader: false,
-                  newAgent: { name: 'Specialist', icon: '🤖', systemPrompt: '', temperature: 0.7, responseFormat: 'default', tools: { fileEdit: false, terminal: false, webFetch: false } }
-                }]
-              })}
-              className="text-[10px] text-indigo-500 hover:text-indigo-700"
-            ><Plus className="w-3 h-3 inline" /> Add</button>
-          </div>
-          <div className="space-y-2">
-            {spec.agents.map((agent, i) => (
-              <AgentCard key={i} agent={agent} index={i} spec={spec} onChange={onChange} />
-            ))}
-          </div>
-        </section>
-      </div>
-
-      {/* Footer */}
-      <div className="px-4 pb-4 pt-3 border-t border-gray-100 dark:border-gray-800 flex items-center gap-2">
-        <button
-          onClick={onCancel}
-          className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
-        >
-          Back
-        </button>
-        <button
-          onClick={onConfirm}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium transition-colors ml-auto"
-        >
-          <UserPlus className="w-3.5 h-3.5" />
-          Create project
-          <ChevronRight className="w-3 h-3" />
-        </button>
-      </div>
     </div>
   )
 }
@@ -602,6 +235,8 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
   const setProjectPrimaryAgent = useAppStore((s) => s.setProjectPrimaryAgent)
   const selectProject = useAppStore((s) => s.selectProject)
   const addToast = useAppStore((s) => s.addToast)
+  const setShowNewProjectForm = useAppStore((s) => s.setShowNewProjectForm)
+  const openEditProject = useAppStore((s) => s.openEditProject)
 
   const [messages, setMessages] = useState<ProjectGeneratorMessage[]>(() => getSession().messages)
   const [streamingText, setStreamingText] = useState('')
@@ -610,8 +245,6 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
   const [isStreaming, setIsStreaming] = useState(false)
   const [creationStep, setCreationStep] = useState<number>(-1)
   const [creationError, setCreationError] = useState<string | null>(null)
-  const [isEditing, setIsEditing] = useState(false)
-  const [editSpec, setEditSpec] = useState<ProjectGeneratorSpec | null>(null)
   const [genModel, setGenModel] = useState<string | null>(null)
   const [availableGroups, setAvailableGroups] = useState<AvailableModelGroup[]>([])
   const [missedSpec, setMissedSpec] = useState(false)
@@ -736,7 +369,7 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
     }
   }
 
-  const handleCreate = useCallback(async (specToCreate: ProjectGeneratorSpec) => {
+  const handleCreate = useCallback(async (specToCreate: ProjectGeneratorSpec, openForEdit = false) => {
     setCreationError(null)
     setCreationStep(0)
     const createdAgentIds: string[] = []
@@ -821,6 +454,10 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
       clearSession()
       onClose()
       addToast(`Project "${specToCreate.name}" created`, 'success')
+
+      if (openForEdit) {
+        openEditProject(projectId)
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Creation failed'
       setCreationError(message)
@@ -833,7 +470,7 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
       }
       setCreationStep(-1)
     }
-  }, [createProject, updateProjectConfig, addAgentToProject, setProjectPrimaryAgent, loadProjectAgents, selectProject, onClose, addToast])
+  }, [createProject, updateProjectConfig, addAgentToProject, setProjectPrimaryAgent, loadProjectAgents, selectProject, onClose, addToast, openEditProject])
 
   return (
     <div
@@ -852,7 +489,7 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
             <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">New Project</h2>
           </div>
           <div className="flex items-center gap-2">
-            {!isEditing && !isCreating && (
+            {!isCreating && (
               <>
                 {messages.length > 1 && (
                   <button
@@ -870,6 +507,15 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
                     Start over
                   </button>
                 )}
+                <button
+                  onClick={() => {
+                    onClose()
+                    setShowNewProjectForm(true)
+                  }}
+                  className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                >
+                  Set up manually
+                </button>
               </>
             )}
             <button
@@ -892,22 +538,13 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
                 <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Draft preview</p>
               </div>
               <div className="h-[calc(100%-33px)] overflow-hidden">
-                <DraftPreview spec={isEditing ? editSpec : spec} />
+                <DraftPreview spec={spec} />
               </div>
             </div>
           </div>
 
-          {/* Right: chat or edit form (60%) */}
+          {/* Right: chat (60%) */}
           <div className="flex flex-col flex-1 min-w-0 relative">
-            {isEditing && editSpec ? (
-              <EditForm
-                spec={editSpec}
-                onChange={setEditSpec}
-                onConfirm={() => handleCreate(editSpec)}
-                onCancel={() => setIsEditing(false)}
-              />
-            ) : (
-              <>
                 {/* Messages */}
                 <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
                   {messages.map((msg, i) => (
@@ -939,7 +576,7 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
                         {' — '}{spec.agents.length} agent{spec.agents.length !== 1 ? 's' : ''}, {spec.milestones.length} milestone{spec.milestones.length !== 1 ? 's' : ''}
                       </div>
                       <button
-                        onClick={() => { setEditSpec(spec); setIsEditing(true) }}
+                        onClick={() => handleCreate(spec, true)}
                         className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                       >
                         <Pencil className="w-3 h-3" />
@@ -1051,8 +688,6 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
                     {!spec && !missedSpec && <p className="text-[10px] text-gray-400 mt-1.5 text-center">Press Enter to send · Shift+Enter for newline</p>}
                   </div>
                 </div>
-              </>
-            )}
           </div>
         </div>
 
@@ -1062,8 +697,7 @@ export function ProjectGeneratorModal({ onClose }: { onClose: () => void }) {
             step={creationStep}
             error={creationError}
             onRetry={() => {
-              const target = editSpec ?? spec
-              if (target) handleCreate(target)
+              if (spec) handleCreate(spec)
             }}
           />
         )}

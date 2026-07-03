@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Sparkles, CheckCircle, MessageSquare, Bot, Plug, Wrench, Key, Terminal, RefreshCw, ShieldCheck, Package } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
+import { Button } from './ui/primitives'
 
 interface OnboardingProps {
   onComplete: () => void
@@ -82,12 +83,9 @@ export function OnboardingModal({ onComplete }: OnboardingProps) {
               <p className="text-xs text-gray-400 dark:text-gray-500">
                 Let's get you set up with an AI backend.
               </p>
-              <button
-                onClick={() => setStep('providers')}
-                className="w-full mt-4 px-4 py-2.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-sm font-medium hover:bg-gray-800 dark:hover:bg-gray-200 transition-colors"
-              >
+              <Button variant="primary" onClick={() => setStep('providers')} className="w-full mt-4 justify-center text-sm">
                 Get Started
-              </button>
+              </Button>
             </div>
           )}
 
@@ -220,12 +218,9 @@ export function OnboardingModal({ onComplete }: OnboardingProps) {
                   </kbd> to toggle the app</li>
                 </ul>
               </div>
-              <button
-                onClick={handleFinish}
-                className="w-full mt-2 px-4 py-2.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-sm font-medium hover:bg-gray-800 dark:hover:bg-gray-200 transition-colors"
-              >
+              <Button variant="primary" onClick={handleFinish} className="w-full mt-2 justify-center text-sm">
                 Start Using Nexy
-              </button>
+              </Button>
             </div>
           )}
         </div>

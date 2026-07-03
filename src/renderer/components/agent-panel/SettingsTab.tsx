@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { X, Folder, FileText, Plus, ExternalLink, AlertTriangle } from 'lucide-react'
 import type { AgentConfig } from '../../../shared/types'
-import { ToggleSwitch } from '../ui/primitives'
+import { Button, ToggleSwitch } from '../ui/primitives'
 
 const EMOJI_OPTIONS = ['🤖', '🔍', '🐛', '💡', '📝', '🎨', '🔧', '🚀', '🧠', '⚡', '🛡️', '📊']
 const FORMAT_OPTIONS = ['default', 'concise', 'detailed', 'code-only'] as const
@@ -292,14 +292,15 @@ export function SettingsTab({
           <span className="flex-1 truncate text-xs text-gray-600 dark:text-gray-400 px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 min-h-[32px]">
             {config.rootDirectory ? config.rootDirectory : <span className="italic text-gray-400 dark:text-gray-500">Inherit global CWD</span>}
           </span>
-          <button
+          <Button
+            variant="secondary"
             onClick={onPickRootDirectory}
-            className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors shrink-0"
+            className="gap-1 px-2 py-1.5 rounded-lg transition-colors shrink-0"
             aria-label="Pick root directory"
           >
             <Folder className="w-3 h-3" />
             Browse
-          </button>
+          </Button>
           {config.rootDirectory && (
             <button
               onClick={() => onUpdateField('rootDirectory', '')}
@@ -358,13 +359,14 @@ export function SettingsTab({
               placeholder="**/node_modules/**"
               className="flex-1 px-2 py-1 text-xs rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
             />
-            <button
+            <Button
+              variant="secondary"
               onClick={onAddIgnoredGlob}
-              className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              className="gap-1 px-2 py-1 rounded-lg transition-colors"
               aria-label="Add glob pattern"
             >
               <Plus className="w-3 h-3" />
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -411,14 +413,15 @@ export function SettingsTab({
             rows={2}
             className="w-full px-2 py-1 text-xs rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
           />
-          <button
+          <Button
+            variant="secondary"
             onClick={onAddCustomCommand}
             disabled={!newCmdName.trim()}
-            className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="gap-1 px-2 py-1 rounded-lg transition-colors"
           >
             <Plus className="w-3 h-3" />
             Add Command
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -474,21 +477,23 @@ export function SettingsTab({
               </div>
             </div>
             <div className="flex justify-end gap-2 pt-1">
-              <button
+              <Button
+                variant="secondary"
                 onClick={() => setShowAutoApproveConfirm(false)}
-                className="px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                className="px-3 py-1.5 text-sm rounded-lg transition-colors"
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="danger"
                 onClick={() => {
                   onUpdateField('fullAutoApprove', true)
                   setShowAutoApproveConfirm(false)
                 }}
-                className="px-3 py-1.5 text-sm rounded-lg bg-red-600 hover:bg-red-700 text-white font-medium transition-colors"
+                className="px-3 py-1.5 text-sm rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors"
               >
                 Enable auto-approve
-              </button>
+              </Button>
             </div>
           </div>
         </div>

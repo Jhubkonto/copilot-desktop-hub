@@ -4,6 +4,7 @@ import { useAppStore } from '../store/app-store'
 import type { AgentConfig, AvailableModelGroup } from '../../shared/types'
 import { PROVIDER_THINKING_SUPPORT } from '../../shared/types'
 import { ResizeHandle } from './ResizeHandle'
+import { Button } from './ui/primitives'
 import { SettingsTab } from './agent-panel/SettingsTab'
 import { SkillsTab } from './agent-panel/SkillsTab'
 import { KnowledgeTab } from './agent-panel/KnowledgeTab'
@@ -454,47 +455,35 @@ export function AgentPanel({ width, onResize }: { width: number; onResize: (size
         <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-700">
           <div className="flex gap-2">
             {isEditing && (
-              <button
+              <Button
+                variant="secondary"
                 onClick={() => onDelete(config.id)}
-                className="text-xs px-3 py-1.5 rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                className="border-red-300 px-2 text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/30"
               >
                 Delete
-              </button>
+              </Button>
             )}
           </div>
           <div className="flex gap-2">
             {isEditing && (
-              <button
-                onClick={() => onDuplicate(config.id)}
-                className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-              >
+              <Button variant="secondary" onClick={() => onDuplicate(config.id)}>
                 Duplicate
-              </button>
+              </Button>
             )}
             {isEditing && (
-              <button
-                onClick={() => onExport(config.id)}
-                className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-              >
+              <Button variant="secondary" onClick={() => onExport(config.id)}>
                 Export
-              </button>
+              </Button>
             )}
             <div className="flex gap-2">
               {!isEditing && (
-                <button
-                  onClick={onClose}
-                  className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                >
+                <Button variant="secondary" onClick={onClose}>
                   Cancel
-                </button>
+                </Button>
               )}
-              <button
-                onClick={handleSave}
-                disabled={!config.name.trim()}
-                className="text-xs px-4 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
+              <Button variant="primary" onClick={handleSave} disabled={!config.name.trim()}>
                 {isEditing ? 'Save' : 'Create'}
-              </button>
+              </Button>
             </div>
           </div>
         </div>

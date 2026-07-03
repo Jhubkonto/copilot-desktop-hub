@@ -35,13 +35,23 @@ export function useVoiceInput(onText: (text: string) => void, onError: (message:
   const processorRef = useRef<ScriptProcessorNode | null>(null)
   const chunksRef = useRef<Float32Array[]>([])
 
-  const stop = useCallback(async () => {
+  const teardown = useCallback(() => {
     const context = contextRef.current
-    const processor = processorRef.current
-    const chunks = chunksRef.current
-    processor?.disconnect()
+    processorRef.current?.disconnect()
     streamRef.current?.getTracks().forEach((track) => track.stop())
     streamRef.current = null; processorRef.current = null; contextRef.current = null; chunksRef.current = []
+    return context
+  }, [])
+
+  const cancel = useCallback(async () => {
+    const context = teardown()
+    setState('idle')
+    await context?.close()
+  }, [teardown])
+
+  const stop = useCallback(async () => {
+    const chunks = chunksRef.current
+    const context = teardown()
     if (!context || chunks.length === 0) { setState('idle'); await context?.close(); return }
     const wav = encodeWav(chunks, context.sampleRate)
     await context.close()
@@ -55,7 +65,7 @@ export function useVoiceInput(onText: (text: string) => void, onError: (message:
     } finally {
       setState('idle')
     }
-  }, [onError, onText])
+  }, [onError, onText, teardown])
 
   const start = useCallback(async () => {
     try {
@@ -81,5 +91,5 @@ export function useVoiceInput(onText: (text: string) => void, onError: (message:
 
   const toggle = useCallback(() => state === 'recording' ? void stop() : state === 'idle' ? void start() : undefined, [start, state, stop])
   useEffect(() => () => { processorRef.current?.disconnect(); streamRef.current?.getTracks().forEach((track) => track.stop()); void contextRef.current?.close() }, [])
-  return { voiceState: state, toggleVoice: toggle }
+  return { voiceState: state, toggleVoice: toggle, cancelVoice: cancel }
 }

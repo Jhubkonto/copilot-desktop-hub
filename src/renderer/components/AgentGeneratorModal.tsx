@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { X, Send, Loader2, Sparkles, Pencil, FolderOpen, BookOpen, ImageIcon } from 'lucide-react'
+import { X, Send, Loader2, Sparkles, Pencil, BookOpen, ImageIcon } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import type { AgentGeneratorSpec, AgentGeneratorMessage, AvailableModelGroup, AvailableModelEntry } from '../../shared/types'
 import { PromptLibraryModal } from './PromptLibraryModal'
 import { ModelPicker } from './chat/ModelPicker'
 import { VoiceInputButton } from './chat/VoiceInputButton'
+import { Button } from './ui/primitives'
 
 interface PastedImage {
   id: string
@@ -123,12 +124,9 @@ function CreationOverlay({ step, error, onRetry }: { step: number; error: string
         <>
           <p className="text-sm text-red-600 dark:text-red-400 font-medium">Creation failed</p>
           <p className="text-xs text-gray-500 max-w-sm text-center">{error}</p>
-          <button
-            onClick={onRetry}
-            className="px-4 py-2 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-sm font-medium hover:bg-gray-800 dark:hover:bg-gray-200"
-          >
+          <Button variant="primary" onClick={onRetry} className="text-sm">
             Try again
-          </button>
+          </Button>
         </>
       ) : (
         <>
@@ -151,154 +149,6 @@ function CreationOverlay({ step, error, onRetry }: { step: number; error: string
           </div>
         </>
       )}
-    </div>
-  )
-}
-
-// ─── Edit form ────────────────────────────────────────────────────────────────
-
-const RESPONSE_FORMAT_OPTIONS = [
-  { value: 'default', label: 'Default' },
-  { value: 'concise', label: 'Concise' },
-  { value: 'detailed', label: 'Detailed' },
-  { value: 'code-only', label: 'Code only' },
-] as const
-
-interface EditFormProps {
-  spec: AgentGeneratorSpec
-  onChange: (spec: AgentGeneratorSpec) => void
-  onConfirm: () => void
-  onCancel: () => void
-}
-
-function EditForm({ spec, onChange, onConfirm, onCancel }: EditFormProps) {
-  const set = (patch: Partial<AgentGeneratorSpec>) => onChange({ ...spec, ...patch })
-  const canCreate = spec.name.trim().length > 0
-
-  return (
-    <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4 text-sm">
-
-        <section>
-          <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium mb-2">Agent</p>
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <input
-                value={spec.icon}
-                onChange={(e) => set({ icon: e.target.value })}
-                maxLength={4}
-                className="w-10 text-center text-xl border border-gray-200 dark:border-gray-700 rounded-lg px-1 py-1 bg-white dark:bg-gray-800 focus:outline-none"
-                aria-label="Icon"
-              />
-              <input
-                value={spec.name}
-                onChange={(e) => set({ name: e.target.value })}
-                placeholder="Agent name"
-                className="flex-1 text-sm border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-400"
-              />
-            </div>
-            <textarea
-              value={spec.systemPrompt}
-              onChange={(e) => set({ systemPrompt: e.target.value })}
-              placeholder="System prompt…"
-              rows={5}
-              className="w-full text-xs border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-400 resize-none"
-            />
-          </div>
-        </section>
-
-        <section>
-          <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium mb-2">Tools</p>
-          <div className="flex flex-wrap gap-3">
-            {(['fileEdit', 'terminal', 'webFetch'] as const).map((key) => {
-              const labels: Record<string, string> = { fileEdit: 'File Edit', terminal: 'Terminal', webFetch: 'Web Fetch' }
-              return (
-                <label key={key} className="flex items-center gap-1.5 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={spec.tools[key]}
-                    onChange={(e) => set({ tools: { ...spec.tools, [key]: e.target.checked } })}
-                    className="w-3.5 h-3.5 rounded"
-                  />
-                  <span className="text-xs text-gray-600 dark:text-gray-300">{labels[key]}</span>
-                </label>
-              )
-            })}
-          </div>
-        </section>
-
-        <section>
-          <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium mb-2">Behaviour</p>
-          <div className="space-y-2">
-            <div>
-              <p className="text-[10px] text-gray-400 mb-1">Temperature: {spec.temperature}</p>
-              <input
-                type="range"
-                min={0} max={2} step={0.1}
-                value={spec.temperature}
-                onChange={(e) => set({ temperature: parseFloat(e.target.value) })}
-                className="w-full"
-              />
-            </div>
-            <div>
-              <p className="text-[10px] text-gray-400 mb-1">Response format</p>
-              <div className="flex gap-1 flex-wrap">
-                {RESPONSE_FORMAT_OPTIONS.map(({ value, label }) => (
-                  <button
-                    key={value}
-                    onClick={() => set({ responseFormat: value })}
-                    className={`px-2 py-1 rounded text-[10px] font-medium border transition-colors ${
-                      spec.responseFormat === value
-                        ? 'bg-indigo-600 border-indigo-600 text-white'
-                        : 'border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
-                    }`}
-                  >{label}</button>
-                ))}
-              </div>
-            </div>
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={spec.agenticMode}
-                onChange={(e) => set({ agenticMode: e.target.checked })}
-                className="w-3.5 h-3.5 rounded"
-              />
-              <span className="text-xs text-gray-600 dark:text-gray-300">Agentic mode</span>
-            </label>
-          </div>
-        </section>
-
-        <section>
-          <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium mb-2">Context</p>
-          <div className="flex items-center gap-2 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-800">
-            <FolderOpen className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-            <input
-              value={spec.rootDirectory ?? ''}
-              onChange={(e) => set({ rootDirectory: e.target.value || undefined })}
-              placeholder="/path/to/project (optional)"
-              className="flex-1 text-xs bg-transparent text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none font-mono"
-            />
-          </div>
-        </section>
-
-      </div>
-
-      <div className="px-4 pb-4 pt-3 border-t border-gray-100 dark:border-gray-800 flex items-center gap-2">
-        <button
-          onClick={onCancel}
-          className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
-        >
-          Back
-        </button>
-        <button
-          onClick={onConfirm}
-          disabled={!canCreate}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-medium transition-colors ml-auto"
-        >
-          <Sparkles className="w-3.5 h-3.5" />
-          Create agent
-        </button>
-      </div>
     </div>
   )
 }
@@ -422,18 +272,12 @@ function DoneOverlay({ agentName, agentId, projects, activeProjectId, onAddToPro
         </div>
       )}
       <div className="flex items-center gap-3 mt-2">
-        <button
-          onClick={onGenerateAnother}
-          className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-        >
+        <Button variant="secondary" onClick={onGenerateAnother}>
           Generate another
-        </button>
-        <button
-          onClick={onClose}
-          className="px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-xs font-medium hover:bg-gray-800 dark:hover:bg-gray-200 transition-colors"
-        >
+        </Button>
+        <Button variant="primary" onClick={onClose}>
           Done
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -465,17 +309,6 @@ function clearSession() {
   _session = null
 }
 
-const BLANK_SPEC: AgentGeneratorSpec = {
-  name: '',
-  icon: '🤖',
-  systemPrompt: '',
-  temperature: 0.7,
-  responseFormat: 'default',
-  agenticMode: false,
-  tools: { fileEdit: false, terminal: false, webFetch: false },
-  contextDirectories: [],
-}
-
 // ─── Main modal ───────────────────────────────────────────────────────────────
 
 export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
@@ -486,6 +319,8 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
   const projects = useAppStore((s) => s.projects)
   const activeProjectId = useAppStore((s) => s.activeProjectId)
   const addAgentToProject = useAppStore((s) => s.addAgentToProject)
+  const openCreateAgent = useAppStore((s) => s.openCreateAgent)
+  const openEditAgent = useAppStore((s) => s.openEditAgent)
 
   const [messages, setMessages] = useState<AgentGeneratorMessage[]>(() => getSession().messages)
   const [streamingText, setStreamingText] = useState('')
@@ -494,8 +329,6 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
   const [isStreaming, setIsStreaming] = useState(false)
   const [creationStep, setCreationStep] = useState<number>(-1)
   const [creationError, setCreationError] = useState<string | null>(null)
-  const [isEditing, setIsEditing] = useState(false)
-  const [editSpec, setEditSpec] = useState<AgentGeneratorSpec | null>(null)
   const [genModel, setGenModel] = useState<string | null>(null)
   const [availableGroups, setAvailableGroups] = useState<AvailableModelGroup[]>([])
   const [missedSpec, setMissedSpec] = useState(false)
@@ -599,7 +432,7 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
     }
   }
 
-  const handleCreate = useCallback(async (specToCreate: AgentGeneratorSpec) => {
+  const handleCreate = useCallback(async (specToCreate: AgentGeneratorSpec, openForEdit = false) => {
     setCreationError(null)
     setCreationStep(0)
 
@@ -632,6 +465,13 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
       setCreationStep(3)
       await loadAgents()
       clearSession()
+
+      if (openForEdit && created?.id) {
+        onClose()
+        openEditAgent(created.id)
+        return
+      }
+
       setCreatedAgentId(created?.id ?? null)
       setCreatedAgentName(specToCreate.name)
       setIsDone(true)
@@ -639,7 +479,7 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
       setCreationError(err instanceof Error ? err.message : 'Creation failed')
       setCreationStep(-1)
     }
-  }, [loadAgents])
+  }, [loadAgents, onClose, openEditAgent])
 
   return (
     <div
@@ -659,7 +499,7 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
             <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">New Agent</h2>
           </div>
           <div className="flex items-center gap-2">
-            {!isEditing && !isCreating && (
+            {!isCreating && (
               <>
                 {messages.length > 1 && (
                   <button
@@ -678,8 +518,8 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
                 )}
                 <button
                   onClick={() => {
-                    setEditSpec(spec ? { ...spec } : { ...BLANK_SPEC })
-                    setIsEditing(true)
+                    onClose()
+                    openCreateAgent()
                   }}
                   className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                 >
@@ -707,22 +547,13 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
                 <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Draft preview</p>
               </div>
               <div className="h-[calc(100%-33px)] overflow-hidden">
-                <DraftPreview spec={isEditing ? editSpec : spec} />
+                <DraftPreview spec={spec} />
               </div>
             </div>
           </div>
 
-          {/* Right: chat or edit form (62%) */}
+          {/* Right: chat (62%) */}
           <div className="flex flex-col flex-1 min-w-0 relative">
-            {isEditing && editSpec ? (
-              <EditForm
-                spec={editSpec}
-                onChange={setEditSpec}
-                onConfirm={() => void handleCreate(editSpec)}
-                onCancel={() => setIsEditing(false)}
-              />
-            ) : (
-              <>
                 {/* Messages */}
                 <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
                   {messages.map((msg, i) => (
@@ -754,7 +585,7 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
                         {' — '}{spec.name}
                       </div>
                       <button
-                        onClick={() => { setEditSpec({ ...spec }); setIsEditing(true) }}
+                        onClick={() => void handleCreate(spec, true)}
                         className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                       >
                         <Pencil className="w-3 h-3" />
@@ -873,8 +704,6 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
                     )}
                   </div>
                 </div>
-              </>
-            )}
           </div>
         </div>
 
@@ -884,8 +713,7 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
             step={creationStep}
             error={creationError}
             onRetry={() => {
-              const target = editSpec ?? spec
-              if (target) void handleCreate(target)
+              if (spec) void handleCreate(spec)
             }}
           />
         )}

@@ -3,6 +3,7 @@ import { Copy, RotateCcw, Pencil, AlertTriangle, RefreshCw, LogIn, StopCircle, C
 import { MarkdownRenderer } from './MarkdownRenderer'
 import type { ContextSnapshot } from '../hooks/chat-types'
 import { ContextSnapshotBadge } from './ContextInspector'
+import { Button } from './ui/primitives'
 
 // Strip injected context blocks (e.g. [Project File Structure]...[/Project File Structure])
 // from user-facing message content — these are internal and shouldn't be shown in the bubble.
@@ -261,19 +262,31 @@ export function MessageBubbleBase({
                 <div className="whitespace-pre-wrap break-words">{content}</div>
                 <div className="flex gap-2 mt-3">
                   {retryable && onRetry && (
-                    <button onClick={onRetry} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border border-red-200 dark:border-red-800/60 bg-red-100/80 dark:bg-red-900/40 text-red-700 dark:text-red-300 shadow-sm transition-all duration-150 hover:shadow-md hover:bg-red-200 dark:hover:bg-red-900/60 active:scale-95">
+                    <Button
+                      variant="danger"
+                      onClick={onRetry}
+                      className="gap-1.5 rounded-full border border-red-200 dark:border-red-800/60 bg-red-100/80 dark:bg-red-900/40 text-red-700 dark:text-red-300 shadow-sm transition-all duration-150 hover:shadow-md hover:bg-red-200 dark:hover:bg-red-900/60 active:scale-95"
+                    >
                       <RefreshCw className="w-3 h-3" />Retry
-                    </button>
+                    </Button>
                   )}
                   {errorType === 'auth' && onSignIn && (
-                    <button onClick={onSignIn} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border border-blue-200 dark:border-blue-800/60 bg-blue-100/80 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 shadow-sm transition-all duration-150 hover:shadow-md hover:bg-blue-200 dark:hover:bg-blue-900/60 active:scale-95">
+                    <Button
+                      variant="primary"
+                      onClick={onSignIn}
+                      className="gap-1.5 rounded-full border border-blue-200 dark:border-blue-800/60 bg-blue-100/80 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 shadow-sm transition-all duration-150 hover:shadow-md hover:bg-blue-200 dark:hover:bg-blue-900/60 active:scale-95"
+                    >
                       <LogIn className="w-3 h-3" />Sign in again
-                    </button>
+                    </Button>
                   )}
                   {errorType === 'model_not_available' && onPickModel && (
-                    <button onClick={onPickModel} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-gray-800/90 text-gray-700 dark:text-gray-200 shadow-sm transition-all duration-150 hover:shadow-md hover:bg-gray-100 dark:hover:bg-gray-700 active:scale-95">
+                    <Button
+                      variant="secondary"
+                      onClick={onPickModel}
+                      className="rounded-full border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-gray-800/90 text-gray-700 dark:text-gray-200 shadow-sm transition-all duration-150 hover:shadow-md hover:bg-gray-100 dark:hover:bg-gray-700 active:scale-95"
+                    >
                       Choose model
-                    </button>
+                    </Button>
                   )}
                 </div>
               </div>

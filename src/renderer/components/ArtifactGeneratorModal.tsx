@@ -4,6 +4,7 @@ import { useAppStore } from '../store/app-store'
 import type { ArtifactSpec, ArtifactGeneratorMessage, AvailableModelGroup, AvailableModelEntry } from '../../shared/types'
 import { ModelPicker } from './chat/ModelPicker'
 import { VoiceInputButton } from './chat/VoiceInputButton'
+import { Button } from './ui/primitives'
 
 // ─── Spec preview ─────────────────────────────────────────────────────────────
 
@@ -261,12 +262,9 @@ function CreationOverlay({ step, error, onRetry }: { step: number; error: string
         <>
           <p className="text-sm text-red-600 dark:text-red-400 font-medium">Creation failed</p>
           <p className="text-xs text-gray-500 max-w-sm text-center">{error}</p>
-          <button
-            onClick={onRetry}
-            className="px-4 py-2 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-sm font-medium hover:bg-gray-800 dark:hover:bg-gray-200"
-          >
+          <Button variant="primary" onClick={onRetry} className="text-sm">
             Try again
-          </button>
+          </Button>
         </>
       ) : (
         <>
@@ -378,18 +376,12 @@ function DoneOverlay({ artifactTitle, artifactId, projects, activeProjectId, onA
         </div>
       )}
       <div className="flex items-center gap-3 mt-2">
-        <button
-          onClick={onGenerateAnother}
-          className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-        >
+        <Button variant="secondary" onClick={onGenerateAnother}>
           Generate another
-        </button>
-        <button
-          onClick={onClose}
-          className="px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-xs font-medium hover:bg-gray-800 dark:hover:bg-gray-200 transition-colors"
-        >
+        </Button>
+        <Button variant="primary" onClick={onClose}>
           Done
-        </button>
+        </Button>
       </div>
     </div>
   )

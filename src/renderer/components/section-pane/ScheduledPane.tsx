@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Plus, Play, Pause, Pencil, Trash2, RefreshCw, Clock, CheckCircle2, XCircle, AlertTriangle, Loader2, Sparkles } from 'lucide-react'
 import type { ScheduledTask, ScheduledRun } from '../../../shared/types'
 import { isApiError } from '../../../shared/types'
@@ -44,6 +44,7 @@ export function ScheduledPane() {
   const hydratedTasks = useAppStore((s) => s.schedulerTasks)
   const setSchedulerTasks = useAppStore((s) => s.setSchedulerTasks)
   const setShowSchedulerGenerator = useAppStore((s) => s.setShowSchedulerGenerator)
+  const schedulerTaskFormRequestId = useAppStore((s) => s.schedulerTaskFormRequestId)
   const [tasks, setTasks] = useState<ScheduledTask[]>(hydratedTasks)
   const [filter, setFilter] = useState<FilterTab>('active')
   const [loading, setLoading] = useState(hydratedTasks.length === 0)
@@ -52,6 +53,15 @@ export function ScheduledPane() {
   const [showForm, setShowForm] = useState(false)
   const [editTask, setEditTask] = useState<ScheduledTask | null>(null)
   const [detailTask, setDetailTask] = useState<ScheduledTask | null>(null)
+  const lastFormRequestId = useRef(schedulerTaskFormRequestId)
+
+  useEffect(() => {
+    if (schedulerTaskFormRequestId === lastFormRequestId.current) return
+    lastFormRequestId.current = schedulerTaskFormRequestId
+    setEditTask(null)
+    setDetailTask(null)
+    setShowForm(true)
+  }, [schedulerTaskFormRequestId])
 
   const loadTasks = useCallback(async () => {
     try {

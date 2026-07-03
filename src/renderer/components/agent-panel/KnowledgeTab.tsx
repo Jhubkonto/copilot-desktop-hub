@@ -1,5 +1,6 @@
 import { FileText, Pencil, Plus, X } from 'lucide-react'
 import { MarkdownRenderer } from '../MarkdownRenderer'
+import { Button } from '../ui/primitives'
 import type { KnowledgeFile } from './types'
 
 interface Props {
@@ -37,19 +38,12 @@ export function KnowledgeTab({
             {editingKnowledgeFile.filePath.split(/[\\/]/).pop()}
           </span>
           <div className="flex gap-1.5 shrink-0">
-            <button
-              onClick={onSaveKnowledgeFile}
-              aria-label="Save file"
-              className="text-xs px-2.5 py-1 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
-            >
+            <Button variant="primary" onClick={onSaveKnowledgeFile} aria-label="Save file">
               Save
-            </button>
-            <button
-              onClick={() => onSetEditingKnowledgeFile(null)}
-              className="text-xs px-2.5 py-1 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-            >
+            </Button>
+            <Button variant="secondary" onClick={() => onSetEditingKnowledgeFile(null)}>
               Back
-            </button>
+            </Button>
           </div>
         </div>
         <div className="flex gap-2 flex-1" style={{ minHeight: 0, height: 'calc(100vh - 220px)' }}>

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { FileText, FilePen, Terminal, Globe, Wrench } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
+import { Button } from './ui/primitives'
 
 const TOOL_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   fileRead: FileText,
@@ -101,25 +102,27 @@ export function ToolApproval() {
             </pre>
 
             <div className="flex gap-2">
-              <button
+              <Button
+                variant="primary"
                 onClick={() => respondToToolApproval(req.requestId, true, false)}
-                className="flex-1 text-xs px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 transition-colors font-medium"
+                className="flex-1 justify-center"
               >
                 Approve
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="danger"
                 onClick={() => respondToToolApproval(req.requestId, false, false)}
-                className="flex-1 text-xs px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors font-medium"
+                className="flex-1 justify-center border border-gray-200 dark:border-gray-700"
               >
                 Deny
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="secondary"
                 onClick={() => respondToToolApproval(req.requestId, true, true)}
-                className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                 title="Approve and remember for this tool"
               >
                 Always
-              </button>
+              </Button>
             </div>
 
             <CountdownBar requestId={req.requestId} onExpire={handleExpire} />

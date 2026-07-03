@@ -16,7 +16,7 @@ import type {
   PublishedEntry,
   WorkspaceInfo,
 } from '@shared/types'
-import { SegmentedTabs } from '../ui/primitives'
+import { Button, SegmentedTabs } from '../ui/primitives'
 import { BuildLog } from '../BuildLog'
 
 interface Props {
@@ -172,14 +172,15 @@ function AndroidSigningModal({
 
         {/* Footer */}
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-gray-100 dark:border-gray-700">
-          <button onClick={onValidateSigningConfig} className="text-xs px-2.5 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Validate</button>
-          <button onClick={onClose} className="text-xs px-2.5 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700">Cancel</button>
-          <button
+          <Button variant="secondary" onClick={onValidateSigningConfig} className="px-2.5 py-1 rounded text-gray-700 dark:text-gray-300">Validate</Button>
+          <Button variant="secondary" onClick={onClose} className="px-2.5 py-1 rounded text-gray-600 dark:text-gray-400">Cancel</Button>
+          <Button
+            variant="primary"
             onClick={() => { onSaveSigningConfig(); onClose() }}
-            className="text-xs px-2.5 py-1 rounded bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200"
+            className="px-2.5 py-1 rounded bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200"
           >
             Save
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -432,12 +433,13 @@ export function DeveloperTab({
                 onChange={(e) => onSetWorkspacePathInput(e.target.value)}
                 className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-              <button
+              <Button
+                variant="primary"
                 onClick={onSaveWorkspacePath}
-                className="text-xs px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 font-medium"
+                className="rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-900 dark:hover:bg-gray-100"
               >
                 Save
-              </button>
+              </Button>
             </div>
             {workspaceInfo && (
               <div className="flex flex-wrap gap-1.5 text-xs">
@@ -574,21 +576,23 @@ export function DeveloperTab({
                           {logLines.length > 0 && (
                             <BuildLog lines={logLines} resizable={false} maxHeightPx={200} />
                           )}
-                          <button
+                          <Button
+                            variant="secondary"
                             onClick={() => onRunBuildCommand(rec.command as BuildCommandName)}
                             disabled={!!activeBuildId}
-                            className="text-[11px] px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40"
+                            className="px-2 py-1 text-[11px]"
                           >
                             Re-run {rec.command}
-                          </button>
+                          </Button>
                           {rec.status === 'failed' && isDesktopCommand(rec.command) && (
-                            <button
+                            <Button
+                              variant="secondary"
                               onClick={() => onFixBuildWithRemoteEdit(rec)}
                               disabled={remoteEditReportingBuildId === rec.id}
-                              className="text-[11px] px-2 py-1 rounded border border-blue-300 text-blue-700 hover:bg-blue-50 disabled:opacity-50 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-950/30"
+                              className="px-2 py-1 text-[11px] border-blue-300 text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-950/30"
                             >
                               {remoteEditReportingBuildId === rec.id ? 'Creating request...' : 'Create code change'}
-                            </button>
+                            </Button>
                           )}
                         </div>
                       )}
@@ -603,13 +607,14 @@ export function DeveloperTab({
           <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3">
             <div className="flex items-center justify-between">
               <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Preflight checks</p>
-              <button
+              <Button
+                variant="secondary"
                 onClick={onRunPreflight}
                 disabled={preflightRunning}
-                className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50"
+                className="border-0 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
               >
                 {preflightRunning ? 'Running...' : 'Run checks'}
-              </button>
+              </Button>
             </div>
             {preflightChecks && (
               <div className="space-y-1.5">
@@ -644,12 +649,13 @@ export function DeveloperTab({
                 placeholder="/path/to/feed-directory"
                 className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-              <button
+              <Button
+                variant="primary"
                 onClick={onSaveFeedPath}
-                className="text-xs px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 font-medium"
+                className="rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-900 dark:hover:bg-gray-100"
               >
                 Set
-              </button>
+              </Button>
             </div>
             {feedInfo && (
               <div className="flex items-center gap-2 text-xs">
@@ -660,13 +666,14 @@ export function DeveloperTab({
               </div>
             )}
             {feedInfo?.feedPath && (
-              <button
+              <Button
+                variant="primary"
                 onClick={onPublishUpdate}
                 disabled={publishing || !canPublishDesktopPackage}
-                className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 font-medium disabled:opacity-50"
+                className="rounded-lg"
               >
                 {publishing ? 'Publishing…' : 'Publish latest build to feed'}
-              </button>
+              </Button>
             )}
             {feedInfo?.feedPath && !canPublishDesktopPackage && (
               <p className="text-[11px] text-gray-400">Run package successfully before publishing an installer to the feed.</p>
@@ -686,12 +693,13 @@ export function DeveloperTab({
                       {entry.isBackup && <span className="text-[9px] text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">backup</span>}
                       <span className="text-gray-400 ml-auto text-[9px]">{new Date(entry.publishedAt).toLocaleDateString()}</span>
                       {entry.isBackup && (
-                        <button
+                        <Button
+                          variant="secondary"
                           onClick={() => onRollback(entry.version)}
-                          className="text-[10px] px-2 py-0.5 rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                          className="px-2 py-0.5 text-[10px]"
                         >
                           Reinstall
-                        </button>
+                        </Button>
                       )}
                     </div>
                   ))}
@@ -705,12 +713,13 @@ export function DeveloperTab({
             <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-2">
               <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Launch dev build</p>
               <p className="text-xs text-gray-500">Open the built desktop app as a separate Electron process for smoke testing before packaging.</p>
-              <button
+              <Button
+                variant="primary"
                 onClick={onLaunchDev}
-                className="text-xs px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 font-medium"
+                className="rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-900 dark:hover:bg-gray-100"
               >
                 Launch
-              </button>
+              </Button>
               {launchDevError && <p className="text-xs text-red-500">{launchDevError}</p>}
             </div>
           )}
@@ -734,7 +743,7 @@ export function DeveloperTab({
                 placeholder="/path/to/nexy-android"
                 className="flex-1 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 font-mono"
               />
-              <button onClick={onSaveAndroidWorkspacePath} className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Save</button>
+              <Button variant="secondary" onClick={onSaveAndroidWorkspacePath} className="px-2.5 py-1.5 rounded-lg">Save</Button>
               <button onClick={onRefreshAndroidWorkspace} className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"><RefreshCw className="w-3.5 h-3.5" /></button>
             </div>
             {androidWorkspaceInfo && (
@@ -752,19 +761,24 @@ export function DeveloperTab({
           <div className="space-y-2">
             <div className="flex flex-wrap gap-1.5">
               {(['test', 'assembleDebug', 'assembleRelease', 'bundleRelease'] as AndroidBuildCommandName[]).map((cmd) => (
-                <button
+                <Button
                   key={cmd}
+                  variant="secondary"
                   onClick={() => onAndroidStartCommand(cmd)}
                   disabled={activeAndroidBuildId !== null}
-                  className="text-xs px-2.5 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 font-mono"
+                  className="px-2.5 py-1 rounded font-mono"
                 >
                   {cmd}
-                </button>
+                </Button>
               ))}
               {activeAndroidBuildId && (
-                <button onClick={onAndroidCancelCommand} className="text-xs px-2.5 py-1 rounded bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-700">
+                <Button
+                  variant="danger"
+                  onClick={onAndroidCancelCommand}
+                  className="px-2.5 py-1 rounded bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-700 hover:bg-red-100 dark:hover:bg-red-900/40"
+                >
                   Cancel {activeAndroidCommand}
-                </button>
+                </Button>
               )}
             </div>
             {androidLastBuildStatus && !activeAndroidBuildId && (
@@ -818,13 +832,14 @@ export function DeveloperTab({
                           {logLines.length > 0 && (
                             <BuildLog lines={logLines} resizable={false} maxHeightPx={200} />
                           )}
-                          <button
+                          <Button
+                            variant="secondary"
                             onClick={() => onAndroidStartCommand(r.command as AndroidBuildCommandName)}
                             disabled={activeAndroidBuildId !== null}
-                            className="text-[11px] px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40"
+                            className="px-2 py-1 text-[11px]"
                           >
                             Re-run {r.command}
-                          </button>
+                          </Button>
                         </div>
                       )}
                     </div>
@@ -848,12 +863,13 @@ export function DeveloperTab({
                 </span>
               )}
             </div>
-            <button
+            <Button
+              variant="secondary"
               onClick={() => setSigningModalOpen(true)}
-              className="text-xs px-2.5 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+              className="px-2.5 py-1 rounded"
             >
               Configure signing…
-            </button>
+            </Button>
           </div>
 
           {signingModalOpen && (
@@ -889,13 +905,14 @@ export function DeveloperTab({
                     <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${d.state === 'device' ? 'bg-green-500' : 'bg-gray-400'}`} />
                     <span className="font-mono text-gray-600 dark:text-gray-300">{d.model ?? d.serial}</span>
                     <span className="text-gray-400 text-[10px]">{d.state}</span>
-                    <button
+                    <Button
+                      variant="secondary"
                       onClick={() => onAndroidInstallApk(d.serial)}
                       disabled={adbInstalling || d.state !== 'device' || !latestAdbInstallApk}
-                      className="ml-auto text-[10px] px-2 py-0.5 rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40"
+                      className="ml-auto px-2 py-0.5 text-[10px]"
                     >
                       Install APK
-                    </button>
+                    </Button>
                   </div>
                 ))}
               </div>
@@ -926,12 +943,13 @@ export function DeveloperTab({
           {/* Android update feed */}
           <div className="space-y-2 border-t border-gray-100 dark:border-gray-700 pt-3">
             <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Android Update Feed</p>
-            <button
+            <Button
+              variant="secondary"
               onClick={onAndroidPublishUpdate}
-              className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+              className="rounded-lg"
             >
               Publish release APK to feed
-            </button>
+            </Button>
             {androidPublishResult && <p className="text-[11px] text-gray-500">{androidPublishResult}</p>}
             {androidUpdateManifest && (
               <div className="flex flex-wrap gap-1.5">
@@ -956,13 +974,14 @@ export function DeveloperTab({
                       <span className="text-gray-400">{new Date(entry.publishedAt).toLocaleDateString()}</span>
                       {entry.commitSha && <span className="font-mono text-gray-400 text-[9px]">{entry.commitSha}</span>}
                     </div>
-                    <button
+                    <Button
+                      variant="secondary"
                       onClick={() => onAndroidRestoreVersion(entry.versionCode)}
                       disabled={androidRestoring === entry.versionCode}
-                      className="shrink-0 text-[10px] px-2 py-0.5 rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
+                      className="shrink-0 px-2 py-0.5 text-[10px]"
                     >
                       {androidRestoring === entry.versionCode ? 'Restoring…' : 'Restore'}
-                    </button>
+                    </Button>
                   </div>
                 ))}
               </div>
@@ -1011,20 +1030,22 @@ export function DeveloperTab({
                     {level}
                   </button>
                 ))}
-                <button
+                <Button
+                  variant="secondary"
                   onClick={() => void handleCopyConsole()}
                   disabled={filteredConsoleEntries.length === 0}
-                  className="text-[11px] px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 disabled:opacity-40 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  className="px-2 py-1 rounded-md text-[11px]"
                 >
                   Copy
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="secondary"
                   onClick={() => void handleClearConsole()}
                   disabled={consoleEntries.length === 0}
-                  className="text-[11px] px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 disabled:opacity-40 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  className="px-2 py-1 rounded-md text-[11px]"
                 >
                   Clear
-                </button>
+                </Button>
               </div>
             </div>
             <div className="max-h-[480px] overflow-y-auto bg-white dark:bg-gray-900">

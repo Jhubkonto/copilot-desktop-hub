@@ -1,5 +1,6 @@
 import { Plus, X, Star, GripVertical, Sparkles } from 'lucide-react'
 import { DropdownPanel } from '../DropdownPanel'
+import { Button } from '../ui/primitives'
 import type { AgentConfig } from '../../../shared/types'
 import type { ProjectAgent, ProjectConfig } from '../../store/types'
 import { useAppStore } from '../../store/app-store'
@@ -192,14 +193,10 @@ export function TeamTab({
             <p className="text-[10px] text-blue-700/80 dark:text-blue-300/80">
               Use the Workflow tab to turn a project goal into a reusable delegation plan with copyable prompts for each step.
             </p>
-            <button
-              type="button"
-              onClick={onGoToWorkflowTab}
-              className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-2.5 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-blue-700"
-            >
+            <Button variant="primary" onClick={onGoToWorkflowTab} className="text-[11px]">
               <Sparkles className="w-3.5 h-3.5" />
               Open Workflow tab
-            </button>
+            </Button>
           </div>
         )}
       </div>

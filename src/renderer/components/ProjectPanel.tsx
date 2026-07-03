@@ -3,6 +3,7 @@ import { X } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import type { ProjectConfig } from '../store/types'
 import { ResizeHandle } from './ResizeHandle'
+import { Button } from './ui/primitives'
 import { ProjectSettingsPanel, type DraftTeamSelection } from './ProjectSettingsPanel'
 import { DeleteProjectDialog } from './DeleteProjectDialog'
 
@@ -141,32 +142,24 @@ export function ProjectPanel() {
         {/* Footer — edit mode only */}
         {!showNewProjectForm && editingProjectId && (
           <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-700 shrink-0">
-            <button
+            <Button
+              variant="secondary"
               onClick={() => setShowDeleteConfirm(true)}
-              className="text-xs px-3 py-1.5 rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+              className="border-red-300 px-2 text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/30"
               aria-label="Delete project"
             >
               Delete
-            </button>
+            </Button>
             <div className="flex gap-2">
-              <button
-                onClick={() => duplicateProject(editingProjectId)}
-                className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-              >
+              <Button variant="secondary" onClick={() => duplicateProject(editingProjectId)}>
                 Duplicate
-              </button>
-              <button
-                onClick={() => exportProject(editingProjectId)}
-                className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-              >
+              </Button>
+              <Button variant="secondary" onClick={() => exportProject(editingProjectId)}>
                 Export
-              </button>
-              <button
-                onClick={handleClose}
-                className="text-xs px-4 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 transition-colors"
-              >
+              </Button>
+              <Button variant="primary" onClick={handleClose}>
                 Save
-              </button>
+              </Button>
             </div>
           </div>
         )}

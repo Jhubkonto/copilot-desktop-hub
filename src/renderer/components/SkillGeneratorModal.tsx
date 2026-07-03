@@ -5,6 +5,7 @@ import type { AvailableModelEntry, AvailableModelGroup, SkillConfig, SkillGenera
 import { ModelPicker } from './chat/ModelPicker'
 import { PromptLibraryModal } from './PromptLibraryModal'
 import { VoiceInputButton } from './chat/VoiceInputButton'
+import { Button } from './ui/primitives'
 
 function specToSkill(spec: SkillGeneratorSpec): SkillConfig {
   const approval = spec.approval ?? {}
@@ -123,19 +124,6 @@ const GREETING: SkillGeneratorMessage = {
   content: "Let's create a reusable skill. Tell me the capability you want to package, and I'll turn it into attachable instructions and tool defaults.",
 }
 
-const BLANK_SPEC: SkillGeneratorSpec = {
-  name: '',
-  icon: '✨',
-  description: '',
-  instructions: '',
-  tools: { fileEdit: false, terminal: false, webFetch: false },
-  toolInstructions: {},
-  approval: {},
-  mcpServers: [],
-  tags: [],
-  knowledge: [],
-}
-
 interface SkillGeneratorSession {
   messages: SkillGeneratorMessage[]
   spec: SkillGeneratorSpec | null
@@ -183,11 +171,16 @@ function EditForm({ spec, onChange, onConfirm, onCancel }: {
         </section>
       </div>
       <div className="px-4 pb-4 pt-3 border-t border-gray-100 dark:border-gray-800 flex items-center gap-2">
-        <button onClick={onCancel} className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800">Back</button>
-        <button onClick={onConfirm} disabled={!spec.name.trim()} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-medium transition-colors ml-auto">
+        <Button variant="secondary" onClick={onCancel} className="px-3 py-1.5 rounded-lg text-gray-600 dark:text-gray-400">Back</Button>
+        <Button
+          variant="primary"
+          onClick={onConfirm}
+          disabled={!spec.name.trim()}
+          className="gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 transition-colors ml-auto"
+        >
           <Sparkles className="w-3.5 h-3.5" />
           Create skill
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -198,6 +191,7 @@ export function SkillGeneratorModal({ onClose }: { onClose: () => void }) {
   const globalDefaultModel = useAppStore((s) => s.globalDefaultModel)
   const addToast = useAppStore((s) => s.addToast)
   const loadSkills = useAppStore((s) => s.loadSkills)
+  const openCreateSkill = useAppStore((s) => s.openCreateSkill)
   const [messages, setMessages] = useState<SkillGeneratorMessage[]>(() => getSession().messages)
   const [streamingText, setStreamingText] = useState('')
   const [inputText, setInputText] = useState('')
@@ -299,13 +293,21 @@ export function SkillGeneratorModal({ onClose }: { onClose: () => void }) {
             {!isEditing && !isCreating && (
               <>
                 {messages.length > 1 && (
-                  <button onClick={() => { clearSession(); setMessages([GREETING]); setSpec(null); setMissedSpec(false); setInputText(''); setGenModel(null) }} className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+                  <Button
+                    variant="ghost"
+                    onClick={() => { clearSession(); setMessages([GREETING]); setSpec(null); setMissedSpec(false); setInputText(''); setGenModel(null) }}
+                    className="px-2 py-1 rounded transition-colors"
+                  >
                     Start over
-                  </button>
+                  </Button>
                 )}
-                <button onClick={() => { setEditSpec(spec ? { ...spec } : { ...BLANK_SPEC }); setIsEditing(true) }} className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+                <Button
+                  variant="ghost"
+                  onClick={() => { onClose(); openCreateSkill() }}
+                  className="px-2 py-1 rounded transition-colors"
+                >
                   Set up manually
-                </button>
+                </Button>
               </>
             )}
             <button onClick={onClose} disabled={isCreating} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40" aria-label="Close">
@@ -358,14 +360,22 @@ export function SkillGeneratorModal({ onClose }: { onClose: () => void }) {
                         <span className="text-green-600 dark:text-green-400 font-medium">Spec ready</span>
                         {' - '}{spec.name}
                       </div>
-                      <button onClick={() => { setEditSpec({ ...spec }); setIsEditing(true) }} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                      <Button
+                        variant="secondary"
+                        onClick={() => { setEditSpec({ ...spec }); setIsEditing(true) }}
+                        className="gap-1 px-2.5 py-1.5 rounded-lg transition-colors"
+                      >
                         <Pencil className="w-3 h-3" />
                         Edit
-                      </button>
-                      <button onClick={() => void handleCreate(spec)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium transition-colors">
+                      </Button>
+                      <Button
+                        variant="primary"
+                        onClick={() => void handleCreate(spec)}
+                        className="gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 transition-colors"
+                      >
                         <Sparkles className="w-3.5 h-3.5" />
                         Create skill
-                      </button>
+                      </Button>
                     </div>
                   )}
                   <div className="px-4 pb-4 pt-2">

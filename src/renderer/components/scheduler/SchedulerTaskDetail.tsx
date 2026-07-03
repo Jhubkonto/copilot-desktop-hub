@@ -4,6 +4,7 @@ import { ArrowLeft, Play, Pause, Pencil, Trash2, MessageSquare, Loader2, CheckCi
 import type { ScheduledTask, ScheduledRun } from '../../../shared/types'
 import { isApiError } from '../../../shared/types'
 import { useAppStore } from '../../store/app-store'
+import { Button } from '../ui/primitives'
 
 function statusIcon(status: ScheduledRun['status']) {
   switch (status) {
@@ -128,44 +129,49 @@ export function SchedulerTaskDetail({ task, onBack, onEdit, onDeleted, onTaskUpd
 
         {/* Actions */}
         <div className="flex items-center gap-2 flex-wrap">
-          <button
+          <Button
+            variant="primary"
             onClick={handleRunNow}
             disabled={running}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium"
+            className="gap-1.5 rounded-lg"
           >
             {running ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
             Run now
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="secondary"
             onClick={handleToggleEnabled}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
+            className="gap-1.5 rounded-lg"
           >
             <Pause className="w-3 h-3" />
             {task.enabled ? 'Pause' : 'Resume'}
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="secondary"
             onClick={() => onEdit(task)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
+            className="gap-1.5 rounded-lg"
           >
             <Pencil className="w-3 h-3" />
             Edit
-          </button>
+          </Button>
           {task.conversationId && (
-            <button
+            <Button
+              variant="secondary"
               onClick={() => selectConversation(task.conversationId!)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
+              className="gap-1.5 rounded-lg"
             >
               <MessageSquare className="w-3 h-3" />
               View thread
-            </button>
+            </Button>
           )}
-          <button
+          <Button
+            variant="danger"
             onClick={handleDelete}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-200 dark:border-red-900/40 text-xs font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+            className="gap-1.5 rounded-lg border border-red-200 dark:border-red-900/40 hover:bg-red-50 dark:hover:bg-red-900/20"
           >
             <Trash2 className="w-3 h-3" />
             Delete
-          </button>
+          </Button>
         </div>
 
         {/* Run history */}

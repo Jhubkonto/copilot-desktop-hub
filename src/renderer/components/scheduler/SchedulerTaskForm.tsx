@@ -9,6 +9,7 @@ import type {
 } from '../../../shared/types'
 import { isApiError } from '../../../shared/types'
 import { useAppStore } from '../../store/app-store'
+import { Button } from '../ui/primitives'
 
 const SCHEDULE_TYPES: { value: ScheduleType; label: string }[] = [
   { value: 'one-time', label: 'One-time' },
@@ -242,19 +243,12 @@ export function SchedulerTaskForm({ initial, onSave, onCancel }: Props) {
       </div>
 
       <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-gray-200 dark:border-gray-700 shrink-0">
-        <button
-          onClick={onCancel}
-          className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-        >
+        <Button variant="secondary" onClick={onCancel}>
           Cancel
-        </button>
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="text-xs px-4 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
+        </Button>
+        <Button variant="primary" onClick={handleSave} disabled={saving}>
           {saving ? 'Saving...' : initial ? 'Save' : 'Create'}
-        </button>
+        </Button>
       </div>
         </div>
       </div>

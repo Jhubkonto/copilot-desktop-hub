@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import { Plus, BookOpen, Edit2, Trash2, Check, RotateCcw } from 'lucide-react'
 import { useAppStore } from '../../store/app-store'
+import { Button } from '../ui/primitives'
 import type { WikiEntry } from '../../../shared/types'
 
 function parseWikiTags(value: string): string[] {
@@ -109,14 +110,10 @@ export function WikiTab({ projectId }: { projectId: string }) {
             {mode === 'new' ? 'New wiki entry' : 'Editing wiki entry'}
           </span>
         </div>
-        <button
-          type="button"
-          onClick={resetEditor}
-          className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-        >
+        <Button variant="secondary" onClick={resetEditor} className="text-[11px]">
           <RotateCcw className="w-3 h-3" />
           Cancel
-        </button>
+        </Button>
       </div>
 
       <div className="space-y-1">
@@ -164,15 +161,10 @@ export function WikiTab({ projectId }: { projectId: string }) {
       </div>
 
       <div className="flex items-center justify-end gap-2">
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saving || !draftTitle.trim()}
-          className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
+        <Button variant="primary" onClick={handleSave} disabled={saving || !draftTitle.trim()}>
           <Check className="w-3.5 h-3.5" />
           {saving ? 'Saving…' : 'Save'}
-        </button>
+        </Button>
       </div>
     </div>
   )

@@ -8,11 +8,6 @@ import type {
 } from '../types'
 import type { AvailableModelGroup, CatalogModel, CodeChangeRequestType } from '../../../shared/types'
 
-export interface BugReportDraft {
-  title?: string
-  description?: string
-}
-
 export interface PendingNewRequestDraft {
   title: string
   description: string
@@ -33,8 +28,6 @@ export interface UiSlice {
   pendingCodeChangesProjectId: string | null
   pendingArtifactGeneration: { title: string; kind: string; startedAt: number } | null
   pendingArtifactAttach: { artifactId: string; versionId?: string } | null
-  bugReportDraft: BugReportDraft | null
-  pendingErrorCount: number
   updateAvailable: { version: string } | null
   updateDownloaded: boolean
   activeSectionPane: ActiveSectionPane
@@ -63,9 +56,6 @@ export interface UiSlice {
   setPendingArtifactGeneration: (v: { title: string; kind: string; startedAt: number } | null) => void
   requestArtifactAttach: (artifactId: string, versionId?: string) => void
   clearPendingArtifactAttach: () => void
-  openBugReport: (draft?: BugReportDraft) => void
-  closeBugReport: () => void
-  incrementPendingErrorCount: () => void
   settingsInitialTab: string | null
   setSettingsInitialTab: (tab: string | null) => void
   setShowOnboarding: (show: boolean) => void
@@ -115,8 +105,6 @@ export const createUiSlice: StateCreator<
   pendingCodeChangesProjectId: null,
   pendingArtifactGeneration: null,
   pendingArtifactAttach: null,
-  bugReportDraft: null,
-  pendingErrorCount: 0,
   updateAvailable: null,
   updateDownloaded: false,
   activeSectionPane: null,
@@ -237,29 +225,6 @@ export const createUiSlice: StateCreator<
   clearPendingArtifactAttach: () => {
     set((s) => {
       s.pendingArtifactAttach = null
-    })
-  },
-
-  openBugReport: (draft) => {
-    set((s) => {
-      const pendingErrorCount = s.pendingErrorCount
-      s.pendingErrorCount = 0
-      s.bugReportDraft = draft ?? {
-        title: 'Bug report',
-        description: pendingErrorCount > 0 ? `${pendingErrorCount} recent app error(s) were detected.` : '',
-      }
-    })
-  },
-
-  closeBugReport: () => {
-    set((s) => {
-      s.bugReportDraft = null
-    })
-  },
-
-  incrementPendingErrorCount: () => {
-    set((s) => {
-      s.pendingErrorCount = Math.min(s.pendingErrorCount + 1, 99)
     })
   },
 

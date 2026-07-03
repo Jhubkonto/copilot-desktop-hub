@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Sun, Moon, Plug, Cpu } from 'lucide-react'
 import { getModelLabel } from '../../../shared/models'
-import { ToggleSwitch } from '../ui/primitives'
+import { Button, ToggleSwitch } from '../ui/primitives'
 import type { AvailableModelGroup } from '@shared/types'
 import { TabHeader } from './TabHeader'
 
@@ -70,15 +70,16 @@ export function GeneralTab({
           <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Theme</p>
           <p className="text-xs text-gray-500">Switch between light and dark mode</p>
         </div>
-        <button
+        <Button
+          variant="secondary"
           onClick={toggleTheme}
-          className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
+          className="border-0 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
         >
           <span className="flex items-center gap-1.5">
             {theme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
             {theme === 'dark' ? 'Light' : 'Dark'}
           </span>
-        </button>
+        </Button>
       </div>
 
       {/* Active model */}
@@ -128,15 +129,16 @@ export function GeneralTab({
           <p className="text-sm font-medium text-gray-800 dark:text-gray-100">MCP Servers</p>
           <p className="text-xs text-gray-500">Manage Model Context Protocol servers</p>
         </div>
-        <button
+        <Button
+          variant="secondary"
           onClick={onOpenMcp}
-          className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
+          className="border-0 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
         >
           <span className="flex items-center gap-1.5">
             <Plug className="w-3.5 h-3.5" />
             Configure
           </span>
-        </button>
+        </Button>
       </div>
 
       {/* Advanced generation settings */}
@@ -146,9 +148,9 @@ export function GeneralTab({
           <p className="text-xs text-gray-500">Nexy downloads and configures whisper.cpp for you. Audio is never uploaded.</p>
         </div>
         <div className="flex items-center gap-3">
-          <button onClick={onInstallWhisper} disabled={whisperInstalling} className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white font-medium disabled:opacity-50">
+          <Button variant="primary" onClick={onInstallWhisper} disabled={whisperInstalling} className="rounded-lg">
             {whisperInstalling ? 'Downloading and installing…' : whisperReady ? 'Reinstall local Whisper' : 'Install local Whisper (~150 MB)'}
-          </button>
+          </Button>
           <span className={`text-xs ${whisperReady ? 'text-green-600 dark:text-green-400' : 'text-gray-500'}`}>
             {whisperReady ? 'Ready' : 'Not installed'}
           </span>
@@ -167,7 +169,14 @@ export function GeneralTab({
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Whisper model</label>
               <input value={whisperModelPath} onChange={(event) => onSetWhisperModelPath(event.target.value)} placeholder="Path to a ggml model file" className="w-full px-3 py-2 text-xs rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100" />
             </div>
-            <button onClick={onSaveWhisper} disabled={whisperInstalling} className="text-xs px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 font-medium disabled:opacity-50">Save manual paths</button>
+            <Button
+              variant="primary"
+              onClick={onSaveWhisper}
+              disabled={whisperInstalling}
+              className="rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-900 dark:hover:bg-gray-100"
+            >
+              Save manual paths
+            </Button>
           </div>
         )}
       </div>
@@ -273,12 +282,13 @@ export function GeneralTab({
           />
         </div>
 
-        <button
+        <Button
+          variant="primary"
           onClick={onSaveAdvanced}
-          className="text-xs px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 font-medium"
+          className="rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200"
         >
           Save advanced settings
-        </button>
+        </Button>
       </div>
     </>
   )

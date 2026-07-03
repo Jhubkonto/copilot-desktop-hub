@@ -6,7 +6,6 @@ import { TitleBar } from './components/TitleBar'
 import { ToolApproval } from './components/ToolApproval'
 import { ToastContainer } from './components/Toast'
 import { DeleteAgentDialog } from './components/DeleteAgentDialog'
-import { BugReportModal } from './components/BugReportModal'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { AndroidLogPanel } from './components/AndroidLogPanel'
 import { useAppStore } from './store/app-store'
@@ -72,13 +71,8 @@ export default function App() {
   const setShowOnboarding = useAppStore((s) => s.setShowOnboarding)
   const addToast = useAppStore((s) => s.addToast)
   const setCatalogModels = useAppStore((s) => s.setCatalogModels)
-  const bugReportDraft = useAppStore((s) => s.bugReportDraft)
   const androidDebugLog = useAppStore((s) => s.androidDebugLog)
-  const pendingErrorCount = useAppStore((s) => s.pendingErrorCount)
-  const openBugReport = useAppStore((s) => s.openBugReport)
-  const closeBugReport = useAppStore((s) => s.closeBugReport)
   const viewingArtifactId = useAppStore((s) => s.viewingArtifactId)
-  const incrementPendingErrorCount = useAppStore((s) => s.incrementPendingErrorCount)
 
   const markConversationGenerating = useAppStore((s) => s.markConversationGenerating)
   const markConversationDoneGenerating = useAppStore((s) => s.markConversationDoneGenerating)
@@ -155,14 +149,6 @@ export default function App() {
   }, [setCatalogModels, addToast])
 
   useEffect(() => {
-    if (typeof window.api.onErrorLogEntry !== 'function') return
-    const unsubscribe = window.api.onErrorLogEntry((entry) => {
-      if (entry.level === 'error') incrementPendingErrorCount()
-    })
-    return () => { unsubscribe() }
-  }, [incrementPendingErrorCount])
-
-  useEffect(() => {
     if (typeof window.api.onDebugLog !== 'function') return
     const unsubscribe = window.api.onDebugLog((entry) => {
       console.debug(entry.message)
@@ -234,9 +220,7 @@ export default function App() {
   }, [])
 
   return (
-    <ErrorBoundary
-      onReportBug={openBugReport}
-    >
+    <ErrorBoundary>
     <div className={`flex flex-col h-full w-full overflow-hidden ${theme === 'dark' ? 'dark' : ''}`} role="application">
       {/* Custom frameless titlebar */}
       <TitleBar />
@@ -323,27 +307,6 @@ export default function App() {
           impact={pendingDeleteAgent}
           onConfirm={confirmDeleteAgent}
           onCancel={cancelDeleteAgent}
-        />
-      )}
-
-      {pendingErrorCount > 0 && !bugReportDraft && (
-        <button
-          type="button"
-          className="fixed bottom-4 left-4 z-40 rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-medium text-red-700 shadow-lg hover:bg-red-50 dark:border-red-900/60 dark:bg-gray-800 dark:text-red-300 dark:hover:bg-red-950/30"
-          onClick={() => openBugReport()}
-        >
-          Report bug ({pendingErrorCount})
-        </button>
-      )}
-
-      {bugReportDraft && (
-        <BugReportModal
-          draft={bugReportDraft}
-          onClose={closeBugReport}
-          onSubmitted={(reportId) => {
-            closeBugReport()
-            addToast(`Diagnostic report captured (${reportId.slice(0, 8)})`, 'success')
-          }}
         />
       )}
 

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Plus, Trash2, X } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
+import { Button } from './ui/primitives'
 import type { SkillConfig } from '../../shared/types'
 
 const TOOL_LABELS = {
@@ -223,46 +224,34 @@ export function SkillPanel() {
         <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-700">
           <div className="flex gap-2">
             {isEditing && (
-              <button
+              <Button
+                variant="secondary"
                 onClick={() => void deleteSkill(config.id)}
-                className="text-xs px-3 py-1.5 rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                className="border-red-300 px-2 text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/30"
               >
                 Delete
-              </button>
+              </Button>
             )}
           </div>
           <div className="flex gap-2">
             {isEditing && (
               <>
-                <button
-                  onClick={() => void duplicateSkill(config.id)}
-                  className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                >
+                <Button variant="secondary" onClick={() => void duplicateSkill(config.id)}>
                   Duplicate
-                </button>
-                <button
-                  onClick={() => void exportSkill(config.id)}
-                  className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                >
+                </Button>
+                <Button variant="secondary" onClick={() => void exportSkill(config.id)}>
                   Export
-                </button>
+                </Button>
               </>
             )}
             {!isEditing && (
-              <button
-                onClick={closeSkillPanel}
-                className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-              >
+              <Button variant="secondary" onClick={closeSkillPanel}>
                 Cancel
-              </button>
+              </Button>
             )}
-            <button
-              onClick={handleSave}
-              disabled={!canSave}
-              className="text-xs px-4 py-1.5 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
+            <Button variant="primary" onClick={handleSave} disabled={!canSave}>
               {isEditing ? 'Save' : 'Create'}
-            </button>
+            </Button>
           </div>
         </div>
       </div>
