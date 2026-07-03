@@ -162,7 +162,6 @@ fun ChatScreen(
     var programmaticScrollInProgress by remember { mutableStateOf(false) }
     val context = LocalContext.current
     var showModelSheet by remember { mutableStateOf(false) }
-    var modelQuery by remember { mutableStateOf("") }
     val modelSheetState = rememberModalBottomSheetState()
     var showActionsSheet by remember { mutableStateOf(false) }
     var showPromptSheet by remember { mutableStateOf(false) }
@@ -516,136 +515,20 @@ fun ChatScreen(
 
     if (showModelSheet) {
         ModalBottomSheet(
-            onDismissRequest = { showModelSheet = false; modelQuery = "" },
+            onDismissRequest = { showModelSheet = false },
             sheetState = modelSheetState,
             containerColor = MaterialTheme.colorScheme.surface,
         ) {
-            val vendorUnavailable: (String) -> Boolean = { vendor ->
-                val cliKey = vendor.removeSuffix(" CLI").lowercase()
-                val info = cliStatus[cliKey]
-                info != null && !info.installed
-            }
-
-            data class ModelItem(val model: io.nexy.android.data.model.ModelOption, val unavailable: Boolean)
-            data class HeaderItem(val vendor: String, val unavailable: Boolean)
-
-            val query = modelQuery.trim().lowercase()
-            val sheetItems: List<Any> = buildList {
-                val grouped = models.filterNot { it.id == "default" }.groupBy { it.vendor ?: "" }
-                val hasVendorGroups = grouped.any { it.key.isNotBlank() }
-                if (hasVendorGroups) {
-                    grouped.forEach { (vendor, vendorModels) ->
-                        val groupUnavailable = vendor.isNotBlank() && vendorUnavailable(vendor)
-                        val filtered = if (query.isEmpty()) vendorModels
-                                       else vendorModels.filter { it.label.lowercase().contains(query) }
-                        if (filtered.isNotEmpty()) {
-                            if (vendor.isNotBlank()) add(HeaderItem(vendor, groupUnavailable))
-                            filtered.forEach { add(ModelItem(it, groupUnavailable)) }
-                        }
-                    }
-                } else {
-                    models.forEach { model ->
-                        if (query.isEmpty() || model.label.lowercase().contains(query)) {
-                            val modelUnavailable = model.vendor != null && vendorUnavailable(model.vendor)
-                            add(ModelItem(model, modelUnavailable))
-                        }
-                    }
-                }
-            }
-
-            val showDefault = query.isEmpty() || "default model".contains(query)
-
-            LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
-                item {
-                    Text(
-                        "Chat model",
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-                    )
-                    if (backendLockDetail != null) {
-                        Text(
-                            backendLockDetail,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
-                        )
-                    }
-                    OutlinedTextField(
-                        value = modelQuery,
-                        onValueChange = { modelQuery = it },
-                        placeholder = { Text("Search models…", style = MaterialTheme.typography.bodyMedium) },
-                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
-                        trailingIcon = {
-                            if (modelQuery.isNotEmpty()) {
-                                IconButton(onClick = { modelQuery = "" }) {
-                                    Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(18.dp))
-                                }
-                            }
-                        },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                        shape = MaterialTheme.shapes.medium,
-                    )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(top = 4.dp))
-                }
-
-                if (showDefault) {
-                    item {
-                        ModelSheetItem(
-                            label = "Default model",
-                            vendor = null,
-                            selected = activeModelId == "default",
-                        ) {
-                            vm.setModel(null)
-                            modelQuery = ""
-                            scope.launch { modelSheetState.hide() }.invokeOnCompletion { showModelSheet = false }
-                        }
-                    }
-                }
-
-                if (models.isEmpty()) {
-                    item {
-                        Text(
-                            emptyModelListDetail(modelSource),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-                        )
-                    }
-                } else {
-                    items(sheetItems) { item ->
-                        when (item) {
-                            is HeaderItem -> Text(
-                                item.vendor,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = if (item.unavailable) MaterialTheme.colorScheme.error
-                                        else MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-                            )
-                            is ModelItem -> ModelSheetItem(
-                                label = item.model.label,
-                                vendor = null,
-                                selected = item.model.id == activeModelId,
-                                unavailable = item.unavailable,
-                            ) {
-                                vm.setModel(item.model.id)
-                                modelQuery = ""
-                                scope.launch { modelSheetState.hide() }.invokeOnCompletion { showModelSheet = false }
-                            }
-                        }
-                    }
-
-                    if (sheetItems.isEmpty() && !showDefault) {
-                        item {
-                            Text(
-                                "No models match \"$modelQuery\"",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
-                            )
-                        }
-                    }
-                }
+            ModelPickerSheet(
+                title = "Chat model",
+                models = models,
+                cliStatus = cliStatus,
+                selectedModelId = activeModelId,
+                subtitle = backendLockDetail,
+                emptyStateText = emptyModelListDetail(modelSource),
+            ) { modelId ->
+                vm.setModel(modelId)
+                scope.launch { modelSheetState.hide() }.invokeOnCompletion { showModelSheet = false }
             }
         }
     }
@@ -669,47 +552,11 @@ fun ChatScreen(
             sheetState = promptSheetState,
             containerColor = MaterialTheme.colorScheme.surface,
         ) {
-            Text(
-                "Insert Prompt",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-            )
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            if (promptEntries.isEmpty()) {
-                Text(
-                    "No saved prompts. Create some in the Prompt Library.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
-                )
-            } else {
-                promptEntries.forEach { prompt ->
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                val separator = if (input.isNotBlank() && !input.endsWith("\n")) "\n" else ""
-                                input += "$separator${prompt.body}"
-                                vm.setDraft(input)
-                                scope.launch { promptSheetState.hide() }.invokeOnCompletion { showPromptSheet = false }
-                            },
-                        color = MaterialTheme.colorScheme.surface,
-                    ) {
-                        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
-                            Text(prompt.title, style = MaterialTheme.typography.bodyLarge)
-                            if (prompt.description.isNotBlank()) {
-                                Text(
-                                    prompt.description,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                        }
-                    }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                }
+            PromptLibrarySheetContent(promptEntries = promptEntries) { body ->
+                val separator = if (input.isNotBlank() && !input.endsWith("\n")) "\n" else ""
+                input += "$separator$body"
+                vm.setDraft(input)
+                scope.launch { promptSheetState.hide() }.invokeOnCompletion { showPromptSheet = false }
             }
             Spacer(Modifier.padding(bottom = 16.dp))
         }
