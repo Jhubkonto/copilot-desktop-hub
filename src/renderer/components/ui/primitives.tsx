@@ -334,39 +334,30 @@ interface PhaseBarProps {
   steps: PhaseBarStep[]
   currentIndex: number
   failedId?: string
-  onStepClick?: (stepId: string) => void
 }
 
-export function PhaseBar({ steps, currentIndex, failedId, onStepClick }: PhaseBarProps) {
+export function PhaseBar({ steps, currentIndex, failedId }: PhaseBarProps) {
   return (
-    <div className="flex items-center gap-1 flex-wrap">
+    <div className="flex flex-wrap items-center gap-y-2">
       {steps.map((step, i) => {
         const failed = failedId === step.id
         const done = !failed && currentIndex > i
         const active = !failed && currentIndex === i
-        const reached = done || active || failed
-        const clickable = Boolean(onStepClick) && reached
         return (
-          <div key={step.id} className="flex items-center gap-1">
-            {i > 0 && <div className={cx('h-px w-4', done ? 'bg-green-400' : 'bg-gray-200 dark:bg-gray-700')} />}
-            <button
-              type="button"
-              onClick={clickable ? () => onStepClick!(step.id) : undefined}
-              disabled={!clickable}
+          <div key={step.id} className="flex items-center">
+            {i > 0 && <div className={cx('h-px w-4 shrink-0', done ? 'bg-green-400' : 'bg-gray-200 dark:bg-gray-700')} />}
+            <span
               className={cx(
-                'flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium transition-colors',
-                clickable && 'cursor-pointer hover:ring-2 hover:ring-offset-1 dark:hover:ring-offset-gray-900',
-                !clickable && 'cursor-default',
-                failed ? cx('bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400', clickable && 'hover:ring-red-300 dark:hover:ring-red-800')
-                : done ? cx('bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400', clickable && 'hover:ring-green-300 dark:hover:ring-green-800')
-                : active ? cx('bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400', clickable && 'hover:ring-blue-300 dark:hover:ring-blue-800')
+                'flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium',
+                failed ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                : done ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                : active ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
                 : 'bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-600',
               )}
-              title={clickable ? `View ${step.label}` : undefined}
             >
               {done && <CheckCircle className="w-2.5 h-2.5" />}
               {step.label}
-            </button>
+            </span>
           </div>
         )
       })}

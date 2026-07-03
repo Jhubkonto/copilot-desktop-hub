@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import type {
   AvailableModelEntry,
   AvailableModelGroup,
@@ -28,12 +28,12 @@ function CollapsibleStep({ collapsed, onToggleCollapsed, summary, children }: Co
       <button
         type="button"
         onClick={onToggleCollapsed}
-        className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-[11px] font-medium text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800/60"
+        className="flex w-full items-center gap-1.5 rounded-t-md px-3 py-2 text-left text-[11px] font-semibold text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800"
       >
-        <span>{collapsed ? '▸' : '▾'}</span>
+        <span className="text-gray-400 dark:text-gray-500">{collapsed ? '▸' : '▾'}</span>
         {summary}
       </button>
-      {!collapsed && <div className="space-y-2 border-t border-gray-100 p-3 dark:border-gray-800">{children}</div>}
+      {!collapsed && <div className="space-y-2 border-t border-gray-200 p-3 dark:border-gray-700">{children}</div>}
     </div>
   )
 }
@@ -71,6 +71,7 @@ interface CodeChangeDetailViewProps {
   onSaveInvestigationSettings: () => void
   investigationStepCollapsed: boolean
   onToggleInvestigationStepCollapsed: () => void
+  reviseModelPicker: ReactNode
 }
 
 export function CodeChangeDetailView({
@@ -106,6 +107,7 @@ export function CodeChangeDetailView({
   onSaveInvestigationSettings,
   investigationStepCollapsed,
   onToggleInvestigationStepCollapsed,
+  reviseModelPicker,
 }: CodeChangeDetailViewProps) {
   const workspaceMismatch = hasWorkspaceMismatch(request?.workspaceRoot ?? null, currentWorkspaceRoot)
   const planFailed = report.status === 'open' && report.investigation_root_cause === 'investigation_failed'
@@ -114,34 +116,35 @@ export function CodeChangeDetailView({
   const investigationStarted = (isRunningNow || report.status !== 'open' || Boolean(report.investigation_markdown) || investigationActivity.length > 0) && !planFailed
   const patchStarted = report.fix_status !== 'none'
   const planFailureMessage = report.investigation_markdown?.split('# Planning failed\n\n')[1]?.trim()
+  const [planContentCollapsed, setPlanContentCollapsed] = useState(false)
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
       <div className="space-y-3">
         {phase && phaseBar}
         {phase && (
-          <div className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2 dark:border-blue-900 dark:bg-blue-950/20">
-            <p className="text-[11px] font-medium text-blue-800 dark:text-blue-200">
+          <div className="rounded-md border-l-4 border-blue-500 bg-blue-50 px-3 py-2 dark:bg-blue-950/30">
+            <p className="text-[11px] font-semibold text-blue-900 dark:text-blue-200">
               Next step: {CODE_CHANGE_PHASE_LABELS[phase]}
             </p>
-            <p className="mt-0.5 text-[11px] text-blue-700 dark:text-blue-300">
+            <p className="mt-0.5 text-[11px] text-blue-800 dark:text-blue-300">
               {CODE_CHANGE_PHASE_GUIDANCE[phase]}
             </p>
           </div>
         )}
         {workspaceMismatch && (
-          <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 dark:border-amber-800 dark:bg-amber-950/20">
-            <p className="text-[11px] font-medium text-amber-800 dark:text-amber-200">Workspace mismatch</p>
-            <p className="mt-0.5 text-[11px] text-amber-700 dark:text-amber-300">
+          <div className="rounded-md border-l-4 border-amber-500 bg-amber-50 px-3 py-2 dark:bg-amber-950/30">
+            <p className="text-[11px] font-semibold text-amber-900 dark:text-amber-200">Workspace mismatch</p>
+            <p className="mt-0.5 text-[11px] text-amber-800 dark:text-amber-300">
               This request targets <span className="font-mono">{request?.workspaceRoot}</span>, but the connected workspace is now <span className="font-mono">{currentWorkspaceRoot}</span>. Apply, verify, and commit actions run against the currently connected workspace.
             </p>
           </div>
         )}
       </div>
-      <div className="flex flex-wrap items-start justify-between gap-2 border-t border-gray-100 pt-3 dark:border-gray-800">
+      <div className="flex flex-wrap items-start justify-between gap-2 border-t border-gray-200 pt-3 dark:border-gray-700">
         <div className="min-w-0">
-          <p className="text-xs font-medium text-gray-800 dark:text-gray-100">{request?.title}</p>
-          <p className="mt-1 text-xs text-gray-500 break-words">{request?.description || 'No description.'}</p>
+          <p className="text-sm font-semibold text-gray-900 dark:text-gray-50">{request?.title}</p>
+          <p className="mt-1 text-xs text-gray-600 dark:text-gray-400 break-words">{request?.description || 'No description.'}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           {(!investigationStarted || isRunningNow || resumedInBackground) && (
@@ -156,10 +159,10 @@ export function CodeChangeDetailView({
             </Button>
           )}
           <Button
-            variant="danger"
+            variant="secondary"
             onClick={onRequestDelete}
             disabled={reportBusy}
-            className="px-2"
+            className="border-red-300 px-2 text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/30"
             title={reportBusy ? 'Wait for the current Code Changes action to finish before deleting' : 'Delete request'}
           >
             {deleting ? 'Deleting...' : 'Delete'}
@@ -168,28 +171,28 @@ export function CodeChangeDetailView({
       </div>
 
       {planFailed && (
-        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 dark:border-red-900 dark:bg-red-950/20">
-          <p className="text-[11px] font-medium text-red-800 dark:text-red-200">Planning failed</p>
-          <p className="mt-0.5 whitespace-pre-wrap text-[11px] text-red-700 dark:text-red-300">
+        <div className="rounded-md border-l-4 border-red-500 bg-red-50 px-3 py-2 dark:bg-red-950/30">
+          <p className="text-[11px] font-semibold text-red-900 dark:text-red-200">Planning failed</p>
+          <p className="mt-0.5 whitespace-pre-wrap text-[11px] text-red-800 dark:text-red-300">
             {planFailureMessage || 'The plan could not be generated.'}
           </p>
         </div>
       )}
 
       {resumedInBackground && (
-        <div className="flex items-center gap-2 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 dark:border-blue-900 dark:bg-blue-950/20">
+        <div className="flex items-center gap-2 rounded-md border-l-4 border-blue-500 bg-blue-50 px-3 py-2 dark:bg-blue-950/30">
           <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" />
-          <p className="text-[11px] text-blue-700 dark:text-blue-300">
+          <p className="text-[11px] text-blue-800 dark:text-blue-300">
             Planning is still running in the background. Reopen this request in a moment to see progress.
           </p>
         </div>
       )}
 
       {!investigationStarted && !isRunningNow && (
-        <div className="rounded-md border border-gray-200 p-3 dark:border-gray-700">
-          <p className="mb-2 text-[11px] font-medium text-gray-600 dark:text-gray-300">Planning settings</p>
+        <div className="rounded-md border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800/60">
+          <p className="mb-2 text-[11px] font-semibold text-gray-700 dark:text-gray-200">Planning settings</p>
           <div className="grid gap-2 md:grid-cols-2">
-            <label className="text-[11px] text-gray-500">
+            <label className="text-[11px] text-gray-600 dark:text-gray-400">
               Backend
               <select
                 value={investigationSettings.backend}
@@ -201,7 +204,7 @@ export function CodeChangeDetailView({
                 ))}
               </select>
             </label>
-            <label className="text-[11px] text-gray-500">
+            <label className="text-[11px] text-gray-600 dark:text-gray-400">
               Retries
               <input
                 type="number"
@@ -213,7 +216,7 @@ export function CodeChangeDetailView({
               />
             </label>
           </div>
-          <div className="mt-2 text-[11px] text-gray-500">
+          <div className="mt-2 text-[11px] text-gray-600 dark:text-gray-400">
             <p>Model</p>
             <ModelPicker
               value={investigationSettings.model}
@@ -233,7 +236,7 @@ export function CodeChangeDetailView({
               onSelectAvailableModel={onSelectRemoteEditModel}
             />
           </div>
-          <label className="mt-2 flex items-center gap-2 text-[11px] text-gray-500">
+          <label className="mt-2 flex items-center gap-2 text-[11px] text-gray-600 dark:text-gray-400">
             <input
               type="checkbox"
               checked={investigationSettings.autoApproveTools}
@@ -257,14 +260,15 @@ export function CodeChangeDetailView({
             report={report}
             activity={investigationActivity}
             output={investigationOutput}
-            collapsed={false}
-            onToggleCollapsed={() => {}}
+            collapsed={planContentCollapsed}
+            onToggleCollapsed={() => setPlanContentCollapsed((collapsed) => !collapsed)}
             reviewAction={reviewAction}
             runningReportId={runningReportId}
             investigationStatus={investigationStatus}
             onAccept={onAcceptInvestigation}
             onReject={onRejectInvestigation}
             onRevise={onReviseInvestigation}
+            reviseModelPicker={reviseModelPicker}
           />
         </div>
       )}
@@ -282,12 +286,14 @@ export function CodeChangeDetailView({
               output={investigationOutput}
               collapsed={false}
               onToggleCollapsed={() => {}}
+              hideToggle
               reviewAction={reviewAction}
               runningReportId={runningReportId}
               investigationStatus={investigationStatus}
               onAccept={onAcceptInvestigation}
               onReject={onRejectInvestigation}
               onRevise={onReviseInvestigation}
+              reviseModelPicker={reviseModelPicker}
             />
           </CollapsibleStep>
         </div>

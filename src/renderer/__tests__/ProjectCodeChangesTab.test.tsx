@@ -158,11 +158,29 @@ describe('ProjectCodeChangesTab list and detail views', () => {
     await waitFor(() => expect(screen.getByText('Fix the flaky test')).toBeInTheDocument())
     expect(screen.getByText(/Draft/)).toBeInTheDocument()
     expect(screen.getByText('Add retry logic')).toBeInTheDocument()
-    // A report with status 'investigating' is actively running, so the row shows a live
-    // "Working…" indicator instead of the static "Planning" phase label.
-    expect(screen.getByText(/Working…/)).toBeInTheDocument()
+    // status: 'investigating' is a persisted "plan awaiting review" state, not a live "running
+    // right now" signal (a completed plan intentionally stays in this status until the user
+    // accepts it) — so the row shows the static "Planning" phase badge, not a spinner.
+    expect(screen.getByText(/Planning/)).toBeInTheDocument()
+    expect(screen.queryByText(/Working…/)).not.toBeInTheDocument()
     // Detail-only content is not shown alongside the list.
     expect(screen.queryByText(/Next step:/)).not.toBeInTheDocument()
+  })
+
+  it('shows a live "Working…" indicator in the list for a plan that is genuinely still running in the background, unlike a completed plan awaiting review', async () => {
+    setup()
+    const STILL_RUNNING_REPORT = {
+      ...SAMPLE_REPORT,
+      id: 'report-3',
+      title: 'Long-running plan',
+      status: 'investigating',
+      investigation_markdown: null,
+    }
+    mockApi.listErrorReports = vi.fn().mockResolvedValue([STILL_RUNNING_REPORT])
+    renderTab()
+
+    await waitFor(() => expect(screen.getByText('Long-running plan')).toBeInTheDocument())
+    expect(screen.getByText(/Working…/)).toBeInTheDocument()
   })
 
   it('navigates to a request detail view when its list row is clicked, hiding the list', async () => {
@@ -302,7 +320,7 @@ describe('ProjectCodeChangesTab list and detail views', () => {
 
     await user.click(screen.getByRole('button', { name: 'Revise plan' }))
     await user.type(screen.getByLabelText('What should the plan do differently?'), 'Look elsewhere')
-    await user.click(screen.getByRole('button', { name: 'Revise plan' }))
+    await user.click(screen.getByRole('button', { name: 'Send revision' }))
 
     await waitFor(() => expect(mockApi.startInvestigation).toHaveBeenCalledWith('report-5', 'Look elsewhere'))
   })
@@ -332,6 +350,69 @@ describe('ProjectCodeChangesTab list and detail views', () => {
     await user.click(acceptButton)
 
     await waitFor(() => expect(mockApi.setRemoteEditReportStatus).toHaveBeenCalledWith('report-6', 'investigated'))
+  })
+
+  it('offers a model picker inside the revise-plan form so a different model can be used for the retry', async () => {
+    setup()
+    const AWAITING_REVIEW_REPORT = {
+      ...SAMPLE_REPORT,
+      id: 'report-6',
+      title: 'Add retry logic',
+      status: 'investigating',
+      investigation_markdown: '---\nconfidence: high\nroot_cause: missing guard\naffected_files:\n  - "src/main/database.ts"\n---\n\n# Summary',
+      investigation_affected_files: '["src/main/database.ts"]',
+    }
+    mockApi.listErrorReports = vi.fn().mockResolvedValue([AWAITING_REVIEW_REPORT])
+    renderTab()
+
+    await waitFor(() => expect(screen.getByText('Add retry logic')).toBeInTheDocument())
+    await user.click(screen.getByText('Add retry logic'))
+
+    await user.click(await screen.findByRole('button', { name: 'Revise plan' }))
+
+    expect(screen.getByText('Model for this revision')).toBeInTheDocument()
+    expect(screen.getByLabelText('What should the plan do differently?')).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText('What should the plan do differently?'), 'Try a different model')
+    await user.click(screen.getByRole('button', { name: 'Send revision' }))
+
+    await waitFor(() => expect(mockApi.startInvestigation).toHaveBeenCalledWith('report-6', 'Try a different model'))
+    // Settings (including the selected model) are persisted before the revision run starts.
+    expect(mockApi.setInvestigationSettings).toHaveBeenCalled()
+  })
+
+  it('lists CLI models alongside BYOK provider models in the revise picker, and switches backend when a CLI model is picked', async () => {
+    setup()
+    mockApi.listAvailableModels = vi.fn().mockResolvedValue([
+      { sourceKey: 'openrouter', sourceLabel: 'OpenRouter', sourceType: 'provider', models: [{ id: 'nousresearch/hermes-4-70b', label: 'Hermes 4 70B' }] },
+      { sourceKey: 'claude-cli', sourceLabel: 'Claude CLI', sourceType: 'cli', models: [{ id: 'claude-cli-default', label: 'Claude CLI (default)' }] },
+    ])
+    const AWAITING_REVIEW_REPORT = {
+      ...SAMPLE_REPORT,
+      id: 'report-6',
+      title: 'Add retry logic',
+      status: 'investigating',
+      investigation_markdown: '---\nconfidence: high\nroot_cause: missing guard\naffected_files:\n  - "src/main/database.ts"\n---\n\n# Summary',
+      investigation_affected_files: '["src/main/database.ts"]',
+    }
+    mockApi.listErrorReports = vi.fn().mockResolvedValue([AWAITING_REVIEW_REPORT])
+    renderTab()
+
+    await waitFor(() => expect(screen.getByText('Add retry logic')).toBeInTheDocument())
+    await user.click(screen.getByText('Add retry logic'))
+    await user.click(await screen.findByRole('button', { name: 'Revise plan' }))
+
+    await user.click(screen.getByRole('button', { name: 'Conversation model' }))
+    expect(screen.getAllByText('Claude CLI').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('OpenRouter').length).toBeGreaterThan(0)
+
+    await user.click(screen.getByText('Claude CLI (default)'))
+    await user.type(screen.getByLabelText('What should the plan do differently?'), 'Use the CLI instead')
+    await user.click(screen.getByRole('button', { name: 'Send revision' }))
+
+    await waitFor(() => expect(mockApi.setInvestigationSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ backend: 'claude-cli', model: 'claude-cli-default' })
+    ))
   })
 
   it('blocks Accept and warns when a completed plan has no affected files', async () => {
@@ -388,44 +469,39 @@ describe('ProjectCodeChangesTab list and detail views', () => {
 
     await user.click(screen.getByRole('button', { name: 'Revise plan' }))
     await user.type(screen.getByLabelText('What should the plan do differently?'), 'Try a different approach')
-    await user.click(screen.getByRole('button', { name: 'Revise plan' }))
+    await user.click(screen.getByRole('button', { name: 'Send revision' }))
 
     await waitFor(() => expect(mockApi.startInvestigation).toHaveBeenCalledWith('report-8', 'Try a different approach'))
   })
 
-  it('lets the user navigate back to an earlier phase by clicking its badge in the stepper', async () => {
+  it('offers Revise plan when a plan is rejected, instead of a dead end', async () => {
     setup()
-    const MULTI_PHASE_REPORT = {
+    const REJECTED_REPORT = {
       ...SAMPLE_REPORT,
-      id: 'report-9',
-      title: 'Add retry logic',
-      status: 'investigated',
+      id: 'report-10',
+      title: 'Rejected plan report',
+      status: 'rejected',
       investigation_markdown: '---\nconfidence: high\nroot_cause: missing guard\naffected_files:\n  - "src/example.ts"\n---\n\nPlan body',
-      fix_status: 'applied',
-      fix_staged_files: JSON.stringify([{ relativePath: 'src/example.ts', stagingPath: '', backupPath: '/tmp/backup.ts', diffLineCount: 1, reviewed: true }]),
+      fix_status: 'none',
     }
-    mockApi.listErrorReports = vi.fn().mockResolvedValue([MULTI_PHASE_REPORT])
+    mockApi.listErrorReports = vi.fn().mockResolvedValue([REJECTED_REPORT])
     mockApi.getVerificationRuns = vi.fn().mockResolvedValue([])
     renderTab()
 
-    await waitFor(() => expect(screen.getByText('Add retry logic')).toBeInTheDocument())
-    await user.click(screen.getByText('Add retry logic'))
+    await waitFor(() => expect(screen.getByText('Rejected plan report')).toBeInTheDocument())
+    await user.click(screen.getByText('Rejected plan report'))
 
-    // Both the patch-ready and applied phase sections are visible at once, distinctly.
-    await waitFor(() => expect(screen.getByText(/Patch ready · applied/)).toBeInTheDocument())
-    expect(screen.getAllByText('Applied').length).toBeGreaterThan(0)
+    await waitFor(() => expect(screen.getByText(/Plan rejected/)).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: 'Revise plan' })).toBeInTheDocument()
 
-    // Collapse the "Patch ready" section, then click its badge in the stepper to re-expand it.
-    await user.click(screen.getByText(/Patch ready · applied/))
-    expect(screen.queryByText('Staged patch')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Revise plan' }))
+    await user.type(screen.getByLabelText('What should the plan do differently?'), 'Look elsewhere')
+    await user.click(screen.getByRole('button', { name: 'Send revision' }))
 
-    const patchReadyBadge = screen.getByRole('button', { name: 'Patch ready' })
-    await user.click(patchReadyBadge)
-
-    await waitFor(() => expect(screen.getByText('Staged patch')).toBeInTheDocument())
+    await waitFor(() => expect(mockApi.startInvestigation).toHaveBeenCalledWith('report-10', 'Look elsewhere'))
   })
 
-  it('does not make not-yet-reached phase badges clickable', async () => {
+  it('renders phase badges as non-interactive indicators', async () => {
     setup()
     renderTab()
 
@@ -433,7 +509,6 @@ describe('ProjectCodeChangesTab list and detail views', () => {
     await user.click(screen.getByText('Fix the flaky test'))
 
     await waitFor(() => expect(screen.getByText(/Next step: Draft/)).toBeInTheDocument())
-    const patchReadyBadge = screen.getByRole('button', { name: 'Patch ready' })
-    expect(patchReadyBadge).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Patch ready' })).not.toBeInTheDocument()
   })
 })

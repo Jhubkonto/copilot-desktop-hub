@@ -102,6 +102,7 @@ export function ModelPicker({
       {showModelMenu && menuPosition && createPortal(
         <div
           ref={modelMenuRef}
+          data-model-picker-menu
           style={{
             position: 'fixed',
             top: menuPosition.openUpward ? undefined : menuPosition.top,

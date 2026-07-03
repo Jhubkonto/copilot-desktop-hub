@@ -37,6 +37,7 @@ import { CodeChangeDetailView } from '../CodeChangeDetailView'
 import { CodeChangeHistorySection } from '../CodeChangeHistorySection'
 import { CodeChangeNewRequestForm } from '../CodeChangeNewRequestForm'
 import { RevisePlanControl } from '../RevisePlanControl'
+import { ModelPicker } from '../chat/ModelPicker'
 
 // ---------------------------------------------------------------------------
 // Remote Edit Diff Viewer sub-component
@@ -48,6 +49,7 @@ interface DiffViewerProps {
   fixStatus: string | null
   runningReportId: string | null
   onReviseInvestigation: (reportId: string, notes: string) => void
+  reviseModelPicker: ReactNode
   verificationRun: RemoteEditVerificationRun | null
   verificationRunning: string | null
   expandedVerifyCommand: string | null
@@ -106,7 +108,7 @@ function PhaseSection({
 }
 
 function RemoteEditDiffViewer({
-  report, fixRunning, fixStatus, runningReportId, onReviseInvestigation,
+  report, fixRunning, fixStatus, runningReportId, onReviseInvestigation, reviseModelPicker,
   verificationRun, verificationRunning, expandedVerifyCommand,
   gitPrepare, gitMessage, gitRunning, recoveryRun, recoveryRunning,
   stagedDiffs, reviewedFiles, expandedDiffFile,
@@ -176,6 +178,7 @@ function RemoteEditDiffViewer({
                     disabled={fixRunning !== null || runningReportId !== null}
                     running={runningReportId === report.id}
                     onRevise={onReviseInvestigation}
+                    modelPicker={reviseModelPicker}
                   />
                 )}
                 <button
@@ -502,10 +505,8 @@ const CODE_CHANGE_PHASE_ORDER = [
 
 function CodeChangePhaseBar({
   phase,
-  onStepClick,
 }: {
   phase: ReturnType<typeof deriveCodeChangePhase>
-  onStepClick?: (stepId: string) => void
 }) {
   const currentIndex = phase === 'needs-attention'
     ? CODE_CHANGE_PHASE_ORDER.indexOf('verifying')
@@ -517,7 +518,6 @@ function CodeChangePhaseBar({
       steps={steps}
       currentIndex={currentIndex}
       failedId={phase === 'needs-attention' ? 'verifying' : undefined}
-      onStepClick={onStepClick}
     />
   )
 }
@@ -717,6 +717,35 @@ export function ProjectCodeChangesTab({ projectId, projectConfig, onGoToGeneralT
   const handleSelectRemoteEditModel = (_group: AvailableModelGroup, model: AvailableModelEntry) => {
     setInvestigationSettings((settings) => ({ ...settings, model: model.id }))
   }
+
+  // Unlike the picker in "Planning settings" (which is backend-filtered because the user picks a
+  // backend first via a separate dropdown), this picker has no companion backend selector, so it
+  // shows every available group — CLI and BYOK provider alike — and switches the backend to match
+  // whichever group the picked model came from.
+  const handleSelectReviseModel = (group: AvailableModelGroup, model: AvailableModelEntry) => {
+    setInvestigationSettings((settings) => ({
+      ...settings,
+      model: model.id,
+      backend: group.sourceType === 'cli' ? (group.sourceKey as RemoteEditBackend) : 'byok',
+    }))
+  }
+
+  const reviseModelPicker = (
+    <div className="text-[11px] text-gray-500">
+      <p>Model for this revision</p>
+      <ModelPicker
+        value={investigationSettings.model}
+        sourceLabel={selectedModelSourceLabel}
+        availableGroups={availableModelGroups}
+        catalogModels={catalogModels}
+        includeDefault={false}
+        emptyLabel="No models configured"
+        buttonClassName="mt-1 flex w-full items-center justify-between gap-2 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-800 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+        menuClassName="left-0 right-auto"
+        onSelectAvailableModel={handleSelectReviseModel}
+      />
+    </div>
+  )
 
   const loadVerificationRuns = async (reportId: string) => {
     if (typeof window.api.getVerificationRuns !== 'function') return
@@ -1129,18 +1158,6 @@ export function ProjectCodeChangesTab({ projectId, projectConfig, onGoToGeneralT
     }
   }
 
-  const handlePhaseClick = (phaseId: string) => {
-    if (phaseId === 'investigating') {
-      setInvestigationStepCollapsed(false)
-    } else {
-      setPhaseSectionsCollapsed((prev) => ({ ...prev, [phaseId]: false }))
-    }
-    requestAnimationFrame(() => {
-      const targetId = phaseId === 'investigating' ? 'code-change-plan-section' : `code-change-phase-${phaseId}`
-      document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    })
-  }
-
   const persistInvestigationSettings = async () => {
     const saved = await window.api.setInvestigationSettings(investigationSettings)
     setInvestigationSettings(saved)
@@ -1352,7 +1369,7 @@ export function ProjectCodeChangesTab({ projectId, projectConfig, onGoToGeneralT
           report={selectedReport}
           request={selectedRequest}
           phase={selectedPhase}
-          phaseBar={selectedPhase && <CodeChangePhaseBar phase={selectedPhase} onStepClick={handlePhaseClick} />}
+          phaseBar={selectedPhase && <CodeChangePhaseBar phase={selectedPhase} />}
           runningReportId={runningReportId}
           onStartInvestigation={() => void handleStartInvestigation(selectedReport.id)}
           isWorkspaceConnected={workspaceBinding.isConnected}
@@ -1380,6 +1397,7 @@ export function ProjectCodeChangesTab({ projectId, projectConfig, onGoToGeneralT
           onSaveInvestigationSettings={() => void handleSaveInvestigationSettings()}
           investigationStepCollapsed={investigationStepCollapsed}
           onToggleInvestigationStepCollapsed={() => setInvestigationStepCollapsed((collapsed) => !collapsed)}
+          reviseModelPicker={reviseModelPicker}
           diffViewer={(
             <RemoteEditDiffViewer
               report={selectedReport}
@@ -1387,6 +1405,7 @@ export function ProjectCodeChangesTab({ projectId, projectConfig, onGoToGeneralT
               fixStatus={fixStatus}
               runningReportId={runningReportId}
               onReviseInvestigation={(reportId, notes) => void handleStartInvestigation(reportId, 'revise', notes)}
+              reviseModelPicker={reviseModelPicker}
               verificationRun={verificationRuns[selectedReport.id]?.[0] ?? null}
               verificationRunning={verificationRunning}
               expandedVerifyCommand={expandedVerifyCommand}
