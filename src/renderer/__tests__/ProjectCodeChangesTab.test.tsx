@@ -370,7 +370,7 @@ describe('ProjectCodeChangesTab list and detail views', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Revise plan' }))
 
-    expect(screen.getByText('Model for this revision')).toBeInTheDocument()
+    expect(screen.getByLabelText('Conversation model')).toBeInTheDocument()
     expect(screen.getByLabelText('What should the plan do differently?')).toBeInTheDocument()
 
     await user.type(screen.getByLabelText('What should the plan do differently?'), 'Try a different model')
@@ -499,6 +499,65 @@ describe('ProjectCodeChangesTab list and detail views', () => {
     await user.click(screen.getByRole('button', { name: 'Send revision' }))
 
     await waitFor(() => expect(mockApi.startInvestigation).toHaveBeenCalledWith('report-10', 'Look elsewhere'))
+  })
+
+  it('lets the user accept a rejected plan anyway, undoing the rejection', async () => {
+    setup()
+    const REJECTED_REPORT = {
+      ...SAMPLE_REPORT,
+      id: 'report-11',
+      title: 'Rejected plan report',
+      status: 'rejected',
+      investigation_markdown: '---\nconfidence: high\nroot_cause: missing guard\naffected_files:\n  - "src/example.ts"\n---\n\nPlan body',
+      investigation_affected_files: '["src/example.ts"]',
+      fix_status: 'none',
+    }
+    mockApi.listErrorReports = vi.fn().mockResolvedValue([REJECTED_REPORT])
+    mockApi.getVerificationRuns = vi.fn().mockResolvedValue([])
+    mockApi.setRemoteEditReportStatus = vi.fn().mockResolvedValue({ ...REJECTED_REPORT, status: 'investigated' })
+    renderTab()
+
+    await waitFor(() => expect(screen.getByText('Rejected plan report')).toBeInTheDocument())
+    await user.click(screen.getByText('Rejected plan report'))
+
+    await waitFor(() => expect(screen.getByText(/Plan rejected/)).toBeInTheDocument())
+    const acceptAnywayButton = screen.getByRole('button', { name: 'Accept anyway' })
+    expect(acceptAnywayButton).not.toBeDisabled()
+
+    await user.click(acceptAnywayButton)
+
+    await waitFor(() => expect(mockApi.setRemoteEditReportStatus).toHaveBeenCalledWith('report-11', 'investigated'))
+  })
+
+  it('surfaces Generate staged patch and Back to review next to the Next step banner once a plan is accepted', async () => {
+    setup()
+    const ACCEPTED_REPORT = {
+      ...SAMPLE_REPORT,
+      id: 'report-12',
+      title: 'Accepted plan report',
+      status: 'investigated',
+      investigation_markdown: '---\nconfidence: high\nroot_cause: missing guard\naffected_files:\n  - "src/example.ts"\n---\n\nPlan body',
+      investigation_affected_files: '["src/example.ts"]',
+      fix_status: 'none',
+    }
+    mockApi.listErrorReports = vi.fn().mockResolvedValue([ACCEPTED_REPORT])
+    mockApi.getVerificationRuns = vi.fn().mockResolvedValue([])
+    mockApi.setRemoteEditReportStatus = vi.fn().mockResolvedValue({ ...ACCEPTED_REPORT, status: 'rejected' })
+    renderTab()
+
+    await waitFor(() => expect(screen.getByText('Accepted plan report')).toBeInTheDocument())
+    await user.click(screen.getByText('Accepted plan report'))
+
+    const nextStepBanner = (await screen.findByText(/Next step: Patch ready/)).closest('div')
+    expect(nextStepBanner).not.toBeNull()
+    const generateButton = screen.getByRole('button', { name: 'Generate staged patch' })
+    const backButton = screen.getByRole('button', { name: 'Back to review' })
+    expect(nextStepBanner).toContainElement(generateButton)
+    expect(nextStepBanner).toContainElement(backButton)
+
+    await user.click(backButton)
+
+    await waitFor(() => expect(mockApi.setRemoteEditReportStatus).toHaveBeenCalledWith('report-12', 'rejected'))
   })
 
   it('renders phase badges as non-interactive indicators', async () => {

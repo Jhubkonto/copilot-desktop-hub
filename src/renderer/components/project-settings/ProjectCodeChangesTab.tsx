@@ -38,6 +38,7 @@ import { CodeChangeHistorySection } from '../CodeChangeHistorySection'
 import { CodeChangeNewRequestForm } from '../CodeChangeNewRequestForm'
 import { RevisePlanControl } from '../RevisePlanControl'
 import { ModelPicker } from '../chat/ModelPicker'
+import { PlanPreview } from '../CodeChangePlanPreview'
 
 // ---------------------------------------------------------------------------
 // Remote Edit Diff Viewer sub-component
@@ -175,10 +176,12 @@ function RemoteEditDiffViewer({
                 {report.fix_status === 'failed' && (
                   <RevisePlanControl
                     reportId={report.id}
+                    projectId={report.project_id}
                     disabled={fixRunning !== null || runningReportId !== null}
                     running={runningReportId === report.id}
                     onRevise={onReviseInvestigation}
                     modelPicker={reviseModelPicker}
+                    planPreview={<PlanPreview report={report} />}
                   />
                 )}
                 <button
@@ -357,9 +360,11 @@ function RemoteEditDiffViewer({
               <div className="flex flex-wrap gap-2">
                 <RevisePlanControl
                   reportId={report.id}
+                  projectId={report.project_id}
                   disabled={fixRunning !== null || runningReportId !== null}
                   running={runningReportId === report.id}
                   onRevise={onReviseInvestigation}
+                  planPreview={<PlanPreview report={report} />}
                 />
                 <button
                   onClick={() => onStartFix(report.id)}
@@ -731,20 +736,16 @@ export function ProjectCodeChangesTab({ projectId, projectConfig, onGoToGeneralT
   }
 
   const reviseModelPicker = (
-    <div className="text-[11px] text-gray-500">
-      <p>Model for this revision</p>
-      <ModelPicker
-        value={investigationSettings.model}
-        sourceLabel={selectedModelSourceLabel}
-        availableGroups={availableModelGroups}
-        catalogModels={catalogModels}
-        includeDefault={false}
-        emptyLabel="No models configured"
-        buttonClassName="mt-1 flex w-full items-center justify-between gap-2 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-800 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-        menuClassName="left-0 right-auto"
-        onSelectAvailableModel={handleSelectReviseModel}
-      />
-    </div>
+    <ModelPicker
+      value={investigationSettings.model}
+      sourceLabel={selectedModelSourceLabel}
+      availableGroups={availableModelGroups}
+      catalogModels={catalogModels}
+      includeDefault={false}
+      emptyLabel="No models configured"
+      menuClassName="left-0 right-auto"
+      onSelectAvailableModel={handleSelectReviseModel}
+    />
   )
 
   const loadVerificationRuns = async (reportId: string) => {
@@ -846,7 +847,7 @@ export function ProjectCodeChangesTab({ projectId, projectConfig, onGoToGeneralT
       setRunningReportId(null)
       setReviewAction(null)
       setInvestigationStatus(result.status === 'done' ? 'Planning complete' : result.error ?? 'Planning failed')
-      setInvestigationOutput((prev) => ({ ...prev, [result.reportId]: result.markdown }))
+      setInvestigationOutput((prev) => { const next = { ...prev }; delete next[result.reportId]; return next })
       void loadReports()
     })
     return () => {
@@ -856,6 +857,23 @@ export function ProjectCodeChangesTab({ projectId, projectConfig, onGoToGeneralT
     }
 
   }, [])
+
+  useEffect(() => {
+    if (!selectedReportId || typeof window.api.getActiveInvestigation !== 'function') return
+    let cancelled = false
+    window.api.getActiveInvestigation(selectedReportId).then((progress) => {
+      if (cancelled || !progress) return
+      // Only rehydrate when the backend confirms the run is still active — otherwise leave local
+      // state alone so a just-finished run's onInvestigationDone handler (or the persisted report
+      // from loadReports()) remains the source of truth instead of being overwritten with stale data.
+      if (!progress.running) return
+      setRunningReportId(selectedReportId)
+      setInvestigationActivity((prev) => ({ ...prev, [selectedReportId]: progress.activity }))
+      setInvestigationOutput((prev) => ({ ...prev, [selectedReportId]: progress.output }))
+      setInvestigationStatus('Planning in progress')
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [selectedReportId])
 
   useEffect(() => {
     if (

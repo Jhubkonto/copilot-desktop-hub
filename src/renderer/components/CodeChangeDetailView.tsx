@@ -130,6 +130,27 @@ export function CodeChangeDetailView({
             <p className="mt-0.5 text-[11px] text-blue-800 dark:text-blue-300">
               {CODE_CHANGE_PHASE_GUIDANCE[phase]}
             </p>
+            {report.status === 'investigated' && report.fix_status === 'none' && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Button
+                  variant="primary"
+                  onClick={onGeneratePatch}
+                  disabled={fixRunning !== null}
+                  className="px-3 py-1.5 text-[11px]"
+                >
+                  {fixRunning === report.id ? 'Generating patch...' : 'Generate staged patch'}
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={onRejectInvestigation}
+                  disabled={fixRunning !== null || reviewAction !== null || runningReportId !== null}
+                  className="px-3 py-1.5 text-[11px]"
+                  title="Not ready yet — go back to review the plan"
+                >
+                  Back to review
+                </Button>
+              </div>
+            )}
           </div>
         )}
         {workspaceMismatch && (
@@ -296,18 +317,6 @@ export function CodeChangeDetailView({
               reviseModelPicker={reviseModelPicker}
             />
           </CollapsibleStep>
-        </div>
-      )}
-
-      {report.status === 'investigated' && report.fix_status === 'none' && (
-        <div className="pt-1">
-          <Button
-            variant="primary"
-            onClick={onGeneratePatch}
-            disabled={fixRunning !== null}
-          >
-            {fixRunning === report.id ? 'Generating patch...' : 'Generate staged patch'}
-          </Button>
         </div>
       )}
 

@@ -61,6 +61,8 @@ export function createMockAppStore(overrides: Record<string, unknown> = {}) {
     projectsLoading: false,
     projectAgents: {} as Record<string, { agentId: string; agentName: string; agentIcon: string; isPrimary: boolean; sortOrder: number }[]>,
     projectConfigs: {} as Record<string, import('../../renderer/store/types').ProjectConfig>,
+    activeCodeChangesByProject: {} as Record<string, number>,
+    loadActiveCodeChanges: vi.fn().mockResolvedValue(undefined),
 
     // Toasts
     toasts: [],
@@ -115,7 +117,6 @@ export function createMockAppStore(overrides: Record<string, unknown> = {}) {
     setPendingArtifactGeneration: vi.fn(),
     requestArtifactAttach: vi.fn(),
     clearPendingArtifactAttach: vi.fn(),
-    openBugReport: vi.fn(),
     setPendingRemoteEditReportId: vi.fn(),
     setPendingNewRequestDraft: vi.fn(),
     setPendingCodeChangesProjectId: vi.fn(),

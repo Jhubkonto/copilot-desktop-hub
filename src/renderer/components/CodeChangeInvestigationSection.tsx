@@ -1,7 +1,10 @@
 import type { ReactNode } from 'react'
+import { useState } from 'react'
+import { Maximize2 } from 'lucide-react'
 import type { ErrorReportEntry, RemoteEditInvestigationActivity } from '@shared/types'
-import { Button } from './ui/primitives'
+import { Button, ModalShell } from './ui/primitives'
 import { RevisePlanControl } from './RevisePlanControl'
+import { PlanCard, parseAffectedFiles, stripFrontMatter } from './CodeChangePlanPreview'
 
 interface CodeChangeInvestigationSectionProps {
   report: ErrorReportEntry
@@ -34,12 +37,19 @@ export function CodeChangeInvestigationSection({
   reviseModelPicker,
   hideToggle,
 }: CodeChangeInvestigationSectionProps) {
+  const [planExpanded, setPlanExpanded] = useState(false)
   const isRunningNow = runningReportId === report.id
   const hasContent = Boolean(report.investigation_markdown) || activity.length > 0
-  const affectedFiles: string[] = (() => {
-    try { return JSON.parse(report.investigation_affected_files || '[]') } catch { return [] }
-  })()
-  const planHasNoFiles = report.status === 'investigating' && Boolean(report.investigation_markdown) && affectedFiles.length === 0
+  const affectedFiles = parseAffectedFiles(report)
+  const planHasNoFiles = (report.status === 'investigating' || report.status === 'rejected') && Boolean(report.investigation_markdown) && affectedFiles.length === 0
+  // Only the persisted report has parsed confidence/root_cause fields — the live `output` stream
+  // during an active run hasn't been through persistResult() yet, so show the raw stream as-is and
+  // reserve the structured summary for the finalized plan.
+  const showSummary = !output && Boolean(report.investigation_markdown)
+  const displayedBody = output ? output : report.investigation_markdown ? stripFrontMatter(report.investigation_markdown) : null
+  const planPreview = displayedBody ? (
+    <PlanCard report={report} affectedFiles={affectedFiles} showSummary={showSummary} body={displayedBody} />
+  ) : undefined
 
   return (
     <>
@@ -83,27 +93,41 @@ export function CodeChangeInvestigationSection({
                 </Button>
                 <RevisePlanControl
                   reportId={report.id}
+                  projectId={report.project_id}
                   disabled={runningReportId !== null}
                   running={reviewAction === 'revise' && runningReportId === report.id}
                   onRevise={(_reportId, notes) => onRevise(notes)}
                   modelPicker={reviseModelPicker}
+                  planPreview={planPreview}
                 />
               </div>
             </>
           )}
-          {report.investigation_markdown && report.status === 'rejected' && (
-            <div className="space-y-2">
-              <p className="rounded-md border-l-4 border-red-500 bg-red-50 px-3 py-2 text-[11px] font-semibold text-red-800 dark:bg-red-950/30 dark:text-red-300">
-                Plan rejected. Revise it with new instructions, or delete this request.
+          {report.investigation_markdown && report.status === 'rejected' && !isRunningNow && (
+            <div className="space-y-2 rounded-md border-l-4 border-red-500 bg-red-50 px-3 py-2 dark:bg-red-950/30">
+              <p className="text-[11px] font-semibold text-red-800 dark:text-red-300">
+                Plan rejected. Revise it with new instructions, delete this request, or accept the plan as-is if you've changed your mind.
               </p>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-red-400 dark:text-red-500" aria-hidden="true">→</span>
                 <RevisePlanControl
                   reportId={report.id}
+                  projectId={report.project_id}
                   disabled={runningReportId !== null}
                   running={reviewAction === 'revise' && runningReportId === report.id}
                   onRevise={(_reportId, notes) => onRevise(notes)}
                   modelPicker={reviseModelPicker}
+                  planPreview={planPreview}
+                  triggerClassName="text-[11px] px-3 py-1.5 rounded-md bg-red-600 text-white font-semibold hover:bg-red-700 disabled:opacity-50 dark:bg-red-700 dark:hover:bg-red-600"
                 />
+                <button
+                  onClick={onAccept}
+                  disabled={reviewAction !== null || runningReportId !== null || planHasNoFiles}
+                  title={planHasNoFiles ? "This plan has no affected files — revise it instead of accepting" : "Undo the rejection and accept this plan as-is"}
+                  className="text-[11px] px-3 py-1.5 rounded-md border border-red-300 text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950/50"
+                >
+                  {reviewAction === 'accept' ? 'Accepting...' : 'Accept anyway'}
+                </button>
               </div>
             </div>
           )}
@@ -131,9 +155,42 @@ export function CodeChangeInvestigationSection({
             </div>
           )}
           {(output || report.investigation_markdown || !isRunningNow) && (
-            <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-800 dark:border-gray-700 dark:bg-gray-950/60 dark:text-gray-300">
-              {output || report.investigation_markdown || 'No plan has been created yet.'}
-            </pre>
+            <PlanCard
+              report={report}
+              affectedFiles={affectedFiles}
+              showSummary={showSummary}
+              body={displayedBody || 'No plan has been created yet.'}
+              className="relative space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-950/60"
+              bodyClassName="max-h-96 overflow-auto pr-9 text-xs"
+              actions={displayedBody && (
+                <button
+                  type="button"
+                  onClick={() => setPlanExpanded(true)}
+                  className="rounded-md border border-gray-300 bg-white p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+                  aria-label="Expand plan"
+                  title="Expand plan"
+                >
+                  <Maximize2 className="h-3.5 w-3.5" />
+                </button>
+              )}
+            />
+          )}
+          {planExpanded && (
+            <ModalShell
+              title="Plan"
+              ariaLabel="Expanded plan"
+              maxWidth="max-w-4xl"
+              bodyClassName="flex-1 min-h-0 overflow-y-auto p-5"
+              onClose={() => setPlanExpanded(false)}
+            >
+              <PlanCard
+                report={report}
+                affectedFiles={affectedFiles}
+                showSummary={showSummary}
+                body={displayedBody ?? ''}
+                className="space-y-3"
+              />
+            </ModalShell>
           )}
           {investigationStatus && <p className="text-[11px] text-gray-500 dark:text-gray-400">{investigationStatus}</p>}
         </div>
