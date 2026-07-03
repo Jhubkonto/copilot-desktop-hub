@@ -20,6 +20,8 @@ import { broadcastToMobile } from '../ws-server'
 import { parseAffectedFilesFromFrontMatter } from './yaml'
 import { createPromptedToolCaller, injectPromptedToolSystemPrompt } from './prompted-tool-caller'
 import { getProjectRootDirectory } from '../project-handlers'
+import { getCachedCatalog } from '../model-catalog'
+import { resolveToolsSupported } from '../../shared/models'
 
 const execFileAsync = promisify(execFile)
 const MAX_FILE_CHARS = 32000
@@ -195,28 +197,35 @@ function buildPrompt(report: ErrorReportEntry, workspacePath: string, revisionNo
     : 'Ground every claim in the actual results returned by your tool calls, including failed ones — read the relevant files and directory structure before proposing a plan. ' +
       'Never invent files, functions, or code that does not appear in a tool result you actually received. ' +
       'Every item in the Evidence section must include a short verbatim quote from a tool result (e.g. a snippet of the file you read), copied exactly — if you cannot quote the exact source text an item is based on, do not include that item. '
-  // The YAML key is always root_cause (parsed downstream by a fixed regex, and stored in the
-  // investigation_root_cause column) regardless of request type — only what we ask the model to
-  // put in it changes, so bugfix/non-bugfix prompts share the same front-matter contract.
-  const rootCauseField = 'root_cause'
+  // The YAML key the model is asked to emit differs by request type — root_cause implies
+  // something is broken, which is misleading for a plain change request — but both keys are
+  // parsed into the same internal rootCause field / investigation_root_cause column (see
+  // buildCandidate's parser), so this only affects what the model writes, not storage.
+  const rootCauseField = isBugfix ? 'root_cause' : 'approach'
   const rootCauseFieldDescription = isBugfix
     ? 'a one-sentence root cause'
     : 'a one-sentence summary of the planned approach'
+  const reportOrPlanNoun = isBugfix ? 'report' : 'plan'
+  const reportNoun = isBugfix ? 'investigation report' : reportOrPlanNoun
+  const lastSectionLabel = isBugfix ? 'Recommended Next Steps' : 'Plan'
+  const lastSectionInstruction = isBugfix
+    ? lastSectionLabel
+    : 'Plan (the concrete steps you propose to make this change, in the order you\'d make them — not steps to go gather more information)'
 
   return [
     {
       role: 'system',
       content:
         `You are the Nexy Code Changes planner. ${taskVerb} using only read-only tools. ` +
-        'Do not propose code changes yet. Return a concise Markdown investigation report with YAML front matter. ' +
+        `Do not propose code changes yet. Return a concise Markdown ${reportNoun} with YAML front matter. ` +
         rootCauseInstruction +
-        'If a tool fails or is unavailable, say so plainly in the report instead of fabricating a substitute explanation. ' +
+        `If a tool fails or is unavailable, say so plainly in the ${reportOrPlanNoun} instead of fabricating a substitute explanation. ` +
         `Never guess a file path for read_file. Use list_directory and/or grep first to locate the real file that is actually relevant to the ${subject}, and only call read_file on a path you have confirmed exists. ` +
-        `A "File not found" result is not evidence of anything about the ${subject} — it only means your guessed path was wrong; do not cite it in the report or list that path under affected_files. ` +
+        `A "File not found" result is not evidence of anything about the ${subject} — it only means your guessed path was wrong; do not cite it in the ${reportOrPlanNoun} or list that path under affected_files. ` +
         'Only list a path under affected_files if a read_file or grep call on that exact path actually succeeded — never list a path solely because it seems plausible. ' +
         'Your response must begin with exactly one YAML front matter block delimited by --- lines, appearing once, at the very start of the response, before any other text — do not duplicate it later and do not also restate it inside a fenced ```yaml block. ' +
         `The front matter block must contain ONLY the three keys confidence, ${rootCauseField}, and affected_files — nothing else. ` +
-        'Summary, Evidence, and Recommended Next Steps are Markdown sections that come AFTER the closing --- of the front matter, each as a "## Heading" followed by prose or a bullet list — never as additional YAML keys inside the front matter block.',
+        `Summary, Evidence, and ${lastSectionLabel} are Markdown sections that come AFTER the closing --- of the front matter, each as a "## Heading" followed by prose or a bullet list — never as additional YAML keys inside the front matter block.`,
     },
     {
       role: 'user',
@@ -227,7 +236,7 @@ function buildPrompt(report: ErrorReportEntry, workspacePath: string, revisionNo
         `Description:\n${report.description || '(none)'}\n\n` +
         `Log snapshot:\n${logExcerpt}\n${revisionSection}\n` +
         `Required YAML front matter keys: confidence, ${rootCauseField} (${rootCauseFieldDescription}), affected_files. ` +
-        `Then include sections: Summary, Evidence, Recommended Next Steps.`,
+        `Then include sections: Summary, Evidence, ${lastSectionInstruction}.`,
     },
   ]
 }
@@ -253,7 +262,10 @@ function scoreBlock(confidence: string, rootCause: string, affectedFiles: string
 
 function buildCandidate(index: number, body: string): FrontMatterCandidate {
   const confidence = /confidence:\s*(.+)/i.exec(body)?.[1]?.trim() || 'unknown'
-  const rootCause = /root_cause:\s*(.+)/i.exec(body)?.[1]?.trim() || 'unknown'
+  // root_cause is the bugfix-path key; approach is the non-bugfix-path key (see buildPrompt) —
+  // only one is ever requested for a given report, but the parser accepts either since it has no
+  // access to the report's request_type.
+  const rootCause = (/root_cause:\s*(.+)/i.exec(body)?.[1] ?? /approach:\s*(.+)/i.exec(body)?.[1])?.trim() || 'unknown'
   const affectedFiles = parseAffectedFilesFromFrontMatter(body)
   return { index, confidence, rootCause, affectedFiles, score: scoreBlock(confidence, rootCause, affectedFiles) }
 }
@@ -284,7 +296,7 @@ function filterToConfirmedPaths(affectedFiles: string[], confirmedPaths?: Set<st
   return affectedFiles.filter((file) => confirmedPaths.has(file.split('\\').join('/').replace(/^\.?\//, '')))
 }
 
-function ensureStructuredMarkdown(markdown: string, confirmedPaths?: Set<string>): RemoteEditInvestigationResult {
+function ensureStructuredMarkdown(markdown: string, isBugfix: boolean, confirmedPaths?: Set<string>): RemoteEditInvestigationResult {
   const best = pickBestCandidate(extractFrontMatterCandidates(markdown))
 
   if (best) {
@@ -302,7 +314,7 @@ function ensureStructuredMarkdown(markdown: string, confirmedPaths?: Set<string>
   const wrapped = [
     '---',
     'confidence: unknown',
-    'root_cause: unknown',
+    `${isBugfix ? 'root_cause' : 'approach'}: unknown`,
     'affected_files: []',
     '---',
     '',
@@ -425,6 +437,7 @@ export async function runInvestigation(
   revisionNotes?: string,
 ): Promise<RemoteEditInvestigationResult> {
   const report = readReport(reportId)
+  const isBugfix = BUGFIX_REQUEST_TYPES.has(report.request_type)
   const settings = loadInvestigationSettings()
   const workspacePath = getWorkspacePathForReport(reportId)
   const startedAt = Date.now()
@@ -451,7 +464,9 @@ export async function runInvestigation(
           cwd: workspacePath,
           model: settings.model,
           messages: buildPrompt(report, workspacePath, revisionNotes),
-          systemPrompt: 'Investigate only. Return YAML front matter followed by Markdown.',
+          systemPrompt: isBugfix
+            ? 'Investigate only. Return YAML front matter followed by Markdown.'
+            : 'Plan only. Return YAML front matter followed by Markdown.',
         },
         (chunk) => {
           callbacks.onChunk(chunk)
@@ -469,7 +484,9 @@ export async function runInvestigation(
           cwd: workspacePath,
           model: settings.model,
           messages: buildPrompt(report, workspacePath, revisionNotes),
-          systemPrompt: 'Investigate only. Return YAML front matter followed by Markdown.',
+          systemPrompt: isBugfix
+            ? 'Investigate only. Return YAML front matter followed by Markdown.'
+            : 'Plan only. Return YAML front matter followed by Markdown.',
         },
         (chunk) => {
           callbacks.onChunk(chunk)
@@ -483,7 +500,20 @@ export async function runInvestigation(
       const apiKey = getApiKey(provider)
       const toolDefs = buildToolDefinitions()
       confirmedPaths = new Set<string>()
+      // Some models (e.g. Hermes/Nous-family models via OpenRouter) accept a `tools` payload
+      // without erroring but never populate a structured tool-call response — they emit their
+      // own pretrained pseudo-tool-call syntax as plain text instead, which nothing here parses,
+      // silently producing an investigation with no evidence gathered rather than a clear error.
+      // Proactively route those to the prompted (JSON-in-text) tool-calling path instead of
+      // relying solely on the reactive "No endpoints found that support tool use" fallback below,
+      // which only catches models that actually reject the request.
+      const nativeToolsSupported = resolveToolsSupported(provider, model, getCachedCatalog())
       const caller = async (messages: ProviderMessage[], tools: ToolDefinition[] | undefined, toolChoice: ToolChoice): Promise<ProviderNonStreamResult> => {
+        if (!nativeToolsSupported) {
+          const promptedCaller = createPromptedToolCaller(provider, apiKey, model, { maxTokens: 4096, temperature: 0.2 })
+          const promptedMessages = toolChoice === 'none' ? messages : injectPromptedToolSystemPrompt(messages, tools ?? [])
+          return promptedCaller(promptedMessages, tools, toolChoice)
+        }
         try {
           return await sendProviderWithTools(provider, apiKey, model, messages, tools ?? [], toolChoice, { maxTokens: 4096, temperature: 0.2 })
         } catch (err) {
@@ -513,7 +543,9 @@ export async function runInvestigation(
         undefined,
         true,
         buildInlineHandlers(workspacePath, confirmedPaths),
-        'Use the read-only workspace tools when useful. Investigate root cause and evidence. Do not write files.',
+        isBugfix
+          ? 'Use the read-only workspace tools when useful. Investigate root cause and evidence. Do not write files.'
+          : 'Use the read-only workspace tools when useful. Gather evidence for the plan. Do not write files.',
         (event) => {
           if (event.type === 'thinking') callbacks.onActivity({ reportId, type: 'thinking', label: 'Thinking' })
           else callbacks.onActivity({ reportId, type: 'tool', label: `Running ${event.name}`, toolName: event.name })
@@ -521,7 +553,7 @@ export async function runInvestigation(
         settings.autoApproveTools,
       )
     }
-    const structured = ensureStructuredMarkdown(markdown, confirmedPaths)
+    const structured = ensureStructuredMarkdown(markdown, isBugfix, confirmedPaths)
     const result = persistResult(reportId, structured)
     callbacks.onActivity({ reportId, type: 'status', label: 'Planning complete' })
     return result

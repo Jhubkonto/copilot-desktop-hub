@@ -15,7 +15,7 @@ import type { ToolLoopToolFinishedEvent } from './tool-loop'
 import type { ToolDefinition, ToolChoice, ProviderNonStreamResult } from './provider-types'
 import type { InlineHandler, MobileChatActivity } from './chat-context-builder'
 import type { MessageContentPart } from './provider-core-types'
-import { modelIdSupportsTools } from '../shared/models'
+import { resolveToolsSupported } from '../shared/models'
 import { getCachedCatalog } from './model-catalog'
 import { debugLog } from './debug-mode'
 import { PROVIDER_THINKING_SUPPORT } from '../shared/types'
@@ -113,23 +113,12 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
 
   const catalog = getCachedCatalog()
   const catalogEntry = catalog.find((m) => m.id === providerModel)
-  let toolsSupported: boolean
-  let toolSupportSource: string
-  if (providerName !== 'openrouter') {
-    toolsSupported = modelIdSupportsTools(providerModel, catalog)
-    toolSupportSource = 'catalog-lookup'
-  } else if (catalogEntry) {
-    toolsSupported = catalogEntry.capabilities.length === 0 || catalogEntry.capabilities.includes('tool_calls')
-    toolSupportSource = `openrouter-catalog caps=[${catalogEntry.capabilities.join(',')}]`
-  } else {
-    // No catalog hit: strip ~ routing prefix and check known-capable families.
-    // hermes, nous, etc. won't match → conservative (no tools).
-    // claude, gpt-4, gemini, etc. will match → optimistic (tools enabled).
-    const id = providerModel.toLowerCase().replace(/^~/, '')
-    const TOOL_CAPABLE_FAMILIES = ['claude', 'gpt-4', 'gpt-4o', 'gemini', 'mistral-large', 'llama-3', 'qwen']
-    toolsSupported = TOOL_CAPABLE_FAMILIES.some((family) => id.includes(family))
-    toolSupportSource = `openrouter-heuristic id="${id}"`
-  }
+  const toolsSupported = resolveToolsSupported(providerName, providerModel, catalog)
+  const toolSupportSource = providerName !== 'openrouter'
+    ? 'catalog-lookup'
+    : catalogEntry
+      ? `openrouter-catalog caps=[${catalogEntry.capabilities.join(',')}]`
+      : `openrouter-heuristic id="${providerModel.toLowerCase().replace(/^~/, '')}"`
   const effectiveToolDefs = toolsSupported ? toolDefs : []
   const hasToolLoop = effectiveToolDefs.length > 0
   debugLog('provider', `dispatch: provider=${providerName} model=${providerModel} toolsSupported=${toolsSupported} toolSupportSource=${toolSupportSource} toolDefs=${toolDefs.length} effectiveTools=${effectiveToolDefs.length} hasToolLoop=${hasToolLoop} agenticMode=${agenticMode}`)

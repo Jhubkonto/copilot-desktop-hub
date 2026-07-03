@@ -121,6 +121,31 @@ export function modelIdSupportsTools(modelId: string | null | undefined, catalog
   return modelSupportsTools(entry)
 }
 
+const OPENROUTER_TOOL_CAPABLE_FAMILIES = ['claude', 'gpt-4', 'gpt-4o', 'gemini', 'mistral-large', 'llama-3', 'qwen']
+
+/**
+ * Resolves whether tool calling should be attempted for a given provider/model, accounting for
+ * OpenRouter's mixed catalog: some models advertise accurate `capabilities` (used directly),
+ * but many (e.g. Hermes/Nous-family models) have no catalog entry and, even when OpenRouter's
+ * API accepts a `tools` payload for them without erroring, emit their own pretrained pseudo-tool-call
+ * syntax as plain text instead of populating a structured tool-call response — silently producing
+ * unusable output rather than a clear error. For OpenRouter models with no catalog hit, only a
+ * known-capable family allowlist is treated as tool-capable; everything else is conservatively
+ * treated as NOT tool-capable, matching the same heuristic chat dispatch already uses.
+ */
+export function resolveToolsSupported(
+  providerName: string,
+  modelId: string | null | undefined,
+  catalog?: CatalogModel[],
+): boolean {
+  if (providerName !== 'openrouter') return modelIdSupportsTools(modelId, catalog)
+  if (!modelId || modelId === 'default') return true
+  const entry = catalog?.find((m) => m.id === modelId)
+  if (entry) return modelSupportsTools(entry)
+  const id = modelId.toLowerCase().replace(/^~/, '')
+  return OPENROUTER_TOOL_CAPABLE_FAMILIES.some((family) => id.includes(family))
+}
+
 export function getAvailableModelIds(
   catalog?: CatalogModel[],
   currentModel?: string | null,

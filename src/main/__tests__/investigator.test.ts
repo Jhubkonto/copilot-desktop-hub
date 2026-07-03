@@ -2,18 +2,23 @@ import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initializeBaseSchema, runMigrations } from '../database-migrations'
 
-const { sendProviderWithToolsMock } = vi.hoisted(() => ({
+const { sendProviderWithToolsMock, getProviderForAgentMock } = vi.hoisted(() => ({
   sendProviderWithToolsMock: vi.fn(),
+  getProviderForAgentMock: vi.fn(() => ({ provider: 'openai', model: 'gpt-5-mini' })),
 }))
 
 vi.mock('../providers', () => ({
-  getProviderForAgent: vi.fn(() => ({ provider: 'openai', model: 'gpt-5-mini' })),
+  getProviderForAgent: getProviderForAgentMock,
   getApiKey: vi.fn(() => 'sk-test'),
   sendProviderWithTools: sendProviderWithToolsMock,
 }))
 
 vi.mock('../ws-server', () => ({
   broadcastToMobile: vi.fn(),
+}))
+
+vi.mock('../model-catalog', () => ({
+  getCachedCatalog: vi.fn(() => []),
 }))
 
 let db: Database.Database
@@ -34,6 +39,8 @@ describe('remote-edit investigator', () => {
   beforeEach(() => {
     vi.resetModules()
     sendProviderWithToolsMock.mockReset()
+    getProviderForAgentMock.mockReset()
+    getProviderForAgentMock.mockReturnValue({ provider: 'openai', model: 'gpt-5-mini' })
     db = createDatabase()
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('build_workspace_path', ?)").run(process.cwd())
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('remote_edit_backend', 'byok')").run()
@@ -273,6 +280,10 @@ describe('remote-edit investigator', () => {
     expect(systemMessage?.content).toContain('must contain ONLY the three keys confidence, root_cause, and affected_files')
     expect(systemMessage?.content).toContain('Never guess a file path for read_file')
     expect(systemMessage?.content).toContain('is not evidence of anything about the bug')
+    // The bugfix path keeps the original bug-diagnosis phrasing (unlike the non-bugfix path,
+    // which swaps these for plan-oriented wording — see the request-type branching test below).
+    expect(systemMessage?.content).toContain('Markdown investigation report with YAML front matter')
+    expect(systemMessage?.content).toContain('Summary, Evidence, and Recommended Next Steps are Markdown sections')
   })
 
   it('includes revision notes in the prompt when revising a plan', async () => {
@@ -330,10 +341,94 @@ describe('remote-edit investigator', () => {
     expect(systemMessage?.content).toContain('Plan this change request')
     expect(systemMessage?.content).not.toContain('Investigate the captured bug')
     expect(systemMessage?.content).not.toContain('is not evidence of anything about the bug')
-    expect(systemMessage?.content).toContain('confidence, root_cause, and affected_files')
+    // Regression: the front-matter key itself used to always be root_cause, which implies
+    // something is broken — misleading for a plain, non-bugfix change request — even after the
+    // surrounding prose was branched. Non-bugfix requests now ask for `approach` instead.
+    expect(systemMessage?.content).not.toContain('confidence, root_cause, and affected_files')
+    expect(systemMessage?.content).toContain('confidence, approach, and affected_files')
+    // Regression: buildPrompt used to hardcode "investigation report" and "Recommended Next
+    // Steps" for every request type, so a plan for a non-bugfix change still read like a bug
+    // triage writeup even after the task-verb/root-cause branching was fixed.
+    expect(systemMessage?.content).not.toContain('investigation report')
+    expect(systemMessage?.content).toContain('Markdown plan with YAML front matter')
+    expect(systemMessage?.content).toContain('Summary, Evidence, and Plan are Markdown sections')
     expect(userMessage?.content).toContain('Plan this change request.')
     expect(userMessage?.content).not.toContain('Investigate this bug report.')
     expect(userMessage?.content).toContain('a one-sentence summary of the planned approach')
+    expect(userMessage?.content).toContain('confidence, approach (a one-sentence summary')
+    expect(userMessage?.content).not.toContain('Recommended Next Steps')
+    expect(userMessage?.content).toContain('the concrete steps you propose to make this change')
+  })
+
+  it('parses the approach: key (not root_cause:) from a non-bugfix plan into the same rootCause field', async () => {
+    db.prepare("UPDATE error_reports SET request_type = 'refactor' WHERE id = 'report-1'").run()
+    sendProviderWithToolsMock
+      .mockResolvedValueOnce({
+        content: null,
+        toolCalls: [{ id: 'call-1', name: 'read_file', arguments: { path: 'package.json' } }],
+        model: 'gpt-5-mini',
+      })
+      .mockResolvedValue({
+        content: [
+          '---',
+          'confidence: high',
+          'approach: Add a dedicated tests/ directory at the repo root and move loose spec files into it.',
+          'affected_files:',
+          '  - package.json',
+          '---',
+          '',
+          '# Summary',
+          'Consolidate scattered test files.',
+        ].join('\n'),
+        toolCalls: [],
+        model: 'gpt-5-mini',
+      })
+    const { runInvestigation } = await import('../remote-edit/investigator')
+    const result = await runInvestigation(
+      { isDestroyed: () => false, webContents: { isDestroyed: () => false, send: vi.fn() } } as never,
+      'report-1',
+      { onChunk: vi.fn(), onActivity: vi.fn() },
+    )
+    expect(result).toEqual(expect.objectContaining({
+      status: 'done',
+      confidence: 'high',
+      rootCause: 'Add a dedicated tests/ directory at the repo root and move loose spec files into it.',
+      affectedFiles: ['package.json'],
+    }))
+    // The raw markdown shown to the user reflects what the model actually wrote — approach:, not
+    // a relabeled root_cause: — since the UI renders this text verbatim.
+    expect(result.markdown).toContain('approach: Add a dedicated tests/ directory')
+    expect(result.markdown).not.toContain('root_cause:')
+  })
+
+  it('proactively uses the prompted tool-calling path for an OpenRouter model with no tool-call catalog support, instead of sending native tools it will silently ignore', async () => {
+    // Regression test: some OpenRouter models (e.g. Hermes/Nous-family) accept a `tools` payload
+    // without erroring but never populate a structured tool-call response — they emit their own
+    // pretrained pseudo-tool-call text instead, which the native path can't parse, silently
+    // producing an investigation with no evidence gathered. The fix is to detect this up front
+    // (via resolveToolsSupported) and route straight to the prompted (JSON-in-text) tool-calling
+    // path rather than only reacting to a specific rejection error that doesn't always occur.
+    getProviderForAgentMock.mockReturnValue({ provider: 'openrouter', model: 'nousresearch/hermes-4-70b' })
+    sendProviderWithToolsMock.mockResolvedValue({
+      content: ['---', 'confidence: high', 'root_cause: x', 'affected_files: []', '---', '', '# Summary'].join('\n'),
+      toolCalls: [],
+      model: 'nousresearch/hermes-4-70b',
+    })
+    const { runInvestigation } = await import('../remote-edit/investigator')
+    await runInvestigation(
+      { isDestroyed: () => false, webContents: { isDestroyed: () => false, send: vi.fn() } } as never,
+      'report-1',
+      { onChunk: vi.fn(), onActivity: vi.fn() },
+    )
+    // sendProviderWithTools is always called under the hood (native and prompted paths both use
+    // it), but the prompted path always passes an empty tools array and toolChoice 'none' since
+    // it encodes tool availability as system-prompt text instead of a native `tools` payload.
+    const [, , , , calledTools, calledToolChoice] = sendProviderWithToolsMock.mock.calls[0]
+    expect(calledTools).toEqual([])
+    expect(calledToolChoice).toBe('none')
+    const messages = sendProviderWithToolsMock.mock.calls[0][3] as { role: string; content: string }[]
+    const systemMessage = messages.find((m) => m.role === 'system')
+    expect(systemMessage?.content).toContain('You do not have native function-calling')
   })
 
   it('falls back to prompted tool-calling when the provider rejects native tool use, completing a multi-turn investigation', async () => {
