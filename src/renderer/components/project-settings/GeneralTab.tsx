@@ -166,7 +166,7 @@ export function GeneralTab({
               <button
                 type="button"
                 onClick={onCodingWorkspaceToggle}
-                className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${codingWorkspace ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+                className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors ${codingWorkspace ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
                 aria-label={codingWorkspace ? 'Disable software workspace mode' : 'Enable software workspace mode'}
                 role="switch"
                 aria-checked={codingWorkspace}
@@ -179,13 +179,13 @@ export function GeneralTab({
       </div>
 
       {/* Instructions */}
-      <div>
-        <div className="flex items-center justify-between mb-1">
+      <div className="mt-4">
+        <div className="flex items-center justify-between mb-2">
           <label className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Instructions</label>
           <button
             type="button"
             onClick={onEnabledToggle}
-            className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${instructionsEnabled ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+            className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors ${instructionsEnabled ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
             aria-label={instructionsEnabled ? 'Disable instructions' : 'Enable instructions'}
             role="switch"
             aria-checked={instructionsEnabled}

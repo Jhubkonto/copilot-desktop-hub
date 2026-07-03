@@ -49,7 +49,14 @@ export function CreateProjectPanel() {
         className="relative bg-white dark:bg-gray-900 shadow-xl flex flex-col border-l border-gray-200 dark:border-gray-700"
         style={{ width }}
       >
-        <ResizeHandle direction="horizontal" align="start" containerRef={panelRef} onSetSize={handleSetSize} />
+        <ResizeHandle
+          direction="horizontal"
+          align="start"
+          containerRef={panelRef}
+          onSetSize={handleSetSize}
+          minSize={PANEL_MIN}
+          maxSize={PANEL_MAX}
+        />
 
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 shrink-0">

@@ -410,7 +410,7 @@ export function ProjectSettingsPanel(props: Props) {
     <div className="h-full flex flex-col bg-gray-50 dark:bg-gray-800/50 rounded-b-xl border-t border-gray-200 dark:border-gray-700">
 
       {/* Tab bar */}
-      <div className="flex items-center gap-0.5 px-3 pt-2 pb-0 flex-wrap" role="tablist">
+      <div className="flex items-center gap-4 px-3 pt-2 pb-0 flex-wrap border-b border-gray-200 dark:border-gray-700" role="tablist">
         {(['general', 'scope', 'milestones', 'team', ...(!isDraft ? ['workflow', 'changes', 'code-changes', 'wiki', 'artifacts'] : [])] as TabId[]).map((tab) => (
           <button
             key={tab}
@@ -418,12 +418,12 @@ export function ProjectSettingsPanel(props: Props) {
             role="tab"
             aria-selected={activeTab === tab}
             onClick={() => setActiveTab(tab)}
-            className={`text-[11px] px-2.5 py-1 rounded-md font-medium transition-colors ${
+            className={`text-[11px] pb-2 border-b-2 font-medium transition-colors ${
               activeTab === tab
-                ? 'bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 shadow-sm'
+                ? 'border-blue-500 text-gray-800 dark:text-gray-100'
                 : tab === 'team' && teamFlashOn
-                  ? 'bg-blue-500 text-white'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                  ? 'border-transparent text-blue-500'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600'
             }`}
           >
             {tab === 'general'
@@ -446,11 +446,11 @@ export function ProjectSettingsPanel(props: Props) {
           </button>
         ))}
         {!isDraft && ['general', 'scope', 'milestones'].includes(activeTab) && (
-          <span className="ml-auto pr-1"><SaveStatus state={saveState} /></span>
+          <span className="ml-auto pb-2"><SaveStatus state={saveState} /></span>
         )}
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 pt-2 space-y-4">
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 pt-2 space-y-4 [scrollbar-gutter:stable]">
 
         {activeTab === 'general' && (
           <GeneralTab
