@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 /* ── Hoisted mocks ─────────────────────────────────────────── */
-const { mockIpcMain, mockExecSync, mockExistsSync, mockReadFileSync } = vi.hoisted(() => {
+const { mockIpcMain, mockExecSync, mockExistsSync, mockReadFileSync, getCachedAnthropicModelsMock, getCachedClaudeCliPtyModelsMock } = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>()
   return {
     mockIpcMain: {
@@ -12,7 +12,9 @@ const { mockIpcMain, mockExecSync, mockExistsSync, mockReadFileSync } = vi.hoist
     },
     mockExecSync: vi.fn(),
     mockExistsSync: vi.fn(),
-    mockReadFileSync: vi.fn()
+    mockReadFileSync: vi.fn(),
+    getCachedAnthropicModelsMock: vi.fn(),
+    getCachedClaudeCliPtyModelsMock: vi.fn()
   }
 })
 
@@ -29,6 +31,14 @@ vi.mock('fs', () => ({
   readFileSync: mockReadFileSync
 }))
 
+vi.mock('../anthropic-models', () => ({
+  getCachedAnthropicModels: getCachedAnthropicModelsMock
+}))
+
+vi.mock('../cli-adapters/claude-model-probe', () => ({
+  getCachedClaudeCliPtyModels: getCachedClaudeCliPtyModelsMock
+}))
+
 import { registerCliHandlers, checkCliOnStartup, detectAllClis, getCliModels } from '../cli-detection'
 
 async function invokeHandler(channel: string, ...args: unknown[]): Promise<any> {
@@ -43,6 +53,8 @@ beforeEach(() => {
   mockReadFileSync.mockImplementation(() => {
     throw new Error('no file')
   })
+  getCachedAnthropicModelsMock.mockReturnValue([])
+  getCachedClaudeCliPtyModelsMock.mockReturnValue([])
   registerCliHandlers()
 })
 
@@ -182,6 +194,43 @@ describe('CLI Detection', () => {
     expect(getCliModels('codex-cli')).toEqual([
       { id: 'gpt-5.5', label: 'GPT-5.5' },
       { id: 'gpt-5.4-mini', label: 'GPT-5.4-Mini' },
+    ])
+  })
+
+  it('getCliModels returns static fallback for claude-cli when no PTY or Anthropic cache', () => {
+    getCachedClaudeCliPtyModelsMock.mockReturnValue([])
+    getCachedAnthropicModelsMock.mockReturnValue([])
+
+    expect(getCliModels('claude-cli')).toEqual([
+      { id: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
+      { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+      { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
+    ])
+  })
+
+  it('getCliModels prefers cached Anthropic models for claude-cli when PTY cache is empty', () => {
+    getCachedClaudeCliPtyModelsMock.mockReturnValue([])
+    getCachedAnthropicModelsMock.mockReturnValue([
+      { id: 'claude-opus-4-9', label: 'Claude Opus 4.9' },
+    ])
+
+    expect(getCliModels('claude-cli')).toEqual([
+      { id: 'claude-opus-4-9', label: 'Claude Opus 4.9' },
+    ])
+  })
+
+  it('getCliModels prefers PTY-probed models over the Anthropic API cache', () => {
+    getCachedClaudeCliPtyModelsMock.mockReturnValue([
+      { id: 'opus', label: 'Opus 4.8' },
+      { id: 'sonnet', label: 'Sonnet 5' },
+    ])
+    getCachedAnthropicModelsMock.mockReturnValue([
+      { id: 'claude-opus-4-9', label: 'Claude Opus 4.9' },
+    ])
+
+    expect(getCliModels('claude-cli')).toEqual([
+      { id: 'opus', label: 'Opus 4.8' },
+      { id: 'sonnet', label: 'Sonnet 5' },
     ])
   })
 })

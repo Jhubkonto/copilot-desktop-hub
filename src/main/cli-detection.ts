@@ -5,6 +5,8 @@ import { homedir } from 'os'
 import type { CliInstallStatus } from '../shared/types'
 import { safeHandle } from './safe-handle'
 import { CODEX_DEFAULT_MODELS } from './cli-adapters/codex'
+import { getCachedAnthropicModels } from './anthropic-models'
+import { getCachedClaudeCliPtyModels } from './cli-adapters/claude-model-probe'
 
 type CliModelOption = { id: string; label: string }
 
@@ -168,6 +170,10 @@ export function getCliModels(backend: string): CliModelOption[] {
     return withPreferredModelFirst(CODEX_DEFAULT_MODELS, readCodexConfigModel())
   }
   if (backend === 'claude-cli') {
+    const ptyProbed = getCachedClaudeCliPtyModels()
+    if (ptyProbed.length > 0) return ptyProbed
+    const anthropicApi = getCachedAnthropicModels()
+    if (anthropicApi.length > 0) return anthropicApi
     return CLAUDE_DEFAULT_MODELS
   }
   return []
