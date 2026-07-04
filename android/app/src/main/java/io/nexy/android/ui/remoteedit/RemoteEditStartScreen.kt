@@ -35,6 +35,7 @@ import io.nexy.android.ui.components.NexyTopAppBar
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RemoteEditStartScreen(
+    projectId: String,
     prefillDescription: String = "",
     onBack: () -> Unit,
     onReportCreated: (String) -> Unit,
@@ -143,6 +144,7 @@ fun RemoteEditStartScreen(
                         WsRepository.createRemoteEditReport(
                             title = effectiveTitle,
                             description = description.trim(),
+                            projectId = projectId,
                             requestType = requestType,
                             customTypeLabel = if (isCustomType) customTypeLabel.trim() else null,
                         )

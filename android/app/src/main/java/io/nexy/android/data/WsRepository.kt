@@ -765,9 +765,9 @@ object WsRepository : WsClient {
         send("conversation:save-compression-summary", mapOf("conversationId" to conversationId) + draft)
     }
     fun deleteMessage(id: String) { send("message:delete", mapOf("id" to id)) }
-    fun refreshReports() {
-        sendLog("RemoteEdit", "refreshReports: sending self-heal:get-reports")
-        send("self-heal:get-reports", emptyMap())
+    fun refreshReports(projectId: String) {
+        sendLog("RemoteEdit", "refreshReports: sending self-heal:get-reports projectId=$projectId")
+        send("self-heal:get-reports", mapOf("projectId" to projectId))
     }
     fun refreshActiveCodeChanges() {
         send("self-heal:get-active-code-changes", emptyMap())
@@ -775,15 +775,17 @@ object WsRepository : WsClient {
     fun createRemoteEditReport(
         title: String,
         description: String,
+        projectId: String,
         requestType: CodeChangeRequestType = CodeChangeRequestType.EDIT,
         customTypeLabel: String? = null,
     ) {
-        sendLog("RemoteEdit", "createRemoteEditReport: title=$title")
+        sendLog("RemoteEdit", "createRemoteEditReport: title=$title projectId=$projectId")
         val payload = mutableMapOf<String, Any>(
             "title" to title,
             "description" to description,
             "includeLog" to true,
             "requestType" to codeChangeRequestTypeWireValue(requestType),
+            "projectId" to projectId,
         )
         if (!customTypeLabel.isNullOrBlank()) payload["customTypeLabel"] = customTypeLabel
         send("error-report:request-capture", payload)
@@ -794,9 +796,9 @@ object WsRepository : WsClient {
         if (!revisionNotes.isNullOrBlank()) payload["revisionNotes"] = revisionNotes
         send("self-heal:start-investigation", payload)
     }
-    fun setRemoteEditReportStatus(reportId: String, status: String) {
-        sendLog("RemoteEdit", "setRemoteEditReportStatus: reportId=$reportId status=$status")
-        send("self-heal:set-report-status", mapOf("reportId" to reportId, "status" to status))
+    fun setRemoteEditReportStatus(reportId: String, status: String, projectId: String) {
+        sendLog("RemoteEdit", "setRemoteEditReportStatus: reportId=$reportId status=$status projectId=$projectId")
+        send("self-heal:set-report-status", mapOf("reportId" to reportId, "status" to status, "projectId" to projectId))
     }
     fun getInvestigationSettings() {
         send("self-heal:get-investigation-settings", emptyMap())

@@ -6,4 +6,5 @@ data class Project(
     val color: String,
     val chatCount: Int = 0,
     val agentIcons: List<String> = emptyList(),
+    val rootDirectory: String? = null,
 )

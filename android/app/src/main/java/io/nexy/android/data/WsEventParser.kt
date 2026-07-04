@@ -68,6 +68,7 @@ import io.nexy.android.data.model.SkillToolConfig
 import io.nexy.android.data.model.ScheduledTask
 import io.nexy.android.data.model.ScheduledRun
 import io.nexy.android.data.model.SkillTools
+import io.nexy.android.data.model.RemoteEditStagedFileEntry
 import io.nexy.android.data.model.WsEvent
 import io.nexy.android.data.model.ConversationDebrief
 import io.nexy.android.data.model.QuizQuestion
@@ -214,6 +215,7 @@ fun parseWsEvent(
                         color = p.optString("color", "blue"),
                         chatCount = p.optInt("chat_count", 0),
                         agentIcons = agentIcons,
+                        rootDirectory = p.nullableString("root_directory"),
                     )
                 }
                 projects.value = list
@@ -367,8 +369,20 @@ fun parseWsEvent(
                 val files = if (filesArr != null) {
                     (0 until filesArr.length()).map { i ->
                         val f = filesArr.optJSONObject(i)
-                        f?.optString("relativePath") ?: filesArr.optString(i) ?: ""
-                    }.filter { it.isNotEmpty() }
+                        if (f != null) {
+                            RemoteEditStagedFileEntry(
+                                relativePath = f.optString("relativePath"),
+                                diffLineCount = f.optInt("diffLineCount", 0),
+                                reviewed = f.optBoolean("reviewed", false),
+                            )
+                        } else {
+                            RemoteEditStagedFileEntry(
+                                relativePath = filesArr.optString(i, ""),
+                                diffLineCount = 0,
+                                reviewed = false,
+                            )
+                        }
+                    }.filter { it.relativePath.isNotEmpty() }
                 } else emptyList()
                 WsEvent.RemoteEditFixDone(
                     reportId = data?.optString("reportId") ?: "",
@@ -383,8 +397,20 @@ fun parseWsEvent(
                 val files = if (filesArr != null) {
                     (0 until filesArr.length()).map { i ->
                         val f = filesArr.optJSONObject(i)
-                        f?.optString("relativePath") ?: filesArr.optString(i) ?: ""
-                    }.filter { it.isNotEmpty() }
+                        if (f != null) {
+                            RemoteEditStagedFileEntry(
+                                relativePath = f.optString("relativePath"),
+                                diffLineCount = f.optInt("diffLineCount", 0),
+                                reviewed = f.optBoolean("reviewed", false),
+                            )
+                        } else {
+                            RemoteEditStagedFileEntry(
+                                relativePath = filesArr.optString(i, ""),
+                                diffLineCount = 0,
+                                reviewed = false,
+                            )
+                        }
+                    }.filter { it.relativePath.isNotEmpty() }
                 } else emptyList()
                 WsEvent.RemoteEditStagedFiles(
                     reportId = data?.optString("reportId") ?: "",
@@ -613,12 +639,18 @@ fun parseWsEvent(
                         investigationMarkdown = r.nullableString("investigation_markdown"),
                         investigationAffectedFiles = affectedFiles,
                         createdAt = r.optLong("created_at", 0L),
+                        projectId = r.nullableString("project_id"),
                     )
                 }
                 WsRepository.sendLog("RemoteEdit", "self-heal:reports received: ${list.size} reports; ids=${list.take(5).map { it.id }}")
                 errorReports.value = list
                 WsEvent.RemoteEditReports(list)
             }
+
+            "self-heal:reports-changed" -> WsEvent.RemoteEditReportsChanged(
+                reportId = data?.optString("reportId") ?: "",
+                status = data?.optString("status") ?: "",
+            )
 
             "self-heal:investigation-settings" -> {
                 val d = data ?: return

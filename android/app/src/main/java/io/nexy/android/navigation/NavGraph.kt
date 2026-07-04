@@ -191,8 +191,8 @@ fun NavGraph(
                 onOpenArtifacts = {
                     navController.navigate("artifacts?artifactId=")
                 },
-                onOpenCodeChanges = {
-                    navController.navigate("remote-edit")
+                onOpenCodeChanges = { projectId ->
+                    navController.navigate("project-code-changes/${Uri.encode(projectId)}")
                 },
                 onOpenSkills = {
                     navController.navigate("skills")
@@ -290,8 +290,10 @@ fun NavGraph(
                     navController.navigate("artifacts?artifactId=${Uri.encode(artifactId.orEmpty())}")
                 },
                 onOpenFork = { forkedId -> navController.navigate("chat/$forkedId") },
-                onOpenRemoteEditWithPrefill = { prefill ->
-                    navController.navigate("remote-edit/start?prefill=${Uri.encode(prefill)}")
+                onOpenRemoteEditWithPrefill = { prefill, projectIdForPrefill ->
+                    navController.navigate(
+                        "project-code-changes/${Uri.encode(projectIdForPrefill)}/new?prefill=${Uri.encode(prefill)}",
+                    )
                 },
             )
         }
@@ -493,25 +495,33 @@ fun NavGraph(
             PromptsScreen(onBack = { navController.popBackStack() })
         }
 
-        composable("remote-edit") {
+        composable(
+            route = "project-code-changes/{projectId}",
+            arguments = listOf(navArgument("projectId") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val projectId = backStackEntry.arguments?.getString("projectId") ?: return@composable
             RemoteEditReportsScreen(
+                projectId = projectId,
                 onBack = { navController.popBackStack() },
                 onOpenReport = { id -> navController.navigate("remote-edit/$id") },
-                onNewRequest = { navController.navigate("remote-edit/start") },
+                onNewRequest = { navController.navigate("project-code-changes/${Uri.encode(projectId)}/new") },
             )
         }
 
         composable(
-            route = "remote-edit/start?prefill={prefill}",
+            route = "project-code-changes/{projectId}/new?prefill={prefill}",
             arguments = listOf(
+                navArgument("projectId") { type = NavType.StringType },
                 navArgument("prefill") {
                     type = NavType.StringType
                     defaultValue = ""
                 },
             ),
         ) { backStackEntry ->
+            val projectId = backStackEntry.arguments?.getString("projectId") ?: return@composable
             val prefill = backStackEntry.arguments?.getString("prefill") ?: ""
             RemoteEditStartScreen(
+                projectId = projectId,
                 prefillDescription = prefill,
                 onBack = { navController.popBackStack() },
                 onReportCreated = { reportId -> navController.navigate("remote-edit/$reportId") },

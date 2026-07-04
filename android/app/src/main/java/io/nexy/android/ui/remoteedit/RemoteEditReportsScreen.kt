@@ -58,6 +58,7 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RemoteEditReportsScreen(
+    projectId: String,
     onBack: () -> Unit,
     onOpenReport: (String) -> Unit,
     onNewRequest: () -> Unit,
@@ -65,13 +66,16 @@ fun RemoteEditReportsScreen(
 ) {
     val reports by vm.errorReports.collectAsState()
     val isRefreshing by vm.isRefreshing.collectAsState()
-    val workspaceInfo by vm.workspaceInfo.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
     var statusFilter by remember { mutableStateOf<String?>(null) }
     var pendingDeleteReport by remember { mutableStateOf<ErrorReport?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val statusValues = remember(reports) { reports.map { it.status }.distinct().sorted() }
+
+    LaunchedEffect(projectId) {
+        vm.loadForProject(projectId)
+    }
 
     LaunchedEffect(Unit) {
         vm.actionResults.collect { result ->
@@ -125,12 +129,11 @@ fun RemoteEditReportsScreen(
     ) { padding ->
         PullToRefreshBox(
             isRefreshing = isRefreshing,
-            onRefresh = { vm.refresh() },
+            onRefresh = { vm.refresh(projectId) },
             modifier = Modifier.fillMaxSize().padding(padding),
         ) {
             if (reports.isEmpty()) {
                 Column(modifier = Modifier.fillMaxSize()) {
-                    WorkspaceSummary(workspaceInfo)
                     Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                         NexyEmptyState(
                             title = "No edit requests yet.",
@@ -138,7 +141,7 @@ fun RemoteEditReportsScreen(
                             action = {
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     TextButton(onClick = onNewRequest) { Text("New request") }
-                                    TextButton(onClick = { vm.refresh() }) { Text("Refresh") }
+                                    TextButton(onClick = { vm.refresh(projectId) }) { Text("Refresh") }
                                 }
                             },
                         )
@@ -146,7 +149,6 @@ fun RemoteEditReportsScreen(
                 }
             } else {
                 Column(modifier = Modifier.fillMaxSize()) {
-                    WorkspaceSummary(workspaceInfo)
                     NexySearchField(
                         query = searchQuery,
                         onQueryChange = { searchQuery = it },
@@ -194,41 +196,6 @@ fun RemoteEditReportsScreen(
                         }
                     }
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun WorkspaceSummary(workspace: io.nexy.android.data.model.WsEvent.BuildWorkspaceInfo?) {
-    Surface(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceVariant,
-    ) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(
-                text = if (workspace?.path.isNullOrBlank()) "No desktop workspace connected" else "Connected desktop workspace",
-                style = MaterialTheme.typography.labelMedium,
-            )
-            Text(
-                text = workspace?.path?.takeIf { it.isNotBlank() }
-                    ?: "Connect a workspace from Nexy desktop before creating a code change.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            workspace?.takeIf { it.path.isNotBlank() }?.let { info ->
-                Text(
-                    text = listOfNotNull(
-                        if (info.isGitRepo) "Git repository" else "Folder workspace",
-                        info.branch,
-                        if (info.dirty) "Uncommitted changes" else null,
-                    ).joinToString(" · "),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (info.dirty) Color(0xFFE65100) else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
     }

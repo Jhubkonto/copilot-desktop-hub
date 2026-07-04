@@ -14,6 +14,7 @@ const state = vi.hoisted(() => {
   const getProjectAuditDiff = vi.fn<(sessionId: string, relativePath: string) => RemoteEditStagedFileDiff | null>(() => null)
   const getRemoteEditAuditDiff = vi.fn<(reportId: string, relativePath: string) => RemoteEditStagedFileDiff | null>(() => null)
   let projectConfigJson: string | null = null
+  let errorReportRows: Record<string, unknown>[] = []
   const runManualWorkflowGeneratorChatForAndroid = vi.fn()
   const getManualWorkflowGeneratorModel = vi.fn(() => 'gpt-5.5')
   const setManualWorkflowGeneratorModel = vi.fn()
@@ -42,6 +43,8 @@ const state = vi.hoisted(() => {
     applyStagedPatchToWorkspace,
     get projectConfigJson() { return projectConfigJson },
     set projectConfigJson(value) { projectConfigJson = value },
+    get errorReportRows() { return errorReportRows },
+    set errorReportRows(value) { errorReportRows = value },
   }
 })
 
@@ -52,11 +55,17 @@ vi.mock('../safe-handle', () => ({
 vi.mock('../database', () => ({
   getDatabase: () => ({
     prepare: (sql: string) => ({
-      all: (..._args: unknown[]) => {
+      all: (...args: unknown[]) => {
         if (sql.includes('FROM conversations c')) return [{ id: 'conv-1', title: 'Chat 1' }]
         if (sql.includes('FROM projects p')) return [{ id: 'proj-1', name: 'Project 1' }]
         if (sql.includes('FROM messages')) return [{ id: 'msg-1', role: 'user', content: 'hello', timestamp: 1 }]
         if (sql.includes('FROM agents')) return [{ id: 'agent-1', name: 'Codex', icon: 'C', backend: 'codex-cli', cli_model: 'gpt-5.5' }]
+        if (sql.includes('FROM error_reports')) {
+          if (sql.includes('WHERE project_id = ?')) {
+            return state.errorReportRows.filter((row) => row.project_id === args[0])
+          }
+          return state.errorReportRows
+        }
         return []
       },
       get: (..._args: unknown[]) => {
@@ -212,6 +221,7 @@ describe('ws handlers', () => {
     state.deleteErrorReport.mockReturnValue(true)
     state.applyStagedPatchToWorkspace.mockReset()
     state.applyStagedPatchToWorkspace.mockReturnValue(null)
+    state.errorReportRows = []
     vi.mocked(retrieveAuthMode).mockReturnValue('byok')
     vi.mocked(getAndroidUpdateManifest).mockResolvedValue(null)
     vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(false)
@@ -497,6 +507,50 @@ describe('ws handlers', () => {
         relativePath: 'src/example.ts',
         hunks: [{ header: '@@ -1,1 +1,1 @@', lines: [] }],
       },
+    })
+  })
+
+  it('filters self-heal:get-reports by projectId when provided', () => {
+    state.errorReportRows = [
+      { id: 'report-1', title: 'Report 1', status: 'open', created_at: 1, updated_at: 1, project_id: 'proj-1' },
+      { id: 'report-2', title: 'Report 2', status: 'open', created_at: 2, updated_at: 2, project_id: 'proj-2' },
+    ]
+
+    const reply = sendCommand('self-heal:get-reports', { projectId: 'proj-1' })
+
+    expect(reply).toHaveBeenCalledWith({
+      event: 'self-heal:reports',
+      data: { reports: expect.arrayContaining([expect.objectContaining({ id: 'report-1' })]) },
+    })
+    const [[sentEvent]] = reply.mock.calls
+    expect((sentEvent as { data: { reports: unknown[] } }).data.reports).toHaveLength(1)
+  })
+
+  it('returns all reports for self-heal:get-reports when projectId is omitted', () => {
+    state.errorReportRows = [
+      { id: 'report-1', title: 'Report 1', status: 'open', created_at: 1, updated_at: 1, project_id: 'proj-1' },
+      { id: 'report-2', title: 'Report 2', status: 'open', created_at: 2, updated_at: 2, project_id: 'proj-2' },
+    ]
+
+    const reply = sendCommand('self-heal:get-reports', {})
+
+    const [[sentEvent]] = reply.mock.calls
+    expect((sentEvent as { data: { reports: unknown[] } }).data.reports).toHaveLength(2)
+  })
+
+  it('scopes the direct reply for self-heal:set-report-status by projectId and broadcasts a lightweight change signal', () => {
+    state.errorReportRows = [
+      { id: 'report-1', title: 'Report 1', status: 'open', created_at: 1, updated_at: 1, project_id: 'proj-1' },
+      { id: 'report-2', title: 'Report 2', status: 'open', created_at: 2, updated_at: 2, project_id: 'proj-2' },
+    ]
+
+    const reply = sendCommand('self-heal:set-report-status', { reportId: 'report-1', status: 'investigated', projectId: 'proj-1' })
+
+    const [[sentEvent]] = reply.mock.calls
+    expect((sentEvent as { data: { reports: unknown[] } }).data.reports).toHaveLength(1)
+    expect(state.broadcastToMobile).toHaveBeenCalledWith({
+      event: 'self-heal:reports-changed',
+      data: { reportId: 'report-1', status: 'investigated' },
     })
   })
 

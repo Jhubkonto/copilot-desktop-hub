@@ -89,8 +89,12 @@ import io.nexy.android.data.model.CODE_CHANGE_PHASE_LABELS
 import io.nexy.android.data.model.CodeChangeRequestPhase
 import io.nexy.android.data.model.ErrorReport
 import io.nexy.android.data.model.RemoteEditInvestigationSettings
+import io.nexy.android.data.model.RemoteEditStagedFileEntry
 import io.nexy.android.data.model.WsEvent
 import io.nexy.android.data.model.deriveCodeChangePhase
+import io.nexy.android.ui.components.FileLeafRow
+import io.nexy.android.ui.components.FileTreeNode
+import io.nexy.android.ui.components.FileTreeView
 import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyDangerButton
 import io.nexy.android.ui.components.NexyDiffContent
@@ -98,6 +102,7 @@ import io.nexy.android.ui.components.NexyGhostButton
 import io.nexy.android.ui.components.NexyPrimaryButton
 import io.nexy.android.ui.components.NexySecondaryButton
 import io.nexy.android.ui.components.NexyTopAppBar
+import io.nexy.android.ui.components.buildFileTree
 import io.nexy.android.ui.components.renderDiffHunks
 import io.nexy.android.ui.theme.LocalNexyColors
 import io.nexy.android.ui.chat.ModelPickerSheet
@@ -636,9 +641,10 @@ fun RemoteEditReportDetailScreen(
         scope.launch { scrollState.animateScrollTo(offset) }
     }
 
-    var stagedFiles by remember { mutableStateOf<List<String>>(emptyList()) }
+    var stagedFiles by remember { mutableStateOf<List<RemoteEditStagedFileEntry>>(emptyList()) }
     var fixError by remember { mutableStateOf<String?>(null) }
     val expandedDiffs = remember { mutableStateMapOf<String, Boolean>() }
+    val expandedFolders = remember { mutableStateMapOf<String, Boolean>() }
     val diffContents = remember { mutableStateMapOf<String, String?>() }
     var investigationRunning by remember { mutableStateOf(false) }
     var fixRunning by remember { mutableStateOf(false) }
@@ -677,13 +683,13 @@ fun RemoteEditReportDetailScreen(
                     investigationRunning = false
                     investigationActivity = emptyList()
                     investigationOutput = ""
-                    vm.refresh()
+                    vm.refresh(report?.projectId.orEmpty())
                 }
                 event is WsEvent.RemoteEditFixDone && event.reportId == reportId -> {
                     fixRunning = false
                     stagedFiles = event.stagedFiles
                     fixError = event.error
-                    vm.refresh()
+                    vm.refresh(report?.projectId.orEmpty())
                 }
                 event is WsEvent.RemoteEditStagedFiles && event.reportId == reportId -> {
                     stagedFiles = event.stagedFiles
@@ -700,7 +706,7 @@ fun RemoteEditReportDetailScreen(
         vm.actionResults.collect { result ->
             if (result.reportId == reportId || result.reportId.isBlank()) {
                 scope.launch { snackbarHostState.showSnackbar(result.message) }
-                if (result.reportId == reportId) vm.refresh()
+                if (result.reportId == reportId) vm.refresh(report?.projectId.orEmpty())
             }
         }
     }
@@ -892,7 +898,7 @@ fun RemoteEditReportDetailScreen(
                             text = if (reviewAction == "accept") "Accepting…" else "Accept",
                             onClick = {
                                 reviewAction = "accept"
-                                WsRepository.setRemoteEditReportStatus(reportId, "investigated")
+                                WsRepository.setRemoteEditReportStatus(reportId, "investigated", report.projectId.orEmpty())
                             },
                             enabled = reviewAction == null && !planHasNoAffectedFiles,
                             modifier = Modifier.weight(1f),
@@ -901,7 +907,7 @@ fun RemoteEditReportDetailScreen(
                             text = if (reviewAction == "reject") "Rejecting…" else "Reject",
                             onClick = {
                                 reviewAction = "reject"
-                                WsRepository.setRemoteEditReportStatus(reportId, "rejected")
+                                WsRepository.setRemoteEditReportStatus(reportId, "rejected", report.projectId.orEmpty())
                             },
                             enabled = reviewAction == null,
                             modifier = Modifier.weight(1f),
@@ -950,7 +956,7 @@ fun RemoteEditReportDetailScreen(
                             text = if (rejectedReviewAction == "accept") "Accepting…" else "Accept anyway",
                             onClick = {
                                 rejectedReviewAction = "accept"
-                                WsRepository.setRemoteEditReportStatus(reportId, "investigated")
+                                WsRepository.setRemoteEditReportStatus(reportId, "investigated", report.projectId.orEmpty())
                             },
                             enabled = rejectedReviewAction == null && report.investigationAffectedFiles.isNotEmpty(),
                             modifier = Modifier.fillMaxWidth(),
@@ -1049,57 +1055,35 @@ fun RemoteEditReportDetailScreen(
                 ) {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text("Staged patch", style = MaterialTheme.typography.titleSmall)
-                stagedFiles.forEach { path ->
-                    val expanded = expandedDiffs[path] == true
-                    val diff = diffContents[path]
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                val nowExpanded = !expanded
-                                expandedDiffs[path] = nowExpanded
-                                if (nowExpanded && diff == null) {
-                                    WsRepository.getStagedDiff(reportId, path)
-                                }
-                            },
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                text = path,
-                                style = MaterialTheme.typography.bodySmall,
-                                fontFamily = FontFamily.Monospace,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Icon(
-                                if (expanded) Icons.Default.ExpandMore else Icons.Default.ChevronRight,
-                                contentDescription = null,
-                            )
-                        }
-                        AnimatedVisibility(
-                            visible = expanded,
-                            enter = expandVertically(),
-                            exit = shrinkVertically(),
-                        ) {
-                            val content = diff
-                            if (content == null) {
-                                Text(
-                                    "Loading diff…",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(12.dp),
-                                )
-                            } else {
-                                NexyDiffContent(content)
-                            }
-                        }
+                val fileTree = remember(stagedFiles) { buildFileTree(stagedFiles) }
+                val isFlat = fileTree.none { it is FileTreeNode.Folder }
+
+                fun onToggleDiff(path: String) {
+                    val nowExpanded = expandedDiffs[path] != true
+                    expandedDiffs[path] = nowExpanded
+                    if (nowExpanded && diffContents[path] == null) {
+                        WsRepository.getStagedDiff(reportId, path)
                     }
+                }
+
+                if (isFlat) {
+                    fileTree.forEach { node ->
+                        val leaf = node as FileTreeNode.FileLeaf
+                        FileLeafRow(
+                            node = leaf,
+                            expanded = expandedDiffs[leaf.relativePath] == true,
+                            diffContent = diffContents[leaf.relativePath],
+                            onToggle = { onToggleDiff(leaf.relativePath) },
+                        )
+                    }
+                } else {
+                    FileTreeView(
+                        nodes = fileTree,
+                        expandedFolders = expandedFolders,
+                        expandedDiffs = expandedDiffs,
+                        diffContents = diffContents,
+                        onToggleDiff = ::onToggleDiff,
+                    )
                 }
 
                 if (report.fixStatus == "staged") {

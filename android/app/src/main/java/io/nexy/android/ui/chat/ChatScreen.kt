@@ -121,7 +121,7 @@ fun ChatScreen(
     onBack: () -> Unit,
     onOpenArtifacts: ((String?) -> Unit)? = null,
     onOpenFork: ((String) -> Unit)? = null,
-    onOpenRemoteEditWithPrefill: ((String) -> Unit)? = null,
+    onOpenRemoteEditWithPrefill: ((String, String) -> Unit)? = null,
     vm: ChatViewModel = viewModel(
         factory = remember(conversationId, agentId, projectId) {
             object : ViewModelProvider.Factory {
@@ -474,7 +474,10 @@ fun ChatScreen(
     LaunchedEffect(investigateMessage) {
         val msg = investigateMessage ?: return@LaunchedEffect
         investigateMessage = null
-        onOpenRemoteEditWithPrefill?.invoke(msg.text)
+        val chatProjectId = conversation?.project_id ?: projectId
+        if (!chatProjectId.isNullOrBlank()) {
+            onOpenRemoteEditWithPrefill?.invoke(msg.text, chatProjectId)
+        }
     }
 
     DisposableEffect(conversationId) {
@@ -1033,7 +1036,7 @@ fun ChatScreen(
                                                 promoteArtifactFilePath = suggestedArtifactFilePath("document")
                                             }
                                         } else null,
-                                        onInvestigateWithAi = if (msg.text.isNotBlank() && onOpenRemoteEditWithPrefill != null) {
+                                        onInvestigateWithAi = if (msg.text.isNotBlank() && onOpenRemoteEditWithPrefill != null && !chatProjectId.isNullOrBlank()) {
                                             { investigateMessage = msg }
                                         } else null,
                                         onShare = if (msg.text.isNotBlank()) {

@@ -1,5 +1,11 @@
 package io.nexy.android.data.model
 
+data class RemoteEditStagedFileEntry(
+    val relativePath: String,
+    val diffLineCount: Int,
+    val reviewed: Boolean,
+)
+
 sealed class WsEvent {
     data class Connected(
         val version: String,
@@ -88,13 +94,13 @@ sealed class WsEvent {
     data class RemoteEditFixDone(
         val reportId: String,
         val status: String,
-        val stagedFiles: List<String>,
+        val stagedFiles: List<RemoteEditStagedFileEntry>,
         val error: String?,
     ) : WsEvent()
     data class RemoteEditStagedFiles(
         val reportId: String,
         val fixStatus: String,
-        val stagedFiles: List<String>,
+        val stagedFiles: List<RemoteEditStagedFileEntry>,
     ) : WsEvent()
     data class RemoteEditStagedDiff(
         val reportId: String,
@@ -145,6 +151,7 @@ sealed class WsEvent {
     data class ConversationSearchResults(val conversations: List<Conversation>) : WsEvent()
     data class MessageDeleted(val id: String) : WsEvent()
     data class RemoteEditReports(val reports: List<ErrorReport>) : WsEvent()
+    data class RemoteEditReportsChanged(val reportId: String, val status: String) : WsEvent()
     data class RemoteEditInvestigationSettingsLoaded(val settings: RemoteEditInvestigationSettings) : WsEvent()
     data class ProjectCreated(val project: Project) : WsEvent()
     data class ProjectRenamed(val id: String, val name: String) : WsEvent()
@@ -454,6 +461,7 @@ data class ErrorReport(
     val investigationMarkdown: String?,
     val investigationAffectedFiles: List<String> = emptyList(),
     val createdAt: Long,
+    val projectId: String? = null,
 )
 
 data class RemoteEditVerificationRun(

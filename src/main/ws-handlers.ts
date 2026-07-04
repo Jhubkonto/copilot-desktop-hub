@@ -247,6 +247,7 @@ export function registerWsHandlers(): void {
           requestType,
           customTypeLabel: typeof data.customTypeLabel === 'string' ? data.customTypeLabel : null,
           origin: 'android',
+          projectId: typeof data.projectId === 'string' && data.projectId ? data.projectId : undefined,
           workspaceRoot: (getDatabase()
             .prepare("SELECT value FROM settings WHERE key = 'build_workspace_path'")
             .get() as { value: string } | undefined)?.value ?? process.cwd(),
@@ -267,11 +268,19 @@ export function registerWsHandlers(): void {
     }
 
     if (command === 'self-heal:get-reports') {
-      const rows = getDatabase()
-        .prepare('SELECT * FROM error_reports ORDER BY created_at DESC LIMIT 50')
-        .all() as Record<string, unknown>[]
+      // projectId is effectively required by both current callers (desktop's own error-report:list
+      // IPC path is unaffected by this handler; Android always has a project in scope now) — kept
+      // optional here only as a safety fallback for older clients, not a maintained path.
+      const projectId = typeof data.projectId === 'string' && data.projectId ? data.projectId : null
+      const rows = projectId
+        ? getDatabase()
+            .prepare('SELECT * FROM error_reports WHERE project_id = ? ORDER BY created_at DESC LIMIT 50')
+            .all(projectId) as Record<string, unknown>[]
+        : getDatabase()
+            .prepare('SELECT * FROM error_reports ORDER BY created_at DESC LIMIT 50')
+            .all() as Record<string, unknown>[]
       const reports = rows.map(rowToErrorReport)
-      debugLog('ws', `self-heal:get-reports → returning ${reports.length} reports`)
+      debugLog('ws', `self-heal:get-reports → projectId=${projectId ?? 'none'} returning ${reports.length} reports`)
       reply({ event: 'self-heal:reports', data: { reports } })
       return
     }
@@ -287,14 +296,20 @@ export function registerWsHandlers(): void {
       if (!reportId || !['open', 'investigating', 'investigated', 'fixed', 'rejected'].includes(status)) return
       const now = Date.now()
       getDatabase().prepare('UPDATE error_reports SET status = ?, updated_at = ? WHERE id = ?').run(status, now, reportId)
-      // self-heal:reports replaces the client's entire report list (see self-heal:get-reports), so
-      // resend the full set rather than just the updated row to avoid truncating Android's cache.
-      const rows = getDatabase()
-        .prepare('SELECT * FROM error_reports ORDER BY created_at DESC LIMIT 50')
-        .all() as Record<string, unknown>[]
+      const projectId = typeof data.projectId === 'string' && data.projectId ? data.projectId : null
+      const rows = projectId
+        ? getDatabase()
+            .prepare('SELECT * FROM error_reports WHERE project_id = ? ORDER BY created_at DESC LIMIT 50')
+            .all(projectId) as Record<string, unknown>[]
+        : getDatabase()
+            .prepare('SELECT * FROM error_reports ORDER BY created_at DESC LIMIT 50')
+            .all() as Record<string, unknown>[]
       const reports = rows.map(rowToErrorReport)
       reply({ event: 'self-heal:reports', data: { reports } })
-      broadcastToMobile({ event: 'self-heal:reports', data: { reports } })
+      // Other connected clients may be viewing a different project's list — a full unfiltered
+      // resend would silently overwrite whatever they're scoped to. Broadcast just the change and
+      // let each client re-request its own project-scoped list (see self-heal:get-reports).
+      broadcastToMobile({ event: 'self-heal:reports-changed', data: { reportId, status } })
       return
     }
 
@@ -718,7 +733,8 @@ export function registerWsHandlers(): void {
             (SELECT GROUP_CONCAT(NULLIF(json_extract(a.config_json, '$.icon'), ''), ',')
              FROM project_agents pa JOIN agents a ON pa.agent_id = a.id
              WHERE pa.project_id = p.id
-             ORDER BY pa.sort_order ASC) AS agent_icons
+             ORDER BY pa.sort_order ASC) AS agent_icons,
+            NULLIF(json_extract(p.config_json, '$.rootDirectory'), '') AS root_directory
           FROM projects p ORDER BY p.name ASC
         `).all()
       reply({ event: 'project:list', data: { projects: rows } })

@@ -58,10 +58,9 @@ class RemoteEditViewModel(
     private val _investigationSettings = MutableStateFlow<RemoteEditInvestigationSettings?>(null)
     val investigationSettings: StateFlow<RemoteEditInvestigationSettings?> = _investigationSettings.asStateFlow()
 
+    private var currentProjectId: String? = null
+
     init {
-        _isRefreshing.value = true
-        WsRepository.sendLog("RemoteEditVM", "init: requesting reports")
-        WsRepository.refreshReports()
         WsRepository.getBuildWorkspaceInfo()
         WsRepository.getInvestigationSettings()
         viewModelScope.launch {
@@ -70,6 +69,9 @@ class RemoteEditViewModel(
                     is WsEvent.RemoteEditReports -> {
                         WsRepository.sendLog("RemoteEditVM", "RemoteEditReports received: ${event.reports.size} reports")
                         _isRefreshing.value = false
+                    }
+                    is WsEvent.RemoteEditReportsChanged -> {
+                        currentProjectId?.let { WsRepository.refreshReports(it) }
                     }
                     is WsEvent.BuildWorkspaceInfo -> _workspaceInfo.value = event
                     is WsEvent.RemoteEditInvestigationSettingsLoaded -> {
@@ -171,11 +173,16 @@ class RemoteEditViewModel(
         _recoveryRuns.value = _recoveryRuns.value + (reportId to transform(_recoveryRuns.value[reportId] ?: emptyList()))
     }
 
-    fun refresh() {
+    fun loadForProject(projectId: String) {
+        currentProjectId = projectId
         _isRefreshing.value = true
-        WsRepository.sendLog("RemoteEditVM", "refresh: requesting reports")
-        WsRepository.refreshReports()
+        WsRepository.sendLog("RemoteEditVM", "loadForProject: requesting reports projectId=$projectId")
+        WsRepository.refreshReports(projectId)
         WsRepository.getBuildWorkspaceInfo()
+    }
+
+    fun refresh(projectId: String) {
+        loadForProject(projectId)
     }
 
     fun deleteReport(reportId: String) {
