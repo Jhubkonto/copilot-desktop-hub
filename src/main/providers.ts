@@ -9,6 +9,7 @@ import {
   getAzureEndpoint,
   setAzureEndpoint,
 } from './provider-secrets'
+import { fetchAndCacheAnthropicModels } from './anthropic-models'
 import { PROVIDERS, getProviderForAgent, isProviderConfigured, DEFAULT_PROVIDER_MODEL } from './provider-registry'
 import { abortActiveStream, activeStreamingRequests } from './provider-stream-state'
 
@@ -80,6 +81,8 @@ export function registerProviderHandlers(): void {
     storeApiKey(provider, key)
     if (provider === 'openrouter') {
       await fetchAndCacheOpenRouterModels(key)
+    } else if (provider === 'anthropic') {
+      await fetchAndCacheAnthropicModels(key)
     }
     return true
   })
@@ -133,7 +136,9 @@ export async function testProviderKey(provider: string, key: string, endpoint?: 
             messages: [{ role: 'user', content: 'hi' }]
           })
         )
-        return { valid: result.status !== 401 }
+        const valid = result.status !== 401
+        if (valid) fetchAndCacheAnthropicModels(key).catch(() => {})
+        return { valid }
       } else if (provider === 'azure') {
         if (!endpoint) return { valid: false, error: 'Azure endpoint is required' }
         const testUrl = `${endpoint.replace(/\/$/, '')}/openai/models?api-version=2024-02-01`

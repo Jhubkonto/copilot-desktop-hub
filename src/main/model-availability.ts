@@ -2,6 +2,7 @@ import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
 import { getCliModels } from './cli-detection'
 import { PROVIDERS, isProviderConfigured, getOpenRouterModels, fetchAndCacheOpenRouterModels, retrieveApiKey } from './providers'
+import { fetchAndCacheAnthropicModels, getCachedAnthropicModels } from './anthropic-models'
 import { safeHandle } from './safe-handle'
 import { debugTime, debugTimeEnd } from './debug-mode'
 import type { AvailableModelGroup } from '../shared/types'
@@ -50,5 +51,11 @@ export function registerModelAvailabilityHandlers(): void {
   if (isProviderConfigured('openrouter') && getOpenRouterModels().length === 0) {
     const key = retrieveApiKey('openrouter')
     if (key) fetchAndCacheOpenRouterModels(key).catch(() => {})
+  }
+
+  // Backfill Anthropic model cache if key exists but cache is empty (e.g. key was set before cache was introduced)
+  if (isProviderConfigured('anthropic') && getCachedAnthropicModels().length === 0) {
+    const key = retrieveApiKey('anthropic')
+    if (key) fetchAndCacheAnthropicModels(key).catch(() => {})
   }
 }

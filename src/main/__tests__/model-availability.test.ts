@@ -3,12 +3,28 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('electron', () => ({ app: { isPackaged: false }, BrowserWindow: class {} }))
 vi.mock('../database', () => ({ getDatabase: vi.fn() }))
 
-const { safeHandleMock, isAvailableClaude, isAvailableCodex, getCliModelsMock, isProviderConfiguredMock } = vi.hoisted(() => ({
+const {
+  safeHandleMock,
+  isAvailableClaude,
+  isAvailableCodex,
+  getCliModelsMock,
+  isProviderConfiguredMock,
+  retrieveApiKeyMock,
+  getOpenRouterModelsMock,
+  fetchAndCacheOpenRouterModelsMock,
+  getCachedAnthropicModelsMock,
+  fetchAndCacheAnthropicModelsMock,
+} = vi.hoisted(() => ({
   safeHandleMock: vi.fn(),
   isAvailableClaude: vi.fn(),
   isAvailableCodex: vi.fn(),
   getCliModelsMock: vi.fn(),
   isProviderConfiguredMock: vi.fn(),
+  retrieveApiKeyMock: vi.fn(),
+  getOpenRouterModelsMock: vi.fn(),
+  fetchAndCacheOpenRouterModelsMock: vi.fn(),
+  getCachedAnthropicModelsMock: vi.fn(),
+  fetchAndCacheAnthropicModelsMock: vi.fn(),
 }))
 
 vi.mock('../safe-handle', () => ({ safeHandle: safeHandleMock }))
@@ -22,6 +38,13 @@ vi.mock('../providers', () => ({
     { name: 'azure',     label: 'Azure OpenAI', models: ['gpt-4o'] },
   ],
   isProviderConfigured: isProviderConfiguredMock,
+  retrieveApiKey: retrieveApiKeyMock,
+  getOpenRouterModels: getOpenRouterModelsMock,
+  fetchAndCacheOpenRouterModels: fetchAndCacheOpenRouterModelsMock,
+}))
+vi.mock('../anthropic-models', () => ({
+  getCachedAnthropicModels: getCachedAnthropicModelsMock,
+  fetchAndCacheAnthropicModels: fetchAndCacheAnthropicModelsMock,
 }))
 
 import { getAvailableModelGroups, registerModelAvailabilityHandlers } from '../model-availability'
@@ -31,6 +54,11 @@ afterEach(() => {
   isAvailableCodex.mockReset()
   getCliModelsMock.mockReset()
   isProviderConfiguredMock.mockReset()
+  retrieveApiKeyMock.mockReset()
+  getOpenRouterModelsMock.mockReset()
+  fetchAndCacheOpenRouterModelsMock.mockReset()
+  getCachedAnthropicModelsMock.mockReset()
+  fetchAndCacheAnthropicModelsMock.mockReset()
   safeHandleMock.mockReset()
 })
 
@@ -115,8 +143,42 @@ describe('getAvailableModelGroups', () => {
 })
 
 describe('registerModelAvailabilityHandlers', () => {
+  beforeEach(() => {
+    isProviderConfiguredMock.mockReturnValue(false)
+    getOpenRouterModelsMock.mockReturnValue([])
+    getCachedAnthropicModelsMock.mockReturnValue([])
+  })
+
   it('registers the model:list-available IPC channel', () => {
     registerModelAvailabilityHandlers()
     expect(safeHandleMock).toHaveBeenCalledWith('model:list-available', expect.any(Function))
+  })
+
+  it('backfills the Anthropic model cache when key configured but cache empty', () => {
+    isProviderConfiguredMock.mockImplementation((name: string) => name === 'anthropic')
+    retrieveApiKeyMock.mockReturnValue('sk-ant-test')
+    fetchAndCacheAnthropicModelsMock.mockResolvedValue(undefined)
+
+    registerModelAvailabilityHandlers()
+
+    expect(retrieveApiKeyMock).toHaveBeenCalledWith('anthropic')
+    expect(fetchAndCacheAnthropicModelsMock).toHaveBeenCalledWith('sk-ant-test')
+  })
+
+  it('does not backfill Anthropic cache when already populated', () => {
+    isProviderConfiguredMock.mockImplementation((name: string) => name === 'anthropic')
+    getCachedAnthropicModelsMock.mockReturnValue([{ id: 'claude-opus-4-8', label: 'Claude Opus 4.8' }])
+
+    registerModelAvailabilityHandlers()
+
+    expect(fetchAndCacheAnthropicModelsMock).not.toHaveBeenCalled()
+  })
+
+  it('does not backfill Anthropic cache when no key configured', () => {
+    isProviderConfiguredMock.mockReturnValue(false)
+
+    registerModelAvailabilityHandlers()
+
+    expect(fetchAndCacheAnthropicModelsMock).not.toHaveBeenCalled()
   })
 })

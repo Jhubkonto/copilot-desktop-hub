@@ -1,6 +1,6 @@
 import type { CatalogModel } from './types'
 
-const MODEL_LABELS: Record<string, string> = {
+export const MODEL_LABELS: Record<string, string> = {
   'gpt-5.5':           'GPT-5.5',
   'gpt-5.4':           'GPT-5.4',
   'gpt-5.3-codex':     'GPT-5.3-Codex',
