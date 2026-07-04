@@ -43,12 +43,11 @@ export function CodeChangeListView({
   onRequestDelete,
 }: CodeChangeListViewProps) {
   return (
-    <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-      <div className="max-h-[28rem] overflow-y-auto">
-        {reports.length === 0 ? (
-          <p className="p-3 text-xs text-gray-400">No change requests yet.</p>
-        ) : (
-          reports.map((report) => {
+    <div className="space-y-1">
+      {reports.length === 0 ? (
+        <p className="p-3 text-xs text-gray-400">No change requests yet.</p>
+      ) : (
+        reports.map((report) => {
             // A report can sit in status 'investigating' indefinitely once its plan is complete
             // (it stays there until the user explicitly accepts it) — that's not "running," it's
             // "awaiting review." Only treat it as genuinely still running in the background when
@@ -64,8 +63,8 @@ export function CodeChangeListView({
             return (
               <div
                 key={report.id}
-                className={`group flex items-start gap-2 border-b border-gray-100 px-3 py-2 text-xs dark:border-gray-800 ${
-                  selectedReportId === report.id ? 'bg-blue-50 dark:bg-blue-950/30' : 'hover:bg-gray-50 dark:hover:bg-gray-800/60'
+                className={`group flex items-start gap-2 rounded-lg px-3 py-2 text-xs ${
+                  selectedReportId === report.id ? 'bg-blue-50 dark:bg-blue-950/30' : 'hover:bg-gray-100 dark:hover:bg-gray-800'
                 }`}
               >
                 <button
@@ -102,8 +101,7 @@ export function CodeChangeListView({
               </div>
             )
           })
-        )}
-      </div>
+      )}
     </div>
   )
 }

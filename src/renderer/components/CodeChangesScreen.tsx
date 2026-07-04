@@ -28,17 +28,17 @@ import {
   deriveCodeChangePhase,
   toCodeChangeRequest,
 } from '@shared/code-changes'
-import type { ProjectConfig } from '../../store/types'
-import { useAppStore } from '../../store/app-store'
-import { Button, PhaseBar } from '../ui/primitives'
-import { DeleteRemoteEditReportDialog } from '../DeleteRemoteEditReportDialog'
-import { CodeChangeListView } from '../CodeChangeListView'
-import { CodeChangeDetailView } from '../CodeChangeDetailView'
-import { CodeChangeHistorySection } from '../CodeChangeHistorySection'
-import { CodeChangeNewRequestForm } from '../CodeChangeNewRequestForm'
-import { RevisePlanControl } from '../RevisePlanControl'
-import { ModelPicker } from '../chat/ModelPicker'
-import { PlanPreview } from '../CodeChangePlanPreview'
+import type { ProjectConfig } from '../store/types'
+import { useAppStore } from '../store/app-store'
+import { Button, ModalShell, PhaseBar } from './ui/primitives'
+import { DeleteRemoteEditReportDialog } from './DeleteRemoteEditReportDialog'
+import { CodeChangeListView } from './CodeChangeListView'
+import { CodeChangeDetailView } from './CodeChangeDetailView'
+import { CodeChangeHistorySection } from './CodeChangeHistorySection'
+import { CodeChangeNewRequestForm } from './CodeChangeNewRequestForm'
+import { RevisePlanControl } from './RevisePlanControl'
+import { ModelPicker } from './chat/ModelPicker'
+import { PlanPreview } from './CodeChangePlanPreview'
 
 // ---------------------------------------------------------------------------
 // Remote Edit Diff Viewer sub-component
@@ -537,13 +537,13 @@ type CodeChangesView =
   | { mode: 'detail'; reportId: string }
   | { mode: 'history' }
 
-interface ProjectCodeChangesTabProps {
+interface CodeChangesScreenProps {
   projectId: string
   projectConfig: ProjectConfig
-  onGoToGeneralTab: () => void
+  onOpenGeneralSettings: () => void
 }
 
-export function ProjectCodeChangesTab({ projectId, projectConfig, onGoToGeneralTab }: ProjectCodeChangesTabProps) {
+export function CodeChangesScreen({ projectId, projectConfig, onOpenGeneralSettings }: CodeChangesScreenProps) {
   const pendingRemoteEditReportId = useAppStore((s) => s.pendingRemoteEditReportId)
   const setPendingRemoteEditReportId = useAppStore((s) => s.setPendingRemoteEditReportId)
   const pendingNewRequestDraft = useAppStore((s) => s.pendingNewRequestDraft)
@@ -1270,7 +1270,7 @@ export function ProjectCodeChangesTab({ projectId, projectConfig, onGoToGeneralT
         <p className="text-xs text-gray-500 dark:text-gray-400">
           Set a root directory in General to enable Code Changes for this project.
         </p>
-        <Button variant="secondary" onClick={onGoToGeneralTab} className="mx-auto">
+        <Button variant="secondary" onClick={onOpenGeneralSettings} className="mx-auto">
           Go to General
         </Button>
       </div>
@@ -1293,29 +1293,31 @@ export function ProjectCodeChangesTab({ projectId, projectConfig, onGoToGeneralT
     </div>
   )
 
+  const closeModal = () => {
+    setView({ mode: 'list' })
+    setNewRequestOrigin('manual')
+    setNewRequestConversationTitle(null)
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
           <h3 className="text-xs font-semibold text-gray-700 dark:text-gray-200">
-            {view.mode === 'list' ? 'Code Changes'
-              : view.mode === 'new-request' ? 'New request'
-              : view.mode === 'history' ? 'History'
-              : selectedRequest?.title ?? 'Code Changes'}
+            {view.mode === 'history' ? 'History' : 'Code Changes'}
           </h3>
           <p className="text-[10px] text-gray-500 dark:text-gray-400">
-            {view.mode === 'list' ? 'Create and track change requests for this project.'
-              : view.mode === 'new-request' ? 'Describe the outcome you want.'
-              : view.mode === 'history' ? 'Audit trail of investigations, patches, verification, and git actions.'
-              : ''}
+            {view.mode === 'history'
+              ? 'Audit trail of investigations, patches, verification, and git actions.'
+              : 'Create and track change requests for this project.'}
           </p>
         </div>
-        {view.mode !== 'list' && backToListButton}
+        {view.mode === 'history' && backToListButton}
       </div>
 
       {workspaceMissingBanner}
 
-      {view.mode === 'list' && (
+      {view.mode !== 'history' && (
         <div className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <Button
@@ -1360,108 +1362,108 @@ export function ProjectCodeChangesTab({ projectId, projectConfig, onGoToGeneralT
         </div>
       )}
 
-      {view.mode === 'new-request' && (
-        <CodeChangeNewRequestForm
-          onClose={() => {
-            setView({ mode: 'list' })
-            setNewRequestOrigin('manual')
-            setNewRequestConversationTitle(null)
-          }}
-          requestType={newRequestType}
-          onSetRequestType={setNewRequestType}
-          customTypeLabel={newRequestCustomTypeLabel}
-          onSetCustomTypeLabel={setNewRequestCustomTypeLabel}
-          title={newRequestTitle}
-          onSetTitle={setNewRequestTitle}
-          description={newRequestDescription}
-          onSetDescription={setNewRequestDescription}
-          isWorkspaceConnected={workspaceBinding.isConnected}
-          creating={creatingRequest}
-          onCreate={() => void handleCreateRequest()}
-          fromChatConversationTitle={newRequestOrigin === 'chat' ? newRequestConversationTitle : null}
-        />
-      )}
-
-      {view.mode === 'detail' && selectedReport && (
-        <CodeChangeDetailView
-          report={selectedReport}
-          request={selectedRequest}
-          phase={selectedPhase}
-          phaseBar={selectedPhase && <CodeChangePhaseBar phase={selectedPhase} />}
-          runningReportId={runningReportId}
-          onStartInvestigation={() => void handleStartInvestigation(selectedReport.id)}
-          isWorkspaceConnected={workspaceBinding.isConnected}
-          currentWorkspaceRoot={workspaceBinding.rootDirectory || null}
-          onRequestDelete={() => setPendingDeleteReport(selectedReport)}
-          reportBusy={selectedReportBusy}
-          deleting={deletingReportId === selectedReport.id}
-          investigationActivity={investigationActivity[selectedReport.id] ?? []}
-          investigationOutput={investigationOutput[selectedReport.id]}
-          reviewAction={reviewAction}
-          investigationStatus={investigationStatus}
-          onAcceptInvestigation={() => void handleReviewInvestigation(selectedReport.id, 'investigated')}
-          onRejectInvestigation={() => void handleReviewInvestigation(selectedReport.id, 'rejected')}
-          onReviseInvestigation={(notes) => void handleStartInvestigation(selectedReport.id, 'revise', notes)}
-          onGeneratePatch={() => void handleStartFix(selectedReport.id)}
-          fixRunning={fixRunning}
-          investigationSettings={investigationSettings}
-          onSetInvestigationSettings={setInvestigationSettings}
-          onSetBackend={handleSetBackend}
-          backendOptions={backendOptions}
-          remoteEditModelGroups={remoteEditModelGroups}
-          selectedModelSourceLabel={selectedModelSourceLabel}
-          catalogModels={catalogModels}
-          onSelectRemoteEditModel={handleSelectRemoteEditModel}
-          onSaveInvestigationSettings={() => void handleSaveInvestigationSettings()}
-          investigationStepCollapsed={investigationStepCollapsed}
-          onToggleInvestigationStepCollapsed={() => setInvestigationStepCollapsed((collapsed) => !collapsed)}
-          reviseModelPicker={reviseModelPicker}
-          diffViewer={(
-            <RemoteEditDiffViewer
-              report={selectedReport}
-              fixRunning={fixRunning}
-              fixStatus={fixStatus}
-              runningReportId={runningReportId}
-              onReviseInvestigation={(reportId, notes) => void handleStartInvestigation(reportId, 'revise', notes)}
-              reviseModelPicker={reviseModelPicker}
-              verificationRun={verificationRuns[selectedReport.id]?.[0] ?? null}
-              verificationRunning={verificationRunning}
-              expandedVerifyCommand={expandedVerifyCommand}
-              gitPrepare={gitPrepare[selectedReport.id] ?? null}
-              gitMessage={gitMessage[selectedReport.id] ?? ''}
-              gitRunning={gitRunning}
-              recoveryRun={recoveryRuns[selectedReport.id]?.[0] ?? null}
-              recoveryRunning={recoveryRunning === selectedReport.id}
-              stagedDiffs={stagedDiffs}
-              reviewedFiles={reviewedFiles}
-              expandedDiffFile={expandedDiffFile}
-              committingFix={committingFix}
-              onStartFix={handleStartFix}
-              onStartVerification={handleStartVerification}
-              onExpandVerifyCommand={setExpandedVerifyCommand}
-              onPrepareGitCommit={handlePrepareGitCommit}
-              onCommitGitFix={handleCommitGitFix}
-              onPushGitFix={handlePushGitFix}
-              onSetGitMessage={(message) => setGitMessage((prev) => ({ ...prev, [selectedReport.id]: message }))}
-              onUndoChange={handleUndoChange}
-              onLoadDiff={handleLoadDiff}
-              onRevertFile={handleRevertFile}
-              onMarkReviewed={handleMarkReviewed}
-              onCommitFix={handleCommitFix}
-              onExpandDiff={setExpandedDiffFile}
-              sectionsCollapsed={phaseSectionsCollapsed}
-              onToggleSection={(phaseId) => setPhaseSectionsCollapsed((prev) => ({ ...prev, [phaseId]: !prev[phaseId] }))}
-            />
-          )}
-        />
-      )}
-
       {view.mode === 'history' && (
         <CodeChangeHistorySection
           history={remoteEditHistory}
           refreshing={historyRefreshing}
           onRefresh={() => void handleRefreshHistory()}
         />
+      )}
+
+      {view.mode === 'new-request' && (
+        <ModalShell title="New request" description="Describe the outcome you want." maxWidth="max-w-2xl" height="h-auto max-h-[84vh]" onClose={closeModal}>
+          <CodeChangeNewRequestForm
+            onClose={closeModal}
+            requestType={newRequestType}
+            onSetRequestType={setNewRequestType}
+            customTypeLabel={newRequestCustomTypeLabel}
+            onSetCustomTypeLabel={setNewRequestCustomTypeLabel}
+            title={newRequestTitle}
+            onSetTitle={setNewRequestTitle}
+            description={newRequestDescription}
+            onSetDescription={setNewRequestDescription}
+            isWorkspaceConnected={workspaceBinding.isConnected}
+            creating={creatingRequest}
+            onCreate={() => void handleCreateRequest()}
+            fromChatConversationTitle={newRequestOrigin === 'chat' ? newRequestConversationTitle : null}
+          />
+        </ModalShell>
+      )}
+
+      {view.mode === 'detail' && selectedReport && (
+        <ModalShell title={selectedRequest?.title ?? 'Code Changes'} maxWidth="max-w-6xl" onClose={closeModal}>
+          <CodeChangeDetailView
+            report={selectedReport}
+            request={selectedRequest}
+            phase={selectedPhase}
+            phaseBar={selectedPhase && <CodeChangePhaseBar phase={selectedPhase} />}
+            runningReportId={runningReportId}
+            onStartInvestigation={() => void handleStartInvestigation(selectedReport.id)}
+            isWorkspaceConnected={workspaceBinding.isConnected}
+            currentWorkspaceRoot={workspaceBinding.rootDirectory || null}
+            onRequestDelete={() => setPendingDeleteReport(selectedReport)}
+            reportBusy={selectedReportBusy}
+            deleting={deletingReportId === selectedReport.id}
+            investigationActivity={investigationActivity[selectedReport.id] ?? []}
+            investigationOutput={investigationOutput[selectedReport.id]}
+            reviewAction={reviewAction}
+            investigationStatus={investigationStatus}
+            onAcceptInvestigation={() => void handleReviewInvestigation(selectedReport.id, 'investigated')}
+            onRejectInvestigation={() => void handleReviewInvestigation(selectedReport.id, 'rejected')}
+            onReviseInvestigation={(notes) => void handleStartInvestigation(selectedReport.id, 'revise', notes)}
+            onGeneratePatch={() => void handleStartFix(selectedReport.id)}
+            fixRunning={fixRunning}
+            investigationSettings={investigationSettings}
+            onSetInvestigationSettings={setInvestigationSettings}
+            onSetBackend={handleSetBackend}
+            backendOptions={backendOptions}
+            remoteEditModelGroups={remoteEditModelGroups}
+            selectedModelSourceLabel={selectedModelSourceLabel}
+            catalogModels={catalogModels}
+            onSelectRemoteEditModel={handleSelectRemoteEditModel}
+            onSaveInvestigationSettings={() => void handleSaveInvestigationSettings()}
+            investigationStepCollapsed={investigationStepCollapsed}
+            onToggleInvestigationStepCollapsed={() => setInvestigationStepCollapsed((collapsed) => !collapsed)}
+            reviseModelPicker={reviseModelPicker}
+            diffViewer={(
+              <RemoteEditDiffViewer
+                report={selectedReport}
+                fixRunning={fixRunning}
+                fixStatus={fixStatus}
+                runningReportId={runningReportId}
+                onReviseInvestigation={(reportId, notes) => void handleStartInvestigation(reportId, 'revise', notes)}
+                reviseModelPicker={reviseModelPicker}
+                verificationRun={verificationRuns[selectedReport.id]?.[0] ?? null}
+                verificationRunning={verificationRunning}
+                expandedVerifyCommand={expandedVerifyCommand}
+                gitPrepare={gitPrepare[selectedReport.id] ?? null}
+                gitMessage={gitMessage[selectedReport.id] ?? ''}
+                gitRunning={gitRunning}
+                recoveryRun={recoveryRuns[selectedReport.id]?.[0] ?? null}
+                recoveryRunning={recoveryRunning === selectedReport.id}
+                stagedDiffs={stagedDiffs}
+                reviewedFiles={reviewedFiles}
+                expandedDiffFile={expandedDiffFile}
+                committingFix={committingFix}
+                onStartFix={handleStartFix}
+                onStartVerification={handleStartVerification}
+                onExpandVerifyCommand={setExpandedVerifyCommand}
+                onPrepareGitCommit={handlePrepareGitCommit}
+                onCommitGitFix={handleCommitGitFix}
+                onPushGitFix={handlePushGitFix}
+                onSetGitMessage={(message) => setGitMessage((prev) => ({ ...prev, [selectedReport.id]: message }))}
+                onUndoChange={handleUndoChange}
+                onLoadDiff={handleLoadDiff}
+                onRevertFile={handleRevertFile}
+                onMarkReviewed={handleMarkReviewed}
+                onCommitFix={handleCommitFix}
+                onExpandDiff={setExpandedDiffFile}
+                sectionsCollapsed={phaseSectionsCollapsed}
+                onToggleSection={(phaseId) => setPhaseSectionsCollapsed((prev) => ({ ...prev, [phaseId]: !prev[phaseId] }))}
+              />
+            )}
+          />
+        </ModalShell>
       )}
 
       {pendingDeleteReport && (

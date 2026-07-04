@@ -80,7 +80,7 @@ export function ChatWindow() {
   const openArtifactPanel = useAppStore((state) => state.openArtifactPanel)
   const setPendingNewRequestDraft = useAppStore((state) => state.setPendingNewRequestDraft)
   const setPendingCodeChangesProjectId = useAppStore((state) => state.setPendingCodeChangesProjectId)
-  const openEditProject = useAppStore((state) => state.openEditProject)
+  const setCodeChangesProjectId = useAppStore((state) => state.setCodeChangesProjectId)
   const selectConversation = useAppStore((state) => state.selectConversation)
   const setTheme = useAppStore((state) => state.setTheme)
   const logout = useAppStore((state) => state.logout)
@@ -398,8 +398,9 @@ export function ChatWindow() {
       conversationTitle: currentConversation?.title ?? null,
     })
     setPendingCodeChangesProjectId(resolvedProjectId)
-    openEditProject(resolvedProjectId)
-  }, [chatProjectId, currentConversation?.title, setPendingNewRequestDraft, setPendingCodeChangesProjectId, openEditProject])
+    openSectionPane('projects')
+    setCodeChangesProjectId(resolvedProjectId)
+  }, [chatProjectId, currentConversation?.title, setPendingNewRequestDraft, setPendingCodeChangesProjectId, openSectionPane, setCodeChangesProjectId])
 
   const handleConfirmArtifactPromotion = useCallback(async () => {
     if (!conversationId || !artifactPromotion) return

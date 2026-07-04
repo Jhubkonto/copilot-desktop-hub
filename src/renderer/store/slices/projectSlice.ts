@@ -13,6 +13,7 @@ export interface ProjectSlice {
   projects: Project[]
   activeProjectId: string | null
   historyProjectId: string | null
+  codeChangesProjectId: string | null
   pendingSettingsProjectId: string | null
   showNewProjectForm: boolean
   showProjectGenerator: boolean
@@ -28,6 +29,7 @@ export interface ProjectSlice {
   selectProject: (id: string | null) => void
   setActiveProjectId: (id: string | null) => void
   setHistoryProjectId: (id: string | null) => void
+  setCodeChangesProjectId: (id: string | null) => void
   createProject: (name: string, color: string) => Promise<void>
   renameProject: (id: string, name: string) => Promise<void>
   deleteProject: (id: string) => Promise<void>
@@ -68,6 +70,7 @@ export const createProjectSlice: StateCreator<
   projects: [],
   activeProjectId: null,
   historyProjectId: null,
+  codeChangesProjectId: null,
   pendingSettingsProjectId: null,
   showNewProjectForm: false,
   showProjectGenerator: false,
@@ -158,6 +161,12 @@ export const createProjectSlice: StateCreator<
     })
   },
 
+  setCodeChangesProjectId: (id) => {
+    set((s) => {
+      s.codeChangesProjectId = id
+    })
+  },
+
   createProject: async (name, color) => {
     try {
       const result = await window.api.createProject(name, color)
@@ -203,6 +212,7 @@ export const createProjectSlice: StateCreator<
       set((s) => {
         if (s.activeProjectId === id) s.activeProjectId = null
         if (s.historyProjectId === id) s.historyProjectId = null
+        if (s.codeChangesProjectId === id) s.codeChangesProjectId = null
       })
       await Promise.all([get().loadProjects(), get().loadConversations()])
       get().addToast('Project deleted', 'success')

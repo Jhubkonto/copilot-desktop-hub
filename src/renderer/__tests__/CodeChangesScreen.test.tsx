@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { ProjectCodeChangesTab } from '../components/project-settings/ProjectCodeChangesTab'
+import { CodeChangesScreen } from '../components/CodeChangesScreen'
 import { setupMockApi, type MockApi } from '../../test/mocks/api'
 import { createMockAppStore, setupStoreMock } from '../../test/mocks/store'
 import { DEFAULT_PROJECT_CONFIG, type ProjectConfig } from '../store/types'
@@ -62,9 +62,9 @@ function setup(overrides: Record<string, unknown> = {}) {
   setupStoreMock(useAppStore, mockStore)
 }
 
-function renderTab(projectConfig: ProjectConfig = CONNECTED_PROJECT_CONFIG, onGoToGeneralTab = vi.fn()) {
+function renderTab(projectConfig: ProjectConfig = CONNECTED_PROJECT_CONFIG, onOpenGeneralSettings = vi.fn()) {
   return render(
-    <ProjectCodeChangesTab projectId="project-1" projectConfig={projectConfig} onGoToGeneralTab={onGoToGeneralTab} />
+    <CodeChangesScreen projectId="project-1" projectConfig={projectConfig} onOpenGeneralSettings={onOpenGeneralSettings} />
   )
 }
 
@@ -72,15 +72,15 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
-describe('ProjectCodeChangesTab gating', () => {
+describe('CodeChangesScreen gating', () => {
   it('shows an empty state with a General-tab link when rootDirectory is empty', async () => {
     setup()
-    const onGoToGeneralTab = vi.fn()
-    renderTab({ ...DEFAULT_PROJECT_CONFIG, rootDirectory: '' }, onGoToGeneralTab)
+    const onOpenGeneralSettings = vi.fn()
+    renderTab({ ...DEFAULT_PROJECT_CONFIG, rootDirectory: '' }, onOpenGeneralSettings)
 
     expect(screen.getByText(/Set a root directory in General/)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /Go to General/i }))
-    expect(onGoToGeneralTab).toHaveBeenCalled()
+    expect(onOpenGeneralSettings).toHaveBeenCalled()
 
     // Nothing else (list view, new request button) is rendered.
     expect(screen.queryByText('New request')).not.toBeInTheDocument()
@@ -106,7 +106,7 @@ describe('ProjectCodeChangesTab gating', () => {
   })
 })
 
-describe('ProjectCodeChangesTab delete flow', () => {
+describe('CodeChangesScreen delete flow', () => {
   it('deletes a report and shows a success toast when the IPC call succeeds', async () => {
     setup()
     mockApi.deleteErrorReport = vi.fn().mockResolvedValue(true)
@@ -141,7 +141,7 @@ describe('ProjectCodeChangesTab delete flow', () => {
   })
 })
 
-describe('ProjectCodeChangesTab list and detail views', () => {
+describe('CodeChangesScreen list and detail views', () => {
   const SECOND_REPORT = {
     ...SAMPLE_REPORT,
     id: 'report-2',
@@ -183,7 +183,7 @@ describe('ProjectCodeChangesTab list and detail views', () => {
     expect(screen.getByText(/Working…/)).toBeInTheDocument()
   })
 
-  it('navigates to a request detail view when its list row is clicked, hiding the list', async () => {
+  it('opens a request detail view in a modal when its list row is clicked, keeping the list visible behind it', async () => {
     setup()
     mockApi.listErrorReports = vi.fn().mockResolvedValue([SAMPLE_REPORT, SECOND_REPORT])
     renderTab()
@@ -193,7 +193,9 @@ describe('ProjectCodeChangesTab list and detail views', () => {
     await user.click(screen.getByText('Add retry logic'))
 
     await waitFor(() => expect(screen.getByText('Looked at the retry path.')).toBeInTheDocument())
-    expect(screen.queryByText('Fix the flaky test')).not.toBeInTheDocument()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    // The list stays mounted behind the modal — both report titles are still in the document.
+    expect(screen.getAllByText('Fix the flaky test').length).toBeGreaterThan(0)
   })
 
   it('shows the phase-derived primary guidance after navigating into a request', async () => {
@@ -207,7 +209,7 @@ describe('ProjectCodeChangesTab list and detail views', () => {
     expect(screen.getByText('Plan the files and approach for this change.')).toBeInTheDocument()
   })
 
-  it('returns to the list view via the back button', async () => {
+  it('closes the detail modal via its close button', async () => {
     setup()
     renderTab()
 
@@ -215,9 +217,9 @@ describe('ProjectCodeChangesTab list and detail views', () => {
     await user.click(screen.getByText('Fix the flaky test'))
     await waitFor(() => expect(screen.getByText(/Next step: Draft/)).toBeInTheDocument())
 
-    await user.click(screen.getByRole('button', { name: /← Code Changes/ }))
+    await user.click(screen.getByRole('button', { name: /Close Fix the flaky test/ }))
 
-    await waitFor(() => expect(screen.getByText('Fix the flaky test')).toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(screen.queryByText(/Next step:/)).not.toBeInTheDocument()
   })
 

@@ -11,10 +11,9 @@ import { DraftTeamPicker } from './project-settings/DraftTeamPicker'
 import { WikiTab } from './project-settings/WikiTab'
 import { ProjectArtifactsTab } from './project-settings/ProjectArtifactsTab'
 import { AuditTab } from './project-settings/AuditTab'
-import { ProjectCodeChangesTab } from './project-settings/ProjectCodeChangesTab'
 import { SaveStatus, type SaveState } from './ui/primitives'
 
-type TabId = 'general' | 'scope' | 'milestones' | 'team' | 'workflow' | 'changes' | 'code-changes' | 'wiki' | 'artifacts'
+type TabId = 'general' | 'scope' | 'milestones' | 'team' | 'workflow' | 'changes' | 'wiki' | 'artifacts'
 
 interface EditProps {
   projectId: string
@@ -411,7 +410,7 @@ export function ProjectSettingsPanel(props: Props) {
 
       {/* Tab bar */}
       <div className="flex items-center gap-4 px-3 pt-2 pb-0 flex-wrap border-b border-gray-200 dark:border-gray-700" role="tablist">
-        {(['general', 'scope', 'milestones', 'team', ...(!isDraft ? ['workflow', 'changes', 'code-changes', 'wiki', 'artifacts'] : [])] as TabId[]).map((tab) => (
+        {(['general', 'scope', 'milestones', 'team', ...(!isDraft ? ['workflow', 'changes', 'wiki', 'artifacts'] : [])] as TabId[]).map((tab) => (
           <button
             key={tab}
             type="button"
@@ -436,8 +435,6 @@ export function ProjectSettingsPanel(props: Props) {
                     ? 'Workflow'
                   : tab === 'changes'
                     ? 'Changes'
-                  : tab === 'code-changes'
-                    ? 'Code Changes'
                   : tab === 'wiki'
                     ? 'Wiki'
                     : tab === 'artifacts'
@@ -517,14 +514,6 @@ export function ProjectSettingsPanel(props: Props) {
 
         {activeTab === 'changes' && !isDraft && projectId && (
           <AuditTab projectId={projectId} workspaceInfo={projectConfig.workspaceInfo} />
-        )}
-
-        {activeTab === 'code-changes' && !isDraft && projectId && (
-          <ProjectCodeChangesTab
-            projectId={projectId}
-            projectConfig={projectConfig}
-            onGoToGeneralTab={() => setActiveTab('general')}
-          />
         )}
 
         {activeTab === 'team' && isDraft && (

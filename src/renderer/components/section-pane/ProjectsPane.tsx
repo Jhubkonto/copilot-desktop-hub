@@ -1,5 +1,5 @@
 import { useEffect, useDeferredValue, useMemo, useState } from 'react'
-import { Plus, Settings, Folder, FolderOpen, Trash2, Search, X, Sparkles } from 'lucide-react'
+import { Plus, Settings, Folder, FolderOpen, Trash2, Search, X, Sparkles, Diff } from 'lucide-react'
 import { useAppStore } from '../../store/app-store'
 import type { ProjectAgent } from '../../store/types'
 import { DeleteProjectDialog } from '../DeleteProjectDialog'
@@ -20,6 +20,7 @@ export function ProjectsPane() {
   const setShowNewProjectForm = useAppStore((s) => s.setShowNewProjectForm)
   const setShowProjectGenerator = useAppStore((s) => s.setShowProjectGenerator)
   const openEditProject = useAppStore((s) => s.openEditProject)
+  const setCodeChangesProjectId = useAppStore((s) => s.setCodeChangesProjectId)
   const addAgentToProject = useAppStore((s) => s.addAgentToProject)
   const setProjectPrimaryAgent = useAppStore((s) => s.setProjectPrimaryAgent)
   const agents = useAppStore((s) => s.agents)
@@ -220,6 +221,17 @@ export function ProjectsPane() {
               <AgentAvatarStack members={members} />
 
               <div className="invisible group-hover:visible flex items-center gap-0.5 pr-2 shrink-0">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setCodeChangesProjectId(project.id)
+                  }}
+                  className="p-1 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700"
+                  title="Code Changes"
+                  aria-label="View code changes"
+                >
+                  <Diff className="w-3 h-3" />
+                </button>
                 <button
                   onClick={(e) => {
                     e.stopPropagation()

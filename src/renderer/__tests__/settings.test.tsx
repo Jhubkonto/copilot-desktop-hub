@@ -108,7 +108,8 @@ describe('SettingsPanel', () => {
     expect(mockStore.setPendingRemoteEditReportId).toHaveBeenCalledWith('report-1')
     expect(mockStore.setPendingCodeChangesProjectId).toHaveBeenCalledWith('project-1')
     expect(mockStore.setShowSettings).toHaveBeenCalledWith(false)
-    expect(mockStore.openEditProject).toHaveBeenCalledWith('project-1')
+    expect(mockStore.openSectionPane).toHaveBeenCalledWith('projects')
+    expect(mockStore.setCodeChangesProjectId).toHaveBeenCalledWith('project-1')
   })
 
   it('shows a toast instead of navigating when the build workspace is not linked to a project', async () => {

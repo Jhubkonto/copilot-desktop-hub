@@ -57,7 +57,7 @@ describe('ProjectSettingsPanel — tabs', () => {
     expect(screen.getByRole('tab', { name: /scope/i })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /milestones/i })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Changes' })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: 'Code Changes' })).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Code Changes' })).not.toBeInTheDocument()
   })
 
   it('k-2: General tab is active by default', () => {

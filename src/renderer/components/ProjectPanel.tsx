@@ -30,8 +30,6 @@ export function ProjectPanel() {
   const addToast = useAppStore((s) => s.addToast)
   const newlyCreatedProjectId = useAppStore((s) => s.newlyCreatedProjectId)
   const clearNewlyCreatedProjectId = useAppStore((s) => s.clearNewlyCreatedProjectId)
-  const pendingCodeChangesProjectId = useAppStore((s) => s.pendingCodeChangesProjectId)
-  const setPendingCodeChangesProjectId = useAppStore((s) => s.setPendingCodeChangesProjectId)
 
   const handleSetSize = useCallback((size: number) => {
     setWidth(Math.max(PANEL_MIN, Math.min(PANEL_MAX, size)))
@@ -124,14 +122,11 @@ export function ProjectPanel() {
               projectId={editingProjectId}
               onClose={handleClose}
               initialTab={
-                pendingCodeChangesProjectId === editingProjectId
-                  ? 'code-changes'
-                  : newlyCreatedProjectId === editingProjectId
-                    ? 'team'
-                    : undefined
+                newlyCreatedProjectId === editingProjectId
+                  ? 'team'
+                  : undefined
               }
               onMount={() => {
-                if (pendingCodeChangesProjectId === editingProjectId) setPendingCodeChangesProjectId(null)
                 if (newlyCreatedProjectId === editingProjectId) clearNewlyCreatedProjectId()
               }}
               flashTeam={newlyCreatedProjectId === editingProjectId}

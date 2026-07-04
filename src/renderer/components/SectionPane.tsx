@@ -8,6 +8,7 @@ import { AgentsPane } from './section-pane/AgentsPane'
 import { AgentHistoryPane } from './section-pane/AgentHistoryPane'
 import { ChatsPane } from './section-pane/ChatsPane'
 import { ProjectHistoryPane } from './section-pane/ProjectHistoryPane'
+import { ProjectCodeChangesPane } from './section-pane/ProjectCodeChangesPane'
 import { SkillsPane } from './section-pane/SkillsPane'
 import { ScheduledPane } from './section-pane/ScheduledPane'
 import { ArtifactsPane } from './section-pane/ArtifactsPane'
@@ -31,6 +32,8 @@ export function SectionPane({ section }: SectionPaneProps) {
   const setSectionPane = useAppStore((s) => s.setSectionPane)
   const setHistoryProjectId = useAppStore((s) => s.setHistoryProjectId)
   const historyProjectId = useAppStore((s) => s.historyProjectId)
+  const codeChangesProjectId = useAppStore((s) => s.codeChangesProjectId)
+  const setCodeChangesProjectId = useAppStore((s) => s.setCodeChangesProjectId)
   const historyAgentId = useAppStore((s) => s.historyAgentId)
   const setHistoryAgentId = useAppStore((s) => s.setHistoryAgentId)
   const projects = useAppStore((s) => s.projects)
@@ -44,20 +47,24 @@ export function SectionPane({ section }: SectionPaneProps) {
     setWidth(Math.max(PANE_MIN, Math.min(getMaxSize(), size)))
   }, [getMaxSize])
 
-  const showingProjectHistory = section === 'projects' && historyProjectId !== null
+  const showingCodeChanges = section === 'projects' && codeChangesProjectId !== null
+  const showingProjectHistory = section === 'projects' && !showingCodeChanges && historyProjectId !== null
   const historyProjectName = historyProjectId === '__none__'
     ? 'No project'
     : projects.find((p) => p.id === historyProjectId)?.name ?? 'Project'
+  const codeChangesProjectName = projects.find((p) => p.id === codeChangesProjectId)?.name ?? 'Project'
 
   const showingAgentHistory = section === 'agents' && historyAgentId !== null
   const historyAgent = historyAgentId ? agents.find((a) => a.id === historyAgentId) : null
   const historyAgentName = historyAgent ? `${historyAgent.icon} ${historyAgent.name}` : 'Agent'
 
-  const headerTitle = showingProjectHistory
-    ? historyProjectName
-    : showingAgentHistory
-      ? historyAgentName
-      : SECTION_LABELS[section]
+  const headerTitle = showingCodeChanges
+    ? `${codeChangesProjectName} · Code Changes`
+    : showingProjectHistory
+      ? historyProjectName
+      : showingAgentHistory
+        ? historyAgentName
+        : SECTION_LABELS[section]
 
   return (
     <div
@@ -68,6 +75,15 @@ export function SectionPane({ section }: SectionPaneProps) {
     >
       <div className="flex items-center justify-between px-4 h-9 border-b border-gray-200 dark:border-gray-700 shrink-0">
         <div className="flex items-center gap-2 min-w-0">
+          {showingCodeChanges && (
+            <button
+              onClick={() => setCodeChangesProjectId(null)}
+              className="p-0.5 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 shrink-0"
+              aria-label="Back to projects"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+          )}
           {showingProjectHistory && (
             <button
               onClick={() => setHistoryProjectId(null)}
@@ -100,8 +116,9 @@ export function SectionPane({ section }: SectionPaneProps) {
       </div>
 
       <div className="flex-1 min-h-0 overflow-hidden">
-        {section === 'projects' && !showingProjectHistory && <ProjectsPane />}
+        {section === 'projects' && !showingProjectHistory && !showingCodeChanges && <ProjectsPane />}
         {section === 'projects' && showingProjectHistory && <ProjectHistoryPane />}
+        {section === 'projects' && showingCodeChanges && <ProjectCodeChangesPane />}
         {section === 'agents' && !showingAgentHistory && <AgentsPane />}
         {section === 'agents' && showingAgentHistory && <AgentHistoryPane />}
         {section === 'chats' && <ChatsPane />}
