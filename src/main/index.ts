@@ -6,6 +6,8 @@ import { registerAuthHandlers } from './auth'
 import { initMcpServers, shutdownMcpServers } from './mcp'
 import { initAutoUpdater, registerUpdaterHandlers, checkForUpdatesOnStartup } from './updater'
 import { loadModelCatalog } from './model-catalog'
+import { ClaudeAdapter } from './cli-adapters/claude'
+import { probeClaudeCliModels, cacheClaudeCliPtyModels } from './cli-adapters/claude-model-probe'
 import { initLogger } from './logger'
 import { validateSender } from './safe-handle'
 import { initDebugMode, debugLog } from './debug-mode'
@@ -82,6 +84,9 @@ function createWindow(): void {
     mainWindow?.show()
     if (mainWindow) {
       void loadModelCatalog(mainWindow).catch(() => {})
+    }
+    if (ClaudeAdapter.isAvailable()) {
+      void probeClaudeCliModels().then(cacheClaudeCliPtyModels).catch(() => {})
     }
   })
 
