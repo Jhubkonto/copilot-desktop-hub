@@ -91,7 +91,7 @@ fun BackupRecoveryScreen(onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(
-                "Backups contain standalone conversations, reusable content, drafts, attachment files, and pending synchronization state. API keys and pairing secrets are excluded.",
+                "Included: conversations, reusable content, drafts, attachment files, and pending sync state.\n\nExcluded: API keys, pairing secrets, and other device-specific secrets.\n\nBackup files are encrypted with your passphrase and stored using your system's file picker (you choose the location).",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

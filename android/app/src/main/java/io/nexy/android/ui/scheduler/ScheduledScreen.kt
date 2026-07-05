@@ -27,6 +27,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -100,15 +101,44 @@ fun ScheduledScreen(
             NexyTopAppBar(
                 titleContent = { Text("Scheduled Tasks", style = MaterialTheme.typography.titleMedium) },
                 onBack = onBack,
-                actions = {
-                    IconButton(onClick = onOpenGenerator, enabled = isConnected) {
-                        Icon(Icons.Filled.CalendarMonth, contentDescription = "Generate schedule")
-                    }
-                    IconButton(onClick = onNewTask, enabled = isConnected) {
-                        Icon(Icons.Filled.Add, contentDescription = "Create task")
-                    }
-                },
             )
+        },
+        floatingActionButton = {
+            var showFabMenu by remember { mutableStateOf(false) }
+            Box(modifier = Modifier.padding(end = 20.dp)) {
+                FloatingActionButton(
+                    onClick = {
+                        showFabMenu = true
+                    },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "New task")
+                }
+                DropdownMenu(
+                    expanded = showFabMenu,
+                    onDismissRequest = { showFabMenu = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Add task") },
+                        onClick = { showFabMenu = false; onNewTask() },
+                        enabled = isConnected,
+                    )
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                if (isConnected) {
+                                    "Generate schedule"
+                                } else {
+                                    "Generate schedule · desktop required"
+                                },
+                            )
+                        },
+                        onClick = { showFabMenu = false; onOpenGenerator() },
+                        enabled = isConnected,
+                    )
+                }
+            }
         },
     ) { padding ->
         PullToRefreshBox(
