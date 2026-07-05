@@ -11,57 +11,81 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.ArrowDropUp
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import io.nexy.android.data.ConnectionState
+import io.nexy.android.data.EffectiveConnectionMode
+import io.nexy.android.data.StandaloneProviderStore
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.WsEvent
+import io.nexy.android.ui.chat.ModelPickerSheet
 import io.nexy.android.ui.components.NexyTopAppBar
+import io.nexy.android.ui.model.activeModelLabel
+import io.nexy.android.ui.model.filterModelsByConfiguredProviders
+import io.nexy.android.ui.model.hasResolvableDefaultModel
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GlobalSettingsScreen(onBack: () -> Unit) {
     val connectionState by WsRepository.connectionState.collectAsState()
+    val effectiveMode by WsRepository.effectiveMode.collectAsState()
     val disconnected = connectionState != ConnectionState.CONNECTED
     val modelOptions by WsRepository.models.collectAsState()
+    val cliStatus by WsRepository.cliStatus.collectAsState()
 
-    var defaultModel by remember { mutableStateOf("") }
-    var modelDropdownExpanded by remember { mutableStateOf(false) }
-    var modelSearchQuery by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val standaloneProviderStore = remember { StandaloneProviderStore.get(context) }
+    val standaloneProviders by standaloneProviderStore.providers.collectAsState()
+    val configuredProviderIds = standaloneProviders.filter { it.configured }.map { it.id }.toSet()
+    val standaloneModelOptions = filterModelsByConfiguredProviders(modelOptions, configuredProviderIds)
+
+    var defaultDesktopModel by remember { mutableStateOf("") }
+    var defaultStandaloneModel by remember { mutableStateOf("") }
+    var showDesktopModelSheet by remember { mutableStateOf(false) }
+    var showStandaloneModelSheet by remember { mutableStateOf(false) }
+    val desktopModelSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val standaloneModelSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+
     var temperature by remember { mutableStateOf("") }
     var maxTokens by remember { mutableStateOf("") }
     var autoStart by remember { mutableStateOf(false) }
     var autoClipboard by remember { mutableStateOf(false) }
 
+    val hasResolvableDefaultModel = hasResolvableDefaultModel(
+        effectiveMode = effectiveMode,
+        hasModelOptions = modelOptions.isNotEmpty(),
+        hasConfiguredProvider = configuredProviderIds.isNotEmpty(),
+    )
+
     LaunchedEffect(Unit) {
         WsRepository.send("model:list", emptyMap())
-        WsRepository.getSetting("default_model")
-        WsRepository.getSetting("default_temperature")
-        WsRepository.getSetting("default_max_tokens")
+        WsRepository.send("settings:get-default-desktop-model", emptyMap())
+        WsRepository.send("settings:get-default-standalone-model", emptyMap())
+        WsRepository.send("settings:get-default-temperature", emptyMap())
+        WsRepository.send("settings:get-default-max-tokens", emptyMap())
         WsRepository.getSetting("auto_start")
         WsRepository.getSetting("auto_clipboard")
     }
@@ -70,17 +94,15 @@ fun GlobalSettingsScreen(onBack: () -> Unit) {
         WsRepository.events.collect { event ->
             when (event) {
                 is WsEvent.SettingValue -> when (event.key) {
-                    "default_model" -> defaultModel = event.value.orEmpty()
-                    "default_temperature" -> temperature = event.value.orEmpty()
-                    "default_max_tokens" -> maxTokens = event.value.orEmpty()
+                    "defaultDesktopModel" -> defaultDesktopModel = event.value.orEmpty()
+                    "defaultStandaloneModel" -> defaultStandaloneModel = event.value.orEmpty()
+                    "defaultTemperature" -> temperature = event.value.orEmpty()
+                    "defaultMaxTokens" -> maxTokens = event.value.orEmpty()
                     "auto_start" -> autoStart = event.value == "true"
                     "auto_clipboard" -> autoClipboard = event.value == "true"
                     else -> {}
                 }
                 is WsEvent.SettingSet -> when (event.key) {
-                    "default_model" -> defaultModel = event.value
-                    "default_temperature" -> temperature = event.value
-                    "default_max_tokens" -> maxTokens = event.value
                     "auto_start" -> autoStart = event.value == "true"
                     "auto_clipboard" -> autoClipboard = event.value == "true"
                     else -> {}
@@ -112,97 +134,39 @@ fun GlobalSettingsScreen(onBack: () -> Unit) {
 
             Box(modifier = Modifier.fillMaxWidth()) {
                 OutlinedTextField(
-                    value = modelOptions.find { it.id == defaultModel }?.label ?: defaultModel,
+                    value = if (defaultDesktopModel.isBlank()) "" else activeModelLabel(defaultDesktopModel, modelOptions),
                     onValueChange = {},
                     readOnly = true,
-                    label = { Text("Default model") },
+                    label = { Text("Default model (Desktop)") },
                     placeholder = { Text("e.g. claude-sonnet-4-6") },
-                    trailingIcon = {
-                        Icon(
-                            if (modelDropdownExpanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
-                            contentDescription = null,
-                        )
-                    },
-                    enabled = !disconnected,
+                    enabled = modelOptions.isNotEmpty(),
                     modifier = Modifier.fillMaxWidth(),
                 )
-                // Invisible click overlay so the text field itself opens the dropdown
-                if (!disconnected) {
-                    Box(
-                        modifier = Modifier
-                            .matchParentSize()
-                            .then(
-                                if (!modelDropdownExpanded) Modifier.clickable { modelDropdownExpanded = true }
-                                else Modifier
-                            ),
-                    )
+                if (modelOptions.isNotEmpty()) {
+                    Box(modifier = Modifier.matchParentSize().clickable { showDesktopModelSheet = true })
                 }
-                DropdownMenu(
-                    expanded = modelDropdownExpanded,
-                    onDismissRequest = { modelDropdownExpanded = false; modelSearchQuery = "" },
-                    modifier = Modifier.fillMaxWidth(0.9f),
-                ) {
-                    OutlinedTextField(
-                        value = modelSearchQuery,
-                        onValueChange = { modelSearchQuery = it },
-                        placeholder = { Text("Search models", style = MaterialTheme.typography.bodyMedium) },
-                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                        singleLine = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                    )
-                    val filteredModels = if (modelSearchQuery.isBlank()) modelOptions
-                        else modelOptions.filter { it.label.contains(modelSearchQuery.trim(), ignoreCase = true) || it.id.contains(modelSearchQuery.trim(), ignoreCase = true) }
-                    if (filteredModels.isEmpty()) {
-                            DropdownMenuItem(
-                                text = { Text("No models match", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) },
-                                onClick = {},
-                                enabled = false,
-                            )
-                        } else if (modelSearchQuery.isBlank()) {
-                            filteredModels
-                                .groupBy { it.vendor?.takeIf { v -> v.isNotBlank() } ?: "Other" }
-                                .toSortedMap()
-                                .forEach { (vendor, vendorModels) ->
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                vendor,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.primary,
-                                                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-                                            )
-                                        },
-                                        onClick = {},
-                                        enabled = false,
-                                    )
-                                    vendorModels.forEach { option ->
-                                        DropdownMenuItem(
-                                            text = { Text(option.label) },
-                                            onClick = {
-                                                defaultModel = option.id
-                                                WsRepository.setSetting("default_model", option.id)
-                                                modelDropdownExpanded = false
-                                                modelSearchQuery = ""
-                                            },
-                                        )
-                                    }
-                                }
-                        } else {
-                            filteredModels.forEach { option ->
-                                DropdownMenuItem(
-                                    text = { Text(option.label) },
-                                    onClick = {
-                                        defaultModel = option.id
-                                        WsRepository.setSetting("default_model", option.id)
-                                        modelDropdownExpanded = false
-                                        modelSearchQuery = ""
-                                    },
-                                )
-                            }
-                        }
+            }
+
+            Box(modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = if (defaultStandaloneModel.isBlank()) "" else activeModelLabel(defaultStandaloneModel, standaloneModelOptions),
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Default model (Standalone)") },
+                    placeholder = { Text("e.g. claude-sonnet-4-6") },
+                    enabled = configuredProviderIds.isNotEmpty(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (configuredProviderIds.isNotEmpty()) {
+                    Box(modifier = Modifier.matchParentSize().clickable { showStandaloneModelSheet = true })
                 }
+            }
+            if (configuredProviderIds.isEmpty()) {
+                Text(
+                    "Add an API provider key in API Providers to set a standalone default model.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
 
             // — Generation —
@@ -212,12 +176,12 @@ fun GlobalSettingsScreen(onBack: () -> Unit) {
                 value = temperature,
                 onValueChange = { v ->
                     temperature = v
-                    v.toFloatOrNull()?.let { WsRepository.setSetting("default_temperature", v.trim()) }
+                    v.toDoubleOrNull()?.let { WsRepository.send("settings:set-default-temperature", mapOf("temperature" to it)) }
                 },
                 label = { Text("Default temperature") },
                 placeholder = { Text("0.0 – 1.0") },
                 singleLine = true,
-                enabled = !disconnected,
+                enabled = hasResolvableDefaultModel,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -226,15 +190,27 @@ fun GlobalSettingsScreen(onBack: () -> Unit) {
                 value = maxTokens,
                 onValueChange = { v ->
                     maxTokens = v
-                    v.toIntOrNull()?.let { WsRepository.setSetting("default_max_tokens", v.trim()) }
+                    v.toIntOrNull()?.let { WsRepository.send("settings:set-default-max-tokens", mapOf("maxTokens" to it)) }
                 },
                 label = { Text("Default max tokens") },
                 placeholder = { Text("256 – 128000") },
                 singleLine = true,
-                enabled = !disconnected,
+                enabled = hasResolvableDefaultModel,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth(),
             )
+
+            if (!hasResolvableDefaultModel) {
+                Text(
+                    if (effectiveMode == EffectiveConnectionMode.STANDALONE_BY_CHOICE) {
+                        "Add an API provider key to set generation defaults in standalone mode."
+                    } else {
+                        "Connect to desktop at least once to load models before setting generation defaults."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
 
             // — Behaviour —
             GlobalSettingsSectionHeader("Behaviour")
@@ -263,10 +239,51 @@ fun GlobalSettingsScreen(onBack: () -> Unit) {
 
             if (disconnected) {
                 Text(
-                    "Not connected — changes will be applied when the desktop reconnects.",
+                    "Not connected — auto-start and auto-clipboard changes will be applied when the desktop reconnects.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+        }
+    }
+
+    if (showDesktopModelSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showDesktopModelSheet = false },
+            sheetState = desktopModelSheetState,
+            containerColor = MaterialTheme.colorScheme.surface,
+        ) {
+            ModelPickerSheet(
+                title = "Default model (Desktop)",
+                models = modelOptions,
+                cliStatus = cliStatus,
+                selectedModelId = defaultDesktopModel.ifBlank { null },
+                effectiveMode = EffectiveConnectionMode.CONNECTED,
+            ) { modelId ->
+                defaultDesktopModel = modelId ?: ""
+                WsRepository.send("settings:set-default-desktop-model", mapOf("modelId" to (modelId ?: "")))
+                scope.launch { desktopModelSheetState.hide() }.invokeOnCompletion { showDesktopModelSheet = false }
+            }
+        }
+    }
+
+    if (showStandaloneModelSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showStandaloneModelSheet = false },
+            sheetState = standaloneModelSheetState,
+            containerColor = MaterialTheme.colorScheme.surface,
+        ) {
+            ModelPickerSheet(
+                title = "Default model (Standalone)",
+                models = standaloneModelOptions,
+                cliStatus = cliStatus,
+                selectedModelId = defaultStandaloneModel.ifBlank { null },
+                emptyStateText = "Add an API provider key to see standalone models here.",
+                effectiveMode = EffectiveConnectionMode.STANDALONE_BY_CHOICE,
+            ) { modelId ->
+                defaultStandaloneModel = modelId ?: ""
+                WsRepository.send("settings:set-default-standalone-model", mapOf("modelId" to (modelId ?: "")))
+                scope.launch { standaloneModelSheetState.hide() }.invokeOnCompletion { showStandaloneModelSheet = false }
             }
         }
     }
