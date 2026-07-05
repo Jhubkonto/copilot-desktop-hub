@@ -14,8 +14,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
@@ -50,9 +48,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.model.ProviderInfo
+import io.nexy.android.data.WsRepository
 import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyEmptyState
 import io.nexy.android.ui.components.NexySearchField
@@ -71,8 +72,10 @@ fun ProvidersScreen(
     val testResult by vm.testResult.collectAsState()
     val testError by vm.testError.collectAsState()
     val isTesting by vm.isTesting.collectAsState()
+    val pendingKeyHandoffRequests by WsRepository.pendingKeyHandoffRequests.collectAsState()
     var editingProvider by remember { mutableStateOf<ProviderInfo?>(null) }
     var confirmRemoveProvider by remember { mutableStateOf<ProviderInfo?>(null) }
+    var confirmKeyHandoffProviderId by remember { mutableStateOf<String?>(null) }
     var editingAzureEndpoint by remember { mutableStateOf(false) }
     var testingProviderId by remember { mutableStateOf<String?>(null) }
     var searchQuery by remember { mutableStateOf("") }
@@ -86,6 +89,14 @@ fun ProvidersScreen(
     }
 
     LaunchedEffect(Unit) { vm.refresh() }
+
+    LaunchedEffect(pendingKeyHandoffRequests) {
+        pendingKeyHandoffRequests.keys.firstOrNull()?.let { providerId ->
+            if (confirmKeyHandoffProviderId == null) {
+                confirmKeyHandoffProviderId = providerId
+            }
+        }
+    }
 
     testResult?.let { (provider, valid) ->
         AlertDialog(
@@ -138,6 +149,24 @@ fun ProvidersScreen(
                 scope.launch { snackbarHostState.showSnackbar("${provider.label} key removed.") }
             },
             onDismiss = { confirmRemoveProvider = null },
+        )
+    }
+
+    confirmKeyHandoffProviderId?.let { providerId ->
+        val providerName = pendingKeyHandoffRequests[providerId] ?: providerId
+        NexyConfirmDialog(
+            title = "Accept API key from desktop?",
+            message = "Your desktop is offering to send your $providerName API key to this device. This key will be stored locally and encrypted. Accept this one-time handoff?",
+            confirmLabel = "Accept",
+            onConfirm = {
+                WsRepository.confirmProviderKeyHandoff(providerId)
+                confirmKeyHandoffProviderId = null
+                scope.launch { snackbarHostState.showSnackbar("Key handoff accepted — waiting for transfer…") }
+            },
+            onDismiss = {
+                WsRepository.rejectProviderKeyHandoff(providerId)
+                confirmKeyHandoffProviderId = null
+            },
         )
     }
 
@@ -258,24 +287,9 @@ private fun ProviderRow(
                 .padding(start = 16.dp, end = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Surface(
-                shape = MaterialTheme.shapes.small,
-                color = if (provider.configured) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                modifier = Modifier.size(36.dp),
-            ) {
-                Icon(
-                    if (provider.configured) Icons.Default.Check else Icons.Default.Close,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(8.dp),
-                    tint = if (provider.configured) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Spacer(Modifier.width(12.dp))
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(
                     provider.label,
@@ -285,11 +299,7 @@ private fun ProviderRow(
                     overflow = TextOverflow.Ellipsis,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                Text(
-                    if (provider.configured) "Configured" else "No key set",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (provider.configured) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                ProviderStatusBadge(configured = provider.configured)
             }
             Box {
                 IconButton(onClick = { showMenu = true }) {
@@ -319,6 +329,23 @@ private fun ProviderRow(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ProviderStatusBadge(configured: Boolean) {
+    val label = if (configured) "Connected" else "Not set"
+    val color = if (configured) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+    Surface(
+        shape = MaterialTheme.shapes.extraSmall,
+        color = color.copy(alpha = 0.15f),
+    ) {
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = color,
+        )
     }
 }
 
@@ -382,6 +409,7 @@ private fun SetKeyDialog(
                     visualTransformation = PasswordVisualTransformation(),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None),
                 )
             }
         },
@@ -424,6 +452,7 @@ private fun TestKeyDialog(
                     visualTransformation = PasswordVisualTransformation(),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None),
                 )
             }
         },
@@ -464,6 +493,7 @@ private fun AzureEndpointDialog(
                     label = { Text("Endpoint URL") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None),
                 )
             }
         },

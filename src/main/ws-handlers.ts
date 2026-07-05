@@ -2,7 +2,7 @@ import { BrowserWindow, ipcMain } from 'electron'
 import { randomUUID } from 'crypto'
 import { safeHandle } from './safe-handle'
 import { getDatabase } from './database'
-import { abortActiveStream, PROVIDERS, getOpenRouterModels, isProviderConfigured } from './providers'
+import { abortActiveStream, PROVIDERS, getOpenRouterModels, isProviderConfigured, getApiKey } from './providers'
 import { dispatchChatSend } from './chat-handlers'
 import { debugLog } from './debug-mode'
 import { getCliModels } from './cli-detection'
@@ -1144,6 +1144,33 @@ export function registerWsHandlers(): void {
       if (!provider) return
       removeApiKey(provider)
       reply({ event: 'provider:key-removed', data: { provider } })
+      return
+    }
+
+    if (command === 'provider:key-handoff-request') {
+      const provider = typeof data.provider === 'string' ? data.provider : ''
+      if (!provider) return
+      // Notify all renderer windows that a key handoff was requested
+      BrowserWindow.getAllWindows().forEach((w) => {
+        if (!w.isDestroyed()) w.webContents.send('provider:key-handoff-request', { provider })
+      })
+      return
+    }
+
+    if (command === 'provider:key-handoff-confirm') {
+      const provider = typeof data.provider === 'string' ? data.provider : ''
+      if (!provider) return
+      const key = getApiKey(provider as 'openai' | 'anthropic' | 'azure' | 'gemini' | 'mistral' | 'groq' | 'xai')
+      if (!key) {
+        reply({ event: 'provider:key-handoff-error', data: { provider, message: 'No key configured' } })
+        return
+      }
+      // Send the key to Android via reply
+      reply({ event: 'provider:key-handoff-value', data: { provider, value: key } })
+      // Notify UI that handoff completed
+      BrowserWindow.getAllWindows().forEach((w) => {
+        if (!w.isDestroyed()) w.webContents.send('provider:key-handoff-sent', { provider })
+      })
       return
     }
 

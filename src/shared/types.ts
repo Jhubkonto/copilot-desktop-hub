@@ -1880,6 +1880,9 @@ export type IpcReturnMap = {
   'provider:set-azure-endpoint': boolean
   'provider:set-key': boolean
   'provider:test-key': ProviderTestResult
+  'provider:key-handoff-confirm': void
+  'provider:key-handoff-request': void
+  'provider:key-handoff-sent': void
   // Screen / Clipboard
   'clipboard:auto-focus': void
   'clipboard:read-content': { type: 'image'; dataUrl: string } | { type: 'text'; text: string } | null
@@ -2196,6 +2199,9 @@ export type IpcChannels =
   | 'provider:set-azure-endpoint'
   | 'provider:set-key'
   | 'provider:test-key'
+  | 'provider:key-handoff-confirm'
+  | 'provider:key-handoff-request'
+  | 'provider:key-handoff-sent'
   | 'overlay:get-screenshot'
   | 'screen:capture'
   | 'screen:capture-window'

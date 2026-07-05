@@ -195,6 +195,9 @@ export function SettingsPanel() {
   const [fcmSaving, setFcmSaving] = useState(false)
   const [fcmError, setFcmError] = useState<string | null>(null)
 
+  // Key handoff consent state
+  const [pendingKeyHandoffProvider, setPendingKeyHandoffProvider] = useState<string | null>(null)
+
   // Prompt library state
   const [prompts, setPrompts] = useState<PromptLibraryEntry[]>([])
   const [promptsLoading, setPromptsLoading] = useState(false)
@@ -245,6 +248,20 @@ export function SettingsPanel() {
       if (ep) setAzureEndpoint(ep)
     })
   }, [visible])
+
+  useEffect(() => {
+    const unsubHandoffRequest = window.api.onProviderKeyHandoffRequest((provider) => {
+      setPendingKeyHandoffProvider(provider)
+    })
+    const unsubHandoffSent = window.api.onProviderKeyHandoffSent((provider) => {
+      setPendingKeyHandoffProvider(null)
+      addToast(`API key for ${provider} has been sent to your Android device`, 'success')
+    })
+    return () => {
+      unsubHandoffRequest()
+      unsubHandoffSent()
+    }
+  }, [addToast])
 
   useEffect(() => {
     if (!showDefaultModelMenu) { setDefaultModelSearch(''); return }
@@ -810,6 +827,17 @@ export function SettingsPanel() {
     }
   }
 
+  const handleConfirmKeyHandoff = async (provider: string | null) => {
+    if (!provider) return
+    try {
+      await window.api.confirmProviderKeyHandoff(provider)
+      // Success message will be shown via the onProviderKeyHandoffSent listener
+    } catch {
+      addToast(`Failed to send key to Android device`, 'error')
+      setPendingKeyHandoffProvider(null)
+    }
+  }
+
   const handleSaveAdvanced = async () => {
     try {
       const safeTemp = Math.min(2, Math.max(0, temperature))
@@ -947,6 +975,9 @@ export function SettingsPanel() {
             onSaveKey={() => void handleSaveKey()}
             onTestKey={() => void handleTestKey()}
             onRemoveKey={(p) => void handleRemoveKey(p)}
+            pendingKeyHandoffProvider={pendingKeyHandoffProvider}
+            onRequestKeyHandoff={setPendingKeyHandoffProvider}
+            onConfirmKeyHandoff={handleConfirmKeyHandoff}
           />
         )}
 

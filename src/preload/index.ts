@@ -540,6 +540,18 @@ const api = {
   getAzureEndpoint: () => typedInvoke('provider:get-azure-endpoint'),
   setAzureEndpoint: (endpoint: string) =>
     typedInvoke('provider:set-azure-endpoint', endpoint),
+  confirmProviderKeyHandoff: (provider: string) =>
+    typedInvoke('provider:key-handoff-confirm', provider),
+  onProviderKeyHandoffRequest: (callback: (provider: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { provider: string }) => callback(data.provider)
+    typedOn('provider:key-handoff-request', handler)
+    return () => typedOff('provider:key-handoff-request', handler)
+  },
+  onProviderKeyHandoffSent: (callback: (provider: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { provider: string }) => callback(data.provider)
+    typedOn('provider:key-handoff-sent', handler)
+    return () => typedOff('provider:key-handoff-sent', handler)
+  },
 
   // Projects
   listProjects: () => typedInvoke('project:list'),

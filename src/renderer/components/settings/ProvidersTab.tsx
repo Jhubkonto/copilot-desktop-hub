@@ -16,6 +16,9 @@ interface Props {
   onSaveKey: () => void
   onTestKey: () => void
   onRemoveKey: (provider: string) => void
+  pendingKeyHandoffProvider?: string | null
+  onRequestKeyHandoff?: (provider: string | null) => void
+  onConfirmKeyHandoff?: (provider: string) => void | Promise<void>
 }
 
 export function ProvidersTab({
@@ -23,6 +26,7 @@ export function ProvidersTab({
   editingProvider, apiKeyInput, azureEndpoint, testResult, testing,
   onSetEditingProvider, onSetApiKeyInput, onSetAzureEndpoint, onSetTestResult,
   onSaveKey, onTestKey, onRemoveKey,
+  pendingKeyHandoffProvider, onRequestKeyHandoff, onConfirmKeyHandoff,
 }: Props) {
   return (
     <>
@@ -118,6 +122,31 @@ export function ProvidersTab({
           )}
         </div>
       ))}
+
+      {pendingKeyHandoffProvider && (
+        <div className="p-3 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20">
+          <p className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-2">
+            Key handoff from Android
+          </p>
+          <p className="text-xs text-blue-700 dark:text-blue-300 mb-3">
+            Your Android device is requesting to receive the {providers.find(p => p.name === pendingKeyHandoffProvider)?.label || pendingKeyHandoffProvider} API key from this desktop.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => onConfirmKeyHandoff?.(pendingKeyHandoffProvider)}
+              className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 font-medium"
+            >
+              Send Key
+            </button>
+            <button
+              onClick={() => onRequestKeyHandoff?.(null)}
+              className="text-xs px-3 py-1.5 rounded-lg border border-blue-300 dark:border-blue-700 text-blue-600 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/30"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       <p className="text-xs text-gray-400 dark:text-gray-500">
         API keys are stored securely using OS-level encryption. Select a provider model
