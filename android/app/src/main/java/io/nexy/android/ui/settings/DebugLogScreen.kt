@@ -1,5 +1,6 @@
 package io.nexy.android.ui.settings
 
+import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +13,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -25,6 +27,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -41,6 +44,7 @@ import java.util.Locale
 fun DebugLogScreen(onBack: () -> Unit) {
     val entries by WsRepository.debugLog.collectAsState()
     val listState = rememberLazyListState()
+    val context = LocalContext.current
 
     LaunchedEffect(entries.size) {
         if (entries.isNotEmpty()) listState.animateScrollToItem(entries.size - 1)
@@ -53,6 +57,22 @@ fun DebugLogScreen(onBack: () -> Unit) {
                 onBack = onBack,
                 subtitle = "Settings › Developer",
                 actions = {
+                    IconButton(
+                        enabled = entries.isNotEmpty(),
+                        onClick = {
+                            val body = entries.joinToString("\n") {
+                                "${formatTs(it.ts)} [${it.tag}] ${it.message}"
+                            }
+                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_SUBJECT, "Nexy Android diagnostics")
+                                putExtra(Intent.EXTRA_TEXT, body)
+                            }
+                            context.startActivity(Intent.createChooser(intent, "Export redacted diagnostics"))
+                        },
+                    ) {
+                        Icon(Icons.Outlined.Share, contentDescription = "Export redacted diagnostics")
+                    }
                     IconButton(onClick = { WsRepository.clearDebugLog() }) {
                         Icon(Icons.Outlined.Delete, contentDescription = "Clear log")
                     }

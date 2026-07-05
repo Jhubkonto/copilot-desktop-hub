@@ -225,8 +225,17 @@ fun SkillsScreen(
                             onClick = { showFabMenu = false; vm.showCreate() },
                         )
                         DropdownMenuItem(
-                            text = { Text("Generate skill") },
+                            text = {
+                                Text(
+                                    if (connectionState == ConnectionState.CONNECTED) {
+                                        "Generate skill"
+                                    } else {
+                                        "Generate skill · desktop required"
+                                    },
+                                )
+                            },
                             onClick = { showFabMenu = false; onOpenSkillGenerator() },
+                            enabled = connectionState == ConnectionState.CONNECTED,
                         )
                     }
                 }

@@ -121,7 +121,7 @@ fun ProvidersScreen(
             onConfirm = { key ->
                 vm.setKey(provider.id, key)
                 editingProvider = null
-                scope.launch { snackbarHostState.showSnackbar("${provider.label} key update sent to desktop.") }
+                scope.launch { snackbarHostState.showSnackbar("${provider.label} key saved securely on this device.") }
             },
         )
     }
@@ -129,13 +129,13 @@ fun ProvidersScreen(
     confirmRemoveProvider?.let { provider ->
         NexyConfirmDialog(
             title = "Remove API key",
-            message = "Remove the ${provider.label} API key from this desktop? You will need to re-enter it to use this provider.",
+            message = "Remove the ${provider.label} API key from this device? If connected, it will also be removed from the paired desktop.",
             confirmLabel = "Remove",
             destructive = true,
             onConfirm = {
                 vm.removeKey(provider.id)
                 confirmRemoveProvider = null
-                scope.launch { snackbarHostState.showSnackbar("${provider.label} key removal sent to desktop.") }
+                scope.launch { snackbarHostState.showSnackbar("${provider.label} key removed.") }
             },
             onDismiss = { confirmRemoveProvider = null },
         )
@@ -160,7 +160,7 @@ fun ProvidersScreen(
             modifier = Modifier.fillMaxSize(),
         ) {
             Text(
-                "Configure API keys for BYOK (Bring Your Own Key) providers. Keys are stored encrypted on the desktop.",
+                "Configure API keys for standalone chat. Keys are encrypted on this device; when connected, updates are also sent to the paired desktop.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
@@ -370,7 +370,7 @@ private fun SetKeyDialog(
         text = {
             Column {
                 Text(
-                    "Enter your API key. It will be stored encrypted on the desktop and never transmitted back to the phone.",
+                    "Enter your API key. It is encrypted on this device. When a desktop is connected, Nexy also sends the update over the authenticated pairing connection.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

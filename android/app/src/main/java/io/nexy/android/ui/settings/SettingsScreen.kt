@@ -12,8 +12,12 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import io.nexy.android.ui.components.NexyTopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import io.nexy.android.data.ConnectionState
+import io.nexy.android.data.WsRepository
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,7 +37,10 @@ fun SettingsScreen(
     onOpenCliModels: () -> Unit = {},
     onOpenBuildDashboard: () -> Unit = {},
     onOpenDebugLog: () -> Unit = {},
+    onOpenBackupRecovery: () -> Unit = {},
 ) {
+    val connectionState by WsRepository.connectionState.collectAsState()
+    val desktopConnected = connectionState == ConnectionState.CONNECTED
     Scaffold(
         topBar = {
             NexyTopAppBar(
@@ -70,6 +77,11 @@ fun SettingsScreen(
                 detail = "App version and OTA install",
                 onClick = onOpenUpdates,
             )
+            SettingsNavRow(
+                title = "Backup and recovery",
+                detail = "Encrypted export and restore of standalone data",
+                onClick = onOpenBackupRecovery,
+            )
 
             // — Configuration —
             SettingsSectionHeader("Configuration")
@@ -80,22 +92,24 @@ fun SettingsScreen(
             )
             SettingsNavRow(
                 title = "Models",
-                detail = "Available models from your desktop",
+                detail = "Available standalone and desktop models",
                 onClick = onOpenModels,
             )
             SettingsNavRow(
                 title = "MCP Servers",
-                detail = "Manage MCP servers connected to your desktop",
+                detail = if (desktopConnected) "Manage MCP servers connected to your desktop" else "Requires a connected desktop",
                 onClick = onOpenMcpServers,
+                enabled = desktopConnected,
             )
             SettingsNavRow(
                 title = "CLI Models",
-                detail = "Claude CLI, Codex CLI and other installed backends",
+                detail = if (desktopConnected) "Claude CLI, Codex CLI and other installed backends" else "Requires a connected desktop",
                 onClick = onOpenCliModels,
+                enabled = desktopConnected,
             )
             SettingsNavRow(
                 title = "API Providers",
-                detail = "Configure BYOK keys stored encrypted on the desktop",
+                detail = "Encrypted keys for standalone and desktop chat",
                 onClick = onOpenProviders,
             )
             SettingsNavRow(
@@ -108,8 +122,9 @@ fun SettingsScreen(
             SettingsSectionHeader("Developer")
             SettingsNavRow(
                 title = "Build Dashboard",
-                detail = "Build records, preflight, and APK publish/restore",
+                detail = if (desktopConnected) "Build records, preflight, and APK publish/restore" else "Requires a connected desktop",
                 onClick = onOpenBuildDashboard,
+                enabled = desktopConnected,
             )
             SettingsNavRow(
                 title = "Diagnostics",

@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
+import io.nexy.android.data.StandaloneProviderStore
 import io.nexy.android.data.model.ProviderInfo
 import io.nexy.android.data.model.WsEvent
 import kotlinx.coroutines.Job
@@ -16,7 +17,9 @@ import kotlinx.coroutines.launch
 
 class ProvidersViewModel(app: Application) : AndroidViewModel(app) {
 
-    val providers: StateFlow<List<ProviderInfo>> = WsRepository.providers
+    private val localStore = StandaloneProviderStore.get(app)
+    private val _providers = MutableStateFlow(localStore.providers.value)
+    val providers: StateFlow<List<ProviderInfo>> = _providers.asStateFlow()
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
@@ -40,9 +43,15 @@ class ProvidersViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         viewModelScope.launch {
+            localStore.providers.collect { local ->
+                _providers.value = mergeProviders(local, WsRepository.providers.value)
+            }
+        }
+        viewModelScope.launch {
             WsRepository.events.collect { event ->
                 when (event) {
                     is WsEvent.ProviderList -> {
+                        _providers.value = mergeProviders(localStore.providers.value, WsRepository.providers.value)
                         timeoutJob?.cancel()
                         _isLoading.value = false
                         _error.value = null
@@ -75,7 +84,8 @@ class ProvidersViewModel(app: Application) : AndroidViewModel(app) {
     fun refresh() {
         if (WsRepository.connectionState.value != ConnectionState.CONNECTED) {
             _isLoading.value = false
-            _error.value = "Not connected to desktop."
+            _error.value = null
+            _providers.value = localStore.providers.value
             return
         }
         _isLoading.value = true
@@ -94,11 +104,21 @@ class ProvidersViewModel(app: Application) : AndroidViewModel(app) {
     fun dismissError() { _error.value = null }
 
     fun setKey(provider: String, key: String) {
-        WsRepository.setProviderKey(provider, key)
+        if (provider in setOf("anthropic", "openai", "openrouter")) {
+            localStore.setKey(provider, key)
+        }
+        if (WsRepository.connectionState.value == ConnectionState.CONNECTED) {
+            WsRepository.setProviderKey(provider, key)
+        }
     }
 
     fun removeKey(provider: String) {
-        WsRepository.removeProviderKey(provider)
+        if (provider in setOf("anthropic", "openai", "openrouter")) {
+            localStore.removeKey(provider)
+        }
+        if (WsRepository.connectionState.value == ConnectionState.CONNECTED) {
+            WsRepository.removeProviderKey(provider)
+        }
     }
 
     fun saveAzureEndpoint(endpoint: String) {
@@ -109,11 +129,28 @@ class ProvidersViewModel(app: Application) : AndroidViewModel(app) {
         _isTesting.value = true
         _testResult.value = null
         _testError.value = null
-        WsRepository.testProviderKey(provider, key, endpoint)
+        viewModelScope.launch {
+            val result = WsRepository.testStandaloneProvider(provider, key, endpoint)
+            _isTesting.value = false
+            _testResult.value = provider to result.first
+            _testError.value = result.second
+        }
     }
 
     fun dismissTestResult() {
         _testResult.value = null
         _testError.value = null
+    }
+
+    private fun mergeProviders(
+        local: List<ProviderInfo>,
+        remote: List<ProviderInfo>,
+    ): List<ProviderInfo> {
+        val byId = remote.associateBy { it.id }.toMutableMap()
+        local.forEach { item ->
+            val desktop = byId[item.id]
+            byId[item.id] = item.copy(configured = item.configured || desktop?.configured == true)
+        }
+        return byId.values.sortedBy { it.label }
     }
 }

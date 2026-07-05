@@ -520,11 +520,12 @@ internal fun SettingsNavRow(
     title: String,
     detail: String,
     onClick: () -> Unit,
+    enabled: Boolean = true,
 ) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .clickable(enabled = enabled, onClick = onClick),
         color = MaterialTheme.colorScheme.surface,
     ) {
         Row(
@@ -538,7 +539,7 @@ internal fun SettingsNavRow(
                 Text(
                     title,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                     fontWeight = FontWeight.Medium,
                 )
                 Text(
@@ -551,7 +552,7 @@ internal fun SettingsNavRow(
                 Icons.AutoMirrored.Filled.KeyboardArrowRight,
                 contentDescription = null,
                 modifier = Modifier.size(20.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (enabled) 1f else 0.35f),
             )
         }
     }
