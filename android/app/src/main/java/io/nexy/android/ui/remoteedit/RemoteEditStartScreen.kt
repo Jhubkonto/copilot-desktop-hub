@@ -1,6 +1,8 @@
 package io.nexy.android.ui.remoteedit
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -118,6 +120,7 @@ fun RemoteEditStartScreen(
                     onValueChange = { customTypeLabel = it },
                     label = { Text("Label this request type…") },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -126,6 +129,7 @@ fun RemoteEditStartScreen(
                 onValueChange = { title = it },
                 label = { Text("Title (optional)") },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
                 modifier = Modifier.fillMaxWidth(),
             )
             OutlinedTextField(
@@ -134,6 +138,7 @@ fun RemoteEditStartScreen(
                 label = { Text("Description") },
                 minLines = 5,
                 maxLines = 10,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
                 modifier = Modifier.fillMaxWidth(),
             )
             Button(

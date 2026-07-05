@@ -1,6 +1,8 @@
 package io.nexy.android.ui.agentgenerator
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -302,6 +304,7 @@ fun AgentGeneratorScreen(
                             }
                         },
                         singleLine = true,
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                         shape = MaterialTheme.shapes.medium,
                     )
@@ -456,6 +459,7 @@ private fun SpecReviewPhase(
                     onValueChange = { onSpecChange(spec.copy(name = it)) },
                     label = { Text("Name") },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
                     modifier = Modifier.weight(0.75f),
                 )
             }
@@ -467,6 +471,7 @@ private fun SpecReviewPhase(
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 4,
                 maxLines = 10,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
             )
             Spacer(Modifier.height(8.dp))
             OutlinedTextField(

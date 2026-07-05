@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.Button
@@ -130,6 +132,7 @@ fun SchedulerTaskConfigScreen(
                 supportingText = nameError?.let { { Text(it) } },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
             )
 
             OutlinedTextField(
@@ -139,6 +142,7 @@ fun SchedulerTaskConfigScreen(
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 4,
                 maxLines = 8,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
             )
 
             DropdownField(

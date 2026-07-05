@@ -8,6 +8,8 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import android.speech.tts.TextToSpeech
 import java.util.Locale
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -151,6 +153,7 @@ fun ChatScreen(
     val connectionState by WsRepository.connectionState.collectAsState()
     val capabilities by WsRepository.capabilities.collectAsState()
     val lastError by WsRepository.lastError.collectAsState()
+    val effectiveMode by WsRepository.effectiveMode.collectAsState()
     val conversation = conversations.find { it.id == conversationId }
     val title = conversation?.title?.ifBlank { null } ?: "Chat"
     val chatAgentId = conversation?.agent_id ?: agentId
@@ -537,6 +540,7 @@ fun ChatScreen(
                 selectedModelId = activeModelId,
                 subtitle = backendLockDetail,
                 emptyStateText = emptyModelListDetail(modelSource),
+                effectiveMode = effectiveMode,
             ) { modelId ->
                 vm.setModel(modelId)
                 scope.launch { modelSheetState.hide() }.invokeOnCompletion { showModelSheet = false }
@@ -627,6 +631,7 @@ fun ChatScreen(
                             onValueChange = { addToProjectTitle = it },
                             label = { Text("Title") },
                             singleLine = true,
+                            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
@@ -670,6 +675,7 @@ fun ChatScreen(
                         onValueChange = { promoteArtifactTitle = it },
                         label = { Text("Title") },
                         singleLine = true,
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
                         modifier = Modifier.fillMaxWidth(),
                     )
                     OutlinedTextField(

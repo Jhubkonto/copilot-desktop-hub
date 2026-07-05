@@ -2,6 +2,8 @@ package io.nexy.android.ui.settings
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -429,6 +431,7 @@ private fun McpServerWizard(
                         label = { Text("Server name") },
                         placeholder = { Text("e.g. Filesystem") },
                         singleLine = true,
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
                         modifier = Modifier.fillMaxWidth(),
                     )
                     when (selectedType) {
@@ -590,7 +593,7 @@ private fun McpServerFormSheet(
         onDismiss = onDismiss,
         confirmEnabled = name.isNotBlank() && command.isNotBlank(),
     ) {
-        OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Server name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Server name") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true))
         Spacer(Modifier.height(8.dp))
         OutlinedTextField(value = command, onValueChange = { command = it }, label = { Text("Command") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         Spacer(Modifier.height(8.dp))

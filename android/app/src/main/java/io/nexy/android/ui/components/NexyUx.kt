@@ -59,6 +59,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -180,6 +181,10 @@ fun NexySearchField(
         placeholder = { Text(placeholder, style = MaterialTheme.typography.bodyMedium) },
         shape = RoundedCornerShape(12.dp),
         textStyle = MaterialTheme.typography.bodyMedium,
+        keyboardOptions = KeyboardOptions(
+            capitalization = KeyboardCapitalization.Sentences,
+            autoCorrectEnabled = true,
+        ),
     )
 }
 

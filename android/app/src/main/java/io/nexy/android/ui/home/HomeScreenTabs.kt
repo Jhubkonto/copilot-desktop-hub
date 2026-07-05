@@ -6,6 +6,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -143,6 +145,7 @@ fun ChatsTab(
                     onValueChange = { renameText = it },
                     singleLine = true,
                     label = { Text("Title") },
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
                 )
             },
             confirmButton = {
@@ -247,52 +250,53 @@ fun ChatsTab(
             }
         } else {
             Column(modifier = Modifier.fillMaxSize()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { onSearchQueryChange(it) },
-                        modifier = Modifier.weight(1f),
-                        singleLine = true,
-                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                        trailingIcon = {
-                            if (searchQuery.isNotBlank()) {
-                                IconButton(onClick = { onSearchQueryChange("") }, modifier = Modifier.size(36.dp)) {
-                                    Icon(Icons.Default.Close, contentDescription = "Clear search", modifier = Modifier.size(16.dp))
-                                }
-                            }
-                        },
-                        placeholder = { Text("Search chats", style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        shape = RoundedCornerShape(12.dp),
-                        textStyle = MaterialTheme.typography.bodyMedium,
-                    )
-                    FilterChip(
-                        selected = activeFilter !is ChatFilter.All,
-                        onClick = { if (showFilters) showFilterSheet = true },
-                        label = {
-                            Text(
-                                activeFilterLabel,
-                                style = MaterialTheme.typography.labelMedium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Default.FilterList,
-                                contentDescription = "Filter chats",
-                                modifier = Modifier.size(16.dp),
-                            )
-                        },
-                        enabled = showFilters,
-                        modifier = Modifier.heightIn(min = 56.dp),
-                    )
-                }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 if (displayList.isEmpty()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { onSearchQueryChange(it) },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                            trailingIcon = {
+                                if (searchQuery.isNotBlank()) {
+                                    IconButton(onClick = { onSearchQueryChange("") }, modifier = Modifier.size(36.dp)) {
+                                        Icon(Icons.Default.Close, contentDescription = "Clear search", modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                            },
+                            placeholder = { Text("Search chats", style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            shape = RoundedCornerShape(12.dp),
+                            textStyle = MaterialTheme.typography.bodyMedium,
+                            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
+                        )
+                        FilterChip(
+                            selected = activeFilter !is ChatFilter.All,
+                            onClick = { if (showFilters) showFilterSheet = true },
+                            label = {
+                                Text(
+                                    activeFilterLabel,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.FilterList,
+                                    contentDescription = "Filter chats",
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            },
+                            enabled = showFilters,
+                            modifier = Modifier.heightIn(min = 56.dp),
+                        )
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     Column(
                         modifier = Modifier.fillMaxWidth().weight(1f),
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -313,6 +317,56 @@ fun ChatsTab(
                         pendingConversationIds.filter { it !in knownIds }
                     }
                     LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                        stickyHeader {
+                            Column(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    OutlinedTextField(
+                                        value = searchQuery,
+                                        onValueChange = { onSearchQueryChange(it) },
+                                        modifier = Modifier.weight(1f),
+                                        singleLine = true,
+                                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                                        trailingIcon = {
+                                            if (searchQuery.isNotBlank()) {
+                                                IconButton(onClick = { onSearchQueryChange("") }, modifier = Modifier.size(36.dp)) {
+                                                    Icon(Icons.Default.Close, contentDescription = "Clear search", modifier = Modifier.size(16.dp))
+                                                }
+                                            }
+                                        },
+                                        placeholder = { Text("Search chats", style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                        shape = RoundedCornerShape(12.dp),
+                                        textStyle = MaterialTheme.typography.bodyMedium,
+                                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
+                                    )
+                                    FilterChip(
+                                        selected = activeFilter !is ChatFilter.All,
+                                        onClick = { if (showFilters) showFilterSheet = true },
+                                        label = {
+                                            Text(
+                                                activeFilterLabel,
+                                                style = MaterialTheme.typography.labelMedium,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                Icons.Default.FilterList,
+                                                contentDescription = "Filter chats",
+                                                modifier = Modifier.size(16.dp),
+                                            )
+                                        },
+                                        enabled = showFilters,
+                                        modifier = Modifier.heightIn(min = 56.dp),
+                                    )
+                                }
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                            }
+                        }
                         if (pendingNew.isNotEmpty()) {
                             items(pendingNew) {
                                 PendingConversationRow()
@@ -397,6 +451,7 @@ fun ProjectsTab(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !sending,
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     projectColors.forEach { color ->
@@ -438,6 +493,7 @@ fun ProjectsTab(
                     onValueChange = { renameText = it },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
                 )
             },
             confirmButton = {
@@ -489,30 +545,35 @@ fun ProjectsTab(
             }
         } else {
             Column(modifier = Modifier.fillMaxSize()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    OutlinedTextField(
-                        value = projectSearch,
-                        onValueChange = { projectSearch = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                        trailingIcon = {
-                            if (projectSearch.isNotBlank()) {
-                                IconButton(onClick = { projectSearch = "" }, modifier = Modifier.size(36.dp)) {
-                                    Icon(Icons.Default.Close, contentDescription = "Clear search", modifier = Modifier.size(16.dp))
-                                }
-                            }
-                        },
-                        placeholder = { Text("Search projects", style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        shape = RoundedCornerShape(12.dp),
-                        textStyle = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                stickyHeader {
+                    Column(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            OutlinedTextField(
+                                value = projectSearch,
+                                onValueChange = { projectSearch = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
+                                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                                trailingIcon = {
+                                    if (projectSearch.isNotBlank()) {
+                                        IconButton(onClick = { projectSearch = "" }, modifier = Modifier.size(36.dp)) {
+                                            Icon(Icons.Default.Close, contentDescription = "Clear search", modifier = Modifier.size(16.dp))
+                                        }
+                                    }
+                                },
+                                placeholder = { Text("Search projects", style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                shape = RoundedCornerShape(12.dp),
+                                textStyle = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    }
+                }
                 itemsIndexed(filteredProjects, key = { _, p -> p.id }) { index, project ->
                     val accentColor = projectColor(project.color)
                     var menuExpanded by remember { mutableStateOf(false) }
@@ -754,6 +815,7 @@ fun AgentsTab(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !sending,
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
                 )
                 OutlinedTextField(
                     value = newIcon,
@@ -793,6 +855,7 @@ fun AgentsTab(
                         label = { Text("Name") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
                     )
                     OutlinedTextField(
                         value = renameIcon,
@@ -838,30 +901,35 @@ fun AgentsTab(
             }
         } else {
             Column(modifier = Modifier.fillMaxSize()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    OutlinedTextField(
-                        value = agentSearch,
-                        onValueChange = { agentSearch = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                        trailingIcon = {
-                            if (agentSearch.isNotBlank()) {
-                                IconButton(onClick = { agentSearch = "" }, modifier = Modifier.size(36.dp)) {
-                                    Icon(Icons.Default.Close, contentDescription = "Clear search", modifier = Modifier.size(16.dp))
-                                }
-                            }
-                        },
-                        placeholder = { Text("Search agents", style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        shape = RoundedCornerShape(12.dp),
-                        textStyle = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                stickyHeader {
+                    Column(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            OutlinedTextField(
+                                value = agentSearch,
+                                onValueChange = { agentSearch = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
+                                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                                trailingIcon = {
+                                    if (agentSearch.isNotBlank()) {
+                                        IconButton(onClick = { agentSearch = "" }, modifier = Modifier.size(36.dp)) {
+                                            Icon(Icons.Default.Close, contentDescription = "Clear search", modifier = Modifier.size(16.dp))
+                                        }
+                                    }
+                                },
+                                placeholder = { Text("Search agents", style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                shape = RoundedCornerShape(12.dp),
+                                textStyle = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    }
+                }
                 itemsIndexed(filteredAgents, key = { _, a -> a.id }) { index, agent ->
                     var menuExpanded by remember { mutableStateOf(false) }
                     val rowColor = if (index % 2 == 0) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant

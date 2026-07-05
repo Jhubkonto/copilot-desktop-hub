@@ -3,6 +3,8 @@ package io.nexy.android.ui.skills
 import android.content.ClipData
 import android.content.ClipboardManager
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -195,9 +197,6 @@ fun SkillsScreen(
                         IconButton(onClick = { showSortSheet = true }) {
                             Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort skills")
                         }
-                    }
-                    IconButton(onClick = { vm.load() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh skills")
                     }
                 },
             )
@@ -553,13 +552,13 @@ private fun SkillFormFields(
     state: SkillsUiState,
     vm: SkillsViewModel,
 ) {
-    OutlinedTextField(value = state.editName, onValueChange = { vm.setEditName(it) }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+    OutlinedTextField(value = state.editName, onValueChange = { vm.setEditName(it) }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true))
     Spacer(Modifier.height(12.dp))
     OutlinedTextField(value = state.editIcon, onValueChange = { vm.setEditIcon(it) }, label = { Text("Icon") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
     Spacer(Modifier.height(12.dp))
-    OutlinedTextField(value = state.editDescription, onValueChange = { vm.setEditDescription(it) }, label = { Text("Description") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+    OutlinedTextField(value = state.editDescription, onValueChange = { vm.setEditDescription(it) }, label = { Text("Description") }, modifier = Modifier.fillMaxWidth(), minLines = 2, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true))
     Spacer(Modifier.height(12.dp))
-    OutlinedTextField(value = state.editInstructions, onValueChange = { vm.setEditInstructions(it) }, label = { Text("Instructions") }, modifier = Modifier.fillMaxWidth(), minLines = 6)
+    OutlinedTextField(value = state.editInstructions, onValueChange = { vm.setEditInstructions(it) }, label = { Text("Instructions") }, modifier = Modifier.fillMaxWidth(), minLines = 6, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true))
     Spacer(Modifier.height(12.dp))
     OutlinedTextField(value = state.editTags, onValueChange = { vm.setEditTags(it) }, label = { Text("Tags (comma-separated)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
     Spacer(Modifier.height(18.dp))
@@ -621,6 +620,7 @@ private fun SkillFormFields(
         placeholder = { Text("One per line: Title: Content") },
         modifier = Modifier.fillMaxWidth(),
         minLines = 4,
+        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
     )
 }
 
@@ -660,6 +660,7 @@ private fun SkillToolEditor(
                     label = { Text("Tool instructions") },
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 2,
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
                 )
             }
         }

@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
@@ -155,7 +156,11 @@ fun ChatInputBar(
                         modifier = Modifier.fillMaxWidth(),
                         textStyle = MaterialTheme.typography.bodyMedium.copy(color = textColor),
                         maxLines = 5,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
+                        keyboardOptions = KeyboardOptions(
+                            imeAction = ImeAction.Default,
+                            capitalization = KeyboardCapitalization.Sentences,
+                            autoCorrectEnabled = true,
+                        ),
                         cursorBrush = SolidColor(cursorColor),
                     )
                 }

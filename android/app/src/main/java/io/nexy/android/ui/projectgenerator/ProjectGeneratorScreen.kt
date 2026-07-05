@@ -1,6 +1,8 @@
 package io.nexy.android.ui.projectgenerator
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -294,6 +296,7 @@ fun ProjectGeneratorScreen(
                             }
                         },
                         singleLine = true,
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                         shape = MaterialTheme.shapes.medium,
                     )
@@ -442,6 +445,7 @@ private fun SpecReviewPhase(
                 label = { Text("Name") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
             )
             Spacer(Modifier.height(8.dp))
             SpecField("Color", spec.color)
@@ -460,6 +464,7 @@ private fun SpecReviewPhase(
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 3,
                 maxLines = 6,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
             )
             Spacer(Modifier.height(8.dp))
             InstructionModePicker(

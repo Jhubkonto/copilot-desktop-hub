@@ -1,6 +1,8 @@
 package io.nexy.android.ui.home
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -158,6 +160,7 @@ fun ScopedChatHistoryScreen(
                 },
                 placeholder = { Text("Search chats", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 shape = RoundedCornerShape(14.dp),
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
             )
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(top = 8.dp))
             if (filtered.isEmpty()) {

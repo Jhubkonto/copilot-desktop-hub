@@ -17,6 +17,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -294,6 +296,7 @@ fun SkillGeneratorScreen(
                             }
                         },
                         singleLine = true,
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                         shape = MaterialTheme.shapes.medium,
                     )
@@ -447,6 +450,7 @@ private fun SpecReviewPhase(
                     onValueChange = { onSpecChange(spec.copy(name = it)) },
                     label = { Text("Name") },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
                     modifier = Modifier.weight(0.75f),
                 )
             }
@@ -457,6 +461,7 @@ private fun SpecReviewPhase(
                 label = { Text("Description") },
                 modifier = Modifier.fillMaxWidth(),
                 maxLines = 3,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
             )
             Spacer(Modifier.height(8.dp))
             OutlinedTextField(
@@ -466,6 +471,7 @@ private fun SpecReviewPhase(
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 4,
                 maxLines = 10,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
             )
             Spacer(Modifier.height(8.dp))
             Text("Tools", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

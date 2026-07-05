@@ -1,6 +1,8 @@
 package io.nexy.android.ui.schedulegenerator
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -224,6 +226,7 @@ private fun SpecReviewPhase(
             label = { Text("Name") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
         )
         OutlinedTextField(
             value = current.prompt,
@@ -231,6 +234,7 @@ private fun SpecReviewPhase(
             label = { Text("Prompt") },
             modifier = Modifier.fillMaxWidth(),
             minLines = 4,
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
         )
         ChoiceRow("Schedule type", scheduleTypes, current.scheduleType) { onSpecChange(current.copy(scheduleType = it)) }
         OutlinedTextField(
