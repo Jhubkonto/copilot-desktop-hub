@@ -28,6 +28,7 @@ import io.nexy.android.ui.skillgenerator.SkillGeneratorScreen
 import io.nexy.android.ui.chat.ChatScreen
 import io.nexy.android.ui.projects.ProjectConfigScreen
 import io.nexy.android.ui.projects.ProjectAuditScreen
+import io.nexy.android.ui.projects.ManualWorkflowScreen
 import io.nexy.android.ui.home.AgentConfigScreen
 import io.nexy.android.ui.home.HistoryScope
 import io.nexy.android.ui.home.HomeScreen
@@ -404,6 +405,18 @@ fun NavGraph(
                 onOpenAudit = { navController.navigate("project-audit/${Uri.encode(projectId)}") },
                 onOpenWiki = { navController.navigate("wiki/${Uri.encode(projectId)}") },
                 onOpenArtifacts = { navController.navigate("artifacts?artifactId=") },
+                onOpenManualWorkflow = { navController.navigate("manual-workflow/${Uri.encode(projectId)}") },
+            )
+        }
+
+        composable(
+            route = "manual-workflow/{projectId}",
+            arguments = listOf(navArgument("projectId") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val projectId = backStackEntry.arguments?.getString("projectId") ?: return@composable
+            ManualWorkflowScreen(
+                projectId = projectId,
+                onBack = { navController.popBackStack() },
             )
         }
 

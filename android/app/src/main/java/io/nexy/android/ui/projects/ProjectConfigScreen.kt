@@ -58,6 +58,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
@@ -88,6 +89,7 @@ fun ProjectConfigScreen(
     onOpenWiki: () -> Unit = {},
     onOpenArtifacts: () -> Unit = {},
     onOpenAudit: () -> Unit = {},
+    onOpenManualWorkflow: () -> Unit = {},
 ) {
     val projects by WsRepository.projects.collectAsState()
     val allAgents by WsRepository.agents.collectAsState()
@@ -315,6 +317,7 @@ fun ProjectConfigScreen(
                         enabled = !saving && !disconnected,
                         minLines = 4,
                         maxLines = 12,
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Row(
@@ -666,6 +669,13 @@ fun ProjectConfigScreen(
             ) {
                 Text("View project artifacts")
             }
+
+            TextButton(
+                onClick = onOpenManualWorkflow,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Manual workflow generator")
+            }
         }
     }
 }
@@ -773,6 +783,7 @@ private fun EditableScopeList(
                 label = { Text("Description") },
                 singleLine = true,
                 enabled = enabled,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
                 modifier = Modifier.weight(1f),
             )
             OutlinedTextField(
@@ -832,7 +843,7 @@ private fun EditableMilestonesList(
                     label = { Text("Title") },
                     singleLine = true,
                     enabled = enabled,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true, imeAction = ImeAction.Next),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
@@ -841,7 +852,7 @@ private fun EditableMilestonesList(
                     label = { Text("Description (optional)") },
                     singleLine = true,
                     enabled = enabled,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true, imeAction = ImeAction.Done),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
