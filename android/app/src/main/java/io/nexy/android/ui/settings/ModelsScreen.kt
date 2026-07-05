@@ -24,6 +24,7 @@ fun ModelsScreen(
 ) {
     val models by vm.models.collectAsState()
     val modelSource by vm.modelSource.collectAsState()
+    val effectiveMode by vm.effectiveMode.collectAsState()
 
     LaunchedEffect(Unit) { vm.refreshModels() }
 
@@ -45,6 +46,7 @@ fun ModelsScreen(
             ModelsSection(
                 models = models,
                 modelSource = modelSource,
+                effectiveMode = effectiveMode,
                 onRefresh = { vm.refreshModels() },
             )
         }

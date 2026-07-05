@@ -7,6 +7,7 @@ import android.provider.Settings
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.nexy.android.data.ConnectionState
+import io.nexy.android.data.EffectiveConnectionMode
 import io.nexy.android.data.PairedServerProfile
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.AndroidUpdateManifest
@@ -30,6 +31,8 @@ data class UpdateInstallState(
 class SettingsViewModel(app: Application) : AndroidViewModel(app) {
 
     val connectionState: StateFlow<ConnectionState> = WsRepository.connectionState
+    val preferStandaloneMode: StateFlow<Boolean> = WsRepository.preferStandaloneMode
+    val effectiveMode: StateFlow<EffectiveConnectionMode> = WsRepository.effectiveMode
     val profiles: StateFlow<List<PairedServerProfile>> = WsRepository.profiles
     val activeProfileId: StateFlow<String?> = WsRepository.activeProfileId
     val models: StateFlow<List<ModelOption>> = WsRepository.models
@@ -117,6 +120,10 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
 
     fun switchProfile(profileId: String) {
         WsRepository.switchProfile(profileId)
+    }
+
+    fun setPreferStandaloneMode(prefer: Boolean) {
+        WsRepository.setPreferStandaloneMode(prefer, getApplication())
     }
 
     fun disconnect() {

@@ -6,6 +6,8 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -440,6 +442,7 @@ private fun RevisePlanControl(
     val models by WsRepository.models.collectAsState()
     val cliStatus by WsRepository.cliStatus.collectAsState()
     val promptEntries by WsRepository.promptEntries.collectAsState()
+    val effectiveMode by WsRepository.effectiveMode.collectAsState()
 
     fun close() {
         open = false
@@ -505,6 +508,7 @@ private fun RevisePlanControl(
                         label = { Text("What should the plan do differently?") },
                         placeholder = { Text("e.g. Look in the android module instead") },
                         modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
                         trailingIcon = {
                             Row {
                                 IconButton(onClick = { showPromptSheet = true }) {
@@ -579,6 +583,7 @@ private fun RevisePlanControl(
                 models = models,
                 cliStatus = cliStatus,
                 selectedModelId = reviseModel,
+                effectiveMode = effectiveMode,
             ) { modelId ->
                 reviseModel = modelId ?: "default"
                 scope.launch { modelSheetState.hide() }.invokeOnCompletion { showModelSheet = false }

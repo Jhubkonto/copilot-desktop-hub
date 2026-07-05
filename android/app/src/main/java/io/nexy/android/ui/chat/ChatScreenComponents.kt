@@ -4,6 +4,8 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -178,42 +180,13 @@ fun ModelPickerSheet(
     selectedModelId: String?,
     subtitle: String? = null,
     emptyStateText: String = "No models available yet.",
+    effectiveMode: io.nexy.android.data.EffectiveConnectionMode = io.nexy.android.data.EffectiveConnectionMode.CONNECTED,
     onSelect: (String?) -> Unit,
 ) {
     var modelQuery by remember { mutableStateOf("") }
 
-    val vendorUnavailable: (String) -> Boolean = { vendor ->
-        val cliKey = vendor.removeSuffix(" CLI").lowercase()
-        val info = cliStatus[cliKey]
-        info != null && !info.installed
-    }
-
-    data class ModelItem(val model: ModelOption, val unavailable: Boolean)
-    data class HeaderItem(val vendor: String, val unavailable: Boolean)
-
     val query = modelQuery.trim().lowercase()
-    val sheetItems: List<Any> = buildList {
-        val grouped = models.filterNot { it.id == "default" }.groupBy { it.vendor ?: "" }
-        val hasVendorGroups = grouped.any { it.key.isNotBlank() }
-        if (hasVendorGroups) {
-            grouped.forEach { (vendor, vendorModels) ->
-                val groupUnavailable = vendor.isNotBlank() && vendorUnavailable(vendor)
-                val filtered = if (query.isEmpty()) vendorModels
-                               else vendorModels.filter { it.label.lowercase().contains(query) }
-                if (filtered.isNotEmpty()) {
-                    if (vendor.isNotBlank()) add(HeaderItem(vendor, groupUnavailable))
-                    filtered.forEach { add(ModelItem(it, groupUnavailable)) }
-                }
-            }
-        } else {
-            models.forEach { model ->
-                if (query.isEmpty() || model.label.lowercase().contains(query)) {
-                    val modelUnavailable = model.vendor != null && vendorUnavailable(model.vendor)
-                    add(ModelItem(model, modelUnavailable))
-                }
-            }
-        }
-    }
+    val sheetItems = io.nexy.android.ui.model.buildModelSheetItems(models, cliStatus, effectiveMode, modelQuery)
 
     val showDefault = query.isEmpty() || "default model".contains(query)
 
@@ -245,6 +218,7 @@ fun ModelPickerSheet(
                     }
                 },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 shape = MaterialTheme.shapes.medium,
             )
@@ -275,14 +249,14 @@ fun ModelPickerSheet(
         } else {
             items(sheetItems) { item ->
                 when (item) {
-                    is HeaderItem -> Text(
+                    is io.nexy.android.ui.model.ModelSheetEntry.Header -> Text(
                         item.vendor,
                         style = MaterialTheme.typography.labelMedium,
                         color = if (item.unavailable) MaterialTheme.colorScheme.error
                                 else MaterialTheme.colorScheme.primary,
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
                     )
-                    is ModelItem -> ModelSheetItem(
+                    is io.nexy.android.ui.model.ModelSheetEntry.Item -> ModelSheetItem(
                         label = item.model.label,
                         vendor = null,
                         selected = item.model.id == selectedModelId,

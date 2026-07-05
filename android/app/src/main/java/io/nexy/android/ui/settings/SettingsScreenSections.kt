@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.nexy.android.data.ConnectionState
+import io.nexy.android.data.EffectiveConnectionMode
 import io.nexy.android.data.PairedServerProfile
 import io.nexy.android.data.model.AndroidUpdateManifest
 import io.nexy.android.data.model.ModelListSource
@@ -43,6 +44,7 @@ import io.nexy.android.data.model.ModelOption
 import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyDangerButton
 import io.nexy.android.ui.components.NexySecondaryButton
+import io.nexy.android.ui.model.partitionModelsByAvailability
 import io.nexy.android.ui.model.emptyModelListDetail
 import io.nexy.android.ui.model.modelSourceDetail
 import io.nexy.android.ui.model.modelSourceTitle
@@ -64,19 +66,20 @@ fun SettingsInfoRow(label: String, value: String) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = Alignment.Top,
     ) {
         Text(
             label,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1f).padding(end = 12.dp),
+            modifier = Modifier.weight(0.35f).padding(end = 12.dp),
         )
         Text(
             value,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 2,
+            modifier = Modifier.weight(0.65f, fill = true),
+            maxLines = Int.MAX_VALUE,
         )
     }
 }
@@ -87,6 +90,8 @@ fun ConnectionSection(
     profiles: List<PairedServerProfile>,
     activeProfileId: String?,
     connectionState: ConnectionState,
+    preferStandaloneMode: Boolean = false,
+    onSetPreferStandaloneMode: (Boolean) -> Unit = {},
     onSwitchProfile: (String) -> Unit,
     onForgetProfile: (String) -> Boolean,
     onForgetServer: () -> Unit,
@@ -114,10 +119,16 @@ fun ConnectionSection(
     Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("Server", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(savedEndpoint ?: "Not configured", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("Server", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(savedEndpoint ?: "Not configured", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+            }
+            io.nexy.android.ui.connection.StandaloneModeToggle(
+                isStandaloneModeEnabled = preferStandaloneMode,
+                onToggle = onSetPreferStandaloneMode,
+            )
         }
     }
 
@@ -158,13 +169,8 @@ fun ConnectionSection(
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text("Status", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            val (label, color) = when (connectionState) {
-                ConnectionState.CONNECTED -> "Connected" to Color(0xFF22C55E)
-                ConnectionState.CONNECTING -> "Connecting…" to Color(0xFFF59E0B)
-                ConnectionState.POLLING -> "Searching…" to Color(0xFFF59E0B)
-                ConnectionState.DISCONNECTED -> "Disconnected" to Color(0xFFEF4444)
-            }
-            Text("● $label", color = color, style = MaterialTheme.typography.bodyMedium)
+            val presentation = io.nexy.android.ui.connection.getConnectionStatePresentation(connectionState)
+            Text("● ${presentation.label}", color = presentation.color, style = MaterialTheme.typography.bodyMedium)
         }
     }
 
@@ -185,9 +191,34 @@ fun ConnectionSection(
 }
 
 @Composable
+private fun ModelGroupList(models: List<ModelOption>) {
+    models
+        .filterNot { it.id == "default" }
+        .groupBy { it.vendor?.takeIf { vendor -> vendor.isNotBlank() } ?: "Other" }
+        .toSortedMap()
+        .forEach { (vendor, vendorModels) ->
+            Text(
+                vendor,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+            vendorModels.sortedBy { it.label.lowercase() }.forEach { model ->
+                Text(
+                    model.label,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+}
+
+@Composable
 fun ModelsSection(
     models: List<ModelOption>,
     modelSource: ModelListSource?,
+    effectiveMode: EffectiveConnectionMode,
     onRefresh: () -> Unit,
 ) {
     SettingsSectionHeader("Models")
@@ -213,25 +244,34 @@ fun ModelsSection(
                 Text(emptyModelListDetail(modelSource), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
                 Text("${models.size} available model${if (models.size == 1) "" else "s"}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                models
-                    .filterNot { it.id == "default" }
-                    .groupBy { it.vendor?.takeIf { vendor -> vendor.isNotBlank() } ?: "Other" }
-                    .toSortedMap()
-                    .forEach { (vendor, vendorModels) ->
+                val availabilityGroups = partitionModelsByAvailability(models, effectiveMode)
+                if (availabilityGroups != null) {
+                    Text(
+                        "Available now",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                    if (availabilityGroups.availableNow.isEmpty()) {
                         Text(
-                            vendor,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.padding(top = 6.dp),
+                            "No API-backed models available in standalone mode. Add a provider key in API Providers.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        vendorModels.sortedBy { it.label.lowercase() }.forEach { model ->
-                            Text(
-                                model.label,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
+                    } else {
+                        ModelGroupList(availabilityGroups.availableNow)
+                    }
+                    if (availabilityGroups.requiresDesktop.isNotEmpty()) {
+                        Text(
+                            "Requires desktop connection",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 10.dp),
+                        )
+                        ModelGroupList(availabilityGroups.requiresDesktop)
+                    }
+                } else {
+                    ModelGroupList(models)
                 }
             }
         }
@@ -391,9 +431,15 @@ fun UpdatesSection(
             }
             if (androidUpdateManifest != null) {
                 Text(
+                    "How updates work: when you trigger a build on desktop, Nexy automatically publishes the build artifact to the local network feed server. Android checks this feed periodically and downloads available updates. You can also tap Refresh above to check now.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                )
+                Text(
                     "To roll back: on the desktop, open Settings → Android → Published History and click Restore. Then uninstall the current app from Android Settings and tap Install update here.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(top = 8.dp),
                 )
             }
         }
@@ -485,7 +531,7 @@ fun ActionsSection(
         )
     }
 
-    SettingsSectionHeader("Actions")
+    SettingsSectionHeader("Connection Actions")
 
     Column(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
@@ -506,7 +552,14 @@ fun ActionsSection(
             modifier = Modifier.fillMaxWidth(),
             enabled = connectionState != ConnectionState.DISCONNECTED,
         )
+    }
 
+    SettingsSectionHeader("Server Management")
+
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
         NexyDangerButton(
             text = "Forget active server",
             onClick = { confirmForgetActive = true },

@@ -2,6 +2,7 @@ package io.nexy.android.ui.home
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,6 +35,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -43,6 +45,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -56,6 +59,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import io.nexy.android.data.WsRepository
@@ -70,12 +74,14 @@ import io.nexy.android.data.model.McpServerInfo
 import io.nexy.android.data.model.SkillConfig
 import io.nexy.android.data.model.ToolConfig
 import io.nexy.android.data.model.WsEvent
+import io.nexy.android.ui.chat.ModelPickerSheet
 import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyConnectionBanner
 import io.nexy.android.ui.components.NexyExpandableSection
 import io.nexy.android.ui.components.NexyInputValidation
 import io.nexy.android.ui.components.NexySearchField
 import io.nexy.android.ui.components.NexyTopAppBar
+import io.nexy.android.ui.model.activeModelLabel
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -120,6 +126,9 @@ fun AgentConfigScreen(
     val fullConfig by WsRepository.agentFullConfig.collectAsState()
     val skills by WsRepository.skills.collectAsState()
     val availableMcpServers by WsRepository.mcpServers.collectAsState()
+    val models by WsRepository.models.collectAsState()
+    val cliStatus by WsRepository.cliStatus.collectAsState()
+    val effectiveMode by WsRepository.effectiveMode.collectAsState()
     val agent = agents.find { it.id == agentId }
 
     // Identity
@@ -135,6 +144,8 @@ fun AgentConfigScreen(
     var backend by remember { mutableStateOf<String?>(null) }
     var cliModel by remember { mutableStateOf("") }
     var backendMenuExpanded by remember { mutableStateOf(false) }
+    var showCliModelSheet by remember { mutableStateOf(false) }
+    val cliModelSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     // Generation
     var responseFormat by remember { mutableStateOf("default") }
     var responseFormatMenuExpanded by remember { mutableStateOf(false) }
@@ -261,6 +272,25 @@ fun AgentConfigScreen(
         )
     }
 
+    if (showCliModelSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showCliModelSheet = false },
+            sheetState = cliModelSheetState,
+            containerColor = MaterialTheme.colorScheme.surface,
+        ) {
+            ModelPickerSheet(
+                title = "CLI model (optional)",
+                models = models,
+                cliStatus = cliStatus,
+                selectedModelId = cliModel.ifBlank { null },
+                effectiveMode = effectiveMode,
+            ) { modelId ->
+                cliModel = modelId ?: ""
+                scope.launch { cliModelSheetState.hide() }.invokeOnCompletion { showCliModelSheet = false }
+            }
+        }
+    }
+
     LaunchedEffect(agentId) {
         WsRepository.agentFullConfig.value = null
         WsRepository.requestAgentFull(agentId)
@@ -270,6 +300,10 @@ fun AgentConfigScreen(
         WsRepository.listKnowledgeFiles(agentId)
         WsRepository.getMcpToolOverrides(agentId)
         WsRepository.getMcpServerTrust(agentId)
+    }
+
+    LaunchedEffect(backend) {
+        WsRepository.send("model:list", backend?.let { mapOf("backend" to it) } ?: emptyMap())
     }
 
     LaunchedEffect(fullConfig) {
@@ -432,7 +466,7 @@ fun AgentConfigScreen(
                             singleLine = true,
                             enabled = !saving && !disconnected,
                             errorMessage = nameError,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true, imeAction = ImeAction.Done),
                             modifier = Modifier.weight(0.72f),
                         )
                     }
@@ -455,6 +489,7 @@ fun AgentConfigScreen(
                         enabled = !saving && !disconnected,
                         minLines = 4,
                         maxLines = 12,
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
                         modifier = Modifier.fillMaxWidth(),
                     )
 
@@ -466,6 +501,7 @@ fun AgentConfigScreen(
                         enabled = !saving && !disconnected,
                         minLines = 3,
                         maxLines = 8,
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
                         modifier = Modifier.fillMaxWidth(),
                     )
 
@@ -555,16 +591,25 @@ fun AgentConfigScreen(
                     }
 
                     if (backend != null) {
-                        OutlinedTextField(
-                            value = cliModel,
-                            onValueChange = { cliModel = it },
-                            label = { Text("CLI model (optional)") },
-                            placeholder = { Text("e.g. claude-sonnet-4-6") },
-                            singleLine = true,
-                            enabled = !saving && !disconnected,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                            modifier = Modifier.fillMaxWidth(),
-                        )
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedTextField(
+                                value = if (cliModel.isBlank()) "" else activeModelLabel(cliModel, models),
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("CLI model (optional)") },
+                                placeholder = { Text("e.g. claude-sonnet-4-6") },
+                                singleLine = true,
+                                enabled = !saving && !disconnected,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            if (!saving && !disconnected) {
+                                Box(
+                                    modifier = Modifier
+                                        .matchParentSize()
+                                        .clickable { showCliModelSheet = true },
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -1187,7 +1232,7 @@ private fun CustomCommandsEditor(
                         label = { Text("Description") },
                         singleLine = true,
                         enabled = !disabled,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true, imeAction = ImeAction.Next),
                         modifier = Modifier.fillMaxWidth(),
                     )
                     OutlinedTextField(
@@ -1201,6 +1246,7 @@ private fun CustomCommandsEditor(
                         enabled = !disabled,
                         minLines = 3,
                         maxLines = 8,
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
