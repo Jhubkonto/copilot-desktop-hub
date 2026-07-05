@@ -357,6 +357,9 @@ export function createMockApi() {
     testProviderKey: vi.fn().mockResolvedValue({ success: true }),
     getAzureEndpoint: vi.fn().mockResolvedValue(''),
     setAzureEndpoint: vi.fn().mockResolvedValue(undefined),
+    confirmProviderKeyHandoff: vi.fn().mockResolvedValue(undefined),
+    onProviderKeyHandoffRequest: vi.fn().mockReturnValue(() => {}),
+    onProviderKeyHandoffSent: vi.fn().mockReturnValue(() => {}),
 
     // Prompt Library
     listPrompts: vi.fn().mockResolvedValue([]),
