@@ -60,9 +60,14 @@ A provider-agnostic native AI workspace — locally-first, with custom agents, m
 
 ### Android Companion App
 
-Full-featured Kotlin + Jetpack Compose companion that mirrors most desktop capabilities over a local WebSocket connection:
+Local-first Kotlin + Jetpack Compose app that works independently and synchronizes with a paired
+desktop over the authenticated WebSocket connection:
 
 - Pairing via QR code scan or manual token entry (mDNS/Bonjour auto-discovery, optional TLS with self-signed cert)
+- Standalone launch, Room-backed cached data, durable drafts, and an idempotent synchronization outbox
+- Direct Anthropic, OpenAI, and OpenRouter chat with encrypted Android-local credentials
+- Versioned peer synchronization with snapshots, incremental batches, tombstones, and conflict review
+- Encrypted export/restore including content-addressed standalone attachments
 - Home screen with scoped conversation history (filter by project or agent)
 - Chat screen with live streaming output and voice input (on-device speech-to-text)
 - Tool call approval with real-time activity feed (thinking, tool execution)
@@ -77,6 +82,13 @@ Full-featured Kotlin + Jetpack Compose companion that mirrors most desktop capab
 - Android build dashboard
 - Appearance settings (theme)
 - Live connected-device count shown in desktop Settings → Mobile tab
+
+See [Android standalone mode](docs/android-standalone.md) for offline limits, synchronization,
+conflict handling, backups, and desktop-required capabilities. The
+[standalone data and capability contract](docs/android-standalone-contract.md) defines identifiers,
+record ownership, excluded fields, and the per-area capability matrix. The
+[rollout and recovery policy](docs/android-standalone-rollout.md) defines privacy defaults, staged
+enablement, automatic rollback criteria, and the release checklist.
 
 ### Desktop Experience
 
