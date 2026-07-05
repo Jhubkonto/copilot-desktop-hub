@@ -13,6 +13,36 @@ sealed class WsEvent {
         val broadcastAddress: String? = null,
         val mDnsName: String? = null,
     ) : WsEvent()
+    data class SyncWelcome(
+        val protocolVersion: Int,
+        val desktopDeviceId: String,
+        val datasetId: String,
+        val snapshotJson: String,
+    ) : WsEvent()
+    data class SyncAck(
+        val operationIds: List<String>,
+        val lastReceivedSequence: Long,
+        val conflictsJson: String,
+        val snapshotJson: String?,
+    ) : WsEvent()
+    data class SyncConflictResolved(val conflictId: String, val resolution: String?) : WsEvent()
+    data class SyncError(val code: String, val message: String, val supportedProtocolVersion: Int?) : WsEvent()
+    data class SyncAttachmentStatus(
+        val contentHash: String,
+        val nextOffset: Long,
+        val complete: Boolean,
+    ) : WsEvent()
+    data class SyncAttachmentChunk(
+        val contentHash: String,
+        val displayName: String,
+        val mimeType: String,
+        val attachmentId: String?,
+        val messageId: String?,
+        val sizeBytes: Long,
+        val offset: Long,
+        val dataBase64: String,
+        val complete: Boolean,
+    ) : WsEvent()
     data class ToolApprovalRequest(
         val requestId: String,
         val toolName: String,

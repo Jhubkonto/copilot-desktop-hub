@@ -13,6 +13,7 @@ data class Conversation(
     val model: String? = null,
     val last_message: String? = null,
     val pinned: Boolean = false,
+    val archived: Boolean = false,
     val completed_at: Long? = null,
 )
 

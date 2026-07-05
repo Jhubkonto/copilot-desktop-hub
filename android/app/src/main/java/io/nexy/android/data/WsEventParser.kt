@@ -129,6 +129,53 @@ fun parseWsEvent(
                 WsEvent.Connected(version, macAddress, broadcastAddress, mDnsName)
             }
 
+            "sync:welcome" -> WsEvent.SyncWelcome(
+                protocolVersion = data?.optInt("protocolVersion", 0) ?: 0,
+                desktopDeviceId = data?.optString("desktopDeviceId") ?: "",
+                datasetId = data?.optString("datasetId") ?: "",
+                snapshotJson = data?.optJSONObject("snapshot")?.toString() ?: "{}",
+            )
+
+            "sync:ack" -> {
+                val ids = data?.optJSONArray("operationIds")
+                WsEvent.SyncAck(
+                    operationIds = if (ids == null) emptyList() else (0 until ids.length()).map(ids::optString),
+                    lastReceivedSequence = data?.optLong("lastReceivedSequence", 0L) ?: 0L,
+                    conflictsJson = data?.optJSONArray("conflicts")?.toString() ?: "[]",
+                    snapshotJson = data?.optJSONObject("snapshot")?.toString(),
+                )
+            }
+
+            "sync:conflict-resolved" -> WsEvent.SyncConflictResolved(
+                conflictId = data?.optString("conflictId") ?: "",
+                resolution = data?.nullableString("resolution"),
+            )
+
+            "sync:error" -> WsEvent.SyncError(
+                code = data?.optString("code") ?: "sync-failed",
+                message = data?.optString("message") ?: "Synchronization failed",
+                supportedProtocolVersion = data?.takeIf { it.has("supportedProtocolVersion") }
+                    ?.optInt("supportedProtocolVersion"),
+            )
+
+            "sync:attachment-status" -> WsEvent.SyncAttachmentStatus(
+                contentHash = data?.optString("contentHash") ?: "",
+                nextOffset = data?.optLong("nextOffset", 0L) ?: 0L,
+                complete = data?.optBoolean("complete", false) ?: false,
+            )
+
+            "sync:attachment-chunk" -> WsEvent.SyncAttachmentChunk(
+                contentHash = data?.optString("contentHash") ?: "",
+                displayName = data?.optString("displayName") ?: "attachment",
+                mimeType = data?.optString("mimeType") ?: "application/octet-stream",
+                attachmentId = data?.nullableString("attachmentId"),
+                messageId = data?.nullableString("messageId"),
+                sizeBytes = data?.optLong("sizeBytes", 0L) ?: 0L,
+                offset = data?.optLong("offset", 0L) ?: 0L,
+                dataBase64 = data?.optString("dataBase64") ?: "",
+                complete = data?.optBoolean("complete", false) ?: false,
+            )
+
             "tool:approval-request" -> WsEvent.ToolApprovalRequest(
                 requestId = data?.optString("requestId") ?: "",
                 toolName = data?.optString("toolName") ?: "",
@@ -717,53 +764,7 @@ fun parseWsEvent(
 
             "agent:full" -> {
                 val a = data?.optJSONObject("agent") ?: return
-                val mcpServersArr = a.optJSONArray("mcpServers")
-                val mcpServersList = if (mcpServersArr != null) (0 until mcpServersArr.length()).map { mcpServersArr.optString(it) } else emptyList()
-                val ctxDirsArr = a.optJSONArray("contextDirectories")
-                val contextDirectories = if (ctxDirsArr != null) (0 until ctxDirsArr.length()).map { ctxDirsArr.optString(it) } else emptyList()
-                val ctxFilesArr = a.optJSONArray("contextFiles")
-                val contextFiles = if (ctxFilesArr != null) (0 until ctxFilesArr.length()).map { ctxFilesArr.optString(it) } else emptyList()
-                val contextRules = a.optJSONObject("contextRules")?.let { r ->
-                    val globsArr = r.optJSONArray("ignoredGlobs")
-                    AgentContextRules(
-                        ignoredGlobs = if (globsArr != null) (0 until globsArr.length()).map { globsArr.optString(it) } else emptyList(),
-                        autoInjectWorkspace = r.optBoolean("autoInjectWorkspace", true),
-                        autoInjectGit = r.optBoolean("autoInjectGit", true),
-                    )
-                }
-                val cmdsArr = a.optJSONArray("customCommands")
-                val customCommands = if (cmdsArr != null) {
-                    (0 until cmdsArr.length()).mapNotNull { i ->
-                        val c = cmdsArr.optJSONObject(i) ?: return@mapNotNull null
-                        AgentCustomCommand(
-                            name = c.optString("name", ""),
-                            description = c.optString("description", ""),
-                            prompt = c.optString("prompt", ""),
-                        )
-                    }
-                } else emptyList()
-                val config = AgentFullConfig(
-                    id = a.optString("id"),
-                    name = a.optString("name"),
-                    icon = a.optString("icon", ""),
-                    systemPrompt = a.optString("systemPrompt", ""),
-                    backend = a.nullableString("backend"),
-                    cliModel = a.nullableString("cliModel"),
-                    temperature = a.optDouble("temperature", 0.7).toFloat(),
-                    maxTokens = a.optInt("maxTokens", 8192),
-                    responseFormat = a.optString("responseFormat", "default"),
-                    agenticMode = a.optBoolean("agenticMode", false),
-                    fullAutoApprove = a.optBoolean("fullAutoApprove", false),
-                    memory = a.optString("memory", ""),
-                    tools = parseAgentTools(a.optJSONObject("tools")),
-                    mcpServers = mcpServersList,
-                    thinkingEffort = a.nullableString("thinkingEffort"),
-                    rootDirectory = a.nullableString("rootDirectory"),
-                    contextDirectories = contextDirectories,
-                    contextFiles = contextFiles,
-                    contextRules = contextRules,
-                    customCommands = customCommands,
-                )
+                val config = parseAgentFullConfig(a)
                 agentFullConfig.value = config
                 WsEvent.AgentFull(config)
             }
@@ -1226,33 +1227,9 @@ fun parseWsEvent(
 
             "project:config" -> {
                 val c = data?.optJSONObject("config") ?: JSONObject()
-                fun strMap(obj: JSONObject): Map<String, String> {
-                    val m = mutableMapOf<String, String>()
-                    obj.keys().forEach { key ->
-                        if (!obj.isNull(key)) m[key] = obj.optString(key)
-                    }
-                    return m
-                }
-                fun objList(key: String): List<Map<String, String>> {
-                    val arr = c.optJSONArray(key) ?: return emptyList()
-                    return (0 until arr.length()).map { strMap(arr.optJSONObject(it) ?: JSONObject()) }
-                }
                 WsEvent.ProjectConfig(
                     id = data?.optString("id") ?: "",
-                    config = ProjectSettingsConfig(
-                        instructions = c.optString("instructions", ""),
-                        rootDirectory = c.nullableString("rootDirectory"),
-                        variables = objList("variables"),
-                        instructionMode = c.optString("instructionMode", "prepend"),
-                        instructionsEnabled = c.optBoolean("instructionsEnabled", true),
-                        orchestrationEnabled = c.optBoolean("orchestrationEnabled", false),
-                        maxDelegationDepth = c.optInt("maxDelegationDepth", 5).coerceIn(1, 10),
-                        showTeamActivity = c.optBoolean("showTeamActivity", true),
-                        inScope = objList("inScope"),
-                        outOfScope = objList("outOfScope"),
-                        milestones = objList("milestones"),
-                        defaultModel = c.nullableString("defaultModel"),
-                    ),
+                    config = parseProjectSettingsConfig(c),
                 )
             }
 
@@ -1821,7 +1798,7 @@ private fun parseMcpServerWithStatus(s: JSONObject): McpServerWithStatus {
     )
 }
 
-private fun parseWikiEntry(obj: JSONObject): WikiEntry {
+internal fun parseWikiEntry(obj: JSONObject): WikiEntry {
     fun strList(key: String): List<String> {
         val arr = obj.optJSONArray(key) ?: return emptyList()
         return (0 until arr.length()).map { arr.optString(it) }.filter { it.isNotBlank() }
@@ -1859,7 +1836,7 @@ private fun parseArtifactVersion(obj: JSONObject): ArtifactVersionSummary {
     )
 }
 
-private fun parseSkillConfig(obj: JSONObject): SkillConfig {
+internal fun parseSkillConfig(obj: JSONObject): SkillConfig {
     fun strList(key: String): List<String> {
         val arr = obj.optJSONArray(key) ?: return emptyList()
         return (0 until arr.length()).map { arr.optString(it) }.filter { it.isNotBlank() }
@@ -1915,7 +1892,7 @@ private fun parseSkillConfig(obj: JSONObject): SkillConfig {
     )
 }
 
-private fun parsePromptEntry(obj: JSONObject): PromptEntry {
+internal fun parsePromptEntry(obj: JSONObject): PromptEntry {
     fun strList(key: String): List<String> {
         val arr = obj.optJSONArray(key) ?: return emptyList()
         return (0 until arr.length()).map { arr.optString(it) }.filter { it.isNotBlank() }
@@ -2020,6 +1997,77 @@ private fun parseProjectGeneratorSpec(data: org.json.JSONObject?): ProjectGenera
         orchestrationEnabled = d.optBoolean("orchestrationEnabled", true),
         defaultModel = d.nullableString("defaultModel"),
         agents = agents,
+    )
+}
+
+internal fun parseAgentFullConfig(a: JSONObject): AgentFullConfig {
+    fun stringList(key: String): List<String> {
+        val array = a.optJSONArray(key) ?: return emptyList()
+        return (0 until array.length()).map(array::optString).filter(String::isNotBlank)
+    }
+    val contextRules = a.optJSONObject("contextRules")?.let { rules ->
+        val globs = rules.optJSONArray("ignoredGlobs")
+        AgentContextRules(
+            ignoredGlobs = if (globs == null) emptyList() else (0 until globs.length()).map(globs::optString),
+            autoInjectWorkspace = rules.optBoolean("autoInjectWorkspace", true),
+            autoInjectGit = rules.optBoolean("autoInjectGit", true),
+        )
+    }
+    val commands = a.optJSONArray("customCommands")
+    return AgentFullConfig(
+        id = a.optString("id"),
+        name = a.optString("name"),
+        icon = a.optString("icon", ""),
+        systemPrompt = a.optString("systemPrompt", ""),
+        backend = a.nullableString("backend"),
+        cliModel = a.nullableString("cliModel"),
+        temperature = a.optDouble("temperature", 0.7).toFloat(),
+        maxTokens = a.optInt("maxTokens", 8192),
+        responseFormat = a.optString("responseFormat", "default"),
+        agenticMode = a.optBoolean("agenticMode", false),
+        fullAutoApprove = a.optBoolean("fullAutoApprove", false),
+        memory = a.optString("memory", ""),
+        tools = parseAgentTools(a.optJSONObject("tools")),
+        mcpServers = stringList("mcpServers"),
+        thinkingEffort = a.nullableString("thinkingEffort"),
+        rootDirectory = a.nullableString("rootDirectory"),
+        contextDirectories = stringList("contextDirectories"),
+        contextFiles = stringList("contextFiles"),
+        contextRules = contextRules,
+        customCommands = if (commands == null) emptyList() else (0 until commands.length()).mapNotNull { index ->
+            commands.optJSONObject(index)?.let {
+                AgentCustomCommand(
+                    name = it.optString("name"),
+                    description = it.optString("description"),
+                    prompt = it.optString("prompt"),
+                )
+            }
+        },
+    )
+}
+
+internal fun parseProjectSettingsConfig(config: JSONObject): ProjectSettingsConfig {
+    fun stringMap(obj: JSONObject): Map<String, String> =
+        obj.keys().asSequence()
+            .filterNot(obj::isNull)
+            .associateWith(obj::optString)
+    fun objectList(key: String): List<Map<String, String>> {
+        val array = config.optJSONArray(key) ?: return emptyList()
+        return (0 until array.length()).map { stringMap(array.optJSONObject(it) ?: JSONObject()) }
+    }
+    return ProjectSettingsConfig(
+        instructions = config.optString("instructions", ""),
+        rootDirectory = config.nullableString("rootDirectory"),
+        variables = objectList("variables"),
+        instructionMode = config.optString("instructionMode", "prepend"),
+        instructionsEnabled = config.optBoolean("instructionsEnabled", true),
+        orchestrationEnabled = config.optBoolean("orchestrationEnabled", false),
+        maxDelegationDepth = config.optInt("maxDelegationDepth", 5).coerceIn(1, 10),
+        showTeamActivity = config.optBoolean("showTeamActivity", true),
+        inScope = objectList("inScope"),
+        outOfScope = objectList("outOfScope"),
+        milestones = objectList("milestones"),
+        defaultModel = config.nullableString("defaultModel"),
     )
 }
 

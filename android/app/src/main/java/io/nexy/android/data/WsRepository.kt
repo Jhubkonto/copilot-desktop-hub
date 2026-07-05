@@ -34,7 +34,14 @@ import io.nexy.android.data.model.ProviderInfo
 import io.nexy.android.data.model.SkillConfig
 import io.nexy.android.data.model.ThinkingBlock
 import io.nexy.android.data.model.WsEvent
+import io.nexy.android.data.local.LocalDataRepository
+import io.nexy.android.data.local.ConflictEntity
+import io.nexy.android.data.local.OutboxEntity
+import io.nexy.android.data.repository.CapabilityState
+import io.nexy.android.data.repository.InternetState
 import io.nexy.android.notification.ApprovalNotificationManager
+import io.nexy.android.notification.ChatCompleteNotificationManager
+import io.nexy.android.NexyApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -56,6 +63,13 @@ import java.util.concurrent.TimeUnit
 enum class ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, POLLING }
 
 object WsRepository : WsClient {
+
+    private val STANDALONE_MODELS = listOf(
+        ModelOption("claude-sonnet-4-6", "Claude Sonnet 4.6", "Anthropic"),
+        ModelOption("claude-opus-4-6", "Claude Opus 4.6", "Anthropic"),
+        ModelOption("gpt-5.4", "GPT-5.4", "OpenAI"),
+        ModelOption("gpt-5.4-mini", "GPT-5.4 Mini", "OpenAI"),
+    )
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
@@ -80,6 +94,7 @@ object WsRepository : WsClient {
 
     private val _events = MutableSharedFlow<WsEvent>(extraBufferCapacity = 64)
     override val events: SharedFlow<WsEvent> = _events
+    private val _remoteEvents = MutableSharedFlow<WsEvent>(extraBufferCapacity = 64)
 
     private val _conversations = MutableStateFlow<List<Conversation>>(emptyList())
     val conversations: StateFlow<List<Conversation>> = _conversations
@@ -97,10 +112,12 @@ object WsRepository : WsClient {
     private val _projects = MutableStateFlow<List<Project>>(emptyList())
     val projects: StateFlow<List<Project>> = _projects
 
-    private val _models = MutableStateFlow<List<ModelOption>>(emptyList())
+    private val _models = MutableStateFlow(STANDALONE_MODELS)
     val models: StateFlow<List<ModelOption>> = _models
 
-    private val _modelSource = MutableStateFlow<ModelListSource?>(null)
+    private val _modelSource = MutableStateFlow<ModelListSource?>(
+        ModelListSource(type = "standalone", label = "On-device catalog"),
+    )
     val modelSource: StateFlow<ModelListSource?> = _modelSource
 
     private val _androidUpdateManifest = MutableStateFlow<AndroidUpdateManifest?>(null)
@@ -220,10 +237,28 @@ object WsRepository : WsClient {
     private var app: Application? = null
     private var pairedServerStore: PairedServerStore? = null
     private var networkMonitor: NetworkReconnectMonitor? = null
+    private var localData: LocalDataRepository? = null
+    private var standaloneProviders: StandaloneProviderStore? = null
+    private var standaloneChat: StandaloneChatService? = null
+
+    private val _capabilities = MutableStateFlow(CapabilityState())
+    val capabilities: StateFlow<CapabilityState> = _capabilities
+    private val _syncConflicts = MutableStateFlow<List<ConflictEntity>>(emptyList())
+    val syncConflicts: StateFlow<List<ConflictEntity>> = _syncConflicts
+    private val _syncOutbox = MutableStateFlow<List<OutboxEntity>>(emptyList())
+    val syncOutbox: StateFlow<List<OutboxEntity>> = _syncOutbox
+    private val _syncInProgress = MutableStateFlow(false)
+    val syncInProgress: StateFlow<Boolean> = _syncInProgress
 
     private val pendingCommands = mutableListOf<Pair<String, Map<String, Any>>>()
 
     init {
+        scope.launch {
+            _remoteEvents.collect { event ->
+                localData?.applyRemoteEvent(event)
+                _events.emit(event)
+            }
+        }
         scope.launch {
             events.collect { event ->
                 when (event) {
@@ -246,6 +281,12 @@ object WsRepository : WsClient {
                         // Track conversations that completed while not being viewed
                         if (event.state == "complete" && activelyViewedConversationId.value != event.conversationId) {
                             _completedWhileAwayIds.value = _completedWhileAwayIds.value + event.conversationId
+                            val application = app
+                            if (application != null && !NexyApp.isInForeground && _connectionState.value != ConnectionState.CONNECTED) {
+                                val title = _conversations.value.firstOrNull { it.id == event.conversationId }?.title
+                                    ?: "Chat"
+                                ChatCompleteNotificationManager.show(application, event.conversationId, title)
+                            }
                         }
                         // Maintain in-flight snapshot for re-entry restoration
                         if (event.state in doneStates) {
@@ -324,6 +365,49 @@ object WsRepository : WsClient {
                     is WsEvent.Connected -> {
                         // Desktop came back online — clear the restart-expected flag
                         _intentionalRestartExpected.value = false
+                        beginStandaloneSync()
+                    }
+                    is WsEvent.SyncWelcome -> {
+                        scope.launch {
+                            localData?.applySyncSnapshot(event.snapshotJson)
+                            acknowledgeStandaloneSnapshot(event.snapshotJson)
+                            resumeAttachmentTransfers(event.snapshotJson)
+                            flushStandaloneOutbox()
+                        }
+                    }
+                    is WsEvent.SyncAck -> {
+                        scope.launch {
+                            localData?.acknowledge(event.operationIds)
+                            localData?.applySyncConflicts(event.conflictsJson)
+                            event.snapshotJson?.let {
+                                localData?.applySyncSnapshot(it)
+                                resumeAttachmentTransfers(it)
+                            }
+                            flushStandaloneOutbox()
+                        }
+                    }
+                    is WsEvent.SyncAttachmentStatus -> scope.launch {
+                        handleAttachmentStatus(event)
+                    }
+                    is WsEvent.SyncAttachmentChunk -> scope.launch {
+                        handleAttachmentChunk(event)
+                    }
+                    is WsEvent.SyncConflictResolved -> {
+                        if (event.conflictId.isNotBlank()) {
+                            scope.launch {
+                                localData?.resolveConflict(event.conflictId, event.resolution ?: "remote")
+                                beginStandaloneSync()
+                            }
+                        }
+                    }
+                    is WsEvent.SyncError -> {
+                        _syncInProgress.value = false
+                        _lastError.value = event.message
+                        scope.launch {
+                            localData?.pendingBatch(100)?.forEach { operation ->
+                                localData?.markFailed(operation.operationId, event.message)
+                            }
+                        }
                     }
                     is WsEvent.RemoteEditActiveCodeChangesChanged -> {
                         _activeCodeChangesByProject.value = event.countsByProjectId
@@ -351,6 +435,34 @@ object WsRepository : WsClient {
 
     fun init(application: Application) {
         app = application
+        localData = LocalDataRepository.get(application).also { local ->
+            scope.launch { local.recoverInterruptedTurns() }
+            scope.launch { local.conversations.collect { _conversations.value = it } }
+            scope.launch { local.agents.collect { _agents.value = it } }
+            scope.launch { local.projects.collect { _projects.value = it } }
+            scope.launch { local.skills.collect { _skills.value = it } }
+            scope.launch { local.wikiEntries.collect { _wikiEntries.value = it } }
+            scope.launch { local.promptEntries.collect { _promptEntries.value = it } }
+            scope.launch { local.capabilities.collect { _capabilities.value = it } }
+            scope.launch { local.conflicts.collect { _syncConflicts.value = it } }
+            scope.launch { local.outbox.collect { _syncOutbox.value = it } }
+            scope.launch {
+                _connectionState.collect { state ->
+                    local.setDesktopConnected(state == ConnectionState.CONNECTED)
+                }
+            }
+        }
+        standaloneProviders = StandaloneProviderStore.get(application)
+        scope.launch {
+            standaloneProviders?.providers?.collect { localProviders ->
+                if (_connectionState.value != ConnectionState.CONNECTED) _providers.value = localProviders
+            }
+        }
+        standaloneChat = StandaloneChatService(
+            localData = checkNotNull(localData),
+            providerStore = checkNotNull(standaloneProviders),
+            emit = { event -> _events.emit(event) },
+        )
         pairedServerStore = runCatching { PairedServerStore(application) }
             .onFailure { _lastError.value = it.message ?: "Unable to open secure pairing storage" }
             .getOrNull()
@@ -536,7 +648,7 @@ object WsRepository : WsClient {
         parseWsEvent(
             text = text,
             scope = scope,
-            events = _events,
+            events = _remoteEvents,
             serverVersion = _serverVersion,
             conversations = _conversations,
             projects = _projects,
@@ -602,6 +714,7 @@ object WsRepository : WsClient {
     // (e.g. WireGuard VPN comes up, Wi-Fi switches). If we're not already connected,
     // cancel any pending retry and attempt immediately.
     fun onNetworkAvailable() {
+        localData?.setInternetState(InternetState.AVAILABLE)
         if (currentUrl == null || currentToken == null) return
         val state = _connectionState.value
         if (state == ConnectionState.CONNECTED) return
@@ -612,6 +725,176 @@ object WsRepository : WsClient {
         ws?.cancel()
         _connectionState.value = ConnectionState.DISCONNECTED
         scheduleReconnect()
+    }
+
+    fun onNetworkUnavailable() {
+        localData?.setInternetState(InternetState.UNAVAILABLE)
+    }
+
+    private fun beginStandaloneSync() {
+        val local = localData ?: return
+        val token = currentToken ?: return
+        val datasetId = syncDatasetId(token)
+        if (!local.bindDataset(datasetId)) {
+            _syncInProgress.value = false
+            _lastError.value = "This Android dataset belongs to a different paired desktop. Restore or clear local data before switching datasets."
+            return
+        }
+        _syncInProgress.value = true
+        send(
+            "sync:hello",
+            mapOf(
+                "deviceId" to local.deviceId,
+                "deviceName" to android.os.Build.MODEL,
+                "datasetId" to datasetId,
+                "protocolVersion" to 1,
+                "schemaVersion" to 2,
+                "supportedEntityTypes" to listOf("project", "agent", "conversation", "message", "wiki", "prompt", "skill"),
+                "attachmentSupport" to "metadata",
+                "maxBatchSize" to 100,
+            ),
+        )
+    }
+
+    private suspend fun flushStandaloneOutbox() {
+        if (_connectionState.value != ConnectionState.CONNECTED) return
+        val local = localData ?: return
+        val token = currentToken ?: return
+        val operations = local.pendingBatch(100)
+        if (operations.isEmpty()) {
+            _syncInProgress.value = false
+            return
+        }
+        _syncInProgress.value = true
+        send(
+            "sync:push",
+            mapOf(
+                "deviceId" to local.deviceId,
+                "datasetId" to syncDatasetId(token),
+                "protocolVersion" to 1,
+                "operations" to operations.map { operation ->
+                    mapOf(
+                        "operationId" to operation.operationId,
+                        "deviceId" to operation.deviceId,
+                        "deviceSequence" to operation.deviceSequence,
+                        "entityType" to operation.entityType,
+                        "entityId" to operation.entityId,
+                        "operation" to operation.operation,
+                        "payloadJson" to operation.payloadJson,
+                        "baseRemoteVersion" to operation.baseRemoteVersion,
+                    )
+                },
+            ),
+        )
+    }
+
+    private fun acknowledgeStandaloneSnapshot(snapshotJson: String) {
+        val token = currentToken ?: return
+        val snapshot = runCatching { JSONObject(snapshotJson) }.getOrNull() ?: return
+        val tombstones = snapshot.optJSONArray("tombstones") ?: org.json.JSONArray()
+        val items = (0 until tombstones.length()).mapNotNull { index ->
+            val item = tombstones.optJSONObject(index) ?: return@mapNotNull null
+            mapOf(
+                "entityType" to item.optString("entityType"),
+                "entityId" to item.optString("entityId"),
+                "version" to item.optLong("version"),
+            )
+        }
+        send(
+            "sync:snapshot-ack",
+            mapOf(
+                "datasetId" to syncDatasetId(token),
+                "tombstones" to items,
+            ),
+        )
+    }
+
+    private suspend fun resumeAttachmentTransfers(snapshotJson: String) {
+        val local = localData ?: return
+        local.pendingAttachmentUploads().forEach { attachment ->
+            send(
+                "sync:attachment-manifest",
+                mapOf(
+                    "contentHash" to attachment.contentHash,
+                    "displayName" to attachment.displayName,
+                    "mimeType" to attachment.mimeType,
+                    "sizeBytes" to attachment.sizeBytes,
+                    "attachmentId" to attachment.id,
+                    "messageId" to (attachment.messageId ?: ""),
+                ),
+            )
+        }
+        local.prepareAttachmentDownloads(snapshotJson).forEach { download ->
+            requestAttachmentChunk(download.contentHash, download.nextOffset)
+        }
+    }
+
+    private suspend fun handleAttachmentStatus(event: WsEvent.SyncAttachmentStatus) {
+        val local = localData ?: return
+        if (event.complete) {
+            local.markAttachmentTransferred(event.contentHash)
+            return
+        }
+        val data = local.attachmentChunk(event.contentHash, event.nextOffset) ?: return
+        send(
+            "sync:attachment-chunk",
+            mapOf(
+                "contentHash" to event.contentHash,
+                "offset" to event.nextOffset,
+                "dataBase64" to data,
+            ),
+        )
+    }
+
+    private suspend fun handleAttachmentChunk(event: WsEvent.SyncAttachmentChunk) {
+        val next = localData?.appendAttachmentChunk(
+            hash = event.contentHash,
+            expectedSize = event.sizeBytes,
+            offset = event.offset,
+            dataBase64 = event.dataBase64,
+            complete = event.complete,
+        ) ?: return
+        requestAttachmentChunk(next.contentHash, next.nextOffset)
+    }
+
+    private fun requestAttachmentChunk(hash: String, offset: Long) {
+        send("sync:attachment-pull", mapOf("contentHash" to hash, "offset" to offset))
+    }
+
+    private fun syncDatasetId(token: String): String {
+        val bytes = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(token.toByteArray(Charsets.UTF_8))
+        return bytes.take(12).joinToString("") { "%02x".format(it) }
+    }
+
+    fun retryStandaloneSync() {
+        if (_connectionState.value == ConnectionState.CONNECTED) beginStandaloneSync()
+    }
+
+    fun retryStandaloneOperation(operationId: String) {
+        scope.launch {
+            localData?.retryOperation(operationId)
+            if (_connectionState.value == ConnectionState.CONNECTED) flushStandaloneOutbox()
+        }
+    }
+
+    fun discardStandaloneOperation(operationId: String) {
+        scope.launch {
+            localData?.discardOperation(operationId)
+            if (_connectionState.value == ConnectionState.CONNECTED) beginStandaloneSync()
+        }
+    }
+
+    fun resolveSyncConflict(conflictId: String, useAndroidVersion: Boolean) {
+        if (_connectionState.value != ConnectionState.CONNECTED) return
+        send(
+            "sync:resolve-conflict",
+            mapOf(
+                "conflictId" to conflictId,
+                // Desktop calls its own value "local"; the incoming Android operation is "remote".
+                "resolution" to if (useAndroidVersion) "remote" else "local",
+            ),
+        )
     }
 
     private val BACKOFF_DELAYS = longArrayOf(1_000, 2_000, 4_000, 8_000, 16_000, 30_000)
@@ -629,22 +912,17 @@ object WsRepository : WsClient {
         ws?.close(1000, "User disconnected")
         ws = null
         _connectionState.value = ConnectionState.DISCONNECTED
-        _conversations.value = emptyList()
-        _agents.value = emptyList()
-        _projects.value = emptyList()
-        _models.value = emptyList()
-        _modelSource.value = null
+        _syncInProgress.value = false
+        _models.value = STANDALONE_MODELS
+        _modelSource.value = ModelListSource(type = "standalone", label = "On-device catalog")
         _androidUpdateManifest.value = null
         _serverVersion.value = null
         _errorReports.value = emptyList()
         _activeCodeChangesByProject.value = emptyMap()
-        _providers.value = emptyList()
+        _providers.value = standaloneProviders?.providers?.value.orEmpty()
         _mcpServers.value = emptyList()
-        _skills.value = emptyList()
         _skillAgentUsage.value = emptyMap()
         _artifacts.value = emptyList()
-        _wikiEntries.value = emptyList()
-        _promptEntries.value = emptyList()
         _cliStatus.value = emptyMap()
         _scheduledTasks.value = emptyList()
         _scheduledRuns.value = emptyMap()
@@ -677,6 +955,17 @@ object WsRepository : WsClient {
 
     fun hasPairedServer(): Boolean = pairedServerStore?.profiles()?.isNotEmpty() == true
 
+    fun localDataRepository(): LocalDataRepository? = localData
+
+    fun standaloneProviderStore(): StandaloneProviderStore? = standaloneProviders
+
+    suspend fun testStandaloneProvider(
+        provider: String,
+        key: String,
+        endpoint: String? = null,
+    ): Pair<Boolean, String?> = standaloneChat?.test(provider, key, endpoint)
+        ?: (false to "Standalone providers are not initialized.")
+
     fun pairedServer(): PairedServerConfig? = pairedServerStore?.load()
 
     fun wakeDesktop() {
@@ -698,6 +987,9 @@ object WsRepository : WsClient {
     }
 
     override fun send(command: String, data: Map<String, Any>) {
+        if (_connectionState.value != ConnectionState.CONNECTED) {
+            if (handleLocalCommand(command, data)) return
+        }
         val token = currentToken ?: return
         val obj = JSONObject()
         obj.put("token", token)
@@ -706,26 +998,331 @@ object WsRepository : WsClient {
         ws?.send(obj.toString())
     }
 
+    /**
+     * Executes commands that have safe local semantics when the desktop is unavailable. Commands
+     * that control a running desktop process intentionally return false and are not queued.
+     */
+    private fun handleLocalCommand(command: String, data: Map<String, Any>): Boolean {
+        val local = localData ?: return false
+        when (command) {
+            "conversation:list" -> {
+                _events.tryEmit(WsEvent.ConversationList(local.conversations.value))
+            }
+            "model:list" -> {
+                _events.tryEmit(
+                    WsEvent.ModelList(
+                        _models.value,
+                        ModelListSource(type = "standalone", label = "On-device catalog"),
+                    ),
+                )
+                scope.launch {
+                    val discovered = mutableListOf<ModelOption>()
+                    for (config in standaloneProviders?.configured().orEmpty()) {
+                        discovered += standaloneChat?.listModels(config).orEmpty()
+                    }
+                    val live = discovered.distinctBy { it.id }
+                    if (live.isNotEmpty()) {
+                        _models.value = live
+                        _modelSource.value = ModelListSource(type = "standalone-live", label = "Provider APIs")
+                        _events.emit(WsEvent.ModelList(live, _modelSource.value))
+                    }
+                }
+            }
+            "conversation:get-messages" -> {
+                val conversationId = data["conversationId"] as? String ?: return true
+                scope.launch {
+                    _events.emit(WsEvent.ConversationMessages(conversationId, local.list(conversationId)))
+                }
+            }
+            "conversation:search" -> {
+                val query = data["query"] as? String ?: ""
+                scope.launch {
+                    _events.emit(WsEvent.ConversationSearchResults(local.searchConversations(query)))
+                }
+            }
+            "conversation:rename" -> {
+                val id = data["id"] as? String ?: return true
+                val title = data["title"] as? String ?: return true
+                scope.launch {
+                    local.renameConversation(id, title)
+                    _events.emit(WsEvent.ConversationRenamed(id, title))
+                }
+            }
+            "conversation:set-pinned" -> {
+                val id = data["id"] as? String ?: return true
+                val pinned = data["pinned"] as? Boolean ?: false
+                scope.launch { local.setConversationPinned(id, pinned) }
+            }
+            "conversation:delete" -> {
+                val id = data["id"] as? String ?: return true
+                scope.launch {
+                    local.deleteConversation(id)
+                    _events.emit(WsEvent.ConversationDeleted(id))
+                }
+            }
+            "message:delete" -> {
+                val id = data["id"] as? String ?: return true
+                scope.launch {
+                    local.deleteMessage(id)
+                    _events.emit(WsEvent.MessageDeleted(id))
+                }
+            }
+            "message:delete-after" -> {
+                val conversationId = data["conversationId"] as? String ?: return true
+                val timestamp = (data["timestamp"] as? Number)?.toLong() ?: return true
+                scope.launch {
+                    local.deleteMessagesAfter(conversationId, timestamp)
+                    _events.emit(WsEvent.MessagesDeletedAfter(conversationId, timestamp))
+                }
+            }
+            "conversation:fork" -> {
+                val conversationId = data["conversationId"] as? String ?: return true
+                val cutoff = (data["cutoffTimestamp"] as? Number)?.toLong()
+                scope.launch {
+                    val fork = local.forkConversation(conversationId, cutoff)
+                    if (fork == null) {
+                        _events.emit(WsEvent.ConversationForkError("Conversation is not available locally."))
+                    } else {
+                        _events.emit(WsEvent.ConversationForked(fork.first.id, fork.first.title, fork.second))
+                    }
+                }
+            }
+            "project:list" -> _events.tryEmit(WsEvent.ProjectList(local.projects.value))
+            "project:create" -> {
+                val name = data["name"] as? String ?: return true
+                val color = data["color"] as? String ?: "blue"
+                scope.launch {
+                    val created = local.createProject(name, color)
+                    _events.emit(WsEvent.ProjectCreated(created))
+                }
+            }
+            "project:rename" -> {
+                val id = data["id"] as? String ?: return true
+                val name = data["name"] as? String ?: return true
+                scope.launch {
+                    local.renameProject(id, name)
+                    _events.emit(WsEvent.ProjectRenamed(id, name))
+                }
+            }
+            "project:delete" -> {
+                val id = data["id"] as? String ?: return true
+                scope.launch {
+                    local.deleteProject(id)
+                    _events.emit(WsEvent.ProjectDeleted(id))
+                }
+            }
+            "project:get-config" -> {
+                val id = data["id"] as? String ?: return true
+                scope.launch {
+                    local.getProjectConfig(id)?.let { _events.emit(WsEvent.ProjectConfig(id, it)) }
+                }
+            }
+            "project:update-config" -> {
+                val id = data["id"] as? String ?: return true
+                scope.launch {
+                    local.updateProjectConfig(id, mapToJson(data))?.let {
+                        _events.emit(WsEvent.ProjectConfig(id, it))
+                        _events.emit(WsEvent.ProjectConfigUpdated(id))
+                    }
+                }
+            }
+            "agent:list" -> _events.tryEmit(WsEvent.AgentList(local.agents.value))
+            "agent:get-full" -> {
+                val id = data["id"] as? String ?: return true
+                scope.launch {
+                    local.getAgentFull(id)?.let { _events.emit(WsEvent.AgentFull(it)) }
+                }
+            }
+            "agent:create" -> {
+                val name = data["name"] as? String ?: return true
+                val icon = data["icon"] as? String ?: ""
+                scope.launch {
+                    val created = local.createAgent(name, icon)
+                    _events.emit(WsEvent.AgentCreated(created))
+                }
+            }
+            "agent:update" -> {
+                val id = data["id"] as? String ?: return true
+                val name = data["name"] as? String ?: return true
+                val icon = data["icon"] as? String ?: ""
+                scope.launch {
+                    if (data.containsKey("systemPrompt") || data.containsKey("tools")) {
+                        local.updateAgentFull(id, mapToJson(data))?.let {
+                            _events.emit(WsEvent.AgentFull(it))
+                            _events.emit(WsEvent.AgentUpdated(Agent(it.id, it.name, it.icon, it.backend, it.cliModel)))
+                        }
+                    } else {
+                        local.updateAgent(id, name, icon)
+                        _events.emit(WsEvent.AgentUpdated(Agent(id, name, icon)))
+                    }
+                }
+            }
+            "agent:delete" -> {
+                val id = data["id"] as? String ?: return true
+                scope.launch {
+                    local.deleteAgent(id)
+                    _events.emit(WsEvent.AgentDeleted(id))
+                }
+            }
+            "wiki:list" -> {
+                val projectId = data["projectId"] as? String
+                val entries = local.wikiEntries.value.filter { projectId == null || it.projectId == projectId }
+                _events.tryEmit(WsEvent.WikiList(entries))
+            }
+            "wiki:create" -> {
+                val projectId = data["projectId"] as? String ?: return true
+                val title = data["title"] as? String ?: return true
+                val body = data["body"] as? String ?: ""
+                val tags = (data["tags"] as? List<*>)?.mapNotNull { it as? String }.orEmpty()
+                scope.launch {
+                    val created = local.createWiki(projectId, title, body, tags)
+                    _events.emit(WsEvent.WikiEntryCreated(created))
+                }
+            }
+            "wiki:update" -> {
+                val id = data["id"] as? String ?: return true
+                val title = data["title"] as? String ?: return true
+                val body = data["body"] as? String ?: ""
+                val tags = (data["tags"] as? List<*>)?.mapNotNull { it as? String }.orEmpty()
+                scope.launch {
+                    local.updateWiki(id, title, body, tags)?.let {
+                        _events.emit(WsEvent.WikiEntryUpdated(it))
+                    }
+                }
+            }
+            "wiki:delete" -> {
+                val id = data["id"] as? String ?: return true
+                scope.launch {
+                    local.deleteLibraryItem("wiki", id)
+                    _events.emit(WsEvent.WikiEntryDeleted(id))
+                }
+            }
+            "prompt:list" -> {
+                val projectId = data["projectId"] as? String
+                val entries = local.promptEntries.value.filter {
+                    projectId == null || it.scope == "global" || it.projectId == projectId
+                }
+                _events.tryEmit(WsEvent.PromptList(entries))
+            }
+            "prompt:create" -> {
+                val title = data["title"] as? String ?: return true
+                val body = data["body"] as? String ?: ""
+                val description = data["description"] as? String ?: ""
+                val category = data["category"] as? String ?: ""
+                val tags = (data["tags"] as? List<*>)?.mapNotNull { it as? String }.orEmpty()
+                val promptScope = data["scope"] as? String ?: "global"
+                val projectId = data["projectId"] as? String
+                scope.launch {
+                    val created = local.createPromptLocal(title, body, description, category, tags, promptScope, projectId)
+                    _events.emit(WsEvent.PromptEntryCreated(created))
+                }
+            }
+            "prompt:update" -> {
+                val id = data["id"] as? String ?: return true
+                val title = data["title"] as? String ?: return true
+                val body = data["body"] as? String ?: ""
+                val description = data["description"] as? String ?: ""
+                val category = data["category"] as? String ?: ""
+                val tags = (data["tags"] as? List<*>)?.mapNotNull { it as? String }.orEmpty()
+                scope.launch {
+                    local.updatePromptLocal(id, title, body, description, category, tags)?.let {
+                        _events.emit(WsEvent.PromptEntryUpdated(it))
+                    }
+                }
+            }
+            "prompt:delete" -> {
+                val id = data["id"] as? String ?: return true
+                scope.launch {
+                    local.deleteLibraryItem("prompt", id)
+                    _events.emit(WsEvent.PromptEntryDeleted(id))
+                }
+            }
+            "skill:list" -> _events.tryEmit(WsEvent.SkillList(local.skills.value))
+            "skill:get" -> {
+                val id = data["id"] as? String
+                _events.tryEmit(WsEvent.SkillDetail(local.skills.value.firstOrNull { it.id == id }))
+            }
+            "skill:create", "skill:update", "skill:import" -> {
+                val source = if (command == "skill:import") {
+                    @Suppress("UNCHECKED_CAST")
+                    data["skill"] as? Map<String, Any> ?: emptyMap()
+                } else data
+                val id = if (command == "skill:update") data["id"] as? String else null
+                scope.launch {
+                    val skill = local.upsertSkillLocal(mapToJson(source), id)
+                    _events.emit(if (id == null) WsEvent.SkillCreated(skill) else WsEvent.SkillUpdated(skill))
+                }
+            }
+            "skill:delete" -> {
+                val id = data["id"] as? String ?: return true
+                scope.launch {
+                    local.deleteLibraryItem("skill", id)
+                    _events.emit(WsEvent.SkillDeleted(id))
+                }
+            }
+            "conversation:insert-message" -> {
+                val conversationId = data["conversationId"] as? String ?: return true
+                val role = data["role"] as? String ?: return true
+                val content = data["content"] as? String ?: ""
+                scope.launch {
+                    val created = local.insertMessage(conversationId, role, content)
+                    _events.emit(
+                        WsEvent.MessageInserted(
+                            conversationId,
+                            created.id,
+                            created.role,
+                            created.content,
+                            created.timestamp,
+                        ),
+                    )
+                }
+            }
+            "chat:send-message" -> {
+                scope.launch { standaloneChat?.send(data) }
+            }
+            "agent:stop" -> {
+                val conversationId = data["conversationId"] as? String ?: return true
+                standaloneChat?.stop(conversationId)
+            }
+            else -> return false
+        }
+        return true
+    }
+
     fun sendLog(tag: String, message: String) {
-        runCatching { android.util.Log.d("NexyDebug[$tag]", message) }
-        val entry = DebugLogEntry(tag = tag, message = message, ts = System.currentTimeMillis())
+        val safeMessage = redactDiagnostic(message)
+        runCatching { android.util.Log.d("NexyDebug[$tag]", safeMessage) }
+        val entry = DebugLogEntry(tag = tag, message = safeMessage, ts = System.currentTimeMillis())
         val current = _debugLog.value
         _debugLog.value = if (current.size >= 500) current.drop(1) + entry else current + entry
-        send("android:log", mapOf("tag" to tag, "message" to message, "ts" to entry.ts))
+        send("android:log", mapOf("tag" to tag, "message" to safeMessage, "ts" to entry.ts))
     }
 
     fun appendDebugLog(tag: String, message: String) {
-        runCatching { android.util.Log.d("NexyDebug[$tag]", message) }
-        val entry = DebugLogEntry(tag = tag, message = message, ts = System.currentTimeMillis())
+        val safeMessage = redactDiagnostic(message)
+        runCatching { android.util.Log.d("NexyDebug[$tag]", safeMessage) }
+        val entry = DebugLogEntry(tag = tag, message = safeMessage, ts = System.currentTimeMillis())
         val current = _debugLog.value
         _debugLog.value = if (current.size >= 500) current.drop(1) + entry else current + entry
     }
 
     fun clearDebugLog() { _debugLog.value = emptyList() }
 
+    private fun redactDiagnostic(message: String): String = message
+        .replace(Regex("(?i)(authorization\\s*[:=]\\s*bearer\\s+)[^\\s,}]+"), "${'$'}1[redacted]")
+        .replace(Regex("(?i)((?:api[_-]?key|x-api-key|token|secret)\\s*[:=]\\s*)[^\\s,}]+"), "${'$'}1[redacted]")
+        .replace(Regex("data:[^;,\\s]+;base64,[A-Za-z0-9+/=]+"), "data:[redacted]")
+        .take(2_000)
+
     fun listConversations() { send("conversation:list", emptyMap()) }
     fun renameConversation(id: String, title: String) { send("conversation:rename", mapOf("id" to id, "title" to title)) }
     fun deleteConversation(id: String) { send("conversation:delete", mapOf("id" to id)) }
+    fun archiveConversation(id: String) {
+        scope.launch {
+            localData?.archiveConversation(id)
+            if (_connectionState.value == ConnectionState.CONNECTED) flushStandaloneOutbox()
+        }
+    }
     fun clearConversationSnapshot(conversationId: String) {
         _activeChatSnapshots.value = _activeChatSnapshots.value - conversationId
     }
@@ -765,6 +1362,12 @@ object WsRepository : WsClient {
         send("conversation:save-compression-summary", mapOf("conversationId" to conversationId) + draft)
     }
     fun deleteMessage(id: String) { send("message:delete", mapOf("id" to id)) }
+    fun editMessage(id: String, content: String) {
+        scope.launch {
+            localData?.updateMessageContent(id, content, partial = false, sendFailed = false)
+            if (_connectionState.value == ConnectionState.CONNECTED) flushStandaloneOutbox()
+        }
+    }
     fun refreshReports(projectId: String) {
         sendLog("RemoteEdit", "refreshReports: sending self-heal:get-reports projectId=$projectId")
         send("self-heal:get-reports", mapOf("projectId" to projectId))

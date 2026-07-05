@@ -21,6 +21,14 @@ class NetworkReconnectMonitor(context: Context) {
             // immediately instead of waiting for the next scheduled retry.
             WsRepository.onNetworkAvailable()
         }
+
+        override fun onLost(network: Network) {
+            if (cm.activeNetwork == null) WsRepository.onNetworkUnavailable()
+        }
+
+        override fun onUnavailable() {
+            WsRepository.onNetworkUnavailable()
+        }
     }
 
     fun start() {
@@ -28,6 +36,9 @@ class NetworkReconnectMonitor(context: Context) {
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .build()
         runCatching { cm.registerNetworkCallback(request, callback) }
+        val online = cm.activeNetwork?.let(cm::getNetworkCapabilities)
+            ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+        if (online) WsRepository.onNetworkAvailable() else WsRepository.onNetworkUnavailable()
     }
 
     fun stop() {
