@@ -814,6 +814,136 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
     version: 51,
     sql: "ALTER TABLE error_reports ADD COLUMN investigation_revision_notes TEXT",
   },
+  {
+    version: 52,
+    sql: `
+      CREATE TABLE IF NOT EXISTS sync_devices (
+        id TEXT PRIMARY KEY,
+        dataset_id TEXT NOT NULL,
+        name TEXT,
+        protocol_version INTEGER NOT NULL,
+        last_seen_at INTEGER NOT NULL,
+        last_received_sequence INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS sync_entity_versions (
+        dataset_id TEXT NOT NULL,
+        entity_type TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        source_updated_at INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (dataset_id, entity_type, entity_id)
+      );
+      CREATE TABLE IF NOT EXISTS sync_applied_operations (
+        operation_id TEXT PRIMARY KEY,
+        device_id TEXT NOT NULL,
+        device_sequence INTEGER NOT NULL,
+        applied_at INTEGER NOT NULL,
+        UNIQUE (device_id, device_sequence)
+      );
+      CREATE TABLE IF NOT EXISTS sync_tombstones (
+        dataset_id TEXT NOT NULL,
+        entity_type TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        deleted_at INTEGER NOT NULL,
+        acknowledged_at INTEGER,
+        PRIMARY KEY (dataset_id, entity_type, entity_id)
+      );
+      CREATE TABLE IF NOT EXISTS sync_conflicts (
+        id TEXT PRIMARY KEY,
+        dataset_id TEXT NOT NULL,
+        entity_type TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        operation_id TEXT NOT NULL,
+        local_payload_json TEXT NOT NULL,
+        remote_payload_json TEXT NOT NULL,
+        local_version INTEGER NOT NULL,
+        remote_version INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        resolved_at INTEGER,
+        resolution TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_sync_conflicts_unresolved
+        ON sync_conflicts(dataset_id, resolved_at, created_at);
+    `,
+  },
+  {
+    version: 53,
+    sql: `
+      CREATE TABLE IF NOT EXISTS sync_entity_history (
+        dataset_id TEXT NOT NULL,
+        entity_type TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        payload_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (dataset_id, entity_type, entity_id, version)
+      );
+      CREATE INDEX IF NOT EXISTS idx_sync_entity_history_lookup
+        ON sync_entity_history(dataset_id, entity_type, entity_id, version);
+    `,
+  },
+  {
+    version: 54,
+    sql: `
+      ALTER TABLE messages ADD COLUMN input_tokens INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE messages ADD COLUMN output_tokens INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
+  {
+    version: 55,
+    sql: `
+      ALTER TABLE messages ADD COLUMN provider TEXT;
+      ALTER TABLE messages ADD COLUMN finish_reason TEXT;
+    `,
+  },
+  {
+    version: 56,
+    sql: `
+      CREATE TABLE IF NOT EXISTS sync_attachments (
+        content_hash TEXT PRIMARY KEY,
+        display_name TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        content BLOB NOT NULL DEFAULT X'',
+        received_bytes INTEGER NOT NULL DEFAULT 0,
+        completed_at INTEGER,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_sync_attachments_incomplete
+        ON sync_attachments(completed_at, updated_at);
+    `,
+  },
+  {
+    version: 57,
+    sql: `
+      ALTER TABLE sync_attachments ADD COLUMN attachment_id TEXT;
+      ALTER TABLE sync_attachments ADD COLUMN message_id TEXT;
+    `,
+  },
+  {
+    version: 58,
+    sql: "ALTER TABLE conversations ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
+  },
+  {
+    version: 59,
+    sql: `
+      CREATE TABLE IF NOT EXISTS sync_desktop_changes (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        device_id TEXT NOT NULL,
+        dataset_id TEXT NOT NULL,
+        entity_type TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        operation TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        entity_version INTEGER NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_sync_desktop_changes_dataset_sequence
+        ON sync_desktop_changes(dataset_id, sequence);
+    `,
+  },
 ];
 
 

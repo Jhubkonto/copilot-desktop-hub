@@ -86,6 +86,7 @@ import {
 import { readFileSync, writeFileSync, existsSync } from 'fs'
 import { parseConversationExport } from './conversation-serialization'
 import { app } from 'electron'
+import { handleStandaloneSyncCommand } from './standalone-sync'
 import {
   startWsServer,
   stopWsServer,
@@ -178,6 +179,21 @@ export function registerWsHandlers(): void {
     if (command === 'ping') return
 
     debugLog('ws', `command: ${command}`)
+
+    if (command.startsWith('sync:')) {
+      try {
+        if (handleStandaloneSyncCommand(command, data, reply)) return
+      } catch (error) {
+        reply({
+          event: 'sync:error',
+          data: {
+            code: 'sync-failed',
+            message: error instanceof Error ? error.message : String(error),
+          },
+        })
+        return
+      }
+    }
 
     if (command === 'android:log') {
       const tag = typeof data.tag === 'string' ? data.tag : 'Android'
@@ -702,6 +718,7 @@ export function registerWsHandlers(): void {
             c.agent_id,
             c.model,
             c.pinned,
+            c.archived,
             json_extract(a.config_json, '$.name') AS agent_name,
             json_extract(a.config_json, '$.icon') AS agent_icon,
             c.project_id,
@@ -710,6 +727,7 @@ export function registerWsHandlers(): void {
           FROM conversations c
           LEFT JOIN agents a ON c.agent_id = a.id
           LEFT JOIN projects p ON c.project_id = p.id
+          WHERE c.archived = 0
           ORDER BY c.pinned DESC, c.updated_at DESC
           LIMIT 50
         `).all()
@@ -809,7 +827,7 @@ export function registerWsHandlers(): void {
             LEFT JOIN messages m ON m.conversation_id = c.id
             LEFT JOIN agents a ON c.agent_id = a.id
             LEFT JOIN projects p ON c.project_id = p.id
-            WHERE c.title LIKE ? OR m.content LIKE ?
+            WHERE c.archived = 0 AND (c.title LIKE ? OR m.content LIKE ?)
             ORDER BY c.updated_at DESC
           `).all(`%${query}%`, `%${query}%`)
         : db.prepare(`
@@ -822,6 +840,7 @@ export function registerWsHandlers(): void {
             FROM conversations c
             LEFT JOIN agents a ON c.agent_id = a.id
             LEFT JOIN projects p ON c.project_id = p.id
+            WHERE c.archived = 0
             ORDER BY c.updated_at DESC
           `).all()
       reply({ event: 'conversation:search-results', data: { conversations: rows } })

@@ -48,7 +48,7 @@ export function registerConversationHandlers(): void {
 
   safeHandle("conversation:list", () => {
     return db
-      .prepare("SELECT * FROM conversations ORDER BY updated_at DESC")
+      .prepare("SELECT * FROM conversations WHERE archived = 0 ORDER BY updated_at DESC")
       .all();
   });
 
@@ -144,7 +144,7 @@ export function registerConversationHandlers(): void {
   safeHandle("conversation:search", (_event, query: string) => {
     if (!query.trim()) {
       return db
-        .prepare("SELECT * FROM conversations ORDER BY updated_at DESC")
+        .prepare("SELECT * FROM conversations WHERE archived = 0 ORDER BY updated_at DESC")
         .all();
     }
     const searchTerm = `%${query}%`;
@@ -152,7 +152,7 @@ export function registerConversationHandlers(): void {
       .prepare(
         `SELECT DISTINCT c.* FROM conversations c
          LEFT JOIN messages m ON m.conversation_id = c.id
-         WHERE c.title LIKE ? OR m.content LIKE ?
+         WHERE c.archived = 0 AND (c.title LIKE ? OR m.content LIKE ?)
          ORDER BY c.updated_at DESC`,
       )
       .all(searchTerm, searchTerm);
