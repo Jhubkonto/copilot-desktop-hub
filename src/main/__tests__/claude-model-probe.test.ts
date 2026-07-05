@@ -24,7 +24,6 @@ const { mockDb, resolveCliPathMock, ptySpawnMock } = vi.hoisted(() => {
 vi.mock('../database', () => ({ getDatabase: () => mockDb }))
 vi.mock('../cli-adapters/utils', () => ({ resolveCliPath: resolveCliPathMock }))
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp' } }))
-vi.mock('node-pty', () => ({ spawn: ptySpawnMock }))
 
 // Fake terminal: `write` is a no-op; the module's polling logic reads the grid via `getLine`,
 // which is backed by `gridState.text` that each test sets directly to simulate a rendered frame.
@@ -46,6 +45,13 @@ const { gridState, FakeTerminal } = vi.hoisted(() => {
   return { gridState, FakeTerminal }
 })
 vi.mock('@xterm/headless', () => ({ default: { Terminal: FakeTerminal } }))
+vi.mock('module', () => ({
+  createRequire: () => (id: string) => {
+    if (id === 'node-pty') return { spawn: ptySpawnMock }
+    if (id === '@xterm/headless') return { Terminal: FakeTerminal }
+    throw new Error(`Unexpected native dependency: ${id}`)
+  },
+}))
 
 import {
   probeClaudeCliModels,

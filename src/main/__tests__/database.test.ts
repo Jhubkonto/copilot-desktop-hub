@@ -48,14 +48,14 @@ describe('database migrations', () => {
     initializeBaseSchema(db)
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(51)
+    expect(db.pragma('user_version', { simple: true })).toBe(59)
     expect(getColumnNames(db, 'projects')).toEqual(
       expect.arrayContaining(['default_model', 'config_json'])
     )
     expect(getColumnNames(db, 'messages')).toEqual(
-      expect.arrayContaining(['attachments', 'context_snapshot'])
+      expect.arrayContaining(['attachments', 'context_snapshot', 'input_tokens', 'output_tokens', 'provider', 'finish_reason'])
     )
-    expect(getColumnNames(db, 'conversations')).toEqual(expect.arrayContaining(['project_id']))
+    expect(getColumnNames(db, 'conversations')).toEqual(expect.arrayContaining(['project_id', 'archived']))
     expect(getColumnNames(db, 'project_wiki_entries')).toEqual(
       expect.arrayContaining(['tags', 'superseded_by'])
     )
@@ -104,6 +104,24 @@ describe('database migrations', () => {
     )
     expect(getColumnNames(db, 'project_touched_files')).toEqual(
       expect.arrayContaining(['session_id', 'relative_path', 'status', 'last_operation', 'diff_json'])
+    )
+    expect(getColumnNames(db, 'sync_devices')).toEqual(
+      expect.arrayContaining(['id', 'dataset_id', 'protocol_version', 'last_received_sequence'])
+    )
+    expect(getColumnNames(db, 'sync_entity_versions')).toEqual(
+      expect.arrayContaining(['entity_type', 'entity_id', 'version', 'source_updated_at'])
+    )
+    expect(getColumnNames(db, 'sync_conflicts')).toEqual(
+      expect.arrayContaining(['entity_type', 'entity_id', 'local_payload_json', 'remote_payload_json'])
+    )
+    expect(getColumnNames(db, 'sync_entity_history')).toEqual(
+      expect.arrayContaining(['entity_type', 'entity_id', 'version', 'payload_json'])
+    )
+    expect(getColumnNames(db, 'sync_attachments')).toEqual(
+      expect.arrayContaining(['content_hash', 'size_bytes', 'content', 'received_bytes', 'completed_at', 'attachment_id', 'message_id'])
+    )
+    expect(getColumnNames(db, 'sync_desktop_changes')).toEqual(
+      expect.arrayContaining(['sequence', 'device_id', 'dataset_id', 'entity_type', 'entity_version'])
     )
   })
 
@@ -156,7 +174,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(51)
+    expect(db.pragma('user_version', { simple: true })).toBe(59)
     const tableNames = (
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>
     ).map((row) => row.name)
@@ -193,7 +211,7 @@ describe('database migrations', () => {
       runMigrations(db)
       runMigrations(db)
     }).not.toThrow()
-    expect(db.pragma('user_version', { simple: true })).toBe(51)
+    expect(db.pragma('user_version', { simple: true })).toBe(59)
   })
 
   it('only runs pending migrations for a partial upgrade', () => {
@@ -247,7 +265,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(51)
+    expect(db.pragma('user_version', { simple: true })).toBe(59)
     expect(getColumnNames(db, 'messages')).toEqual(
       expect.arrayContaining(['is_edited', 'previous_content', 'context_snapshot'])
     )
@@ -310,7 +328,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(51)
+    expect(db.pragma('user_version', { simple: true })).toBe(59)
     expect(() => insertMessageWithRole(db, 'tool-call')).not.toThrow()
     expect(
       db.prepare("SELECT COUNT(*) AS count FROM messages WHERE role = ?").get('assistant')
@@ -425,7 +443,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(51)
+    expect(db.pragma('user_version', { simple: true })).toBe(59)
     expect(getColumnNames(db, 'error_reports')).toEqual(
       expect.arrayContaining(['request_type', 'request_origin', 'workspace_root', 'project_id', 'custom_type_label']),
     )
