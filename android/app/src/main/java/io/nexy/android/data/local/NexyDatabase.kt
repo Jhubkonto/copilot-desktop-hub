@@ -32,8 +32,9 @@ class LocalConverters {
         SyncCursorEntity::class,
         ConflictEntity::class,
         AttachmentEntity::class,
+        LocalSettingsEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 @TypeConverters(LocalConverters::class)
@@ -47,6 +48,7 @@ abstract class NexyDatabase : RoomDatabase() {
     abstract fun summaries(): ConversationSummaryDao
     abstract fun sync(): SyncDao
     abstract fun attachments(): AttachmentDao
+    abstract fun settings(): LocalSettingsDao
 
     companion object {
         @Volatile
@@ -59,7 +61,7 @@ abstract class NexyDatabase : RoomDatabase() {
                     NexyDatabase::class.java,
                     "nexy-local.db",
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .enableMultiInstanceInvalidation()
                     .build()
                     .also { instance = it }
@@ -92,6 +94,17 @@ abstract class NexyDatabase : RoomDatabase() {
         val MIGRATION_3_4 = object : Migration(3, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE local_conversations ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS local_settings (
+                       `key` TEXT NOT NULL PRIMARY KEY,
+                       value TEXT
+                    )""",
+                )
             }
         }
     }

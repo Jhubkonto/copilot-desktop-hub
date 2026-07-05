@@ -21,6 +21,7 @@ data class ModelOption(
     val id: String,
     val label: String,
     val vendor: String? = null,
+    val isCliSourced: Boolean = false,
 )
 
 data class ModelListSource(

@@ -37,6 +37,7 @@ import io.nexy.android.data.model.WsEvent
 import io.nexy.android.data.local.LocalDataRepository
 import io.nexy.android.data.local.ConflictEntity
 import io.nexy.android.data.local.OutboxEntity
+import io.nexy.android.data.local.LocalSettingsStore
 import io.nexy.android.data.repository.CapabilityState
 import io.nexy.android.data.repository.InternetState
 import io.nexy.android.notification.ApprovalNotificationManager
@@ -81,6 +82,12 @@ object WsRepository : WsClient {
 
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
     val connectionState: StateFlow<ConnectionState> = _connectionState
+
+    private val _preferStandaloneMode = MutableStateFlow(false)
+    val preferStandaloneMode: StateFlow<Boolean> = _preferStandaloneMode
+
+    private val _effectiveMode = MutableStateFlow(EffectiveConnectionMode.DISCONNECTED)
+    val effectiveMode: StateFlow<EffectiveConnectionMode> = _effectiveMode
 
     private val _lastError = MutableStateFlow<String?>(null)
     val lastError: StateFlow<String?> = _lastError
@@ -236,6 +243,7 @@ object WsRepository : WsClient {
 
     private var app: Application? = null
     private var pairedServerStore: PairedServerStore? = null
+    private var settingsStore: LocalSettingsStore? = null
     private var networkMonitor: NetworkReconnectMonitor? = null
     private var localData: LocalDataRepository? = null
     private var standaloneProviders: StandaloneProviderStore? = null
@@ -249,6 +257,84 @@ object WsRepository : WsClient {
     val syncOutbox: StateFlow<List<OutboxEntity>> = _syncOutbox
     private val _syncInProgress = MutableStateFlow(false)
     val syncInProgress: StateFlow<Boolean> = _syncInProgress
+
+    // Provider key handoff consent tracking (pending requests and confirmed handoffs)
+    private val _pendingKeyHandoffRequests = MutableStateFlow<Map<String, String>>(emptyMap())
+    val pendingKeyHandoffRequests: StateFlow<Map<String, String>> = _pendingKeyHandoffRequests
+    private val _confirmedKeyHandoffs = MutableStateFlow<Set<String>>(emptySet())
+    val confirmedKeyHandoffs: StateFlow<Set<String>> = _confirmedKeyHandoffs
+
+    // Manual Workflow Generator state tracking
+    data class ManualWorkflowMessage(
+        val role: String,
+        val text: String,
+        val isError: Boolean = false,
+    )
+
+    // Mirrors ManualWorkflowGeneratorMessage on desktop — resent in full on every
+    // manual-workflow-generator:message call, matching the other Android generator screens.
+    data class ManualWorkflowChatMessage(val role: String, val content: String)
+
+    data class ManualWorkflowSession(
+        val sessionId: String,
+        val projectId: String = "",
+        val title: String = "",
+        val goalSummary: String = "",
+        val assumptions: String = "",
+        val steps: List<String> = emptyList(),
+        val currentModel: String? = null,
+        val isActive: Boolean = true,
+        val isLoading: Boolean = false,
+        val messages: List<ManualWorkflowMessage> = emptyList(),
+        val chatHistory: List<ManualWorkflowChatMessage> = emptyList(),
+        val streamingText: String = "",
+    )
+    private val _manualWorkflowSession = MutableStateFlow<ManualWorkflowSession?>(null)
+    val manualWorkflowSession: StateFlow<ManualWorkflowSession?> = _manualWorkflowSession
+
+    fun startManualWorkflow(projectId: String, initialMessage: String): String {
+        val sessionId = java.util.UUID.randomUUID().toString()
+        _manualWorkflowSession.value = ManualWorkflowSession(
+            sessionId = sessionId,
+            projectId = projectId,
+            isLoading = true,
+            messages = listOf(ManualWorkflowMessage("user", initialMessage)),
+            chatHistory = listOf(ManualWorkflowChatMessage("user", initialMessage)),
+        )
+        send(
+            "manual-workflow-generator:start",
+            mapOf(
+                "projectId" to projectId,
+                "sessionId" to sessionId,
+                "messages" to listOf(mapOf("role" to "user", "content" to initialMessage)),
+            ),
+        )
+        return sessionId
+    }
+
+    fun sendManualWorkflowMessage(text: String) {
+        val session = _manualWorkflowSession.value ?: return
+        val updatedHistory = session.chatHistory + ManualWorkflowChatMessage("user", text)
+        _manualWorkflowSession.value = session.copy(
+            isLoading = true,
+            chatHistory = updatedHistory,
+            messages = session.messages + ManualWorkflowMessage("user", text),
+        )
+        send(
+            "manual-workflow-generator:message",
+            mapOf(
+                "projectId" to session.projectId,
+                "sessionId" to session.sessionId,
+                "messages" to updatedHistory.map { mapOf("role" to it.role, "content" to it.content) },
+            ),
+        )
+    }
+
+    fun cancelManualWorkflow() {
+        val session = _manualWorkflowSession.value ?: return
+        send("manual-workflow-generator:cancel", mapOf("sessionId" to session.sessionId))
+        _manualWorkflowSession.value = null
+    }
 
     private val pendingCommands = mutableListOf<Pair<String, Map<String, Any>>>()
 
@@ -412,6 +498,81 @@ object WsRepository : WsClient {
                     is WsEvent.RemoteEditActiveCodeChangesChanged -> {
                         _activeCodeChangesByProject.value = event.countsByProjectId
                     }
+                    is WsEvent.ProviderKeyHandoffRequest -> {
+                        // Desktop is requesting Android to accept a key handoff
+                        _pendingKeyHandoffRequests.value = _pendingKeyHandoffRequests.value +
+                            (event.providerId to event.providerName)
+                    }
+                    is WsEvent.ProviderKeyHandoffValue -> {
+                        // Key value is being transmitted (only after explicit consent)
+                        val providerId = event.providerId
+                        if (_confirmedKeyHandoffs.value.contains(providerId)) {
+                            // User has consented; store the key
+                            scope.launch {
+                                standaloneProviders?.let { store ->
+                                    store.setKey(providerId, event.keyValue)
+                                    // Mark as no longer pending
+                                    _pendingKeyHandoffRequests.value =
+                                        _pendingKeyHandoffRequests.value - providerId
+                                    // Clear consent flag after successful store
+                                    _confirmedKeyHandoffs.value =
+                                        _confirmedKeyHandoffs.value - providerId
+                                }
+                            }
+                        }
+                    }
+                    is WsEvent.ManualWorkflowReady -> {
+                        val current = _manualWorkflowSession.value
+                        if (current != null && current.sessionId == event.sessionId) {
+                            _manualWorkflowSession.value = current.copy(
+                                title = event.title,
+                                goalSummary = event.goalSummary,
+                                assumptions = event.assumptions,
+                                steps = event.steps,
+                            )
+                        }
+                    }
+                    is WsEvent.ManualWorkflowModel -> {
+                        val current = _manualWorkflowSession.value
+                        if (current != null && current.sessionId == event.sessionId) {
+                            _manualWorkflowSession.value = current.copy(currentModel = event.modelId)
+                        }
+                    }
+                    is WsEvent.ManualWorkflowToken -> {
+                        val current = _manualWorkflowSession.value
+                        if (current != null && current.sessionId == event.sessionId) {
+                            _manualWorkflowSession.value = current.copy(
+                                streamingText = current.streamingText + event.chunk,
+                            )
+                        }
+                    }
+                    is WsEvent.ManualWorkflowMessage -> {
+                        val current = _manualWorkflowSession.value
+                        if (current != null && current.sessionId == event.sessionId) {
+                            _manualWorkflowSession.value = current.copy(
+                                isLoading = false,
+                                streamingText = "",
+                                messages = current.messages + ManualWorkflowMessage("assistant", event.message),
+                                chatHistory = current.chatHistory + ManualWorkflowChatMessage("assistant", event.message),
+                            )
+                        }
+                    }
+                    is WsEvent.ManualWorkflowError -> {
+                        val current = _manualWorkflowSession.value
+                        if (current != null && current.sessionId == event.sessionId) {
+                            _manualWorkflowSession.value = current.copy(
+                                isLoading = false,
+                                isActive = false,
+                                messages = current.messages + ManualWorkflowMessage("assistant", event.message, isError = true),
+                            )
+                        }
+                    }
+                    is WsEvent.ManualWorkflowCancelled -> {
+                        val current = _manualWorkflowSession.value
+                        if (current != null && current.sessionId == event.sessionId) {
+                            _manualWorkflowSession.value = null
+                        }
+                    }
                     else -> {}
                 }
             }
@@ -435,6 +596,7 @@ object WsRepository : WsClient {
 
     fun init(application: Application) {
         app = application
+        settingsStore = LocalSettingsStore(application)
         localData = LocalDataRepository.get(application).also { local ->
             scope.launch { local.recoverInterruptedTurns() }
             scope.launch { local.conversations.collect { _conversations.value = it } }
@@ -466,6 +628,18 @@ object WsRepository : WsClient {
         pairedServerStore = runCatching { PairedServerStore(application) }
             .onFailure { _lastError.value = it.message ?: "Unable to open secure pairing storage" }
             .getOrNull()
+        val preferenceStore = PreferenceStore.getInstance(application)
+        scope.launch {
+            preferenceStore.getPreferStandaloneMode().collect { prefer ->
+                _preferStandaloneMode.value = prefer
+                _effectiveMode.value = deriveEffectiveMode(_connectionState.value, prefer)
+            }
+        }
+        scope.launch {
+            _connectionState.collect { state ->
+                _effectiveMode.value = deriveEffectiveMode(state, _preferStandaloneMode.value)
+            }
+        }
         refreshProfiles()
         pairedServerStore?.load()?.let { config ->
             refreshProfiles()
@@ -937,6 +1111,13 @@ object WsRepository : WsClient {
         }
     }
 
+    fun setPreferStandaloneMode(prefer: Boolean, application: Application? = app) {
+        if (application == null) return
+        scope.launch {
+            PreferenceStore.getInstance(application).setPreferStandaloneMode(prefer)
+        }
+    }
+
     fun forgetProfile(profileId: String) {
         if (profileId == _activeProfileId.value) {
             forgetServer()
@@ -968,6 +1149,21 @@ object WsRepository : WsClient {
 
     fun pairedServer(): PairedServerConfig? = pairedServerStore?.load()
 
+    fun confirmProviderKeyHandoff(providerId: String) {
+        // User has explicitly consented to receive this key
+        _confirmedKeyHandoffs.value = _confirmedKeyHandoffs.value + providerId
+        // Request the key value from desktop (if connected)
+        if (_connectionState.value == ConnectionState.CONNECTED) {
+            send("provider:request-key-handoff", mapOf("providerId" to providerId))
+        }
+    }
+
+    fun rejectProviderKeyHandoff(providerId: String) {
+        // User has rejected the key handoff
+        _pendingKeyHandoffRequests.value = _pendingKeyHandoffRequests.value - providerId
+        _confirmedKeyHandoffs.value = _confirmedKeyHandoffs.value - providerId
+    }
+
     fun wakeDesktop() {
         val profile = pairedServerStore?.activeProfile() ?: return
         val mac = profile.macAddress ?: return
@@ -987,7 +1183,10 @@ object WsRepository : WsClient {
     }
 
     override fun send(command: String, data: Map<String, Any>) {
-        if (_connectionState.value != ConnectionState.CONNECTED) {
+        // Per-device local settings (settings:*) are Android-local preferences with no desktop
+        // counterpart — they must resolve locally even while connected, or they silently vanish
+        // since the desktop has no handler for them.
+        if (_connectionState.value != ConnectionState.CONNECTED || command.startsWith("settings:")) {
             if (handleLocalCommand(command, data)) return
         }
         val token = currentToken ?: return
@@ -1002,7 +1201,7 @@ object WsRepository : WsClient {
      * Executes commands that have safe local semantics when the desktop is unavailable. Commands
      * that control a running desktop process intentionally return false and are not queued.
      */
-    private fun handleLocalCommand(command: String, data: Map<String, Any>): Boolean {
+    fun handleLocalCommand(command: String, data: Map<String, Any>): Boolean {
         val local = localData ?: return false
         when (command) {
             "conversation:list" -> {
@@ -1283,6 +1482,58 @@ object WsRepository : WsClient {
             "agent:stop" -> {
                 val conversationId = data["conversationId"] as? String ?: return true
                 standaloneChat?.stop(conversationId)
+            }
+            "settings:get-default-desktop-model" -> {
+                scope.launch {
+                    val model = settingsStore?.getDefaultDesktopModel()
+                    _events.emit(WsEvent.SettingValue("defaultDesktopModel", model))
+                }
+            }
+            "settings:set-default-desktop-model" -> {
+                val modelId = data["modelId"] as? String
+                scope.launch {
+                    settingsStore?.setDefaultDesktopModel(modelId)
+                    _events.emit(WsEvent.SettingValue("defaultDesktopModel", modelId))
+                }
+            }
+            "settings:get-default-standalone-model" -> {
+                scope.launch {
+                    val model = settingsStore?.getDefaultStandaloneModel()
+                    _events.emit(WsEvent.SettingValue("defaultStandaloneModel", model))
+                }
+            }
+            "settings:set-default-standalone-model" -> {
+                val modelId = data["modelId"] as? String
+                scope.launch {
+                    settingsStore?.setDefaultStandaloneModel(modelId)
+                    _events.emit(WsEvent.SettingValue("defaultStandaloneModel", modelId))
+                }
+            }
+            "settings:get-default-temperature" -> {
+                scope.launch {
+                    val temp = settingsStore?.getDefaultTemperature()
+                    _events.emit(WsEvent.SettingValue("defaultTemperature", temp?.toString()))
+                }
+            }
+            "settings:set-default-temperature" -> {
+                val temp = (data["temperature"] as? Number)?.toDouble()
+                scope.launch {
+                    settingsStore?.setDefaultTemperature(temp)
+                    _events.emit(WsEvent.SettingValue("defaultTemperature", temp?.toString()))
+                }
+            }
+            "settings:get-default-max-tokens" -> {
+                scope.launch {
+                    val maxTokens = settingsStore?.getDefaultMaxTokens()
+                    _events.emit(WsEvent.SettingValue("defaultMaxTokens", maxTokens?.toString()))
+                }
+            }
+            "settings:set-default-max-tokens" -> {
+                val maxTokens = (data["maxTokens"] as? Number)?.toInt()
+                scope.launch {
+                    settingsStore?.setDefaultMaxTokens(maxTokens)
+                    _events.emit(WsEvent.SettingValue("defaultMaxTokens", maxTokens?.toString()))
+                }
             }
             else -> return false
         }

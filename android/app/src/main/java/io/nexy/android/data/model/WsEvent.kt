@@ -348,6 +348,28 @@ sealed class WsEvent {
     data class QuizError(val message: String) : WsEvent()
     data class QuizAttemptSaved(val attempt: QuizAttempt) : WsEvent()
     data class QuizAttemptsListed(val conversationId: String, val attempts: List<QuizAttempt>) : WsEvent()
+    // Provider Key Handoff (opt-in, consent-gated exception)
+    data class ProviderKeyHandoffRequest(
+        val providerId: String,
+        val providerName: String,
+    ) : WsEvent()
+    data class ProviderKeyHandoffValue(
+        val providerId: String,
+        val keyValue: String,
+    ) : WsEvent()
+    // Manual Workflow Generator
+    data class ManualWorkflowReady(
+        val sessionId: String,
+        val title: String,
+        val goalSummary: String,
+        val assumptions: String,
+        val steps: List<String>,
+    ) : WsEvent()
+    data class ManualWorkflowModel(val sessionId: String, val modelId: String) : WsEvent()
+    data class ManualWorkflowToken(val sessionId: String, val chunk: String) : WsEvent()
+    data class ManualWorkflowMessage(val sessionId: String, val message: String) : WsEvent()
+    data class ManualWorkflowError(val sessionId: String, val message: String) : WsEvent()
+    data class ManualWorkflowCancelled(val sessionId: String) : WsEvent()
 }
 
 data class BuildRecord(

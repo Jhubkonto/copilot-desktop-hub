@@ -278,6 +278,7 @@ fun parseWsEvent(
                         id = model.optString("id"),
                         label = model.optString("label"),
                         vendor = model.nullableString("vendor"),
+                        isCliSourced = model.optBoolean("isCliSourced", false),
                     )
                 }
                 models.value = list
@@ -1765,6 +1766,61 @@ fun parseWsEvent(
                 val arr = data.optJSONArray("attempts") ?: return
                 val attempts = (0 until arr.length()).map { parseQuizAttempt(arr.getJSONObject(it)) }
                 WsEvent.QuizAttemptsListed(conversationId, attempts)
+            }
+            "settings:value" -> {
+                val key = data?.optString("key") ?: return
+                val value = data.optString("value", null).takeIf { it != null }
+                WsEvent.SettingValue(key, value)
+            }
+            "provider:key-handoff-request" -> {
+                val providerId = data?.optString("providerId") ?: return
+                val providerName = data.optString("providerName", providerId)
+                WsEvent.ProviderKeyHandoffRequest(providerId, providerName)
+            }
+            "provider:key-handoff-value" -> {
+                val providerId = data?.optString("providerId") ?: return
+                val keyValue = data?.optString("keyValue") ?: return
+                WsEvent.ProviderKeyHandoffValue(providerId, keyValue)
+            }
+            "manual-workflow-generator:spec-ready" -> {
+                val sessionId = data?.optString("sessionId") ?: return
+                val spec = data.optJSONObject("spec") ?: return
+                val title = spec.optString("title", "")
+                val goalSummary = spec.optString("goalSummary", "")
+                val assumptionsArr = spec.optJSONArray("assumptions") ?: JSONArray()
+                val assumptions = (0 until assumptionsArr.length()).joinToString("\n") { assumptionsArr.getString(it) }
+                val stepsArr = spec.optJSONArray("steps") ?: JSONArray()
+                val steps = (0 until stepsArr.length()).map { i ->
+                    val step = stepsArr.getJSONObject(i)
+                    val stepTitle = step.optString("title", "")
+                    val summary = step.optString("summary", "")
+                    if (summary.isBlank()) stepTitle else "$stepTitle: $summary"
+                }
+                WsEvent.ManualWorkflowReady(sessionId, title, goalSummary, assumptions, steps)
+            }
+            "manual-workflow-generator:model" -> {
+                val sessionId = data?.optString("sessionId") ?: return
+                val modelId = data?.optString("modelId") ?: return
+                WsEvent.ManualWorkflowModel(sessionId, modelId)
+            }
+            "manual-workflow-generator:token" -> {
+                val sessionId = data?.optString("sessionId") ?: return
+                val chunk = data.optString("chunk", "")
+                WsEvent.ManualWorkflowToken(sessionId, chunk)
+            }
+            "manual-workflow-generator:turn-complete" -> {
+                val sessionId = data?.optString("sessionId") ?: return
+                val content = data.optString("content", "")
+                WsEvent.ManualWorkflowMessage(sessionId, content)
+            }
+            "manual-workflow-generator:error" -> {
+                val sessionId = data?.optString("sessionId") ?: return
+                val message = data?.optString("message") ?: return
+                WsEvent.ManualWorkflowError(sessionId, message)
+            }
+            "manual-workflow-generator:cancelled" -> {
+                val sessionId = data?.optString("sessionId") ?: return
+                WsEvent.ManualWorkflowCancelled(sessionId)
             }
 
             else -> return
