@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "entities": {
+    "project": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "name": "Fixture project",
+      "color": "blue",
+      "config": { "instructions": "Portable instructions" },
+      "createdAt": 1000,
+      "updatedAt": 1001
+    },
+    "agent": {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "name": "Fixture agent",
+      "icon": "F",
+      "backend": "openai",
+      "config": { "systemPrompt": "Be precise" },
+      "createdAt": 1000,
+      "updatedAt": 1001
+    },
+    "conversation": {
+      "id": "00000000-0000-4000-8000-000000000003",
+      "title": "Fixture conversation",
+      "projectId": "00000000-0000-4000-8000-000000000001",
+      "agentId": "00000000-0000-4000-8000-000000000002",
+      "model": "gpt-5.4",
+      "pinned": false,
+      "archived": false,
+      "createdAt": 1000,
+      "updatedAt": 1001
+    },
+    "message": {
+      "id": "00000000-0000-4000-8000-000000000004",
+      "conversationId": "00000000-0000-4000-8000-000000000003",
+      "role": "assistant",
+      "content": "Fixture response",
+      "provider": "openai",
+      "model": "gpt-5.4",
+      "finishReason": "stop",
+      "inputTokens": 10,
+      "outputTokens": 4,
+      "attachments": [],
+      "thinkingBlocks": [],
+      "timestamp": 1002
+    },
+    "wiki": {
+      "id": "00000000-0000-4000-8000-000000000005",
+      "projectId": "00000000-0000-4000-8000-000000000001",
+      "title": "Fixture wiki",
+      "body": "Knowledge",
+      "tags": ["fixture"],
+      "createdAt": 1000,
+      "updatedAt": 1001
+    },
+    "prompt": {
+      "id": "00000000-0000-4000-8000-000000000006",
+      "title": "Fixture prompt",
+      "body": "Prompt body",
+      "description": "Description",
+      "category": "general",
+      "tags": ["fixture"],
+      "scope": "global",
+      "createdAt": 1000,
+      "updatedAt": 1001
+    },
+    "skill": {
+      "id": "00000000-0000-4000-8000-000000000007",
+      "name": "Fixture skill",
+      "description": "Description",
+      "instructions": "Instructions",
+      "created_at": 1000,
+      "updated_at": 1001
+    }
+  },
+  "normalizedChatTurn": [
+    { "sequence": 1, "type": "turn_started", "payload": {} },
+    { "sequence": 2, "type": "assistant_text_delta", "payload": { "chunk": "Hello" } },
+    { "sequence": 3, "type": "turn_completed", "payload": {} }
+  ]
+}
