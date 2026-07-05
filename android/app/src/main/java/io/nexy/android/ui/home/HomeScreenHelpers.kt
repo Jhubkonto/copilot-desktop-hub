@@ -15,6 +15,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import io.nexy.android.data.ConnectionState
+import io.nexy.android.ui.connection.getConnectionStatePresentation
 
 @Composable
 fun ConnectionChip(
@@ -28,22 +29,15 @@ fun ConnectionChip(
         transitionSpec = { fadeIn() togetherWith fadeOut() },
         label = "connection-chip",
     ) { (currentState, restartExpected) ->
-        val (label, color) = when {
-            restartExpected && currentState != ConnectionState.CONNECTED ->
-                "Reconnecting after update…" to Color(0xFF14B8A6)
-            currentState == ConnectionState.CONNECTED -> "Connected" to Color(0xFF22C55E)
-            currentState == ConnectionState.CONNECTING -> "Connecting…" to Color(0xFFF59E0B)
-            currentState == ConnectionState.POLLING -> "Searching…" to Color(0xFFF59E0B)
-            else -> "Disconnected" to Color(0xFFEF4444)
-        }
+        val presentation = getConnectionStatePresentation(currentState, restartExpected)
         val clickMod = if (onClick != null) {
             Modifier
                 .clip(RoundedCornerShape(6.dp))
                 .clickable(onClick = onClick)
         } else Modifier
         Text(
-            text = "● $label",
-            color = color,
+            text = "● ${presentation.label}",
+            color = presentation.color,
             style = MaterialTheme.typography.labelMedium,
             modifier = clickMod.padding(horizontal = 6.dp, vertical = 4.dp),
         )

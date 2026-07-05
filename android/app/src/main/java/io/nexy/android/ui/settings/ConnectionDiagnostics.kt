@@ -42,12 +42,7 @@ fun buildConnectionDiagnostics(
 }
 
 fun connectionStateLabel(state: ConnectionState): String =
-    when (state) {
-        ConnectionState.CONNECTED -> "Connected"
-        ConnectionState.CONNECTING -> "Connecting"
-        ConnectionState.POLLING -> "Searching (slow poll)"
-        ConnectionState.DISCONNECTED -> "Disconnected"
-    }
+    io.nexy.android.ui.connection.connectionStateLabel(state)
 
 fun connectionSchemeDetail(scheme: String): String =
     when (scheme.lowercase()) {
