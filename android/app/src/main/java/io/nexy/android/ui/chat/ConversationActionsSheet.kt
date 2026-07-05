@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CallSplit
 import androidx.compose.material.icons.filled.Compress
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Upload
@@ -200,6 +201,17 @@ fun ConversationActionsSheet(
                 sublabel = "Continue in a new branch",
                 loading = state.isForkInProgress,
                 onClick = { vm.fork(conversationId) },
+            )
+
+            ActionRow(
+                icon = Icons.Default.Archive,
+                label = "Archive conversation",
+                sublabel = "Hide from the active conversation list",
+                loading = false,
+                onClick = {
+                    WsRepository.archiveConversation(conversationId)
+                    onDismiss()
+                },
             )
 
             Spacer(Modifier.height(8.dp))

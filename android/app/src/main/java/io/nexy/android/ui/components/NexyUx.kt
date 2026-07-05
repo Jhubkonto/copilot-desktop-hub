@@ -482,18 +482,19 @@ fun NexyConnectionBanner(
 ) {
     val message = when (connectionState) {
         ConnectionState.CONNECTED -> return
-        ConnectionState.CONNECTING -> "Reconnecting to desktop..."
-        ConnectionState.POLLING -> "Looking for your desktop…"
-        ConnectionState.DISCONNECTED -> lastError?.let { "Disconnected: $it" } ?: "Disconnected from desktop"
+        ConnectionState.CONNECTING -> "Standalone mode · connecting to desktop…"
+        ConnectionState.POLLING -> "Standalone mode · looking for your desktop…"
+        ConnectionState.DISCONNECTED -> lastError?.let { "Standalone mode · desktop unavailable: $it" }
+            ?: "Standalone mode · desktop-only features are unavailable"
     }
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.errorContainer,
+        color = MaterialTheme.colorScheme.surfaceVariant,
     ) {
         Text(
             text = message,
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onErrorContainer,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,

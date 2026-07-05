@@ -6,7 +6,6 @@ import androidx.compose.runtime.Composable
 import androidx.navigation.NavController
 import androidx.navigation.NavDestination
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -23,7 +22,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
 import io.nexy.android.ui.agentgenerator.AgentGeneratorScreen
 import io.nexy.android.ui.skillgenerator.SkillGeneratorScreen
@@ -56,6 +54,7 @@ import io.nexy.android.ui.settings.NotificationsScreen
 import io.nexy.android.ui.settings.ProvidersScreen
 import io.nexy.android.ui.settings.SettingsScreen
 import io.nexy.android.ui.settings.UpdatesScreen
+import io.nexy.android.ui.settings.BackupRecoveryScreen
 import io.nexy.android.ui.scheduler.ScheduledScreen
 import io.nexy.android.ui.scheduler.SchedulerTaskDetailScreen
 import io.nexy.android.ui.scheduler.SchedulerTaskConfigScreen
@@ -71,7 +70,6 @@ fun NavGraph(
     pendingDeeplink: MutableStateFlow<String?> = MutableStateFlow(null),
 ) {
     val navController = rememberNavController()
-    val connectionState by WsRepository.connectionState.collectAsState()
     // Track IDs navigated to from a "create" flow so config screens know to animate on save
     var newProjectId by remember { mutableStateOf<String?>(null) }
     var newAgentId by remember { mutableStateOf<String?>(null) }
@@ -120,10 +118,9 @@ fun NavGraph(
     NavHost(navController = navController, startDestination = "splash") {
         composable("splash") {
             SplashScreen(onFinished = {
-                // Go to home if we have a saved server (reconnect runs in the background),
-                // or if already connected. Only show pairing when there's nothing paired.
-                val dest = if (connectionState == ConnectionState.CONNECTED || WsRepository.hasPairedServer()) "home" else "pairing"
-                navController.navigate(dest) {
+                // Standalone is the default. Pairing remains available from Home and Settings,
+                // while saved profiles reconnect in the background.
+                navController.navigate("home") {
                     popUpTo("splash") { inclusive = true }
                 }
             })
@@ -202,11 +199,6 @@ fun NavGraph(
                 },
                 onOpenSkillGenerator = {
                     navController.navigate("skill-generator")
-                },
-                onDisconnected = {
-                    navController.navigate("pairing") {
-                        popUpTo("home") { inclusive = true }
-                    }
                 },
                 onOpenSettings = {
                     navController.navigate("settings")
@@ -319,6 +311,7 @@ fun NavGraph(
                 onOpenCliModels = { navController.navigate("settings/cli-models") },
                 onOpenBuildDashboard = { navController.navigate("settings/build-dashboard") },
                 onOpenDebugLog = { navController.navigate("settings/debug-log") },
+                onOpenBackupRecovery = { navController.navigate("settings/backup") },
             )
         }
 
@@ -328,6 +321,10 @@ fun NavGraph(
 
         composable("settings/debug-log") {
             DebugLogScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable("settings/backup") {
+            BackupRecoveryScreen(onBack = { navController.popBackStack() })
         }
 
         composable("settings/global") {

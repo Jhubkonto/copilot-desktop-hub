@@ -84,6 +84,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
+import io.nexy.android.data.repository.InternetState
 import io.nexy.android.data.model.PromptEntry
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.derivedStateOf
@@ -148,6 +149,7 @@ fun ChatScreen(
     val modelSource by WsRepository.modelSource.collectAsState()
     val cliStatus by WsRepository.cliStatus.collectAsState()
     val connectionState by WsRepository.connectionState.collectAsState()
+    val capabilities by WsRepository.capabilities.collectAsState()
     val lastError by WsRepository.lastError.collectAsState()
     val conversation = conversations.find { it.id == conversationId }
     val title = conversation?.title?.ifBlank { null } ?: "Chat"
@@ -156,6 +158,10 @@ fun ChatScreen(
     val chatBackend = chatAgent?.backend
     val draftFromVm by vm.draft.collectAsState()
     var input by remember { mutableStateOf(draftFromVm) }
+    var editingMessageId by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(draftFromVm) {
+        if (input.isBlank() && draftFromVm.isNotBlank()) input = draftFromVm
+    }
     val listState = rememberLazyListState()
     var shouldAutoFollow by remember { mutableStateOf(true) }
     var hasInitiallyScrolled by remember { mutableStateOf(false) }
@@ -487,7 +493,9 @@ fun ChatScreen(
     }
 
     val assistantBusy = isStreaming || isAwaitingResponse
-    val canSend = (input.isNotBlank() || attachments.isNotEmpty()) && !assistantBusy && connectionState == ConnectionState.CONNECTED
+    val canSend = (input.isNotBlank() || attachments.isNotEmpty()) &&
+        !assistantBusy &&
+        (connectionState == ConnectionState.CONNECTED || capabilities.internetState != InternetState.UNAVAILABLE)
     val draftAgent = agentId?.let { id -> agents.find { it.id == id } }
     val draftProject = projectId?.let { id -> projects.find { it.id == id } }
     val agentLabel = conversation?.agent_name?.let { name ->
@@ -861,7 +869,12 @@ fun ChatScreen(
                 attachments = attachments,
                 onRemoveAttachment = { vm.removeAttachment(it) },
                 canSend = canSend,
-                onSend = { vm.sendMessage(input); input = ""; vm.setDraft("") },
+                onSend = {
+                    editingMessageId?.let { vm.editMessage(it, input) } ?: vm.sendMessage(input)
+                    editingMessageId = null
+                    input = ""
+                    vm.setDraft("")
+                },
                 onAttachFile = { filePicker.launch("*/*") },
                 onCaptureScreen = onCaptureScreen,
                 onInsertPrompt = {
@@ -973,8 +986,12 @@ fun ChatScreen(
                                 MessageBubble(
                                     msg = msg,
                                     onCopy = { copyMessage(clipboardManager, msg.text) },
-                                    onEdit = { input = msg.text; vm.setDraft(msg.text) },
-                                    onResend = { vm.sendMessage(msg.text) },
+                                    onEdit = {
+                                        editingMessageId = msg.id.takeIf { it.isNotBlank() }
+                                        input = msg.text
+                                        vm.setDraft(msg.text)
+                                    },
+                                    onResend = { vm.retryMessage(msg.id, msg.text) },
                                     onDelete = if (msg.id.isNotBlank()) { { deletingMessage = msg } } else null,
                                     onDeleteAfter = if (msg.id.isNotBlank() && msg.timestamp > 0L) { { deleteAfterMessage = msg } } else null,
                                     isHighlighted = msg.id == highlightedMessageId,
@@ -989,10 +1006,10 @@ fun ChatScreen(
                             }
                             is ChatRenderItem.AssistantMessage -> {
                                 val msg = item.message
-                                val precedingUserText = renderItems
+                                val precedingUserMessage = renderItems
                                     .take(renderItems.indexOf(item))
                                     .filterIsInstance<ChatRenderItem.UserMessage>()
-                                    .lastOrNull()?.message?.text
+                                    .lastOrNull()?.message
                                 val chatProjectId = conversation?.project_id ?: projectId
                                 androidx.compose.foundation.layout.Column {
                                     // Live thinking blocks pre-filtered by buildChatRenderItems (C1 guard)
@@ -1015,11 +1032,15 @@ fun ChatScreen(
                                         onDelete = if (msg.id.isNotBlank()) { { deletingMessage = msg } } else null,
                                     onDeleteAfter = if (msg.id.isNotBlank() && msg.timestamp > 0L) { { deleteAfterMessage = msg } } else null,
                                     isHighlighted = false,
-                                    onRetry = if (precedingUserText != null) {
-                                        { vm.sendMessage(precedingUserText) }
+                                    onRetry = if (precedingUserMessage != null) {
+                                        { vm.retryMessage(precedingUserMessage.id, precedingUserMessage.text) }
                                     } else null,
                                         onEditAssistant = if (msg.text.isNotBlank()) {
-                                            { input = msg.text; vm.setDraft(msg.text) }
+                                            {
+                                                editingMessageId = msg.id.takeIf { it.isNotBlank() }
+                                                input = msg.text
+                                                vm.setDraft(msg.text)
+                                            }
                                         } else null,
                                         onBranch = if (msg.timestamp > 0L) {
                                             { branchPending = true; WsRepository.forkConversation(conversationId, msg.timestamp) }

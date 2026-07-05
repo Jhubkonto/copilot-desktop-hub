@@ -210,7 +210,10 @@ fun ProjectConfigScreen(
         )
     }
 
-    val disconnected = connectionState != ConnectionState.CONNECTED
+    // Project configuration is persisted locally and synchronized later. Team membership still
+    // requires the desktop because it controls desktop orchestration identities.
+    val disconnected = false
+    val desktopDisconnected = connectionState != ConnectionState.CONNECTED
     val instructionModeLabel = instructionModeOptions.find { it.first == instructionMode }?.second ?: "Prepend"
 
     if (showAddAgentSheet) {
@@ -584,7 +587,7 @@ fun ProjectConfigScreen(
                                         )
                                     }
                                 }
-                                if (!entry.isPrimary && !disconnected) {
+                                if (!entry.isPrimary && !desktopDisconnected) {
                                     TextButton(
                                         onClick = { WsRepository.setPrimaryProjectAgent(projectId, entry.agentId) },
                                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
@@ -592,7 +595,7 @@ fun ProjectConfigScreen(
                                         Text("Set primary", style = MaterialTheme.typography.labelSmall)
                                     }
                                 }
-                                if (!disconnected) {
+                                if (!desktopDisconnected) {
                                     IconButton(
                                         onClick = {
                                             if (entryIndex > 0) {
@@ -628,7 +631,7 @@ fun ProjectConfigScreen(
                         }
                     }
 
-                    if (!disconnected) {
+                    if (!desktopDisconnected) {
                         TextButton(
                             onClick = { showAddAgentSheet = true },
                             modifier = Modifier.fillMaxWidth(),

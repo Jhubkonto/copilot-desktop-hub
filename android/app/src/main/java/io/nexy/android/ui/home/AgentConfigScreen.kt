@@ -58,7 +58,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.AgentContextRules
 import io.nexy.android.data.model.AgentCustomCommand
@@ -355,7 +354,9 @@ fun AgentConfigScreen(
         }
     }
 
-    val disconnected = connectionState != ConnectionState.CONNECTED
+    // Core agent configuration is local-first. Desktop-only integrations remain inert until
+    // synchronization/reconnection, but their configuration can still be prepared offline.
+    val disconnected = false
     val loaded = fullConfig != null
     val backendLabel = backendOptions.find { it.first == backend }?.second ?: "Default (BYOK providers)"
     val responseFormatLabel = responseFormatOptions.find { it.first == responseFormat }?.second ?: "Default"

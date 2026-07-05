@@ -2,10 +2,10 @@ package io.nexy.android.ui.chat
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.ChatAnimationRepository
 import io.nexy.android.data.WsClient
 import io.nexy.android.data.WsRepository
+import io.nexy.android.data.local.LocalDataRepository
 import io.nexy.android.data.model.AttachmentMeta
 import io.nexy.android.data.model.ThinkingBlock
 import io.nexy.android.data.model.WsEvent
@@ -88,6 +88,8 @@ class ChatViewModel(
     private val wsClient: WsClient = WsRepository,
     private val agentId: String? = null,
     private val projectId: String? = null,
+    private val localData: LocalDataRepository? =
+        if (wsClient === WsRepository) WsRepository.localDataRepository() else null,
 ) : ViewModel() {
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
@@ -130,8 +132,22 @@ class ChatViewModel(
     private val _draft = MutableStateFlow("")
     val draft: StateFlow<String> = _draft
 
-    fun setDraft(text: String) { _draft.value = text }
-    fun consumeDraft(): String = _draft.value.also { _draft.value = "" }
+    private var draftSaveJob: Job? = null
+
+    fun setDraft(text: String) {
+        _draft.value = text
+        draftSaveJob?.cancel()
+        draftSaveJob = viewModelScope.launch {
+            delay(250)
+            localData?.saveDraft(conversationId, text)
+        }
+    }
+
+    fun consumeDraft(): String = _draft.value.also {
+        _draft.value = ""
+        draftSaveJob?.cancel()
+        viewModelScope.launch { localData?.clearDraft(conversationId) }
+    }
 
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing
@@ -151,6 +167,15 @@ class ChatViewModel(
                 _liveTurnState.value.status == ChatTurnStatus.Failed
 
     init {
+        localData?.let { repository ->
+            viewModelScope.launch {
+                repository.observeDraft(conversationId).collect { saved ->
+                    if (_draft.value.isBlank() && !saved?.text.isNullOrBlank()) {
+                        _draft.value = saved?.text.orEmpty()
+                    }
+                }
+            }
+        }
         refreshMessages()
         if (wsClient === WsRepository) {
             viewModelScope.launch {
@@ -464,6 +489,14 @@ class ChatViewModel(
     }
 
     fun sendMessage(text: String) {
+        sendMessage(text, null)
+    }
+
+    fun retryMessage(messageId: String, text: String) {
+        sendMessage(text, messageId.takeIf { it.isNotBlank() })
+    }
+
+    private fun sendMessage(text: String, retryMessageId: String?) {
         val atts = _attachments.value
         if (text.isBlank() && atts.isEmpty()) return
         _attachments.value = emptyList()
@@ -483,7 +516,9 @@ class ChatViewModel(
             isStreaming = false,
             attachments = imageAtts.map { AttachmentMeta(id = it.id, name = it.name, type = "image", thumbnailDataUrl = null) },
         )
-        _messages.value = _messages.value + optimisticMessage
+        if (retryMessageId == null) {
+            _messages.value = _messages.value + optimisticMessage
+        }
         _liveTurnState.value = emptyChatTurnState(conversationId).copy(
             status = ChatTurnStatus.Active,
             generationStartedAt = System.currentTimeMillis(),
@@ -494,19 +529,10 @@ class ChatViewModel(
         if (wsClient === WsRepository) ChatAnimationRepository.clear(conversationId)
         startActiveHistoryPolling()
 
-        val connState = if (wsClient === WsRepository) WsRepository.connectionState.value else null
-        if (wsClient === WsRepository && connState != ConnectionState.CONNECTED) {
-            val msgs = _messages.value
-            _messages.value = msgs.dropLast(1) + msgs.last().copy(sendFailed = true)
-            _liveTurnState.value = emptyChatTurnState(conversationId)
-            stopActiveHistoryPolling()
-            _sendError.value = "Message could not be delivered — not connected to desktop."
-            return
-        }
-
         val data = buildMap<String, Any> {
             put("conversationId", conversationId)
             put("content", augmented)
+            retryMessageId?.let { put("retryMessageId", it) }
             if (agentId != null) put("agentId", agentId)
             if (projectId != null) put("projectId", projectId)
             _selectedModel.value?.let { put("model", it) }
@@ -545,6 +571,14 @@ class ChatViewModel(
     fun deleteMessage(messageId: String) {
         _messages.value = _messages.value.filter { it.id != messageId }
         wsClient.send("message:delete", mapOf("id" to messageId))
+    }
+
+    fun editMessage(messageId: String, content: String) {
+        if (messageId.isBlank() || content.isBlank()) return
+        _messages.value = _messages.value.map {
+            if (it.id == messageId) it.copy(text = content, sendFailed = false) else it
+        }
+        WsRepository.editMessage(messageId, content)
     }
 
     fun deleteMessagesAfter(conversationId: String, timestamp: Long) {

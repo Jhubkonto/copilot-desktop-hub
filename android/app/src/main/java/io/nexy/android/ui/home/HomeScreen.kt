@@ -100,13 +100,11 @@ fun HomeScreen(
     onOpenSkills: () -> Unit,
     onOpenScheduled: () -> Unit,
     onOpenSkillGenerator: () -> Unit,
-    onDisconnected: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenPairingScan: () -> Unit,
     vm: HomeViewModel = viewModel(),
 ) {
     val connectionState by vm.connectionState.collectAsState()
-    val reconnectExhausted by vm.reconnectExhausted.collectAsState()
     val intentionalRestartExpected by vm.intentionalRestartExpected.collectAsState()
     val conversations by vm.conversations.collectAsState()
     val agents by vm.agents.collectAsState()
@@ -161,10 +159,6 @@ fun HomeScreen(
             }
             else -> {}
         }
-    }
-
-    LaunchedEffect(reconnectExhausted) {
-        if (reconnectExhausted) onDisconnected()
     }
 
     LaunchedEffect(selectedTab) {
@@ -433,7 +427,10 @@ fun HomeScreen(
                         intentionalRestartExpected = intentionalRestartExpected,
                         onClick = { showConnectionSheet = true },
                     )
-                    IconButton(onClick = onOpenArtifacts) {
+                    IconButton(
+                        onClick = onOpenArtifacts,
+                        enabled = connectionState == ConnectionState.CONNECTED,
+                    ) {
                         Icon(Icons.Default.Inventory2, contentDescription = "Artifacts")
                     }
                     IconButton(onClick = onOpenSettings) {
@@ -453,9 +450,10 @@ fun HomeScreen(
                                 onClick = { showOverflowMenu = false; onOpenSkills() },
                             )
                             DropdownMenuItem(
-                                text = { Text("Scheduled") },
+                                text = { Text(if (connectionState == ConnectionState.CONNECTED) "Scheduled" else "Scheduled · desktop required") },
                                 leadingIcon = { Icon(Icons.Default.DateRange, contentDescription = null) },
                                 onClick = { showOverflowMenu = false; onOpenScheduled() },
+                                enabled = connectionState == ConnectionState.CONNECTED,
                             )
                         }
                     }
@@ -495,8 +493,9 @@ fun HomeScreen(
                                 onClick = { showFabMenu = false; showCreateProjectSheet = true },
                             )
                             DropdownMenuItem(
-                                text = { Text("Generate project") },
+                                text = { Text(if (connectionState == ConnectionState.CONNECTED) "Generate project" else "Generate project · desktop required") },
                                 onClick = { showFabMenu = false; onOpenProjectGenerator() },
+                                enabled = connectionState == ConnectionState.CONNECTED,
                             )
                         }
                         2 -> {
@@ -505,8 +504,9 @@ fun HomeScreen(
                                 onClick = { showFabMenu = false; showCreateAgentSheet = true },
                             )
                             DropdownMenuItem(
-                                text = { Text("Generate agent") },
+                                text = { Text(if (connectionState == ConnectionState.CONNECTED) "Generate agent" else "Generate agent · desktop required") },
                                 onClick = { showFabMenu = false; onOpenAgentGenerator() },
+                                enabled = connectionState == ConnectionState.CONNECTED,
                             )
                         }
                     }
@@ -592,7 +592,6 @@ fun HomeScreen(
                     agents = agents,
                     isRefreshing = isRefreshingAgents,
                     showCreateSheet = showCreateAgentSheet,
-                    connectionState = connectionState,
                     highlightAgentId = highlightAgentId,
                     onHighlightConsumed = { vm.clearHighlightAgent() },
                     onDismissCreateSheet = { showCreateAgentSheet = false },

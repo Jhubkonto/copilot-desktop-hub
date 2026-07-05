@@ -380,7 +380,6 @@ fun ProjectsTab(
     }
 
     if (showCreateSheet) {
-        val disconnected = connectionState != ConnectionState.CONNECTED
         var newName by remember { mutableStateOf("") }
         var newColor by remember { mutableStateOf("blue") }
         var sending by remember { mutableStateOf(false) }
@@ -391,33 +390,19 @@ fun ProjectsTab(
         ) {
             Column(modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text("New Project", style = MaterialTheme.typography.titleMedium)
-                if (disconnected) {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        color = MaterialTheme.colorScheme.errorContainer,
-                        shape = RoundedCornerShape(8.dp),
-                    ) {
-                        Text(
-                            "Not connected to desktop. Connect before creating a project.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        )
-                    }
-                }
                 OutlinedTextField(
                     value = newName,
-                    onValueChange = { if (!sending && !disconnected) newName = it },
+                    onValueChange = { if (!sending) newName = it },
                     label = { Text("Name") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !disconnected && !sending,
+                    enabled = !sending,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     projectColors.forEach { color ->
                         FilterChip(
                             selected = newColor == color,
-                            onClick = { if (!sending && !disconnected) newColor = color },
+                            onClick = { if (!sending) newColor = color },
                             label = {},
                             leadingIcon = {
                                 Box(modifier = Modifier.size(16.dp).background(projectColor(color), RoundedCornerShape(4.dp)))
@@ -431,12 +416,12 @@ fun ProjectsTab(
                     }, enabled = !sending) { Text("Cancel") }
                     TextButton(
                         onClick = {
-                            if (newName.isNotBlank() && !sending && !disconnected) {
+                            if (newName.isNotBlank() && !sending) {
                                 sending = true
                                 onCreateProject(newName.trim(), newColor)
                             }
                         },
-                        enabled = newName.isNotBlank() && !sending && !disconnected,
+                        enabled = newName.isNotBlank() && !sending,
                     ) { Text(if (sending) "Creating…" else "Create") }
                 }
             }
@@ -468,7 +453,7 @@ fun ProjectsTab(
     deleteTarget?.let { target ->
         NexyConfirmDialog(
             title = "Delete project?",
-            message = "\"${target.name}\" and its project settings will be removed from the paired desktop.",
+            message = "\"${target.name}\" and its project settings will be deleted locally and synchronized when the desktop is available.",
             confirmLabel = "Delete",
             destructive = true,
             onConfirm = {
@@ -652,6 +637,7 @@ fun ProjectsTab(
                             // which only indicates in-progress count. Gated on rootDirectory,
                             // mirroring desktop's CodeChangesScreen hasRootDirectory check.
                             IconButton(
+                                enabled = connectionState == ConnectionState.CONNECTED,
                                 onClick = {
                                     if (project.rootDirectory.isNullOrBlank()) {
                                         setupPromptProject = project
@@ -726,7 +712,6 @@ fun AgentsTab(
     agents: List<Agent>,
     isRefreshing: Boolean,
     showCreateSheet: Boolean,
-    connectionState: ConnectionState = ConnectionState.CONNECTED,
     highlightAgentId: String? = null,
     onHighlightConsumed: () -> Unit = {},
     onDismissCreateSheet: () -> Unit,
@@ -752,7 +737,6 @@ fun AgentsTab(
     }
 
     if (showCreateSheet) {
-        val disconnected = connectionState != ConnectionState.CONNECTED
         var newName by remember { mutableStateOf("") }
         var newIcon by remember { mutableStateOf("") }
         var sending by remember { mutableStateOf(false) }
@@ -763,35 +747,21 @@ fun AgentsTab(
         ) {
             Column(modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text("New Agent", style = MaterialTheme.typography.titleMedium)
-                if (disconnected) {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        color = MaterialTheme.colorScheme.errorContainer,
-                        shape = RoundedCornerShape(8.dp),
-                    ) {
-                        Text(
-                            "Not connected to desktop. Connect before creating an agent.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        )
-                    }
-                }
                 OutlinedTextField(
                     value = newName,
-                    onValueChange = { if (!sending && !disconnected) newName = it },
+                    onValueChange = { if (!sending) newName = it },
                     label = { Text("Name") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !disconnected && !sending,
+                    enabled = !sending,
                 )
                 OutlinedTextField(
                     value = newIcon,
-                    onValueChange = { if (!sending && !disconnected) newIcon = it },
+                    onValueChange = { if (!sending) newIcon = it },
                     label = { Text("Icon (emoji)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !disconnected && !sending,
+                    enabled = !sending,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = {
@@ -799,12 +769,12 @@ fun AgentsTab(
                     }, enabled = !sending) { Text("Cancel") }
                     TextButton(
                         onClick = {
-                            if (newName.isNotBlank() && !sending && !disconnected) {
+                            if (newName.isNotBlank() && !sending) {
                                 sending = true
                                 onCreateAgent(newName.trim(), newIcon.trim())
                             }
                         },
-                        enabled = newName.isNotBlank() && !sending && !disconnected,
+                        enabled = newName.isNotBlank() && !sending,
                     ) { Text(if (sending) "Creating…" else "Create") }
                 }
             }
@@ -846,7 +816,7 @@ fun AgentsTab(
     deleteTarget?.let { target ->
         NexyConfirmDialog(
             title = "Delete agent?",
-            message = "\"${target.name}\" will be removed from the paired desktop.",
+            message = "\"${target.name}\" will be deleted locally and synchronized when the desktop is available.",
             confirmLabel = "Delete",
             destructive = true,
             onConfirm = {
