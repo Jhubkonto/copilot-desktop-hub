@@ -38,6 +38,7 @@ fun ConnectionScreen(
     val profiles by vm.profiles.collectAsState()
     val activeProfileId by vm.activeProfileId.collectAsState()
     val connectionState by vm.connectionState.collectAsState()
+    val preferStandaloneMode by vm.preferStandaloneMode.collectAsState()
     val wolSnackbar by vm.wolSnackbar.collectAsState()
     val capabilities by WsRepository.capabilities.collectAsState()
     val conflicts by WsRepository.syncConflicts.collectAsState()
@@ -75,6 +76,8 @@ fun ConnectionScreen(
                 profiles = profiles,
                 activeProfileId = activeProfileId,
                 connectionState = connectionState,
+                preferStandaloneMode = preferStandaloneMode,
+                onSetPreferStandaloneMode = { vm.setPreferStandaloneMode(it) },
                 onSwitchProfile = { vm.switchProfile(it) },
                 onForgetProfile = { vm.forgetProfile(it) },
                 onForgetServer = onForgetServer,

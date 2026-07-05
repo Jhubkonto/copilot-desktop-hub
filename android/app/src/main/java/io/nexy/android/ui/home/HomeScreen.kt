@@ -43,6 +43,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import io.nexy.android.ui.components.NexySearchField
 import io.nexy.android.ui.components.NexyTopAppBar
+import io.nexy.android.ui.connection.StandaloneModeToggle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -105,6 +106,7 @@ fun HomeScreen(
     vm: HomeViewModel = viewModel(),
 ) {
     val connectionState by vm.connectionState.collectAsState()
+    val preferStandaloneMode by vm.preferStandaloneMode.collectAsState()
     val intentionalRestartExpected by vm.intentionalRestartExpected.collectAsState()
     val conversations by vm.conversations.collectAsState()
     val agents by vm.agents.collectAsState()
@@ -427,12 +429,10 @@ fun HomeScreen(
                         intentionalRestartExpected = intentionalRestartExpected,
                         onClick = { showConnectionSheet = true },
                     )
-                    IconButton(
-                        onClick = onOpenArtifacts,
-                        enabled = connectionState == ConnectionState.CONNECTED,
-                    ) {
-                        Icon(Icons.Default.Inventory2, contentDescription = "Artifacts")
-                    }
+                    StandaloneModeToggle(
+                        isStandaloneModeEnabled = preferStandaloneMode,
+                        onToggle = { vm.setPreferStandaloneMode(it) },
+                    )
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")
                     }
@@ -448,6 +448,12 @@ fun HomeScreen(
                                 text = { Text("Skills") },
                                 leadingIcon = { Icon(Icons.Default.Build, contentDescription = null) },
                                 onClick = { showOverflowMenu = false; onOpenSkills() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Artifacts") },
+                                leadingIcon = { Icon(Icons.Default.Inventory2, contentDescription = null) },
+                                onClick = { showOverflowMenu = false; onOpenArtifacts() },
+                                enabled = connectionState == ConnectionState.CONNECTED,
                             )
                             DropdownMenuItem(
                                 text = { Text(if (connectionState == ConnectionState.CONNECTED) "Scheduled" else "Scheduled · desktop required") },

@@ -27,6 +27,8 @@ class HomeViewModel(
     constructor(app: Application) : this(app, WsRepository, AndroidApprovalEffects(app))
 
     val connectionState: StateFlow<ConnectionState> = WsRepository.connectionState
+    val preferStandaloneMode: StateFlow<Boolean> = WsRepository.preferStandaloneMode
+    val effectiveMode: StateFlow<io.nexy.android.data.EffectiveConnectionMode> = WsRepository.effectiveMode
     val reconnectExhausted: StateFlow<Boolean> = WsRepository.reconnectExhausted
     val intentionalRestartExpected: StateFlow<Boolean> = WsRepository.intentionalRestartExpected
     val conversations: StateFlow<List<Conversation>> = WsRepository.conversations
@@ -40,6 +42,10 @@ class HomeViewModel(
     val completedWhileAwayIds: StateFlow<Set<String>> = WsRepository.completedWhileAwayIds
 
     fun clearCompletedAway(id: String) = WsRepository.clearCompletedAway(id)
+
+    fun setPreferStandaloneMode(prefer: Boolean) {
+        WsRepository.setPreferStandaloneMode(prefer, getApplication())
+    }
 
     private val _pendingApproval = MutableStateFlow<WsEvent.ToolApprovalRequest?>(null)
     val pendingApproval: StateFlow<WsEvent.ToolApprovalRequest?> = _pendingApproval

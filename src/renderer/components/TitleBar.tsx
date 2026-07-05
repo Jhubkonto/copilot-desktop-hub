@@ -103,6 +103,7 @@ export function TitleBar() {
   const [showDirPicker, setShowDirPicker] = useState(false)
   const [showProjectSettings, setShowProjectSettings] = useState(false)
   const [projectSettingsInitialTab, setProjectSettingsInitialTab] = useState<'general' | 'scope' | 'milestones'>('general')
+  const [mobileClientCount, setMobileClientCount] = useState(0)
   const menuRef = useRef<HTMLDivElement>(null)
   const projSettingsRef = useRef<HTMLDivElement>(null)
 
@@ -136,6 +137,11 @@ export function TitleBar() {
   useEffect(() => {
     window.api.isWindowMaximized().then(setIsMaximized)
     const unsub = window.api.onMaximizeChange((maximized) => setIsMaximized(maximized))
+    return () => { unsub() }
+  }, [])
+
+  useEffect(() => {
+    const unsub = window.api.onMobileClientCount((count) => setMobileClientCount(count))
     return () => { unsub() }
   }, [])
 
@@ -321,46 +327,56 @@ export function TitleBar() {
         </>
       )}
 
-      {/* Project badge + milestone badge cluster */}
-      {(showProjectBadge || activeMilestone) && activeProject && (
-        <div className="relative ml-2 flex items-center gap-1.5" ref={projSettingsRef} style={NO_DRAG}>
-          {showProjectBadge && (
-            <button
-              type="button"
-              onClick={() => { setProjectSettingsInitialTab('general'); setShowProjectSettings((v) => !v) }}
-              className={`inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full border transition-colors ${badgeColors.bg} ${badgeColors.text} ${badgeColors.border} ${badgeColors.hover}`}
-              aria-label="Project settings"
-            >
-              <span>📁</span>
-              <span className="max-w-[120px] truncate">{activeProject.name}</span>
-            </button>
-          )}
+      {/* Project badge + milestone badge + Android connected badge cluster */}
+      <div className="flex items-center gap-1.5" style={NO_DRAG}>
+        {(showProjectBadge || activeMilestone) && activeProject && (
+          <div className="relative flex items-center gap-1.5" ref={projSettingsRef}>
+            {showProjectBadge && (
+              <button
+                type="button"
+                onClick={() => { setProjectSettingsInitialTab('general'); setShowProjectSettings((v) => !v) }}
+                className={`inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full border transition-colors ${badgeColors.bg} ${badgeColors.text} ${badgeColors.border} ${badgeColors.hover}`}
+                aria-label="Project settings"
+              >
+                <span>📁</span>
+                <span className="max-w-[120px] truncate">{activeProject.name}</span>
+              </button>
+            )}
 
-          {activeMilestone && (
-            <button
-              type="button"
-              onClick={() => { setProjectSettingsInitialTab('milestones'); setShowProjectSettings(true) }}
-              title={activeMilestone.description ?? activeMilestone.title}
-              className={`inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full border transition-colors ${badgeColors.bg} ${badgeColors.text} ${badgeColors.border} ${badgeColors.hover}`}
-              aria-label={`Active milestone: ${activeMilestone.title}`}
-            >
-              <span>🎯</span>
-              <span className="max-w-[100px] truncate">{activeMilestone.title}</span>
-            </button>
-          )}
+            {activeMilestone && (
+              <button
+                type="button"
+                onClick={() => { setProjectSettingsInitialTab('milestones'); setShowProjectSettings(true) }}
+                title={activeMilestone.description ?? activeMilestone.title}
+                className={`inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full border transition-colors ${badgeColors.bg} ${badgeColors.text} ${badgeColors.border} ${badgeColors.hover}`}
+                aria-label={`Active milestone: ${activeMilestone.title}`}
+              >
+                <span>🎯</span>
+                <span className="max-w-[100px] truncate">{activeMilestone.title}</span>
+              </button>
+            )}
 
-          {showProjectSettings && (
-            <div className="absolute left-0 top-8 z-50 w-96 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-2xl overflow-hidden">
-              <ProjectSettingsPanel
-                key={`${activeProject.id}-${projectSettingsInitialTab}`}
-                projectId={activeProject.id}
-                initialTab={projectSettingsInitialTab}
-                onClose={() => setShowProjectSettings(false)}
-              />
-            </div>
-          )}
-        </div>
-      )}
+            {showProjectSettings && (
+              <div className="absolute left-0 top-8 z-50 w-96 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-2xl overflow-hidden">
+                <ProjectSettingsPanel
+                  key={`${activeProject.id}-${projectSettingsInitialTab}`}
+                  projectId={activeProject.id}
+                  initialTab={projectSettingsInitialTab}
+                  onClose={() => setShowProjectSettings(false)}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Android connected indicator badge */}
+        {mobileClientCount > 0 && (
+          <div className="inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full border transition-colors bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400 border-green-200 dark:border-green-700" title={`${mobileClientCount} Android client${mobileClientCount === 1 ? '' : 's'} connected`} aria-label={`${mobileClientCount} Android client${mobileClientCount === 1 ? '' : 's'} connected`}>
+            <span>📱</span>
+            <span>{mobileClientCount}</span>
+          </div>
+        )}
+      </div>
 
       {/* Drag region fills remaining space */}
       <div className="flex-1" style={DRAG} />
