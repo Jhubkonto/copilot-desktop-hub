@@ -58,7 +58,11 @@ class ManualWorkflowEventParserTest {
         assertEquals("Release Prep", event.title)
         assertEquals("Ship the release", event.goalSummary)
         assertEquals("CI is green\nStaging is up to date", event.assumptions)
-        assertEquals(listOf("Run tests: Execute full suite", "Tag release: Create git tag"), event.steps)
+        assertEquals(listOf("Run tests", "Tag release"), event.steps.map { it.title })
+        assertEquals(listOf("Execute full suite", "Create git tag"), event.steps.map { it.summary })
+        assertEquals(listOf("run tests", "tag it"), event.steps.map { it.prompt })
+        assertEquals(listOf("green", "tag pushed"), event.steps.map { it.expectedOutput })
+        assertEquals(listOf<String?>(null, null), event.steps.map { it.agentName })
     }
 
     @Test
@@ -136,7 +140,11 @@ class ManualWorkflowEventParserTest {
     }
 
     @Test
-    fun specReadyFallsBackToTitleWhenSummaryBlank() = runTest {
+    fun specReadyPreservesStepFieldsIndependentlyWhenSummaryBlank() = runTest {
+        // Regression: the parser used to collapse title+summary into a single flattened
+        // string and silently drop prompt/agentName/expectedOutput entirely, so Android
+        // could show step titles but never let the user act on a step (no copyable prompt,
+        // no agent/output info) — this is what actually made the generator feel unusable.
         val event = parseEvent(
             """
             {
@@ -147,14 +155,20 @@ class ManualWorkflowEventParserTest {
                   "title": "T",
                   "goalSummary": "G",
                   "assumptions": [],
-                  "steps": [ { "id": "s1", "title": "Only title", "summary": "", "prompt": "p", "expectedOutput": "e" } ]
+                  "steps": [ { "id": "s1", "title": "Only title", "summary": "", "agentName": "Builder", "prompt": "p", "expectedOutput": "e" } ]
                 }
               }
             }
             """.trimIndent()
         ) as WsEvent.ManualWorkflowReady
 
-        assertEquals(listOf("Only title"), event.steps)
+        val step = event.steps.single()
+        assertEquals("s1", step.id)
+        assertEquals("Only title", step.title)
+        assertTrue(step.summary.isEmpty())
+        assertEquals("Builder", step.agentName)
+        assertEquals("p", step.prompt)
+        assertEquals("e", step.expectedOutput)
         assertTrue(event.assumptions.isEmpty())
     }
 
