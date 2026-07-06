@@ -69,6 +69,7 @@ import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyConnectionBanner
 import io.nexy.android.ui.components.NexyExpandableSection
 import io.nexy.android.ui.components.NexyTopAppBar
+import io.nexy.android.ui.settings.SettingsNavRow
 import kotlinx.coroutines.launch
 
 private val instructionModeOptions = listOf(
@@ -76,6 +77,13 @@ private val instructionModeOptions = listOf(
     "append" to "Append",
     "replace" to "Replace",
     "standalone" to "Standalone",
+)
+
+private val instructionModeDescriptions = mapOf(
+    "prepend" to "Project instructions come first, before the agent's own system instructions and your message.",
+    "append" to "Project instructions are inserted right after the agent's own system instructions, before your message.",
+    "replace" to "Project instructions take the place of the agent's own system instructions for chats in this project.",
+    "standalone" to "Currently behaves the same as Replace: project instructions take the place of the agent's own system instructions.",
 )
 
 private val milestoneStatuses = listOf("upcoming", "active", "completed")
@@ -134,6 +142,7 @@ fun ProjectConfigScreen(
     var milestonesExpanded by rememberSaveable { mutableStateOf(false) }
     var orchestrationExpanded by rememberSaveable { mutableStateOf(false) }
     var agentsExpanded by rememberSaveable { mutableStateOf(true) }
+    var toolsExpanded by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(projectId) {
         loaded = false
@@ -364,6 +373,11 @@ fun ProjectConfigScreen(
                             }
                         }
                     }
+                    Text(
+                        instructionModeDescriptions[instructionMode].orEmpty(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
 
@@ -375,7 +389,12 @@ fun ProjectConfigScreen(
                 expanded = pathsExpanded,
                 onToggle = { pathsExpanded = !pathsExpanded },
             ) {
-                Column(modifier = Modifier.padding(bottom = 12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+                    Text(
+                        "The working directory the desktop CLI/tools use when acting on this project's files. Leave blank to use the global default directory instead.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     OutlinedTextField(
                         value = rootDirectory,
                         onValueChange = { rootDirectory = it },
@@ -398,7 +417,12 @@ fun ProjectConfigScreen(
                 onToggle = { variablesExpanded = !variablesExpanded },
                 badge = variables.size.takeIf { it > 0 }?.toString(),
             ) {
-                Column(modifier = Modifier.padding(bottom = 12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+                    Text(
+                        "Reusable values you can reference as {{key}} anywhere in this project — in your chat messages, in the project instructions above, and in the manual workflow generator. Nexy substitutes the value automatically before sending.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     EditableKeyValueList(
                         rows = variables,
                         keyLabel = "Key",
@@ -419,6 +443,11 @@ fun ProjectConfigScreen(
                 badge = (inScope.size + outOfScope.size).takeIf { it > 0 }?.toString(),
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+                    Text(
+                        "Sent to the agent with every chat message in this project. \"In scope\" tells it what to focus on; \"Out of scope\" is a hard instruction not to touch those files or areas.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     EditableScopeList(
                         title = "In scope",
                         rows = inScope,
@@ -443,7 +472,12 @@ fun ProjectConfigScreen(
                 onToggle = { milestonesExpanded = !milestonesExpanded },
                 badge = milestones.size.takeIf { it > 0 }?.toString(),
             ) {
-                Column(modifier = Modifier.padding(bottom = 12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+                    Text(
+                        "Track project phases here. Whichever milestone is marked \"active\" is sent to the agent with every chat message, so it stays focused on the current phase.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     EditableMilestonesList(
                         rows = milestones,
                         enabled = !saving && !disconnected,
@@ -480,15 +514,22 @@ fun ProjectConfigScreen(
                         )
                     }
                     if (orchestrationEnabled) {
-                        OutlinedTextField(
-                            value = maxDelegationDepth,
-                            onValueChange = { maxDelegationDepth = it.filter(Char::isDigit).take(2) },
-                            label = { Text("Max delegation depth") },
-                            singleLine = true,
-                            enabled = !saving && !disconnected,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                            modifier = Modifier.fillMaxWidth(),
-                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            OutlinedTextField(
+                                value = maxDelegationDepth,
+                                onValueChange = { maxDelegationDepth = it.filter(Char::isDigit).take(2) },
+                                label = { Text("Max delegation depth") },
+                                singleLine = true,
+                                enabled = !saving && !disconnected,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Text(
+                                "How many levels deep the leader agent can delegate a task before it must be handled directly (1–10). Higher values allow more sub-delegation but take longer and cost more.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -552,6 +593,11 @@ fun ProjectConfigScreen(
                 badge = projectAgents.size.takeIf { it > 0 }?.toString(),
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+                    Text(
+                        "Agents assigned to this project. When Orchestration is on, the \"Primary\" agent is the leader that delegates to the others — use \"Set primary\" to change which one leads.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     if (projectAgents.isEmpty()) {
                         Text(
                             "No agents assigned to this project.",
@@ -648,33 +694,34 @@ fun ProjectConfigScreen(
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-            // — Wiki & Artifacts quick links (not collapsible) —
-            TextButton(
-                onClick = onOpenAudit,
-                modifier = Modifier.fillMaxWidth(),
+            // — Project Tools —
+            NexyExpandableSection(
+                title = "Project Tools",
+                expanded = toolsExpanded,
+                onToggle = { toolsExpanded = !toolsExpanded },
             ) {
-                Text("View project changes")
-            }
-
-            TextButton(
-                onClick = onOpenWiki,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("View project wiki")
-            }
-
-            TextButton(
-                onClick = onOpenArtifacts,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("View project artifacts")
-            }
-
-            TextButton(
-                onClick = onOpenManualWorkflow,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Manual workflow generator")
+                Column(modifier = Modifier.padding(bottom = 12.dp)) {
+                    SettingsNavRow(
+                        title = "Project changes",
+                        detail = "Review edits agents have made to this project's files",
+                        onClick = onOpenAudit,
+                    )
+                    SettingsNavRow(
+                        title = "Project wiki",
+                        detail = "Notes and knowledge captured for this project",
+                        onClick = onOpenWiki,
+                    )
+                    SettingsNavRow(
+                        title = "Project artifacts",
+                        detail = "Files and documents generated from chats in this project",
+                        onClick = onOpenArtifacts,
+                    )
+                    SettingsNavRow(
+                        title = "Manual workflow generator",
+                        detail = "Describe a goal to get an AI-drafted, step-by-step delegation plan",
+                        onClick = onOpenManualWorkflow,
+                    )
+                }
             }
         }
     }
