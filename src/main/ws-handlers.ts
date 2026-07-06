@@ -2,7 +2,7 @@ import { BrowserWindow, ipcMain } from 'electron'
 import { randomUUID } from 'crypto'
 import { safeHandle } from './safe-handle'
 import { getDatabase } from './database'
-import { abortActiveStream, PROVIDERS, getOpenRouterModels, isProviderConfigured, getApiKey } from './providers'
+import { abortActiveStream, PROVIDERS, getOpenRouterModels, isProviderConfigured } from './providers'
 import { dispatchChatSend } from './chat-handlers'
 import { debugLog } from './debug-mode'
 import { getCliModels } from './cli-detection'
@@ -551,7 +551,7 @@ export function registerWsHandlers(): void {
           | undefined
         backend = row?.backend ?? undefined
       }
-      const byId = new Map<string, { id: string; label: string; vendor?: string }>()
+      const byId = new Map<string, { id: string; label: string; vendor?: string; isCliSourced?: boolean }>()
       byId.set('default', { id: 'default', label: 'Default model' })
 
       const catalogById = new Map(getCachedCatalog().map((model) => [model.id, model]))
@@ -576,9 +576,9 @@ export function registerWsHandlers(): void {
 
         const models =
           resolvedBackend === 'codex-cli'
-            ? getCliModels('codex-cli').map((model) => ({ ...model, vendor: 'Codex CLI' }))
+            ? getCliModels('codex-cli').map((model) => ({ ...model, vendor: 'Codex CLI', isCliSourced: true }))
             : resolvedBackend === 'claude-cli'
-              ? getCliModels('claude-cli').map((model) => ({ ...model, vendor: 'Claude CLI' }))
+              ? getCliModels('claude-cli').map((model) => ({ ...model, vendor: 'Claude CLI', isCliSourced: true }))
               : configuredProviders
                   .flatMap((provider) => getProviderModelIds(provider).map((model) => ({
                     id: provider.name === 'azure' ? `azure:${model}` : model,
@@ -596,12 +596,12 @@ export function registerWsHandlers(): void {
       // No explicit backend — aggregate ALL available sources for the model picker
       if (ClaudeAdapter.isAvailable()) {
         for (const model of getCliModels('claude-cli')) {
-          if (!byId.has(model.id)) byId.set(model.id, { ...model, vendor: 'Claude CLI' })
+          if (!byId.has(model.id)) byId.set(model.id, { ...model, vendor: 'Claude CLI', isCliSourced: true })
         }
       }
       if (CodexAdapter.isAvailable()) {
         for (const model of getCliModels('codex-cli')) {
-          if (!byId.has(model.id)) byId.set(model.id, { ...model, vendor: 'Codex CLI' })
+          if (!byId.has(model.id)) byId.set(model.id, { ...model, vendor: 'Codex CLI', isCliSourced: true })
         }
       }
       for (const provider of configuredProviders) {
@@ -1150,26 +1150,12 @@ export function registerWsHandlers(): void {
     if (command === 'provider:key-handoff-request') {
       const provider = typeof data.provider === 'string' ? data.provider : ''
       if (!provider) return
-      // Notify all renderer windows that a key handoff was requested
+      // Notify desktop's renderer windows so a human can approve or decline sending the
+      // key — the value itself is never sent from here. Approval flows through the
+      // 'provider:key-handoff-confirm' IPC handler in providers.ts, triggered only by an
+      // explicit "Send Key" click in ProvidersTab.tsx.
       BrowserWindow.getAllWindows().forEach((w) => {
         if (!w.isDestroyed()) w.webContents.send('provider:key-handoff-request', { provider })
-      })
-      return
-    }
-
-    if (command === 'provider:key-handoff-confirm') {
-      const provider = typeof data.provider === 'string' ? data.provider : ''
-      if (!provider) return
-      const key = getApiKey(provider as 'openai' | 'anthropic' | 'azure' | 'gemini' | 'mistral' | 'groq' | 'xai')
-      if (!key) {
-        reply({ event: 'provider:key-handoff-error', data: { provider, message: 'No key configured' } })
-        return
-      }
-      // Send the key to Android via reply
-      reply({ event: 'provider:key-handoff-value', data: { provider, value: key } })
-      // Notify UI that handoff completed
-      BrowserWindow.getAllWindows().forEach((w) => {
-        if (!w.isDestroyed()) w.webContents.send('provider:key-handoff-sent', { provider })
       })
       return
     }

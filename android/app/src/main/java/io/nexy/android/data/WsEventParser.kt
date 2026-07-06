@@ -1773,13 +1773,14 @@ fun parseWsEvent(
                 WsEvent.SettingValue(key, value)
             }
             "provider:key-handoff-request" -> {
-                val providerId = data?.optString("providerId") ?: return
-                val providerName = data.optString("providerName", providerId)
-                WsEvent.ProviderKeyHandoffRequest(providerId, providerName)
+                // Desktop (ws-handlers.ts) sends only "provider" — no separate display name.
+                val providerId = data?.optString("provider") ?: return
+                WsEvent.ProviderKeyHandoffRequest(providerId, providerId)
             }
             "provider:key-handoff-value" -> {
-                val providerId = data?.optString("providerId") ?: return
-                val keyValue = data?.optString("keyValue") ?: return
+                // Field names must match ws-handlers.ts's `reply({ event: 'provider:key-handoff-value', data: { provider, value } })`.
+                val providerId = data?.optString("provider") ?: return
+                val keyValue = data?.optString("value") ?: return
                 WsEvent.ProviderKeyHandoffValue(providerId, keyValue)
             }
             "manual-workflow-generator:spec-ready" -> {
@@ -1792,9 +1793,14 @@ fun parseWsEvent(
                 val stepsArr = spec.optJSONArray("steps") ?: JSONArray()
                 val steps = (0 until stepsArr.length()).map { i ->
                     val step = stepsArr.getJSONObject(i)
-                    val stepTitle = step.optString("title", "")
-                    val summary = step.optString("summary", "")
-                    if (summary.isBlank()) stepTitle else "$stepTitle: $summary"
+                    io.nexy.android.data.model.ManualWorkflowStepInfo(
+                        id = step.optString("id", i.toString()),
+                        title = step.optString("title", ""),
+                        summary = step.optString("summary", ""),
+                        agentName = step.optString("agentName").takeIf(String::isNotBlank),
+                        prompt = step.optString("prompt", ""),
+                        expectedOutput = step.optString("expectedOutput", ""),
+                    )
                 }
                 WsEvent.ManualWorkflowReady(sessionId, title, goalSummary, assumptions, steps)
             }

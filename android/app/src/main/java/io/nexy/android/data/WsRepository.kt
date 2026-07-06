@@ -281,7 +281,7 @@ object WsRepository : WsClient {
         val title: String = "",
         val goalSummary: String = "",
         val assumptions: String = "",
-        val steps: List<String> = emptyList(),
+        val steps: List<io.nexy.android.data.model.ManualWorkflowStepInfo> = emptyList(),
         val currentModel: String? = null,
         val isActive: Boolean = true,
         val isLoading: Boolean = false,
@@ -1150,11 +1150,13 @@ object WsRepository : WsClient {
     fun pairedServer(): PairedServerConfig? = pairedServerStore?.load()
 
     fun confirmProviderKeyHandoff(providerId: String) {
-        // User has explicitly consented to receive this key
+        // User has explicitly consented to receive this key.
         _confirmedKeyHandoffs.value = _confirmedKeyHandoffs.value + providerId
-        // Request the key value from desktop (if connected)
+        // Ask desktop to send it — this only shows a "Send Key" approval banner on
+        // desktop (ws-handlers.ts's `provider:key-handoff-request` handler); desktop
+        // does not transmit the value until a human explicitly approves there.
         if (_connectionState.value == ConnectionState.CONNECTED) {
-            send("provider:request-key-handoff", mapOf("providerId" to providerId))
+            send("provider:key-handoff-request", mapOf("provider" to providerId))
         }
     }
 

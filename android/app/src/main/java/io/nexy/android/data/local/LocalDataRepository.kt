@@ -684,14 +684,14 @@ class LocalDataRepository private constructor(
             val id = row.optString("id")
             if (id.isBlank()) return@forEachObject
             val current = database.projects().get(id)
-            val config = row.jsonObjectOrString("config_json")
+            val fields = projectFieldsFromSnapshotRow(row)
             val remoteVersion = versions.optLong("project:$id", 1L)
             val remote = ProjectEntity(
                 id = id,
-                name = row.optString("name", "Project"),
-                color = row.optString("color", "blue"),
-                rootDirectory = config?.optString("rootDirectory")?.takeIf(String::isNotBlank),
-                configJson = config?.toString() ?: "{}",
+                name = fields.name,
+                color = fields.color,
+                rootDirectory = fields.rootDirectory,
+                configJson = fields.configJson,
                 createdAt = row.optLong("created_at", System.currentTimeMillis()),
                 updatedAt = row.optLong("updated_at", System.currentTimeMillis()),
                 remoteVersion = remoteVersion,
@@ -712,15 +712,15 @@ class LocalDataRepository private constructor(
             val id = row.optString("id")
             if (id.isBlank()) return@forEachObject
             val current = database.agents().get(id)
-            val config = row.jsonObjectOrString("config_json") ?: JSONObject()
+            val fields = agentFieldsFromSnapshotRow(row)
             val remoteVersion = versions.optLong("agent:$id", 1L)
             val remote = AgentEntity(
                 id = id,
-                name = config.optString("name", "Agent"),
-                icon = config.optString("icon"),
-                backend = config.optString("backend").takeIf(String::isNotBlank),
-                cliModel = config.optString("cliModel").takeIf(String::isNotBlank),
-                configJson = config.toString(),
+                name = fields.name,
+                icon = fields.icon,
+                backend = fields.backend,
+                cliModel = fields.cliModel,
+                configJson = fields.configJson,
                 createdAt = row.optLong("created_at", System.currentTimeMillis()),
                 updatedAt = row.optLong("updated_at", System.currentTimeMillis()),
                 remoteVersion = remoteVersion,
@@ -1696,6 +1696,49 @@ private fun JSONObject.jsonObjectOrString(key: String): JSONObject? {
     optJSONObject(key)?.let { return it }
     val raw = nullableString(key) ?: return null
     return runCatching { JSONObject(raw) }.getOrNull()
+}
+
+internal data class ProjectSnapshotFields(
+    val name: String,
+    val color: String,
+    val rootDirectory: String?,
+    val configJson: String,
+)
+
+/**
+ * Desktop's `buildSnapshot()` (standalone-sync.ts) nests project config under a
+ * "config" key — not "config_json".
+ */
+internal fun projectFieldsFromSnapshotRow(row: JSONObject): ProjectSnapshotFields {
+    val config = row.jsonObjectOrString("config")
+    return ProjectSnapshotFields(
+        name = row.optString("name", "Project"),
+        color = row.optString("color", "blue"),
+        rootDirectory = config?.optString("rootDirectory")?.takeIf(String::isNotBlank),
+        configJson = config?.toString() ?: "{}",
+    )
+}
+
+internal data class AgentSnapshotFields(
+    val name: String,
+    val icon: String,
+    val backend: String?,
+    val cliModel: String?,
+    val configJson: String,
+)
+
+/**
+ * Desktop's `buildSnapshot()` spreads agent config fields directly onto the row root
+ * (no "config_json"/"config" wrapper key) — the row itself is the config.
+ */
+internal fun agentFieldsFromSnapshotRow(row: JSONObject): AgentSnapshotFields {
+    return AgentSnapshotFields(
+        name = row.optString("name", "Agent"),
+        icon = row.optString("icon"),
+        backend = row.optString("backend").takeIf(String::isNotBlank),
+        cliModel = row.optString("cliModel").takeIf(String::isNotBlank),
+        configJson = row.toString(),
+    )
 }
 
 private fun JSONObject.jsonArrayOrString(key: String): JSONArray? {

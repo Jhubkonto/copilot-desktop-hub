@@ -1,5 +1,7 @@
 package io.nexy.android.ui.projects
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +16,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -25,6 +28,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -34,10 +38,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import io.nexy.android.data.WsRepository
+import io.nexy.android.data.model.ManualWorkflowStepInfo
 import io.nexy.android.ui.components.NexyTopAppBar
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -93,11 +99,17 @@ fun ManualWorkflowScreen(
             val activeSession = session
             if (activeSession == null) {
                 Column(
-                    modifier = Modifier.fillMaxSize().padding(top = 24.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(
                         "Describe the workflow you want to generate — the assistant will propose a goal, assumptions, and a step-by-step plan with agent assignments.",
                         style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        "The plan is generated fresh each time and isn't saved — copy each step's prompt before leaving this screen if you want to keep it.",
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -135,11 +147,7 @@ fun ManualWorkflowScreen(
                                     modifier = Modifier.padding(top = 8.dp),
                                 )
                                 activeSession.steps.forEachIndexed { index, step ->
-                                    Text(
-                                        "${index + 1}. $step",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        modifier = Modifier.padding(top = 4.dp),
-                                    )
+                                    ManualWorkflowStepCard(index = index, step = step)
                                 }
                             }
                             if (activeSession.currentModel != null) {
@@ -237,6 +245,41 @@ private fun ManualWorkflowMessageBubble(message: WsRepository.ManualWorkflowMess
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(8.dp),
             )
+        }
+    }
+}
+
+@Composable
+internal fun ManualWorkflowStepCard(index: Int, step: ManualWorkflowStepInfo) {
+    val context = LocalContext.current
+    val clipboardManager = context.getSystemService(ClipboardManager::class.java)
+    val metaLine = buildString {
+        append(step.agentName ?: "Unassigned")
+        if (step.expectedOutput.isNotBlank()) append(" · Output: ${step.expectedOutput}")
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shape = MaterialTheme.shapes.small,
+    ) {
+        Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text("${index + 1}. ${step.title}", style = MaterialTheme.typography.labelMedium)
+            Text(metaLine, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (step.summary.isNotBlank()) {
+                Text(step.summary, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 2.dp))
+            }
+            if (step.prompt.isNotBlank()) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(
+                        onClick = {
+                            clipboardManager?.setPrimaryClip(ClipData.newPlainText("Workflow step prompt", step.prompt))
+                        },
+                    ) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
+                        Text("Copy prompt")
+                    }
+                }
+            }
         }
     }
 }

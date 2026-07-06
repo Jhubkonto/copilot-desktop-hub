@@ -337,7 +337,7 @@ describe('ws handlers', () => {
         source: { type: 'provider', label: 'Claude CLI' },
         models: [
           { id: 'default', label: 'Default model' },
-          { id: 'claude-sonnet-4.6', label: 'Claude Sonnet 4.6', vendor: 'Claude CLI' },
+          { id: 'claude-sonnet-4.6', label: 'Claude Sonnet 4.6', vendor: 'Claude CLI', isCliSourced: true },
         ],
       },
     })
@@ -352,7 +352,7 @@ describe('ws handlers', () => {
         source: { type: 'cli', label: 'Codex CLI models', backend: 'codex-cli' },
         models: [
           { id: 'default', label: 'Default model' },
-          { id: 'gpt-5.5', label: 'GPT-5.5', vendor: 'Codex CLI' },
+          { id: 'gpt-5.5', label: 'GPT-5.5', vendor: 'Codex CLI', isCliSourced: true },
         ],
       },
     })
@@ -367,7 +367,7 @@ describe('ws handlers', () => {
         source: { type: 'cli', label: 'Codex CLI models', backend: 'codex-cli' },
         models: [
           { id: 'default', label: 'Default model' },
-          { id: 'gpt-5.5', label: 'GPT-5.5', vendor: 'Codex CLI' },
+          { id: 'gpt-5.5', label: 'GPT-5.5', vendor: 'Codex CLI', isCliSourced: true },
         ],
       },
     })
@@ -382,10 +382,20 @@ describe('ws handlers', () => {
         source: { type: 'cli', label: 'Claude CLI models', backend: 'claude-cli' },
         models: [
           { id: 'default', label: 'Default model' },
-          { id: 'claude-sonnet-4.6', label: 'Claude Sonnet 4.6', vendor: 'Claude CLI' },
+          { id: 'claude-sonnet-4.6', label: 'Claude Sonnet 4.6', vendor: 'Claude CLI', isCliSourced: true },
         ],
       },
     })
+  })
+
+  it('marks CLI-sourced models with isCliSourced so standalone clients can filter them out', () => {
+    const reply = sendCommand('model:list', { backend: 'claude-cli' })
+    const models = (reply.mock.calls[0][0] as { data: { models: Array<{ id: string; isCliSourced?: boolean }> } }).data.models
+    const cliModel = models.find((m) => m.id === 'claude-sonnet-4.6')
+    const defaultModel = models.find((m) => m.id === 'default')
+
+    expect(cliModel?.isCliSourced).toBe(true)
+    expect(defaultModel?.isCliSourced).toBeUndefined()
   })
 
   it('updates a conversation model over mobile websocket', () => {
