@@ -311,6 +311,12 @@ fun HomeScreen(
                 color = MaterialTheme.colorScheme.outlineVariant,
                 modifier = Modifier.padding(top = 12.dp),
             )
+            StandaloneModeToggle(
+                isStandaloneModeEnabled = preferStandaloneMode,
+                onToggle = { vm.setPreferStandaloneMode(it) },
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             if (profiles.size > 1) {
                 Text(
                     "Saved servers",
@@ -428,10 +434,6 @@ fun HomeScreen(
                         state = connectionState,
                         intentionalRestartExpected = intentionalRestartExpected,
                         onClick = { showConnectionSheet = true },
-                    )
-                    StandaloneModeToggle(
-                        isStandaloneModeEnabled = preferStandaloneMode,
-                        onToggle = { vm.setPreferStandaloneMode(it) },
                     )
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")

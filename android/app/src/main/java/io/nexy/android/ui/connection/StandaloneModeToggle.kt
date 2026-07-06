@@ -1,19 +1,25 @@
 package io.nexy.android.ui.connection
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 
+/**
+ * A real on/off switch for the user's chosen connection mode — deliberately not a
+ * clickable chip/badge, which reads as a second connection-status indicator and is
+ * easily confused with [io.nexy.android.ui.home.ConnectionChip]. This toggle expresses
+ * a *preference* ("use only local API keys, even if a desktop is reachable"); actual
+ * reachability is shown separately by the connection chip.
+ */
 @Composable
 fun StandaloneModeToggle(
     isStandaloneModeEnabled: Boolean,
@@ -21,23 +27,25 @@ fun StandaloneModeToggle(
     modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .clickable { onToggle(!isStandaloneModeEnabled) }
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        val label = if (isStandaloneModeEnabled) "Standalone" else "Remote"
-        val dotColor = if (isStandaloneModeEnabled)
-            MaterialTheme.colorScheme.tertiary
-        else
-            MaterialTheme.colorScheme.primary
-        Text(
-            text = "● $label",
-            color = dotColor,
-            style = MaterialTheme.typography.labelSmall,
+        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+            Text("Standalone mode", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                text = if (isStandaloneModeEnabled) {
+                    "Using only your locally-configured API keys. Works without a desktop, but CLI models and desktop file/git context stay unavailable."
+                } else {
+                    "Using the connected desktop's models and CLI backends when it's reachable."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(
+            checked = isStandaloneModeEnabled,
+            onCheckedChange = onToggle,
         )
     }
 }
