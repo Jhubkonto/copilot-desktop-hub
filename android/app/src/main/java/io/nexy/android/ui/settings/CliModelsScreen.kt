@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -101,8 +100,8 @@ fun CliModelsScreen(onBack: () -> Unit) {
                 }
             } else {
                 val sorted = cliStatus.entries.sortedBy { it.key }
-                sorted.forEachIndexed { index, (name, info) ->
-                    CliModelRow(name = name, info = info, index = index)
+                sorted.forEach { (name, info) ->
+                    CliModelRow(name = name, info = info)
                 }
             }
 
@@ -126,20 +125,10 @@ fun CliModelsScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun CliModelRow(name: String, info: CliInstallInfo, index: Int = 0) {
-    val rowColor = if (index % 2 == 0) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant
-    Surface(
-        color = rowColor,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(72.dp),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+private fun CliModelRow(name: String, info: CliInstallInfo) {
+    io.nexy.android.ui.components.NexyListRow(
+        title = name,
+        leading = {
             Surface(
                 shape = MaterialTheme.shapes.small,
                 color = if (info.installed) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
@@ -154,18 +143,9 @@ private fun CliModelRow(name: String, info: CliInstallInfo, index: Int = 0) {
                     tint = if (info.installed) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                Text(
-                    name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
+        },
+        subtitleContent = {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 if (info.version != null) {
                     Text(
                         "v${info.version}",
@@ -183,13 +163,15 @@ private fun CliModelRow(name: String, info: CliInstallInfo, index: Int = 0) {
                     )
                 }
             }
+        },
+        trailing = {
             Text(
                 if (info.installed) "Installed" else "Not found",
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Medium,
                 color = if (info.installed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
             )
-        }
-    }
+        },
+    )
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 }

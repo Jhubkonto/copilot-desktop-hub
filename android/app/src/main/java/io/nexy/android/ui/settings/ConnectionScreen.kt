@@ -1,12 +1,12 @@
 package io.nexy.android.ui.settings
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
@@ -23,7 +23,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import io.nexy.android.data.ConnectionState
+import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyTopAppBar
 import io.nexy.android.data.WsRepository
 
@@ -66,7 +69,7 @@ fun ConnectionScreen(
         },
     ) { padding ->
         Column(
-            modifier = androidx.compose.ui.Modifier
+            modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState()),
@@ -88,15 +91,11 @@ fun ConnectionScreen(
                 onDisconnect = { vm.disconnect() },
                 onForgetActiveServer = { vm.forgetServer() },
                 onForgetServer = onForgetServer,
-                showWakeDesktop = connectionState != io.nexy.android.data.ConnectionState.CONNECTED && vm.activeProfileHasWolInfo,
+                showWakeDesktop = connectionState != ConnectionState.CONNECTED && vm.activeProfileHasWolInfo,
                 onWakeDesktop = { vm.wakeDesktop() },
             )
             HorizontalDivider()
-            Text(
-                "Local data and synchronization",
-                style = MaterialTheme.typography.titleSmall,
-                modifier = androidx.compose.ui.Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            )
+            SettingsSectionHeader("Local data and synchronization")
             Text(
                 buildString {
                     append("${capabilities.pendingChanges} pending")
@@ -107,17 +106,17 @@ fun ConnectionScreen(
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = androidx.compose.ui.Modifier.padding(horizontal = 16.dp),
+                modifier = Modifier.padding(horizontal = 16.dp),
             )
             TextButton(
                 onClick = { WsRepository.retryStandaloneSync() },
-                enabled = connectionState == io.nexy.android.data.ConnectionState.CONNECTED,
-                modifier = androidx.compose.ui.Modifier.padding(horizontal = 8.dp),
+                enabled = connectionState == ConnectionState.CONNECTED,
+                modifier = Modifier.padding(horizontal = 8.dp),
             ) {
                 Text("Sync now")
             }
             outbox.filter { it.state == "failed" }.forEach { operation ->
-                Column(modifier = androidx.compose.ui.Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
                     Text(
                         "${operation.entityType.replaceFirstChar { it.uppercase() }} change needs attention",
                         style = MaterialTheme.typography.labelLarge,
@@ -131,7 +130,7 @@ fun ConnectionScreen(
                         Text("Retry change")
                     }
                     TextButton(
-                        enabled = connectionState == io.nexy.android.data.ConnectionState.CONNECTED,
+                        enabled = connectionState == ConnectionState.CONNECTED,
                         onClick = { discardOperationId = operation.operationId },
                     ) {
                         Text("Discard local change")
@@ -139,25 +138,20 @@ fun ConnectionScreen(
                 }
             }
             discardOperationId?.let { operationId ->
-                AlertDialog(
-                    onDismissRequest = { discardOperationId = null },
-                    title = { Text("Discard local change?") },
-                    text = { Text("The desktop version will replace this pending Android change during the next synchronization.") },
-                    confirmButton = {
-                        TextButton(
-                            onClick = {
-                                WsRepository.discardStandaloneOperation(operationId)
-                                discardOperationId = null
-                            },
-                        ) { Text("Discard") }
+                NexyConfirmDialog(
+                    title = "Discard local change?",
+                    message = "The desktop version will replace this pending Android change during the next synchronization.",
+                    confirmLabel = "Discard",
+                    destructive = true,
+                    onConfirm = {
+                        WsRepository.discardStandaloneOperation(operationId)
+                        discardOperationId = null
                     },
-                    dismissButton = {
-                        TextButton(onClick = { discardOperationId = null }) { Text("Cancel") }
-                    },
+                    onDismiss = { discardOperationId = null },
                 )
             }
             conflicts.forEach { conflict ->
-                Column(modifier = androidx.compose.ui.Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                     Text(
                         "${conflict.entityType.replaceFirstChar { it.uppercase() }} conflict",
                         style = MaterialTheme.typography.labelLarge,
@@ -175,14 +169,14 @@ fun ConnectionScreen(
                         "Desktop: ${conflict.localValueJson.take(500)}",
                         style = MaterialTheme.typography.bodySmall,
                     )
-                    androidx.compose.foundation.layout.Row {
+                    Row {
                         TextButton(
                             onClick = { WsRepository.resolveSyncConflict(conflict.id, useAndroidVersion = true) },
-                            enabled = connectionState == io.nexy.android.data.ConnectionState.CONNECTED,
+                            enabled = connectionState == ConnectionState.CONNECTED,
                         ) { Text("Use Android") }
                         TextButton(
                             onClick = { WsRepository.resolveSyncConflict(conflict.id, useAndroidVersion = false) },
-                            enabled = connectionState == io.nexy.android.data.ConnectionState.CONNECTED,
+                            enabled = connectionState == ConnectionState.CONNECTED,
                         ) { Text("Use desktop") }
                     }
                 }

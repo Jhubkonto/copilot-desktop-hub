@@ -7,12 +7,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -87,62 +90,73 @@ fun BackupRecoveryScreen(onBack: () -> Unit) {
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(rememberScrollState()),
         ) {
-            Text(
-                "Included: conversations, reusable content, drafts, attachment files, and pending sync state.\n\nExcluded: API keys, pairing secrets, and other device-specific secrets.\n\nBackup files are encrypted with your passphrase and stored using your system's file picker (you choose the location).",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            OutlinedTextField(
-                value = passphrase,
-                onValueChange = { passphrase = it },
-                label = { Text("Backup passphrase") },
-                supportingText = { Text("At least 8 characters. Nexy cannot recover a forgotten passphrase.") },
-                visualTransformation = PasswordVisualTransformation(),
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            NexyPrimaryButton(
-                text = if (busy) "Working…" else "Create encrypted backup",
-                enabled = !busy && passphrase.length >= 8,
-                onClick = { exportLauncher.launch("nexy-standalone-${LocalDate.now()}.nexybackup") },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            NexySecondaryButton(
-                text = if (busy) "Working…" else "Check local database integrity",
-                enabled = !busy,
-                onClick = {
-                    scope.launch {
-                        busy = true
-                        runCatching { manager.integrityStatus() }
-                            .onSuccess { snackbar.showSnackbar("Local database integrity check passed.") }
-                            .onFailure { snackbar.showSnackbar(it.message ?: "Integrity check failed.") }
-                        busy = false
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            NexyDangerButton(
-                text = if (busy) "Working…" else "Restore encrypted backup",
-                enabled = !busy && passphrase.length >= 8,
-                onClick = { restoreLauncher.launch(arrayOf("application/octet-stream", "*/*")) },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            NexySecondaryButton(
-                text = if (busy) "Working…" else "Export raw recovery copy",
-                enabled = !busy && passphrase.length >= 8,
-                onClick = {
-                    rawRecoveryLauncher.launch("nexy-raw-recovery-${LocalDate.now()}.nexybackup")
-                },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Text(
-                "Restore replaces the current local standalone database. Create a fresh backup first if you may need to recover the current state.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-            )
+            SettingsSectionHeader("Backup and Recovery")
+
+            Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        "Included: conversations, reusable content, drafts, attachment files, and pending sync state.\n\nExcluded: API keys, pairing secrets, and other device-specific secrets.\n\nBackup files are encrypted with your passphrase and stored using your system's file picker (you choose the location).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedTextField(
+                        value = passphrase,
+                        onValueChange = { passphrase = it },
+                        label = { Text("Backup passphrase") },
+                        supportingText = { Text("At least 8 characters. Nexy cannot recover a forgotten passphrase.") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    NexyPrimaryButton(
+                        text = if (busy) "Working…" else "Create encrypted backup",
+                        enabled = !busy && passphrase.length >= 8,
+                        onClick = { exportLauncher.launch("nexy-standalone-${LocalDate.now()}.nexybackup") },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    NexySecondaryButton(
+                        text = if (busy) "Working…" else "Check local database integrity",
+                        enabled = !busy,
+                        onClick = {
+                            scope.launch {
+                                busy = true
+                                runCatching { manager.integrityStatus() }
+                                    .onSuccess { snackbar.showSnackbar("Local database integrity check passed.") }
+                                    .onFailure { snackbar.showSnackbar(it.message ?: "Integrity check failed.") }
+                                busy = false
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    NexyDangerButton(
+                        text = if (busy) "Working…" else "Restore encrypted backup",
+                        enabled = !busy && passphrase.length >= 8,
+                        onClick = { restoreLauncher.launch(arrayOf("application/octet-stream", "*/*")) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    NexySecondaryButton(
+                        text = if (busy) "Working…" else "Export raw recovery copy",
+                        enabled = !busy && passphrase.length >= 8,
+                        onClick = {
+                            rawRecoveryLauncher.launch("nexy-raw-recovery-${LocalDate.now()}.nexybackup")
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text(
+                        "Restore replaces the current local standalone database. Create a fresh backup first if you may need to recover the current state.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
         }
     }
 }
