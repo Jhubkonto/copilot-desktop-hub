@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,6 +19,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -48,7 +50,7 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun GlobalSettingsScreen(onBack: () -> Unit) {
+fun GlobalSettingsScreen(onBack: () -> Unit, onOpenProviders: () -> Unit = {}) {
     val connectionState by WsRepository.connectionState.collectAsState()
     val effectiveMode by WsRepository.effectiveMode.collectAsState()
     val disconnected = connectionState != ConnectionState.CONNECTED
@@ -162,11 +164,19 @@ fun GlobalSettingsScreen(onBack: () -> Unit) {
                 }
             }
             if (configuredProviderIds.isEmpty()) {
-                Text(
-                    "Add an API provider key in API Providers to set a standalone default model.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Column {
+                    Text(
+                        "No provider has a usable key on this device yet, so there's no standalone default model to pick. A provider configured only on your desktop doesn't count here — its key never syncs to this device automatically.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    TextButton(
+                        onClick = onOpenProviders,
+                        contentPadding = PaddingValues(horizontal = 0.dp, vertical = 4.dp),
+                    ) {
+                        Text("Open API Providers")
+                    }
+                }
             }
 
             // — Generation —
@@ -201,15 +211,25 @@ fun GlobalSettingsScreen(onBack: () -> Unit) {
             )
 
             if (!hasResolvableDefaultModel) {
-                Text(
+                Column {
+                    Text(
+                        if (effectiveMode == EffectiveConnectionMode.STANDALONE_BY_CHOICE) {
+                            "Add a usable API provider key on this device to set generation defaults in standalone mode. A key configured only on your desktop isn't enough — it never syncs here automatically."
+                        } else {
+                            "Connect to desktop at least once to load models before setting generation defaults."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     if (effectiveMode == EffectiveConnectionMode.STANDALONE_BY_CHOICE) {
-                        "Add an API provider key to set generation defaults in standalone mode."
-                    } else {
-                        "Connect to desktop at least once to load models before setting generation defaults."
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                        TextButton(
+                            onClick = onOpenProviders,
+                            contentPadding = PaddingValues(horizontal = 0.dp, vertical = 4.dp),
+                        ) {
+                            Text("Open API Providers")
+                        }
+                    }
+                }
             }
 
             // — Behaviour —

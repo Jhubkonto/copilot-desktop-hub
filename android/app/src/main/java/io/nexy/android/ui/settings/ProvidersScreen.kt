@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -45,7 +45,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -222,16 +221,21 @@ fun ProvidersScreen(
                     )
                 } else {
                     LazyColumn(modifier = Modifier.weight(1f)) {
-                        itemsIndexed(filteredProviders, key = { _, p -> p.id }) { index, provider ->
+                        items(filteredProviders, key = { it.id }) { provider ->
                             ProviderRow(
                                 provider = provider,
-                                index = index,
                                 isTesting = isTesting && testingProviderId == provider.id,
                                 onSetKey = { editingProvider = provider },
                                 onRemoveKey = { confirmRemoveProvider = provider },
                                 onTestKey = { key ->
                                     testingProviderId = provider.id
                                     vm.testKey(provider.id, key, if (provider.id == "azure") azureEndpoint.takeIf { it.isNotBlank() } else null)
+                                },
+                                onRequestFromDesktop = {
+                                    WsRepository.confirmProviderKeyHandoff(provider.id)
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar("Requested — waiting for desktop to approve…")
+                                    }
                                 },
                             )
                             if (provider.id == "azure" && provider.configured) {
@@ -253,15 +257,14 @@ fun ProvidersScreen(
 @Composable
 private fun ProviderRow(
     provider: ProviderInfo,
-    index: Int = 0,
     isTesting: Boolean = false,
     onSetKey: () -> Unit,
     onRemoveKey: () -> Unit,
     onTestKey: ((String) -> Unit)? = null,
+    onRequestFromDesktop: () -> Unit = {},
 ) {
     var showMenu by remember { mutableStateOf(false) }
     var showTestDialog by remember { mutableStateOf(false) }
-    val rowColor = if (index % 2 == 0) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant
 
     if (showTestDialog) {
         TestKeyDialog(
@@ -275,39 +278,35 @@ private fun ProviderRow(
         )
     }
 
-    Surface(
-        color = rowColor,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(72.dp),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 16.dp, end = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(
-                    provider.label,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                ProviderStatusBadge(configured = provider.configured)
+    io.nexy.android.ui.components.NexyListRow(
+        title = provider.label,
+        subtitleContent = {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                ProviderStatusBadge(provider = provider)
+                if (provider.configuredOnDesktopOnly) {
+                    Text(
+                        "Configured on desktop only — not usable in standalone mode yet",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
+        },
+        trailing = {
             Box {
                 IconButton(onClick = { showMenu = true }) {
                     Icon(Icons.Default.MoreVert, contentDescription = "Provider options", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                    if (provider.configuredOnDesktopOnly) {
+                        DropdownMenuItem(
+                            text = { Text("Request key from desktop") },
+                            leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                            onClick = { showMenu = false; onRequestFromDesktop() },
+                        )
+                    }
                     DropdownMenuItem(
-                        text = { Text(if (provider.configured) "Update key" else "Set key") },
+                        text = { Text(if (provider.configured) "Update key on this device" else "Add key on this device") },
                         leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
                         onClick = { showMenu = false; onSetKey() },
                     )
@@ -328,25 +327,34 @@ private fun ProviderRow(
                     }
                 }
             }
-        }
-    }
+        },
+    )
 }
 
 @Composable
-private fun ProviderStatusBadge(configured: Boolean) {
-    val label = if (configured) "Connected" else "Not set"
-    val color = if (configured) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-    Surface(
-        shape = MaterialTheme.shapes.extraSmall,
-        color = color.copy(alpha = 0.15f),
-    ) {
-        Text(
-            label,
-            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
-            style = MaterialTheme.typography.labelSmall,
-            color = color,
+private fun ProviderStatusBadge(provider: ProviderInfo) {
+    val (label, containerColor, contentColor) = when {
+        provider.configured -> Triple(
+            "Connected",
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+            MaterialTheme.colorScheme.primary,
+        )
+        provider.configuredOnDesktopOnly -> Triple(
+            "Desktop only",
+            MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f),
+            MaterialTheme.colorScheme.tertiary,
+        )
+        else -> Triple(
+            "Not set",
+            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f),
+            MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+    io.nexy.android.ui.components.NexyStatusBadge(
+        label = label,
+        containerColor = containerColor,
+        contentColor = contentColor,
+    )
 }
 
 @Composable

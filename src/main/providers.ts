@@ -1,6 +1,8 @@
 import https from 'https'
+import { BrowserWindow } from 'electron'
 import { safeHandle } from './safe-handle'
 import { httpsRequestWithResponse } from './http-client'
+import { broadcastToMobile } from './ws-server'
 import {
   storeApiKey,
   removeApiKey,
@@ -106,6 +108,22 @@ export function registerProviderHandlers(): void {
 
   safeHandle('provider:set-azure-endpoint', (_event, endpoint: string) => {
     setAzureEndpoint(endpoint)
+    return true
+  })
+
+  // Human-approved leg of the Android key-handoff flow: only reachable via an explicit
+  // "Send Key" click in ProvidersTab.tsx, in response to the Android-initiated
+  // 'provider:key-handoff-request' WS event handled in ws-handlers.ts. The key value is
+  // never sent automatically — this is the sole point where it's actually transmitted.
+  safeHandle('provider:key-handoff-confirm', (_event, provider: string) => {
+    const key = retrieveApiKey(provider as ProviderName)
+    if (!key) {
+      throw new Error(`No ${provider} API key is configured on this desktop.`)
+    }
+    broadcastToMobile({ event: 'provider:key-handoff-value', data: { provider, value: key } })
+    BrowserWindow.getAllWindows().forEach((w) => {
+      if (!w.isDestroyed()) w.webContents.send('provider:key-handoff-sent', { provider })
+    })
     return true
   })
 }

@@ -329,7 +329,10 @@ fun NavGraph(
         }
 
         composable("settings/global") {
-            GlobalSettingsScreen(onBack = { navController.popBackStack() })
+            GlobalSettingsScreen(
+                onBack = { navController.popBackStack() },
+                onOpenProviders = { navController.navigate("providers") },
+            )
         }
 
         composable("settings/mcp-servers") {

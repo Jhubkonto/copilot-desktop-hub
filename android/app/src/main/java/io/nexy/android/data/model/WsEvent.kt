@@ -363,7 +363,7 @@ sealed class WsEvent {
         val title: String,
         val goalSummary: String,
         val assumptions: String,
-        val steps: List<String>,
+        val steps: List<ManualWorkflowStepInfo>,
     ) : WsEvent()
     data class ManualWorkflowModel(val sessionId: String, val modelId: String) : WsEvent()
     data class ManualWorkflowToken(val sessionId: String, val chunk: String) : WsEvent()
@@ -553,10 +553,25 @@ data class AttachmentMeta(
     val thumbnailDataUrl: String?,
 )
 
+/** Mirrors desktop's `ManualWorkflowStep` (src/shared/types.ts). */
+data class ManualWorkflowStepInfo(
+    val id: String,
+    val title: String,
+    val summary: String,
+    val agentName: String?,
+    val prompt: String,
+    val expectedOutput: String,
+)
+
 data class ProviderInfo(
     val id: String,
     val label: String,
+    /** True only when a real, usable key exists on THIS device (local encrypted store). */
     val configured: Boolean,
+    /** True when desktop reports this provider as configured but this device has no local
+     *  key for it — the key value never syncs automatically, so it's not usable standalone
+     *  without an explicit key handoff or manual entry. */
+    val configuredOnDesktopOnly: Boolean = false,
 )
 
 data class CliInstallInfo(

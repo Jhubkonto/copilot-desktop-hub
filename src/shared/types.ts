@@ -1880,7 +1880,7 @@ export type IpcReturnMap = {
   'provider:set-azure-endpoint': boolean
   'provider:set-key': boolean
   'provider:test-key': ProviderTestResult
-  'provider:key-handoff-confirm': void
+  'provider:key-handoff-confirm': boolean
   'provider:key-handoff-request': void
   'provider:key-handoff-sent': void
   // Screen / Clipboard

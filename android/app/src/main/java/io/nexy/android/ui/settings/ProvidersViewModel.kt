@@ -145,12 +145,27 @@ class ProvidersViewModel(app: Application) : AndroidViewModel(app) {
     private fun mergeProviders(
         local: List<ProviderInfo>,
         remote: List<ProviderInfo>,
-    ): List<ProviderInfo> {
-        val byId = remote.associateBy { it.id }.toMutableMap()
-        local.forEach { item ->
-            val desktop = byId[item.id]
-            byId[item.id] = item.copy(configured = item.configured || desktop?.configured == true)
-        }
-        return byId.values.sortedBy { it.label }
+    ): List<ProviderInfo> = mergeProviderLists(local, remote)
+}
+
+/**
+ * Merges local (device-encrypted) and desktop-reported provider state. `configured`
+ * always reflects whether THIS device has a real, usable key — never desktop's flag alone
+ * — so standalone mode never claims a provider is usable when only desktop has the key.
+ * `configuredOnDesktopOnly` distinguishes that "known but not usable here yet" state so
+ * the UI can offer a key handoff or manual entry instead of a plain "Connected" badge.
+ */
+internal fun mergeProviderLists(
+    local: List<ProviderInfo>,
+    remote: List<ProviderInfo>,
+): List<ProviderInfo> {
+    val byId = remote.associateBy { it.id }.toMutableMap()
+    local.forEach { item ->
+        val desktop = byId[item.id]
+        byId[item.id] = item.copy(
+            configured = item.configured,
+            configuredOnDesktopOnly = !item.configured && desktop?.configured == true,
+        )
     }
+    return byId.values.sortedBy { it.label }
 }

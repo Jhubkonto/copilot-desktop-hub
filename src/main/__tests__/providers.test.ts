@@ -4,7 +4,7 @@ import type { ProviderMessage } from '../providers'
 
 // ── Hoisted mocks ──────────────────────────────────────────────────────────────
 
-const { mockDb, ipcHandlers, mockIpcMain, mockSafeStorage, mockHttpsRequest } = vi.hoisted(() => {
+const { mockDb, ipcHandlers, mockIpcMain, mockSafeStorage, mockHttpsRequest, mockBrowserWindow, mockBroadcastToMobile } = vi.hoisted(() => {
   const ipcHandlers = new Map<string, (...args: unknown[]) => unknown>()
   const store = new Map<string, string>()
 
@@ -60,13 +60,22 @@ const { mockDb, ipcHandlers, mockIpcMain, mockSafeStorage, mockHttpsRequest } = 
       encryptString: vi.fn((text: string) => Buffer.from(`enc:${text}`)),
       decryptString: vi.fn((buf: Buffer) => buf.toString().replace('enc:', ''))
     },
-    mockHttpsRequest: vi.fn()
+    mockHttpsRequest: vi.fn(),
+    mockBrowserWindow: {
+      getAllWindows: vi.fn(() => [] as Array<{ isDestroyed: () => boolean; webContents: { send: (...args: unknown[]) => void } }>)
+    },
+    mockBroadcastToMobile: vi.fn()
   }
 })
 
 vi.mock('electron', () => ({
   ipcMain: mockIpcMain,
-  safeStorage: mockSafeStorage
+  safeStorage: mockSafeStorage,
+  BrowserWindow: mockBrowserWindow
+}))
+
+vi.mock('../ws-server', () => ({
+  broadcastToMobile: mockBroadcastToMobile
 }))
 
 vi.mock('../database', () => ({
@@ -175,6 +184,28 @@ describe('Providers — IPC Handlers', () => {
 
       const azure = result.find((p: { name: string }) => p.name === 'azure')
       expect(azure.configured).toBe(false)
+    })
+  })
+
+  describe('provider:key-handoff-confirm', () => {
+    it('sends the key to Android and notifies desktop windows once a human approves', async () => {
+      mockDb._store.set('byok_anthropic_key', 'sk-ant-secret')
+      const win = { isDestroyed: () => false, webContents: { send: vi.fn() } }
+      mockBrowserWindow.getAllWindows.mockReturnValueOnce([win])
+
+      const result = await invokeHandler('provider:key-handoff-confirm', 'anthropic')
+
+      expect(result).toBe(true)
+      expect(mockBroadcastToMobile).toHaveBeenCalledWith({
+        event: 'provider:key-handoff-value',
+        data: { provider: 'anthropic', value: 'sk-ant-secret' },
+      })
+      expect(win.webContents.send).toHaveBeenCalledWith('provider:key-handoff-sent', { provider: 'anthropic' })
+    })
+
+    it('rejects when no key is configured for the provider, without transmitting anything', async () => {
+      await expect(invokeHandler('provider:key-handoff-confirm', 'anthropic')).rejects.toThrow()
+      expect(mockBroadcastToMobile).not.toHaveBeenCalled()
     })
   })
 
