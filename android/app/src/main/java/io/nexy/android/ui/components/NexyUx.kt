@@ -455,6 +455,7 @@ fun NexyInputValidation(
     singleLine: Boolean = true,
     enabled: Boolean = true,
     placeholder: String? = null,
+    helperText: String? = null,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
 ) {
     Column(modifier = modifier) {
@@ -474,6 +475,14 @@ fun NexyInputValidation(
                 text = errorMessage.orEmpty(),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(start = 16.dp, top = 4.dp),
+            )
+        }
+        if (errorMessage == null && !helperText.isNullOrBlank()) {
+            Text(
+                text = helperText,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 16.dp, top = 4.dp),
             )
         }
@@ -552,7 +561,10 @@ fun NexyListRow(
     modifier: Modifier = Modifier,
     subtitle: String? = null,
     onClick: (() -> Unit)? = null,
+    leading: @Composable (() -> Unit)? = null,
     trailing: @Composable (() -> Unit)? = null,
+    /** For subtitle content that isn't plain text (e.g. a status badge). Takes precedence over [subtitle]. */
+    subtitleContent: @Composable (() -> Unit)? = null,
 ) {
     val rowModifier = if (onClick != null) {
         modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp)
@@ -564,10 +576,12 @@ fun NexyListRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        leading?.invoke()
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
-            if (!subtitle.isNullOrBlank()) {
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
+            when {
+                subtitleContent != null -> subtitleContent()
+                !subtitle.isNullOrBlank() -> Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
             }
         }
         trailing?.invoke()

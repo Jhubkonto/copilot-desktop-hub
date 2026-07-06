@@ -456,6 +456,7 @@ fun AgentConfigScreen(
                             label = "Icon",
                             singleLine = true,
                             enabled = !saving && !disconnected,
+                            helperText = "An emoji shown next to this agent everywhere it appears",
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                             modifier = Modifier.weight(0.28f),
                         )
@@ -486,6 +487,7 @@ fun AgentConfigScreen(
                         value = systemPrompt,
                         onValueChange = { systemPrompt = it },
                         label = { Text("System prompt") },
+                        supportingText = { Text("Defines this agent's role and behavior. Sent as instructions before every message it handles.") },
                         enabled = !saving && !disconnected,
                         minLines = 4,
                         maxLines = 12,
@@ -497,7 +499,8 @@ fun AgentConfigScreen(
                         value = memory,
                         onValueChange = { memory = it },
                         label = { Text("Memory") },
-                        placeholder = { Text("Always appended to system prompt") },
+                        placeholder = { Text("Notes this agent should always remember") },
+                        supportingText = { Text("Always appended to the system prompt in every message — use it for facts or preferences that should persist across chats.") },
                         enabled = !saving && !disconnected,
                         minLines = 3,
                         maxLines = 8,
@@ -560,7 +563,12 @@ fun AgentConfigScreen(
                 onToggle = { backendExpanded = !backendExpanded },
                 badge = backendOptions.find { it.first == backend }?.second?.takeIf { backend != null },
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+                    Text(
+                        "Choose which engine runs this agent's chats: a BYOK provider (API key), or an installed CLI tool. A CLI backend must already be installed and authenticated.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     ExposedDropdownMenuBox(
                         expanded = backendMenuExpanded,
                         onExpandedChange = { if (!saving && !disconnected) backendMenuExpanded = it },
@@ -598,6 +606,7 @@ fun AgentConfigScreen(
                                 readOnly = true,
                                 label = { Text("CLI model (optional)") },
                                 placeholder = { Text("e.g. claude-sonnet-4-6") },
+                                supportingText = { Text("Leave blank to use the CLI tool's own default model.") },
                                 singleLine = true,
                                 enabled = !saving && !disconnected,
                                 modifier = Modifier.fillMaxWidth(),
@@ -623,33 +632,40 @@ fun AgentConfigScreen(
                 onToggle = { generationExpanded = !generationExpanded },
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(bottom = 12.dp)) {
-                    ExposedDropdownMenuBox(
-                        expanded = responseFormatMenuExpanded,
-                        onExpandedChange = { if (!saving && !disconnected) responseFormatMenuExpanded = it },
-                    ) {
-                        OutlinedTextField(
-                            value = responseFormatLabel,
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("Response format") },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = responseFormatMenuExpanded) },
-                            enabled = !saving && !disconnected,
-                            modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
-                        )
-                        ExposedDropdownMenu(
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        ExposedDropdownMenuBox(
                             expanded = responseFormatMenuExpanded,
-                            onDismissRequest = { responseFormatMenuExpanded = false },
+                            onExpandedChange = { if (!saving && !disconnected) responseFormatMenuExpanded = it },
                         ) {
-                            responseFormatOptions.forEach { (value, label) ->
-                                DropdownMenuItem(
-                                    text = { Text(label) },
-                                    onClick = {
-                                        responseFormat = value
-                                        responseFormatMenuExpanded = false
-                                    },
-                                )
+                            OutlinedTextField(
+                                value = responseFormatLabel,
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("Response format") },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = responseFormatMenuExpanded) },
+                                enabled = !saving && !disconnected,
+                                modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+                            )
+                            ExposedDropdownMenu(
+                                expanded = responseFormatMenuExpanded,
+                                onDismissRequest = { responseFormatMenuExpanded = false },
+                            ) {
+                                responseFormatOptions.forEach { (value, label) ->
+                                    DropdownMenuItem(
+                                        text = { Text(label) },
+                                        onClick = {
+                                            responseFormat = value
+                                            responseFormatMenuExpanded = false
+                                        },
+                                    )
+                                }
                             }
                         }
+                        Text(
+                            "A label for this agent's intended response style, for your own reference — it doesn't currently change the model's actual output.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
 
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -669,6 +685,11 @@ fun AgentConfigScreen(
                             Text("Precise", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text("Creative", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
+                        Text(
+                            "Controls how much randomness the model uses when generating a response. Lower is more focused and repeatable; higher is more varied.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
 
                     NexyInputValidation(
@@ -679,36 +700,44 @@ fun AgentConfigScreen(
                         singleLine = true,
                         enabled = !saving && !disconnected,
                         errorMessage = maxTokensError,
+                        helperText = "The maximum length of the model's response. Higher values allow longer answers but cost more and take longer to generate.",
                         modifier = Modifier.fillMaxWidth(),
                     )
 
-                    ExposedDropdownMenuBox(
-                        expanded = thinkingEffortMenuExpanded,
-                        onExpandedChange = { if (!saving && !disconnected) thinkingEffortMenuExpanded = it },
-                    ) {
-                        OutlinedTextField(
-                            value = thinkingEffortLabel,
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("Thinking effort") },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = thinkingEffortMenuExpanded) },
-                            enabled = !saving && !disconnected,
-                            modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
-                        )
-                        ExposedDropdownMenu(
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        ExposedDropdownMenuBox(
                             expanded = thinkingEffortMenuExpanded,
-                            onDismissRequest = { thinkingEffortMenuExpanded = false },
+                            onExpandedChange = { if (!saving && !disconnected) thinkingEffortMenuExpanded = it },
                         ) {
-                            thinkingEffortOptions.forEach { (value, label) ->
-                                DropdownMenuItem(
-                                    text = { Text(label) },
-                                    onClick = {
-                                        thinkingEffort = value
-                                        thinkingEffortMenuExpanded = false
-                                    },
-                                )
+                            OutlinedTextField(
+                                value = thinkingEffortLabel,
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("Thinking effort") },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = thinkingEffortMenuExpanded) },
+                                enabled = !saving && !disconnected,
+                                modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+                            )
+                            ExposedDropdownMenu(
+                                expanded = thinkingEffortMenuExpanded,
+                                onDismissRequest = { thinkingEffortMenuExpanded = false },
+                            ) {
+                                thinkingEffortOptions.forEach { (value, label) ->
+                                    DropdownMenuItem(
+                                        text = { Text(label) },
+                                        onClick = {
+                                            thinkingEffort = value
+                                            thinkingEffortMenuExpanded = false
+                                        },
+                                    )
+                                }
                             }
                         }
+                        Text(
+                            "Extended reasoning before responding — supported on Claude CLI, Anthropic, and o-series models. Higher effort can improve complex answers but is slower.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
             }
@@ -773,7 +802,12 @@ fun AgentConfigScreen(
                 onToggle = { skillsExpanded = !skillsExpanded },
                 badge = attachedSkillIds.size.takeIf { it > 0 }?.toString(),
             ) {
-                Column(modifier = Modifier.padding(bottom = 12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+                    Text(
+                        "Reusable instruction sets attached to this agent. Each one's instructions and knowledge are appended to the system prompt in the order shown below.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     SkillAttachmentsSection(
                         skills = skills,
                         attachedSkillIds = attachedSkillIds,
@@ -814,25 +848,40 @@ fun AgentConfigScreen(
                         onValueChange = { rootDirectory = it },
                         label = { Text("Root directory") },
                         placeholder = { Text("Absolute path (optional)") },
+                        supportingText = { Text("Working directory for CLI tool execution. Overrides the global default. If this agent runs inside a project, the project's own root directory takes priority.") },
                         singleLine = true,
                         enabled = !saving && !disconnected,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    StringListEditor(
-                        label = "Context directories",
-                        items = contextDirectories,
-                        placeholder = "e.g. /path/to/dir",
-                        disabled = saving || disconnected,
-                        onItemsChange = { contextDirectories = it },
-                    )
-                    StringListEditor(
-                        label = "Context files",
-                        items = contextFiles,
-                        placeholder = "e.g. /path/to/file.txt",
-                        disabled = saving || disconnected,
-                        onItemsChange = { contextFiles = it },
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        StringListEditor(
+                            label = "Context directories",
+                            items = contextDirectories,
+                            placeholder = "e.g. /path/to/dir",
+                            disabled = saving || disconnected,
+                            onItemsChange = { contextDirectories = it },
+                        )
+                        Text(
+                            "Extra directories always included as context, in addition to the root directory above.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        StringListEditor(
+                            label = "Context files",
+                            items = contextFiles,
+                            placeholder = "e.g. /path/to/file.txt",
+                            disabled = saving || disconnected,
+                            onItemsChange = { contextFiles = it },
+                        )
+                        Text(
+                            "Specific files always included as context for this agent, regardless of which directory it's working in.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
 
@@ -867,13 +916,20 @@ fun AgentConfigScreen(
                         }
                         Switch(checked = autoInjectGit, onCheckedChange = { if (!saving && !disconnected) autoInjectGit = it }, enabled = !saving && !disconnected)
                     }
-                    StringListEditor(
-                        label = "Ignored globs",
-                        items = ignoredGlobs,
-                        placeholder = "e.g. **/*.log",
-                        disabled = saving || disconnected,
-                        onItemsChange = { ignoredGlobs = it },
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        StringListEditor(
+                            label = "Ignored globs",
+                            items = ignoredGlobs,
+                            placeholder = "e.g. **/*.log",
+                            disabled = saving || disconnected,
+                            onItemsChange = { ignoredGlobs = it },
+                        )
+                        Text(
+                            "Files and paths matching these patterns are excluded from the auto-injected workspace file tree above.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
 
@@ -886,7 +942,12 @@ fun AgentConfigScreen(
                 onToggle = { customCommandsExpanded = !customCommandsExpanded },
                 badge = customCommands.size.takeIf { it > 0 }?.toString(),
             ) {
-                Column(modifier = Modifier.padding(bottom = 12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+                    Text(
+                        "Reusable slash commands for this agent — type /name in chat to insert the saved prompt instead of retyping it.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     CustomCommandsEditor(
                         commands = customCommands,
                         disabled = saving || disconnected,
@@ -904,7 +965,12 @@ fun AgentConfigScreen(
                 onToggle = { mcpExpanded = !mcpExpanded },
                 badge = mcpServers.size.takeIf { it > 0 }?.toString(),
             ) {
-                Column(modifier = Modifier.padding(bottom = 12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+                    Text(
+                        "MCP servers give this agent extra tools (e.g. a database or API integration). Assign a server, then set how much it's trusted to run without confirmation.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     McpServerAssignmentSection(
                         availableServers = availableMcpServers,
                         assignedServerIds = mcpServers,
@@ -933,7 +999,12 @@ fun AgentConfigScreen(
                 onToggle = { knowledgeExpanded = !knowledgeExpanded },
                 badge = knowledgeFiles.size.takeIf { it > 0 }?.toString(),
             ) {
-                Column(modifier = Modifier.padding(bottom = 12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+                    Text(
+                        "Files this agent can read for extra context, edited directly from this device and synced to desktop.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     AnimatedContent(targetState = editingKnowledgeFile, label = "knowledge-panel") { editing ->
                         if (editing != null) {
                             KnowledgeFileEditorSection(
@@ -1060,39 +1131,47 @@ private fun ToolCard(
                 Switch(checked = enabled, onCheckedChange = { if (!disabled) onEnabledChange(it) }, enabled = !disabled)
             }
             if (enabled) {
-                ExposedDropdownMenuBox(
-                    expanded = approvalExpanded,
-                    onExpandedChange = { if (!disabled) onApprovalExpandedChange(it) },
-                ) {
-                    OutlinedTextField(
-                        value = approvalLabel,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Approval") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = approvalExpanded) },
-                        enabled = !disabled,
-                        modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
-                    )
-                    ExposedDropdownMenu(
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    ExposedDropdownMenuBox(
                         expanded = approvalExpanded,
-                        onDismissRequest = { onApprovalExpandedChange(false) },
+                        onExpandedChange = { if (!disabled) onApprovalExpandedChange(it) },
                     ) {
-                        approvalOptions.forEach { (value, label) ->
-                            DropdownMenuItem(
-                                text = { Text(label) },
-                                onClick = {
-                                    onApprovalChange(value)
-                                    onApprovalExpandedChange(false)
-                                },
-                            )
+                        OutlinedTextField(
+                            value = approvalLabel,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Approval") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = approvalExpanded) },
+                            enabled = !disabled,
+                            modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+                        )
+                        ExposedDropdownMenu(
+                            expanded = approvalExpanded,
+                            onDismissRequest = { onApprovalExpandedChange(false) },
+                        ) {
+                            approvalOptions.forEach { (value, label) ->
+                                DropdownMenuItem(
+                                    text = { Text(label) },
+                                    onClick = {
+                                        onApprovalChange(value)
+                                        onApprovalExpandedChange(false)
+                                    },
+                                )
+                            }
                         }
                     }
+                    Text(
+                        "Auto runs this tool without asking; Always ask prompts you to confirm each use; Disabled blocks it entirely even though it's enabled above.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
                 OutlinedTextField(
                     value = instructions,
                     onValueChange = { if (!disabled) onInstructionsChange(it) },
                     label = { Text("Instructions (optional)") },
                     placeholder = { Text("Additional guidance for this tool") },
+                    supportingText = { Text("Extra guidance the agent sees only when deciding how to use this specific tool.") },
                     enabled = !disabled,
                     minLines = 2,
                     maxLines = 5,
@@ -1476,30 +1555,37 @@ private fun McpServerAssignmentSection(
                     }
                     if (assigned) {
                         val trustLabel = mcpTrustOptions.find { it.first == trust }?.second ?: "Auto"
-                        ExposedDropdownMenuBox(
-                            expanded = trustExpanded,
-                            onExpandedChange = { if (!disabled) trustExpanded = it },
-                        ) {
-                            OutlinedTextField(
-                                value = trustLabel,
-                                onValueChange = {},
-                                readOnly = true,
-                                label = { Text("Trust") },
-                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = trustExpanded) },
-                                enabled = !disabled,
-                                modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
-                            )
-                            ExposedDropdownMenu(expanded = trustExpanded, onDismissRequest = { trustExpanded = false }) {
-                                mcpTrustOptions.forEach { (value, label) ->
-                                    DropdownMenuItem(
-                                        text = { Text(label) },
-                                        onClick = {
-                                            onSetTrust(server.id, value)
-                                            trustExpanded = false
-                                        },
-                                    )
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            ExposedDropdownMenuBox(
+                                expanded = trustExpanded,
+                                onExpandedChange = { if (!disabled) trustExpanded = it },
+                            ) {
+                                OutlinedTextField(
+                                    value = trustLabel,
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text("Trust") },
+                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = trustExpanded) },
+                                    enabled = !disabled,
+                                    modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+                                )
+                                ExposedDropdownMenu(expanded = trustExpanded, onDismissRequest = { trustExpanded = false }) {
+                                    mcpTrustOptions.forEach { (value, label) ->
+                                        DropdownMenuItem(
+                                            text = { Text(label) },
+                                            onClick = {
+                                                onSetTrust(server.id, value)
+                                                trustExpanded = false
+                                            },
+                                        )
+                                    }
                                 }
                             }
+                            Text(
+                                "How much this agent can use this server's tools without your confirmation each time.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                     }
                 }
