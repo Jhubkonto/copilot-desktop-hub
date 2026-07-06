@@ -38,12 +38,29 @@ Attachments stored by standalone chat are content-addressed with SHA-256 hashes.
 transfers attachment manifests and verified 64 KB chunks, resumes from the acknowledged byte
 offset after reconnect, deduplicates by content hash, and restarts a damaged download.
 
+## Standalone mode toggle
+
+"Standalone" and "remote" are a user preference, separate from the connection-status indicator.
+The connection chip in the top bar and Settings → Connection always reflects actual reachability
+(Connected/Connecting/Searching/Disconnected). The **Standalone mode** switch — in the connection
+sheet (tap the connection chip) and in Settings → Connection — is an explicit choice to use only
+this device's own provider keys even when a desktop is reachable, so remote CLI models and desktop
+file/git context stay hidden without implying the desktop is unreachable.
+
 ## Direct provider chat
 
 Configure a provider under **Settings → Providers**. Anthropic uses its Messages streaming API;
 OpenAI and OpenRouter use an OpenAI-compatible streaming API. User messages are persisted before
 dispatch, partial assistant messages are checkpointed, and cancellation or interruption leaves a
 recoverable record rather than an indefinite loading state.
+
+A provider can be "configured" in two distinct senses: a real key stored locally on this device
+(usable for standalone chat), or only configured on the paired desktop (visible, but not usable
+standalone until a key exists locally too). The Providers screen labels these states separately —
+"Connected" vs. "Desktop only" — instead of implying both are equally usable. For a desktop-only
+provider, use **Request key from desktop** to ask the desktop to hand off its key: this requires an
+explicit "Send Key" approval on the desktop side before anything is transmitted, and the key value
+is never included in general sync, backups, or outbox records regardless.
 
 Inline image limits are 10 MB per image and 20 MB per request. Context construction is
 deterministic, trims old turns to the configured budget, and stores a rolling summary when

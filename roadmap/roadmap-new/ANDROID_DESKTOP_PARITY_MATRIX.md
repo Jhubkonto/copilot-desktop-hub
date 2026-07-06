@@ -3,6 +3,8 @@
 **Date**: 2026-07-05  
 **Scope**: Comprehensive mapping of desktop Settings tabs against Android screens, identifying gaps and overlaps with the 20-item UX roadmap and ANDROID_STANDALONE_ROADMAP.md.
 
+> **2026-07-06 update**: several items this matrix marked "pending" or "foundation only" turned out, on closer investigation, to be broken rather than merely incomplete — e.g. the standalone-mode toggle was a chip, not a switch; CLI-model filtering was fully wired but a permanent no-op because desktop never set the field it filtered on; the key-handoff feature had no working desktop-approval path at all. See `ANDROID_UX_CORRECTNESS_ROADMAP.md` (Phases 1–7) for the corrected, verified status of the Providers/Connection/Standalone-mode items below — treat this file's per-item "Parity Status" notes as historical context, not current truth.
+
 ---
 
 ## Desktop Settings Tabs → Android Screens
