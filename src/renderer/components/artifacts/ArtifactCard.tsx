@@ -2,15 +2,36 @@ import { useState, useEffect } from 'react'
 import { Package, Copy, CheckCircle } from 'lucide-react'
 
 import type { ArtifactRow } from '@shared/types'
+import { DebriefArtifactCard } from './DebriefArtifactCard'
+import { QuizArtifactCard } from './QuizArtifactCard'
 
 const KIND_LABELS: Record<string, string> = {
   document: 'Doc', code: 'Code', ui: 'UI', data: 'Data',
   prompt: 'Prompt', 'agent-config': 'Agent', plan: 'Plan', bundle: 'Bundle', other: 'Other',
+  debrief: 'Debrief', quiz: 'Quiz',
 }
 
 const SUPPORTED_EXPORT_FORMATS = ['raw-files', 'markdown', 'json']
 
-export function ArtifactCard({ artifactId, versionId: _versionId }: { artifactId: string; versionId?: string }) {
+/**
+ * Renders a chat-attached artifact reference. Dispatches to a kind-specific view for
+ * kinds with rich interactive presentation (debrief, quiz); everything else falls back
+ * to the generic metadata + export card.
+ */
+export function ArtifactCard({ artifactId, versionId }: { artifactId: string; versionId?: string }) {
+  const [kind, setKind] = useState<string | null>(null)
+
+  useEffect(() => {
+    setKind(null)
+    window.api.artifactGet(artifactId).then((a) => setKind(a?.kind ?? null)).catch(() => setKind(null))
+  }, [artifactId])
+
+  if (kind === 'debrief') return <DebriefArtifactCard artifactId={artifactId} versionId={versionId} />
+  if (kind === 'quiz') return <QuizArtifactCard artifactId={artifactId} versionId={versionId} />
+  return <GenericArtifactCard artifactId={artifactId} />
+}
+
+function GenericArtifactCard({ artifactId }: { artifactId: string }) {
   const [artifact, setArtifact] = useState<ArtifactRow | null>(null)
   const [copying, setCopying] = useState(false)
   const [exporting, setExporting] = useState(false)
