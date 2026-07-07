@@ -18,6 +18,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.navigation.NavType
+import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -67,10 +68,11 @@ import io.nexy.android.ui.quiz.QuizScreen
 
 @Composable
 fun NavGraph(
+    providedNavController: NavHostController? = null,
     onRequestNotificationPermission: () -> Unit = {},
     pendingDeeplink: MutableStateFlow<String?> = MutableStateFlow(null),
 ) {
-    val navController = rememberNavController()
+    val navController = providedNavController ?: rememberNavController()
     // Track IDs navigated to from a "create" flow so config screens know to animate on save
     var newProjectId by remember { mutableStateOf<String?>(null) }
     var newAgentId by remember { mutableStateOf<String?>(null) }
@@ -291,6 +293,7 @@ fun NavGraph(
                         "project-code-changes/${Uri.encode(projectIdForPrefill)}/new?prefill=${Uri.encode(prefill)}",
                     )
                 },
+                onOpenCodeChange = { reportId -> navController.navigate("remote-edit/${Uri.encode(reportId)}") },
             )
         }
 

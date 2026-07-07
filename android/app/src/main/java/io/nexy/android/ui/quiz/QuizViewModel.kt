@@ -4,7 +4,6 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.nexy.android.data.WsRepository
-import io.nexy.android.data.model.QuizAttempt
 import io.nexy.android.data.model.QuizQuestion
 import io.nexy.android.data.model.WsEvent
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,7 +30,6 @@ sealed class QuizUiState {
         val score: Int,
         val total: Int,
         val categoryBreakdown: Map<String, Pair<Int, Int>>,
-        val pastAttempts: List<QuizAttempt>,
     ) : QuizUiState()
     data class Error(val message: String) : QuizUiState()
 }
@@ -59,12 +57,6 @@ class QuizViewModel(app: Application) : AndroidViewModel(app) {
                         }
                     }
                     is WsEvent.QuizError -> _state.value = QuizUiState.Error(event.message)
-                    is WsEvent.QuizAttemptsListed -> {
-                        val currentState = _state.value
-                        if (currentState is QuizUiState.Summary) {
-                            _state.value = currentState.copy(pastAttempts = event.attempts)
-                        }
-                    }
                     else -> {}
                 }
             }
@@ -112,11 +104,7 @@ class QuizViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 correct to qs.size
             }
-            _state.value = QuizUiState.Summary(score, questions.size, breakdown, emptyList())
-            loadedConversationId?.let { cid ->
-                WsRepository.listQuizAttempts(cid)
-                WsRepository.saveQuizAttempt(cid, score, questions.size)
-            }
+            _state.value = QuizUiState.Summary(score, questions.size, breakdown)
         }
     }
 

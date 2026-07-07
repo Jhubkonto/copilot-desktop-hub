@@ -60,13 +60,9 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.ui.components.NexyTopAppBar
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -360,28 +356,6 @@ private fun SummaryContent(state: QuizUiState.Summary, onTryAgain: () -> Unit, o
             }
         }
 
-        if (state.pastAttempts.size > 1) {
-            item {
-                Text("Past Attempts", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-            }
-            item {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(state.pastAttempts.takeLast(3)) { attempt ->
-                        SuggestionChip(
-                            onClick = {},
-                            label = {
-                                Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                                    Text("${attempt.score}/${attempt.total}", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                                    Text(formatAttemptDate(attempt.attemptedAt), style = MaterialTheme.typography.labelSmall, overflow = TextOverflow.Ellipsis, maxLines = 1)
-                                }
-                            },
-                            colors = SuggestionChipDefaults.suggestionChipColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                        )
-                    }
-                }
-            }
-        }
-
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                 OutlinedButton(onClick = onTryAgain, modifier = Modifier.weight(1f)) { Text("Try Again") }
@@ -426,6 +400,3 @@ private fun CategoryChip(category: String) {
         colors = SuggestionChipDefaults.suggestionChipColors(containerColor = chipColor, labelColor = textColor),
     )
 }
-
-private fun formatAttemptDate(epochMs: Long): String =
-    SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(epochMs))
