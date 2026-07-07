@@ -59,7 +59,7 @@ import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
 import { insertWikiEntry, extractWikiLearningsForWs } from './wiki-handlers'
 import { generateDebriefForWs, getDebriefForWs, markCompleteForWs, markIncompleteForWs } from './debrief-handlers'
-import { generateQuizForWs, saveQuizAttemptForWs, listQuizAttemptsForWs } from './quiz-handlers'
+import { generateQuizForWs } from './quiz-handlers'
 import { getMcpServersWithStatus, getMcpServerStatus, addMcpServer, updateMcpServer, removeMcpServer, restartMcpServer, listMcpTools, listMcpToolsForAgent } from './mcp'
 import {
   insertPromptLibraryEntry,
@@ -255,6 +255,7 @@ export function registerWsHandlers(): void {
         const requestType: CodeChangeRequestType = allowedRequestTypes.includes(data.requestType as CodeChangeRequestType)
           ? (data.requestType as CodeChangeRequestType)
           : 'edit'
+        const conversationId = typeof data.conversationId === 'string' && data.conversationId ? data.conversationId : undefined
         const result = createErrorReport({
           title: typeof data.title === 'string' ? data.title : 'Android edit request',
           description: typeof data.description === 'string' ? data.description : 'Requested from Android.',
@@ -262,8 +263,9 @@ export function registerWsHandlers(): void {
           includeScreenshot: false,
           requestType,
           customTypeLabel: typeof data.customTypeLabel === 'string' ? data.customTypeLabel : null,
-          origin: 'android',
+          origin: conversationId ? 'chat' : 'android',
           projectId: typeof data.projectId === 'string' && data.projectId ? data.projectId : undefined,
+          conversationId,
           workspaceRoot: (getDatabase()
             .prepare("SELECT value FROM settings WHERE key = 'build_workspace_path'")
             .get() as { value: string } | undefined)?.value ?? process.cwd(),
@@ -719,6 +721,7 @@ export function registerWsHandlers(): void {
             c.model,
             c.pinned,
             c.archived,
+            c.completed_at,
             json_extract(a.config_json, '$.name') AS agent_name,
             json_extract(a.config_json, '$.icon') AS agent_icon,
             c.project_id,
@@ -2563,7 +2566,7 @@ export function registerWsHandlers(): void {
       const model = typeof data.model === 'string' ? data.model : undefined
       if (!conversationId) return
       void generateDebriefForWs(conversationId, projectId, model)
-        .then((debrief) => reply({ event: 'debrief:ready', data: { debrief } }))
+        .then((result) => reply({ event: 'debrief:ready', data: result }))
         .catch((err: unknown) => reply({ event: 'debrief:error', data: { message: String(err) } }))
       return
     }
@@ -2571,8 +2574,8 @@ export function registerWsHandlers(): void {
     if (command === 'conversation:get-debrief') {
       const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
       if (!conversationId) return
-      const debrief = getDebriefForWs(conversationId)
-      reply({ event: 'debrief:loaded', data: { debrief } })
+      const result = getDebriefForWs(conversationId)
+      reply({ event: 'debrief:loaded', data: { debrief: result?.debrief ?? null, artifactId: result?.artifactId, versionId: result?.versionId } })
       return
     }
 
@@ -2598,29 +2601,12 @@ export function registerWsHandlers(): void {
 
     if (command === 'conversation:generate-quiz') {
       const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+      const projectId = typeof data.projectId === 'string' ? data.projectId : null
       const model = typeof data.model === 'string' ? data.model : undefined
       if (!conversationId) return
-      void generateQuizForWs(conversationId, model)
-        .then((result) => reply({ event: 'quiz:ready', data: { questions: result.questions } }))
+      void generateQuizForWs(conversationId, projectId, model)
+        .then((result) => reply({ event: 'quiz:ready', data: result }))
         .catch((err: unknown) => reply({ event: 'quiz:error', data: { message: String(err) } }))
-      return
-    }
-
-    if (command === 'conversation:save-quiz-attempt') {
-      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
-      const score = typeof data.score === 'number' ? data.score : 0
-      const total = typeof data.total === 'number' ? data.total : 0
-      if (!conversationId) return
-      const attempt = saveQuizAttemptForWs(conversationId, score, total)
-      reply({ event: 'quiz:attempt-saved', data: { attempt } })
-      return
-    }
-
-    if (command === 'conversation:list-quiz-attempts') {
-      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
-      if (!conversationId) return
-      const attempts = listQuizAttemptsForWs(conversationId)
-      reply({ event: 'quiz:attempts-listed', data: { conversationId, attempts } })
       return
     }
   })
