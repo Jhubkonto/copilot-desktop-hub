@@ -12,6 +12,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -62,6 +65,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
+import io.nexy.android.data.model.Agent
 import io.nexy.android.data.model.ProjectAgentEntry
 import io.nexy.android.data.model.ProjectSettingsConfig
 import io.nexy.android.data.model.WsEvent
@@ -235,35 +239,14 @@ fun ProjectConfigScreen(
             onDismissRequest = { showAddAgentSheet = false },
             sheetState = sheetState,
         ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Add agent to project", style = MaterialTheme.typography.titleMedium)
-                if (available.isEmpty()) {
-                    Text(
-                        "All agents are already in this project.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 8.dp),
-                    )
-                } else {
-                    available.forEach { agent ->
-                        TextButton(
-                            onClick = {
-                                showAddAgentSheet = false
-                                WsRepository.addProjectAgent(projectId, agent.id)
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text(
-                                if (agent.icon.isNotBlank()) "${agent.icon}  ${agent.name}" else agent.name,
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
-                    }
-                }
-                TextButton(onClick = { showAddAgentSheet = false }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Cancel")
-                }
-            }
+            AddAgentToProjectSheetContent(
+                available = available,
+                onSelectAgent = { agent ->
+                    showAddAgentSheet = false
+                    WsRepository.addProjectAgent(projectId, agent.id)
+                },
+                onCancel = { showAddAgentSheet = false },
+            )
         }
     }
 
@@ -724,6 +707,54 @@ fun ProjectConfigScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+internal fun AddAgentToProjectSheetContent(
+    available: List<Agent>,
+    onSelectAgent: (Agent) -> Unit,
+    onCancel: () -> Unit,
+) {
+    Text(
+        "Add agent to project",
+        style = MaterialTheme.typography.titleMedium,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+    )
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (available.isEmpty()) {
+            item {
+                Text(
+                    "All agents are already in this project.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
+            }
+        } else {
+            items(available) { agent ->
+                TextButton(
+                    onClick = { onSelectAgent(agent) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        if (agent.icon.isNotBlank()) "${agent.icon}  ${agent.name}" else agent.name,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
+        item {
+            TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) {
+                Text("Cancel")
+            }
+        }
+        item { Spacer(Modifier.height(8.dp)) }
     }
 }
 
