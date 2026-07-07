@@ -571,23 +571,28 @@ export function createMockApi() {
 
     // Debrief
     generateDebrief: vi.fn().mockResolvedValue({
-      id: 'debrief-1',
-      conversationId: 'conv-1',
-      projectId: null,
-      summary: 'Test summary',
-      commandsTools: [],
-      reproductionGuide: 'Step 1. Do thing',
-      mentalModel: 'Think carefully',
-      generatedAt: 1000,
-      createdAt: 1000,
+      debrief: {
+        id: 'debrief-1',
+        conversationId: 'conv-1',
+        projectId: null,
+        summary: 'Test summary',
+        commandsTools: [],
+        reproductionGuide: 'Step 1. Do thing',
+        mentalModel: 'Think carefully',
+        generatedAt: 1000,
+        createdAt: 1000,
+      },
+      artifactId: 'debrief-artifact-1',
+      versionId: 'debrief-version-1',
     }),
     getDebrief: vi.fn().mockResolvedValue(null),
     markConversationComplete: vi.fn().mockResolvedValue(true),
+    markConversationIncomplete: vi.fn().mockResolvedValue(true),
+    onConversationCompleted: vi.fn().mockReturnValue(() => {}),
+    onConversationIncompleted: vi.fn().mockReturnValue(() => {}),
 
     // Quiz
-    generateQuiz: vi.fn().mockResolvedValue({ questions: [] }),
-    saveQuizAttempt: vi.fn().mockResolvedValue({ id: 'attempt-1', conversation_id: 'conv-1', score: 3, total: 5, attempted_at: 1000 }),
-    listQuizAttempts: vi.fn().mockResolvedValue([]),
+    generateQuiz: vi.fn().mockResolvedValue({ questions: [], artifactId: 'quiz-artifact-1', versionId: 'quiz-version-1' }),
 
     // Artifacts
     artifactList: vi.fn().mockResolvedValue([]),
@@ -597,6 +602,7 @@ export function createMockApi() {
     artifactDelete: vi.fn().mockResolvedValue({ deleted: true }),
     artifactMoveToProject: vi.fn().mockResolvedValue({ ok: true }),
     artifactPromoteMessage: vi.fn().mockResolvedValue({ artifactId: 'art-1', versionId: 'ver-1', title: 'Artifact' }),
+    artifactGetFileContent: vi.fn().mockResolvedValue({ content: '' }),
     artifactExport: vi.fn().mockResolvedValue({ exportPath: '/tmp/export' }),
     artifactOpenFolder: vi.fn().mockResolvedValue({ ok: true }),
     artifactGeneratorChat: vi.fn().mockResolvedValue({ started: true }),
