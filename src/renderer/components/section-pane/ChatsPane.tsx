@@ -1,9 +1,8 @@
 import { useState, useMemo, useDeferredValue } from 'react'
-import { BrainCircuit, CheckCircle, CheckCircle2, Circle, Plus, Search, X, Pin, Trash2, Loader2 } from 'lucide-react'
+import { CheckCircle, CheckCircle2, Circle, Plus, Search, X, Pin, Trash2, Loader2 } from 'lucide-react'
 import { useAppStore } from '../../store/app-store'
 import type { Conversation } from '../../store/types'
 import { DeleteConversationDialog } from '../DeleteConversationDialog'
-import { QuizModal } from '../QuizModal'
 import { formatRelativeTime } from '../../../shared/utils'
 import { isPinned, groupByDate, PROJECT_COLOR_MAP } from './shared'
 
@@ -24,7 +23,6 @@ export function ChatsPane() {
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
   const [pendingDeleteConv, setPendingDeleteConv] = useState<{ id: string; title: string } | null>(null)
-  const [quizConvId, setQuizConvId] = useState<string | null>(null)
 
   const filtered = useMemo(
     () => deferredQuery ? conversations.filter((c) => c.title.toLowerCase().includes(deferredQuery.toLowerCase())) : conversations,
@@ -105,14 +103,6 @@ export function ChatsPane() {
                 <CheckCircle className="w-3 h-3" />
               </button>
             )}
-            <button
-              onClick={(e) => { e.stopPropagation(); setQuizConvId(conv.id) }}
-              className="p-1 rounded text-gray-400 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20"
-              title="Quiz me"
-              aria-label="Quiz me on this conversation"
-            >
-              <BrainCircuit className="w-3 h-3" />
-            </button>
             <button
               onClick={(e) => { e.stopPropagation(); setPendingDeleteConv({ id: conv.id, title: conv.title }) }}
               className="p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
@@ -209,10 +199,6 @@ export function ChatsPane() {
           }}
           onCancel={() => setPendingDeleteConv(null)}
         />
-      )}
-
-      {quizConvId && (
-        <QuizModal conversationId={quizConvId} onClose={() => setQuizConvId(null)} />
       )}
     </div>
   )
