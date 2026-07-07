@@ -388,7 +388,7 @@ function buildSnapshot(db: Database.Database, datasetId: string): Record<string,
     updatedAt: row.updated_at,
   }))
   const conversations = db.prepare(`
-    SELECT c.id, c.title, c.agent_id, c.project_id, c.model, c.pinned, c.archived, c.created_at, c.updated_at,
+    SELECT c.id, c.title, c.agent_id, c.project_id, c.model, c.pinned, c.archived, c.completed_at, c.created_at, c.updated_at,
            json_extract(a.config_json, '$.name') AS agent_name,
            json_extract(a.config_json, '$.icon') AS agent_icon,
            p.name AS project_name,
