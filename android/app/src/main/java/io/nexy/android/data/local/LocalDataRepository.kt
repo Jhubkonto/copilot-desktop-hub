@@ -48,6 +48,14 @@ import org.json.JSONObject
 
 data class AttachmentDownload(val contentHash: String, val nextOffset: Long)
 
+// Pure decision extracted from discardOrphanedOperations() for testability: a failed message-sync
+// operation is orphaned if its conversation is gone (never existed locally, or has been tombstoned).
+internal fun isOrphanedConversationReference(conversationId: String?, conversationDeleted: Boolean?): Boolean {
+    if (conversationId == null) return true
+    if (conversationDeleted == null) return true
+    return conversationDeleted
+}
+
 /**
  * Android's durable source of truth. Remote events are projections into this store; UI consumers
  * never need to discard cached data merely because the desktop connection disappeared.
@@ -215,6 +223,48 @@ class LocalDataRepository private constructor(
         database.withTransaction {
             database.conversations().tombstone(id, now)
             enqueue("conversation", id, "delete", JSONObject().put("id", id).put("deletedAt", now).toString(), current.remoteVersion)
+            // Cancel any outstanding sync operations for this conversation's messages — they can
+            // never be meaningfully applied once the conversation itself is gone, and left
+            // unresolved they fail identically forever (e.g. a foreign-key rejection on the
+            // desktop) every time a retry resends the same now-orphaned payload.
+            cancelOutboxForConversationMessages(id)
+        }
+    }
+
+    private suspend fun cancelOutboxForConversationMessages(conversationId: String) {
+        val messageIds = database.messages().idsForConversation(conversationId)
+        if (messageIds.isEmpty()) return
+        val staleOps = database.sync().outboxForEntities("message", messageIds)
+        staleOps.forEach { op ->
+            database.messages().markSynced(op.entityId)
+            database.sync().acknowledge(listOf(op.operationId))
+            database.sync().discardChange(op.operationId)
+        }
+    }
+
+    // Runs after a batch sync failure: a "sync:error" from the desktop aborts the whole batch, so
+    // every currently-pending operation gets marked failed even though only one may actually be
+    // broken. This sweep tells the two apart — an operation referencing a conversation that no
+    // longer exists locally can never succeed and is discarded silently. Everything else was just
+    // collateral damage and was already left in "failed" state with a proper exponential backoff
+    // by markFailed() moments earlier; it must NOT be touched here. Calling retryOperation() on it
+    // would reset nextAttemptAt to 0, undoing that backoff and making it instantly eligible again —
+    // combined with the flushStandaloneOutbox() call right after this sweep, that previously caused
+    // an infinite push/error/retry loop for any non-orphaned failure. It retries on its own, with no
+    // user action, once its backoff naturally elapses on a future flush trigger.
+    suspend fun discardOrphanedOperations() {
+        val failedOps = database.sync().failedOutbox()
+        for (op in failedOps) {
+            val orphaned = if (op.entityType == "message") {
+                val conversationId = database.messages().get(op.entityId)?.conversationId
+                val conversationDeleted = conversationId?.let { database.conversations().get(it)?.deleted }
+                isOrphanedConversationReference(conversationId, conversationDeleted)
+            } else {
+                false
+            }
+            if (orphaned) {
+                discardOperation(op.operationId)
+            }
         }
     }
 

@@ -63,6 +63,9 @@ interface MessageDao {
     @Query("SELECT * FROM local_messages WHERE id = :id LIMIT 1")
     suspend fun get(id: String): MessageEntity?
 
+    @Query("SELECT id FROM local_messages WHERE conversationId = :conversationId")
+    suspend fun idsForConversation(conversationId: String): List<String>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: MessageEntity)
 
@@ -188,6 +191,12 @@ interface SyncDao {
 
     @Query("SELECT * FROM sync_outbox WHERE operationId = :id LIMIT 1")
     suspend fun outboxOperation(id: String): OutboxEntity?
+
+    @Query("SELECT * FROM sync_outbox WHERE entityType = :entityType AND entityId IN (:entityIds) AND state IN ('pending', 'failed')")
+    suspend fun outboxForEntities(entityType: String, entityIds: List<String>): List<OutboxEntity>
+
+    @Query("SELECT * FROM sync_outbox WHERE state = 'failed'")
+    suspend fun failedOutbox(): List<OutboxEntity>
 
     @Query(
         """SELECT * FROM sync_outbox

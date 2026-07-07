@@ -165,6 +165,41 @@ class NexyDatabaseTest {
     }
 
     @Test
+    fun markFailedBackoffExcludesOperationFromPendingOutboxUntilItElapses() = runBlocking {
+        val operation = OutboxEntity(
+            operationId = "operation-backoff",
+            deviceId = "android-1",
+            deviceSequence = 1,
+            entityType = "project",
+            entityId = "project-1",
+            operation = "upsert",
+            payloadJson = "{}",
+            baseRemoteVersion = 0,
+            createdAt = 1,
+        )
+        database.sync().enqueue(operation)
+
+        // Regression coverage for the sync tight-loop bug: discardOrphanedOperations() used to call
+        // retry() on every non-orphaned failed operation right after markFailed() set a backoff,
+        // resetting nextAttemptAt back to 0 and making it instantly eligible for re-push again —
+        // combined with an immediate flushStandaloneOutbox() call, that looped forever. The fix
+        // relies on markFailed()'s backoff actually holding until it elapses, which this asserts
+        // directly at the DAO level.
+        val now = 1_000L
+        database.sync().markFailed("operation-backoff", now + 5_000L, "boom")
+
+        assertTrue(database.sync().pendingOutbox(now, 100).none { it.operationId == "operation-backoff" })
+        assertEquals(1, database.sync().failedOutbox().size)
+
+        assertTrue(database.sync().pendingOutbox(now + 5_000L, 100).any { it.operationId == "operation-backoff" })
+
+        // retry() is reserved for the user-initiated "Retry change" action — it resets nextAttemptAt
+        // to 0, which is exactly why the automatic sweep must never call it on a non-orphaned op.
+        database.sync().retry("operation-backoff")
+        assertTrue(database.sync().pendingOutbox(now, 100).any { it.operationId == "operation-backoff" })
+    }
+
+    @Test
     fun recoversInterruptedAssistantTurnAsRetryableFailure() = runBlocking {
         database.messages().upsert(
             MessageEntity(

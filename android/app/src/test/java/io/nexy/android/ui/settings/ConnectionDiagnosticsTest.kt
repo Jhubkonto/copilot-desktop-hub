@@ -27,7 +27,7 @@ class ConnectionDiagnosticsTest {
         assertEquals("wss://nexy.example/mobile", diagnostics.endpoint)
         assertEquals("wss", diagnostics.scheme)
         assertEquals("Secure WebSocket", connectionSchemeDetail(diagnostics.scheme))
-        assertEquals("Connected", connectionStateLabel(diagnostics.connectionState))
+        assertEquals("Connected to desktop", connectionStateLabel(diagnostics.connectionState))
         assertEquals("1.2.3", diagnostics.serverVersion)
     }
 

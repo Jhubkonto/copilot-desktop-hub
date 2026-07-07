@@ -21,14 +21,20 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import io.nexy.android.data.BackgroundActivityTracker
 import io.nexy.android.data.ConnectionState
+import io.nexy.android.data.EffectiveConnectionMode
+import io.nexy.android.data.humanizeSyncError
 import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyTopAppBar
+import io.nexy.android.ui.home.hasActiveActivity
 import io.nexy.android.data.WsRepository
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -41,20 +47,27 @@ fun ConnectionScreen(
     val profiles by vm.profiles.collectAsState()
     val activeProfileId by vm.activeProfileId.collectAsState()
     val connectionState by vm.connectionState.collectAsState()
+    val effectiveMode by vm.effectiveMode.collectAsState()
     val preferStandaloneMode by vm.preferStandaloneMode.collectAsState()
     val wolSnackbar by vm.wolSnackbar.collectAsState()
     val capabilities by WsRepository.capabilities.collectAsState()
     val conflicts by WsRepository.syncConflicts.collectAsState()
     val outbox by WsRepository.syncOutbox.collectAsState()
     val syncInProgress by WsRepository.syncInProgress.collectAsState()
+    val activeConversationIds by WsRepository.activeConversationIds.collectAsState()
+    val pendingConversationIds by WsRepository.pendingConversationIds.collectAsState()
+    val backgroundActivities by BackgroundActivityTracker.activities.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     var discardOperationId by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(wolSnackbar) {
         val msg = wolSnackbar ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(msg)
         vm.clearWolSnackbar()
     }
+
+    LaunchedEffect(Unit) { WsRepository.sweepOrphanedSyncOperations() }
 
     Scaffold(
         topBar = {
@@ -80,7 +93,13 @@ fun ConnectionScreen(
                 activeProfileId = activeProfileId,
                 connectionState = connectionState,
                 preferStandaloneMode = preferStandaloneMode,
-                onSetPreferStandaloneMode = { vm.setPreferStandaloneMode(it) },
+                onSetPreferStandaloneMode = { prefer ->
+                    if (hasActiveActivity(activeConversationIds, pendingConversationIds, syncInProgress, backgroundActivities)) {
+                        scope.launch { snackbarHostState.showSnackbar("Can't switch modes while a chat or generation is in progress") }
+                    } else {
+                        vm.setPreferStandaloneMode(prefer)
+                    }
+                },
                 onSwitchProfile = { vm.switchProfile(it) },
                 onForgetProfile = { vm.forgetProfile(it) },
                 onForgetServer = onForgetServer,
@@ -91,7 +110,9 @@ fun ConnectionScreen(
                 onDisconnect = { vm.disconnect() },
                 onForgetActiveServer = { vm.forgetServer() },
                 onForgetServer = onForgetServer,
-                showWakeDesktop = connectionState != ConnectionState.CONNECTED && vm.activeProfileHasWolInfo,
+                showWakeDesktop = effectiveMode != EffectiveConnectionMode.CONNECTED &&
+                    effectiveMode != EffectiveConnectionMode.STANDALONE_BY_CHOICE &&
+                    vm.activeProfileHasWolInfo,
                 onWakeDesktop = { vm.wakeDesktop() },
             )
             HorizontalDivider()
@@ -122,7 +143,7 @@ fun ConnectionScreen(
                         style = MaterialTheme.typography.labelLarge,
                     )
                     Text(
-                        operation.lastError ?: "Synchronization failed after ${operation.attempts} attempts.",
+                        operation.lastError?.let { humanizeSyncError(it) } ?: "Synchronization failed after ${operation.attempts} attempts.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )

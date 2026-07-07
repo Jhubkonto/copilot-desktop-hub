@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.EffectiveConnectionMode
 import io.nexy.android.data.PairedServerProfile
+import io.nexy.android.data.humanizeSyncError
 import io.nexy.android.data.model.AndroidUpdateManifest
 import io.nexy.android.data.model.ModelListSource
 import io.nexy.android.data.model.ModelOption
@@ -465,7 +466,7 @@ fun DiagnosticsSection(
             SettingsInfoRow("Profile", connectionDiagnostics.profileName)
             SettingsInfoRow("Endpoint", connectionDiagnostics.endpoint)
             SettingsInfoRow("State", connectionStateLabel(connectionDiagnostics.connectionState))
-            SettingsInfoRow("Last error", connectionDiagnostics.lastError ?: "None")
+            SettingsInfoRow("Last error", connectionDiagnostics.lastError?.let { humanizeSyncError(it) } ?: "None")
 
             Row(
                 modifier = Modifier
