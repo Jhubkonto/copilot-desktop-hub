@@ -56,6 +56,7 @@ export function rowToErrorReport(row: Record<string, unknown>): ErrorReportEntry
     workspace_root: typeof row.workspace_root === 'string' ? row.workspace_root : null,
     project_id: typeof row.project_id === 'string' ? row.project_id : null,
     custom_type_label: typeof row.custom_type_label === 'string' ? row.custom_type_label : null,
+    conversation_id: typeof row.conversation_id === 'string' ? row.conversation_id : null,
   }
 }
 
@@ -113,14 +114,15 @@ export function createErrorReport(input: ErrorReportCaptureInput): ErrorReportCa
   const workspaceRoot = input.workspaceRoot?.trim() || null
   const resolvedProjectId = input.projectId?.trim()
     || (workspaceRoot ? inferProjectIdForWorkspace(workspaceRoot) : null)
+  const conversationId = input.conversationId?.trim() || null
 
   getDatabase()
     .prepare(
       `INSERT INTO error_reports (
         id, title, description, screenshot_path, log_snapshot, status,
         app_version, platform, os_version, request_type, request_origin,
-        workspace_root, project_id, custom_type_label, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        workspace_root, project_id, custom_type_label, conversation_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       id,
@@ -136,11 +138,26 @@ export function createErrorReport(input: ErrorReportCaptureInput): ErrorReportCa
       workspaceRoot,
       resolvedProjectId || null,
       customTypeLabel,
+      conversationId,
       now,
       now,
     )
 
   return { reportId: id, screenshotPath, createdAt: now }
+}
+
+const NON_TERMINAL_STATUSES = ['open', 'investigating', 'investigated']
+
+/** Finds a still-in-progress code change request already linked to this conversation, if any,
+ * so /code-change can reuse it instead of creating a duplicate on repeated invocation. */
+export function findActiveCodeChangeForConversation(conversationId: string): ErrorReportEntry | null {
+  const row = getDatabase()
+    .prepare(
+      `SELECT * FROM error_reports WHERE conversation_id = ? AND status IN (${NON_TERMINAL_STATUSES.map(() => '?').join(',')})
+       ORDER BY created_at DESC LIMIT 1`
+    )
+    .get(conversationId, ...NON_TERMINAL_STATUSES) as Record<string, unknown> | undefined
+  return row ? rowToErrorReport(row) : null
 }
 
 export function deleteErrorReport(reportId: string): boolean {
@@ -202,4 +219,9 @@ export function registerErrorReportHandlers(): void {
   })
 
   safeHandle('error-report:delete', (_event, id: string) => deleteErrorReport(id))
+
+  safeHandle('error-report:find-active-for-conversation', (_event, conversationId: string) => {
+    if (!conversationId) return null
+    return findActiveCodeChangeForConversation(conversationId)
+  })
 }
