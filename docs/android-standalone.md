@@ -14,6 +14,7 @@ direct cloud chat.
 | Cloud chat | Draft only | Anthropic, OpenAI, or OpenRouter direct from Android | Direct Android chat or desktop chat |
 | Resolve synchronization conflicts | Review cached conflicts | Review cached conflicts | Choose Android or desktop value and synchronize |
 | Builds, shell, Git, CLI models, stdio MCP, workspace changes, automation | Unavailable | Unavailable | Available through desktop |
+| Code Changes / remote edit reports | Unavailable | Unavailable | Available through desktop |
 | Generators that write workspace files | Unavailable | Unavailable | Available through desktop |
 
 An internet connection alone never grants access to desktop files or processes. API credentials
@@ -65,6 +66,11 @@ OpenAI and OpenRouter use an OpenAI-compatible streaming API. User messages are 
 dispatch, partial assistant messages are checkpointed, and cancellation or interruption leaves a
 recoverable record rather than an indefinite loading state.
 
+Vendor-prefixed catalog model ids such as `anthropic/claude-*` are OpenRouter model ids and route
+through OpenRouter, even when the OpenRouter model cache has not been refreshed. Native bare Claude
+ids such as `claude-*` still route through Anthropic. This avoids misleading "OpenAI key missing"
+errors when the selected model is actually an OpenRouter model.
+
 A provider can be "configured" in two distinct senses: a real key stored locally on this device
 (usable for standalone chat), or only configured on the paired desktop (visible, but not usable
 standalone until a key exists locally too). The Providers screen labels these states separately —
@@ -77,6 +83,20 @@ Inline image limits are 10 MB per image and 20 MB per request. Context construct
 deterministic, trims old turns to the configured budget, and stores a rolling summary when
 compression is needed. Usage comes from the provider response. Cost is labeled as an estimate and
 is zero/unknown when the bundled pricing catalog has no matching entry.
+
+## Code Changes and desktop-only work
+
+Code Changes operates on the desktop workspace and therefore requires an active desktop
+connection. In standalone mode, Android hides or disables Code Changes entry points where possible;
+if a stale deep link or screen is opened while disconnected, it shows a "Not connected to desktop"
+state instead of starting a request or refresh that can never complete.
+
+Manual Workflow planning can still be used for generating and inspecting a delegation plan. The
+new execution model is a prompt-chaining runner: steps are ordered by `dependsOnStepIds` when
+present, otherwise by list order; each dependent step receives prior dependency outputs as context;
+and execution halts on the first failed step so retry can restart that step plus downstream
+dependents. In this implementation pass, the desktop execution core and tests exist, while the full
+Android/desktop run-management UI remains a separate integration surface.
 
 ## Debrief
 
