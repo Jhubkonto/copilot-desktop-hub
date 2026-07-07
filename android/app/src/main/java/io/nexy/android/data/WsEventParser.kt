@@ -72,7 +72,6 @@ import io.nexy.android.data.model.RemoteEditStagedFileEntry
 import io.nexy.android.data.model.WsEvent
 import io.nexy.android.data.model.ConversationDebrief
 import io.nexy.android.data.model.QuizQuestion
-import io.nexy.android.data.model.QuizAttempt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -1723,7 +1722,11 @@ fun parseWsEvent(
                 val debriefObj = data?.optJSONObject("debrief") ?: return
                 val debrief = parseConversationDebrief(debriefObj)
                 currentDebrief.value = debrief
-                WsEvent.DebriefReady(debrief)
+                WsEvent.DebriefReady(
+                    debrief,
+                    artifactId = data.nullableString("artifactId"),
+                    versionId = data.nullableString("versionId"),
+                )
             }
 
             "debrief:loaded" -> {
@@ -1751,22 +1754,15 @@ fun parseWsEvent(
             "quiz:ready" -> {
                 val arr = data?.optJSONArray("questions") ?: return
                 val questions = (0 until arr.length()).map { parseQuizQuestion(arr.getJSONObject(it)) }
-                WsEvent.QuizReady(questions)
+                WsEvent.QuizReady(
+                    questions,
+                    artifactId = data.nullableString("artifactId"),
+                    versionId = data.nullableString("versionId"),
+                )
             }
 
             "quiz:error" -> WsEvent.QuizError(data?.optString("message") ?: "Unknown error")
 
-            "quiz:attempt-saved" -> {
-                val attemptObj = data?.optJSONObject("attempt") ?: return
-                WsEvent.QuizAttemptSaved(parseQuizAttempt(attemptObj))
-            }
-
-            "quiz:attempts-listed" -> {
-                val conversationId = data?.optString("conversationId") ?: return
-                val arr = data.optJSONArray("attempts") ?: return
-                val attempts = (0 until arr.length()).map { parseQuizAttempt(arr.getJSONObject(it)) }
-                WsEvent.QuizAttemptsListed(conversationId, attempts)
-            }
             "settings:value" -> {
                 val key = data?.optString("key") ?: return
                 val value = data.optString("value", null).takeIf { it != null }
@@ -2330,14 +2326,6 @@ private fun parseQuizQuestion(obj: JSONObject): QuizQuestion {
         category = obj.optString("category"),
     )
 }
-
-private fun parseQuizAttempt(obj: JSONObject) = QuizAttempt(
-    id = obj.optString("id"),
-    conversationId = obj.optString("conversationId"),
-    score = obj.optInt("score", 0),
-    total = obj.optInt("total", 0),
-    attemptedAt = obj.optLong("attemptedAt", 0L),
-)
 
 private fun parseScheduledTask(obj: JSONObject) = ScheduledTask(
     id = obj.optString("id"),

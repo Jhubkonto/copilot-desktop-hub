@@ -8,11 +8,3 @@ data class QuizQuestion(
     val explanation: String,
     val category: String,
 )
-
-data class QuizAttempt(
-    val id: String,
-    val conversationId: String,
-    val score: Int,
-    val total: Int,
-    val attemptedAt: Long,
-)

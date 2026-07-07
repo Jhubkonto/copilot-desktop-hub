@@ -806,6 +806,7 @@ class LocalDataRepository private constructor(
                 lastMessage = row.nullableString("last_message"),
                 pinned = row.optInt("pinned", 0) != 0,
                 archived = row.optInt("archived", 0) != 0,
+                completedAt = row.nullableLong("completed_at"),
                 remoteVersion = remoteVersion,
             )
             if (current?.syncStatus == SyncStatus.PENDING) {
@@ -1232,6 +1233,12 @@ class LocalDataRepository private constructor(
                         remoteVersion = current.remoteVersion + 1,
                     ),
                 )
+            }
+            is WsEvent.DebriefConversationCompleted -> database.conversations().get(event.conversationId)?.let {
+                database.conversations().upsert(it.copy(completedAt = event.completedAt, remoteVersion = it.remoteVersion + 1))
+            }
+            is WsEvent.DebriefConversationIncompleted -> database.conversations().get(event.conversationId)?.let {
+                database.conversations().upsert(it.copy(completedAt = null, remoteVersion = it.remoteVersion + 1))
             }
             else -> Unit
         }
@@ -1741,6 +1748,9 @@ private suspend inline fun JSONArray.forEachObject(block: suspend (JSONObject) -
 
 private fun JSONObject.nullableString(key: String): String? =
     if (has(key) && !isNull(key)) optString(key).takeIf(String::isNotBlank) else null
+
+private fun JSONObject.nullableLong(key: String): Long? =
+    if (has(key) && !isNull(key)) optLong(key) else null
 
 private fun JSONObject.jsonObjectOrString(key: String): JSONObject? {
     optJSONObject(key)?.let { return it }

@@ -338,16 +338,16 @@ sealed class WsEvent {
     data class SchedulerRunList(val taskId: String, val runs: List<ScheduledRun>) : WsEvent()
     data class SchedulerRunError(val taskId: String, val error: String) : WsEvent()
     // Debrief
-    data class DebriefReady(val debrief: ConversationDebrief) : WsEvent()
+    // artifactId/versionId are the debrief's artifact-backed home (desktop Phase 2) — null when
+    // talking to an older desktop build that hasn't migrated debrief off conversation_debriefs yet.
+    data class DebriefReady(val debrief: ConversationDebrief, val artifactId: String? = null, val versionId: String? = null) : WsEvent()
     data class DebriefLoaded(val debrief: ConversationDebrief?) : WsEvent()
     data class DebriefError(val message: String) : WsEvent()
     data class DebriefConversationCompleted(val conversationId: String, val completedAt: Long) : WsEvent()
     data class DebriefConversationIncompleted(val conversationId: String) : WsEvent()
     // Quiz
-    data class QuizReady(val questions: List<QuizQuestion>) : WsEvent()
+    data class QuizReady(val questions: List<QuizQuestion>, val artifactId: String? = null, val versionId: String? = null) : WsEvent()
     data class QuizError(val message: String) : WsEvent()
-    data class QuizAttemptSaved(val attempt: QuizAttempt) : WsEvent()
-    data class QuizAttemptsListed(val conversationId: String, val attempts: List<QuizAttempt>) : WsEvent()
     // Provider Key Handoff (opt-in, consent-gated exception)
     data class ProviderKeyHandoffRequest(
         val providerId: String,

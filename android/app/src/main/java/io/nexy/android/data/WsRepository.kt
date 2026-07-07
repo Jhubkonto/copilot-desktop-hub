@@ -7,7 +7,6 @@ import io.nexy.android.data.model.AgentFullConfig
 import io.nexy.android.data.model.ScheduledTask
 import io.nexy.android.data.model.ScheduledRun
 import io.nexy.android.data.model.ConversationDebrief
-import io.nexy.android.data.model.QuizAttempt
 import io.nexy.android.data.model.AgentKnowledgeFile
 import io.nexy.android.data.model.AgentMcpServerTrust
 import io.nexy.android.data.model.AgentMcpToolOverride
@@ -304,6 +303,33 @@ object WsRepository : WsClient {
     private val _manualWorkflowSession = MutableStateFlow<ManualWorkflowSession?>(null)
     val manualWorkflowSession: StateFlow<ManualWorkflowSession?> = _manualWorkflowSession
 
+    private data class GeneratorActivityConfig(
+        val label: String,
+        val route: String,
+    )
+
+    private val generatorActivityConfigs = mapOf(
+        "project-generator" to GeneratorActivityConfig("Generating project…", "project-generator"),
+        "agent-generator" to GeneratorActivityConfig("Generating agent…", "agent-generator"),
+        "skill-generator" to GeneratorActivityConfig("Generating skill…", "skill-generator"),
+        "scheduler-generator" to GeneratorActivityConfig("Generating scheduled task…", "scheduled/generator"),
+    )
+
+    private fun generatorKindForCommand(command: String): String? =
+        generatorActivityConfigs.keys.firstOrNull { command.startsWith("$it:") }
+
+    private fun registerGeneratorActivityForCommand(command: String) {
+        val kind = generatorKindForCommand(command) ?: return
+        val action = command.substringAfter(':', missingDelimiterValue = "")
+        if (action !in setOf("start", "message", "confirm")) return
+        val config = generatorActivityConfigs.getValue(kind)
+        BackgroundActivityTracker.register(kind, config.label, config.route)
+    }
+
+    private fun unregisterGeneratorActivity(kind: String) {
+        BackgroundActivityTracker.unregister(kind)
+    }
+
     // Extracted for testability: whether `model` ends up in the outgoing payload is the one bit
     // of real logic here (an explicit `null` must be omitted, not sent as a literal null, so the
     // desktop's own default-model resolution kicks in).
@@ -548,6 +574,26 @@ object WsRepository : WsClient {
                     is WsEvent.RemoteEditActiveCodeChangesChanged -> {
                         _activeCodeChangesByProject.value = event.countsByProjectId
                     }
+                    is WsEvent.ProjectGeneratorTurnComplete,
+                    is WsEvent.ProjectGeneratorSpecReady,
+                    is WsEvent.ProjectGeneratorCreated,
+                    is WsEvent.ProjectGeneratorError,
+                    is WsEvent.ProjectGeneratorCancelled -> unregisterGeneratorActivity("project-generator")
+                    is WsEvent.AgentGeneratorTurnComplete,
+                    is WsEvent.AgentGeneratorSpecReady,
+                    is WsEvent.AgentGeneratorCreated,
+                    is WsEvent.AgentGeneratorError,
+                    is WsEvent.AgentGeneratorCancelled -> unregisterGeneratorActivity("agent-generator")
+                    is WsEvent.SkillGeneratorTurnComplete,
+                    is WsEvent.SkillGeneratorSpecReady,
+                    is WsEvent.SkillGeneratorCreated,
+                    is WsEvent.SkillGeneratorError,
+                    is WsEvent.SkillGeneratorCancelled -> unregisterGeneratorActivity("skill-generator")
+                    is WsEvent.SchedulerGeneratorTurnComplete,
+                    is WsEvent.SchedulerGeneratorSpecReady,
+                    is WsEvent.SchedulerGeneratorCreated,
+                    is WsEvent.SchedulerGeneratorError,
+                    is WsEvent.SchedulerGeneratorCancelled -> unregisterGeneratorActivity("scheduler-generator")
                     is WsEvent.ProviderKeyHandoffRequest -> {
                         // Desktop is requesting Android to accept a key handoff
                         _pendingKeyHandoffRequests.value = _pendingKeyHandoffRequests.value +
@@ -1275,6 +1321,7 @@ object WsRepository : WsClient {
         obj.put("token", token)
         obj.put("command", command)
         obj.put("data", mapToJson(data))
+        registerGeneratorActivityForCommand(command)
         ws?.send(obj.toString())
     }
 
@@ -1713,6 +1760,7 @@ object WsRepository : WsClient {
         projectId: String,
         requestType: CodeChangeRequestType = CodeChangeRequestType.EDIT,
         customTypeLabel: String? = null,
+        conversationId: String? = null,
     ) {
         sendLog("RemoteEdit", "createRemoteEditReport: title=$title projectId=$projectId")
         val payload = mutableMapOf<String, Any>(
@@ -1723,6 +1771,7 @@ object WsRepository : WsClient {
             "projectId" to projectId,
         )
         if (!customTypeLabel.isNullOrBlank()) payload["customTypeLabel"] = customTypeLabel
+        if (!conversationId.isNullOrBlank()) payload["conversationId"] = conversationId
         send("error-report:request-capture", payload)
     }
     fun startRemoteEditInvestigation(reportId: String, revisionNotes: String? = null) {
@@ -2167,12 +2216,17 @@ object WsRepository : WsClient {
     fun markConversationIncomplete(conversationId: String) { send("conversation:mark-incomplete", mapOf("conversationId" to conversationId)) }
 
     // ─── Quiz ────────────────────────────────────────────────────────────────────
+    // Quiz now persists its questions as a versioned artifact (desktop Phase 2) instead of a
+    // score-only attempt row — conversation:save-quiz-attempt/list-quiz-attempts no longer exist
+    // on desktop, so those wrappers were removed rather than left calling into nothing.
 
-    fun generateQuiz(conversationId: String) { send("conversation:generate-quiz", mapOf("conversationId" to conversationId)) }
-    fun saveQuizAttempt(conversationId: String, score: Int, total: Int) {
-        send("conversation:save-quiz-attempt", mapOf("conversationId" to conversationId, "score" to score, "total" to total))
+    fun generateQuiz(conversationId: String, projectId: String? = null, model: String? = null) {
+        send("conversation:generate-quiz", buildMap {
+            put("conversationId", conversationId)
+            if (projectId != null) put("projectId", projectId)
+            if (model != null) put("model", model)
+        })
     }
-    fun listQuizAttempts(conversationId: String) { send("conversation:list-quiz-attempts", mapOf("conversationId" to conversationId)) }
 }
 
 fun ScheduleGeneratorSpec.toPayload(): Map<String, Any> {
