@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import { getDatabase } from './database'
 import { safeHandle } from './safe-handle'
-import type { QuizAttempt, QuizGenerationResult, QuizQuestion } from '../shared/types'
+import type { QuizArtifactResult, QuizQuestion } from '../shared/types'
 import {
   DEFAULT_PROVIDER_MODEL,
   NO_PROVIDER_CONFIGURED_MESSAGE,
@@ -11,6 +11,8 @@ import {
 } from './providers'
 import type { ProviderMessage } from './providers'
 import { ClaudeAdapter } from './cli-adapters/claude'
+import { findArtifactForConversation, readArtifactVersionFile, writeArtifactVersionForConversation } from './artifacts'
+import { generateDebriefForWs, type DebriefSectionData } from './debrief-handlers'
 
 const QUIZ_SYSTEM_PROMPT = `You are a quiz generator for a technical learning tool. You receive a structured debrief of a completed AI chat session and must produce multiple-choice questions that test the user's understanding.
 
@@ -37,29 +39,30 @@ function isValidQuestion(q: unknown): q is Omit<QuizQuestion, 'id'> {
   )
 }
 
-export async function generateQuizForWs(conversationId: string, model?: string): Promise<QuizGenerationResult> {
-  const db = getDatabase()
+export async function generateQuizForWs(conversationId: string, projectId: string | null, model?: string): Promise<QuizArtifactResult> {
+  let debriefArtifact = findArtifactForConversation(conversationId, 'debrief')
+  let debriefContent = debriefArtifact?.currentVersion
+    ? readArtifactVersionFile(debriefArtifact.currentVersion.id, 'debrief.json')
+    : null
 
-  const debriefRow = db.prepare(
-    'SELECT * FROM conversation_debriefs WHERE conversation_id = ?'
-  ).get(conversationId) as {
-    summary: string
-    commands_tools: string
-    reproduction_guide: string
-    mental_model: string
-  } | undefined
+  // Quiz builds its questions from a debrief. If the conversation doesn't have one yet,
+  // generate it transparently rather than requiring the user to run /debrief first.
+  if (!debriefArtifact || !debriefContent) {
+    await generateDebriefForWs(conversationId, projectId, model)
+    debriefArtifact = findArtifactForConversation(conversationId, 'debrief')
+    debriefContent = debriefArtifact?.currentVersion
+      ? readArtifactVersionFile(debriefArtifact.currentVersion.id, 'debrief.json')
+      : null
+    if (!debriefArtifact || !debriefContent) throw new Error('Failed to generate debrief for quiz.')
+  }
 
-  if (!debriefRow) throw new Error('No debrief found — generate a debrief first.')
-
-  const commandsTools = (() => {
-    try { return JSON.parse(debriefRow.commands_tools) as string[] } catch { return [] }
-  })()
+  const section = JSON.parse(debriefContent) as DebriefSectionData
 
   const debriefText = [
-    `Summary: ${debriefRow.summary}`,
-    `Commands & Tools: ${commandsTools.join(', ')}`,
-    `How to Reproduce: ${debriefRow.reproduction_guide}`,
-    `Mental Model: ${debriefRow.mental_model}`,
+    `Summary: ${section.summary}`,
+    `Commands & Tools: ${section.commandsAndTools.join(', ')}`,
+    `How to Reproduce: ${section.reproductionGuide}`,
+    `Mental Model: ${section.mentalModel}`,
   ].join('\n\n')
 
   const userContent = debriefText.length > 8000 ? debriefText.slice(0, 8000) + '\n[truncated]' : debriefText
@@ -102,45 +105,48 @@ export async function generateQuizForWs(conversationId: string, model?: string):
     const parsed = JSON.parse(cleaned) as unknown
     rawQuestions = Array.isArray(parsed) ? parsed : []
   } catch {
-    return { questions: [] }
+    rawQuestions = []
   }
 
   const questions: QuizQuestion[] = rawQuestions
     .filter(isValidQuestion)
     .map((q) => ({ ...q, id: randomUUID() }))
 
-  if (questions.length < 2) return { questions: [] }
+  if (questions.length < 2) throw new Error('No quiz questions could be generated.')
 
-  return { questions }
+  const db = getDatabase()
+  const conversationRow = db.prepare('SELECT title FROM conversations WHERE id = ?').get(conversationId) as { title: string } | undefined
+  const conversationTitle = conversationRow?.title ?? 'Conversation'
+
+  const { artifactId, versionId } = writeArtifactVersionForConversation({
+    conversationId,
+    projectId,
+    kind: 'quiz',
+    title: `Quiz: ${conversationTitle}`,
+    files: [
+      { relativePath: 'quiz.json', mediaType: 'application/json', role: 'primary', content: JSON.stringify(questions, null, 2) },
+      { relativePath: 'quiz.md', mediaType: 'text/markdown', role: 'supporting', content: formatQuizMarkdown(conversationTitle, questions) },
+    ],
+  })
+
+  return { questions, artifactId, versionId }
 }
 
-export function saveQuizAttemptForWs(conversationId: string, score: number, total: number): QuizAttempt {
-  const db = getDatabase()
-  const id = randomUUID()
-  const now = Date.now()
-  db.prepare(
-    'INSERT INTO conversation_quiz_attempts (id, conversation_id, score, total, attempted_at) VALUES (?, ?, ?, ?, ?)'
-  ).run(id, conversationId, score, total, now)
-  return { id, conversation_id: conversationId, score, total, attempted_at: now }
-}
-
-export function listQuizAttemptsForWs(conversationId: string): QuizAttempt[] {
-  const db = getDatabase()
-  return db.prepare(
-    'SELECT * FROM conversation_quiz_attempts WHERE conversation_id = ? ORDER BY attempted_at DESC'
-  ).all(conversationId) as QuizAttempt[]
+function formatQuizMarkdown(title: string, questions: QuizQuestion[]): string {
+  const lines = [`# Quiz: ${title}`, '']
+  questions.forEach((q, i) => {
+    lines.push(`## ${i + 1}. ${q.question}`)
+    q.options.forEach((opt, oi) => {
+      const marker = oi === q.correctIndex ? '**' : ''
+      lines.push(`- ${marker}${String.fromCharCode(65 + oi)}. ${opt}${marker}`)
+    })
+    lines.push('', `_${q.explanation}_`, '')
+  })
+  return lines.join('\n')
 }
 
 export function registerQuizHandlers(): void {
-  safeHandle('conversation:generate-quiz', async (_event, conversationId: string, model?: string): Promise<QuizGenerationResult> => {
-    return generateQuizForWs(conversationId, model)
-  })
-
-  safeHandle('conversation:save-quiz-attempt', (_event, conversationId: string, score: number, total: number): QuizAttempt => {
-    return saveQuizAttemptForWs(conversationId, score, total)
-  })
-
-  safeHandle('conversation:list-quiz-attempts', (_event, conversationId: string): QuizAttempt[] => {
-    return listQuizAttemptsForWs(conversationId)
+  safeHandle('conversation:generate-quiz', async (_event, conversationId: string, projectId: string | null, model?: string): Promise<QuizArtifactResult> => {
+    return generateQuizForWs(conversationId, projectId, model)
   })
 }

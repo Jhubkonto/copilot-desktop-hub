@@ -19,6 +19,29 @@ vi.mock('../safe-handle', () => ({
   },
 }))
 
+vi.mock('../ws-server', () => ({
+  broadcastToMobile: vi.fn(),
+}))
+
+vi.mock('electron', () => ({
+  app: { getPath: () => '/tmp/nexy-test' },
+  BrowserWindow: { getAllWindows: () => [] },
+}))
+
+// In-memory fake filesystem so artifact writes/reads round-trip within a test without
+// touching the real disk.
+const fsState = vi.hoisted(() => ({ files: new Map<string, string>() }))
+vi.mock('fs', () => ({
+  mkdirSync: vi.fn(),
+  statSync: vi.fn((p: string) => ({ size: (fsState.files.get(p) ?? '').length })),
+  writeFileSync: vi.fn((p: string, content: string) => { fsState.files.set(p, content) }),
+  readFileSync: vi.fn((p: string) => {
+    const content = fsState.files.get(p)
+    if (content === undefined) throw new Error(`ENOENT: no such file: ${p}`)
+    return content
+  }),
+}))
+
 const mockSendProviderNonStreaming = vi.hoisted(() => vi.fn())
 vi.mock('../providers', () => ({
   DEFAULT_PROVIDER_MODEL: 'claude-sonnet-4-6',
@@ -34,13 +57,20 @@ vi.mock('../cli-adapters/claude', () => ({
 
 import { initializeBaseSchema, runMigrations } from '../database-migrations'
 import { registerQuizHandlers } from '../quiz-handlers'
-import type { QuizAttempt, QuizGenerationResult } from '../../shared/types'
+import type { QuizArtifactResult } from '../../shared/types'
 
 async function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
   const handler = state.handlers.get(channel)
   if (!handler) throw new Error(`No handler registered for ${channel}`)
   return await handler({}, ...args) as T
 }
+
+const DEBRIEF_JSON = JSON.stringify({
+  summary: 'We learned git',
+  commandsAndTools: ['git checkout'],
+  reproductionGuide: '1. Clone repo',
+  mentalModel: 'Branch early',
+})
 
 const VALID_QUESTION_JSON = JSON.stringify([
   {
@@ -60,20 +90,26 @@ const VALID_QUESTION_JSON = JSON.stringify([
 ])
 
 describe('quiz-handlers', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     state.handlers.clear()
     state.db?.close()
     state.db = new Database(':memory:')
     initializeBaseSchema(state.db)
     runMigrations(state.db)
+    fsState.files.clear()
     registerQuizHandlers()
+    const { registerDebriefHandlers } = await import('../debrief-handlers')
+    registerDebriefHandlers()
     mockSendProviderNonStreaming.mockReset()
 
-    // Insert a conversation with a debrief
     state.db!.prepare("INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv-1', 'Git Basics', 1, 1)").run()
-    state.db!.prepare(
-      "INSERT INTO conversation_debriefs (id, conversation_id, project_id, summary, commands_tools, reproduction_guide, mental_model, generated_at, created_at) VALUES ('d-1', 'conv-1', NULL, 'We learned git', '[\"git checkout\"]', '1. Clone repo', 'Branch early', 1, 1)"
-    ).run()
+    state.db!.prepare("INSERT INTO messages (id, conversation_id, role, content, timestamp) VALUES ('m1', 'conv-1', 'user', 'How do branches work?', 1)").run()
+    state.db!.prepare("INSERT INTO messages (id, conversation_id, role, content, timestamp) VALUES ('m2', 'conv-1', 'assistant', 'Branches are refs...', 2)").run()
+
+    // Seed an existing debrief artifact for 'conv-1' via the real debrief handler, so most
+    // quiz tests don't also exercise the auto-debrief path (that's covered by its own test).
+    mockSendProviderNonStreaming.mockResolvedValueOnce({ content: DEBRIEF_JSON })
+    await invoke('conversation:generate-debrief', 'conv-1', null)
   })
 
   afterEach(() => {
@@ -82,9 +118,9 @@ describe('quiz-handlers', () => {
   })
 
   describe('conversation:generate-quiz', () => {
-    it('returns valid questions from well-formed LLM JSON', async () => {
+    it('returns valid questions from well-formed LLM JSON and persists a quiz artifact', async () => {
       mockSendProviderNonStreaming.mockResolvedValueOnce({ content: VALID_QUESTION_JSON })
-      const result = await invoke<QuizGenerationResult>('conversation:generate-quiz', 'conv-1')
+      const result = await invoke<QuizArtifactResult>('conversation:generate-quiz', 'conv-1', null)
       expect(result.questions).toHaveLength(2)
       expect(result.questions[0]).toMatchObject({
         question: 'What command creates a new branch?',
@@ -92,15 +128,34 @@ describe('quiz-handlers', () => {
         category: 'command',
       })
       expect(typeof result.questions[0].id).toBe('string')
+      expect(result.artifactId).toBeTruthy()
+      expect(result.versionId).toBeTruthy()
+
+      const artifactRow = state.db!.prepare('SELECT * FROM artifacts WHERE id = ?').get(result.artifactId) as { kind: string } | undefined
+      expect(artifactRow?.kind).toBe('quiz')
+      const chatRef = state.db!.prepare('SELECT * FROM artifact_chat_refs WHERE artifact_id = ?').get(result.artifactId) as { conversation_id: string } | undefined
+      expect(chatRef?.conversation_id).toBe('conv-1')
     })
 
-    it('returns empty questions array for malformed JSON', async () => {
+    it('re-running on the same conversation creates a second version under the same artifact', async () => {
+      mockSendProviderNonStreaming.mockResolvedValueOnce({ content: VALID_QUESTION_JSON })
+      const first = await invoke<QuizArtifactResult>('conversation:generate-quiz', 'conv-1', null)
+
+      mockSendProviderNonStreaming.mockResolvedValueOnce({ content: VALID_QUESTION_JSON })
+      const second = await invoke<QuizArtifactResult>('conversation:generate-quiz', 'conv-1', null)
+
+      expect(second.artifactId).toBe(first.artifactId)
+      expect(second.versionId).not.toBe(first.versionId)
+      const versionCount = (state.db!.prepare('SELECT COUNT(*) as c FROM artifact_versions WHERE artifact_id = ?').get(first.artifactId) as { c: number }).c
+      expect(versionCount).toBe(2)
+    })
+
+    it('throws for malformed JSON', async () => {
       mockSendProviderNonStreaming.mockResolvedValueOnce({ content: 'not json at all' })
-      const result = await invoke<QuizGenerationResult>('conversation:generate-quiz', 'conv-1')
-      expect(result.questions).toHaveLength(0)
+      await expect(invoke('conversation:generate-quiz', 'conv-1', null)).rejects.toThrow('No quiz questions could be generated')
     })
 
-    it('returns empty questions array when fewer than 2 valid questions', async () => {
+    it('throws when fewer than 2 valid questions', async () => {
       const oneQuestion = JSON.stringify([
         {
           question: 'Single question',
@@ -111,8 +166,7 @@ describe('quiz-handlers', () => {
         },
       ])
       mockSendProviderNonStreaming.mockResolvedValueOnce({ content: oneQuestion })
-      const result = await invoke<QuizGenerationResult>('conversation:generate-quiz', 'conv-1')
-      expect(result.questions).toHaveLength(0)
+      await expect(invoke('conversation:generate-quiz', 'conv-1', null)).rejects.toThrow('No quiz questions could be generated')
     })
 
     it('silently drops questions with invalid shape', async () => {
@@ -123,52 +177,34 @@ describe('quiz-handlers', () => {
         { options: ['A', 'B', 'C', 'D'], correctIndex: 5 },
       ])
       mockSendProviderNonStreaming.mockResolvedValueOnce({ content: mixedJson })
-      const result = await invoke<QuizGenerationResult>('conversation:generate-quiz', 'conv-1')
+      const result = await invoke<QuizArtifactResult>('conversation:generate-quiz', 'conv-1', null)
       expect(result.questions).toHaveLength(2)
     })
 
     it('strips markdown code fences before parsing', async () => {
       mockSendProviderNonStreaming.mockResolvedValueOnce({ content: '```json\n' + VALID_QUESTION_JSON + '\n```' })
-      const result = await invoke<QuizGenerationResult>('conversation:generate-quiz', 'conv-1')
+      const result = await invoke<QuizArtifactResult>('conversation:generate-quiz', 'conv-1', null)
       expect(result.questions).toHaveLength(2)
     })
 
-    it('throws when no debrief exists for the conversation', async () => {
-      state.db!.prepare("INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('no-debrief', 'Empty', 1, 1)").run()
-      await expect(invoke('conversation:generate-quiz', 'no-debrief')).rejects.toThrow('No debrief found')
-    })
-  })
+    it('transparently generates a debrief first when the conversation has none yet', async () => {
+      state.db!.prepare("INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('no-debrief', 'Fresh', 1, 1)").run()
+      state.db!.prepare("INSERT INTO messages (id, conversation_id, role, content, timestamp) VALUES ('m3', 'no-debrief', 'user', 'Hello', 1)").run()
+      state.db!.prepare("INSERT INTO messages (id, conversation_id, role, content, timestamp) VALUES ('m4', 'no-debrief', 'assistant', 'Hi', 2)").run()
 
-  describe('conversation:save-quiz-attempt', () => {
-    it('inserts a row and returns the attempt', async () => {
-      const attempt = await invoke<QuizAttempt>('conversation:save-quiz-attempt', 'conv-1', 4, 5)
-      expect(attempt.conversation_id).toBe('conv-1')
-      expect(attempt.score).toBe(4)
-      expect(attempt.total).toBe(5)
-      expect(typeof attempt.id).toBe('string')
-      expect(attempt.attempted_at).toBeGreaterThan(0)
+      mockSendProviderNonStreaming.mockClear()
+      mockSendProviderNonStreaming
+        .mockResolvedValueOnce({ content: DEBRIEF_JSON })
+        .mockResolvedValueOnce({ content: VALID_QUESTION_JSON })
 
-      const row = state.db!.prepare('SELECT * FROM conversation_quiz_attempts WHERE id = ?').get(attempt.id)
-      expect(row).not.toBeNull()
-    })
-  })
+      const result = await invoke<QuizArtifactResult>('conversation:generate-quiz', 'no-debrief', null)
+      expect(result.questions).toHaveLength(2)
+      expect(mockSendProviderNonStreaming).toHaveBeenCalledTimes(2)
 
-  describe('conversation:list-quiz-attempts', () => {
-    it('returns empty array when no attempts', async () => {
-      const result = await invoke<QuizAttempt[]>('conversation:list-quiz-attempts', 'conv-1')
-      expect(result).toEqual([])
-    })
-
-    it('returns attempts ordered newest-first', async () => {
-      state.db!.prepare("INSERT INTO conversation_quiz_attempts (id, conversation_id, score, total, attempted_at) VALUES ('a1', 'conv-1', 3, 5, 1000)").run()
-      state.db!.prepare("INSERT INTO conversation_quiz_attempts (id, conversation_id, score, total, attempted_at) VALUES ('a2', 'conv-1', 4, 5, 2000)").run()
-      state.db!.prepare("INSERT INTO conversation_quiz_attempts (id, conversation_id, score, total, attempted_at) VALUES ('a3', 'conv-1', 5, 5, 3000)").run()
-
-      const result = await invoke<QuizAttempt[]>('conversation:list-quiz-attempts', 'conv-1')
-      expect(result).toHaveLength(3)
-      expect(result[0].id).toBe('a3')
-      expect(result[1].id).toBe('a2')
-      expect(result[2].id).toBe('a1')
+      const debriefArtifact = state.db!.prepare(
+        `SELECT a.* FROM artifacts a JOIN artifact_chat_refs r ON r.artifact_id = a.id WHERE r.conversation_id = ? AND a.kind = 'debrief'`
+      ).get('no-debrief')
+      expect(debriefArtifact).toBeTruthy()
     })
   })
 })
