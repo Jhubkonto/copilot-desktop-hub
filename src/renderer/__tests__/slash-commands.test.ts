@@ -35,6 +35,7 @@ beforeEach(() => {
 function createContext(): SlashCommandContext {
   return {
     conversationId: 'conv-1',
+    chatProjectId: null,
     messages: [],
     activeAgent: null,
     effectiveModelLabel: 'GPT-4o',
@@ -50,7 +51,12 @@ function createContext(): SlashCommandContext {
     buildConversationMarkdown: vi.fn().mockReturnValue('# Conversation Export'),
     deleteMessagesAfter: vi.fn().mockResolvedValue(undefined),
     lastUndoneUserMessageRef: { current: null },
-    setMessages: vi.fn()
+    setMessages: vi.fn(),
+    markComplete: vi.fn().mockResolvedValue(undefined),
+    markIncomplete: vi.fn().mockResolvedValue(undefined),
+    runSlashGeneration: vi.fn().mockResolvedValue({ artifactId: 'art-1', versionId: 'ver-1' }),
+    attachArtifactMessage: vi.fn().mockResolvedValue(undefined),
+    startCodeChange: vi.fn().mockResolvedValue({ reportId: 'report-1' }),
   }
 }
 
@@ -77,21 +83,77 @@ describe('slash-commands', () => {
     await expect(executeSlashCommand('', ctx)).resolves.toBe(false)
   })
 
-  it('sc-6: executeSlashCommand(\'/help\') calls pushSystemMessage and returns true', async () => {
+  it('sc-6: executeSlashCommand(\'/help\') calls pushSystemMessage and returns \'handled\'', async () => {
     const ctx = createContext()
-    await expect(executeSlashCommand('/help', ctx)).resolves.toBe(true)
+    await expect(executeSlashCommand('/help', ctx)).resolves.toBe('handled')
     expect(ctx.pushSystemMessage).toHaveBeenCalled()
   })
 
-  it('sc-7: executeSlashCommand(\'/theme dark\') calls setTheme and returns true', async () => {
+  it('sc-7: executeSlashCommand(\'/theme dark\') calls setTheme and returns \'handled\'', async () => {
     const ctx = createContext()
-    await expect(executeSlashCommand('/theme dark', ctx)).resolves.toBe(true)
+    await expect(executeSlashCommand('/theme dark', ctx)).resolves.toBe('handled')
     expect(ctx.setTheme).toHaveBeenCalledWith('dark')
   })
 
   it('sc-8: executeSlashCommand(\'/unknown-command\') returns false', async () => {
     const ctx = createContext()
     await expect(executeSlashCommand('/unknown-command', ctx)).resolves.toBe(false)
+  })
+
+  it('sc-9: a custom command returns \'expanded\' and sets the input to its prompt (not cleared)', async () => {
+    const ctx = createContext()
+    ctx.activeAgent = { customCommands: [{ name: '/standup', description: 'Daily standup', prompt: 'Summarize what we did today.' }] } as SlashCommandContext['activeAgent']
+    await expect(executeSlashCommand('/standup', ctx)).resolves.toBe('expanded')
+    expect(ctx.setInput).toHaveBeenCalledWith('Summarize what we did today.')
+    expect(ctx.setInput).toHaveBeenCalledTimes(1)
+  })
+
+  it('sc-10: /complete calls markComplete and pushes a confirmation', async () => {
+    const ctx = createContext()
+    await expect(executeSlashCommand('/complete', ctx)).resolves.toBe('handled')
+    expect(ctx.markComplete).toHaveBeenCalled()
+    expect(ctx.pushSystemMessage).toHaveBeenCalledWith(expect.stringContaining('complete'))
+  })
+
+  it('sc-11: /incomplete calls markIncomplete and pushes a confirmation', async () => {
+    const ctx = createContext()
+    await expect(executeSlashCommand('/incomplete', ctx)).resolves.toBe('handled')
+    expect(ctx.markIncomplete).toHaveBeenCalled()
+  })
+
+  it('sc-12: /debrief runs generation against the conversation model and attaches the result', async () => {
+    const ctx = createContext()
+    await expect(executeSlashCommand('/debrief', ctx)).resolves.toBe('handled')
+    expect(ctx.runSlashGeneration).toHaveBeenCalledWith('debrief', { model: undefined })
+    expect(ctx.attachArtifactMessage).toHaveBeenCalledWith('art-1', 'ver-1')
+  })
+
+  it('sc-13: /quiz surfaces an error via pushSystemMessage without attaching anything', async () => {
+    const ctx = createContext()
+    ctx.runSlashGeneration = vi.fn().mockResolvedValue({ error: 'No debrief found' })
+    await expect(executeSlashCommand('/quiz', ctx)).resolves.toBe('handled')
+    expect(ctx.pushSystemMessage).toHaveBeenCalledWith(expect.stringContaining('No debrief found'))
+    expect(ctx.attachArtifactMessage).not.toHaveBeenCalled()
+  })
+
+  it('sc-14: /code-change with no description shows usage and does not create a request', async () => {
+    const ctx = createContext()
+    await expect(executeSlashCommand('/code-change', ctx)).resolves.toBe('handled')
+    expect(ctx.startCodeChange).not.toHaveBeenCalled()
+    expect(ctx.pushSystemMessage).toHaveBeenCalledWith(expect.stringContaining('Usage'))
+  })
+
+  it('sc-15: /code-change <description> creates the request', async () => {
+    const ctx = createContext()
+    await expect(executeSlashCommand('/code-change fix the login bug', ctx)).resolves.toBe('handled')
+    expect(ctx.startCodeChange).toHaveBeenCalledWith({ description: 'fix the login bug' })
+  })
+
+  it('sc-16: /code-change surfaces an error via pushSystemMessage on failure', async () => {
+    const ctx = createContext()
+    ctx.startCodeChange = vi.fn().mockResolvedValue({ error: 'requires this conversation to be in a project' })
+    await expect(executeSlashCommand('/code-change fix it', ctx)).resolves.toBe('handled')
+    expect(ctx.pushSystemMessage).toHaveBeenCalledWith(expect.stringContaining('requires this conversation to be in a project'))
   })
 })
 
