@@ -4,6 +4,7 @@ import { app } from "electron";
 import { join } from "path";
 
 import { initializeBaseSchema, runMigrations } from "./database-migrations";
+import { migrateLegacyDebriefsToArtifacts } from "./legacy-debrief-migration";
 
 let db: Database.Database | null = null;
 
@@ -45,6 +46,7 @@ export function getDatabase(): Database.Database {
 function initializeSchema(db: Database.Database): void {
   initializeBaseSchema(db);
   runMigrations(db);
+  migrateLegacyDebriefsToArtifacts(db);
 
   const insertSetting = db.prepare(
     "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",

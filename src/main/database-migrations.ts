@@ -944,6 +944,28 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
         ON sync_desktop_changes(dataset_id, sequence);
     `,
   },
+  {
+    // Lets a Code Changes request (error_reports row) be linked back to the chat conversation
+    // it was created from, so /code-change can find/reuse an existing in-flight request for the
+    // conversation instead of creating a duplicate every time it's invoked.
+    version: 60,
+    sql: `
+      ALTER TABLE error_reports ADD COLUMN conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL;
+      CREATE INDEX IF NOT EXISTS idx_error_reports_conversation ON error_reports(conversation_id);
+    `,
+  },
+  {
+    // Debrief and Quiz move from their own bespoke tables to the artifact system (versioned,
+    // re-runnable, markdown-exportable via the existing artifact:export path). Quiz attempts
+    // only ever stored a score, never the questions asked, so there is nothing meaningful to
+    // carry forward — dropped outright, matching the precedent set by migration 50. The one
+    // existing debrief per conversation (conversation_debriefs) is migrated best-effort into an
+    // artifact by a startup task (see main/legacy-debrief-migration.ts) rather than here, since
+    // that requires filesystem access via Electron's `app` module, which this migrations file
+    // deliberately has no dependency on.
+    version: 61,
+    sql: `DROP TABLE IF EXISTS conversation_quiz_attempts;`,
+  },
 ];
 
 
