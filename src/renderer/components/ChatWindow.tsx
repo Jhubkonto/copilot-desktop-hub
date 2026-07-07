@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/exhaustive-deps -- chat/actions are aggregate hook objects; individual members are stable. */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { shouldFollowAnimatedGrowth } from '../chat-scroll-policy'
-import { BookOpen, BrainCircuit, CheckCircle, ChevronDown, ChevronRight, Download, Loader2, Lock, MoreHorizontal, Pin, PinOff, Sparkles, Upload, Zap } from 'lucide-react'
+import { CheckCircle, ChevronDown, ChevronRight, Download, Loader2, Lock, MoreHorizontal, Pin, PinOff, Sparkles, Upload, Zap } from 'lucide-react'
 import { getAvailableModelIds, getModelLabel, modelIdSupportsTools } from '../../shared/models'
 import { isApiError, type AgentConfig, type ArtifactPromotionRequest, type AvailableModelEntry, type AvailableModelGroup, type ConversationExportPackFormat, type WikiCandidate } from '../../shared/types'
 import type { ContextRef, ToastType } from '../hooks/chat-types'
@@ -17,8 +17,6 @@ import { CONTEXT_INSPECTOR_MAX_TOKENS, estimateRefTokens, estimateTokens } from 
 import type { ContextInspectorSnapshot } from '../../shared/types'
 import { ChatComposer } from './chat/ChatComposer'
 import { ChatMessages } from './chat/ChatMessages'
-import { DebriefModal } from './DebriefModal'
-import { QuizModal } from './QuizModal'
 import { DropdownPanel } from './DropdownPanel'
 import { PromptLibraryModal } from './PromptLibraryModal'
 import { SaveToWikiModal } from './SaveToWikiModal'
@@ -78,9 +76,6 @@ export function ChatWindow() {
   const newChat = useAppStore((state) => state.newChat)
   const openSectionPane = useAppStore((state) => state.openSectionPane)
   const openArtifactPanel = useAppStore((state) => state.openArtifactPanel)
-  const setPendingNewRequestDraft = useAppStore((state) => state.setPendingNewRequestDraft)
-  const setPendingCodeChangesProjectId = useAppStore((state) => state.setPendingCodeChangesProjectId)
-  const setCodeChangesProjectId = useAppStore((state) => state.setCodeChangesProjectId)
   const selectConversation = useAppStore((state) => state.selectConversation)
   const setTheme = useAppStore((state) => state.setTheme)
   const logout = useAppStore((state) => state.logout)
@@ -126,9 +121,6 @@ export function ChatWindow() {
   const [continueCliModels, setContinueCliModels] = useState<{ id: string; label: string }[]>([])
   const [isForking, setIsForking] = useState(false)
   const [extractionCandidates, setExtractionCandidates] = useState<WikiCandidate[] | null>(null)
-  const [showDebriefModal, setShowDebriefModal] = useState(false)
-  const [showQuizModal, setShowQuizModal] = useState(false)
-  const [pendingInitialDebrief, setPendingInitialDebrief] = useState<import('../../shared/types').Debrief | null | undefined>(undefined)
   const [showPromptLibrary, setShowPromptLibrary] = useState(false)
   const [artifactPromotion, setArtifactPromotion] = useState<{
     messageId: string
@@ -142,6 +134,7 @@ export function ChatWindow() {
   } | null>(null)
   const completedConversationIds = useAppStore((state) => state.completedConversationIds)
   const markConversationCompleteFn = useAppStore((state) => state.markConversationComplete)
+  const markConversationIncompleteFn = useAppStore((state) => state.markConversationIncomplete)
   const handleVoiceText = useCallback((text: string) => {
     setInput((current) => current.trim() ? `${current.trimEnd()} ${text}` : text)
     requestAnimationFrame(() => inputRef.current?.focus())
@@ -357,6 +350,9 @@ export function ChatWindow() {
     setTheme,
     loadAgents,
     loadConversations,
+    markConversationComplete: markConversationCompleteFn,
+    markConversationIncomplete: markConversationIncompleteFn,
+    attachArtifact: chat.attachArtifact,
     onAfterSend: () => {
       setClipboardRef(null)
       setPromptInstructionRef(null)
@@ -386,21 +382,10 @@ export function ChatWindow() {
   }, [chatProjectId, currentConversation?.title])
 
   const handleCreateCodeChange = useCallback((_messageId: string, content: string) => {
-    const resolvedProjectId = chatProjectId && chatProjectId !== '__none__' ? chatProjectId : null
-    if (!resolvedProjectId) return
     const plainContent = content.replace(/\s+/g, ' ').trim()
-    setPendingNewRequestDraft({
-      title: plainContent.slice(0, 80) || 'Code change from chat',
-      description: content.trim(),
-      requestType: 'edit',
-      customTypeLabel: '',
-      chatProjectId: resolvedProjectId,
-      conversationTitle: currentConversation?.title ?? null,
-    })
-    setPendingCodeChangesProjectId(resolvedProjectId)
-    openSectionPane('projects')
-    setCodeChangesProjectId(resolvedProjectId)
-  }, [chatProjectId, currentConversation?.title, setPendingNewRequestDraft, setPendingCodeChangesProjectId, openSectionPane, setCodeChangesProjectId])
+    setInput(`/code-change ${plainContent}`)
+    inputRef.current?.focus()
+  }, [setInput])
 
   const handleConfirmArtifactPromotion = useCallback(async () => {
     if (!conversationId || !artifactPromotion) return
@@ -441,20 +426,6 @@ export function ChatWindow() {
       window.removeEventListener('offline', goOffline)
     }
   }, [])
-
-  useEffect(() => {
-    const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'D') {
-        if (!conversationId || chat.messages.length === 0) return
-        e.preventDefault()
-        setShowDebriefModal(true)
-      }
-    }
-    document.addEventListener('keydown', handleGlobalKeyDown)
-    return () => document.removeEventListener('keydown', handleGlobalKeyDown)
-  }, [conversationId, chat.messages.length])
-
-
 
   useEffect(() => {
     if (!chatProjectId || chatProjectId === '__none__') {
@@ -1393,6 +1364,14 @@ export function ChatWindow() {
       {autoApproveBanner}
 
       <div className="relative flex flex-col flex-1 min-h-0">
+        {conversationId && completedConversationIds.includes(conversationId) && !chat.isGenerating && (
+          <div className="absolute left-4 top-4 z-10">
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-emerald-200 dark:border-emerald-800 bg-emerald-50/95 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 text-[11px] font-medium shadow-sm">
+              <CheckCircle className="w-3 h-3" />
+              Completed
+            </span>
+          </div>
+        )}
         {(conversationId || chat.messages.length > 0) && !chat.isGenerating && (
           <div className="absolute right-4 top-4 z-10">
             <DropdownPanel
@@ -1429,26 +1408,6 @@ export function ChatWindow() {
                   </button>
                 )}
 
-                {conversationId && chat.messages.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      setShowActionsMenu(false)
-                      if (completedConversationIds.includes(conversationId)) {
-                        const existing = await window.api.getDebrief(conversationId).catch(() => null)
-                        setPendingInitialDebrief(existing)
-                      } else {
-                        setPendingInitialDebrief(null)
-                      }
-                      setShowDebriefModal(true)
-                    }}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
-                  >
-                    <BookOpen className="w-3.5 h-3.5" />
-                    Debrief session
-                  </button>
-                )}
-
                 {conversationId && !completedConversationIds.includes(conversationId) && chat.messages.length > 0 && (
                   <button
                     type="button"
@@ -1457,17 +1416,6 @@ export function ChatWindow() {
                   >
                     <CheckCircle className="w-3.5 h-3.5" />
                     Mark complete
-                  </button>
-                )}
-
-                {conversationId && chat.messages.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => { setShowQuizModal(true); setShowActionsMenu(false) }}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
-                  >
-                    <BrainCircuit className="w-3.5 h-3.5" />
-                    Quiz me on this
                   </button>
                 )}
 
@@ -1700,19 +1648,6 @@ export function ChatWindow() {
               setExtractionCandidates(null)
             }}
           />
-        )}
-        {showDebriefModal && conversationId && (
-          <DebriefModal
-            conversationId={conversationId}
-            conversationTitle={conversations.find((c) => c.id === conversationId)?.title ?? 'Chat'}
-            projectId={chatProjectId && chatProjectId !== '__none__' ? chatProjectId : null}
-            model={conversations.find((c) => c.id === conversationId)?.model ?? defaultModelSetting ?? 'claude-sonnet-4-6'}
-            initialDebrief={pendingInitialDebrief}
-            onClose={() => { setShowDebriefModal(false); setPendingInitialDebrief(undefined) }}
-          />
-        )}
-        {showQuizModal && conversationId && (
-          <QuizModal conversationId={conversationId} onClose={() => setShowQuizModal(false)} />
         )}
         {artifactPromotion && (
           <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/50 px-4">

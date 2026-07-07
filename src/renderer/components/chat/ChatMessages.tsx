@@ -9,6 +9,7 @@ import { TeamActivityBlock } from '../TeamActivityBlock'
 import { ToolCallBlock } from './ToolCallBlock'
 import { ThinkingBlock } from './ThinkingBlock'
 import { ArtifactCard } from '../artifacts/ArtifactCard'
+import { CodeChangeCard } from './CodeChangeCard'
 import type { ActivityEvent, ChatMessage, CliCostSummary, TeamActivityStep } from '../../hooks/chat-types'
 import { buildChatRenderItems } from '../../hooks/chat-render-items'
 import { createEmptyChatTurnState, type ChatTurnState } from '../../hooks/chat-turn-reducer'
@@ -345,6 +346,25 @@ export function ChatMessagesBase({
                   data-message-role={main.role}
                 >
                   <ArtifactCard artifactId={ref.artifactId} versionId={ref.versionId} />
+                </div>
+              )
+            } catch {
+              // malformed ref — fall through to normal render
+            }
+          }
+
+          if (main.content.startsWith('__code-change-ref:')) {
+            try {
+              const ref = JSON.parse(main.content.slice('__code-change-ref:'.length)) as { reportId: string }
+              return (
+                <div
+                  key={main.id}
+                  ref={registerMessageElement(main.id)}
+                  className="max-w-3xl mx-auto px-4 pb-2 message-enter"
+                  data-message-id={main.id}
+                  data-message-role={main.role}
+                >
+                  <CodeChangeCard reportId={ref.reportId} />
                 </div>
               )
             } catch {
