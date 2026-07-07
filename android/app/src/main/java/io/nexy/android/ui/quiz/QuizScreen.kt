@@ -13,12 +13,14 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -32,9 +34,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -157,57 +161,60 @@ private fun QuestionContent(
         label = "submit-alpha",
     )
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth(), trackColor = MaterialTheme.colorScheme.surfaceVariant)
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("${state.index + 1} / ${state.total}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            CategoryChip(state.question.category)
-        }
-        Text(state.question.question, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-        state.question.options.forEachIndexed { i, option ->
-            val isSelected = state.selected == i
-            val borderColor by animateColorAsState(
-                targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                animationSpec = tween(200),
-                label = "option-border-$i",
-            )
-            val bgColor by animateColorAsState(
-                targetValue = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else Color.Transparent,
-                animationSpec = tween(200),
-                label = "option-bg-$i",
-            )
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(width = if (isSelected) 2.dp else 1.dp, color = borderColor, shape = MaterialTheme.shapes.medium)
-                    .clip(MaterialTheme.shapes.medium)
-                    .background(bgColor)
-                    .clickable { onSelect(i) },
-                color = Color.Transparent,
-            ) {
-                Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Box(
-                        modifier = Modifier.size(28.dp).background(if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant, CircleShape),
-                        contentAlignment = Alignment.Center,
+    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item {
+            QuizPanel(title = "Quiz question") {
+                LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth(), trackColor = MaterialTheme.colorScheme.surfaceVariant)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("${state.index + 1} / ${state.total}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    CategoryChip(state.question.category)
+                }
+                Text(state.question.question, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                state.question.options.forEachIndexed { i, option ->
+                    val isSelected = state.selected == i
+                    val borderColor by animateColorAsState(
+                        targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                        animationSpec = tween(200),
+                        label = "option-border-$i",
+                    )
+                    val bgColor by animateColorAsState(
+                        targetValue = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else Color.Transparent,
+                        animationSpec = tween(200),
+                        label = "option-bg-$i",
+                    )
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(width = if (isSelected) 2.dp else 1.dp, color = borderColor, shape = MaterialTheme.shapes.medium)
+                            .clip(MaterialTheme.shapes.medium)
+                            .background(bgColor)
+                            .clickable { onSelect(i) },
+                        color = Color.Transparent,
                     ) {
-                        Text(
-                            text = listOf("A", "B", "C", "D")[i],
-                            style = MaterialTheme.typography.labelMedium,
-                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontWeight = FontWeight.Bold,
-                        )
+                        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Box(
+                                modifier = Modifier.size(28.dp).background(if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant, CircleShape),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = listOf("A", "B", "C", "D")[i],
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                            Text(option, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                        }
                     }
-                    Text(option, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                }
+                FilledTonalButton(
+                    onClick = onSubmit,
+                    enabled = state.selected != null,
+                    modifier = Modifier.fillMaxWidth().alpha(submitAlpha),
+                ) {
+                    Text("Submit")
                 }
             }
-        }
-        Spacer(modifier = Modifier.weight(1f))
-        FilledTonalButton(
-            onClick = onSubmit,
-            enabled = state.selected != null,
-            modifier = Modifier.fillMaxWidth().alpha(submitAlpha),
-        ) {
-            Text("Submit")
         }
     }
 }
@@ -220,84 +227,92 @@ private fun FeedbackContent(state: QuizUiState.Feedback, onNext: () -> Unit) {
         showExplanation = true
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        AnimatedVisibility(
-            visible = true,
-            enter = slideInVertically(tween(300)) { -it } + fadeIn(tween(300)),
-        ) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = if (state.isCorrect) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.errorContainer,
-                shape = MaterialTheme.shapes.medium,
-            ) {
-                Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(
-                        imageVector = if (state.isCorrect) Icons.Default.CheckCircle else Icons.Default.ErrorOutline,
-                        contentDescription = null,
-                        tint = if (state.isCorrect) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onErrorContainer,
-                    )
-                    Text(
-                        text = if (state.isCorrect) "Correct!" else "Incorrect",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = if (state.isCorrect) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onErrorContainer,
-                    )
-                }
-            }
-        }
-
-        state.question.options.forEachIndexed { i, option ->
-            val isCorrect = i == state.question.correctIndex
-            val isWrongSelected = i == state.selected && !state.isCorrect
-            val borderColor by animateColorAsState(
-                targetValue = when {
-                    isCorrect -> Color(0xFF34D399)
-                    isWrongSelected -> MaterialTheme.colorScheme.error
-                    else -> MaterialTheme.colorScheme.outline
-                },
-                animationSpec = tween(300),
-                label = "feedback-border-$i",
-            )
-            val bgColor by animateColorAsState(
-                targetValue = when {
-                    isCorrect -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)
-                    isWrongSelected -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
-                    else -> Color.Transparent
-                },
-                animationSpec = tween(300),
-                label = "feedback-bg-$i",
-            )
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(width = if (isCorrect || isWrongSelected) 2.dp else 1.dp, color = borderColor, shape = MaterialTheme.shapes.medium)
-                    .clip(MaterialTheme.shapes.medium)
-                    .background(bgColor),
-                color = Color.Transparent,
-            ) {
-                Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Box(
-                        modifier = Modifier.size(28.dp).background(MaterialTheme.colorScheme.surfaceVariant, CircleShape),
-                        contentAlignment = Alignment.Center,
+    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item {
+            QuizPanel(title = "Answer review") {
+                AnimatedVisibility(
+                    visible = true,
+                    enter = slideInVertically(tween(300)) { -it } + fadeIn(tween(300)),
+                ) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = if (state.isCorrect) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.errorContainer,
+                        shape = MaterialTheme.shapes.medium,
                     ) {
-                        Text(listOf("A", "B", "C", "D")[i], style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(
+                                imageVector = if (state.isCorrect) Icons.Default.CheckCircle else Icons.Default.ErrorOutline,
+                                contentDescription = null,
+                                tint = if (state.isCorrect) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onErrorContainer,
+                            )
+                            Text(
+                                text = if (state.isCorrect) "Correct!" else "Incorrect",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = if (state.isCorrect) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onErrorContainer,
+                            )
+                        }
                     }
-                    Text(option, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                }
+
+                state.question.options.forEachIndexed { i, option ->
+                    val isCorrect = i == state.question.correctIndex
+                    val isWrongSelected = i == state.selected && !state.isCorrect
+                    val borderColor by animateColorAsState(
+                        targetValue = when {
+                            isCorrect -> Color(0xFF34D399)
+                            isWrongSelected -> MaterialTheme.colorScheme.error
+                            else -> MaterialTheme.colorScheme.outline
+                        },
+                        animationSpec = tween(300),
+                        label = "feedback-border-$i",
+                    )
+                    val bgColor by animateColorAsState(
+                        targetValue = when {
+                            isCorrect -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)
+                            isWrongSelected -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
+                            else -> Color.Transparent
+                        },
+                        animationSpec = tween(300),
+                        label = "feedback-bg-$i",
+                    )
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(width = if (isCorrect || isWrongSelected) 2.dp else 1.dp, color = borderColor, shape = MaterialTheme.shapes.medium)
+                            .clip(MaterialTheme.shapes.medium)
+                            .background(bgColor),
+                        color = Color.Transparent,
+                    ) {
+                        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Box(
+                                modifier = Modifier.size(28.dp).background(MaterialTheme.colorScheme.surfaceVariant, CircleShape),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(listOf("A", "B", "C", "D")[i], style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                            }
+                            Text(option, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+
+                AnimatedVisibility(visible = showExplanation, enter = expandVertically(tween(350)) + fadeIn(tween(350))) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Explanation", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                            Text(state.question.explanation, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+
+                FilledTonalButton(onClick = onNext, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (state.index + 1 < state.total) "Next Question" else "See Results")
                 }
             }
-        }
-
-        AnimatedVisibility(visible = showExplanation, enter = expandVertically(tween(350)) + fadeIn(tween(350))) {
-            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Explanation", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                    Text(state.question.explanation, style = MaterialTheme.typography.bodySmall)
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.weight(1f))
-        FilledTonalButton(onClick = onNext, modifier = Modifier.fillMaxWidth()) {
-            Text(if (state.index + 1 < state.total) "Next Question" else "See Results")
         }
     }
 }
@@ -374,6 +389,39 @@ private fun ErrorContent(message: String, onRetry: () -> Unit) {
             Icon(Icons.Default.ErrorOutline, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.error)
             Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FilledTonalButton(onClick = onRetry) { Text("Try Again") }
+        }
+    }
+}
+
+@Composable
+private fun QuizPanel(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.16f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)),
+        tonalElevation = 0.dp,
+    ) {
+        Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Icon(
+                    Icons.Default.Psychology,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            content()
         }
     }
 }

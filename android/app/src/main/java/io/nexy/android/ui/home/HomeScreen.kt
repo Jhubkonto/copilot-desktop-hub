@@ -100,7 +100,6 @@ fun HomeScreen(
     onOpenProjectConfigNew: (String) -> Unit = onOpenProjectConfig,
     onOpenProjectGenerator: () -> Unit,
     onOpenArtifacts: () -> Unit,
-    onOpenCodeChanges: (String) -> Unit,
     onOpenSkills: () -> Unit,
     onOpenScheduled: () -> Unit,
     onOpenSkillGenerator: () -> Unit,
@@ -119,7 +118,6 @@ fun HomeScreen(
     val conversations by vm.conversations.collectAsState()
     val agents by vm.agents.collectAsState()
     val projects by vm.projects.collectAsState()
-    val activeCodeChangesByProject by vm.activeCodeChangesByProject.collectAsState()
     val isRefreshingConversations by vm.isRefreshingConversations.collectAsState()
     val isRefreshingAgents by vm.isRefreshingAgents.collectAsState()
     val isRefreshingProjects by vm.isRefreshingProjects.collectAsState()
@@ -165,7 +163,6 @@ fun HomeScreen(
                 vm.refreshConversations()
                 vm.requestAgents()
                 vm.requestProjects()
-                vm.refreshActiveCodeChanges()
             }
             else -> {}
         }
@@ -174,7 +171,7 @@ fun HomeScreen(
     LaunchedEffect(selectedTab) {
         when (selectedTab) {
             0 -> vm.refreshConversations()
-            1 -> { vm.requestProjects(); vm.refreshActiveCodeChanges() }
+            1 -> vm.requestProjects()
             2 -> vm.requestAgents()
         }
     }
@@ -580,16 +577,13 @@ fun HomeScreen(
                     projects = projects,
                     isRefreshing = isRefreshingProjects,
                     showCreateSheet = showCreateProjectSheet,
-                    connectionState = connectionState,
                     highlightProjectId = highlightProjectId,
-                    activeCodeChangesByProject = activeCodeChangesByProject,
                     onHighlightConsumed = { vm.clearHighlightProject() },
                     onDismissCreateSheet = { showCreateProjectSheet = false },
                     onRefresh = { vm.requestProjects() },
                     onOpenProjectHistory = onOpenProjectHistory,
                     onOpenProjectConfig = onOpenProjectConfig,
                     onOpenProjectGenerator = onOpenProjectGenerator,
-                    onOpenCodeChanges = onOpenCodeChanges,
                     onCreateProject = { name, color -> vm.createProject(name, color) },
                     onRenameProject = { id, name -> vm.renameProject(id, name) },
                     onDeleteProject = { id -> vm.deleteProject(id) },

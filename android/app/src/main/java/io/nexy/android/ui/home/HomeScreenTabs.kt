@@ -28,14 +28,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Difference
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
@@ -65,7 +63,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.model.Agent
 import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.Project
@@ -406,16 +403,13 @@ fun ProjectsTab(
     projects: List<Project>,
     isRefreshing: Boolean,
     showCreateSheet: Boolean,
-    connectionState: ConnectionState = ConnectionState.CONNECTED,
     highlightProjectId: String? = null,
-    activeCodeChangesByProject: Map<String, Int> = emptyMap(),
     onHighlightConsumed: () -> Unit = {},
     onDismissCreateSheet: () -> Unit,
     onRefresh: () -> Unit,
     onOpenProjectHistory: (String) -> Unit,
     onOpenProjectConfig: (String) -> Unit = {},
     onOpenProjectGenerator: () -> Unit,
-    onOpenCodeChanges: (String) -> Unit = {},
     onCreateProject: (name: String, color: String) -> Unit,
     onRenameProject: (id: String, name: String) -> Unit,
     onDeleteProject: (id: String) -> Unit,
@@ -426,7 +420,6 @@ fun ProjectsTab(
     var deleteTarget by remember { mutableStateOf<Project?>(null) }
     var renameText by remember { mutableStateOf("") }
     var projectSearch by remember { mutableStateOf("") }
-    var setupPromptProject by remember { mutableStateOf<Project?>(null) }
 
     val filteredProjects = remember(projects, projectSearch) {
         val q = projectSearch.trim()
@@ -520,20 +513,6 @@ fun ProjectsTab(
         )
     }
 
-    setupPromptProject?.let { target ->
-        NexyConfirmDialog(
-            title = "Set up this project for code changes",
-            message = "\"${target.name}\" needs a root directory before you can create code changes.",
-            confirmLabel = "Set up project",
-            onConfirm = {
-                val projectId = target.id
-                setupPromptProject = null
-                onOpenProjectConfig(projectId)
-            },
-            onDismiss = { setupPromptProject = null },
-        )
-    }
-
     RefreshableContent(isRefreshing = isRefreshing, onRefresh = onRefresh) {
         if (projects.isEmpty()) {
             Column(
@@ -616,14 +595,13 @@ fun ProjectsTab(
                             // Center: two-line content
                             val agentCount = project.agentIcons.size
                             val chatCount = project.chatCount
-                            val activeCodeChanges = activeCodeChangesByProject[project.id] ?: 0
                             Column(
                                 modifier = Modifier
                                     .weight(1f)
                                     .padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
                                 verticalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
-                                // Line 1: project name (+ running Code Changes badge, if any)
+                                // Line 1: project name
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Text(
                                         text = project.name,
@@ -633,29 +611,6 @@ fun ProjectsTab(
                                         overflow = TextOverflow.Ellipsis,
                                         modifier = Modifier.weight(1f, fill = false),
                                     )
-                                    if (activeCodeChanges > 0) {
-                                        Surface(
-                                            shape = RoundedCornerShape(50),
-                                            color = MaterialTheme.colorScheme.primaryContainer,
-                                        ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                            ) {
-                                                CircularProgressIndicator(
-                                                    modifier = Modifier.size(8.dp),
-                                                    strokeWidth = 1.5.dp,
-                                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                                )
-                                                Text(
-                                                    text = "$activeCodeChanges",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                                )
-                                            }
-                                        }
-                                    }
                                 }
                                 // Line 2: emojis (if any) then counts
                                 Row(
@@ -692,28 +647,6 @@ fun ProjectsTab(
                                         overflow = TextOverflow.Ellipsis,
                                     )
                                 }
-                            }
-
-                            // Code Changes entry point — distinct from the passive badge above,
-                            // which only indicates in-progress count. Gated on rootDirectory,
-                            // mirroring desktop's CodeChangesScreen hasRootDirectory check.
-                            IconButton(
-                                enabled = connectionState == ConnectionState.CONNECTED,
-                                onClick = {
-                                    if (project.rootDirectory.isNullOrBlank()) {
-                                        setupPromptProject = project
-                                    } else {
-                                        onOpenCodeChanges(project.id)
-                                    }
-                                },
-                                modifier = Modifier.size(36.dp),
-                            ) {
-                                Icon(
-                                    Icons.Default.Difference,
-                                    contentDescription = "Code Changes",
-                                    modifier = Modifier.size(18.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
                             }
 
                             // Right: ⋮ menu

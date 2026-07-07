@@ -3,9 +3,12 @@ package io.nexy.android.ui.artifacts
 import android.content.Context
 import android.content.Intent
 import android.util.Base64
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.automirrored.filled.Sort
@@ -40,6 +44,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -52,21 +57,29 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.model.ArtifactDetail2
 import io.nexy.android.data.model.ArtifactExportFile
 import io.nexy.android.data.model.ArtifactSummary
+import io.nexy.android.data.model.ArtifactVersionFile
 import io.nexy.android.data.model.ArtifactVersionSummary
 import io.nexy.android.data.WsRepository
 import io.nexy.android.ui.components.NexyConnectionBanner
+import io.nexy.android.ui.components.NexyDangerButton
 import io.nexy.android.ui.components.NexyEmptyState
+import io.nexy.android.ui.components.NexyGhostButton
+import io.nexy.android.ui.components.NexyPrimaryButton
 import io.nexy.android.ui.components.NexySearchField
+import io.nexy.android.ui.components.NexySecondaryButton
 import io.nexy.android.ui.components.NexyStatusBadge
 import io.nexy.android.ui.components.NexyTopAppBar
 import io.nexy.android.ui.components.NexySortSheet
 import java.io.File
+import java.text.DateFormat
+import java.util.Date
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -420,108 +433,307 @@ private fun ArtifactDetailScreen(
             )
         },
     ) { padding ->
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
+                .padding(padding),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
+            item { ArtifactHeroCard(artifact) }
+            item {
+                ArtifactActionsCard(
+                    currentVersionId = artifact.currentVersionId,
+                    exporting = exporting,
+                    deleting = deleting,
+                    revisioning = revisioning,
+                    onExport = onExport,
+                    onGenerateRevision = onGenerateRevision,
+                    onDelete = { confirmDelete = true },
+                )
+            }
+
+            if (artifact.currentVersion == null) {
+                item {
+                    ArtifactDetailCard {
+                        NexyEmptyState(
+                            title = "No version available yet.",
+                            detail = "Trigger artifact generation from the desktop to populate this artifact.",
+                        )
+                    }
+                }
+            }
+
+            artifact.currentVersion?.let { version ->
+                item { CurrentVersionCard(version = version, exporting = exporting, onExport = onExport) }
+            }
+
+            if (versions.isNotEmpty()) {
+                item {
+                    VersionHistoryCard(
+                        versions = versions,
+                        exporting = exporting,
+                        onCompare = { newer, older -> diffVersions = newer to older },
+                        onExport = onExport,
+                    )
+                }
+            }
+
+            item { Spacer(modifier = Modifier.height(18.dp)) }
+        }
+    }
+}
+
+@Composable
+private fun ArtifactDetailCard(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 1.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
+    }
+}
+
+@Composable
+private fun ArtifactHeroCard(artifact: ArtifactDetail2) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.24f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
+    ) {
+        Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Icon(
+                    Icons.Default.Inventory2,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(22.dp),
+                )
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        artifact.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        if (artifact.projectId != null) "Project artifact" else "Global artifact",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                artifact.currentVersion?.let {
+                    NexyStatusBadge(
+                        label = "v${it.versionNumber}",
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                }
+            }
+
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 ArtifactKindBadge(artifact.kind)
                 ArtifactStatusBadge(artifact.status)
             }
 
             if (!artifact.description.isNullOrBlank()) {
-                Spacer(Modifier.height(8.dp))
-                Text(artifact.description, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (!artifact.storageRoot.isNullOrBlank()) {
-                Spacer(Modifier.height(8.dp))
-                Text("Storage root", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(artifact.storageRoot, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
-            }
-            Spacer(Modifier.height(12.dp))
-            Button(
-                onClick = onGenerateRevision,
-                enabled = !revisioning && !deleting,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(if (revisioning) "Generating new version..." else "Generate new version")
-            }
-            if (revisioning) {
-                Spacer(Modifier.height(8.dp))
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            }
-
-            if (artifact.currentVersion == null) {
-                Spacer(Modifier.height(16.dp))
-                NexyEmptyState(
-                    title = "No version available yet.",
-                    detail = "Trigger artifact generation from the desktop to populate this artifact.",
+                Text(
+                    artifact.description,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 
-            artifact.currentVersion?.let { version ->
-                Spacer(Modifier.height(16.dp))
-                Text("Version ${version.versionNumber}: ${version.title}", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium)
-                version.notes?.let {
-                    Spacer(Modifier.height(4.dp))
-                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-
-                if (version.files.isNotEmpty()) {
-                    Spacer(Modifier.height(12.dp))
-                    Text("Files", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(4.dp))
-                    version.files.forEach { file ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(file.relativePath, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, modifier = Modifier.weight(1f))
-                            Text(file.role, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    }
-                }
-            }
-
-            if (versions.isNotEmpty()) {
-                Spacer(Modifier.height(20.dp))
-                Text("Version history", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium)
-                Spacer(Modifier.height(8.dp))
-                val sortedVersions = versions.sortedByDescending { it.versionNumber }
-                sortedVersions.forEachIndexed { index, version ->
-                    val olderVersion = sortedVersions.getOrNull(index + 1)
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("v${version.versionNumber} - ${version.title}", style = MaterialTheme.typography.bodyMedium)
-                            version.notes?.takeIf { it.isNotBlank() }?.let {
-                                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Text("${version.files.size} file(s)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        if (olderVersion != null) {
-                            TextButton(onClick = { diffVersions = version to olderVersion }) {
-                                Text("Compare")
-                            }
-                        }
-                        IconButton(onClick = { onExport(version.id) }, enabled = !exporting) {
-                            Icon(Icons.Default.Share, contentDescription = "Export version ${version.versionNumber}")
-                        }
-                    }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                ArtifactMetaLine("Updated", formatArtifactTimestamp(artifact.updatedAt))
+                ArtifactMetaLine("Created", formatArtifactTimestamp(artifact.createdAt))
+                if (!artifact.storageRoot.isNullOrBlank()) {
+                    ArtifactMetaLine("Storage", artifact.storageRoot, monospace = true)
                 }
             }
         }
     }
 }
+
+@Composable
+private fun ArtifactMetaLine(label: String, value: String, monospace: Boolean = false) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
+        Text(
+            "$label:",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        SelectionContainer(modifier = Modifier.weight(1f)) {
+            Text(
+                value,
+                style = if (monospace) MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace) else MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ArtifactActionsCard(
+    currentVersionId: String?,
+    exporting: Boolean,
+    deleting: Boolean,
+    revisioning: Boolean,
+    onExport: (versionId: String) -> Unit,
+    onGenerateRevision: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    ArtifactDetailCard {
+        Text("Actions", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        NexyPrimaryButton(
+            text = if (revisioning) "Generating new version..." else "Generate new version",
+            onClick = onGenerateRevision,
+            enabled = !revisioning && !deleting,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        if (revisioning) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+        if (currentVersionId != null) {
+            NexySecondaryButton(
+                text = if (exporting) "Exporting..." else "Export current version",
+                onClick = { onExport(currentVersionId) },
+                enabled = !exporting && !deleting,
+                modifier = Modifier.fillMaxWidth(),
+                leadingIcon = Icons.Default.Share,
+            )
+        }
+        NexyDangerButton(
+            text = if (deleting) "Deleting..." else "Delete artifact",
+            onClick = onDelete,
+            enabled = !deleting && !revisioning,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+@Composable
+private fun CurrentVersionCard(
+    version: ArtifactVersionSummary,
+    exporting: Boolean,
+    onExport: (versionId: String) -> Unit,
+) {
+    ArtifactDetailCard {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                "Current version",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+            )
+            NexyStatusBadge(
+                label = "v${version.versionNumber}",
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+        }
+        Text(version.title, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+        version.notes?.takeIf { it.isNotBlank() }?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Text("Created ${formatArtifactTimestamp(version.createdAt)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (version.files.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Files", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                version.files.forEach { file -> ArtifactFileRow(file) }
+            }
+        }
+        NexySecondaryButton(
+            text = if (exporting) "Exporting..." else "Export version",
+            onClick = { onExport(version.id) },
+            enabled = !exporting,
+            modifier = Modifier.fillMaxWidth(),
+            leadingIcon = Icons.Default.Share,
+        )
+    }
+}
+
+@Composable
+private fun ArtifactFileRow(file: ArtifactVersionFile) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            SelectionContainer(modifier = Modifier.weight(1f)) {
+                Text(
+                    file.relativePath,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            NexyStatusBadge(
+                label = file.role,
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+        }
+    }
+}
+
+@Composable
+private fun VersionHistoryCard(
+    versions: List<ArtifactVersionSummary>,
+    exporting: Boolean,
+    onCompare: (newer: ArtifactVersionSummary, older: ArtifactVersionSummary) -> Unit,
+    onExport: (versionId: String) -> Unit,
+) {
+    val sortedVersions = versions.sortedByDescending { it.versionNumber }
+    ArtifactDetailCard {
+        Text("Version history", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        sortedVersions.forEachIndexed { index, version ->
+            val olderVersion = sortedVersions.getOrNull(index + 1)
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("v${version.versionNumber} · ${version.title}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                        version.notes?.takeIf { it.isNotBlank() }?.let {
+                            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Text(
+                            "${version.files.size} file(s) · ${formatArtifactTimestamp(version.createdAt)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        if (olderVersion != null) {
+                            NexyGhostButton(text = "Compare", onClick = { onCompare(version, olderVersion) })
+                        }
+                        IconButton(onClick = { onExport(version.id) }, enabled = !exporting) {
+                            Icon(Icons.Default.Share, contentDescription = "Export version ${version.versionNumber}")
+                        }
+                    }
+                }
+                if (index < sortedVersions.lastIndex) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            }
+        }
+    }
+}
+
+private fun formatArtifactTimestamp(timestamp: Long): String =
+    DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(timestamp))
 
 private fun shareArtifactFiles(context: Context, files: List<ArtifactExportFile>) {
     val cacheDir = File(context.cacheDir, "artifact-export").also { it.mkdirs() }

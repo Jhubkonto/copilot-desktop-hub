@@ -146,6 +146,8 @@ fun ChatScreen(
     projectId: String? = null,
     onBack: () -> Unit,
     onOpenArtifacts: ((String?) -> Unit)? = null,
+    onOpenDebrief: ((String) -> Unit)? = null,
+    onOpenQuiz: ((String) -> Unit)? = null,
     onOpenFork: ((String) -> Unit)? = null,
     onOpenRemoteEditWithPrefill: ((String, String) -> Unit)? = null,
     onOpenCodeChange: ((String) -> Unit)? = null,
@@ -1034,7 +1036,17 @@ fun ChatScreen(
                                 ThinkingBubble(item.label, item.generationStartedAt)
                             }
                             is ChatRenderItem.ArtifactCard -> {
-                                ArtifactRefBubble(ref = item.ref, onOpen = { onOpenArtifacts?.invoke(item.ref.artifactId) })
+                                val targetConversationId = item.ref.conversationId ?: conversationId
+                                ArtifactRefBubble(
+                                    ref = item.ref,
+                                    onOpen = {
+                                        when (item.ref.kind) {
+                                            "debrief" -> onOpenDebrief?.invoke(targetConversationId)
+                                            "quiz" -> onOpenQuiz?.invoke(targetConversationId)
+                                            else -> onOpenArtifacts?.invoke(item.ref.artifactId)
+                                        }
+                                    },
+                                )
                             }
                             is ChatRenderItem.CodeChangeCard -> {
                                 CodeChangeRefBubble(ref = item.ref, onOpen = { onOpenCodeChange?.invoke(item.ref.reportId) })

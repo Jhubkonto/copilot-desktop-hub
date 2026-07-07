@@ -191,9 +191,6 @@ fun NavGraph(
                 onOpenArtifacts = {
                     navController.navigate("artifacts?artifactId=")
                 },
-                onOpenCodeChanges = { projectId ->
-                    navController.navigate("project-code-changes/${Uri.encode(projectId)}")
-                },
                 onOpenSkills = {
                     navController.navigate("skills")
                 },
@@ -287,6 +284,8 @@ fun NavGraph(
                 onOpenArtifacts = { artifactId ->
                     navController.navigate("artifacts?artifactId=${Uri.encode(artifactId.orEmpty())}")
                 },
+                onOpenDebrief = { cid -> navController.navigate("debrief/${Uri.encode(cid)}") },
+                onOpenQuiz = { cid -> navController.navigate("quiz/${Uri.encode(cid)}") },
                 onOpenFork = { forkedId -> navController.navigate("chat/$forkedId") },
                 onOpenRemoteEditWithPrefill = { prefill, projectIdForPrefill ->
                     navController.navigate(

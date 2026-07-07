@@ -34,7 +34,6 @@ class HomeViewModel(
     val conversations: StateFlow<List<Conversation>> = WsRepository.conversations
     val agents: StateFlow<List<Agent>> = WsRepository.agents
     val projects: StateFlow<List<Project>> = WsRepository.projects
-    val activeCodeChangesByProject: StateFlow<Map<String, Int>> = WsRepository.activeCodeChangesByProject
     val profiles: StateFlow<List<PairedServerProfile>> = WsRepository.profiles
     val activeProfileId: StateFlow<String?> = WsRepository.activeProfileId
     val activeConversationIds: StateFlow<Set<String>> = WsRepository.activeConversationIds
@@ -143,10 +142,6 @@ class HomeViewModel(
     fun requestProjects() {
         _isRefreshingProjects.value = true
         wsClient.send("project:list", emptyMap())
-    }
-
-    fun refreshActiveCodeChanges() {
-        wsClient.send("self-heal:get-active-code-changes", emptyMap())
     }
 
     fun approveRequest(requestId: String) {

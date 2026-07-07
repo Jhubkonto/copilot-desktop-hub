@@ -59,9 +59,15 @@ data class ChatMessage(
     val codeChangeRef: CodeChangeRef? = null,
 )
 
-/** Parsed from a `__artifact-ref:{...}` sentinel message content — the same convention desktop's
- * ChatMessages.tsx detects to render a durable ArtifactCard inline in the transcript. */
-data class ArtifactRef(val artifactId: String, val versionId: String?)
+/** Parsed from a `__artifact-ref:{...}` sentinel message content. `kind`/`conversationId`
+ * are optional metadata for generated debrief/quiz artifacts that should reopen their native
+ * Android experiences instead of the generic artifact detail screen. */
+data class ArtifactRef(
+    val artifactId: String,
+    val versionId: String?,
+    val kind: String? = null,
+    val conversationId: String? = null,
+)
 
 /** Parsed from a `__code-change-ref:{...}` sentinel message content (desktop's CodeChangeCard
  * counterpart). */
@@ -511,7 +517,12 @@ class ChatViewModel(
                     }
                     event is WsEvent.DebriefReady && event.debrief.conversationId == conversationId -> {
                         if (event.artifactId != null) {
-                            insertArtifactRefMessage(event.artifactId, event.versionId)
+                            insertArtifactRefMessage(
+                                artifactId = event.artifactId,
+                                versionId = event.versionId,
+                                kind = "debrief",
+                                sourceConversationId = event.debrief.conversationId,
+                            )
                         } else {
                             _slashCommandMessage.value = "Debrief generated."
                         }
@@ -522,7 +533,12 @@ class ChatViewModel(
                     event is WsEvent.QuizReady && awaitingQuizInsert -> {
                         awaitingQuizInsert = false
                         if (event.artifactId != null) {
-                            insertArtifactRefMessage(event.artifactId, event.versionId)
+                            insertArtifactRefMessage(
+                                artifactId = event.artifactId,
+                                versionId = event.versionId,
+                                kind = "quiz",
+                                sourceConversationId = conversationId,
+                            )
                         } else {
                             _slashCommandMessage.value = "Quiz generated."
                         }
@@ -566,10 +582,17 @@ class ChatViewModel(
         }
     }
 
-    private fun insertArtifactRefMessage(artifactId: String, versionId: String?) {
+    private fun insertArtifactRefMessage(
+        artifactId: String,
+        versionId: String?,
+        kind: String? = null,
+        sourceConversationId: String? = null,
+    ) {
         val content = "__artifact-ref:" + JSONObject().apply {
             put("artifactId", artifactId)
             put("versionId", versionId)
+            if (!kind.isNullOrBlank()) put("kind", kind)
+            if (!sourceConversationId.isNullOrBlank()) put("conversationId", sourceConversationId)
         }.toString()
         WsRepository.insertMessage(conversationId, "system", content)
     }

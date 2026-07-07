@@ -11,6 +11,8 @@ private fun parseArtifactRef(content: String): ArtifactRef? = runCatching {
     ArtifactRef(
         artifactId = json.getString("artifactId"),
         versionId = if (json.has("versionId") && !json.isNull("versionId")) json.getString("versionId") else null,
+        kind = if (json.has("kind") && !json.isNull("kind")) json.getString("kind") else null,
+        conversationId = if (json.has("conversationId") && !json.isNull("conversationId")) json.getString("conversationId") else null,
     )
 }.getOrNull()
 

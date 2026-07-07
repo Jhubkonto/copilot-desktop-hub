@@ -837,6 +837,11 @@ fun ToolDetailSection(label: String, value: String) {
  */
 @Composable
 fun ArtifactRefBubble(ref: ArtifactRef, onOpen: () -> Unit) {
+    val label = when (ref.kind) {
+        "debrief" -> "Open debrief"
+        "quiz" -> "Start quiz"
+        else -> "View artifact"
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -855,7 +860,7 @@ fun ArtifactRefBubble(ref: ArtifactRef, onOpen: () -> Unit) {
             tint = MaterialTheme.colorScheme.onSecondaryContainer,
         )
         Text(
-            "View artifact",
+            label,
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSecondaryContainer,
             modifier = Modifier.weight(1f),
