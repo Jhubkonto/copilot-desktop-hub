@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { BookOpen, BrainCircuit, Loader2, X } from 'lucide-react'
 import { ModalShell } from './ui/primitives'
 import { QuizModal } from './QuizModal'
-import type { Debrief, DebriefSection } from '../../shared/types'
+import { ModelPicker } from './chat/ModelPicker'
+import { useAppStore } from '../store/app-store'
+import { isApiError, type AvailableModelEntry, type AvailableModelGroup, type Debrief, type DebriefSection } from '../../shared/types'
 
 interface DebriefModalProps {
   conversationId: string
@@ -13,7 +15,14 @@ interface DebriefModalProps {
   initialDebrief?: Debrief | null
 }
 
-type Step = 'generating' | 'review' | 'storage'
+type Step = 'intro' | 'generating' | 'review' | 'storage'
+
+const DEBRIEF_EXPLANATION =
+  "A debrief asks an AI model to read this conversation's transcript and produce four things: a short " +
+  'summary of what was accomplished, the commands/tools/APIs used, a step-by-step guide to reproduce the ' +
+  'work from scratch, and the reasoning approach that was followed. It\'s separate from "Mark complete" — ' +
+  "generating a debrief doesn't change the conversation's completed state, and marking a conversation " +
+  'complete doesn\'t generate one.'
 
 function formatMarkdown(title: string, section: DebriefSection): string {
   const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
@@ -40,7 +49,12 @@ const LABEL_CLASS = 'text-[10px] font-semibold uppercase tracking-wider text-gra
 const TEXTAREA_CLASS = 'w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-none'
 
 export function DebriefModal({ conversationId, conversationTitle, projectId, model, onClose, initialDebrief }: DebriefModalProps) {
-  const [step, setStep] = useState<Step>(initialDebrief ? 'review' : 'generating')
+  const catalogModels = useAppStore((s) => s.catalogModels)
+  const globalDefaultModel = useAppStore((s) => s.globalDefaultModel)
+  const [availableGroups, setAvailableGroups] = useState<AvailableModelGroup[]>([])
+  const [selectedModel, setSelectedModel] = useState<string | null>(model || null)
+
+  const [step, setStep] = useState<Step>(initialDebrief ? 'review' : 'intro')
   const [debrief, setDebrief] = useState<Debrief | null>(initialDebrief ?? null)
   const [error, setError] = useState<string | null>(null)
   const [edited, setEdited] = useState<DebriefSection>(() =>
@@ -58,19 +72,24 @@ export function DebriefModal({ conversationId, conversationTitle, projectId, mod
   const [exportingMd, setExportingMd] = useState(false)
   const [actionToasts, setActionToasts] = useState<string[]>([])
 
-  const generatedRef = useRef(!!initialDebrief)
-
   const showToast = (msg: string) => {
     setActionToasts((prev) => [...prev, msg])
     setTimeout(() => setActionToasts((prev) => prev.slice(1)), 3000)
   }
 
   useEffect(() => {
-    if (generatedRef.current) return
-    generatedRef.current = true
+    window.api.listAvailableModels().then(setAvailableGroups).catch(() => {})
+  }, [])
 
-    window.api.generateDebrief(conversationId, projectId, model || undefined)
+  const generateDebrief = () => {
+    setError(null)
+    setStep('generating')
+    window.api.generateDebrief(conversationId, projectId, selectedModel || undefined)
       .then((result) => {
+        if (isApiError(result)) {
+          setError(result.error)
+          return
+        }
         setDebrief(result)
         setEdited({
           summary: result.summary,
@@ -83,7 +102,7 @@ export function DebriefModal({ conversationId, conversationTitle, projectId, mod
       .catch((err: unknown) => {
         setError(err instanceof Error ? err.message : 'Generation failed')
       })
-  }, [conversationId, projectId, model])
+  }
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -181,6 +200,40 @@ export function DebriefModal({ conversationId, conversationTitle, projectId, mod
         </div>
       )}
 
+      {/* Step: Intro — explain what a debrief is, which conversation it's for, and let the user pick a model */}
+      {step === 'intro' && !error && (
+        <div className="flex flex-col gap-4 p-5">
+          <div className="flex flex-col gap-1">
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Debrief for</p>
+            <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{conversationTitle}</p>
+          </div>
+          <p className="text-sm text-gray-600 dark:text-gray-300">{DEBRIEF_EXPLANATION}</p>
+          <div className="flex items-center justify-between gap-2 pt-1">
+            <span className="text-xs text-gray-500 dark:text-gray-400">Model</span>
+            <ModelPicker
+              value={selectedModel ?? 'default'}
+              availableGroups={availableGroups}
+              catalogModels={catalogModels}
+              globalDefaultModel={globalDefaultModel ?? undefined}
+              includeDefault={true}
+              onSelectDefault={() => setSelectedModel(null)}
+              onSelectAvailableModel={(group: AvailableModelGroup, modelEntry: AvailableModelEntry) => {
+                const id = group.sourceType === 'cli' ? `${group.sourceKey}:${modelEntry.id}` : modelEntry.id
+                setSelectedModel(id)
+              }}
+            />
+          </div>
+          <div className="flex justify-end pt-1">
+            <button
+              onClick={generateDebrief}
+              className="px-4 py-2 text-sm rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white transition-colors"
+            >
+              Generate debrief
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Step: Generating */}
       {step === 'generating' && !error && (
         <div className="flex flex-col items-center justify-center gap-3 py-16" role="status" aria-live="polite">
@@ -195,11 +248,7 @@ export function DebriefModal({ conversationId, conversationTitle, projectId, mod
           <p className="text-sm text-red-500">{error}</p>
           <div className="flex gap-2">
             <button
-              onClick={() => {
-                generatedRef.current = false
-                setError(null)
-                setStep('generating')
-              }}
+              onClick={generateDebrief}
               className="px-4 py-2 text-sm rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white transition-colors"
             >
               Retry
