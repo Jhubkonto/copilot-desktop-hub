@@ -72,11 +72,34 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   { name: '/refactor', usage: '/refactor [text]', description: 'Refactor code' },
   { name: '/docs', usage: '/docs [text]', description: 'Generate documentation' },
   { name: '/review', usage: '/review [text]', description: 'Review code for issues' },
-  { name: '/context', usage: '/context', description: 'Show context snapshot of the last sent message' }
+  { name: '/context', usage: '/context', description: 'Show context snapshot of the last sent message' },
+  { name: '/debrief', usage: '/debrief [model]', description: 'Generate a session debrief as a re-runnable artifact' },
+  { name: '/quiz', usage: '/quiz [model]', description: 'Quiz yourself on this session (generates a debrief first if needed)' },
+  { name: '/complete', usage: '/complete', description: 'Mark this conversation complete' },
+  { name: '/incomplete', usage: '/incomplete', description: 'Mark this conversation incomplete' },
+  { name: '/code-change', usage: '/code-change <description>', description: 'Create a code change request from this chat' },
 ]
 
 function hasIpcError(result: unknown): result is { error: string } {
   return typeof result === 'object' && result !== null && 'error' in result
+}
+
+const INVALID_MODEL = Symbol('invalid-model')
+
+/**
+ * Resolves the model a /debrief or /quiz run should use: an explicit trailing arg (validated
+ * against the catalog, matching /model's own validation), or the conversation's current model
+ * ("whatever model is selected in the chat") when no arg is given.
+ */
+function resolveSlashGenerationModel(argText: string, ctx: Pick<SlashCommandContext, 'catalogModels' | 'conversationModel' | 'pushSystemMessage'>): string | null | typeof INVALID_MODEL {
+  if (!argText) return ctx.conversationModel
+  const modelIds = getAvailableModelIds(ctx.catalogModels, ctx.conversationModel)
+  const hasCatalog = (ctx.catalogModels?.length ?? 0) > 0
+  if (hasCatalog && !modelIds.includes(argText)) {
+    ctx.pushSystemMessage(`Unknown model: ${argText}. Use /models to list available models.`)
+    return INVALID_MODEL
+  }
+  return argText
 }
 
 export function transformCodeSlashCommand(input: string): string | null {
@@ -127,8 +150,18 @@ export function formatContextUsage(estimatedTokens: number, model: string | null
 }
 
 
+/** A slash command either fully handles itself ('handled'), expands into the composer for
+ * the user to review/send ('expanded'), or is unrecognized (false) and falls through. */
+export type SlashCommandOutcome = 'handled' | 'expanded' | false
+
+export interface SlashGenerationResult {
+  artifactId: string
+  versionId: string
+}
+
 export interface SlashCommandContext {
   conversationId: string | null
+  chatProjectId: string | null
   messages: ChatMessage[]
   activeAgent: AgentConfig | null
   effectiveModelLabel: string
@@ -146,12 +179,23 @@ export interface SlashCommandContext {
   deleteMessagesAfter: (convId: string, ts: number) => Promise<void>
   lastUndoneUserMessageRef: MutableRefObject<string | null>
   setMessages: Dispatch<SetStateAction<ChatMessage[]>>
+  /** Marks the current conversation complete/incomplete (mirrors the "..." menu action). */
+  markComplete: () => Promise<void>
+  markIncomplete: () => Promise<void>
+  /** Runs a fixed generation+parsing flow (debrief/quiz) against the given/conversation model,
+   * persisting the result as a versioned artifact. */
+  runSlashGeneration: (kind: 'debrief' | 'quiz', opts?: { model?: string }) => Promise<SlashGenerationResult | { error: string }>
+  /** Attaches a durable, specially-rendered artifact reference message to the transcript. */
+  attachArtifactMessage: (artifactId: string, versionId?: string) => Promise<void>
+  /** Creates (or reuses an existing non-terminal) Code Changes request for this conversation
+   * and attaches a durable, live-updating card message to the transcript. */
+  startCodeChange: (opts: { description: string }) => Promise<{ reportId: string } | { error: string }>
 }
 
 export async function executeSlashCommand(
   rawInput: string,
   ctx: SlashCommandContext
-): Promise<boolean> {
+): Promise<SlashCommandOutcome> {
   if (!rawInput.trim() || !rawInput.startsWith('/')) return false
 
   const [command, ...rest] = rawInput.split(/\s+/)
@@ -164,7 +208,7 @@ export async function executeSlashCommand(
         ...SLASH_COMMANDS.map((c) => `- ${c.usage}: ${c.description}`)
       ].join('\n')
       ctx.pushSystemMessage(helpText)
-      return true
+      return 'handled'
     }
     case '/version': {
       try {
@@ -173,22 +217,22 @@ export async function executeSlashCommand(
       } catch {
         ctx.pushSystemMessage('Unable to read app version.')
       }
-      return true
+      return 'handled'
     }
     case '/logout': {
       await ctx.logout()
       ctx.pushSystemMessage('Signed out.')
-      return true
+      return 'handled'
     }
     case '/cwd': {
       const cwd = await window.api.getWorkingDirectory()
       ctx.pushSystemMessage(`Current working directory:\n${cwd}`)
-      return true
+      return 'handled'
     }
     case '/cd': {
       if (!argText) {
         ctx.pushSystemMessage('Usage: /cd <directory>')
-        return true
+        return 'handled'
       }
       try {
         await window.api.setWorkingDirectory(argText)
@@ -196,16 +240,16 @@ export async function executeSlashCommand(
       } catch {
         ctx.pushSystemMessage(`Failed to set working directory:\n${argText}`)
       }
-      return true
+      return 'handled'
     }
     case '/add-dir': {
       if (!argText) {
         ctx.pushSystemMessage('Usage: /add-dir <directory>')
-        return true
+        return 'handled'
       }
       if (!ctx.activeAgent) {
         ctx.pushSystemMessage('No active agent selected. Select an agent first.')
-        return true
+        return 'handled'
       }
       const nextDirs = Array.from(new Set([...(ctx.activeAgent.contextDirectories ?? []), argText]))
       await window.api.updateAgent(ctx.activeAgent.id, {
@@ -214,12 +258,12 @@ export async function executeSlashCommand(
       })
       await ctx.loadAgents()
       ctx.pushSystemMessage(`Added directory to ${ctx.activeAgent.name} context:\n${argText}`)
-      return true
+      return 'handled'
     }
     case '/list-dirs': {
       if (!ctx.activeAgent) {
         ctx.pushSystemMessage('No active agent selected.')
-        return true
+        return 'handled'
       }
       const dirs = ctx.activeAgent.contextDirectories ?? []
       if (dirs.length === 0) {
@@ -229,17 +273,17 @@ export async function executeSlashCommand(
           `${ctx.activeAgent.name} context directories:\n${dirs.map((d) => `- ${d}`).join('\n')}`
         )
       }
-      return true
+      return 'handled'
     }
     case '/copy': {
       const lastAssistant = [...ctx.messages].reverse().find((m) => m.role === 'assistant')
       if (!lastAssistant) {
         ctx.pushSystemMessage('No assistant message to copy.')
-        return true
+        return 'handled'
       }
       await navigator.clipboard.writeText(lastAssistant.content)
       ctx.pushSystemMessage('Copied last assistant response to clipboard.')
-      return true
+      return 'handled'
     }
     case '/share': {
       const markdown = ctx.buildConversationMarkdown()
@@ -265,33 +309,33 @@ export async function executeSlashCommand(
         await navigator.clipboard.writeText(markdown)
         ctx.pushSystemMessage('Conversation markdown copied to clipboard.')
       }
-      return true
+      return 'handled'
     }
     case '/model': {
       if (!argText) {
         ctx.pushSystemMessage(`Current model: ${ctx.effectiveModelLabel}`)
-        return true
+        return 'handled'
       }
       const modelIds = getAvailableModelIds(ctx.catalogModels, ctx.conversationModel)
       // When no catalog is available (CLI / offline), allow any non-empty model ID
       const hasCatalog = (ctx.catalogModels?.length ?? 0) > 0
       if (hasCatalog && !modelIds.includes(argText)) {
         ctx.pushSystemMessage(`Unknown model: ${argText}. Use /models to list available models.`)
-        return true
+        return 'handled'
       }
       if (!ctx.conversationId) {
         ctx.pushSystemMessage('No active conversation. Start a chat before setting a model.')
-        return true
+        return 'handled'
       }
       const value = argText === 'default' ? null : argText
       const result = await window.api.setConversationModel(ctx.conversationId, value)
       if (hasIpcError(result)) {
         ctx.pushSystemMessage(`Failed to set model: ${result.error}`)
-        return true
+        return 'handled'
       }
       await ctx.loadConversations()
       ctx.pushSystemMessage(`Model set to ${getModelLabel(argText, ctx.catalogModels)}.`)
-      return true
+      return 'handled'
     }
     case '/models': {
       const current = ctx.conversationModel ?? 'default'
@@ -307,7 +351,7 @@ export async function executeSlashCommand(
         }
         text.push('\nUse /model <id> to switch.')
         ctx.pushSystemMessage(text.join('\n'))
-        return true
+        return 'handled'
       }
       const modelIds = getAvailableModelIds(ctx.catalogModels, ctx.conversationModel)
       const text = ['Available models:']
@@ -316,7 +360,7 @@ export async function executeSlashCommand(
         text.push(`${mark} ${getModelLabel(model, ctx.catalogModels)}`)
       }
       ctx.pushSystemMessage(text.join('\n'))
-      return true
+      return 'handled'
     }
     case '/usage': {
       const userCount = ctx.messages.filter((m) => m.role === 'user').length
@@ -335,7 +379,7 @@ export async function executeSlashCommand(
         '_Note: Session usage is estimated locally and does not include provider-side quota data._',
       ]
       ctx.pushSystemMessage(lines.join('\n'))
-      return true
+      return 'handled'
     }
     case '/config': {
       const configLines = [
@@ -350,21 +394,21 @@ export async function executeSlashCommand(
         configLines.push(`- Agent max tokens: ${ctx.activeAgent.maxTokens}`)
       }
       ctx.pushSystemMessage(configLines.join('\n'))
-      return true
+      return 'handled'
     }
     case '/theme': {
       if (!argText) {
         ctx.pushSystemMessage(`Current theme: ${ctx.theme}`)
-        return true
+        return 'handled'
       }
       if (argText !== 'dark' && argText !== 'light') {
         ctx.pushSystemMessage('Usage: /theme [dark|light]')
-        return true
+        return 'handled'
       }
       ctx.setTheme(argText)
       await window.api.setTheme(argText)
       ctx.pushSystemMessage(`Theme set to ${argText}.`)
-      return true
+      return 'handled'
     }
     case '/clear': {
       if (ctx.conversationId) {
@@ -372,7 +416,7 @@ export async function executeSlashCommand(
       }
       ctx.setMessages([])
       ctx.pushSystemMessage('Conversation cleared.')
-      return true
+      return 'handled'
     }
     case '/new': {
       ctx.newChat()
@@ -383,24 +427,24 @@ export async function executeSlashCommand(
       } else {
         ctx.pushSystemMessage('Started new chat.')
       }
-      return true
+      return 'handled'
     }
     case '/exit': {
       ctx.newChat()
       ctx.setMessages([])
-      return true
+      return 'handled'
     }
     case '/undo': {
       const index = ctx.messages.length - 1
       if (index < 1) {
         ctx.pushSystemMessage('Nothing to undo.')
-        return true
+        return 'handled'
       }
       const last = ctx.messages[index]
       const prev = ctx.messages[index - 1]
       if (last.role !== 'assistant' || prev.role !== 'user') {
         ctx.pushSystemMessage('Undo only supports the last user/assistant exchange.')
-        return true
+        return 'handled'
       }
       ctx.lastUndoneUserMessageRef.current = prev.content
       ctx.setMessages((curr) => curr.slice(0, -2))
@@ -408,29 +452,29 @@ export async function executeSlashCommand(
         await ctx.deleteMessagesAfter(ctx.conversationId, prev.timestamp)
       }
       ctx.pushSystemMessage('Last exchange removed. Use /redo to resend.')
-      return true
+      return 'handled'
     }
     case '/redo': {
       const redoContent = ctx.lastUndoneUserMessageRef.current
       if (!redoContent) {
         ctx.pushSystemMessage('Nothing to redo.')
-        return true
+        return 'handled'
       }
       ctx.setInput(redoContent)
       ctx.pushSystemMessage('Redo restored the previous user message to input.')
-      return true
+      return 'handled'
     }
     case '/compact': {
       const trimmed = ctx.messages.filter((m) => m.role !== 'system').slice(-8)
       ctx.setMessages(trimmed)
       ctx.pushSystemMessage('Compacted to recent context.')
-      return true
+      return 'handled'
     }
     case '/context': {
       const lastUserMsg = [...ctx.messages].reverse().find((m) => m.role === 'user')
       if (!lastUserMsg?.contextSnapshot) {
         ctx.pushSystemMessage('No context snapshot available. Send a message first.')
-        return true
+        return 'handled'
       }
       try {
         const snap: ContextSnapshot = JSON.parse(lastUserMsg.contextSnapshot)
@@ -444,13 +488,78 @@ export async function executeSlashCommand(
       } catch {
         ctx.pushSystemMessage('Could not parse context snapshot.')
       }
-      return true
+      return 'handled'
+    }
+    case '/debrief': {
+      if (!ctx.conversationId) {
+        ctx.pushSystemMessage('No active conversation. Start a chat before generating a debrief.')
+        return 'handled'
+      }
+      const model = resolveSlashGenerationModel(argText, ctx)
+      if (model === INVALID_MODEL) return 'handled'
+      ctx.pushSystemMessage('Generating debrief…')
+      const result = await ctx.runSlashGeneration('debrief', { model: model ?? undefined })
+      if ('error' in result) {
+        ctx.pushSystemMessage(`Failed to generate debrief: ${result.error}`)
+        return 'handled'
+      }
+      await ctx.attachArtifactMessage(result.artifactId, result.versionId)
+      return 'handled'
+    }
+    case '/quiz': {
+      if (!ctx.conversationId) {
+        ctx.pushSystemMessage('No active conversation. Start a chat before generating a quiz.')
+        return 'handled'
+      }
+      const model = resolveSlashGenerationModel(argText, ctx)
+      if (model === INVALID_MODEL) return 'handled'
+      ctx.pushSystemMessage('Generating quiz…')
+      const result = await ctx.runSlashGeneration('quiz', { model: model ?? undefined })
+      if ('error' in result) {
+        ctx.pushSystemMessage(`Failed to generate quiz: ${result.error}`)
+        return 'handled'
+      }
+      await ctx.attachArtifactMessage(result.artifactId, result.versionId)
+      return 'handled'
+    }
+    case '/complete': {
+      if (!ctx.conversationId) {
+        ctx.pushSystemMessage('No active conversation.')
+        return 'handled'
+      }
+      await ctx.markComplete()
+      ctx.pushSystemMessage('Conversation marked complete.')
+      return 'handled'
+    }
+    case '/incomplete': {
+      if (!ctx.conversationId) {
+        ctx.pushSystemMessage('No active conversation.')
+        return 'handled'
+      }
+      await ctx.markIncomplete()
+      ctx.pushSystemMessage('Conversation marked incomplete.')
+      return 'handled'
+    }
+    case '/code-change': {
+      if (!ctx.conversationId) {
+        ctx.pushSystemMessage('No active conversation.')
+        return 'handled'
+      }
+      if (!argText) {
+        ctx.pushSystemMessage('Usage: /code-change <description of the change you want>')
+        return 'handled'
+      }
+      const result = await ctx.startCodeChange({ description: argText })
+      if ('error' in result) {
+        ctx.pushSystemMessage(`Failed to create code change: ${result.error}`)
+      }
+      return 'handled'
     }
     default: {
       const customCmd = (ctx.activeAgent?.customCommands ?? []).find((c) => c.name === command)
       if (customCmd) {
         ctx.setInput(customCmd.prompt)
-        return true
+        return 'expanded'
       }
       return false
     }
