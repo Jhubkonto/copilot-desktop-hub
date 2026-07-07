@@ -1,6 +1,7 @@
 package io.nexy.android.ui.model
 
 import io.nexy.android.data.EffectiveConnectionMode
+import io.nexy.android.data.model.CliInstallInfo
 import io.nexy.android.data.model.ModelOption
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -182,5 +183,37 @@ class ModelFilteringTest {
     fun hasResolvableDefaultModelFalseWhenNothingAvailable() {
         assertFalse(hasResolvableDefaultModel(EffectiveConnectionMode.CONNECTED, hasModelOptions = false, hasConfiguredProvider = false))
         assertFalse(hasResolvableDefaultModel(EffectiveConnectionMode.STANDALONE_BY_CHOICE, hasModelOptions = false, hasConfiguredProvider = false))
+    }
+
+    @Test
+    fun availableRemoteEditPlanningBackendIdsAlwaysIncludesByokOnlyShowsInstalledClis() {
+        val result = availableRemoteEditPlanningBackendIds(
+            mapOf(
+                "claude" to CliInstallInfo(installed = false, version = null, path = null),
+                "codex" to CliInstallInfo(installed = true, version = "1.0.0", path = "/usr/bin/codex"),
+            ),
+        )
+
+        assertEquals(listOf("byok", "codex-cli"), result)
+    }
+
+    @Test
+    fun filterModelsForRemoteEditBackendKeepsProviderModelsForByok() {
+        val codexCli = ModelOption("gpt-5.5", "GPT-5.5", "Codex CLI", isCliSourced = true)
+
+        val result = filterModelsForRemoteEditBackend(
+            models = listOf(apiModel, cliModel, codexCli),
+            backend = "byok",
+        )
+
+        assertEquals(listOf(apiModel), result)
+    }
+
+    @Test
+    fun filterModelsForRemoteEditBackendKeepsOnlySelectedCliVendor() {
+        val codexCli = ModelOption("gpt-5.5", "GPT-5.5", "Codex CLI", isCliSourced = true)
+
+        assertEquals(listOf(cliModel), filterModelsForRemoteEditBackend(listOf(apiModel, cliModel, codexCli), "claude-cli"))
+        assertEquals(listOf(codexCli), filterModelsForRemoteEditBackend(listOf(apiModel, cliModel, codexCli), "codex-cli"))
     }
 }

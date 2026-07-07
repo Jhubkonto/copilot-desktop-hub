@@ -67,6 +67,28 @@ fun hasResolvableDefaultModel(
     }
 }
 
+fun availableRemoteEditPlanningBackendIds(
+    cliStatus: Map<String, CliInstallInfo>,
+): List<String> = buildList {
+    add("byok")
+    if (cliStatus["claude"]?.installed == true || cliStatus["claude-cli"]?.installed == true) add("claude-cli")
+    if (cliStatus["codex"]?.installed == true || cliStatus["codex-cli"]?.installed == true) add("codex-cli")
+}
+
+fun filterModelsForRemoteEditBackend(
+    models: List<ModelOption>,
+    backend: String,
+): List<ModelOption> {
+    fun vendorMatches(model: ModelOption, expected: String): Boolean =
+        model.vendor?.trim()?.lowercase() == expected
+
+    return when (backend) {
+        "claude-cli" -> models.filter { it.isCliSourced && vendorMatches(it, "claude cli") }
+        "codex-cli" -> models.filter { it.isCliSourced && vendorMatches(it, "codex cli") }
+        else -> models.filterNot { it.isCliSourced }
+    }
+}
+
 /**
  * Entries rendered by ModelPickerSheet's LazyColumn — extracted from the composable so the
  * vendor-grouped vs. flat-list branching (and the mode filter feeding both) is unit-testable

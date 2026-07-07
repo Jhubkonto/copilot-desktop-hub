@@ -43,6 +43,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import io.nexy.android.data.ConnectionState
+import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.CODE_CHANGE_PHASE_LABELS
 import io.nexy.android.data.model.CodeChangeRequestPhase
 import io.nexy.android.data.model.ErrorReport
@@ -66,6 +68,8 @@ fun RemoteEditReportsScreen(
 ) {
     val reports by vm.errorReports.collectAsState()
     val isRefreshing by vm.isRefreshing.collectAsState()
+    val connectionState by WsRepository.connectionState.collectAsState()
+    val disconnected = connectionState != ConnectionState.CONNECTED
     var searchQuery by remember { mutableStateOf("") }
     var statusFilter by remember { mutableStateOf<String?>(null) }
     var pendingDeleteReport by remember { mutableStateOf<ErrorReport?>(null) }
@@ -73,8 +77,8 @@ fun RemoteEditReportsScreen(
     val scope = rememberCoroutineScope()
     val statusValues = remember(reports) { reports.map { it.status }.distinct().sorted() }
 
-    LaunchedEffect(projectId) {
-        vm.loadForProject(projectId)
+    LaunchedEffect(projectId, disconnected) {
+        if (!disconnected) vm.loadForProject(projectId)
     }
 
     LaunchedEffect(Unit) {
@@ -120,7 +124,10 @@ fun RemoteEditReportsScreen(
                 titleContent = { Text("Code Changes") },
                 onBack = onBack,
                 actions = {
-                    IconButton(onClick = onNewRequest) {
+                    IconButton(
+                        onClick = onNewRequest,
+                        enabled = !disconnected,
+                    ) {
                         Icon(Icons.Default.Add, contentDescription = "New request")
                     }
                 },
@@ -128,11 +135,24 @@ fun RemoteEditReportsScreen(
         }
     ) { padding ->
         PullToRefreshBox(
-            isRefreshing = isRefreshing,
-            onRefresh = { vm.refresh(projectId) },
+            isRefreshing = !disconnected && isRefreshing,
+            onRefresh = {
+                if (disconnected) {
+                    scope.launch { snackbarHostState.showSnackbar("Not connected to desktop") }
+                } else {
+                    vm.refresh(projectId)
+                }
+            },
             modifier = Modifier.fillMaxSize().padding(padding),
         ) {
-            if (reports.isEmpty()) {
+            if (disconnected) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    NexyEmptyState(
+                        title = "Not connected to desktop",
+                        detail = "Code changes require an active connection to your desktop.",
+                    )
+                }
+            } else if (reports.isEmpty()) {
                 Column(modifier = Modifier.fillMaxSize()) {
                     Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                         NexyEmptyState(

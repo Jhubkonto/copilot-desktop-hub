@@ -85,6 +85,7 @@ import io.noties.markwon.ext.tables.TableTheme
 import io.noties.markwon.ext.tasklist.TaskListPlugin
 import io.noties.markwon.linkify.LinkifyPlugin
 import androidx.compose.ui.viewinterop.AndroidView
+import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.CODE_CHANGE_PHASE_GUIDANCE
 import io.nexy.android.data.model.CODE_CHANGE_PHASE_LABELS
@@ -100,6 +101,7 @@ import io.nexy.android.ui.components.FileTreeView
 import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyDangerButton
 import io.nexy.android.ui.components.NexyDiffContent
+import io.nexy.android.ui.components.NexyEmptyState
 import io.nexy.android.ui.components.NexyGhostButton
 import io.nexy.android.ui.components.NexyPrimaryButton
 import io.nexy.android.ui.components.NexySecondaryButton
@@ -112,6 +114,8 @@ import io.nexy.android.ui.chat.OnDeviceVoiceButton
 import io.nexy.android.ui.chat.PromptLibrarySheetContent
 import io.nexy.android.ui.chat.copyMessage
 import io.nexy.android.ui.model.activeModelLabel
+import io.nexy.android.ui.model.availableRemoteEditPlanningBackendIds
+import io.nexy.android.ui.model.filterModelsForRemoteEditBackend
 import kotlinx.coroutines.launch
 
 private val CODE_CHANGE_PHASE_ORDER = listOf(
@@ -638,6 +642,8 @@ fun RemoteEditReportDetailScreen(
     val report = reports.find { it.id == reportId }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val connectionState by WsRepository.connectionState.collectAsState()
+    val disconnected = connectionState != ConnectionState.CONNECTED
     val scrollState = androidx.compose.foundation.rememberScrollState()
     val sectionOffsets = remember { mutableStateMapOf<CodeChangeRequestPhase, Int>() }
 
@@ -659,6 +665,10 @@ fun RemoteEditReportDetailScreen(
     var investigationOutput by remember(reportId) { mutableStateOf("") }
 
     fun startInvestigation(notes: String? = null) {
+        if (disconnected) {
+            scope.launch { snackbarHostState.showSnackbar("Not connected to desktop") }
+            return
+        }
         investigationRunning = true
         investigationActivity = emptyList()
         investigationOutput = ""
@@ -674,8 +684,8 @@ fun RemoteEditReportDetailScreen(
     val latestVerificationRun = verificationRuns[reportId]?.firstOrNull()
     val latestRecoveryRun = recoveryRuns[reportId]?.firstOrNull()
 
-    LaunchedEffect(reportId) {
-        WsRepository.listStagedFiles(reportId)
+    LaunchedEffect(reportId, disconnected) {
+        if (!disconnected) WsRepository.listStagedFiles(reportId)
         WsRepository.events.collect { event ->
             when {
                 event is WsEvent.RemoteEditInvestigationActivity && event.reportId == reportId -> {
@@ -765,6 +775,16 @@ fun RemoteEditReportDetailScreen(
                     "Change request not found.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            return@Scaffold
+        }
+
+        if (disconnected) {
+            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                NexyEmptyState(
+                    title = "Not connected to desktop",
+                    detail = "Code changes require an active connection to your desktop.",
                 )
             }
             return@Scaffold
@@ -1195,6 +1215,52 @@ private fun PlanningSettingsSection(
     var retryLimit by remember(settings) { mutableStateOf((settings?.retryLimit ?: 1).toString()) }
     var autoApproveTools by remember(settings) { mutableStateOf(settings?.autoApproveTools ?: false) }
     var backendMenuExpanded by remember { mutableStateOf(false) }
+    var showModelSheet by remember { mutableStateOf(false) }
+    val models by WsRepository.models.collectAsState()
+    val cliStatus by WsRepository.cliStatus.collectAsState()
+    val effectiveMode by WsRepository.effectiveMode.collectAsState()
+    val scope = rememberCoroutineScope()
+    val modelSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val availableBackendIds = remember(cliStatus) { availableRemoteEditPlanningBackendIds(cliStatus) }
+    val availableBackends = remember(availableBackendIds) {
+        PLANNING_BACKENDS.filter { (value, _) -> value in availableBackendIds }
+    }
+    val filteredModels = remember(models, backend) {
+        filterModelsForRemoteEditBackend(models, backend)
+    }
+    val selectedModelLabel = if (model.isBlank()) "Select a model" else activeModelLabel(model, filteredModels)
+
+    LaunchedEffect(backend, availableBackendIds) {
+        if (backend !in availableBackendIds) backend = "byok"
+    }
+
+    LaunchedEffect(backend, filteredModels) {
+        if (filteredModels.isNotEmpty() && (model.isBlank() || filteredModels.none { it.id == model })) {
+            model = filteredModels.firstOrNull()?.id.orEmpty()
+        }
+    }
+
+    if (showModelSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showModelSheet = false },
+            sheetState = modelSheetState,
+            containerColor = MaterialTheme.colorScheme.surface,
+        ) {
+            ModelPickerSheet(
+                title = "Planning model",
+                models = filteredModels,
+                cliStatus = cliStatus,
+                selectedModelId = model,
+                subtitle = "Showing models for ${availableBackends.firstOrNull { it.first == backend }?.second ?: backend}",
+                emptyStateText = "No models available for this backend.",
+                showDefaultModel = false,
+                effectiveMode = effectiveMode,
+            ) { modelId ->
+                model = modelId.orEmpty()
+                scope.launch { modelSheetState.hide() }.invokeOnCompletion { showModelSheet = false }
+            }
+        }
+    }
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1214,7 +1280,7 @@ private fun PlanningSettingsSection(
                     onExpandedChange = { backendMenuExpanded = it },
                 ) {
                     OutlinedTextField(
-                        value = PLANNING_BACKENDS.firstOrNull { it.first == backend }?.second ?: backend,
+                        value = availableBackends.firstOrNull { it.first == backend }?.second ?: "BYOK",
                         onValueChange = {},
                         readOnly = true,
                         label = { Text("Backend") },
@@ -1225,7 +1291,7 @@ private fun PlanningSettingsSection(
                         expanded = backendMenuExpanded,
                         onDismissRequest = { backendMenuExpanded = false },
                     ) {
-                        PLANNING_BACKENDS.forEach { (value, label) ->
+                        availableBackends.forEach { (value, label) ->
                             DropdownMenuItem(
                                 text = { Text(label) },
                                 onClick = { backend = value; backendMenuExpanded = false },
@@ -1234,11 +1300,15 @@ private fun PlanningSettingsSection(
                     }
                 }
                 OutlinedTextField(
-                    value = model,
-                    onValueChange = { model = it },
+                    value = selectedModelLabel,
+                    onValueChange = {},
                     label = { Text("Model") },
+                    readOnly = true,
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
+                    trailingIcon = { Icon(Icons.Default.ExpandMore, contentDescription = null) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showModelSheet = true },
                 )
                 OutlinedTextField(
                     value = retryLimit,

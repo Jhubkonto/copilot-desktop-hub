@@ -180,6 +180,7 @@ fun ModelPickerSheet(
     selectedModelId: String?,
     subtitle: String? = null,
     emptyStateText: String = "No models available yet.",
+    showDefaultModel: Boolean = true,
     effectiveMode: io.nexy.android.data.EffectiveConnectionMode = io.nexy.android.data.EffectiveConnectionMode.CONNECTED,
     onSelect: (String?) -> Unit,
 ) {
@@ -188,7 +189,7 @@ fun ModelPickerSheet(
     val query = modelQuery.trim().lowercase()
     val sheetItems = io.nexy.android.ui.model.buildModelSheetItems(models, cliStatus, effectiveMode, modelQuery)
 
-    val showDefault = query.isEmpty() || "default model".contains(query)
+    val showDefault = showDefaultModel && (query.isEmpty() || "default model".contains(query))
 
     LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
         item {

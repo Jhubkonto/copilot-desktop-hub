@@ -1,6 +1,7 @@
 package io.nexy.android.ui.remoteedit
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.layout.Column
@@ -22,17 +23,23 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.CODE_CHANGE_REQUEST_TYPE_LABELS
 import io.nexy.android.data.model.CodeChangeRequestType
 import io.nexy.android.data.model.WsEvent
+import io.nexy.android.ui.components.NexyEmptyState
 import io.nexy.android.ui.components.NexyTopAppBar
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -48,9 +55,12 @@ fun RemoteEditStartScreen(
     var customTypeLabel by remember { mutableStateOf("") }
     var typeMenuExpanded by remember { mutableStateOf(false) }
     var isSubmitting by remember { mutableStateOf(false) }
+    val connectionState by WsRepository.connectionState.collectAsState()
+    val disconnected = connectionState != ConnectionState.CONNECTED
     val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     val isCustomType = requestType == CodeChangeRequestType.CUSTOM
-    val canSubmit = description.isNotBlank() && (!isCustomType || customTypeLabel.isNotBlank()) && !isSubmitting
+    val canSubmit = !disconnected && description.isNotBlank() && (!isCustomType || customTypeLabel.isNotBlank()) && !isSubmitting
 
     LaunchedEffect(Unit) {
         WsRepository.events.collect { event ->
@@ -85,6 +95,15 @@ fun RemoteEditStartScreen(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            if (disconnected) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    NexyEmptyState(
+                        title = "Not connected to desktop",
+                        detail = "Code changes require an active connection to your desktop.",
+                    )
+                }
+                return@Column
+            }
             Text(
                 "Describe the intended outcome. Nexy will plan the change against the connected desktop workspace and stage a patch for review.",
                 style = MaterialTheme.typography.bodySmall,
@@ -143,7 +162,9 @@ fun RemoteEditStartScreen(
             )
             Button(
                 onClick = {
-                    if (canSubmit) {
+                    if (disconnected) {
+                        scope.launch { snackbarHostState.showSnackbar("Not connected to desktop") }
+                    } else if (canSubmit) {
                         isSubmitting = true
                         val effectiveTitle = title.trim().ifBlank { description.trim().take(80) }
                         WsRepository.createRemoteEditReport(
