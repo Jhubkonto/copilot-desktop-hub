@@ -8,8 +8,7 @@ import { getDatabase } from '../database'
 import { getApiKey, getProviderForAgent, sendProviderWithTools, type ProviderMessage } from '../providers'
 import { runProviderMcpToolLoop } from '../tool-loop'
 import type { ToolDefinition, ToolChoice, ProviderNonStreamResult } from '../provider-types'
-import { ClaudeAdapter } from '../cli-adapters/claude'
-import { CodexAdapter } from '../cli-adapters/codex'
+import { getAdapter } from '../cli-adapters/registry'
 import type {
   ErrorReportEntry,
   RemoteEditInvestigationActivity,
@@ -468,29 +467,10 @@ export async function runInvestigation(
       if (attempt > 0) activity(`Retrying plan (${attempt}/${settings.retryLimit})`)
     let markdown = ''
     let confirmedPaths: Set<string> | undefined
-    if (settings.backend === 'claude-cli') {
-      if (!ClaudeAdapter.isAvailable()) throw new Error('Claude CLI is not available')
-      markdown = await ClaudeAdapter.send(
-        win,
-        {
-          conversationId: `self-heal-${reportId}`,
-          cwd: workspacePath,
-          model: settings.model,
-          messages: buildPrompt(report, workspacePath, revisionNotes),
-          systemPrompt: isBugfix
-            ? 'Investigate only. Return YAML front matter followed by Markdown.'
-            : 'Plan only. Return YAML front matter followed by Markdown.',
-        },
-        (chunk) => {
-          callbacks.onChunk(chunk)
-        },
-        (event) => {
-          if (event.type === 'tool_start') activity(`Running ${event.name}`, event.name)
-        },
-      )
-    } else if (settings.backend === 'codex-cli') {
-      if (!CodexAdapter.isAvailable()) throw new Error('Codex CLI is not available')
-      markdown = await CodexAdapter.send(
+    if (settings.backend === 'claude-cli' || settings.backend === 'codex-cli') {
+      const adapter = getAdapter(settings.backend)
+      if (!adapter || !adapter.isAvailable()) throw new Error(`${adapter?.name ?? settings.backend} is not available`)
+      markdown = await adapter.send(
         win,
         {
           conversationId: `self-heal-${reportId}`,
@@ -509,6 +489,12 @@ export async function runInvestigation(
         },
       )
     } else {
+      // Deliberately bypasses the shared dispatchToProvider() (used by chat and the other
+      // generator features) — that helper has no equivalent to the prompted (JSON-in-text)
+      // tool-calling fallback this investigation flow needs for models without native tool
+      // support, and it's shaped around chat's own tool-loop/thinking-block/toolPolicy
+      // concerns. Bolting a generic prompted-fallback onto it for this one caller risked
+      // destabilizing the other correct callers for a purely cosmetic dedup.
       const { provider, model } = getProviderForAgent(settings.model)
       const apiKey = getApiKey(provider)
       const toolDefs = buildToolDefinitions()

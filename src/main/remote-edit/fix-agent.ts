@@ -7,8 +7,7 @@ import { getDatabase } from '../database'
 import { getApiKey, getProviderForAgent, sendProviderWithTools } from '../providers'
 import { runProviderMcpToolLoop } from '../tool-loop'
 import type { ToolDefinition, ToolChoice, ProviderNonStreamResult } from '../provider-types'
-import { ClaudeAdapter } from '../cli-adapters/claude'
-import { CodexAdapter } from '../cli-adapters/codex'
+import { getAdapter } from '../cli-adapters/registry'
 import { broadcastToMobile } from '../ws-server'
 import type { ProviderMessage } from '../providers'
 import type {
@@ -273,30 +272,19 @@ export async function runFix(
   // --- LLM call (no tools — all context is in-prompt) ---
   let rawOutput = ''
   try {
-    if (settings.backend === 'claude-cli') {
-      if (!ClaudeAdapter.isAvailable()) throw new Error('Claude CLI is not available')
-      rawOutput = await ClaudeAdapter.send(
+    if (settings.backend === 'claude-cli' || settings.backend === 'codex-cli') {
+      const adapter = getAdapter(settings.backend)
+      if (!adapter || !adapter.isAvailable()) throw new Error(`${adapter?.name ?? settings.backend} is not available`)
+      rawOutput = await adapter.send(
         win,
         {
           conversationId: `remote-edit-fix-${reportId}`,
           cwd: workspacePath,
           model: settings.model,
           messages,
-          systemPrompt: '',
-        },
-        () => { /* chunks not streamed for fix — delimiters only parse when complete */ },
-        () => {},
-      )
-    } else if (settings.backend === 'codex-cli') {
-      if (!CodexAdapter.isAvailable()) throw new Error('Codex CLI is not available')
-      rawOutput = await CodexAdapter.send(
-        win,
-        {
-          conversationId: `remote-edit-fix-${reportId}`,
-          cwd: workspacePath,
-          model: settings.model,
-          messages,
-          systemPrompt: 'Return patched file blocks only using the specified delimiters. No prose.',
+          systemPrompt: settings.backend === 'codex-cli'
+            ? 'Return patched file blocks only using the specified delimiters. No prose.'
+            : '',
         },
         () => { /* chunks not streamed for fix — delimiters only parse when complete */ },
         () => {},
