@@ -114,7 +114,26 @@ describe('MessageBubble', () => {
     const container = screen.getByText('Hello there').closest('.group')!
     fireEvent.mouseEnter(container)
 
-    expect(screen.getByRole('button', { name: 'Saved' })).toHaveClass('bg-green-50')
+    expect(screen.getByRole('button', { name: 'Saved to wiki' })).toHaveClass('text-blue-600')
+  })
+
+  it('shows assistant icon actions with hover titles and a unique artifact icon', () => {
+    render(
+      <MessageBubble
+        {...baseProps}
+        role="assistant"
+        onSaveToWiki={vi.fn()}
+        onSaveAsArtifact={vi.fn()}
+        onCreateCodeChange={vi.fn()}
+      />
+    )
+
+    expect(screen.getByRole('button', { name: 'Copy' })).toHaveAttribute('title', 'Copy response')
+    expect(screen.getByRole('button', { name: 'Save to wiki' })).toHaveAttribute('title', 'Save response to wiki')
+    expect(screen.getByRole('button', { name: 'Save as artifact' })).toHaveAttribute('title', 'Save response as artifact')
+    expect(screen.getByRole('button', { name: 'Create code change' })).toHaveAttribute('title', 'Create code change')
+    expect(screen.getByRole('button', { name: 'Save to wiki' }).querySelector('svg')).toHaveClass('lucide-book-open')
+    expect(screen.getByRole('button', { name: 'Save as artifact' }).querySelector('svg')).toHaveClass('lucide-package')
   })
 
   it('shows regenerate action for last assistant message', () => {
@@ -131,7 +150,7 @@ describe('MessageBubble', () => {
     const container = screen.getByText('Hello there').closest('.group')!
     fireEvent.mouseEnter(container)
 
-    expect(screen.getByText('Regenerate')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Regenerate' })).toHaveAttribute('title', 'Regenerate response')
   })
 
 
@@ -192,7 +211,7 @@ describe('MessageBubble', () => {
       />
     )
 
-    expect(screen.getByLabelText('Saved to wiki')).toBeInTheDocument()
+    expect(screen.getAllByLabelText('Saved to wiki').length).toBeGreaterThan(0)
   })
 
   it('does not show BookOpen indicator when hasWikiEntry is false', () => {

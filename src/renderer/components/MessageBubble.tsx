@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { Copy, RotateCcw, Pencil, AlertTriangle, RefreshCw, LogIn, StopCircle, CheckCircle, BookOpen, Wrench } from 'lucide-react'
+import { Copy, RotateCcw, Pencil, AlertTriangle, RefreshCw, LogIn, StopCircle, CheckCircle, BookOpen, Package, Wrench } from 'lucide-react'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import type { ContextSnapshot } from '../hooks/chat-types'
 import { ContextSnapshotBadge } from './ContextInspector'
@@ -206,46 +206,52 @@ export function MessageBubbleBase({
             </div>
           </div>
           {!isGenerating && (
-            <div
-              className={`absolute -bottom-7 left-0 flex gap-1 z-20 transition-opacity duration-200 ${showActions ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-            >
-              <ActionButton
+            <div className="mt-2 flex items-center gap-1.5">
+              <IconActionButton
                 icon={copied ? CheckCircle : Copy}
-                label="Copy"
+                label={copied ? 'Copied' : 'Copy'}
+                title={copied ? 'Copied' : 'Copy response'}
                 onClick={() => {
                   onCopy(content)
                   setCopied(true)
                   if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
                   copiedTimerRef.current = setTimeout(() => setCopied(false), 1200)
                 }}
-                highlight={copied}
+                tone={copied ? 'success' : 'default'}
               />
               {onSaveToWiki && (
-                <ActionButton
+                <IconActionButton
                   icon={BookOpen}
-                  label={hasWikiEntry ? 'Saved' : 'Save to wiki'}
+                  label={hasWikiEntry ? 'Saved to wiki' : 'Save to wiki'}
+                  title={hasWikiEntry ? 'Saved to wiki' : 'Save response to wiki'}
                   onClick={() => onSaveToWiki(id, content)}
-                  highlight={hasWikiEntry}
+                  tone={hasWikiEntry ? 'info' : 'default'}
                 />
               )}
               {onSaveAsArtifact && (
-                <ActionButton
-                  icon={BookOpen}
+                <IconActionButton
+                  icon={Package}
                   label="Save as artifact"
+                  title="Save response as artifact"
                   onClick={() => onSaveAsArtifact(id, content)}
                 />
               )}
               {onCreateCodeChange && (
-                <ActionButton
+                <IconActionButton
                   icon={Wrench}
                   label="Create code change"
+                  title={canCreateCodeChange ? 'Create code change' : 'Switch to a project to create a code change'}
                   onClick={() => onCreateCodeChange(id, content)}
                   disabled={!canCreateCodeChange}
-                  title={canCreateCodeChange ? 'Create code change' : 'Switch to a project to create a code change'}
                 />
               )}
               {isLastAssistant && onRegenerate && (
-                <ActionButton icon={RotateCcw} label="Regenerate" onClick={() => onRegenerate()} />
+                <IconActionButton
+                  icon={RotateCcw}
+                  label="Regenerate"
+                  title="Regenerate response"
+                  onClick={() => onRegenerate()}
+                />
               )}
             </div>
           )}
@@ -414,6 +420,43 @@ function ActionButton({
     >
       <Icon className="w-3 h-3" />
       <span>{label}</span>
+    </button>
+  )
+}
+
+function IconActionButton({
+  icon: Icon,
+  label,
+  onClick,
+  disabled = false,
+  title,
+  tone = 'default',
+}: {
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+  onClick: () => void
+  disabled?: boolean
+  title?: string
+  tone?: 'default' | 'success' | 'info'
+}) {
+  const toneClass = tone === 'success'
+    ? 'border-green-200 bg-green-50 text-green-600 hover:bg-green-100 dark:border-green-800/60 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50'
+    : tone === 'info'
+      ? 'border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 dark:border-blue-800/60 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50'
+      : 'border-gray-200 bg-white/90 text-gray-500 hover:border-gray-300 hover:bg-gray-50 hover:text-gray-800 dark:border-gray-700 dark:bg-gray-800/90 dark:text-gray-400 dark:hover:border-gray-600 dark:hover:bg-gray-700/80 dark:hover:text-gray-100'
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        if (!disabled) onClick()
+      }}
+      aria-disabled={disabled}
+      aria-label={label}
+      title={title ?? label}
+      className={`inline-flex h-7 w-7 items-center justify-center rounded-full border shadow-sm backdrop-blur-sm transition-all duration-150 active:scale-95 ${toneClass} ${disabled ? 'cursor-not-allowed opacity-50 hover:shadow-sm active:scale-100' : 'hover:shadow-md'}`}
+    >
+      <Icon className="h-3.5 w-3.5" />
     </button>
   )
 }
