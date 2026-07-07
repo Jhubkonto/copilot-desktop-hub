@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
@@ -47,8 +48,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import io.nexy.android.data.model.AgentCustomCommand
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -68,9 +71,59 @@ fun ChatInputBar(
     placeholder: String = "Message…",
     onSetupManually: (() -> Unit)? = null,
     showAttachOptions: Boolean = true,
+    customSlashCommands: List<AgentCustomCommand> = emptyList(),
 ) {
     val attachSheetState = rememberModalBottomSheetState()
     var showAttachSheet by remember { mutableStateOf(false) }
+    val slashSheetState = rememberModalBottomSheetState()
+    var showSlashSheet by remember { mutableStateOf(false) }
+
+    if (showSlashSheet) {
+        val query = input.removePrefix("/")
+        val filteredBuiltins = MOBILE_SLASH_COMMANDS.filter {
+            query.isBlank() || it.name.removePrefix("/").startsWith(query, ignoreCase = true)
+        }
+        val filteredCustom = customSlashCommands.filter {
+            query.isBlank() || it.name.removePrefix("/").startsWith(query, ignoreCase = true)
+        }
+        ModalBottomSheet(
+            onDismissRequest = { showSlashSheet = false },
+            sheetState = slashSheetState,
+        ) {
+            LazyColumn {
+                items(filteredBuiltins) { command ->
+                    ListItem(
+                        headlineContent = { Text(command.name, fontFamily = FontFamily.Monospace) },
+                        supportingContent = { Text(command.description) },
+                        modifier = Modifier.clickable {
+                            showSlashSheet = false
+                            onInputChange("${command.name} ")
+                        },
+                    )
+                }
+                if (filteredCustom.isNotEmpty()) {
+                    items(filteredCustom) { command ->
+                        ListItem(
+                            headlineContent = { Text(command.name, fontFamily = FontFamily.Monospace) },
+                            supportingContent = { Text(command.description.ifBlank { "Custom command" }) },
+                            modifier = Modifier.clickable {
+                                showSlashSheet = false
+                                // Expands the full prompt into the input for the user to review/send,
+                                // matching desktop's slash-commands.ts custom-command behavior.
+                                onInputChange(command.prompt)
+                            },
+                        )
+                    }
+                }
+                if (filteredBuiltins.isEmpty() && filteredCustom.isEmpty()) {
+                    item {
+                        ListItem(headlineContent = { Text("No matching commands") })
+                    }
+                }
+            }
+            Spacer(Modifier.padding(bottom = 8.dp))
+        }
+    }
 
     if (showAttachSheet) {
         ModalBottomSheet(
@@ -179,6 +232,16 @@ fun ChatInputBar(
                             Icons.Default.Add,
                             contentDescription = "Attach or insert",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    IconButton(
+                        onClick = { showSlashSheet = true },
+                        modifier = Modifier.size(36.dp),
+                    ) {
+                        Text(
+                            "/",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     Spacer(Modifier.weight(1f))

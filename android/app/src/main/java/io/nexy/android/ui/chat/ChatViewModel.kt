@@ -7,8 +7,10 @@ import io.nexy.android.data.WsClient
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.local.LocalDataRepository
 import io.nexy.android.data.model.AttachmentMeta
+import io.nexy.android.data.model.HistoryMessage
 import io.nexy.android.data.model.ThinkingBlock
 import io.nexy.android.data.model.WsEvent
+import org.json.JSONObject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
 import kotlinx.coroutines.InternalCoroutinesApi
@@ -53,7 +55,17 @@ data class ChatMessage(
     val inputTokens: Int = 0,
     val outputTokens: Int = 0,
     val toolCalls: List<ChatMessage> = emptyList(),
+    val artifactRef: ArtifactRef? = null,
+    val codeChangeRef: CodeChangeRef? = null,
 )
+
+/** Parsed from a `__artifact-ref:{...}` sentinel message content — the same convention desktop's
+ * ChatMessages.tsx detects to render a durable ArtifactCard inline in the transcript. */
+data class ArtifactRef(val artifactId: String, val versionId: String?)
+
+/** Parsed from a `__code-change-ref:{...}` sentinel message content (desktop's CodeChangeCard
+ * counterpart). */
+data class CodeChangeRef(val reportId: String)
 
 @OptIn(InternalCoroutinesApi::class, ExperimentalForInheritanceCoroutinesApi::class)
 private class DerivedBooleanStateFlow<A, B>(
@@ -158,6 +170,19 @@ class ChatViewModel(
     private val _sendError = MutableStateFlow<String?>(null)
     val sendError: StateFlow<String?> = _sendError
 
+    // Ephemeral status/confirmation text for slash commands (the Android counterpart of
+    // desktop's ctx.pushSystemMessage) — ChatScreen shows this as a snackbar, then clears it.
+    private val _slashCommandMessage = MutableStateFlow<String?>(null)
+    val slashCommandMessage: StateFlow<String?> = _slashCommandMessage
+    fun consumeSlashCommandMessage() { _slashCommandMessage.value = null }
+
+    // Quiz and code-change WS replies (quiz:ready, error-report:captured) don't carry a
+    // conversationId, unlike debrief:ready — these flags scope the resulting sentinel-insert to
+    // "the last /quiz or /code-change issued from this open chat", matching this codebase's
+    // existing best-effort WS correlation elsewhere (no request/response ids on this protocol).
+    private var awaitingQuizInsert = false
+    private var awaitingCodeChangeInsert = false
+
     private var historyLoaded = false
 
     private var activeHistoryPollJob: Job? = null
@@ -166,7 +191,35 @@ class ChatViewModel(
         get() = _liveTurnState.value.status == ChatTurnStatus.Completed ||
                 _liveTurnState.value.status == ChatTurnStatus.Failed
 
+    // The conversation's own agent (once known) takes precedence over the nav-arg agentId,
+    // matching ChatScreen's own chatAgentId resolution (conversation?.agent_id ?: agentId).
+    private val effectiveAgentId: StateFlow<String?> = if (wsClient === WsRepository) {
+        WsRepository.conversations
+            .map { list -> list.find { it.id == conversationId }?.agent_id ?: agentId }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, agentId)
+    } else {
+        MutableStateFlow(agentId)
+    }
+
+    // Per-agent slash commands declared in Agent Config. WsRepository.agentFullConfig only
+    // gets populated when something requests it — previously only the Agent Config editor
+    // screen did, so this data existed on the wire but was never fetched near chat. Filtered
+    // by id since agentFullConfig is a single slot, not keyed per agent.
+    val customSlashCommands: StateFlow<List<io.nexy.android.data.model.AgentCustomCommand>> =
+        if (wsClient === WsRepository) {
+            combine(WsRepository.agentFullConfig, effectiveAgentId) { config, id ->
+                if (config != null && id != null && config.id == id) config.customCommands else emptyList()
+            }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+        } else {
+            MutableStateFlow(emptyList())
+        }
+
     init {
+        if (wsClient === WsRepository) {
+            viewModelScope.launch {
+                effectiveAgentId.collect { id -> if (id != null) WsRepository.requestAgentFull(id) }
+            }
+        }
         localData?.let { repository ->
             viewModelScope.launch {
                 repository.observeDraft(conversationId).collect { saved ->
@@ -441,6 +494,47 @@ class ChatViewModel(
                             }
                         }
                     }
+                    // /debrief, /quiz, and /code-change insert a durable, specially-rendered
+                    // system message (the __artifact-ref:/__code-change-ref: sentinel convention
+                    // shared with desktop) rather than streaming a normal reply — surface it here
+                    // the same way a normal history refresh would, without waiting on one.
+                    event is WsEvent.MessageInserted && event.conversationId == conversationId -> {
+                        if (_messages.value.none { it.id == event.messageId }) {
+                            val historyMessage = HistoryMessage(
+                                id = event.messageId,
+                                role = event.role,
+                                content = event.content,
+                                timestamp = event.timestamp,
+                            )
+                            _messages.value = _messages.value + historyMessage.toChatMessage()
+                        }
+                    }
+                    event is WsEvent.DebriefReady && event.debrief.conversationId == conversationId -> {
+                        if (event.artifactId != null) {
+                            insertArtifactRefMessage(event.artifactId, event.versionId)
+                        } else {
+                            _slashCommandMessage.value = "Debrief generated."
+                        }
+                    }
+                    event is WsEvent.DebriefError -> {
+                        _slashCommandMessage.value = "Failed to generate debrief: ${event.message}"
+                    }
+                    event is WsEvent.QuizReady && awaitingQuizInsert -> {
+                        awaitingQuizInsert = false
+                        if (event.artifactId != null) {
+                            insertArtifactRefMessage(event.artifactId, event.versionId)
+                        } else {
+                            _slashCommandMessage.value = "Quiz generated."
+                        }
+                    }
+                    event is WsEvent.QuizError && awaitingQuizInsert -> {
+                        awaitingQuizInsert = false
+                        _slashCommandMessage.value = "Failed to generate quiz: ${event.message}"
+                    }
+                    event is WsEvent.ErrorReportCaptured && awaitingCodeChangeInsert -> {
+                        awaitingCodeChangeInsert = false
+                        insertCodeChangeRefMessage(event.reportId)
+                    }
                     else -> {}
                 }
             }
@@ -470,6 +564,92 @@ class ChatViewModel(
         if (wsClient === WsRepository) {
             wsClient.send("chat:get-active-turn", mapOf("conversationId" to conversationId))
         }
+    }
+
+    private fun insertArtifactRefMessage(artifactId: String, versionId: String?) {
+        val content = "__artifact-ref:" + JSONObject().apply {
+            put("artifactId", artifactId)
+            put("versionId", versionId)
+        }.toString()
+        WsRepository.insertMessage(conversationId, "system", content)
+    }
+
+    private fun insertCodeChangeRefMessage(reportId: String) {
+        val content = "__code-change-ref:" + JSONObject().apply {
+            put("reportId", reportId)
+        }.toString()
+        WsRepository.insertMessage(conversationId, "system", content)
+    }
+
+    /**
+     * Android's counterpart of desktop's executeSlashCommand (slash-commands.ts) — a hardcoded
+     * dispatch over the mobile-appropriate command subset (SlashCommands.kt). Returns true if
+     * the input was a recognized command (handled here, not sent as a normal chat message).
+     */
+    fun trySlashCommand(rawInput: String, projectId: String?): Boolean {
+        val trimmed = rawInput.trim()
+        if (!trimmed.startsWith("/")) return false
+        val parts = trimmed.split(Regex("\\s+"), limit = 2)
+        val command = parts[0]
+        val argText = parts.getOrElse(1) { "" }.trim()
+
+        if (wsClient !== WsRepository) return false // slash commands need the real WS singleton
+
+        when (command) {
+            "/clear" -> {
+                deleteMessagesAfter(conversationId, 0L)
+                _slashCommandMessage.value = "Conversation cleared."
+            }
+            "/help" -> {
+                val lines = MOBILE_SLASH_COMMANDS.joinToString("\n") { "${it.usage} — ${it.description}" }
+                _slashCommandMessage.value = "Available commands:\n$lines"
+            }
+            "/model" -> {
+                _slashCommandMessage.value = if (argText.isBlank()) {
+                    "Current model: ${_selectedModel.value ?: "default"}"
+                } else {
+                    setModel(argText)
+                    "Model set to $argText."
+                }
+            }
+            "/new" -> {
+                _slashCommandMessage.value = "Start a new chat from the home screen to begin a fresh conversation."
+            }
+            "/complete" -> {
+                WsRepository.markConversationComplete(conversationId)
+                _slashCommandMessage.value = "Conversation marked complete."
+            }
+            "/incomplete" -> {
+                WsRepository.markConversationIncomplete(conversationId)
+                _slashCommandMessage.value = "Conversation marked incomplete."
+            }
+            "/debrief" -> {
+                _slashCommandMessage.value = "Generating debrief…"
+                WsRepository.generateDebrief(conversationId, projectId, argText.ifBlank { null })
+            }
+            "/quiz" -> {
+                awaitingQuizInsert = true
+                _slashCommandMessage.value = "Generating quiz…"
+                WsRepository.generateQuiz(conversationId, projectId, argText.ifBlank { null })
+            }
+            "/code-change" -> {
+                if (projectId.isNullOrBlank()) {
+                    _slashCommandMessage.value = "Code changes require this conversation to be in a project."
+                } else if (argText.isBlank()) {
+                    _slashCommandMessage.value = "Usage: /code-change <description of the change you want>"
+                } else {
+                    awaitingCodeChangeInsert = true
+                    WsRepository.createRemoteEditReport(
+                        title = argText.take(80),
+                        description = argText,
+                        projectId = projectId,
+                        conversationId = conversationId,
+                    )
+                }
+            }
+            else -> return false
+        }
+        return true
     }
 
     fun loadModel(model: String?) {

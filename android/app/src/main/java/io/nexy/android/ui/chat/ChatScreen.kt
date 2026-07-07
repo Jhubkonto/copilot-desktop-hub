@@ -24,6 +24,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
@@ -44,6 +45,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
@@ -115,6 +117,27 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.withFrameNanos
 
+/** Small "Completed" indicator shown in the chat header's title area when the open
+ * conversation is marked complete — the in-chat counterpart to the checkmark already shown
+ * for completed conversations in list screens (e.g. ScopedChatHistoryScreen). */
+@Composable
+fun ChatCompletedBadge() {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        Icon(
+            Icons.Default.CheckCircle,
+            contentDescription = null,
+            modifier = Modifier.size(12.dp),
+            tint = Color(0xFF34D399),
+        )
+        Text(
+            "Completed",
+            maxLines = 1,
+            style = MaterialTheme.typography.labelSmall,
+            color = Color(0xFF34D399),
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ChatScreen(
@@ -125,6 +148,7 @@ fun ChatScreen(
     onOpenArtifacts: ((String?) -> Unit)? = null,
     onOpenFork: ((String) -> Unit)? = null,
     onOpenRemoteEditWithPrefill: ((String, String) -> Unit)? = null,
+    onOpenCodeChange: ((String) -> Unit)? = null,
     vm: ChatViewModel = viewModel(
         factory = remember(conversationId, agentId, projectId) {
             object : ViewModelProvider.Factory {
@@ -155,10 +179,12 @@ fun ChatScreen(
     val lastError by WsRepository.lastError.collectAsState()
     val effectiveMode by WsRepository.effectiveMode.collectAsState()
     val conversation = conversations.find { it.id == conversationId }
+    val isCompleted = conversation?.completed_at != null
     val title = conversation?.title?.ifBlank { null } ?: "Chat"
     val chatAgentId = conversation?.agent_id ?: agentId
     val chatAgent = chatAgentId?.let { id -> agents.find { it.id == id } }
     val chatBackend = chatAgent?.backend
+    val customSlashCommands by vm.customSlashCommands.collectAsState()
     val draftFromVm by vm.draft.collectAsState()
     var input by remember { mutableStateOf(draftFromVm) }
     var editingMessageId by remember { mutableStateOf<String?>(null) }
@@ -431,6 +457,13 @@ fun ChatScreen(
         vm.clearSendError()
     }
 
+    val slashCommandMessage by vm.slashCommandMessage.collectAsState()
+    LaunchedEffect(slashCommandMessage) {
+        val message = slashCommandMessage ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
+        vm.consumeSlashCommandMessage()
+    }
+
     LaunchedEffect(Unit) {
         WsRepository.events.collect { event ->
             when (event) {
@@ -484,7 +517,9 @@ fun ChatScreen(
         val msg = investigateMessage ?: return@LaunchedEffect
         investigateMessage = null
         val chatProjectId = conversation?.project_id ?: projectId
-        if (!chatProjectId.isNullOrBlank()) {
+        if (connectionState != ConnectionState.CONNECTED) {
+            scope.launch { snackbarHostState.showSnackbar("Not connected to desktop") }
+        } else if (!chatProjectId.isNullOrBlank()) {
             onOpenRemoteEditWithPrefill?.invoke(msg.text, chatProjectId)
         }
     }
@@ -822,6 +857,9 @@ fun ChatScreen(
                                 color = MaterialTheme.colorScheme.primary,
                             )
                         }
+                        if (isCompleted) {
+                            ChatCompletedBadge()
+                        }
                     }
                 },
                 onBack = onBack,
@@ -876,10 +914,16 @@ fun ChatScreen(
                 onRemoveAttachment = { vm.removeAttachment(it) },
                 canSend = canSend,
                 onSend = {
-                    editingMessageId?.let { vm.editMessage(it, input) } ?: vm.sendMessage(input)
-                    editingMessageId = null
-                    input = ""
-                    vm.setDraft("")
+                    val chatProjectId = conversation?.project_id ?: projectId
+                    if (editingMessageId == null && vm.trySlashCommand(input, chatProjectId)) {
+                        input = ""
+                        vm.setDraft("")
+                    } else {
+                        editingMessageId?.let { vm.editMessage(it, input) } ?: vm.sendMessage(input)
+                        editingMessageId = null
+                        input = ""
+                        vm.setDraft("")
+                    }
                 },
                 onAttachFile = { filePicker.launch("*/*") },
                 onCaptureScreen = onCaptureScreen,
@@ -890,6 +934,7 @@ fun ChatScreen(
                 onShowInspector = { showInspectorSheet = true },
                 isListening = voiceInput.listening,
                 onVoiceInput = voiceInput.toggle,
+                customSlashCommands = customSlashCommands,
             )
         },
     ) { padding ->
@@ -958,6 +1003,8 @@ fun ChatScreen(
                                 is ChatRenderItem.AssistantMessage -> 2
                                 is ChatRenderItem.LiveThinking -> 3
                                 is ChatRenderItem.LiveActivity -> 4
+                                is ChatRenderItem.ArtifactCard -> 5
+                                is ChatRenderItem.CodeChangeCard -> 6
                             }
                         },
                     ) { item ->
@@ -985,6 +1032,12 @@ fun ChatScreen(
                             }
                             is ChatRenderItem.LiveActivity -> {
                                 ThinkingBubble(item.label, item.generationStartedAt)
+                            }
+                            is ChatRenderItem.ArtifactCard -> {
+                                ArtifactRefBubble(ref = item.ref, onOpen = { onOpenArtifacts?.invoke(item.ref.artifactId) })
+                            }
+                            is ChatRenderItem.CodeChangeCard -> {
+                                CodeChangeRefBubble(ref = item.ref, onOpen = { onOpenCodeChange?.invoke(item.ref.reportId) })
                             }
                             is ChatRenderItem.UserMessage -> {
                                 val msg = item.message
@@ -1063,7 +1116,12 @@ fun ChatScreen(
                                                 promoteArtifactFilePath = suggestedArtifactFilePath("document")
                                             }
                                         } else null,
-                                        onInvestigateWithAi = if (msg.text.isNotBlank() && onOpenRemoteEditWithPrefill != null && !chatProjectId.isNullOrBlank()) {
+                                        onInvestigateWithAi = if (
+                                            msg.text.isNotBlank() &&
+                                            onOpenRemoteEditWithPrefill != null &&
+                                            !chatProjectId.isNullOrBlank() &&
+                                            connectionState == ConnectionState.CONNECTED
+                                        ) {
                                             { investigateMessage = msg }
                                         } else null,
                                         onShare = if (msg.text.isNotBlank()) {

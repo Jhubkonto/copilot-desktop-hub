@@ -37,6 +37,20 @@ sealed class ChatRenderItem {
     ) : ChatRenderItem() {
         override val key: String get() = "live_activity"
     }
+
+    data class ArtifactCard(
+        val ref: ArtifactRef,
+        val messageId: String,
+    ) : ChatRenderItem() {
+        override val key: String get() = "artifact_${messageId.ifBlank { ref.artifactId }}"
+    }
+
+    data class CodeChangeCard(
+        val ref: CodeChangeRef,
+        val messageId: String,
+    ) : ChatRenderItem() {
+        override val key: String get() = "code_change_${messageId.ifBlank { ref.reportId }}"
+    }
 }
 
 fun buildChatRenderItems(
@@ -52,7 +66,11 @@ fun buildChatRenderItems(
     var toolCallListIdx = 0
 
     for (msg in messages) {
-        if (msg.isToolCall) {
+        if (msg.artifactRef != null) {
+            result.add(ChatRenderItem.ArtifactCard(msg.artifactRef, msg.id))
+        } else if (msg.codeChangeRef != null) {
+            result.add(ChatRenderItem.CodeChangeCard(msg.codeChangeRef, msg.id))
+        } else if (msg.isToolCall) {
             result.add(ChatRenderItem.ToolCall(msg, toolCallListIdx++))
         } else if (msg.isUser) {
             pendingToolCalls.clear()
