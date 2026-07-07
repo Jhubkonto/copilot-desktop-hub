@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -25,13 +24,11 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.Badge
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -43,7 +40,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -64,7 +60,13 @@ import io.nexy.android.data.model.McpServerInfo
 import io.nexy.android.data.model.McpToolInfo
 import io.nexy.android.data.model.WsEvent
 import io.nexy.android.ui.components.NexyConfirmDialog
+import io.nexy.android.ui.components.NexyEmptyState
 import io.nexy.android.ui.components.NexyFormSheet
+import io.nexy.android.ui.components.NexyGhostButton
+import io.nexy.android.ui.components.NexyListRow
+import io.nexy.android.ui.components.NexyPrimaryButton
+import io.nexy.android.ui.components.NexySecondaryButton
+import io.nexy.android.ui.components.NexyStatusBadge
 import io.nexy.android.ui.components.NexyTopAppBar
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -159,41 +161,27 @@ fun McpServersScreen(onBack: () -> Unit) {
                 .verticalScroll(rememberScrollState()),
         ) {
             if (disconnected) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 40.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text("Not connected to desktop", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("Connect to manage MCP servers.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+                NexyEmptyState(
+                    title = "Not connected to desktop",
+                    detail = "Connect to manage MCP servers.",
+                    modifier = Modifier.padding(vertical = 32.dp),
+                )
             } else if (mcpServers.isEmpty()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 32.dp, vertical = 48.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Text("No MCP servers", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
-                    Text(
-                        "MCP servers extend your agents with additional tools. Tap + to add one.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                NexyEmptyState(
+                    title = "No MCP servers",
+                    detail = "MCP servers extend your agents with additional tools. Tap + to add one.",
+                    modifier = Modifier.padding(vertical = 40.dp),
+                )
             } else {
-                mcpServers.forEachIndexed { index, server ->
+                mcpServers.forEach { server ->
                     McpServerRow(
                         server = server,
                         status = serverToStatus[server.id],
-                        index = index,
                         onEdit = { editingServer = server },
                         onDelete = { deleteTarget = server },
                         onRestart = { WsRepository.restartMcpServer(server.id); WsRepository.getMcpServerStatus(server.id) },
                     )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
             }
 
@@ -206,17 +194,18 @@ fun McpServersScreen(onBack: () -> Unit) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    TextButton(onClick = {
-                        WsRepository.listMcpTools()
-                        showTools = !showTools
-                    }) {
-                        Text(if (showTools) "Hide tools" else "Show tools (${tools.size})")
-                    }
-                    FilledTonalButton(onClick = { WsRepository.getMcpServers() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Refresh")
-                    }
+                    NexyGhostButton(
+                        text = if (showTools) "Hide tools" else "Show tools (${tools.size})",
+                        onClick = {
+                            WsRepository.listMcpTools()
+                            showTools = !showTools
+                        },
+                    )
+                    NexySecondaryButton(
+                        text = "Refresh",
+                        onClick = { WsRepository.getMcpServers() },
+                        leadingIcon = Icons.Default.Refresh,
+                    )
                 }
 
                 if (showTools) {
@@ -234,8 +223,9 @@ fun McpServersScreen(onBack: () -> Unit) {
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                         )
-                        tools.forEachIndexed { index, tool ->
-                            McpToolEntry(tool, index)
+                        tools.forEach { tool ->
+                            McpToolEntry(tool)
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         }
                     }
                 }
@@ -248,76 +238,53 @@ fun McpServersScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun McpServerRow(
+private fun McpStatusBadge(status: String) {
+    val (label, color) = when (status) {
+        "connected" -> "Connected" to MaterialTheme.colorScheme.primary
+        "error" -> "Error" to MaterialTheme.colorScheme.error
+        "connecting" -> "Connecting…" to MaterialTheme.colorScheme.tertiary
+        else -> status.replaceFirstChar { it.uppercase() } to MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    NexyStatusBadge(label = label, containerColor = color.copy(alpha = 0.15f), contentColor = color)
+}
+
+@Composable
+internal fun McpServerRow(
     server: McpServerInfo,
     status: String?,
-    index: Int = 0,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onRestart: () -> Unit,
 ) {
-    val statusColor = when (status) {
-        "connected" -> MaterialTheme.colorScheme.primary
-        "error" -> MaterialTheme.colorScheme.error
-        "connecting" -> MaterialTheme.colorScheme.tertiary
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
-    val rowColor = if (index % 2 == 0) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant
     var showMenu by remember { mutableStateOf(false) }
 
-    Surface(
-        color = rowColor,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(72.dp),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 16.dp, end = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        server.name,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
+    NexyListRow(
+        title = server.name,
+        subtitleContent = {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (status != null) McpStatusBadge(status)
                     if (!server.enabled) {
-                        Badge(containerColor = MaterialTheme.colorScheme.surfaceVariant) {
-                            Text("off", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                        NexyStatusBadge(
+                            label = "Off",
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
-                val subtitle = when {
-                    status != null && server.command.isNotBlank() -> "${status}  ·  ${server.command}"
-                    status != null -> status
-                    server.command.isNotBlank() -> server.command
-                    else -> null
-                }
-                if (subtitle != null) {
+                if (server.command.isNotBlank()) {
                     Text(
-                        subtitle,
+                        server.command,
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (status != null) statusColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                        fontFamily = if (server.command.isNotBlank() && status == null) FontFamily.Monospace else null,
+                        fontFamily = FontFamily.Monospace,
                     )
                 }
             }
+        },
+        trailing = {
             Box {
                 IconButton(onClick = { showMenu = true }) {
                     Icon(Icons.Default.MoreVert, contentDescription = "Server options", tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -340,45 +307,17 @@ private fun McpServerRow(
                     )
                 }
             }
-        }
-    }
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        },
+    )
 }
 
 @Composable
-private fun McpToolEntry(tool: McpToolInfo, index: Int = 0) {
-    val rowColor = if (index % 2 == 0) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant
-    Surface(
-        color = rowColor,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(72.dp),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
-            ) {
-                Text(tool.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                if (!tool.description.isNullOrBlank()) {
-                    Text(
-                        tool.description,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    )
-                }
-            }
-            Text(tool.serverName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-        }
-    }
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+internal fun McpToolEntry(tool: McpToolInfo) {
+    NexyListRow(
+        title = tool.name,
+        subtitle = tool.description?.takeIf { it.isNotBlank() },
+        trailing = { Text(tool.serverName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary) },
+    )
 }
 
 private enum class McpAddType(val label: String, val description: String) {
@@ -464,7 +403,7 @@ private fun McpAddWizard(
                     },
                     style = MaterialTheme.typography.titleSmall,
                 )
-                TextButton(onClick = onDismiss) { Text("Cancel") }
+                NexyGhostButton(text = "Cancel", onClick = onDismiss)
             }
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -502,7 +441,7 @@ private fun McpAddWizard(
                         }
                     }
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        FilledTonalButton(onClick = { step = 1 }, enabled = selectedType != null) { Text("Next") }
+                        NexyPrimaryButton(text = "Next", onClick = { step = 1 }, enabled = selectedType != null)
                     }
                 }
 
@@ -534,8 +473,8 @@ private fun McpAddWizard(
                         Switch(checked = enabled, onCheckedChange = { enabled = it })
                     }
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        TextButton(onClick = { step = 0 }) { Text("Back") }
-                        FilledTonalButton(onClick = { step = 2 }, enabled = step2Valid) { Text("Review") }
+                        NexyGhostButton(text = "Back", onClick = { step = 0 })
+                        NexyPrimaryButton(text = "Review", onClick = { step = 2 }, enabled = step2Valid)
                     }
                 }
 
@@ -565,11 +504,12 @@ private fun McpAddWizard(
                         }
                     }
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        TextButton(onClick = { step = 1 }) { Text("Back") }
-                        FilledTonalButton(
+                        NexyGhostButton(text = "Back", onClick = { step = 1 })
+                        NexyPrimaryButton(
+                            text = "Add server",
                             onClick = { onConfirm(name.trim(), previewCommand, previewArgs, enabled) },
                             enabled = previewCommand.isNotBlank(),
-                        ) { Text("Add server") }
+                        )
                     }
                 }
             }

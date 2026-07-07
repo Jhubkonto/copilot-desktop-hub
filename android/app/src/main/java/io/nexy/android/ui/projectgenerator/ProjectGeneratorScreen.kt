@@ -61,6 +61,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.ProjectGeneratorSpec
+import io.nexy.android.ui.components.GeneratorChatBubble
 import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyGhostButton
 import io.nexy.android.ui.components.NexyPrimaryButton
@@ -370,11 +371,11 @@ private fun ChatPhase(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             items(uiState.messages) { msg ->
-                ChatBubble(role = msg.role, text = msg.content)
+                GeneratorChatBubble(role = msg.role, text = msg.content)
             }
             if (uiState.streamingText.isNotBlank()) {
                 item {
-                    ChatBubble(role = "assistant", text = uiState.streamingText, streaming = true)
+                    GeneratorChatBubble(role = "assistant", text = uiState.streamingText, streaming = true)
                 }
             }
         }
@@ -395,28 +396,6 @@ private fun ChatPhase(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun ChatBubble(role: String, text: String, streaming: Boolean = false) {
-    val isUser = role == "user"
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
-    ) {
-        Surface(
-            shape = MaterialTheme.shapes.medium,
-            color = if (isUser) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-            modifier = Modifier.fillMaxWidth(0.85f),
-        ) {
-            Text(
-                text = text + if (streaming) "▍" else "",
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(12.dp),
-                color = if (isUser) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }
