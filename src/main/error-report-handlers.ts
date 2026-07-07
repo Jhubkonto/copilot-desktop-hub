@@ -97,6 +97,31 @@ function removeUserDataChild(...segments: string[]): void {
   rmSync(target, { recursive: true, force: true })
 }
 
+const CODE_CHANGE_REF_PREFIX = '__code-change-ref:'
+
+function parseCodeChangeRefContent(content: string): { reportId?: string } | null {
+  if (!content.startsWith(CODE_CHANGE_REF_PREFIX)) return null
+  try {
+    return JSON.parse(content.slice(CODE_CHANGE_REF_PREFIX.length)) as { reportId?: string }
+  } catch {
+    return null
+  }
+}
+
+function deleteCodeChangeRefMessages(reportId: string): void {
+  const db = getDatabase()
+  const rows = db.prepare(
+    `SELECT id, content FROM messages
+     WHERE role = 'system' AND content GLOB ?`,
+  ).all(`${CODE_CHANGE_REF_PREFIX}*`) as Array<{ id: string; content: string }>
+  const ids = rows
+    .filter((row) => parseCodeChangeRefContent(row.content)?.reportId === reportId)
+    .map((row) => row.id)
+  if (ids.length === 0) return
+  const deleteMessage = db.prepare('DELETE FROM messages WHERE id = ?')
+  for (const id of ids) deleteMessage.run(id)
+}
+
 export function createErrorReport(input: ErrorReportCaptureInput): ErrorReportCaptureResult {
   const id = randomUUID()
   const now = Date.now()
@@ -182,6 +207,7 @@ export function deleteErrorReport(reportId: string): boolean {
     db.prepare('DELETE FROM remote_edit_verification_runs WHERE report_id = ?').run(reportId)
     db.prepare('DELETE FROM remote_edit_recovery_runs WHERE report_id = ?').run(reportId)
     db.prepare('DELETE FROM remote_edit_history WHERE report_id = ?').run(reportId)
+    deleteCodeChangeRefMessages(reportId)
     db.prepare('DELETE FROM error_reports WHERE id = ?').run(reportId)
     if (pendingRecovery?.value && recoveryIds.has(pendingRecovery.value)) {
       db.prepare("DELETE FROM settings WHERE key = 'remote_edit_pending_recovery_id'").run()

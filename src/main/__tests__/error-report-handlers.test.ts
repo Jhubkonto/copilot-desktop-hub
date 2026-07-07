@@ -180,6 +180,13 @@ describe('error report handlers', () => {
       `INSERT INTO remote_edit_history (id, report_id, report_title, status, created_at, updated_at)
        VALUES ('history-1', ?, 'Delete me', 'investigating', 1, 1)`,
     ).run(result.reportId)
+    db.prepare("INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv-delete', 'Delete refs', 1, 1)").run()
+    db.prepare('INSERT INTO messages (id, conversation_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)')
+      .run('msg-code-change-ref', 'conv-delete', 'system', `__code-change-ref:${JSON.stringify({ reportId: result.reportId })}`, 2)
+    db.prepare('INSERT INTO messages (id, conversation_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)')
+      .run('msg-other-code-change-ref', 'conv-delete', 'system', `__code-change-ref:${JSON.stringify({ reportId: 'other-report' })}`, 3)
+    db.prepare('INSERT INTO messages (id, conversation_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)')
+      .run('msg-normal', 'conv-delete', 'assistant', 'Keep me', 4)
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('remote_edit_pending_recovery_id', 'recovery-1')").run()
 
     expect(invoke<boolean>('error-report:delete', result.reportId)).toBe(true)
@@ -189,6 +196,9 @@ describe('error report handlers', () => {
     expect(db.prepare('SELECT COUNT(*) AS count FROM remote_edit_verification_runs WHERE report_id = ?').get(result.reportId)).toEqual({ count: 0 })
     expect(db.prepare('SELECT COUNT(*) AS count FROM remote_edit_recovery_runs WHERE report_id = ?').get(result.reportId)).toEqual({ count: 0 })
     expect(db.prepare('SELECT COUNT(*) AS count FROM remote_edit_history WHERE report_id = ?').get(result.reportId)).toEqual({ count: 0 })
+    expect(db.prepare('SELECT COUNT(*) AS count FROM messages WHERE id = ?').get('msg-code-change-ref')).toEqual({ count: 0 })
+    expect(db.prepare('SELECT COUNT(*) AS count FROM messages WHERE id = ?').get('msg-other-code-change-ref')).toEqual({ count: 1 })
+    expect(db.prepare('SELECT COUNT(*) AS count FROM messages WHERE id = ?').get('msg-normal')).toEqual({ count: 1 })
     expect(db.prepare("SELECT value FROM settings WHERE key = 'remote_edit_pending_recovery_id'").get()).toBeUndefined()
     expect(existsSync(`${testRoot.value}/error-reports/${result.reportId}`)).toBe(false)
     expect(existsSync(`${testRoot.value}/remote-edit/staging/${result.reportId}`)).toBe(false)
