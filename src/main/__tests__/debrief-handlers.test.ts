@@ -20,11 +20,26 @@ vi.mock('../safe-handle', () => ({
 }))
 
 vi.mock('electron', () => ({
+  app: { getPath: () => '/tmp/nexy-test' },
   BrowserWindow: {
     getAllWindows: vi.fn(() => [
       { isDestroyed: vi.fn(() => false), webContents: { send: vi.fn() } },
     ]),
   },
+}))
+
+// In-memory fake filesystem so artifact writes/reads round-trip within a test without
+// touching the real disk.
+const fsState = vi.hoisted(() => ({ files: new Map<string, string>() }))
+vi.mock('fs', () => ({
+  mkdirSync: vi.fn(),
+  statSync: vi.fn((p: string) => ({ size: (fsState.files.get(p) ?? '').length })),
+  writeFileSync: vi.fn((p: string, content: string) => { fsState.files.set(p, content) }),
+  readFileSync: vi.fn((p: string) => {
+    const content = fsState.files.get(p)
+    if (content === undefined) throw new Error(`ENOENT: no such file: ${p}`)
+    return content
+  }),
 }))
 
 const mockSendProviderNonStreaming = vi.hoisted(() => vi.fn())
@@ -46,7 +61,7 @@ vi.mock('../ws-server', () => ({
 
 import { initializeBaseSchema, runMigrations } from '../database-migrations'
 import { registerDebriefHandlers } from '../debrief-handlers'
-import type { Debrief } from '../../shared/types'
+import type { DebriefArtifactResult } from '../../shared/types'
 
 async function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
   const handler = state.handlers.get(channel)
@@ -61,6 +76,7 @@ describe('debrief-handlers', () => {
     state.db = new Database(':memory:')
     initializeBaseSchema(state.db)
     runMigrations(state.db)
+    fsState.files.clear()
     registerDebriefHandlers()
     mockSendProviderNonStreaming.mockReset()
   })
@@ -68,12 +84,6 @@ describe('debrief-handlers', () => {
   afterEach(() => {
     state.db?.close()
     state.db = null
-  })
-
-  it('creates conversation_debriefs table via migrations', () => {
-    const tables = (state.db!.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[]).map(r => r.name)
-    expect(tables).toContain('conversation_debriefs')
-    expect(tables).toContain('conversation_quiz_attempts')
   })
 
   it('adds completed_at column to conversations via migrations', () => {
@@ -98,19 +108,23 @@ describe('debrief-handlers', () => {
 
   describe('conversation:get-debrief', () => {
     it('returns null for a conversation with no debrief', async () => {
-      const result = await invoke<Debrief | null>('conversation:get-debrief', 'conv-1')
+      const result = await invoke<DebriefArtifactResult | null>('conversation:get-debrief', 'conv-1')
       expect(result).toBeNull()
     })
 
     it('returns a debrief after it has been created', async () => {
       state.db!.prepare("INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv-1', 'Test', 1, 1)").run()
-      state.db!.prepare(
-        "INSERT INTO conversation_debriefs (id, conversation_id, project_id, summary, commands_tools, reproduction_guide, mental_model, generated_at, created_at) VALUES ('d-1', 'conv-1', NULL, 'Summary', '[]', 'Guide', 'Model', 1, 1)"
-      ).run()
-      const result = await invoke<Debrief | null>('conversation:get-debrief', 'conv-1')
+      state.db!.prepare("INSERT INTO messages (id, conversation_id, role, content, timestamp) VALUES ('m1', 'conv-1', 'user', 'Hello', 1)").run()
+      state.db!.prepare("INSERT INTO messages (id, conversation_id, role, content, timestamp) VALUES ('m2', 'conv-1', 'assistant', 'Hi', 2)").run()
+      mockSendProviderNonStreaming.mockResolvedValueOnce({
+        content: JSON.stringify({ summary: 'Summary', commandsAndTools: [], reproductionGuide: 'Guide', mentalModel: 'Model' }),
+      })
+      await invoke('conversation:generate-debrief', 'conv-1', null)
+
+      const result = await invoke<DebriefArtifactResult | null>('conversation:get-debrief', 'conv-1')
       expect(result).not.toBeNull()
-      expect(result!.summary).toBe('Summary')
-      expect(result!.commandsTools).toEqual([])
+      expect(result!.debrief.summary).toBe('Summary')
+      expect(result!.debrief.commandsTools).toEqual([])
     })
   })
 
@@ -121,7 +135,7 @@ describe('debrief-handlers', () => {
       state.db!.prepare("INSERT INTO messages (id, conversation_id, role, content, timestamp) VALUES ('m2', 'conv-1', 'assistant', 'Hi', 2)").run()
     })
 
-    it('generates and persists a debrief with valid LLM JSON', async () => {
+    it('generates and persists a debrief artifact with valid LLM JSON', async () => {
       mockSendProviderNonStreaming.mockResolvedValueOnce({
         content: JSON.stringify({
           summary: 'We said hello',
@@ -131,18 +145,23 @@ describe('debrief-handlers', () => {
         }),
       })
 
-      const result = await invoke<Debrief>('conversation:generate-debrief', 'conv-1', null)
+      const result = await invoke<DebriefArtifactResult>('conversation:generate-debrief', 'conv-1', null)
 
-      expect(result.summary).toBe('We said hello')
-      expect(result.commandsTools).toEqual(['greet'])
-      expect(result.reproductionGuide).toBe('1. Say hello')
-      expect(result.mentalModel).toBe('Simple greeting exchange')
-      expect(result.conversationId).toBe('conv-1')
+      expect(result.debrief.summary).toBe('We said hello')
+      expect(result.debrief.commandsTools).toEqual(['greet'])
+      expect(result.debrief.reproductionGuide).toBe('1. Say hello')
+      expect(result.debrief.mentalModel).toBe('Simple greeting exchange')
+      expect(result.debrief.conversationId).toBe('conv-1')
+      expect(result.artifactId).toBeTruthy()
+      expect(result.versionId).toBeTruthy()
 
-      // Confirm it was persisted
-      const fetched = await invoke<Debrief | null>('conversation:get-debrief', 'conv-1')
+      const artifactRow = state.db!.prepare('SELECT * FROM artifacts WHERE id = ?').get(result.artifactId) as { kind: string } | undefined
+      expect(artifactRow?.kind).toBe('debrief')
+
+      // Confirm it was persisted and readable back
+      const fetched = await invoke<DebriefArtifactResult | null>('conversation:get-debrief', 'conv-1')
       expect(fetched).not.toBeNull()
-      expect(fetched!.summary).toBe('We said hello')
+      expect(fetched!.debrief.summary).toBe('We said hello')
     })
 
     it('throws when LLM returns malformed JSON', async () => {
@@ -155,22 +174,24 @@ describe('debrief-handlers', () => {
       await expect(invoke('conversation:generate-debrief', 'empty-conv', null)).rejects.toThrow('no messages')
     })
 
-    it('replaces an existing debrief (INSERT OR REPLACE)', async () => {
+    it('re-running creates a new version under the same artifact rather than replacing it', async () => {
       mockSendProviderNonStreaming.mockResolvedValueOnce({
         content: JSON.stringify({ summary: 'First', commandsAndTools: [], reproductionGuide: 'Step 1', mentalModel: 'A' }),
       })
-      await invoke('conversation:generate-debrief', 'conv-1', null)
+      const first = await invoke<DebriefArtifactResult>('conversation:generate-debrief', 'conv-1', null)
 
       mockSendProviderNonStreaming.mockResolvedValueOnce({
         content: JSON.stringify({ summary: 'Second', commandsAndTools: [], reproductionGuide: 'Step 2', mentalModel: 'B' }),
       })
-      await invoke('conversation:generate-debrief', 'conv-1', null)
+      const second = await invoke<DebriefArtifactResult>('conversation:generate-debrief', 'conv-1', null)
 
-      const count = (state.db!.prepare("SELECT COUNT(*) as c FROM conversation_debriefs WHERE conversation_id = 'conv-1'").get() as { c: number }).c
-      expect(count).toBe(1)
+      expect(second.artifactId).toBe(first.artifactId)
+      expect(second.versionId).not.toBe(first.versionId)
+      const versionCount = (state.db!.prepare('SELECT COUNT(*) as c FROM artifact_versions WHERE artifact_id = ?').get(first.artifactId) as { c: number }).c
+      expect(versionCount).toBe(2)
 
-      const fetched = await invoke<Debrief | null>('conversation:get-debrief', 'conv-1')
-      expect(fetched!.summary).toBe('Second')
+      const fetched = await invoke<DebriefArtifactResult | null>('conversation:get-debrief', 'conv-1')
+      expect(fetched!.debrief.summary).toBe('Second')
     })
   })
 })

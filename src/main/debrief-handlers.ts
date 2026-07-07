@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto'
 import { BrowserWindow } from 'electron'
 import { getDatabase } from './database'
 import { safeHandle } from './safe-handle'
-import type { Debrief } from '../shared/types'
+import type { Debrief, DebriefArtifactResult } from '../shared/types'
 import {
   DEFAULT_PROVIDER_MODEL,
   NO_PROVIDER_CONFIGURED_MESSAGE,
@@ -13,6 +13,7 @@ import {
 import type { ProviderMessage } from './providers'
 import { ClaudeAdapter } from './cli-adapters/claude'
 import { broadcastToMobile } from './ws-server'
+import { findArtifactForConversation, readArtifactVersionFile, writeArtifactVersionForConversation } from './artifacts'
 
 const HEAD = 4000
 const HARD_LIMIT = 40_000
@@ -28,33 +29,50 @@ commandsAndTools: CLI commands, MCP tools, APIs, or techniques used.
 reproductionGuide: numbered steps a reader can follow to reproduce from scratch.
 mentalModel: the diagnostic or design thinking, not just the steps.`
 
-function parseDebriefRow(row: {
-  id: string
-  conversation_id: string
-  project_id: string | null
+export interface DebriefSectionData {
   summary: string
-  commands_tools: string
-  reproduction_guide: string
-  mental_model: string
-  generated_at: number
-  created_at: number
-}): Debrief {
+  commandsAndTools: string[]
+  reproductionGuide: string
+  mentalModel: string
+}
+
+/** Renders a debrief section as markdown, matching the format the old DebriefModal export produced. */
+export function formatDebriefMarkdown(title: string, section: DebriefSectionData): string {
+  const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+  const toolLines = section.commandsAndTools.map((t) => `- ${t}`).join('\n') || '- None'
+  return [
+    `# Debrief: ${title}`,
+    `Generated: ${date}`,
+    '',
+    '## Summary',
+    section.summary,
+    '',
+    '## Commands & Tools Used',
+    toolLines,
+    '',
+    '## How to Reproduce',
+    section.reproductionGuide,
+    '',
+    '## Mental Model / Approach',
+    section.mentalModel,
+  ].join('\n')
+}
+
+function sectionToDebrief(section: DebriefSectionData, conversationId: string, projectId: string | null, versionId: string, timestamp: number): Debrief {
   return {
-    id: row.id,
-    conversationId: row.conversation_id,
-    projectId: row.project_id,
-    summary: row.summary,
-    commandsTools: (() => {
-      try { return JSON.parse(row.commands_tools) as string[] } catch { return [] }
-    })(),
-    reproductionGuide: row.reproduction_guide,
-    mentalModel: row.mental_model,
-    generatedAt: row.generated_at,
-    createdAt: row.created_at,
+    id: versionId,
+    conversationId,
+    projectId,
+    summary: section.summary,
+    commandsTools: section.commandsAndTools,
+    reproductionGuide: section.reproductionGuide,
+    mentalModel: section.mentalModel,
+    generatedAt: timestamp,
+    createdAt: timestamp,
   }
 }
 
-export async function generateDebriefForWs(conversationId: string, projectId: string | null, model?: string): Promise<Debrief> {
+export async function generateDebriefForWs(conversationId: string, projectId: string | null, model?: string): Promise<DebriefArtifactResult> {
   const db = getDatabase()
 
   const rows = db.prepare(
@@ -128,34 +146,49 @@ export async function generateDebriefForWs(conversationId: string, projectId: st
     throw new Error('Failed to parse debrief JSON from AI response')
   }
 
-  const summary = typeof parsed.summary === 'string' ? parsed.summary : ''
-  const commandsAndTools = Array.isArray(parsed.commandsAndTools)
-    ? (parsed.commandsAndTools as unknown[]).map(String)
-    : []
-  const reproductionGuide = typeof parsed.reproductionGuide === 'string' ? parsed.reproductionGuide : ''
-  const mentalModel = typeof parsed.mentalModel === 'string' ? parsed.mentalModel : ''
+  const section: DebriefSectionData = {
+    summary: typeof parsed.summary === 'string' ? parsed.summary : '',
+    commandsAndTools: Array.isArray(parsed.commandsAndTools) ? (parsed.commandsAndTools as unknown[]).map(String) : [],
+    reproductionGuide: typeof parsed.reproductionGuide === 'string' ? parsed.reproductionGuide : '',
+    mentalModel: typeof parsed.mentalModel === 'string' ? parsed.mentalModel : '',
+  }
 
-  const id = randomUUID()
   const now = Date.now()
-  db.prepare(
-    `INSERT OR REPLACE INTO conversation_debriefs
-     (id, conversation_id, project_id, summary, commands_tools, reproduction_guide, mental_model, generated_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, conversationId, projectId ?? null, summary, JSON.stringify(commandsAndTools), reproductionGuide, mentalModel, now, now)
+  const conversationRow = db.prepare('SELECT title FROM conversations WHERE id = ?').get(conversationId) as { title: string } | undefined
+  const conversationTitle = conversationRow?.title ?? 'Conversation'
+  const title = `Debrief: ${conversationTitle}`
 
-  const debrief = parseDebriefRow(
-    db.prepare('SELECT * FROM conversation_debriefs WHERE id = ?').get(id) as Parameters<typeof parseDebriefRow>[0]
-  )
-  broadcastToMobile({ event: 'debrief:ready', data: { debrief } })
-  return debrief
+  const { artifactId, versionId } = writeArtifactVersionForConversation({
+    conversationId,
+    projectId,
+    kind: 'debrief',
+    title,
+    files: [
+      { relativePath: 'debrief.json', mediaType: 'application/json', role: 'primary', content: JSON.stringify(section, null, 2) },
+      { relativePath: 'debrief.md', mediaType: 'text/markdown', role: 'supporting', content: formatDebriefMarkdown(conversationTitle, section) },
+    ],
+  })
+
+  const debrief = sectionToDebrief(section, conversationId, projectId, versionId, now)
+  const result: DebriefArtifactResult = { debrief, artifactId, versionId }
+  broadcastToMobile({ event: 'debrief:ready', data: result })
+  return result
 }
 
-export function getDebriefForWs(conversationId: string): Debrief | null {
-  const db = getDatabase()
-  const row = db.prepare(
-    'SELECT * FROM conversation_debriefs WHERE conversation_id = ?'
-  ).get(conversationId) as Parameters<typeof parseDebriefRow>[0] | undefined
-  return row ? parseDebriefRow(row) : null
+export function getDebriefForWs(conversationId: string): DebriefArtifactResult | null {
+  const artifact = findArtifactForConversation(conversationId, 'debrief')
+  const version = artifact?.currentVersion
+  if (!artifact || !version) return null
+  const content = readArtifactVersionFile(version.id, 'debrief.json')
+  if (!content) return null
+  let section: DebriefSectionData
+  try {
+    section = JSON.parse(content) as DebriefSectionData
+  } catch {
+    return null
+  }
+  const debrief = sectionToDebrief(section, conversationId, artifact.projectId, version.id, version.createdAt)
+  return { debrief, artifactId: artifact.id, versionId: version.id }
 }
 
 export function markCompleteForWs(conversationId: string): { completedAt: number } | null {
@@ -186,11 +219,11 @@ export function markIncompleteForWs(conversationId: string): boolean {
 }
 
 export function registerDebriefHandlers(): void {
-  safeHandle('conversation:generate-debrief', async (_event, conversationId: string, projectId: string | null, model?: string): Promise<Debrief> => {
+  safeHandle('conversation:generate-debrief', async (_event, conversationId: string, projectId: string | null, model?: string): Promise<DebriefArtifactResult> => {
     return generateDebriefForWs(conversationId, projectId, model)
   })
 
-  safeHandle('conversation:get-debrief', (_event, conversationId: string): Debrief | null => {
+  safeHandle('conversation:get-debrief', (_event, conversationId: string): DebriefArtifactResult | null => {
     return getDebriefForWs(conversationId)
   })
 
