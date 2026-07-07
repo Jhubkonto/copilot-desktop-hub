@@ -12,17 +12,20 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 sealed class DebriefUiState {
-    object Loading : DebriefUiState()
+    object CheckingExisting : DebriefUiState()
+    data class ReadyToGenerate(val conversationTitle: String, val selectedModel: String?) : DebriefUiState()
+    data class Generating(val conversationTitle: String) : DebriefUiState()
     data class Loaded(val debrief: ConversationDebrief) : DebriefUiState()
     data class Error(val message: String) : DebriefUiState()
 }
 
 class DebriefViewModel(app: Application) : AndroidViewModel(app) {
 
-    private val _state = MutableStateFlow<DebriefUiState>(DebriefUiState.Loading)
+    private val _state = MutableStateFlow<DebriefUiState>(DebriefUiState.CheckingExisting)
     val state: StateFlow<DebriefUiState> = _state.asStateFlow()
 
     private var loadedConversationId: String? = null
+    private var conversationTitle: String = ""
 
     init {
         viewModelScope.launch {
@@ -37,8 +40,11 @@ class DebriefViewModel(app: Application) : AndroidViewModel(app) {
                         if (event.debrief != null && event.debrief.conversationId == loadedConversationId) {
                             _state.value = DebriefUiState.Loaded(event.debrief)
                         } else if (event.debrief == null && loadedConversationId != null) {
-                            // No debrief exists — generate one
-                            WsRepository.generateDebrief(loadedConversationId!!)
+                            // No debrief exists yet — let the user pick a model and confirm before generating,
+                            // rather than silently auto-generating with a hidden default.
+                            val current = _state.value
+                            val previouslySelectedModel = (current as? DebriefUiState.ReadyToGenerate)?.selectedModel
+                            _state.value = DebriefUiState.ReadyToGenerate(conversationTitle, previouslySelectedModel)
                         }
                     }
                     is WsEvent.DebriefError -> _state.value = DebriefUiState.Error(event.message)
@@ -50,13 +56,28 @@ class DebriefViewModel(app: Application) : AndroidViewModel(app) {
 
     fun load(conversationId: String) {
         loadedConversationId = conversationId
-        _state.value = DebriefUiState.Loading
+        conversationTitle = WsRepository.conversations.value.find { it.id == conversationId }?.title.orEmpty()
+        _state.value = DebriefUiState.CheckingExisting
         WsRepository.getDebrief(conversationId)
+    }
+
+    fun setSelectedModel(modelId: String?) {
+        val current = _state.value
+        if (current is DebriefUiState.ReadyToGenerate) {
+            _state.value = current.copy(selectedModel = modelId)
+        }
+    }
+
+    fun generate() {
+        val id = loadedConversationId ?: return
+        val model = (_state.value as? DebriefUiState.ReadyToGenerate)?.selectedModel
+        _state.value = DebriefUiState.Generating(conversationTitle)
+        WsRepository.generateDebrief(id, model = model)
     }
 
     fun retry(conversationId: String) {
         loadedConversationId = conversationId
-        _state.value = DebriefUiState.Loading
+        _state.value = DebriefUiState.Generating(conversationTitle)
         WsRepository.generateDebrief(conversationId)
     }
 }
