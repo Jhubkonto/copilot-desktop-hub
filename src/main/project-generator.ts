@@ -277,24 +277,33 @@ export async function runProjectGeneratorChat(
 
   let accumulated = ''
 
-  const fullText = await runProjectGeneratorProviderChat(
-    win,
-    providerMessages,
-    sessionId,
-    win.webContents,
-    (chunk) => {
-      accumulated += chunk
-      sendChunk(chunk)
-    },
-    modelOverride,
-  )
+  try {
+    const fullText = await runProjectGeneratorProviderChat(
+      win,
+      providerMessages,
+      sessionId,
+      win.webContents,
+      (chunk) => {
+        accumulated += chunk
+        sendChunk(chunk)
+      },
+      modelOverride,
+    )
 
-  accumulated = fullText || accumulated
+    accumulated = fullText || accumulated
 
-  const spec = extractSpec(accumulated)
-  if (!win.isDestroyed()) {
-    if (spec) win.webContents.send('project-generator:spec-ready', spec)
-    win.webContents.send('project-generator:done', { hasSpec: spec !== null })
+    const spec = extractSpec(accumulated)
+    if (!win.isDestroyed()) {
+      if (spec) win.webContents.send('project-generator:spec-ready', spec)
+      win.webContents.send('project-generator:done', { hasSpec: spec !== null })
+    }
+  } catch (error) {
+    if (!win.isDestroyed()) {
+      win.webContents.send('project-generator:error', {
+        message: error instanceof Error ? error.message : String(error),
+      })
+    }
+    throw error
   }
 }
 

@@ -15,7 +15,7 @@ import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
 import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.WsRepository
-import io.nexy.android.navigation.NavGraph
+import io.nexy.android.navigation.AppShell
 import io.nexy.android.ui.theme.NexyTheme
 import io.nexy.android.ui.theme.ThemePreference
 import io.nexy.android.ui.theme.ThemePreferenceStore
@@ -42,7 +42,7 @@ class MainActivity : ComponentActivity() {
                 ThemePreference.Dark -> true
             }
             NexyTheme(darkTheme = darkTheme) {
-                NavGraph(
+                AppShell(
                     onRequestNotificationPermission = ::requestNotificationPermissionIfNeeded,
                     pendingDeeplink = pendingDeeplink,
                 )

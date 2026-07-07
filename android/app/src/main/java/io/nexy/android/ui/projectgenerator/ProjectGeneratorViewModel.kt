@@ -2,7 +2,6 @@ package io.nexy.android.ui.projectgenerator
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import io.nexy.android.data.BackgroundActivityTracker
 import io.nexy.android.data.WsClient
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.ProjectGeneratorSpec
@@ -18,7 +17,6 @@ data class ProjectGenMessage(val role: String, val content: String)
 enum class ProjectGenPhase { CHAT, SPEC_REVIEW, DONE }
 
 private const val GREETING = "Let's create a new project. Tell me what you're building or working on, and I'll help configure the perfect setup."
-private const val ACTIVITY_ID = "project-generator"
 
 data class ProjectGeneratorUiState(
     val phase: ProjectGenPhase = ProjectGenPhase.CHAT,
@@ -44,15 +42,6 @@ class ProjectGeneratorViewModel(
     val uiState: StateFlow<ProjectGeneratorUiState> = _uiState.asStateFlow()
 
     init {
-        viewModelScope.launch {
-            uiState.collect { state ->
-                if (state.isLoading) {
-                    BackgroundActivityTracker.register(ACTIVITY_ID, "Generating project…", "project-generator")
-                } else {
-                    BackgroundActivityTracker.unregister(ACTIVITY_ID)
-                }
-            }
-        }
         viewModelScope.launch {
             wsClient.events.collect { event ->
                 when (event) {
@@ -184,11 +173,6 @@ class ProjectGeneratorViewModel(
 
     fun dismissError() {
         _uiState.value = _uiState.value.copy(error = null)
-    }
-
-    override fun onCleared() {
-        super.onCleared()
-        BackgroundActivityTracker.unregister(ACTIVITY_ID)
     }
 
     private fun isActiveSession(sessionId: String?): Boolean =

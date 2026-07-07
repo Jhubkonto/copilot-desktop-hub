@@ -219,27 +219,36 @@ export async function runSkillGeneratorChat(
   const sessionId = `skill-gen-${randomUUID()}`
   let accumulated = ''
 
-  const fullText = await runSkillGeneratorProviderChat(
-    win,
-    providerMessages,
-    sessionId,
-    win.webContents,
-    (chunk) => {
-      accumulated += chunk
-      if (!win.isDestroyed()) win.webContents.send('skill-generator:token', chunk)
-    },
-    modelOverride,
-  )
+  try {
+    const fullText = await runSkillGeneratorProviderChat(
+      win,
+      providerMessages,
+      sessionId,
+      win.webContents,
+      (chunk) => {
+        accumulated += chunk
+        if (!win.isDestroyed()) win.webContents.send('skill-generator:token', chunk)
+      },
+      modelOverride,
+    )
 
-  accumulated = fullText || accumulated
-  if (!accumulated.trim()) {
-    throw new Error(`Skill generator returned no response from ${modelOverride ?? getSkillGeneratorModel()}. Check the selected model/provider or choose a different model.`)
-  }
+    accumulated = fullText || accumulated
+    if (!accumulated.trim()) {
+      throw new Error(`Skill generator returned no response from ${modelOverride ?? getSkillGeneratorModel()}. Check the selected model/provider or choose a different model.`)
+    }
 
-  const spec = extractSpec(accumulated)
-  if (!win.isDestroyed()) {
-    if (spec) win.webContents.send('skill-generator:spec-ready', spec)
-    win.webContents.send('skill-generator:done', { hasSpec: spec !== null })
+    const spec = extractSpec(accumulated)
+    if (!win.isDestroyed()) {
+      if (spec) win.webContents.send('skill-generator:spec-ready', spec)
+      win.webContents.send('skill-generator:done', { hasSpec: spec !== null })
+    }
+  } catch (error) {
+    if (!win.isDestroyed()) {
+      win.webContents.send('skill-generator:error', {
+        message: error instanceof Error ? error.message : String(error),
+      })
+    }
+    throw error
   }
 }
 

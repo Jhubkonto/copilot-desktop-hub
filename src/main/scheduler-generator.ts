@@ -221,27 +221,36 @@ export async function runScheduleGeneratorChat(
   const sessionId = `schedule-gen-${randomUUID()}`
   let accumulated = ''
 
-  const fullText = await runScheduleGeneratorProviderChat(
-    win,
-    providerMessages,
-    sessionId,
-    win.webContents,
-    (chunk) => {
-      accumulated += chunk
-      if (!win.isDestroyed()) win.webContents.send('scheduler-generator:token', chunk)
-    },
-    modelOverride,
-  )
+  try {
+    const fullText = await runScheduleGeneratorProviderChat(
+      win,
+      providerMessages,
+      sessionId,
+      win.webContents,
+      (chunk) => {
+        accumulated += chunk
+        if (!win.isDestroyed()) win.webContents.send('scheduler-generator:token', chunk)
+      },
+      modelOverride,
+    )
 
-  accumulated = fullText || accumulated
-  if (!accumulated.trim()) {
-    throw new Error(`Schedule generator returned no response from ${modelOverride ?? getScheduleGeneratorModel()}. Check the selected model/provider or choose a different model.`)
-  }
+    accumulated = fullText || accumulated
+    if (!accumulated.trim()) {
+      throw new Error(`Schedule generator returned no response from ${modelOverride ?? getScheduleGeneratorModel()}. Check the selected model/provider or choose a different model.`)
+    }
 
-  const spec = extractSpec(accumulated)
-  if (!win.isDestroyed()) {
-    if (spec) win.webContents.send('scheduler-generator:spec-ready', spec)
-    win.webContents.send('scheduler-generator:done', { hasSpec: spec !== null })
+    const spec = extractSpec(accumulated)
+    if (!win.isDestroyed()) {
+      if (spec) win.webContents.send('scheduler-generator:spec-ready', spec)
+      win.webContents.send('scheduler-generator:done', { hasSpec: spec !== null })
+    }
+  } catch (error) {
+    if (!win.isDestroyed()) {
+      win.webContents.send('scheduler-generator:error', {
+        message: error instanceof Error ? error.message : String(error),
+      })
+    }
+    throw error
   }
 }
 

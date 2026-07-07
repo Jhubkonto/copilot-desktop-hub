@@ -10,6 +10,7 @@ export interface AgentSlice {
   historyAgentId: string | null
   editingAgentId: string | null
   showAgentPanel: boolean
+  showAgentGenerator: boolean
   agentsLoading: boolean
   pendingDeleteAgent: DeleteAgentImpact | null
   loadAgents: () => Promise<void>
@@ -19,6 +20,7 @@ export interface AgentSlice {
   openCreateAgent: () => void
   openEditAgent: (id: string) => void
   closeAgentPanel: () => void
+  setShowAgentGenerator: (show: boolean) => void
   saveAgent: (config: AgentConfig) => Promise<void>
   deleteAgent: (id: string) => Promise<void>
   confirmDeleteAgent: () => Promise<void>
@@ -39,6 +41,7 @@ export const createAgentSlice: StateCreator<
   historyAgentId: null,
   editingAgentId: null,
   showAgentPanel: false,
+  showAgentGenerator: false,
   agentsLoading: false,
   pendingDeleteAgent: null,
 
@@ -107,6 +110,12 @@ export const createAgentSlice: StateCreator<
   closeAgentPanel: () => {
     set((s) => {
       s.showAgentPanel = false
+    })
+  },
+
+  setShowAgentGenerator: (show) => {
+    set((s) => {
+      s.showAgentGenerator = show
     })
   },
 

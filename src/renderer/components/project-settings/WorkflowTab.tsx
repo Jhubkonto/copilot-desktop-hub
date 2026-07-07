@@ -5,6 +5,7 @@ import type { ProjectAgent, ProjectConfig } from '../../store/types'
 import { useAppStore } from '../../store/app-store'
 import { ModelPicker } from '../chat/ModelPicker'
 import { VoiceInputButton } from '../chat/VoiceInputButton'
+import { clearManualWorkflowGeneration, trackManualWorkflowGeneration } from '../BackgroundActivityBridges'
 import { DropdownPanel } from '../DropdownPanel'
 
 interface Props {
@@ -78,6 +79,7 @@ export function WorkflowTab({ projectId, members, projectConfig, onStartWorkflow
       setMissedSpec(false)
     })
     const offDone = window.api.onManualWorkflowGeneratorDone(({ hasSpec }) => {
+      clearManualWorkflowGeneration(projectId)
       const capturedText = streamingTextRef.current
       const clean = stripSpecTags(capturedText)
       if (clean) {
@@ -89,7 +91,7 @@ export function WorkflowTab({ projectId, members, projectConfig, onStartWorkflow
       if (!hasSpec && !clean) setMissedSpec(true)
     })
     return () => { offToken(); offSpec(); offDone() }
-  }, [])
+  }, [projectId])
 
   const sendMessage = async (userText: string) => {
     const trimmed = userText.trim()
@@ -98,6 +100,7 @@ export function WorkflowTab({ projectId, members, projectConfig, onStartWorkflow
     setMessages(nextMessages)
     setInputText('')
     setIsGenerating(true)
+    trackManualWorkflowGeneration(projectId)
     setMissedSpec(false)
     setStreamingText('')
     streamingTextRef.current = ''
@@ -109,6 +112,8 @@ export function WorkflowTab({ projectId, members, projectConfig, onStartWorkflow
     } catch (error) {
       setIsGenerating(false)
       onToast(error instanceof Error ? error.message : 'Failed to generate workflow', 'error')
+    } finally {
+      clearManualWorkflowGeneration(projectId)
     }
   }
 

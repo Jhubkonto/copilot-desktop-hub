@@ -30,6 +30,8 @@ export function ProjectPanel() {
   const addToast = useAppStore((s) => s.addToast)
   const newlyCreatedProjectId = useAppStore((s) => s.newlyCreatedProjectId)
   const clearNewlyCreatedProjectId = useAppStore((s) => s.clearNewlyCreatedProjectId)
+  const projectSettingsInitialTab = useAppStore((s) => s.projectSettingsInitialTab)
+  const clearProjectSettingsInitialTab = useAppStore((s) => s.clearProjectSettingsInitialTab)
 
   const handleSetSize = useCallback((size: number) => {
     setWidth(Math.max(PANEL_MIN, Math.min(PANEL_MAX, size)))
@@ -74,6 +76,10 @@ export function ProjectPanel() {
   const editingProject = editingProjectId ? projects.find((p) => p.id === editingProjectId) : null
   const title = showNewProjectForm ? 'New Project' : `Project Settings${editingProject ? `: ${editingProject.name}` : ''}`
   const ariaLabel = showNewProjectForm ? 'Create new project' : 'Edit project settings'
+  const initialProjectSettingsTab =
+    newlyCreatedProjectId === editingProjectId
+      ? 'team'
+      : projectSettingsInitialTab ?? undefined
 
   return (
     <div
@@ -119,15 +125,13 @@ export function ProjectPanel() {
             />
           ) : editingProjectId ? (
             <ProjectSettingsPanel
+              key={`${editingProjectId}:${initialProjectSettingsTab ?? 'general'}`}
               projectId={editingProjectId}
               onClose={handleClose}
-              initialTab={
-                newlyCreatedProjectId === editingProjectId
-                  ? 'team'
-                  : undefined
-              }
+              initialTab={initialProjectSettingsTab}
               onMount={() => {
                 if (newlyCreatedProjectId === editingProjectId) clearNewlyCreatedProjectId()
+                if (projectSettingsInitialTab) clearProjectSettingsInitialTab()
               }}
               flashTeam={newlyCreatedProjectId === editingProjectId}
             />

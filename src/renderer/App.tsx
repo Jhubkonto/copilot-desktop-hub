@@ -8,10 +8,15 @@ import { ToastContainer } from './components/Toast'
 import { DeleteAgentDialog } from './components/DeleteAgentDialog'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { AndroidLogPanel } from './components/AndroidLogPanel'
+import { BackgroundActivityBridges } from './components/BackgroundActivityBridges'
+import { BackgroundActivityDock } from './components/BackgroundActivityDock'
 import { useAppStore } from './store/app-store'
 
 const AgentPanel = lazy(() =>
   import('./components/AgentPanel').then((m) => ({ default: m.AgentPanel }))
+)
+const AgentGeneratorModal = lazy(() =>
+  import('./components/AgentGeneratorModal').then((m) => ({ default: m.AgentGeneratorModal }))
 )
 const McpServerPanel = lazy(() =>
   import('./components/McpServerPanel').then((m) => ({ default: m.McpServerPanel }))
@@ -44,6 +49,8 @@ const ArtifactPanel = lazy(() =>
 export default function App() {
   const theme = useAppStore((s) => s.theme)
   const showAgentPanel = useAppStore((s) => s.showAgentPanel)
+  const showAgentGenerator = useAppStore((s) => s.showAgentGenerator)
+  const setShowAgentGenerator = useAppStore((s) => s.setShowAgentGenerator)
   const showOnboarding = useAppStore((s) => s.showOnboarding)
   const showSidebar = useAppStore((s) => s.showSidebar)
   const activeSectionPane = useAppStore((s) => s.activeSectionPane)
@@ -268,6 +275,10 @@ export default function App() {
           <AgentPanel width={agentPanelWidth} onResize={handleAgentPanelResize} />
         )}
 
+        {showAgentGenerator && (
+          <AgentGeneratorModal onClose={() => setShowAgentGenerator(false)} />
+        )}
+
         {(showNewProjectForm || editingProjectId) && <ProjectPanel />}
 
         {showProjectGenerator && (
@@ -312,6 +323,8 @@ export default function App() {
 
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
       <AndroidLogPanel enabled={androidDebugLog} />
+      <BackgroundActivityBridges />
+      <BackgroundActivityDock />
     </div>
     </ErrorBoundary>
   )

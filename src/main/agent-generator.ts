@@ -257,24 +257,33 @@ export async function runAgentGeneratorChat(
 
   let accumulated = ''
 
-  const fullText = await runAgentGeneratorProviderChat(
-    win,
-    providerMessages,
-    sessionId,
-    win.webContents,
-    (chunk) => {
-      accumulated += chunk
-      if (!win.isDestroyed()) win.webContents.send('agent-generator:token', chunk)
-    },
-    modelOverride,
-  )
+  try {
+    const fullText = await runAgentGeneratorProviderChat(
+      win,
+      providerMessages,
+      sessionId,
+      win.webContents,
+      (chunk) => {
+        accumulated += chunk
+        if (!win.isDestroyed()) win.webContents.send('agent-generator:token', chunk)
+      },
+      modelOverride,
+    )
 
-  accumulated = fullText || accumulated
+    accumulated = fullText || accumulated
 
-  const spec = extractSpec(accumulated)
-  if (!win.isDestroyed()) {
-    if (spec) win.webContents.send('agent-generator:spec-ready', spec)
-    win.webContents.send('agent-generator:done', { hasSpec: spec !== null })
+    const spec = extractSpec(accumulated)
+    if (!win.isDestroyed()) {
+      if (spec) win.webContents.send('agent-generator:spec-ready', spec)
+      win.webContents.send('agent-generator:done', { hasSpec: spec !== null })
+    }
+  } catch (error) {
+    if (!win.isDestroyed()) {
+      win.webContents.send('agent-generator:error', {
+        message: error instanceof Error ? error.message : String(error),
+      })
+    }
+    throw error
   }
 }
 

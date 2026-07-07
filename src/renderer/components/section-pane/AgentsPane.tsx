@@ -1,11 +1,7 @@
-import { useEffect, useDeferredValue, useMemo, useRef, useState, lazy, Suspense } from 'react'
+import { useEffect, useDeferredValue, useMemo, useRef, useState } from 'react'
 import { Plus, Settings, Upload, MessageSquare, Trash2, FolderPlus, Check, Search, X, Sparkles } from 'lucide-react'
 import { useAppStore } from '../../store/app-store'
 import type { AgentConfig } from '../../../shared/types'
-
-const AgentGeneratorModal = lazy(() =>
-  import('../AgentGeneratorModal').then((m) => ({ default: m.AgentGeneratorModal }))
-)
 
 export function AgentsPane() {
   const agents = useAppStore((s) => s.agents)
@@ -21,10 +17,10 @@ export function AgentsPane() {
   const projectAgents = useAppStore((s) => s.projectAgents)
   const addAgentToProject = useAppStore((s) => s.addAgentToProject)
   const addToast = useAppStore((s) => s.addToast)
+  const setShowAgentGenerator = useAppStore((s) => s.setShowAgentGenerator)
 
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
-  const [showGenerator, setShowGenerator] = useState(false)
   const [addToProjectAgentId, setAddToProjectAgentId] = useState<string | null>(null)
   const addToProjectPopoverRef = useRef<HTMLDivElement>(null)
 
@@ -78,7 +74,7 @@ export function AgentsPane() {
             Import
           </button>
           <button
-            onClick={() => setShowGenerator(true)}
+            onClick={() => setShowAgentGenerator(true)}
             className="flex items-center gap-1 text-xs text-indigo-500 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-200 px-2 py-1 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
             aria-label="Generate agent with AI"
           >
@@ -239,12 +235,6 @@ export function AgentsPane() {
         })}
       </div>
     </div>
-
-    {showGenerator && (
-      <Suspense fallback={null}>
-        <AgentGeneratorModal onClose={() => setShowGenerator(false)} />
-      </Suspense>
-    )}
     </>
   )
 }

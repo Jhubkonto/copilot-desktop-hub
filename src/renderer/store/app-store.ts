@@ -9,6 +9,10 @@ import {
   type AuthSlice
 } from './slices/authSlice'
 import {
+  createBackgroundActivitySlice,
+  type BackgroundActivitySlice
+} from './slices/backgroundActivitySlice'
+import {
   createConversationSlice,
   type ConversationSlice
 } from './slices/conversationSlice'
@@ -33,6 +37,8 @@ import { isApiError } from '../../shared/types'
 export type {
   ActiveSectionPane,
   AuthState,
+  BackgroundActivity,
+  BackgroundActivityKind,
   Conversation,
   DeleteAgentImpact,
   Milestone,
@@ -40,6 +46,7 @@ export type {
   ProjectAgent,
   ProjectConfig,
   ProjectOrchestrationConfig,
+  ProjectSettingsTab,
   ProjectVariable,
   ScopeRule,
   SkillConfig,
@@ -51,6 +58,7 @@ export { DEFAULT_PROJECT_CONFIG } from './types'
 
 export type AppState =
   & AuthSlice
+  & BackgroundActivitySlice
   & ConversationSlice
   & ProjectSlice
   & SkillSlice
@@ -64,6 +72,7 @@ export type AppState =
 export const useAppStore = create<AppState>()(
   immer((set, get, store) => ({
     ...createAuthSlice(set, get, store),
+    ...createBackgroundActivitySlice(set, get, store),
     ...createConversationSlice(set, get, store),
     ...createProjectSlice(set, get, store),
     ...createSkillSlice(set, get, store),

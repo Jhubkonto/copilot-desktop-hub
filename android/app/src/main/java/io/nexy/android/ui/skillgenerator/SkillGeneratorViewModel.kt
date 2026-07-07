@@ -2,7 +2,6 @@ package io.nexy.android.ui.skillgenerator
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import io.nexy.android.data.BackgroundActivityTracker
 import io.nexy.android.data.WsClient
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.SkillGeneratorSpec
@@ -18,7 +17,6 @@ data class SkillGenMessage(val role: String, val content: String)
 enum class SkillGenPhase { CHAT, SPEC_REVIEW, DONE }
 
 private const val GREETING = "Let's create a new skill. Describe what you want it to do, which tools it should use, and any approval or instruction details."
-private const val ACTIVITY_ID = "skill-generator"
 
 data class SkillGeneratorUiState(
     val phase: SkillGenPhase = SkillGenPhase.CHAT,
@@ -44,15 +42,6 @@ class SkillGeneratorViewModel(
     val uiState: StateFlow<SkillGeneratorUiState> = _uiState.asStateFlow()
 
     init {
-        viewModelScope.launch {
-            uiState.collect { state ->
-                if (state.isLoading) {
-                    BackgroundActivityTracker.register(ACTIVITY_ID, "Generating skill…", "skill-generator")
-                } else {
-                    BackgroundActivityTracker.unregister(ACTIVITY_ID)
-                }
-            }
-        }
         viewModelScope.launch {
             wsClient.events.collect { event ->
                 when (event) {
@@ -173,11 +162,6 @@ class SkillGeneratorViewModel(
 
     fun dismissError() {
         _uiState.value = _uiState.value.copy(error = null)
-    }
-
-    override fun onCleared() {
-        super.onCleared()
-        BackgroundActivityTracker.unregister(ACTIVITY_ID)
     }
 
     private fun isActiveSession(sessionId: String?): Boolean =

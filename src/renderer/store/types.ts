@@ -73,3 +73,19 @@ export { DEFAULT_PROJECT_CONFIG } from '../../shared/types'
 
 export type Theme = 'light' | 'dark'
 export type ActiveSectionPane = 'projects' | 'agents' | 'chats' | 'skills' | 'scheduled' | 'artifacts' | null
+export type ProjectSettingsTab = 'general' | 'scope' | 'milestones' | 'team' | 'workflow' | 'changes' | 'wiki' | 'artifacts'
+export type BackgroundActivityKind =
+  | 'project-generator'
+  | 'agent-generator'
+  | 'skill-generator'
+  | 'scheduler-generator'
+  | 'manual-workflow-generator'
+
+export interface BackgroundActivity {
+  id: string
+  kind: BackgroundActivityKind
+  label: string
+  detail?: string
+  projectId?: string
+  startedAt: number
+}

@@ -551,7 +551,7 @@ fun HomeScreen(
                 intentionalRestartExpected = intentionalRestartExpected,
                 pendingChanges = capabilities.pendingChanges,
                 failedChanges = capabilities.failedChanges,
-                backgroundActivities = backgroundActivities,
+                backgroundActivities = emptyList(),
                 onWakeDesktop = { vm.wakeDesktop() },
                 onOpenConnection = { onNavigateRoute("settings/connection") },
                 onOpenActivity = { activity -> onNavigateRoute(activity.route) },

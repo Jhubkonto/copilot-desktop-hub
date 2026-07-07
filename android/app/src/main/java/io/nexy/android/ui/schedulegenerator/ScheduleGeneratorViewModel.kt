@@ -2,7 +2,6 @@ package io.nexy.android.ui.schedulegenerator
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import io.nexy.android.data.BackgroundActivityTracker
 import io.nexy.android.data.WsClient
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.ScheduleGeneratorSpec
@@ -18,7 +17,6 @@ data class ScheduleGenMessage(val role: String, val content: String)
 enum class ScheduleGenPhase { CHAT, SPEC_REVIEW, DONE }
 
 private const val GREETING = "Let's create a scheduled task. Describe what should run, when it should run, and whether it should use a project or agent."
-private const val ACTIVITY_ID = "schedule-generator"
 
 data class ScheduleGeneratorUiState(
     val phase: ScheduleGenPhase = ScheduleGenPhase.CHAT,
@@ -43,15 +41,6 @@ class ScheduleGeneratorViewModel(
     val uiState: StateFlow<ScheduleGeneratorUiState> = _uiState.asStateFlow()
 
     init {
-        viewModelScope.launch {
-            uiState.collect { state ->
-                if (state.isLoading) {
-                    BackgroundActivityTracker.register(ACTIVITY_ID, "Generating scheduled task…", "scheduled/generator")
-                } else {
-                    BackgroundActivityTracker.unregister(ACTIVITY_ID)
-                }
-            }
-        }
         viewModelScope.launch {
             wsClient.events.collect { event ->
                 when (event) {
@@ -173,11 +162,6 @@ class ScheduleGeneratorViewModel(
 
     fun insertPromptText(body: String) {
         _uiState.value = _uiState.value.copy(promptInsert = Pair(++promptInsertCounter, body))
-    }
-
-    override fun onCleared() {
-        super.onCleared()
-        BackgroundActivityTracker.unregister(ACTIVITY_ID)
     }
 
     private fun isActiveSession(sessionId: String?): Boolean =
