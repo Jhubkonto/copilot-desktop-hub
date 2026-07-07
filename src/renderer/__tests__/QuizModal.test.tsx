@@ -49,6 +49,13 @@ describe('QuizModal', () => {
     await waitFor(() => screen.getByText(/No questions could be generated/i))
   })
 
+  it('shows the real error message instead of crashing when the IPC call resolves with an ApiError', async () => {
+    api.generateQuiz.mockResolvedValueOnce({ error: 'No debrief found — generate a debrief first.' })
+    render(<QuizModal conversationId="conv-1" onClose={vi.fn()} />)
+    await waitFor(() => screen.getByText(/No debrief found — generate a debrief first\./i))
+    expect(screen.getByText(/Retry/i)).toBeInTheDocument()
+  })
+
   it('renders first question after generateQuiz resolves', async () => {
     api.generateQuiz.mockResolvedValueOnce({ questions: MOCK_QUESTIONS })
     render(<QuizModal conversationId="conv-1" onClose={vi.fn()} />)

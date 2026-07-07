@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { BrainCircuit, CheckCircle, Loader2, XCircle } from 'lucide-react'
 import { ModalShell } from './ui/primitives'
-import type { QuizAttempt, QuizQuestion, QuizResult } from '../../shared/types'
+import { isApiError, type QuizAttempt, type QuizQuestion, type QuizResult } from '../../shared/types'
 
 interface QuizModalProps {
   conversationId: string
@@ -56,6 +56,10 @@ export function QuizModal({ conversationId, onClose }: QuizModalProps) {
 
     window.api.generateQuiz(conversationId)
       .then((res) => {
+        if (isApiError(res)) {
+          setError(res.error)
+          return
+        }
         if (res.questions.length === 0) {
           setError('No questions could be generated. Try generating a debrief first.')
           return
