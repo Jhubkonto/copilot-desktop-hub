@@ -33,6 +33,14 @@ delete-versus-edit changes create a conflict containing both recoverable values.
 Android or desktop value for each conflict. Tombstones are retained until the peer acknowledges a
 covering snapshot.
 
+Sync failures self-heal where possible: deleting a conversation locally also cancels any
+not-yet-synced operations for its messages, and a failed operation whose parent record no longer
+exists locally is discarded automatically (no user action, no notification) rather than sitting in
+"failed" forever. Whatever remains genuinely failed is retried automatically rather than requiring
+a manual retry for every item. Error text shown in the Connection screen and Diagnostics is
+translated into plain language where the underlying cause is recognized (e.g. a change that
+referenced already-deleted data); unrecognized errors still show their raw text.
+
 Messages created on either device use stable UUIDs. Replaying an acknowledged batch is safe.
 Attachments stored by standalone chat are content-addressed with SHA-256 hashes. The sync protocol
 transfers attachment manifests and verified 64 KB chunks, resumes from the acknowledged byte
@@ -41,11 +49,14 @@ offset after reconnect, deduplicates by content hash, and restarts a damaged dow
 ## Standalone mode toggle
 
 "Standalone" and "remote" are a user preference, separate from the connection-status indicator.
-The connection chip in the top bar and Settings → Connection always reflects actual reachability
-(Connected/Connecting/Searching/Disconnected). The **Standalone mode** switch — in the connection
-sheet (tap the connection chip) and in Settings → Connection — is an explicit choice to use only
-this device's own provider keys even when a desktop is reachable, so remote CLI models and desktop
-file/git context stay hidden without implying the desktop is unreachable.
+The home top bar's connection chip doubles as this toggle: tapping it flips Standalone ↔ Remote
+immediately, and its label ("Connected to desktop", "Connecting…", "Searching…", "Standalone mode")
+always reflects actual reachability. The toggle is disabled while a chat, generation, or sync is
+active — tapping it then shows a toast explaining why, since switching modes mid-stream would pull
+the connection out from under it. The same toggle, with an explanation of what each mode affects,
+is also available in Settings → Connection for a slower, more deliberate path to the same setting.
+Either way, remote CLI models and desktop file/git context stay hidden in Standalone mode without
+implying the desktop is unreachable.
 
 ## Direct provider chat
 
@@ -67,6 +78,16 @@ deterministic, trims old turns to the configured budget, and stores a rolling su
 compression is needed. Usage comes from the provider response. Cost is labeled as an estimate and
 is zero/unknown when the bundled pricing catalog has no matching entry.
 
+## Debrief
+
+A debrief asks an AI model to read a conversation's full transcript and produce a summary, the
+commands/tools/APIs used, a step-by-step reproduction guide, and the reasoning approach followed.
+It's unrelated to "Mark complete" — generating a debrief doesn't change a conversation's completed
+state, and marking a conversation complete doesn't generate one. Opening **Debrief** from a
+conversation's menu shows which conversation it's for and lets you pick a model before generating,
+rather than silently generating with a hidden default; the fallback if you don't choose one is the
+conversation's own model, then the app's global default.
+
 ## Backup and recovery
 
 Open **Settings → Backup & recovery** to create or restore a passphrase-encrypted backup. Backups
@@ -79,8 +100,10 @@ local standalone dataset, so create a fresh backup first when the existing datab
 
 ## Troubleshooting
 
-- A **Standalone mode** banner is informational; cached data and local edits remain available.
-- Check **Settings → Connection** for outbox failures, conflicts, and last successful sync.
+- "Standalone mode" in the top bar is informational, not an error state; cached data and local
+  edits remain available.
+- Check **Settings → Connection** for outbox failures, conflicts, and last successful sync — most
+  failures clear on their own; anything still listed there needs a manual look.
 - Provider authentication and rate-limit errors appear on the interrupted assistant turn.
 - **Settings → Developer → Debug log** contains bounded runtime diagnostics. It does not include
   provider credentials or synchronization payload bodies.
