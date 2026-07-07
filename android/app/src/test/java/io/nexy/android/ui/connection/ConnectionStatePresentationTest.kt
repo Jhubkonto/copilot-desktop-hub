@@ -11,7 +11,7 @@ class ConnectionStatePresentationTest {
     @Test
     fun connectedState_returnsConnectedLabel() {
         val result = getConnectionStatePresentation(ConnectionState.CONNECTED)
-        assertEquals("Connected", result.label)
+        assertEquals("Connected to desktop", result.label)
         assertEquals(Color(0xFF22C55E), result.color)
     }
 
@@ -62,13 +62,13 @@ class ConnectionStatePresentationTest {
             ConnectionState.CONNECTED,
             intentionalRestartExpected = true
         )
-        assertEquals("Connected", result.label)
+        assertEquals("Connected to desktop", result.label)
         assertEquals(Color(0xFF22C55E), result.color)
     }
 
     @Test
     fun connectionStateLabelFunction_returnsLabelOnly() {
-        assertEquals("Connected", connectionStateLabel(ConnectionState.CONNECTED))
+        assertEquals("Connected to desktop", connectionStateLabel(ConnectionState.CONNECTED))
         assertEquals("Connecting…", connectionStateLabel(ConnectionState.CONNECTING))
         assertEquals("Searching…", connectionStateLabel(ConnectionState.POLLING))
         assertEquals("Disconnected", connectionStateLabel(ConnectionState.DISCONNECTED))
@@ -77,7 +77,7 @@ class ConnectionStatePresentationTest {
     @Test
     fun effectiveModeConnected_returnsConnectedLabel() {
         val result = getEffectiveModePresentation(EffectiveConnectionMode.CONNECTED)
-        assertEquals("Connected", result.label)
+        assertEquals("Connected to desktop", result.label)
         assertEquals(Color(0xFF22C55E), result.color)
     }
 

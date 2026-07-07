@@ -14,32 +14,52 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import io.nexy.android.data.ConnectionState
-import io.nexy.android.ui.connection.getConnectionStatePresentation
+import io.nexy.android.data.BackgroundActivity
+import io.nexy.android.data.EffectiveConnectionMode
+import io.nexy.android.ui.connection.getEffectiveModePresentation
 
+// Whether it's safe to flip Standalone/Remote mode right now. Switching mid-stream would yank
+// the active chat/generation/sync out from under itself, so the toggle is gated on all of these
+// being empty/false rather than just connection state.
+fun hasActiveActivity(
+    activeConversationIds: Set<String>,
+    pendingConversationIds: Set<String>,
+    syncInProgress: Boolean,
+    backgroundActivities: List<BackgroundActivity>,
+): Boolean =
+    activeConversationIds.isNotEmpty() ||
+        pendingConversationIds.isNotEmpty() ||
+        syncInProgress ||
+        backgroundActivities.isNotEmpty()
+
+/**
+ * The ever-present connectivity indicator in the home top bar. Also doubles as the Standalone/
+ * Remote mode toggle: tapping it flips the mode immediately when [isBusy] is false, or calls
+ * [onBusyTap] (to explain why not) when something is currently active.
+ */
 @Composable
 fun ConnectionChip(
-    state: ConnectionState,
+    mode: EffectiveConnectionMode,
     intentionalRestartExpected: Boolean = false,
-    onClick: (() -> Unit)? = null,
+    isBusy: Boolean = false,
+    onToggle: () -> Unit,
+    onBusyTap: () -> Unit,
 ) {
-    data class ChipState(val state: ConnectionState, val restartExpected: Boolean)
+    data class ChipState(val mode: EffectiveConnectionMode, val restartExpected: Boolean)
     AnimatedContent(
-        targetState = ChipState(state, intentionalRestartExpected),
+        targetState = ChipState(mode, intentionalRestartExpected),
         transitionSpec = { fadeIn() togetherWith fadeOut() },
         label = "connection-chip",
-    ) { (currentState, restartExpected) ->
-        val presentation = getConnectionStatePresentation(currentState, restartExpected)
-        val clickMod = if (onClick != null) {
-            Modifier
-                .clip(RoundedCornerShape(6.dp))
-                .clickable(onClick = onClick)
-        } else Modifier
+    ) { (currentMode, restartExpected) ->
+        val presentation = getEffectiveModePresentation(currentMode, restartExpected)
         Text(
             text = "● ${presentation.label}",
             color = presentation.color,
             style = MaterialTheme.typography.labelMedium,
-            modifier = clickMod.padding(horizontal = 6.dp, vertical = 4.dp),
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .clickable(onClick = { if (isBusy) onBusyTap() else onToggle() })
+                .padding(horizontal = 6.dp, vertical = 4.dp),
         )
     }
 }

@@ -63,6 +63,17 @@ import java.util.concurrent.TimeUnit
 
 enum class ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, POLLING }
 
+enum class StandaloneModeTransition { NONE, ENTERED_STANDALONE, EXITED_STANDALONE }
+
+// Pure decision of what a Standalone-mode preference change means for the reconnect
+// engine: turning it on should stop trying to reach the desktop; turning it off should
+// resume trying immediately rather than waiting out whatever backoff was in progress.
+fun standaloneModeTransition(prefer: Boolean, wasStandalone: Boolean): StandaloneModeTransition = when {
+    prefer && !wasStandalone -> StandaloneModeTransition.ENTERED_STANDALONE
+    !prefer && wasStandalone -> StandaloneModeTransition.EXITED_STANDALONE
+    else -> StandaloneModeTransition.NONE
+}
+
 object WsRepository : WsClient {
 
     private val STANDALONE_MODELS = listOf(
@@ -235,6 +246,7 @@ object WsRepository : WsClient {
     private var reconnectJob: Job? = null
     private var handshakeTimeoutJob: Job? = null
     private var reconnectAttempts = 0
+    private var activeMdnsDiscovery: MdnsDiscovery? = null
 
     // Set to true when the desktop sends update:restarting so that a 4001/4002
     // close code from the relaunch does not suppress auto-reconnect.
@@ -292,7 +304,34 @@ object WsRepository : WsClient {
     private val _manualWorkflowSession = MutableStateFlow<ManualWorkflowSession?>(null)
     val manualWorkflowSession: StateFlow<ManualWorkflowSession?> = _manualWorkflowSession
 
-    fun startManualWorkflow(projectId: String, initialMessage: String): String {
+    // Extracted for testability: whether `model` ends up in the outgoing payload is the one bit
+    // of real logic here (an explicit `null` must be omitted, not sent as a literal null, so the
+    // desktop's own default-model resolution kicks in).
+    internal fun buildManualWorkflowStartPayload(
+        projectId: String,
+        sessionId: String,
+        initialMessage: String,
+        model: String?,
+    ): Map<String, Any> = buildMap {
+        put("projectId", projectId)
+        put("sessionId", sessionId)
+        put("messages", listOf(mapOf("role" to "user", "content" to initialMessage)))
+        if (model != null) put("model", model)
+    }
+
+    internal fun buildManualWorkflowMessagePayload(
+        projectId: String,
+        sessionId: String,
+        history: List<ManualWorkflowChatMessage>,
+        model: String?,
+    ): Map<String, Any> = buildMap {
+        put("projectId", projectId)
+        put("sessionId", sessionId)
+        put("messages", history.map { mapOf("role" to it.role, "content" to it.content) })
+        if (model != null) put("model", model)
+    }
+
+    fun startManualWorkflow(projectId: String, initialMessage: String, model: String? = null): String {
         val sessionId = java.util.UUID.randomUUID().toString()
         _manualWorkflowSession.value = ManualWorkflowSession(
             sessionId = sessionId,
@@ -303,16 +342,12 @@ object WsRepository : WsClient {
         )
         send(
             "manual-workflow-generator:start",
-            mapOf(
-                "projectId" to projectId,
-                "sessionId" to sessionId,
-                "messages" to listOf(mapOf("role" to "user", "content" to initialMessage)),
-            ),
+            buildManualWorkflowStartPayload(projectId, sessionId, initialMessage, model),
         )
         return sessionId
     }
 
-    fun sendManualWorkflowMessage(text: String) {
+    fun sendManualWorkflowMessage(text: String, model: String? = null) {
         val session = _manualWorkflowSession.value ?: return
         val updatedHistory = session.chatHistory + ManualWorkflowChatMessage("user", text)
         _manualWorkflowSession.value = session.copy(
@@ -322,11 +357,7 @@ object WsRepository : WsClient {
         )
         send(
             "manual-workflow-generator:message",
-            mapOf(
-                "projectId" to session.projectId,
-                "sessionId" to session.sessionId,
-                "messages" to updatedHistory.map { mapOf("role" to it.role, "content" to it.content) },
-            ),
+            buildManualWorkflowMessagePayload(session.projectId, session.sessionId, updatedHistory, model),
         )
     }
 
@@ -343,6 +374,19 @@ object WsRepository : WsClient {
             _remoteEvents.collect { event ->
                 localData?.applyRemoteEvent(event)
                 _events.emit(event)
+            }
+        }
+        scope.launch {
+            _manualWorkflowSession.collect { session ->
+                if (session?.isLoading == true) {
+                    BackgroundActivityTracker.register(
+                        "manual-workflow-generator",
+                        "Generating workflow…",
+                        "manual-workflow/${android.net.Uri.encode(session.projectId)}",
+                    )
+                } else {
+                    BackgroundActivityTracker.unregister("manual-workflow-generator")
+                }
             }
         }
         scope.launch {
@@ -493,6 +537,12 @@ object WsRepository : WsClient {
                             localData?.pendingBatch(100)?.forEach { operation ->
                                 localData?.markFailed(operation.operationId, event.message)
                             }
+                            // A batch-wide failure marks everything pending as failed even though
+                            // only one operation may actually be broken (e.g. it references a
+                            // conversation the user already deleted locally). Tell them apart:
+                            // discard the truly orphaned ones, retry the rest automatically.
+                            localData?.discardOrphanedOperations()
+                            if (_connectionState.value == ConnectionState.CONNECTED) flushStandaloneOutbox()
                         }
                     }
                     is WsEvent.RemoteEditActiveCodeChangesChanged -> {
@@ -631,8 +681,23 @@ object WsRepository : WsClient {
         val preferenceStore = PreferenceStore.getInstance(application)
         scope.launch {
             preferenceStore.getPreferStandaloneMode().collect { prefer ->
+                val wasStandalone = _preferStandaloneMode.value
                 _preferStandaloneMode.value = prefer
                 _effectiveMode.value = deriveEffectiveMode(_connectionState.value, prefer)
+                when (standaloneModeTransition(prefer, wasStandalone)) {
+                    StandaloneModeTransition.ENTERED_STANDALONE -> {
+                        reconnectJob?.cancel()
+                        activeMdnsDiscovery?.stopDiscovery()
+                        activeMdnsDiscovery = null
+                    }
+                    StandaloneModeTransition.EXITED_STANDALONE -> {
+                        if (_connectionState.value != ConnectionState.CONNECTED) {
+                            reconnectAttempts = 0
+                            scheduleReconnect()
+                        }
+                    }
+                    StandaloneModeTransition.NONE -> {}
+                }
             }
         }
         scope.launch {
@@ -849,6 +914,7 @@ object WsRepository : WsClient {
     }
 
     private fun scheduleReconnect() {
+        if (_preferStandaloneMode.value) return
         val url = currentUrl ?: return
         if (currentToken == null) return
         reconnectJob?.cancel()
@@ -868,10 +934,12 @@ object WsRepository : WsClient {
                 val token = currentToken
                 if (appCtx != null && !token.isNullOrBlank()) {
                     val mdns = MdnsDiscovery(appCtx)
+                    activeMdnsDiscovery = mdns
                     mdns.startDiscovery()
                     delay(3_000L)
                     val hit = mdns.discovered.value.firstOrNull { it.token == token }
                     mdns.stopDiscovery()
+                    activeMdnsDiscovery = null
                     if (hit != null) {
                         val mdnsUrl = "wss://${hit.host}:${hit.port}?token=${hit.token}"
                         doConnect(mdnsUrl)
@@ -889,6 +957,7 @@ object WsRepository : WsClient {
     // cancel any pending retry and attempt immediately.
     fun onNetworkAvailable() {
         localData?.setInternetState(InternetState.AVAILABLE)
+        if (_preferStandaloneMode.value) return
         if (currentUrl == null || currentToken == null) return
         val state = _connectionState.value
         if (state == ConnectionState.CONNECTED) return
@@ -1056,6 +1125,16 @@ object WsRepository : WsClient {
         scope.launch {
             localData?.discardOperation(operationId)
             if (_connectionState.value == ConnectionState.CONNECTED) beginStandaloneSync()
+        }
+    }
+
+    // One-time safety-net sweep for failed operations left over from before the SyncError handler
+    // started auto-remediating (or from any other path that could leave one stranded) — lets the
+    // Connection screen self-heal on open instead of requiring the user to notice and retry.
+    fun sweepOrphanedSyncOperations() {
+        scope.launch {
+            localData?.discardOrphanedOperations()
+            if (_connectionState.value == ConnectionState.CONNECTED) flushStandaloneOutbox()
         }
     }
 
@@ -2076,10 +2155,11 @@ object WsRepository : WsClient {
 
     // ─── Debrief ────────────────────────────────────────────────────────────────
 
-    fun generateDebrief(conversationId: String, projectId: String? = null) {
+    fun generateDebrief(conversationId: String, projectId: String? = null, model: String? = null) {
         send("conversation:generate-debrief", buildMap {
             put("conversationId", conversationId)
             if (projectId != null) put("projectId", projectId)
+            if (model != null) put("model", model)
         })
     }
     fun getDebrief(conversationId: String) { send("conversation:get-debrief", mapOf("conversationId" to conversationId)) }

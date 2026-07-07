@@ -1,0 +1,77 @@
+package io.nexy.android.data
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/**
+ * Regression coverage for item 8 of the follow-up roadmap: Manual Workflow had no model picker,
+ * unlike every other AI generator screen. Confirms the payload sent to the desktop includes the
+ * chosen model when set, and omits the key entirely (rather than sending a literal null) when
+ * the user leaves it on the default.
+ */
+class ManualWorkflowModelPayloadTest {
+
+    @Test
+    fun startPayloadIncludesModelWhenSet() {
+        val payload = WsRepository.buildManualWorkflowStartPayload(
+            projectId = "proj-1",
+            sessionId = "session-1",
+            initialMessage = "Ship the release",
+            model = "claude-sonnet-4-6",
+        )
+        assertEquals("claude-sonnet-4-6", payload["model"])
+    }
+
+    @Test
+    fun startPayloadOmitsModelKeyWhenNull() {
+        val payload = WsRepository.buildManualWorkflowStartPayload(
+            projectId = "proj-1",
+            sessionId = "session-1",
+            initialMessage = "Ship the release",
+            model = null,
+        )
+        assertFalse(payload.containsKey("model"))
+    }
+
+    @Test
+    fun messagePayloadIncludesModelWhenSet() {
+        val history = listOf(WsRepository.ManualWorkflowChatMessage("user", "Ship the release"))
+        val payload = WsRepository.buildManualWorkflowMessagePayload(
+            projectId = "proj-1",
+            sessionId = "session-1",
+            history = history,
+            model = "gpt-5.4",
+        )
+        assertEquals("gpt-5.4", payload["model"])
+    }
+
+    @Test
+    fun messagePayloadOmitsModelKeyWhenNull() {
+        val history = listOf(WsRepository.ManualWorkflowChatMessage("user", "Ship the release"))
+        val payload = WsRepository.buildManualWorkflowMessagePayload(
+            projectId = "proj-1",
+            sessionId = "session-1",
+            history = history,
+            model = null,
+        )
+        assertFalse(payload.containsKey("model"))
+    }
+
+    @Test
+    fun messagePayloadMapsHistoryEntries() {
+        val history = listOf(
+            WsRepository.ManualWorkflowChatMessage("user", "Ship the release"),
+            WsRepository.ManualWorkflowChatMessage("assistant", "Sure, here's a plan"),
+        )
+        val payload = WsRepository.buildManualWorkflowMessagePayload("proj-1", "session-1", history, null)
+
+        @Suppress("UNCHECKED_CAST")
+        val messages = payload["messages"] as List<Map<String, String>>
+        assertEquals(2, messages.size)
+        assertEquals("user", messages[0]["role"])
+        assertEquals("Ship the release", messages[0]["content"])
+        assertTrue(messages[1]["role"] == "assistant")
+    }
+}
