@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Settings, Shield, Terminal, BookOpen, Smartphone, Wrench } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import { getAvailableModelIds } from '../../shared/models'
-import type { AdbDevice, AndroidBuildCommandName, AndroidSigningConfig, AndroidUpdateManifest, AndroidWorkspaceInfo, BuildCommandName, BuildRecord, BuildStatus, LocalUpdateFeed, PreflightCheck, PromptLibraryEntry, PromptLibraryInput, PromptLibraryVersion, PublishedEntry, WorkspaceInfo, WsUrlProfile } from '../../shared/types'
+import { isApiError, type AdbDevice, type AndroidBuildCommandName, type AndroidSigningConfig, type AndroidUpdateManifest, type AndroidWorkspaceInfo, type BuildCommandName, type BuildRecord, type BuildStatus, type LocalUpdateFeed, type PreflightCheck, type PromptLibraryEntry, type PromptLibraryInput, type PromptLibraryVersion, type PublishedEntry, type WorkspaceInfo, type WsUrlProfile } from '../../shared/types'
 import { extractPromptVariables } from '../../shared/prompt-variables'
 import { ModalShell } from './ui/primitives'
 import { GeneralTab } from './settings/GeneralTab'
@@ -90,10 +90,8 @@ export function SettingsPanel() {
   const toggleTheme = useAppStore((s) => s.toggleTheme)
   const setShowSettings = useAppStore((s) => s.setShowSettings)
   const setShowMcpPanel = useAppStore((s) => s.setShowMcpPanel)
-  const setPendingRemoteEditReportId = useAppStore((s) => s.setPendingRemoteEditReportId)
-  const setPendingCodeChangesProjectId = useAppStore((s) => s.setPendingCodeChangesProjectId)
-  const setCodeChangesProjectId = useAppStore((s) => s.setCodeChangesProjectId)
-  const openSectionPane = useAppStore((s) => s.openSectionPane)
+  const selectConversation = useAppStore((s) => s.selectConversation)
+  const loadConversations = useAppStore((s) => s.loadConversations)
   const addToast = useAppStore((s) => s.addToast)
   const setGlobalDefaultModel = useAppStore((s) => s.setGlobalDefaultModel)
   const catalogModels = useAppStore((s) => s.catalogModels)
@@ -591,7 +589,15 @@ export function SettingsPanel() {
     setRemoteEditReportingBuildId(record.id)
     try {
       const report = formatBuildFailureReport(record)
-      const result = await window.api.captureErrorReport({
+
+      // Resolve a conversation to post the code-change card into: reuse the project's most
+      // recently updated conversation if one exists, otherwise create one — Code Changes no
+      // longer has a standalone screen, so this is the only place the result can go.
+      const projectConversations = conversations
+        .filter((c) => c.project_id)
+        .sort((a, b) => b.updated_at - a.updated_at)
+
+      const captured = await window.api.captureErrorReport({
         title: report.title,
         description: report.description,
         includeLog: true,
@@ -600,17 +606,30 @@ export function SettingsPanel() {
         origin: 'build-failure',
         workspaceRoot: record.workspacePath,
       })
-      const created = await window.api.getErrorReport(result.reportId)
-      if (created && created.project_id) {
-        setPendingRemoteEditReportId(result.reportId)
-        setPendingCodeChangesProjectId(created.project_id)
-        setShowSettings(false)
-        openSectionPane('projects')
-        setCodeChangesProjectId(created.project_id)
-        addToast('Code change request created from build failure', 'success')
-      } else {
+      const created = await window.api.getErrorReport(captured.reportId)
+      if (!created?.project_id) {
         addToast("This build's workspace isn't linked to a known project — the request wasn't opened.", 'error')
+        return
       }
+
+      let targetConversation = projectConversations.find((c) => c.project_id === created.project_id) ?? null
+      if (!targetConversation) {
+        const row = await window.api.createConversation(undefined, created.project_id)
+        await window.api.renameConversation(row.id, 'Build fix')
+        targetConversation = { ...row, title: 'Build fix' }
+      }
+
+      const content = `__code-change-ref:${JSON.stringify({ reportId: captured.reportId })}`
+      const inserted = await window.api.insertConversationMessage(targetConversation.id, 'system', content)
+      if (isApiError(inserted)) {
+        addToast('Code change request created, but failed to post it into chat', 'error')
+        return
+      }
+
+      await loadConversations()
+      selectConversation(targetConversation.id)
+      setShowSettings(false)
+      addToast('Code change request created from build failure', 'success')
     } catch {
       addToast('Failed to create code change request from build failure', 'error')
     } finally {
