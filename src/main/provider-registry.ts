@@ -72,12 +72,17 @@ const MODEL_TO_PROVIDER = new Map<string, ProviderName>(
 )
 
 export function getProviderForAgent(agentModel: string): { provider: ProviderName; model: string } {
-  const normalizedModel = !agentModel || agentModel === 'default' ? DEFAULT_PROVIDER_MODEL : agentModel
+  const cleanedModel = (agentModel || '').replace(/^~+/, '')
+  const normalizedModel = !cleanedModel || cleanedModel === 'default' ? DEFAULT_PROVIDER_MODEL : cleanedModel
 
   if (normalizedModel.includes(':')) {
     const [prefix, model] = normalizedModel.split(':', 2)
     const provider = PROVIDERS.find((p) => p.name === prefix)
     if (provider) return { provider: provider.name, model }
+  }
+
+  if (normalizedModel.includes('/')) {
+    return { provider: 'openrouter', model: normalizedModel }
   }
 
   const staticProvider = MODEL_TO_PROVIDER.get(normalizedModel)

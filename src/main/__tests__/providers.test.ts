@@ -315,6 +315,39 @@ describe('Providers — IPC Handlers', () => {
   })
 })
 
+describe('provider routing', () => {
+  beforeEach(() => {
+    mockDb._store.clear()
+  })
+
+  it('routes bare Anthropic model ids to Anthropic', async () => {
+    const { getProviderForAgent } = await import('../providers')
+
+    expect(getProviderForAgent('claude-haiku-4.5')).toEqual({
+      provider: 'anthropic',
+      model: 'claude-haiku-4.5',
+    })
+  })
+
+  it('routes vendor-prefixed OpenRouter ids to OpenRouter without cache membership', async () => {
+    const { getProviderForAgent } = await import('../providers')
+
+    expect(getProviderForAgent('anthropic/claude-haiku-4.5')).toEqual({
+      provider: 'openrouter',
+      model: 'anthropic/claude-haiku-4.5',
+    })
+  })
+
+  it('normalizes tilde-prefixed OpenRouter ids before routing', async () => {
+    const { getProviderForAgent } = await import('../providers')
+
+    expect(getProviderForAgent('~anthropic/claude-haiku-4.5')).toEqual({
+      provider: 'openrouter',
+      model: 'anthropic/claude-haiku-4.5',
+    })
+  })
+})
+
 describe('Anthropic tool helpers', () => {
   it('extracts the first system message into the system field', async () => {
     const { toAnthropicMessages } = await import('../providers')

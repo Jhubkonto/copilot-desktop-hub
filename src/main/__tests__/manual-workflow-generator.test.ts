@@ -1,7 +1,78 @@
-import { describe, expect, it } from 'vitest'
-import { extractManualWorkflowSpec, normalizeManualWorkflowSpec } from '../manual-workflow-generator'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const { dispatchToProviderMock, getApiKeyMock } = vi.hoisted(() => ({
+  dispatchToProviderMock: vi.fn(),
+  getApiKeyMock: vi.fn(),
+}))
+
+vi.mock('electron', () => ({
+  app: { getPath: vi.fn(() => 'C:/tmp') },
+}))
+
+vi.mock('../providers', () => ({
+  DEFAULT_PROVIDER_MODEL: 'gpt-5-mini',
+  NO_PROVIDER_CONFIGURED_MESSAGE: 'No provider configured. Add an API key in Settings.',
+  PROVIDERS: [],
+  getOpenRouterModels: vi.fn(() => []),
+  getProviderForAgent: vi.fn(() => ({ provider: 'openai', model: 'gpt-5-mini' })),
+  getApiKey: getApiKeyMock,
+  isProviderConfigured: vi.fn(() => false),
+}))
+
+vi.mock('../chat-provider-dispatch', () => ({
+  dispatchToProvider: dispatchToProviderMock,
+}))
+
+vi.mock('../cli-adapters/registry', () => ({
+  getAdapter: vi.fn(() => null),
+}))
+
+vi.mock('../cli-adapters/claude', () => ({
+  ClaudeAdapter: { isAvailable: vi.fn(() => false) },
+}))
+
+vi.mock('../cli-adapters/codex', () => ({
+  CodexAdapter: { isAvailable: vi.fn(() => false) },
+}))
+
+vi.mock('../cli-detection', () => ({
+  getCliModels: vi.fn(() => []),
+}))
+
+vi.mock('../database', () => ({
+  getDatabase: vi.fn(() => ({
+    prepare: vi.fn(() => ({ get: vi.fn(), all: vi.fn(() => []) })),
+  })),
+}))
+
+vi.mock('../ws-server', () => ({
+  broadcastToMobile: vi.fn(),
+}))
+
+vi.mock('../project-handlers', () => ({
+  parseProjectConfig: vi.fn(() => ({
+    variables: [],
+    inScope: [],
+    outOfScope: [],
+    milestones: [],
+    instructions: '',
+    workflowMode: 'manual',
+    rootDirectory: null,
+  })),
+}))
+
+import {
+  extractManualWorkflowSpec,
+  normalizeManualWorkflowSpec,
+  runManualWorkflowProviderChat,
+} from '../manual-workflow-generator'
 
 describe('manual workflow generator', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getApiKeyMock.mockReturnValue(null)
+  })
+
   it('extracts a manual workflow spec from tagged assistant text', () => {
     const spec = extractManualWorkflowSpec(`Plan ready.
 <manual-workflow-spec>
@@ -96,5 +167,23 @@ describe('manual workflow generator', () => {
 
   it('returns null for invalid tagged JSON', () => {
     expect(extractManualWorkflowSpec('<manual-workflow-spec>{ nope }</manual-workflow-spec>')).toBeNull()
+  })
+
+  it('throws a clear provider configuration error before dispatching with an empty key', async () => {
+    const win = {
+      webContents: { send: vi.fn() },
+      isDestroyed: () => false,
+    } as never
+
+    await expect(runManualWorkflowProviderChat(
+      win,
+      [{ role: 'user', content: 'Build a workflow' }],
+      'session-1',
+      vi.fn(),
+      'C:/tmp',
+      'gpt-5-mini',
+    )).rejects.toThrow('No provider configured. Add an API key in Settings.')
+
+    expect(dispatchToProviderMock).not.toHaveBeenCalled()
   })
 })

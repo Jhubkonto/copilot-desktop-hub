@@ -4,6 +4,7 @@ import { app } from 'electron'
 import { safeHandle } from './safe-handle'
 import {
   DEFAULT_PROVIDER_MODEL,
+  NO_PROVIDER_CONFIGURED_MESSAGE,
   PROVIDERS,
   getOpenRouterModels,
   getProviderForAgent,
@@ -250,7 +251,7 @@ export function extractManualWorkflowSpec(text: string): ManualWorkflowSpec | nu
   }
 }
 
-async function runManualWorkflowProviderChat(
+export async function runManualWorkflowProviderChat(
   win: BrowserWindow,
   providerMessages: ProviderMessage[],
   sessionId: string,
@@ -281,6 +282,9 @@ async function runManualWorkflowProviderChat(
 
   const { provider, model } = getProviderForAgent(selectedModel)
   const apiKey = getApiKey(provider)
+  if (!apiKey) {
+    throw new Error(NO_PROVIDER_CONFIGURED_MESSAGE)
+  }
   const systemPrompt = typeof providerMessages[0]?.content === 'string'
     ? providerMessages[0].content
     : MANUAL_WORKFLOW_GENERATOR_SYSTEM_PROMPT
@@ -288,7 +292,7 @@ async function runManualWorkflowProviderChat(
   return dispatchToProvider({
     providerName: provider,
     providerModel: model,
-    byokKey: apiKey ?? '',
+    byokKey: apiKey,
     chatMessages: providerMessages,
     toolDefs: [],
     toolMap: new Map(),
@@ -315,27 +319,36 @@ export async function runManualWorkflowGeneratorChat(
   const sessionId = `manual-workflow-gen-${randomUUID()}`
   let accumulated = ''
 
-  const fullText = await runManualWorkflowProviderChat(
-    win,
-    providerMessages,
-    sessionId,
-    (chunk) => {
-      accumulated += chunk
-      if (!win.isDestroyed()) win.webContents.send('manual-workflow-generator:token', chunk)
-    },
-    cwd,
-    modelOverride,
-  )
+  try {
+    const fullText = await runManualWorkflowProviderChat(
+      win,
+      providerMessages,
+      sessionId,
+      (chunk) => {
+        accumulated += chunk
+        if (!win.isDestroyed()) win.webContents.send('manual-workflow-generator:token', chunk)
+      },
+      cwd,
+      modelOverride,
+    )
 
-  accumulated = fullText || accumulated
-  if (!accumulated.trim()) {
-    throw new Error(`Manual workflow generator returned no response from ${modelOverride ?? getManualWorkflowGeneratorModel()}. Check the selected model/provider or choose a different model.`)
-  }
+    accumulated = fullText || accumulated
+    if (!accumulated.trim()) {
+      throw new Error(`Manual workflow generator returned no response from ${modelOverride ?? getManualWorkflowGeneratorModel()}. Check the selected model/provider or choose a different model.`)
+    }
 
-  const spec = extractManualWorkflowSpec(accumulated)
-  if (!win.isDestroyed()) {
-    if (spec) win.webContents.send('manual-workflow-generator:spec-ready', spec)
-    win.webContents.send('manual-workflow-generator:done', { hasSpec: spec !== null })
+    const spec = extractManualWorkflowSpec(accumulated)
+    if (!win.isDestroyed()) {
+      if (spec) win.webContents.send('manual-workflow-generator:spec-ready', spec)
+      win.webContents.send('manual-workflow-generator:done', { hasSpec: spec !== null })
+    }
+  } catch (error) {
+    if (!win.isDestroyed()) {
+      win.webContents.send('manual-workflow-generator:error', {
+        message: error instanceof Error ? error.message : String(error),
+      })
+    }
+    throw error
   }
 }
 
