@@ -207,6 +207,9 @@ fun NavGraph(
                 onOpenPairingScan = {
                     navController.navigate("home/add-server")
                 },
+                onNavigateRoute = { route ->
+                    navController.navigate(route)
+                },
             )
         }
 

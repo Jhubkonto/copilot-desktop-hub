@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -43,7 +44,6 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import io.nexy.android.ui.components.NexySearchField
 import io.nexy.android.ui.components.NexyTopAppBar
-import io.nexy.android.ui.connection.StandaloneModeToggle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -68,8 +68,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.lifecycle.viewmodel.compose.viewModel
+import io.nexy.android.data.BackgroundActivityTracker
 import io.nexy.android.data.ConnectionState
+import io.nexy.android.data.EffectiveConnectionMode
 import io.nexy.android.data.PairedServerProfile
+import io.nexy.android.data.WsRepository
 import io.nexy.android.ui.components.ApprovalDialog
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.material.icons.filled.QrCodeScanner
@@ -103,10 +106,15 @@ fun HomeScreen(
     onOpenSkillGenerator: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenPairingScan: () -> Unit,
+    onNavigateRoute: (String) -> Unit = {},
     vm: HomeViewModel = viewModel(),
 ) {
     val connectionState by vm.connectionState.collectAsState()
+    val effectiveMode by vm.effectiveMode.collectAsState()
     val preferStandaloneMode by vm.preferStandaloneMode.collectAsState()
+    val capabilities by WsRepository.capabilities.collectAsState()
+    val backgroundActivities by BackgroundActivityTracker.activities.collectAsState()
+    val syncInProgress by WsRepository.syncInProgress.collectAsState()
     val intentionalRestartExpected by vm.intentionalRestartExpected.collectAsState()
     val conversations by vm.conversations.collectAsState()
     val agents by vm.agents.collectAsState()
@@ -311,12 +319,6 @@ fun HomeScreen(
                 color = MaterialTheme.colorScheme.outlineVariant,
                 modifier = Modifier.padding(top = 12.dp),
             )
-            StandaloneModeToggle(
-                isStandaloneModeEnabled = preferStandaloneMode,
-                onToggle = { vm.setPreferStandaloneMode(it) },
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
-            )
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             if (profiles.size > 1) {
                 Text(
                     "Saved servers",
@@ -431,10 +433,21 @@ fun HomeScreen(
                 },
                 actions = {
                     ConnectionChip(
-                        state = connectionState,
+                        mode = effectiveMode,
                         intentionalRestartExpected = intentionalRestartExpected,
-                        onClick = { showConnectionSheet = true },
+                        isBusy = hasActiveActivity(activeConversationIds, pendingConversationIds, syncInProgress, backgroundActivities),
+                        onToggle = {
+                            val switchingTo = if (preferStandaloneMode) "Remote" else "Standalone"
+                            vm.setPreferStandaloneMode(!preferStandaloneMode)
+                            scope.launch { snackbarHostState.showSnackbar("Switched to $switchingTo mode") }
+                        },
+                        onBusyTap = {
+                            scope.launch { snackbarHostState.showSnackbar("Can't switch modes while a chat or generation is in progress") }
+                        },
                     )
+                    IconButton(onClick = { showConnectionSheet = true }) {
+                        Icon(Icons.Default.ExpandMore, contentDescription = "Connection details")
+                    }
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")
                     }
@@ -533,31 +546,16 @@ fun HomeScreen(
                 }
             }
 
-            if (connectionState == ConnectionState.POLLING) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color(0xFFFFF3CD))
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "Looking for your desktop…",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF856404),
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text(
-                        "Wake it up",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFF664D03),
-                        modifier = Modifier
-                            .clickable { vm.wakeDesktop() }
-                            .padding(start = 8.dp),
-                    )
-                }
-            }
+            StatusActivityBar(
+                effectiveMode = effectiveMode,
+                intentionalRestartExpected = intentionalRestartExpected,
+                pendingChanges = capabilities.pendingChanges,
+                failedChanges = capabilities.failedChanges,
+                backgroundActivities = backgroundActivities,
+                onWakeDesktop = { vm.wakeDesktop() },
+                onOpenConnection = { onNavigateRoute("settings/connection") },
+                onOpenActivity = { activity -> onNavigateRoute(activity.route) },
+            )
 
             when (selectedTab) {
                 0 -> ChatsTab(
