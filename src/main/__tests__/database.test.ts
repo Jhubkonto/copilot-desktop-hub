@@ -48,7 +48,7 @@ describe('database migrations', () => {
     initializeBaseSchema(db)
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(59)
+    expect(db.pragma('user_version', { simple: true })).toBe(61)
     expect(getColumnNames(db, 'projects')).toEqual(
       expect.arrayContaining(['default_model', 'config_json'])
     )
@@ -93,11 +93,13 @@ describe('database migrations', () => {
       expect.arrayContaining(['conversation_id', 'summary', 'commands_tools', 'reproduction_guide', 'mental_model'])
     )
     expect(getColumnNames(db, 'conversations')).toEqual(expect.arrayContaining(['completed_at', 'cli_backend']))
-    expect(getColumnNames(db, 'conversation_quiz_attempts')).toEqual(
-      expect.arrayContaining(['conversation_id', 'score', 'total', 'attempted_at'])
-    )
+    // conversation_quiz_attempts (migration 43) is dropped by migration 61 — Quiz now persists
+    // its questions as a versioned artifact instead of a score-only attempt row.
+    expect(
+      (db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[]).map((r) => r.name),
+    ).not.toContain('conversation_quiz_attempts')
     expect(getColumnNames(db, 'error_reports')).toEqual(
-      expect.arrayContaining(['request_type', 'request_origin', 'workspace_root', 'project_id']),
+      expect.arrayContaining(['request_type', 'request_origin', 'workspace_root', 'project_id', 'conversation_id']),
     )
     expect(getColumnNames(db, 'project_edit_sessions')).toEqual(
       expect.arrayContaining(['project_id', 'conversation_id', 'agent_id', 'title', 'source', 'created_at', 'updated_at'])
@@ -174,7 +176,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(59)
+    expect(db.pragma('user_version', { simple: true })).toBe(61)
     const tableNames = (
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>
     ).map((row) => row.name)
@@ -211,7 +213,7 @@ describe('database migrations', () => {
       runMigrations(db)
       runMigrations(db)
     }).not.toThrow()
-    expect(db.pragma('user_version', { simple: true })).toBe(59)
+    expect(db.pragma('user_version', { simple: true })).toBe(61)
   })
 
   it('only runs pending migrations for a partial upgrade', () => {
@@ -265,7 +267,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(59)
+    expect(db.pragma('user_version', { simple: true })).toBe(61)
     expect(getColumnNames(db, 'messages')).toEqual(
       expect.arrayContaining(['is_edited', 'previous_content', 'context_snapshot'])
     )
@@ -328,7 +330,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(59)
+    expect(db.pragma('user_version', { simple: true })).toBe(61)
     expect(() => insertMessageWithRole(db, 'tool-call')).not.toThrow()
     expect(
       db.prepare("SELECT COUNT(*) AS count FROM messages WHERE role = ?").get('assistant')
@@ -443,7 +445,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(59)
+    expect(db.pragma('user_version', { simple: true })).toBe(61)
     expect(getColumnNames(db, 'error_reports')).toEqual(
       expect.arrayContaining(['request_type', 'request_origin', 'workspace_root', 'project_id', 'custom_type_label']),
     )

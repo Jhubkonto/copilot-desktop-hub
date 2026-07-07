@@ -79,6 +79,22 @@ describe('standalone peer synchronization', () => {
     expect(result.data.snapshot.versions['project:project-1']).toBe(1)
   })
 
+  it('includes completed_at in the conversations snapshot so Android can preserve mark-complete state on reconnect', () => {
+    state.db!.prepare(
+      "INSERT INTO conversations (id, title, completed_at, created_at, updated_at) VALUES ('conv-1', 'Done chat', 5000, 1, 10)",
+    ).run()
+
+    const result = command('sync:hello', {
+      deviceId: 'android-1',
+      datasetId: 'dataset-1',
+      protocolVersion: 1,
+    })
+
+    expect(result.data.snapshot.conversations).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'conv-1', completed_at: 5000 })]),
+    )
+  })
+
   it('applies and acknowledges an idempotent Android operation', () => {
     command('sync:hello', {
       deviceId: 'android-1',
