@@ -99,6 +99,7 @@ const api = {
   deleteErrorReport: (id: string) => typedInvoke('error-report:delete', id),
   getErrorReport: (id: string) => typedInvoke('error-report:get', id),
   listErrorReports: (limit?: number, projectId?: string) => typedInvoke('error-report:list', limit, projectId),
+  findActiveCodeChangeForConversation: (conversationId: string) => typedInvoke('error-report:find-active-for-conversation', conversationId),
   getInvestigationSettings: () => typedInvoke('remote-edit:get-investigation-settings'),
   setInvestigationSettings: (input: RemoteEditInvestigationSettings) => typedInvoke('remote-edit:set-investigation-settings', input),
   setRemoteEditReportStatus: (reportId: string, status: 'open' | 'investigating' | 'investigated' | 'fixed' | 'rejected') =>
@@ -602,6 +603,11 @@ const api = {
     typedOn('manual-workflow-generator:done', handler)
     return () => typedOff('manual-workflow-generator:done', handler)
   },
+  onManualWorkflowGeneratorError: (callback: (data: { message: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { message: string }) => callback(data)
+    typedOn('manual-workflow-generator:error', handler)
+    return () => typedOff('manual-workflow-generator:error', handler)
+  },
   getManualWorkflowGeneratorModel: () => typedInvoke('manual-workflow-generator:get-model'),
   setManualWorkflowGeneratorModel: (modelId: string) => typedInvoke('manual-workflow-generator:set-model', modelId),
   onTeamActivity: (callback: (step: {
@@ -758,6 +764,11 @@ const api = {
     typedOn('project-generator:done', handler)
     return () => typedOff('project-generator:done', handler)
   },
+  onProjectGeneratorError: (callback: (data: { message: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { message: string }) => callback(data)
+    typedOn('project-generator:error', handler)
+    return () => typedOff('project-generator:error', handler)
+  },
   projectGeneratorGetModel: () => typedInvoke('project-generator:get-model'),
   projectGeneratorSetModel: (modelId: string) => typedInvoke('project-generator:set-model', modelId),
 
@@ -778,6 +789,11 @@ const api = {
     const handler = (_event: Electron.IpcRendererEvent, data: { hasSpec: boolean }) => callback(data)
     typedOn('agent-generator:done', handler)
     return () => typedOff('agent-generator:done', handler)
+  },
+  onAgentGeneratorError: (callback: (data: { message: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { message: string }) => callback(data)
+    typedOn('agent-generator:error', handler)
+    return () => typedOff('agent-generator:error', handler)
   },
   agentGeneratorGetModel: () => typedInvoke('agent-generator:get-model'),
   agentGeneratorSetModel: (modelId: string) => typedInvoke('agent-generator:set-model', modelId),
@@ -800,6 +816,11 @@ const api = {
     typedOn('skill-generator:done', handler)
     return () => typedOff('skill-generator:done', handler)
   },
+  onSkillGeneratorError: (callback: (data: { message: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { message: string }) => callback(data)
+    typedOn('skill-generator:error', handler)
+    return () => typedOff('skill-generator:error', handler)
+  },
   skillGeneratorGetModel: () => typedInvoke('skill-generator:get-model'),
   skillGeneratorSetModel: (modelId: string) => typedInvoke('skill-generator:set-model', modelId),
 
@@ -820,6 +841,11 @@ const api = {
     const handler = (_event: Electron.IpcRendererEvent, data: { hasSpec: boolean }) => callback(data)
     typedOn('scheduler-generator:done', handler)
     return () => typedOff('scheduler-generator:done', handler)
+  },
+  onScheduleGeneratorError: (callback: (data: { message: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { message: string }) => callback(data)
+    typedOn('scheduler-generator:error', handler)
+    return () => typedOff('scheduler-generator:error', handler)
   },
   getScheduleGeneratorModel: () => typedInvoke('scheduler-generator:get-model'),
   setScheduleGeneratorModel: (modelId: string) => typedInvoke('scheduler-generator:set-model', modelId),
@@ -843,6 +869,8 @@ const api = {
     typedInvoke('artifact:export', versionId, format),
   artifactOpenFolder: (absolutePath: string) =>
     typedInvoke('artifact:open-folder', absolutePath),
+  artifactGetFileContent: (versionId: string, relativePath: string) =>
+    typedInvoke('artifact:get-file-content', versionId, relativePath),
 
   // Artifact generator
   artifactGeneratorChat: (messages: ArtifactGeneratorMessage[], projectId?: string, modelOverride?: string) =>
@@ -922,12 +950,8 @@ const api = {
   },
 
   // Quiz
-  generateQuiz: (conversationId: string, model?: string) =>
-    typedInvoke('conversation:generate-quiz', conversationId, model),
-  saveQuizAttempt: (conversationId: string, score: number, total: number) =>
-    typedInvoke('conversation:save-quiz-attempt', conversationId, score, total),
-  listQuizAttempts: (conversationId: string) =>
-    typedInvoke('conversation:list-quiz-attempts', conversationId),
+  generateQuiz: (conversationId: string, projectId: string | null, model?: string) =>
+    typedInvoke('conversation:generate-quiz', conversationId, projectId, model),
 }
 
 contextBridge.exposeInMainWorld('api', api)
