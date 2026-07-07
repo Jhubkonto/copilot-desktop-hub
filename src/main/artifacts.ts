@@ -13,7 +13,7 @@ import type {
 import { exportArtifactVersion } from './artifact-export'
 import { app, shell } from 'electron'
 import { randomUUID } from 'crypto'
-import { mkdirSync, statSync, writeFileSync } from 'fs'
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'fs'
 import path from 'path'
 
 // ---------------------------------------------------------------------------
@@ -95,7 +95,7 @@ function getVersionsWithFilesBatch(versionIds: string[]): Map<string, ArtifactVe
   return result
 }
 
-function getStorageRoot(): string {
+export function getStorageRoot(): string {
   const db = getDatabase()
   const row = db.prepare("SELECT value FROM settings WHERE key = 'artifact_storage_root'").get() as { value: string } | undefined
   return row?.value ?? path.join(app.getPath('userData'), 'artifacts')
@@ -234,6 +234,124 @@ export function promoteConversationMessageToArtifact(input: ArtifactPromotionReq
 }
 
 // ---------------------------------------------------------------------------
+// Conversation-scoped artifact versioning (used by /debrief and /quiz)
+// ---------------------------------------------------------------------------
+
+export interface ConversationArtifactRef {
+  artifactId: string
+  versionId: string
+}
+
+/** Finds the artifact of a given kind most recently linked to a conversation, if any. */
+export function findArtifactForConversation(conversationId: string, kind: ArtifactKind): ArtifactRow | null {
+  const db = getDatabase()
+  const row = db.prepare(
+    `SELECT a.* FROM artifacts a
+     JOIN artifact_chat_refs r ON r.artifact_id = a.id
+     WHERE r.conversation_id = ? AND a.kind = ?
+     ORDER BY a.updated_at DESC LIMIT 1`
+  ).get(conversationId, kind) as Record<string, unknown> | undefined
+  if (!row) return null
+  const currentVersionId = row.current_version_id != null ? String(row.current_version_id) : null
+  const currentVersion = currentVersionId ? getVersionWithFiles(currentVersionId) : undefined
+  return rowToArtifact(row, currentVersion)
+}
+
+/** Reads the content of a named file within an artifact version, or null if not found. */
+export function readArtifactVersionFile(versionId: string, relativePath: string): string | null {
+  const version = getVersionWithFiles(versionId)
+  const file = version?.files?.find((f) => f.relativePath === relativePath)
+  if (!file) return null
+  return readFileSync(file.absolutePath, 'utf8')
+}
+
+interface ConversationArtifactFileInput {
+  relativePath: string
+  mediaType: string
+  role: 'primary' | 'supporting'
+  content: string
+}
+
+interface WriteArtifactVersionForConversationInput {
+  conversationId: string
+  projectId: string | null
+  kind: ArtifactKind
+  title: string
+  files: ConversationArtifactFileInput[]
+}
+
+/**
+ * Creates (or adds a new version to) the artifact of `kind` already linked to this
+ * conversation, writing each file to disk and recording it in `artifact_files`. Used by
+ * /debrief and /quiz so re-running either command produces a new version under the same
+ * artifact rather than an unrelated one, mirroring how a real document gets revised.
+ */
+export function writeArtifactVersionForConversation(input: WriteArtifactVersionForConversationInput): ConversationArtifactRef {
+  const db = getDatabase()
+  const existing = findArtifactForConversation(input.conversationId, input.kind)
+  const artifactId = existing?.id ?? randomUUID()
+  const versionId = randomUUID()
+  const now = Date.now()
+  const storageRoot = getStorageRoot()
+
+  const existingVersionCount = existing
+    ? (db.prepare('SELECT COUNT(*) as c FROM artifact_versions WHERE artifact_id = ?').get(artifactId) as { c: number }).c
+    : 0
+  const versionNumber = existingVersionCount + 1
+
+  const versionDir = input.projectId
+    ? path.join(storageRoot, 'projects', input.projectId, slugify(input.title), `v${versionNumber}`)
+    : path.join(storageRoot, 'global', slugify(input.title), `v${versionNumber}`)
+
+  const writtenFiles = input.files.map((f) => {
+    const relativePath = sanitizeRelativeArtifactPath(f.relativePath)
+    const absolutePath = path.join(versionDir, ...relativePath.split('/'))
+    mkdirSync(path.dirname(absolutePath), { recursive: true })
+    writeFileSync(absolutePath, f.content, 'utf8')
+    return { ...f, relativePath, absolutePath, sizeBytes: statSync(absolutePath).size }
+  })
+
+  const manifestJson = JSON.stringify({
+    artifactId,
+    versionId,
+    version: versionNumber,
+    title: input.title,
+    kind: input.kind,
+    createdAt: now,
+    source: { conversationId: input.conversationId },
+    files: writtenFiles.map((f) => ({ path: f.relativePath, mediaType: f.mediaType, role: f.role })),
+  })
+
+  db.transaction(() => {
+    if (existing) {
+      db.prepare('UPDATE artifacts SET current_version_id = ?, updated_at = ? WHERE id = ?')
+        .run(versionId, now, artifactId)
+    } else {
+      db.prepare(
+        `INSERT INTO artifacts (id, project_id, title, kind, description, storage_root, current_version_id, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?)`
+      ).run(artifactId, input.projectId, input.title, input.kind, `Generated from chat conversation ${input.conversationId}`, storageRoot, versionId, now, now)
+    }
+    db.prepare(
+      `INSERT INTO artifact_versions (id, artifact_id, version_number, title, notes, spec_json, manifest_json, source_conversation_id, source_message_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(versionId, artifactId, versionNumber, input.title, null, null, manifestJson, input.conversationId, null, now)
+    for (const f of writtenFiles) {
+      db.prepare(
+        `INSERT INTO artifact_files (id, version_id, relative_path, absolute_path, media_type, role, size_bytes)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).run(randomUUID(), versionId, f.relativePath, f.absolutePath, f.mediaType, f.role, f.sizeBytes)
+    }
+    db.prepare(
+      `INSERT INTO artifact_chat_refs (id, artifact_id, version_id, project_id, conversation_id, message_id, created_at)
+       VALUES (?, ?, ?, ?, ?, NULL, ?)`
+    ).run(randomUUID(), artifactId, versionId, input.projectId, input.conversationId, now)
+  })()
+
+  return { artifactId, versionId }
+}
+
+// ---------------------------------------------------------------------------
 // Handler registration
 // ---------------------------------------------------------------------------
 
@@ -307,5 +425,11 @@ export function registerArtifactHandlers(): void {
   safeHandle('artifact:open-folder', (_event, absolutePath: string) => {
     shell.showItemInFolder(absolutePath)
     return { ok: true }
+  })
+
+  safeHandle('artifact:get-file-content', (_event, versionId: string, relativePath: string) => {
+    const content = readArtifactVersionFile(versionId, relativePath)
+    if (content === null) throw new Error('File not found in artifact version')
+    return { content }
   })
 }
