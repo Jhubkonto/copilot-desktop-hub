@@ -67,21 +67,11 @@ export function ChatsPane() {
           ) : null}
           <div className="flex-1 min-w-0">
             <p className="text-xs font-medium text-gray-800 dark:text-gray-100 truncate">{conv.title}</p>
-            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-              {agent && (
-                <span className="text-[10px] text-gray-400 dark:text-gray-500">
-                  {agent.icon} {agent.name}
-                </span>
-              )}
-              {project && (
-                <span className="text-[10px] text-gray-400 dark:text-gray-500">
-                  {project.name}
-                </span>
-              )}
-              <span className="text-[10px] text-gray-400 dark:text-gray-500">
-                {formatRelativeTime(conv.updated_at)}
-              </span>
-            </div>
+            <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5 truncate">
+              {[agent && `${agent.icon} ${agent.name}`, project?.name, formatRelativeTime(conv.updated_at)]
+                .filter(Boolean)
+                .join(' · ')}
+            </p>
           </div>
           <div className="invisible group-hover:visible flex items-center gap-0.5 shrink-0">
             {isCompleted ? (
