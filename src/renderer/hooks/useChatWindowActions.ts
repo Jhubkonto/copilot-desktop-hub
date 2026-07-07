@@ -3,11 +3,13 @@ import { useCallback, useMemo, useRef, type Dispatch, type MutableRefObject, typ
 import { getModelLabel } from '../../shared/models'
 import type { AgentConfig, CatalogModel } from '../../shared/types'
 import type { Theme } from '../store/types'
+import { useAppStore } from '../store/app-store'
 import {
   executeSlashCommand,
   transformCodeSlashCommand,
   type SlashCommandContext,
   type SlashCommandDef,
+  type SlashGenerationResult,
 } from '../slash-commands'
 import type {
   AtContextOption,
@@ -88,6 +90,9 @@ interface UseChatWindowActionsParams {
   setTheme: (theme: Theme) => void
   loadAgents: () => Promise<void>
   loadConversations: () => Promise<void>
+  markConversationComplete: (id: string) => Promise<void>
+  markConversationIncomplete: (id: string) => Promise<void>
+  attachArtifact: (artifactId: string, versionId?: string) => Promise<void>
   onAfterSend?: () => void
   onEditStateConsumed?: () => void
 }
@@ -158,6 +163,9 @@ export function useChatWindowActions({
   setTheme,
   loadAgents,
   loadConversations,
+  markConversationComplete,
+  markConversationIncomplete,
+  attachArtifact,
   onAfterSend,
   onEditStateConsumed,
 }: UseChatWindowActionsParams) {
@@ -165,9 +173,74 @@ export function useChatWindowActions({
   const pendingCliModelRef = useRef<string | null>(null)
   const pendingCliBackendRef = useRef<'claude-cli' | 'codex-cli' | null>(null)
 
+  const runSlashGeneration = useCallback(
+    async (kind: 'debrief' | 'quiz', opts?: { model?: string }): Promise<SlashGenerationResult | { error: string }> => {
+      if (!conversationId) return { error: 'No active conversation.' }
+      const projectId = chatProjectId && chatProjectId !== '__none__' ? chatProjectId : null
+      try {
+        if (kind === 'debrief') {
+          const result = await window.api.generateDebrief(conversationId, projectId, opts?.model)
+          if (hasIpcError(result)) return { error: result.error }
+          return { artifactId: result.artifactId, versionId: result.versionId }
+        }
+        const result = await window.api.generateQuiz(conversationId, projectId, opts?.model)
+        if (hasIpcError(result)) return { error: result.error }
+        return { artifactId: result.artifactId, versionId: result.versionId }
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : `Failed to generate ${kind}` }
+      }
+    },
+    [conversationId, chatProjectId],
+  )
+
+  const startCodeChange = useCallback(
+    async (opts: { description: string }): Promise<{ reportId: string } | { error: string }> => {
+      if (!conversationId) return { error: 'No active conversation.' }
+      const projectId = chatProjectId && chatProjectId !== '__none__' ? chatProjectId : null
+      if (!projectId) return { error: 'Code changes require this conversation to be in a project.' }
+      try {
+        const existing = await window.api.findActiveCodeChangeForConversation(conversationId)
+        if (existing) return { reportId: existing.id }
+
+        const projectConfig = useAppStore.getState().projectConfigs[projectId]
+        const workspaceRoot = projectConfig?.rootDirectory?.trim() || null
+
+        const captured = await window.api.captureErrorReport({
+          title: opts.description.slice(0, 80) || 'Code change from chat',
+          description: opts.description,
+          includeLog: false,
+          includeScreenshot: false,
+          requestType: 'edit',
+          origin: 'chat',
+          workspaceRoot,
+          projectId,
+          conversationId,
+        })
+        if (hasIpcError(captured)) return { error: captured.error }
+
+        const content = `__code-change-ref:${JSON.stringify({ reportId: captured.reportId })}`
+        const inserted = await window.api.insertConversationMessage(conversationId, 'system', content)
+        if (hasIpcError(inserted)) return { error: inserted.error }
+        setMessages((prev) => [...prev, {
+          id: inserted.id,
+          role: inserted.role as ChatMessage['role'],
+          content: inserted.content,
+          timestamp: inserted.timestamp,
+          model: inserted.model ?? null,
+        }])
+
+        return { reportId: captured.reportId }
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Failed to create code change' }
+      }
+    },
+    [conversationId, chatProjectId, setMessages],
+  )
+
   const slashCommandCtx = useMemo<SlashCommandContext>(
     () => ({
       conversationId,
+      chatProjectId,
       messages: messages.filter((message) => message.role !== 'team-activity') as SlashCommandContext['messages'],
       activeAgent,
       effectiveModelLabel,
@@ -185,9 +258,15 @@ export function useChatWindowActions({
       deleteMessagesAfter: (convId: string, ts: number) => window.api.deleteMessagesAfter(convId, ts).then(() => undefined),
       lastUndoneUserMessageRef,
       setMessages: setMessages as SlashCommandContext['setMessages'],
+      markComplete: () => (conversationId ? markConversationComplete(conversationId) : Promise.resolve()),
+      markIncomplete: () => (conversationId ? markConversationIncomplete(conversationId) : Promise.resolve()),
+      runSlashGeneration,
+      attachArtifactMessage: attachArtifact,
+      startCodeChange,
     }),
     [
       conversationId,
+      chatProjectId,
       messages,
       activeAgent,
       effectiveModelLabel,
@@ -204,6 +283,11 @@ export function useChatWindowActions({
       buildConversationMarkdown,
       lastUndoneUserMessageRef,
       setMessages,
+      markConversationComplete,
+      markConversationIncomplete,
+      runSlashGeneration,
+      attachArtifact,
+      startCodeChange,
     ],
   )
 
@@ -283,9 +367,15 @@ export function useChatWindowActions({
       if (transformed) {
         content = transformed
       } else {
-        const handled = await executeSlashCommand(content, slashCommandCtx)
-        if (handled) {
+        const outcome = await executeSlashCommand(content, slashCommandCtx)
+        if (outcome === 'handled') {
           setInput('')
+          closeSlashMenu()
+          return
+        }
+        if (outcome === 'expanded') {
+          // executeSlashCommand already placed the expanded prompt in the input via
+          // ctx.setInput — leave it there for the user to review/send, don't clear it.
           closeSlashMenu()
           return
         }
