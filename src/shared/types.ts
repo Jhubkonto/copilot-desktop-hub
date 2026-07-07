@@ -68,16 +68,16 @@ export interface QuizResult {
   correct: boolean
 }
 
-export interface QuizAttempt {
-  id: string
-  conversation_id: string
-  score: number
-  total: number
-  attempted_at: number
+export interface DebriefArtifactResult {
+  debrief: Debrief
+  artifactId: string
+  versionId: string
 }
 
-export interface QuizGenerationResult {
+export interface QuizArtifactResult {
   questions: QuizQuestion[]
+  artifactId: string
+  versionId: string
 }
 
 export interface ToolConfig {
@@ -374,6 +374,7 @@ export interface ErrorReportCaptureInput {
   origin?: CodeChangeRequestOrigin
   workspaceRoot?: string | null
   projectId?: string | null
+  conversationId?: string | null
 }
 
 export interface ErrorReportCaptureResult {
@@ -682,6 +683,7 @@ export interface ErrorReportEntry {
   workspace_root?: string | null
   project_id?: string | null
   custom_type_label?: string | null
+  conversation_id?: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -813,6 +815,7 @@ export interface ManualWorkflowGeneratorMessage {
 export type ArtifactKind =
   | 'document' | 'code' | 'ui' | 'data'
   | 'prompt' | 'agent-config' | 'plan' | 'bundle' | 'other'
+  | 'debrief' | 'quiz'
 
 export type ArtifactStatus = 'draft' | 'generating' | 'ready' | 'exported' | 'archived' | 'failed'
 
@@ -1686,13 +1689,11 @@ export type IpcReturnMap = {
   'conversation:set-model': boolean
   'conversation:set-pinned': boolean
   'conversation:update-context': boolean
-  'conversation:generate-debrief': Debrief
-  'conversation:get-debrief': Debrief | null
+  'conversation:generate-debrief': DebriefArtifactResult
+  'conversation:get-debrief': DebriefArtifactResult | null
   'conversation:mark-complete': boolean
   'conversation:mark-incomplete': boolean
-  'conversation:generate-quiz': QuizGenerationResult
-  'conversation:save-quiz-attempt': QuizAttempt
-  'conversation:list-quiz-attempts': QuizAttempt[]
+  'conversation:generate-quiz': QuizArtifactResult
   // Debug
   'debug:set-enabled': boolean
   'debug:log': void
@@ -1707,6 +1708,7 @@ export type IpcReturnMap = {
   'error-report:delete': boolean | ApiError
   'error-report:get': ErrorReportEntry | null
   'error-report:list': ErrorReportEntry[]
+  'error-report:find-active-for-conversation': ErrorReportEntry | null
   // Self-heal investigation
   'remote-edit:get-investigation-settings': RemoteEditInvestigationSettings
   'remote-edit:set-report-status': ErrorReportEntry | null
@@ -1801,6 +1803,7 @@ export type IpcReturnMap = {
   'manual-workflow-generator:token': void
   'manual-workflow-generator:spec-ready': void
   'manual-workflow-generator:done': { hasSpec: boolean }
+  'manual-workflow-generator:error': { message: string }
   'manual-workflow-generator:get-model': string
   'manual-workflow-generator:set-model': void
   // Scheduler
@@ -1909,6 +1912,7 @@ export type IpcReturnMap = {
   'project-generator:token': void
   'project-generator:spec-ready': void
   'project-generator:done': void
+  'project-generator:error': { message: string }
   'project-generator:get-model': string
   'project-generator:set-model': void
   // Agent generator
@@ -1916,6 +1920,7 @@ export type IpcReturnMap = {
   'agent-generator:token': void
   'agent-generator:spec-ready': void
   'agent-generator:done': void
+  'agent-generator:error': { message: string }
   'agent-generator:get-model': string
   'agent-generator:set-model': void
   // Skill generator
@@ -1923,6 +1928,7 @@ export type IpcReturnMap = {
   'skill-generator:token': void
   'skill-generator:spec-ready': void
   'skill-generator:done': void
+  'skill-generator:error': { message: string }
   'skill-generator:get-model': string
   'skill-generator:set-model': void
   // Scheduler generator
@@ -1930,6 +1936,7 @@ export type IpcReturnMap = {
   'scheduler-generator:token': void
   'scheduler-generator:spec-ready': void
   'scheduler-generator:done': void
+  'scheduler-generator:error': { message: string }
   'scheduler-generator:get-model': string
   'scheduler-generator:set-model': void
   // Artifact
@@ -1942,6 +1949,7 @@ export type IpcReturnMap = {
   'artifact:promote-message': ArtifactPromotionResult
   'artifact:export': { exportPath: string }
   'artifact:open-folder': { ok: boolean }
+  'artifact:get-file-content': { content: string }
   'artifact-generator:chat': { started: boolean }
   'artifact-generator:generate': { started: boolean }
   'artifact-generator:get-runs': ArtifactGeneratorRun[]
@@ -2078,8 +2086,6 @@ export type IpcChannels =
   | 'conversation:completed'
   | 'conversation:incompleted'
   | 'conversation:generate-quiz'
-  | 'conversation:save-quiz-attempt'
-  | 'conversation:list-quiz-attempts'
   | 'debug:set-enabled'
   | 'debug:log'
   | 'errors:clear'
@@ -2091,6 +2097,7 @@ export type IpcChannels =
   | 'error-report:delete'
   | 'error-report:get'
   | 'error-report:list'
+  | 'error-report:find-active-for-conversation'
   | 'remote-edit:get-investigation-settings'
   | 'remote-edit:set-report-status'
   | 'remote-edit:set-investigation-settings'
@@ -2173,6 +2180,7 @@ export type IpcChannels =
   | 'manual-workflow-generator:token'
   | 'manual-workflow-generator:spec-ready'
   | 'manual-workflow-generator:done'
+  | 'manual-workflow-generator:error'
   | 'manual-workflow-generator:get-model'
   | 'manual-workflow-generator:set-model'
   | 'scheduler:list'
@@ -2280,24 +2288,28 @@ export type IpcChannels =
   | 'project-generator:token'
   | 'project-generator:spec-ready'
   | 'project-generator:done'
+  | 'project-generator:error'
   | 'project-generator:get-model'
   | 'project-generator:set-model'
   | 'agent-generator:chat'
   | 'agent-generator:token'
   | 'agent-generator:spec-ready'
   | 'agent-generator:done'
+  | 'agent-generator:error'
   | 'agent-generator:get-model'
   | 'agent-generator:set-model'
   | 'skill-generator:chat'
   | 'skill-generator:token'
   | 'skill-generator:spec-ready'
   | 'skill-generator:done'
+  | 'skill-generator:error'
   | 'skill-generator:get-model'
   | 'skill-generator:set-model'
   | 'scheduler-generator:chat'
   | 'scheduler-generator:token'
   | 'scheduler-generator:spec-ready'
   | 'scheduler-generator:done'
+  | 'scheduler-generator:error'
   | 'scheduler-generator:get-model'
   | 'scheduler-generator:set-model'
   | 'artifact:list'
@@ -2308,6 +2320,7 @@ export type IpcChannels =
   | 'artifact:export'
   | 'artifact:open-folder'
   | 'artifact:promote-message'
+  | 'artifact:get-file-content'
   | 'artifact-generator:chat'
   | 'artifact-generator:generate'
   | 'artifact-generator:get-runs'
