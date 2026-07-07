@@ -33,6 +33,7 @@ import { registerArtifactGeneratorHandlers } from './artifact-generator'
 import { registerSkillGeneratorHandlers } from './skill-generator'
 import { registerScheduleGeneratorHandlers } from './scheduler-generator'
 import { registerManualWorkflowGeneratorHandlers } from './manual-workflow-generator'
+import { registerManualWorkflowRunHandlers } from './manual-workflow-runs'
 import { registerVoiceHandlers } from './voice-handlers'
 import { registerSchedulerHandlers } from './scheduler-handlers'
 import { registerDebriefHandlers } from './debrief-handlers'
@@ -79,6 +80,7 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerSkillGeneratorHandlers(mainWindow)
   registerScheduleGeneratorHandlers(mainWindow)
   registerManualWorkflowGeneratorHandlers(mainWindow)
+  registerManualWorkflowRunHandlers()
   registerArtifactHandlers()
   registerArtifactGeneratorHandlers(mainWindow)
   registerSchedulerHandlers()

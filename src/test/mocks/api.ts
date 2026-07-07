@@ -41,12 +41,18 @@ export function createMockApi() {
     setInvestigationSettings: vi.fn().mockImplementation(async (input) => input),
     setRemoteEditReportStatus: vi.fn().mockResolvedValue(null),
     startInvestigation: vi.fn().mockResolvedValue({ reportId: 'report-1' }),
+    startFix: vi.fn().mockResolvedValue({ reportId: 'report-1' }),
+    commitFixToWorkspace: vi.fn().mockResolvedValue({ reportId: 'report-1', committed: true }),
+    revertStagedFile: vi.fn().mockResolvedValue({ reportId: 'report-1', reverted: true }),
+    getStagedDiff: vi.fn().mockResolvedValue(null),
     getActiveInvestigation: vi.fn().mockResolvedValue({ running: false, activity: [], output: '' }),
     getActiveCodeChanges: vi.fn().mockResolvedValue({}),
     onActiveCodeChangesChanged: vi.fn().mockReturnValue(() => {}),
     onInvestigationActivity: vi.fn().mockReturnValue(() => {}),
     onInvestigationChunk: vi.fn().mockReturnValue(() => {}),
     onInvestigationDone: vi.fn().mockReturnValue(() => {}),
+    onFixEvent: vi.fn().mockReturnValue(() => {}),
+    onFixDone: vi.fn().mockReturnValue(() => {}),
     startVerification: vi.fn().mockResolvedValue({ reportId: 'report-1', runId: 'verify-1' }),
     getVerificationRuns: vi.fn().mockResolvedValue([]),
     onVerificationEvent: vi.fn().mockReturnValue(() => {}),
@@ -138,6 +144,7 @@ export function createMockApi() {
       recovery: null,
     }),
     onRemoteEditRecoveryEvent: vi.fn().mockReturnValue(() => {}),
+    rollbackRemoteEdit: vi.fn().mockResolvedValue({ recoveryId: 'recovery-1', rolledBack: true }),
     onErrorLogEntry: vi.fn().mockReturnValue(() => {}),
 
     // Auth
@@ -456,6 +463,11 @@ export function createMockApi() {
     onManualWorkflowGeneratorDone: vi.fn().mockReturnValue(() => {}),
     getManualWorkflowGeneratorModel: vi.fn().mockResolvedValue('gpt-5.5'),
     setManualWorkflowGeneratorModel: vi.fn().mockResolvedValue(undefined),
+    saveManualWorkflowRunFromSpec: vi.fn().mockResolvedValue(null),
+    listManualWorkflowRuns: vi.fn().mockResolvedValue([]),
+    getManualWorkflowRun: vi.fn().mockResolvedValue(null),
+    updateManualWorkflowRunStepStatus: vi.fn().mockResolvedValue(null),
+    discardManualWorkflowRun: vi.fn().mockResolvedValue(true),
     listWikiEntries: vi.fn().mockResolvedValue([]),
     createWikiEntry: vi.fn().mockResolvedValue({
       id: 'wiki-1',
@@ -585,6 +597,7 @@ export function createMockApi() {
       artifactId: 'debrief-artifact-1',
       versionId: 'debrief-version-1',
     }),
+    startDebriefGeneration: vi.fn().mockResolvedValue({ artifactId: 'debrief-artifact-1' }),
     getDebrief: vi.fn().mockResolvedValue(null),
     markConversationComplete: vi.fn().mockResolvedValue(true),
     markConversationIncomplete: vi.fn().mockResolvedValue(true),
@@ -593,8 +606,10 @@ export function createMockApi() {
 
     // Quiz
     generateQuiz: vi.fn().mockResolvedValue({ questions: [], artifactId: 'quiz-artifact-1', versionId: 'quiz-version-1' }),
+    startQuizGeneration: vi.fn().mockResolvedValue({ artifactId: 'quiz-artifact-1' }),
 
     // Artifacts
+    onArtifactUpdated: vi.fn().mockReturnValue(() => {}),
     artifactList: vi.fn().mockResolvedValue([]),
     artifactGet: vi.fn().mockResolvedValue(null),
     artifactListVersions: vi.fn().mockResolvedValue([]),

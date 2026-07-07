@@ -223,7 +223,7 @@ describe('ProjectSettingsPanel — manual workflow mode', () => {
     expect(screen.getByText(/generate a delegation plan/i)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /open workflow tab/i }))
 
-    expect(screen.getByText(/manual workflow generator/i)).toBeInTheDocument()
+    expect(screen.getByText(/manual delegation execution plan/i)).toBeInTheDocument()
     await user.type(screen.getByPlaceholderText(/describe the project goal/i), 'Plan a release')
     await user.click(screen.getByRole('button', { name: /generate workflow/i }))
 
@@ -239,6 +239,30 @@ describe('ProjectSettingsPanel — manual workflow mode', () => {
       onSpecReady = callback
       return () => {}
     })
+    api.saveManualWorkflowRunFromSpec.mockImplementation(async (
+      projectId: string,
+      spec: import('../../shared/types').ManualWorkflowSpec,
+    ) => ({
+      id: 'run-1',
+      projectId,
+      title: spec.title,
+      goalSummary: spec.goalSummary,
+      model: null,
+      status: 'active' as const,
+      assumptions: spec.assumptions,
+      stepCounts: { total: spec.steps.length, notStarted: spec.steps.length, started: 0, done: 0 },
+      createdAt: 1,
+      updatedAt: 1,
+      steps: spec.steps.map((step, index) => ({
+        ...step,
+        dbId: `db-${step.id}`,
+        runId: 'run-1',
+        stepIndex: index,
+        status: 'not_started' as const,
+        startedAt: null,
+        completedAt: null,
+      })),
+    }))
 
     mockStore = createMockAppStore({
       projects: [PROJECT],

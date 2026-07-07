@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Tune
@@ -173,53 +174,11 @@ fun ManualWorkflowScreen(
                         )
                     }
                 } else {
-                    if (activeSession.title.isNotEmpty() || activeSession.goalSummary.isNotEmpty() || activeSession.steps.isNotEmpty()) {
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 12.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            shape = MaterialTheme.shapes.medium,
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
-                                if (activeSession.title.isNotEmpty()) {
-                                    Text(activeSession.title, style = MaterialTheme.typography.labelLarge)
-                                }
-                                if (activeSession.goalSummary.isNotEmpty()) {
-                                    Text(
-                                        "Goal: ${activeSession.goalSummary}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        modifier = Modifier.padding(top = 4.dp),
-                                    )
-                                }
-                                if (activeSession.assumptions.isNotEmpty()) {
-                                    Text(
-                                        "Assumptions: ${activeSession.assumptions}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        modifier = Modifier.padding(top = 4.dp),
-                                    )
-                                }
-                                if (activeSession.steps.isNotEmpty()) {
-                                    Text(
-                                        "Steps:",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        modifier = Modifier.padding(top = 8.dp),
-                                    )
-                                    activeSession.steps.forEachIndexed { index, step ->
-                                        ManualWorkflowStepCard(index = index, step = step)
-                                    }
-                                }
-                                if (activeSession.currentModel != null) {
-                                    Text(
-                                        "Model: ${activeSession.currentModel}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        modifier = Modifier.padding(top = 8.dp),
-                                    )
-                                }
-                            }
-                        }
-                    }
-
+                    // Plan header, step cards, and the chat log all live in this single scrollable
+                    // LazyColumn (rather than the plan/steps block being a separate unbounded
+                    // Column) so a workflow with many steps scrolls fully into view instead of
+                    // squeezing the chat log toward zero height — mirrors ChatScreen.kt's pattern
+                    // of one weighted LazyColumn with no competing unbounded sibling.
                     LazyColumn(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -227,6 +186,52 @@ fun ManualWorkflowScreen(
                             .padding(vertical = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
+                        if (activeSession.title.isNotEmpty() || activeSession.goalSummary.isNotEmpty() || activeSession.steps.isNotEmpty()) {
+                            item {
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    shape = MaterialTheme.shapes.medium,
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        if (activeSession.title.isNotEmpty()) {
+                                            Text(activeSession.title, style = MaterialTheme.typography.labelLarge)
+                                        }
+                                        if (activeSession.goalSummary.isNotEmpty()) {
+                                            Text(
+                                                "Goal: ${activeSession.goalSummary}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                modifier = Modifier.padding(top = 4.dp),
+                                            )
+                                        }
+                                        if (activeSession.assumptions.isNotEmpty()) {
+                                            Text(
+                                                "Assumptions: ${activeSession.assumptions}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                modifier = Modifier.padding(top = 4.dp),
+                                            )
+                                        }
+                                        if (activeSession.steps.isNotEmpty()) {
+                                            Text(
+                                                "Steps:",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                modifier = Modifier.padding(top = 8.dp),
+                                            )
+                                        }
+                                        if (activeSession.currentModel != null) {
+                                            Text(
+                                                "Model: ${activeSession.currentModel}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                modifier = Modifier.padding(top = 8.dp),
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        itemsIndexed(activeSession.steps) { index, step ->
+                            ManualWorkflowStepCard(index = index, step = step)
+                        }
                         items(activeSession.messages) { message ->
                             GeneratorChatBubble(role = message.role, text = message.text, isError = message.isError)
                         }
@@ -300,7 +305,7 @@ internal fun ManualWorkflowStepCard(index: Int, step: ManualWorkflowStepInfo) {
         if (step.expectedOutput.isNotBlank()) append(" · Output: ${step.expectedOutput}")
     }
     Surface(
-        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surface,
         shape = MaterialTheme.shapes.small,
     ) {

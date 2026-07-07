@@ -39,6 +39,7 @@ import type {
   ScheduleGeneratorSpec,
   ManualWorkflowGeneratorMessage,
   ManualWorkflowSpec,
+  ManualWorkflowStepStatus,
   ArtifactGeneratorMessage,
   ArtifactPromotionRequest,
   ArtifactSpec,
@@ -610,6 +611,16 @@ const api = {
   },
   getManualWorkflowGeneratorModel: () => typedInvoke('manual-workflow-generator:get-model'),
   setManualWorkflowGeneratorModel: (modelId: string) => typedInvoke('manual-workflow-generator:set-model', modelId),
+  saveManualWorkflowRunFromSpec: (projectId: string, spec: ManualWorkflowSpec, model: string | null, existingRunId?: string | null) =>
+    typedInvoke('manual-workflow-runs:save-spec', projectId, spec, model, existingRunId),
+  listManualWorkflowRuns: (projectId: string) =>
+    typedInvoke('manual-workflow-runs:list', projectId),
+  getManualWorkflowRun: (runId: string) =>
+    typedInvoke('manual-workflow-runs:get', runId),
+  updateManualWorkflowRunStepStatus: (runId: string, stepId: string, status: ManualWorkflowStepStatus) =>
+    typedInvoke('manual-workflow-runs:update-step-status', runId, stepId, status),
+  discardManualWorkflowRun: (runId: string) =>
+    typedInvoke('manual-workflow-runs:discard', runId),
   onTeamActivity: (callback: (step: {
     stepId: string
     agentId: string
@@ -932,6 +943,8 @@ const api = {
   // Debrief
   generateDebrief: (conversationId: string, projectId: string | null, model?: string) =>
     typedInvoke('conversation:generate-debrief', conversationId, projectId, model),
+  startDebriefGeneration: (conversationId: string, projectId: string | null, model?: string) =>
+    typedInvoke('conversation:start-debrief-generation', conversationId, projectId, model),
   getDebrief: (conversationId: string) =>
     typedInvoke('conversation:get-debrief', conversationId),
   markConversationComplete: (conversationId: string) =>
@@ -952,6 +965,15 @@ const api = {
   // Quiz
   generateQuiz: (conversationId: string, projectId: string | null, model?: string) =>
     typedInvoke('conversation:generate-quiz', conversationId, projectId, model),
+  startQuizGeneration: (conversationId: string, projectId: string | null, model?: string) =>
+    typedInvoke('conversation:start-quiz-generation', conversationId, projectId, model),
+
+  // Artifacts (live updates)
+  onArtifactUpdated: (callback: (data: { artifactId: string; projectId: string | null }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { artifactId: string; projectId: string | null }) => callback(data)
+    typedOn('artifact:updated', handler)
+    return () => typedOff('artifact:updated', handler)
+  },
 }
 
 contextBridge.exposeInMainWorld('api', api)

@@ -812,6 +812,38 @@ export interface ManualWorkflowGeneratorMessage {
   content: string
 }
 
+export type ManualWorkflowStepStatus = 'not_started' | 'started' | 'done'
+export type ManualWorkflowRunStatus = 'active' | 'completed'
+
+/** A persisted step. `id` stays the generator's own step key (e.g. "step-1") so
+ *  existing dependsOnStepIds matching logic needs no changes; `dbId` is the
+ *  actual manual_workflow_run_steps primary key, used only for status mutations. */
+export interface ManualWorkflowRunStep extends ManualWorkflowStep {
+  dbId: string
+  runId: string
+  stepIndex: number
+  status: ManualWorkflowStepStatus
+  startedAt: number | null
+  completedAt: number | null
+}
+
+export interface ManualWorkflowRunSummary {
+  id: string
+  projectId: string
+  title: string
+  goalSummary: string
+  model: string | null
+  status: ManualWorkflowRunStatus
+  stepCounts: { total: number; notStarted: number; started: number; done: number }
+  createdAt: number
+  updatedAt: number
+}
+
+export interface ManualWorkflowRunDetail extends ManualWorkflowRunSummary {
+  assumptions: string[]
+  steps: ManualWorkflowRunStep[]
+}
+
 export type ArtifactKind =
   | 'document' | 'code' | 'ui' | 'data'
   | 'prompt' | 'agent-config' | 'plan' | 'bundle' | 'other'
@@ -872,12 +904,14 @@ export interface ArtifactVersion {
 export interface ArtifactRow {
   id: string
   projectId: string | null
+  conversationId: string | null
   title: string
   kind: ArtifactKind
   description: string | null
   storageRoot: string
   currentVersionId: string | null
   status: ArtifactStatus
+  errorMessage: string | null
   createdAt: number
   updatedAt: number
   currentVersion?: ArtifactVersion
@@ -1690,10 +1724,12 @@ export type IpcReturnMap = {
   'conversation:set-pinned': boolean
   'conversation:update-context': boolean
   'conversation:generate-debrief': DebriefArtifactResult
+  'conversation:start-debrief-generation': { artifactId: string }
   'conversation:get-debrief': DebriefArtifactResult | null
   'conversation:mark-complete': boolean
   'conversation:mark-incomplete': boolean
   'conversation:generate-quiz': QuizArtifactResult
+  'conversation:start-quiz-generation': { artifactId: string }
   // Debug
   'debug:set-enabled': boolean
   'debug:log': void
@@ -1806,6 +1842,11 @@ export type IpcReturnMap = {
   'manual-workflow-generator:error': { message: string }
   'manual-workflow-generator:get-model': string
   'manual-workflow-generator:set-model': void
+  'manual-workflow-runs:save-spec': ManualWorkflowRunDetail
+  'manual-workflow-runs:list': ManualWorkflowRunSummary[]
+  'manual-workflow-runs:get': ManualWorkflowRunDetail | null
+  'manual-workflow-runs:update-step-status': ManualWorkflowRunDetail | null
+  'manual-workflow-runs:discard': boolean
   // Scheduler
   'scheduler:list': ScheduledTask[]
   'scheduler:get': ScheduledTask | null
@@ -2080,12 +2121,15 @@ export type IpcChannels =
   | 'conversation:set-pinned'
   | 'conversation:update-context'
   | 'conversation:generate-debrief'
+  | 'conversation:start-debrief-generation'
   | 'conversation:get-debrief'
   | 'conversation:mark-complete'
   | 'conversation:mark-incomplete'
   | 'conversation:completed'
   | 'conversation:incompleted'
   | 'conversation:generate-quiz'
+  | 'conversation:start-quiz-generation'
+  | 'artifact:updated'
   | 'debug:set-enabled'
   | 'debug:log'
   | 'errors:clear'
@@ -2183,6 +2227,11 @@ export type IpcChannels =
   | 'manual-workflow-generator:error'
   | 'manual-workflow-generator:get-model'
   | 'manual-workflow-generator:set-model'
+  | 'manual-workflow-runs:save-spec'
+  | 'manual-workflow-runs:list'
+  | 'manual-workflow-runs:get'
+  | 'manual-workflow-runs:update-step-status'
+  | 'manual-workflow-runs:discard'
   | 'scheduler:list'
   | 'scheduler:get'
   | 'scheduler:create'

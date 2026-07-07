@@ -966,6 +966,59 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
     version: 61,
     sql: `DROP TABLE IF EXISTS conversation_quiz_attempts;`,
   },
+  {
+    // Manual Workflow plans are now persisted per-project instead of regenerated-and-
+    // discarded every time the tab opens. Per-step status mutates over time, so — same
+    // reasoning as error_reports/remote_edit_* — this gets its own parent+child tables
+    // rather than being folded into the immutable-version Artifact system.
+    version: 62,
+    sql: `
+      CREATE TABLE IF NOT EXISTS manual_workflow_runs (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        goal_summary TEXT NOT NULL DEFAULT '',
+        assumptions_json TEXT NOT NULL DEFAULT '[]',
+        model TEXT,
+        status TEXT NOT NULL CHECK (status IN ('active', 'completed')) DEFAULT 'active',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_manual_workflow_runs_project_updated
+        ON manual_workflow_runs(project_id, updated_at DESC);
+
+      CREATE TABLE IF NOT EXISTS manual_workflow_run_steps (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES manual_workflow_runs(id) ON DELETE CASCADE,
+        step_index INTEGER NOT NULL,
+        step_key TEXT NOT NULL,
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL DEFAULT '',
+        agent_id TEXT,
+        agent_name TEXT,
+        prompt TEXT NOT NULL,
+        expected_output TEXT NOT NULL DEFAULT '',
+        depends_on_step_ids_json TEXT NOT NULL DEFAULT '[]',
+        status TEXT NOT NULL CHECK (status IN ('not_started', 'started', 'done')) DEFAULT 'not_started',
+        started_at INTEGER,
+        completed_at INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_manual_workflow_run_steps_run_index
+        ON manual_workflow_run_steps(run_id, step_index);
+    `,
+  },
+  {
+    // /debrief and /quiz now create the artifact row up front with status='generating' and
+    // fill it in once the LLM call resolves, so the chat card and Project Artifacts tab can
+    // reflect in-progress/failed generation even if the user navigates away mid-run. Needs the
+    // owning conversation recorded before any version (which normally carries it) exists yet,
+    // plus somewhere to keep the failure reason for the card's error state.
+    version: 63,
+    sql: `
+      ALTER TABLE artifacts ADD COLUMN conversation_id TEXT;
+      ALTER TABLE artifacts ADD COLUMN error_message TEXT;
+    `,
+  },
 ];
 
 
@@ -1090,6 +1143,39 @@ export function initializeBaseSchema(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_remote_edit_recovery_report
       ON remote_edit_recovery_runs(report_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS manual_workflow_runs (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      goal_summary TEXT NOT NULL DEFAULT '',
+      assumptions_json TEXT NOT NULL DEFAULT '[]',
+      model TEXT,
+      status TEXT NOT NULL CHECK (status IN ('active', 'completed')) DEFAULT 'active',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_manual_workflow_runs_project_updated
+      ON manual_workflow_runs(project_id, updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS manual_workflow_run_steps (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL REFERENCES manual_workflow_runs(id) ON DELETE CASCADE,
+      step_index INTEGER NOT NULL,
+      step_key TEXT NOT NULL,
+      title TEXT NOT NULL,
+      summary TEXT NOT NULL DEFAULT '',
+      agent_id TEXT,
+      agent_name TEXT,
+      prompt TEXT NOT NULL,
+      expected_output TEXT NOT NULL DEFAULT '',
+      depends_on_step_ids_json TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL CHECK (status IN ('not_started', 'started', 'done')) DEFAULT 'not_started',
+      started_at INTEGER,
+      completed_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_manual_workflow_run_steps_run_index
+      ON manual_workflow_run_steps(run_id, step_index);
 
     CREATE TABLE IF NOT EXISTS agents (
       id TEXT PRIMARY KEY,
