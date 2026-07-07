@@ -269,3 +269,32 @@ describe('TitleBar — Quick settings icon (M.9)', () => {
     expect(mockStore.setShowSettings).toHaveBeenCalledWith(true)
   })
 })
+
+// ── Key-handoff request indicator ────────────────────────────────────────────
+
+describe('TitleBar — Key-handoff request indicator', () => {
+  it('kh-1: no badge shown when there is no pending key-handoff request', () => {
+    render(<TitleBar />)
+    expect(screen.queryByRole('button', { name: /requesting the .* api key/i })).not.toBeInTheDocument()
+  })
+
+  it('kh-2: badge is shown when a key-handoff request is pending', () => {
+    mockStore = createMockAppStore({ pendingKeyHandoffProvider: 'anthropic' })
+    setupStoreMock(useAppStore, mockStore)
+
+    render(<TitleBar />)
+    expect(screen.getByRole('button', { name: /requesting the anthropic api key/i })).toBeInTheDocument()
+  })
+
+  it('kh-3: clicking the badge opens settings on the Providers tab', async () => {
+    const user = userEvent.setup()
+    mockStore = createMockAppStore({ pendingKeyHandoffProvider: 'anthropic' })
+    setupStoreMock(useAppStore, mockStore)
+
+    render(<TitleBar />)
+    await user.click(screen.getByRole('button', { name: /requesting the anthropic api key/i }))
+
+    expect(mockStore.setSettingsInitialTab).toHaveBeenCalledWith('providers')
+    expect(mockStore.setShowSettings).toHaveBeenCalledWith(true)
+  })
+})

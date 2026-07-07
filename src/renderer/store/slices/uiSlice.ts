@@ -86,6 +86,8 @@ export interface UiSlice {
   closeArtifactPanel: () => void
   pendingDebriefConversationId: string | null
   setPendingDebriefConversationId: (id: string | null) => void
+  pendingKeyHandoffProvider: string | null
+  setPendingKeyHandoffProvider: (provider: string | null) => void
 }
 
 export const createUiSlice: StateCreator<
@@ -121,6 +123,7 @@ export const createUiSlice: StateCreator<
   androidDebugLog: false,
   viewingArtifactId: null,
   pendingDebriefConversationId: null,
+  pendingKeyHandoffProvider: null,
 
   openArtifactPanel: (id) => {
     set((s) => {
@@ -137,6 +140,12 @@ export const createUiSlice: StateCreator<
   setPendingDebriefConversationId: (id) => {
     set((s) => {
       s.pendingDebriefConversationId = id
+    })
+  },
+
+  setPendingKeyHandoffProvider: (provider) => {
+    set((s) => {
+      s.pendingKeyHandoffProvider = provider
     })
   },
 

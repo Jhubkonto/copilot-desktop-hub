@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Minus, Square, X, Menu, Maximize2, ChevronRight, FolderOpen, Pencil, Settings } from 'lucide-react'
+import { Minus, Square, X, Menu, Maximize2, ChevronRight, FolderOpen, Pencil, Settings, KeyRound } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import { DirectoryPicker } from './DirectoryPicker'
 import { ProjectSettingsPanel } from './ProjectSettingsPanel'
@@ -89,6 +89,8 @@ export function TitleBar() {
   const projectConfigs = useAppStore((s) => s.projectConfigs)
 
   const setShowSettings = useAppStore((s) => s.setShowSettings)
+  const setSettingsInitialTab = useAppStore((s) => s.setSettingsInitialTab)
+  const pendingKeyHandoffProvider = useAppStore((s) => s.pendingKeyHandoffProvider)
   const setShowMcpPanel = useAppStore((s) => s.setShowMcpPanel)
   const openCreateAgent = useAppStore((s) => s.openCreateAgent)
   const openEditAgent = useAppStore((s) => s.openEditAgent)
@@ -282,6 +284,23 @@ export function TitleBar() {
       >
         <Settings className="w-4 h-4" />
       </button>
+
+      {/* Key-handoff request indicator — clickable, opens Providers so the user can approve/reject */}
+      {pendingKeyHandoffProvider && (
+        <button
+          onClick={() => {
+            setSettingsInitialTab('providers')
+            setShowSettings(true)
+          }}
+          className="ml-1 h-7 w-7 inline-flex items-center justify-center rounded hover:bg-blue-100 dark:hover:bg-blue-900/40 text-blue-600 dark:text-blue-400 transition-colors relative"
+          style={NO_DRAG}
+          aria-label={`Android is requesting the ${pendingKeyHandoffProvider} API key — review request`}
+          title={`Android is requesting the ${pendingKeyHandoffProvider} API key — click to review`}
+        >
+          <KeyRound className="w-4 h-4" />
+          <span className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-blue-500" />
+        </button>
+      )}
 
       {/* Active agent badge — also no-drag */}
       {activeAgent && (

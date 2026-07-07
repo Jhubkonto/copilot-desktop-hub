@@ -195,8 +195,9 @@ export function SettingsPanel() {
   const [fcmSaving, setFcmSaving] = useState(false)
   const [fcmError, setFcmError] = useState<string | null>(null)
 
-  // Key handoff consent state
-  const [pendingKeyHandoffProvider, setPendingKeyHandoffProvider] = useState<string | null>(null)
+  // Key handoff consent state — lifted to the store so TitleBar can surface a badge for it
+  const pendingKeyHandoffProvider = useAppStore((s) => s.pendingKeyHandoffProvider)
+  const setPendingKeyHandoffProvider = useAppStore((s) => s.setPendingKeyHandoffProvider)
 
   // Prompt library state
   const [prompts, setPrompts] = useState<PromptLibraryEntry[]>([])
@@ -261,7 +262,7 @@ export function SettingsPanel() {
       unsubHandoffRequest()
       unsubHandoffSent()
     }
-  }, [addToast])
+  }, [addToast, setPendingKeyHandoffProvider])
 
   useEffect(() => {
     if (!showDefaultModelMenu) { setDefaultModelSearch(''); return }
