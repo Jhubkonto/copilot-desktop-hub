@@ -154,11 +154,6 @@ export function formatContextUsage(estimatedTokens: number, model: string | null
  * the user to review/send ('expanded'), or is unrecognized (false) and falls through. */
 export type SlashCommandOutcome = 'handled' | 'expanded' | false
 
-export interface SlashGenerationResult {
-  artifactId: string
-  versionId: string
-}
-
 export interface SlashCommandContext {
   conversationId: string | null
   chatProjectId: string | null
@@ -182,11 +177,11 @@ export interface SlashCommandContext {
   /** Marks the current conversation complete/incomplete (mirrors the "..." menu action). */
   markComplete: () => Promise<void>
   markIncomplete: () => Promise<void>
-  /** Runs a fixed generation+parsing flow (debrief/quiz) against the given/conversation model,
-   * persisting the result as a versioned artifact. */
-  runSlashGeneration: (kind: 'debrief' | 'quiz', opts?: { model?: string }) => Promise<SlashGenerationResult | { error: string }>
-  /** Attaches a durable, specially-rendered artifact reference message to the transcript. */
-  attachArtifactMessage: (artifactId: string, versionId?: string) => Promise<void>
+  /** Starts a fixed generation flow (debrief/quiz) against the given/conversation model and
+   * attaches a durable, live-updating artifact card to the transcript right away — the
+   * artifact is created with status 'generating' immediately, and the actual LLM call runs
+   * in the background so this resolves without blocking the composer. */
+  startArtifactGeneration: (kind: 'debrief' | 'quiz', opts?: { model?: string }) => Promise<{ ok: true } | { error: string }>
   /** Creates (or reuses an existing non-terminal) Code Changes request for this conversation
    * and attaches a durable, live-updating card message to the transcript. */
   startCodeChange: (opts: { description: string }) => Promise<{ reportId: string } | { error: string }>
@@ -497,13 +492,10 @@ export async function executeSlashCommand(
       }
       const model = resolveSlashGenerationModel(argText, ctx)
       if (model === INVALID_MODEL) return 'handled'
-      ctx.pushSystemMessage('Generating debrief…')
-      const result = await ctx.runSlashGeneration('debrief', { model: model ?? undefined })
+      const result = await ctx.startArtifactGeneration('debrief', { model: model ?? undefined })
       if ('error' in result) {
-        ctx.pushSystemMessage(`Failed to generate debrief: ${result.error}`)
-        return 'handled'
+        ctx.pushSystemMessage(`Failed to start debrief generation: ${result.error}`)
       }
-      await ctx.attachArtifactMessage(result.artifactId, result.versionId)
       return 'handled'
     }
     case '/quiz': {
@@ -513,13 +505,10 @@ export async function executeSlashCommand(
       }
       const model = resolveSlashGenerationModel(argText, ctx)
       if (model === INVALID_MODEL) return 'handled'
-      ctx.pushSystemMessage('Generating quiz…')
-      const result = await ctx.runSlashGeneration('quiz', { model: model ?? undefined })
+      const result = await ctx.startArtifactGeneration('quiz', { model: model ?? undefined })
       if ('error' in result) {
-        ctx.pushSystemMessage(`Failed to generate quiz: ${result.error}`)
-        return 'handled'
+        ctx.pushSystemMessage(`Failed to start quiz generation: ${result.error}`)
       }
-      await ctx.attachArtifactMessage(result.artifactId, result.versionId)
       return 'handled'
     }
     case '/complete': {

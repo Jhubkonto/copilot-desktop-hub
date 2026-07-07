@@ -52,7 +52,17 @@ function CodeChangePhaseBar({ phase }: { phase: ReturnType<typeof deriveCodeChan
  * in place to the same investigate/diff/apply/verify/commit flow the old standalone
  * CodeChangesScreen used, reusing its presentational sub-components unchanged.
  */
-export function CodeChangeCard({ reportId }: { reportId: string }) {
+export function CodeChangeCard({
+  reportId,
+  chatModel,
+  chatBackend,
+  onDeleted,
+}: {
+  reportId: string
+  chatModel?: string
+  chatBackend?: RemoteEditBackend
+  onDeleted?: () => void
+}) {
   const projectConfigs = useAppStore((s) => s.projectConfigs)
   const loadProjectConfig = useAppStore((s) => s.loadProjectConfig)
   const catalogModels = useAppStore((s) => s.catalogModels)
@@ -61,7 +71,7 @@ export function CodeChangeCard({ reportId }: { reportId: string }) {
   const [expanded, setExpanded] = useState(false)
   const [report, setReport] = useState<ErrorReportEntry | null>(null)
   const [investigationSettings, setInvestigationSettings] = useState<RemoteEditInvestigationSettings>({
-    backend: 'byok', model: 'gpt-5-mini', retryLimit: 1, autoApproveTools: true,
+    backend: chatBackend ?? 'byok', model: chatModel ?? 'gpt-5-mini', retryLimit: 1, autoApproveTools: true,
   })
   const [availableModelGroups, setAvailableModelGroups] = useState<AvailableModelGroup[]>([])
   const [investigationOutput, setInvestigationOutput] = useState<string>('')
@@ -87,6 +97,7 @@ export function CodeChangeCard({ reportId }: { reportId: string }) {
   const [reviewAction, setReviewAction] = useState<'accept' | 'reject' | 'revise' | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [pendingDelete, setPendingDelete] = useState(false)
+  const [reportMissing, setReportMissing] = useState(false)
 
   const projectId = report?.project_id ?? null
   const projectConfig = projectId ? (projectConfigs[projectId] ?? DEFAULT_PROJECT_CONFIG) : DEFAULT_PROJECT_CONFIG
@@ -107,30 +118,10 @@ export function CodeChangeCard({ reportId }: { reportId: string }) {
   const selectedModelSourceLabel = remoteEditModelGroups.find((group) =>
     group.models.some((model) => model.id === investigationSettings.model)
   )?.sourceLabel
-  const hasBackendGroup = (backend: RemoteEditBackend) => availableModelGroups.some((group) => group.sourceKey === backend)
-  const backendOptions: Array<{ value: RemoteEditBackend; label: string }> = [
-    { value: 'byok', label: 'BYOK' },
-    ...(hasBackendGroup('claude-cli') || investigationSettings.backend === 'claude-cli' ? [{ value: 'claude-cli' as const, label: 'Claude CLI' }] : []),
-    ...(hasBackendGroup('codex-cli') || investigationSettings.backend === 'codex-cli' ? [{ value: 'codex-cli' as const, label: 'Codex CLI' }] : []),
-  ]
   const reportBusy = running || fixRunning || verificationRunning || recoveryRunning || deleting || committingFix || gitRunning !== null
 
-  const handleSelectRemoteEditModel = (_group: AvailableModelGroup, model: AvailableModelEntry) => {
-    setInvestigationSettings((settings) => ({ ...settings, model: model.id }))
-  }
   const handleSelectReviseModel = (group: AvailableModelGroup, model: AvailableModelEntry) => {
     setInvestigationSettings((settings) => ({ ...settings, model: model.id, backend: group.sourceType === 'cli' ? (group.sourceKey as RemoteEditBackend) : 'byok' }))
-  }
-  const handleSetBackend = (backend: RemoteEditBackend) => {
-    setInvestigationSettings((settings) => {
-      const nextGroups = availableModelGroups.filter((group) => {
-        if (backend === 'claude-cli') return group.sourceKey === 'claude-cli'
-        if (backend === 'codex-cli') return group.sourceKey === 'codex-cli'
-        return group.sourceType === 'provider'
-      })
-      const modelStillAvailable = nextGroups.some((group) => group.models.some((model) => model.id === settings.model))
-      return { ...settings, backend, model: modelStillAvailable ? settings.model : (nextGroups[0]?.models[0]?.id ?? settings.model) }
-    })
   }
 
   const reviseModelPicker = (
@@ -148,7 +139,13 @@ export function CodeChangeCard({ reportId }: { reportId: string }) {
 
   const loadReport = async () => {
     const next = await window.api.getErrorReport(reportId)
-    if (next) setReport(next)
+    if (next) {
+      setReport(next)
+      setReportMissing(false)
+    } else {
+      setReport(null)
+      setReportMissing(true)
+    }
   }
   const loadVerificationRuns = async () => setVerificationRuns(await window.api.getVerificationRuns(reportId))
   const loadRecoveryRuns = async () => setRecoveryRuns(await window.api.getRemoteEditRecoveryRuns(reportId))
@@ -158,9 +155,18 @@ export function CodeChangeCard({ reportId }: { reportId: string }) {
     if (projectId) void loadProjectConfig(projectId)
   }, [projectId, loadProjectConfig])
   useEffect(() => {
-    window.api.getInvestigationSettings().then(setInvestigationSettings).catch(() => {})
+    window.api.getInvestigationSettings()
+      .then((saved) => setInvestigationSettings((s) => ({ ...s, autoApproveTools: saved.autoApproveTools })))
+      .catch(() => {})
     window.api.listAvailableModels().then(setAvailableModelGroups).catch(() => {})
   }, [])
+  useEffect(() => {
+    setInvestigationSettings((s) => ({
+      ...s,
+      backend: chatBackend ?? s.backend,
+      model: chatModel ?? s.model,
+    }))
+  }, [chatBackend, chatModel])
   useEffect(() => {
     if (!expanded) return
     const interval = setInterval(() => { void loadReport() }, 4000)
@@ -429,6 +435,8 @@ export function CodeChangeCard({ reportId }: { reportId: string }) {
       addToast('Change request deleted', 'success')
       setPendingDelete(false)
       setReport(null)
+      setReportMissing(true)
+      onDeleted?.()
     } catch (error) {
       addToast(error instanceof Error ? error.message : String(error), 'error')
     } finally {
@@ -437,6 +445,15 @@ export function CodeChangeCard({ reportId }: { reportId: string }) {
   }
 
   if (!report) {
+    if (reportMissing) {
+      return (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-[11px] text-gray-400 max-w-2xl">
+          <Diff className="w-3.5 h-3.5" />
+          Code change deleted or no longer available
+        </div>
+      )
+    }
+
     return (
       <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-[11px] text-gray-400 max-w-2xl">
         <Diff className="w-3.5 h-3.5" />
@@ -487,12 +504,6 @@ export function CodeChangeCard({ reportId }: { reportId: string }) {
             fixRunning={fixRunning ? reportId : null}
             investigationSettings={investigationSettings}
             onSetInvestigationSettings={setInvestigationSettings}
-            onSetBackend={handleSetBackend}
-            backendOptions={backendOptions}
-            remoteEditModelGroups={remoteEditModelGroups}
-            selectedModelSourceLabel={selectedModelSourceLabel}
-            catalogModels={catalogModels}
-            onSelectRemoteEditModel={handleSelectRemoteEditModel}
             onSaveInvestigationSettings={() => void persistInvestigationSettings()}
             investigationStepCollapsed={investigationStepCollapsed}
             onToggleInvestigationStepCollapsed={() => setInvestigationStepCollapsed((c) => !c)}

@@ -13,7 +13,13 @@ import {
 import type { ProviderMessage } from './providers'
 import { ClaudeAdapter } from './cli-adapters/claude'
 import { broadcastToMobile } from './ws-server'
-import { findArtifactForConversation, readArtifactVersionFile, writeArtifactVersionForConversation } from './artifacts'
+import {
+  createPendingArtifactForConversation,
+  findArtifactForConversation,
+  markArtifactGenerationFailed,
+  readArtifactVersionFile,
+  writeArtifactVersionForConversation,
+} from './artifacts'
 
 const HEAD = 4000
 const HARD_LIMIT = 40_000
@@ -175,6 +181,23 @@ export async function generateDebriefForWs(conversationId: string, projectId: st
   return result
 }
 
+/**
+ * Creates the debrief artifact with status 'generating' immediately, then runs the actual
+ * LLM generation in the background — the caller doesn't await completion, so the renderer
+ * can attach a durable chat card right away instead of blocking on the round-trip. On
+ * failure the artifact is flipped to 'failed' with the reason instead of spinning forever.
+ */
+export function startDebriefGeneration(conversationId: string, projectId: string | null, model?: string): { artifactId: string } {
+  const db = getDatabase()
+  const conversationRow = db.prepare('SELECT title FROM conversations WHERE id = ?').get(conversationId) as { title: string } | undefined
+  const title = `Debrief: ${conversationRow?.title ?? 'Conversation'}`
+  const artifactId = createPendingArtifactForConversation({ conversationId, projectId, kind: 'debrief', title })
+  void generateDebriefForWs(conversationId, projectId, model).catch((err) => {
+    markArtifactGenerationFailed(artifactId, projectId, err instanceof Error ? err.message : String(err))
+  })
+  return { artifactId }
+}
+
 export function getDebriefForWs(conversationId: string): DebriefArtifactResult | null {
   const artifact = findArtifactForConversation(conversationId, 'debrief')
   const version = artifact?.currentVersion
@@ -221,6 +244,10 @@ export function markIncompleteForWs(conversationId: string): boolean {
 export function registerDebriefHandlers(): void {
   safeHandle('conversation:generate-debrief', async (_event, conversationId: string, projectId: string | null, model?: string): Promise<DebriefArtifactResult> => {
     return generateDebriefForWs(conversationId, projectId, model)
+  })
+
+  safeHandle('conversation:start-debrief-generation', (_event, conversationId: string, projectId: string | null, model?: string) => {
+    return startDebriefGeneration(conversationId, projectId, model)
   })
 
   safeHandle('conversation:get-debrief', (_event, conversationId: string): DebriefArtifactResult | null => {

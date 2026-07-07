@@ -11,10 +11,107 @@ import type {
   ArtifactPromotionResult,
 } from '../shared/types'
 import { exportArtifactVersion } from './artifact-export'
-import { app, shell } from 'electron'
+import { app, shell, BrowserWindow } from 'electron'
 import { randomUUID } from 'crypto'
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'fs'
 import path from 'path'
+
+/** Notifies all open windows that an artifact changed, so the chat card and Project
+ * Artifacts tab can refresh live instead of only reflecting state as of last mount. */
+function broadcastArtifactUpdated(artifactId: string, projectId: string | null): void {
+  BrowserWindow.getAllWindows().forEach((w) => {
+    if (!w.isDestroyed()) w.webContents.send('artifact:updated', { artifactId, projectId })
+  })
+}
+
+const ARTIFACT_REF_PREFIX = '__artifact-ref:'
+
+function artifactRefContent(ref: {
+  artifactId: string
+  versionId?: string
+  kind?: ArtifactKind
+  pending?: boolean
+}): string {
+  return `${ARTIFACT_REF_PREFIX}${JSON.stringify(Object.fromEntries(
+    Object.entries(ref).filter(([, value]) => value !== undefined),
+  ))}`
+}
+
+function parseArtifactRefContent(content: string): {
+  artifactId?: string
+  versionId?: string
+  kind?: string
+  pending?: boolean
+} | null {
+  if (!content.startsWith(ARTIFACT_REF_PREFIX)) return null
+  try {
+    return JSON.parse(content.slice(ARTIFACT_REF_PREFIX.length)) as {
+      artifactId?: string
+      versionId?: string
+      kind?: string
+      pending?: boolean
+    }
+  } catch {
+    return null
+  }
+}
+
+function pinLatestPendingArtifactRefMessage(input: {
+  conversationId: string
+  artifactId: string
+  versionId: string
+  kind: ArtifactKind
+  pendingSince: number | null
+}): void {
+  const db = getDatabase()
+  const rows = db.prepare(
+    `SELECT id, content, timestamp FROM messages
+     WHERE conversation_id = ? AND role = 'system' AND content LIKE ?
+     ORDER BY timestamp DESC LIMIT 50`,
+  ).all(input.conversationId, `${ARTIFACT_REF_PREFIX}%`) as Array<{
+    id: string
+    content: string
+    timestamp: number
+  }>
+
+  let fallbackRow: { id: string; content: string } | null = null
+  for (const row of rows) {
+    const ref = parseArtifactRefContent(row.content)
+    if (ref?.artifactId !== input.artifactId || ref.versionId) continue
+
+    if (ref.pending === true) {
+      db.prepare('UPDATE messages SET content = ? WHERE id = ?').run(
+        artifactRefContent({
+          artifactId: input.artifactId,
+          versionId: input.versionId,
+          kind: (ref.kind as ArtifactKind | undefined) ?? input.kind,
+        }),
+        row.id,
+      )
+      return
+    }
+
+    if (
+      fallbackRow === null &&
+      input.pendingSince !== null &&
+      Number(row.timestamp) >= input.pendingSince
+    ) {
+      fallbackRow = row
+    }
+  }
+
+  if (fallbackRow) {
+    const ref = parseArtifactRefContent(fallbackRow.content)
+    db.prepare('UPDATE messages SET content = ? WHERE id = ?').run(
+      artifactRefContent({
+        artifactId: input.artifactId,
+        versionId: input.versionId,
+        kind: (ref?.kind as ArtifactKind | undefined) ?? input.kind,
+      }),
+      fallbackRow.id,
+    )
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Row converters (snake_case DB → camelCase TS)
@@ -54,12 +151,14 @@ function rowToArtifact(r: Record<string, unknown>, currentVersion?: ArtifactVers
   return {
     id: String(r.id),
     projectId: r.project_id != null ? String(r.project_id) : null,
+    conversationId: r.conversation_id != null ? String(r.conversation_id) : null,
     title: String(r.title),
     kind: String(r.kind) as ArtifactKind,
     description: r.description != null ? String(r.description) : null,
     storageRoot: String(r.storage_root),
     currentVersionId: r.current_version_id != null ? String(r.current_version_id) : null,
     status: String(r.status) as ArtifactStatus,
+    errorMessage: r.error_message != null ? String(r.error_message) : null,
     createdAt: Number(r.created_at),
     updatedAt: Number(r.updated_at),
     currentVersion,
@@ -242,19 +341,66 @@ export interface ConversationArtifactRef {
   versionId: string
 }
 
-/** Finds the artifact of a given kind most recently linked to a conversation, if any. */
+/** Finds the artifact of a given kind most recently linked to a conversation, if any. Checks
+ * the direct conversation_id column first (set for artifacts created since that column was
+ * added), falling back to artifact_chat_refs for older rows/promoted messages that only have
+ * a conversation link via a version's chat ref. */
 export function findArtifactForConversation(conversationId: string, kind: ArtifactKind): ArtifactRow | null {
   const db = getDatabase()
-  const row = db.prepare(
-    `SELECT a.* FROM artifacts a
-     JOIN artifact_chat_refs r ON r.artifact_id = a.id
-     WHERE r.conversation_id = ? AND a.kind = ?
-     ORDER BY a.updated_at DESC LIMIT 1`
+  let row = db.prepare(
+    `SELECT * FROM artifacts WHERE conversation_id = ? AND kind = ? ORDER BY updated_at DESC LIMIT 1`
   ).get(conversationId, kind) as Record<string, unknown> | undefined
+  if (!row) {
+    row = db.prepare(
+      `SELECT a.* FROM artifacts a
+       JOIN artifact_chat_refs r ON r.artifact_id = a.id
+       WHERE r.conversation_id = ? AND a.kind = ?
+       ORDER BY a.updated_at DESC LIMIT 1`
+    ).get(conversationId, kind) as Record<string, unknown> | undefined
+  }
   if (!row) return null
   const currentVersionId = row.current_version_id != null ? String(row.current_version_id) : null
   const currentVersion = currentVersionId ? getVersionWithFiles(currentVersionId) : undefined
   return rowToArtifact(row, currentVersion)
+}
+
+/**
+ * Creates (or resets) the artifact of `kind` linked to this conversation with status
+ * 'generating' and no version yet, so a durable `__artifact-ref:` chat message and the
+ * Project Artifacts tab can both show generation as in-progress the instant /debrief or
+ * /quiz is run — before the LLM call that actually produces content has returned.
+ */
+export function createPendingArtifactForConversation(input: {
+  conversationId: string
+  projectId: string | null
+  kind: ArtifactKind
+  title: string
+}): string {
+  const db = getDatabase()
+  const existing = findArtifactForConversation(input.conversationId, input.kind)
+  const now = Date.now()
+  const artifactId = existing?.id ?? randomUUID()
+  if (existing) {
+    db.prepare(
+      `UPDATE artifacts SET status = 'generating', error_message = NULL, title = ?, conversation_id = ?, updated_at = ? WHERE id = ?`
+    ).run(input.title, input.conversationId, now, artifactId)
+  } else {
+    db.prepare(
+      `INSERT INTO artifacts (id, project_id, conversation_id, title, kind, description, storage_root, current_version_id, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 'generating', ?, ?)`
+    ).run(artifactId, input.projectId, input.conversationId, input.title, input.kind, `Generated from chat conversation ${input.conversationId}`, getStorageRoot(), now, now)
+  }
+  broadcastArtifactUpdated(artifactId, input.projectId)
+  return artifactId
+}
+
+/** Marks an in-progress artifact generation as failed, recording the reason so the chat
+ * card and Artifacts tab can surface it instead of spinning forever. */
+export function markArtifactGenerationFailed(artifactId: string, projectId: string | null, errorMessage: string): void {
+  const db = getDatabase()
+  db.prepare(`UPDATE artifacts SET status = 'failed', error_message = ?, updated_at = ? WHERE id = ?`)
+    .run(errorMessage, Date.now(), artifactId)
+  broadcastArtifactUpdated(artifactId, projectId)
 }
 
 /** Reads the content of a named file within an artifact version, or null if not found. */
@@ -293,6 +439,7 @@ export function writeArtifactVersionForConversation(input: WriteArtifactVersionF
   const versionId = randomUUID()
   const now = Date.now()
   const storageRoot = getStorageRoot()
+  const pendingSince = existing?.status === 'generating' ? existing.updatedAt : null
 
   const existingVersionCount = existing
     ? (db.prepare('SELECT COUNT(*) as c FROM artifact_versions WHERE artifact_id = ?').get(artifactId) as { c: number }).c
@@ -324,13 +471,14 @@ export function writeArtifactVersionForConversation(input: WriteArtifactVersionF
 
   db.transaction(() => {
     if (existing) {
-      db.prepare('UPDATE artifacts SET current_version_id = ?, updated_at = ? WHERE id = ?')
-        .run(versionId, now, artifactId)
+      db.prepare(
+        `UPDATE artifacts SET current_version_id = ?, conversation_id = ?, status = 'ready', error_message = NULL, updated_at = ? WHERE id = ?`
+      ).run(versionId, input.conversationId, now, artifactId)
     } else {
       db.prepare(
-        `INSERT INTO artifacts (id, project_id, title, kind, description, storage_root, current_version_id, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?)`
-      ).run(artifactId, input.projectId, input.title, input.kind, `Generated from chat conversation ${input.conversationId}`, storageRoot, versionId, now, now)
+        `INSERT INTO artifacts (id, project_id, conversation_id, title, kind, description, storage_root, current_version_id, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?)`
+      ).run(artifactId, input.projectId, input.conversationId, input.title, input.kind, `Generated from chat conversation ${input.conversationId}`, storageRoot, versionId, now, now)
     }
     db.prepare(
       `INSERT INTO artifact_versions (id, artifact_id, version_number, title, notes, spec_json, manifest_json, source_conversation_id, source_message_id, created_at)
@@ -344,10 +492,18 @@ export function writeArtifactVersionForConversation(input: WriteArtifactVersionF
     }
     db.prepare(
       `INSERT INTO artifact_chat_refs (id, artifact_id, version_id, project_id, conversation_id, message_id, created_at)
-       VALUES (?, ?, ?, ?, ?, NULL, ?)`
+      VALUES (?, ?, ?, ?, ?, NULL, ?)`
     ).run(randomUUID(), artifactId, versionId, input.projectId, input.conversationId, now)
   })()
 
+  pinLatestPendingArtifactRefMessage({
+    conversationId: input.conversationId,
+    artifactId,
+    versionId,
+    kind: input.kind,
+    pendingSince,
+  })
+  broadcastArtifactUpdated(artifactId, input.projectId)
   return { artifactId, versionId }
 }
 

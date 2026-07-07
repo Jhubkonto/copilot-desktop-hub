@@ -18,7 +18,7 @@ const SUPPORTED_EXPORT_FORMATS = ['raw-files', 'markdown', 'json']
  * kinds with rich interactive presentation (debrief, quiz); everything else falls back
  * to the generic metadata + export card.
  */
-export function ArtifactCard({ artifactId, versionId }: { artifactId: string; versionId?: string }) {
+export function ArtifactCard({ artifactId, versionId, pending = false }: { artifactId: string; versionId?: string; pending?: boolean }) {
   const [kind, setKind] = useState<string | null>(null)
 
   useEffect(() => {
@@ -26,8 +26,8 @@ export function ArtifactCard({ artifactId, versionId }: { artifactId: string; ve
     window.api.artifactGet(artifactId).then((a) => setKind(a?.kind ?? null)).catch(() => setKind(null))
   }, [artifactId])
 
-  if (kind === 'debrief') return <DebriefArtifactCard artifactId={artifactId} versionId={versionId} />
-  if (kind === 'quiz') return <QuizArtifactCard artifactId={artifactId} versionId={versionId} />
+  if (kind === 'debrief') return <DebriefArtifactCard artifactId={artifactId} versionId={versionId} pending={pending} />
+  if (kind === 'quiz') return <QuizArtifactCard artifactId={artifactId} versionId={versionId} pending={pending} />
   return <GenericArtifactCard artifactId={artifactId} />
 }
 

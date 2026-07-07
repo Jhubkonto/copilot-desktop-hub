@@ -11,7 +11,13 @@ import {
 } from './providers'
 import type { ProviderMessage } from './providers'
 import { ClaudeAdapter } from './cli-adapters/claude'
-import { findArtifactForConversation, readArtifactVersionFile, writeArtifactVersionForConversation } from './artifacts'
+import {
+  createPendingArtifactForConversation,
+  findArtifactForConversation,
+  markArtifactGenerationFailed,
+  readArtifactVersionFile,
+  writeArtifactVersionForConversation,
+} from './artifacts'
 import { generateDebriefForWs, type DebriefSectionData } from './debrief-handlers'
 
 const QUIZ_SYSTEM_PROMPT = `You are a quiz generator for a technical learning tool. You receive a structured debrief of a completed AI chat session and must produce multiple-choice questions that test the user's understanding.
@@ -101,18 +107,28 @@ export async function generateQuizForWs(conversationId: string, projectId: strin
 
   const cleaned = rawText.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim()
   let rawQuestions: unknown[]
+  let parseIssue: string | null = null
   try {
     const parsed = JSON.parse(cleaned) as unknown
-    rawQuestions = Array.isArray(parsed) ? parsed : []
-  } catch {
+    if (Array.isArray(parsed)) {
+      rawQuestions = parsed
+    } else {
+      rawQuestions = []
+      parseIssue = 'the model response was not a JSON array'
+    }
+  } catch (err) {
     rawQuestions = []
+    parseIssue = `the model response was not valid JSON (${err instanceof Error ? err.message : 'parse error'})`
   }
 
   const questions: QuizQuestion[] = rawQuestions
     .filter(isValidQuestion)
     .map((q) => ({ ...q, id: randomUUID() }))
 
-  if (questions.length < 2) throw new Error('No quiz questions could be generated.')
+  if (questions.length < 2) {
+    if (parseIssue) throw new Error(`Could not generate quiz questions: ${parseIssue}. Try a different model.`)
+    throw new Error(`Model returned ${rawQuestions.length} question(s) but only ${questions.length} were well-formed. Try a different model.`)
+  }
 
   const db = getDatabase()
   const conversationRow = db.prepare('SELECT title FROM conversations WHERE id = ?').get(conversationId) as { title: string } | undefined
@@ -145,8 +161,28 @@ function formatQuizMarkdown(title: string, questions: QuizQuestion[]): string {
   return lines.join('\n')
 }
 
+/**
+ * Creates the quiz artifact with status 'generating' immediately, then runs the actual
+ * LLM generation (which may itself generate a debrief first) in the background — mirrors
+ * startDebriefGeneration so /quiz gets the same durable, non-blocking progress card.
+ */
+export function startQuizGeneration(conversationId: string, projectId: string | null, model?: string): { artifactId: string } {
+  const db = getDatabase()
+  const conversationRow = db.prepare('SELECT title FROM conversations WHERE id = ?').get(conversationId) as { title: string } | undefined
+  const title = `Quiz: ${conversationRow?.title ?? 'Conversation'}`
+  const artifactId = createPendingArtifactForConversation({ conversationId, projectId, kind: 'quiz', title })
+  void generateQuizForWs(conversationId, projectId, model).catch((err) => {
+    markArtifactGenerationFailed(artifactId, projectId, err instanceof Error ? err.message : String(err))
+  })
+  return { artifactId }
+}
+
 export function registerQuizHandlers(): void {
   safeHandle('conversation:generate-quiz', async (_event, conversationId: string, projectId: string | null, model?: string): Promise<QuizArtifactResult> => {
     return generateQuizForWs(conversationId, projectId, model)
+  })
+
+  safeHandle('conversation:start-quiz-generation', (_event, conversationId: string, projectId: string | null, model?: string) => {
+    return startQuizGeneration(conversationId, projectId, model)
   })
 }

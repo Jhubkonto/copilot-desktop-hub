@@ -12,12 +12,14 @@ vi.mock('../store/app-store', () => ({ useAppStore }))
 const PROJECT_ARTIFACT: ArtifactRow = {
   id: 'art-p1',
   projectId: 'proj-1',
+  conversationId: null,
   title: 'Project Doc',
   kind: 'document',
   description: 'A project document',
   storageRoot: '/tmp/artifacts',
   currentVersionId: 'v1',
   status: 'ready',
+  errorMessage: null,
   createdAt: 1000,
   updatedAt: 1000,
   currentVersion: {

@@ -12,12 +12,14 @@ vi.mock('../store/app-store', () => ({ useAppStore }))
 const ARTIFACT_READY: ArtifactRow = {
   id: 'art-1',
   projectId: null,
+  conversationId: null,
   title: 'My Readme',
   kind: 'document',
   description: 'A readme file',
   storageRoot: '/tmp/artifacts',
   currentVersionId: 'v1',
   status: 'ready',
+  errorMessage: null,
   createdAt: 1000,
   updatedAt: 1000,
   currentVersion: {

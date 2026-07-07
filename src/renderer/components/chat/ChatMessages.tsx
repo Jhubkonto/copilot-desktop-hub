@@ -11,6 +11,7 @@ import { ThinkingBlock } from './ThinkingBlock'
 import { ArtifactCard } from '../artifacts/ArtifactCard'
 import { CodeChangeCard } from './CodeChangeCard'
 import type { ActivityEvent, ChatMessage, CliCostSummary, TeamActivityStep } from '../../hooks/chat-types'
+import type { RemoteEditBackend } from '@shared/types'
 import { buildChatRenderItems } from '../../hooks/chat-render-items'
 import { createEmptyChatTurnState, type ChatTurnState } from '../../hooks/chat-turn-reducer'
 
@@ -32,7 +33,10 @@ interface ChatMessagesProps {
   onSaveToWiki?: (messageId: string, content: string) => void
   onPromoteArtifact?: (messageId: string, content: string) => void
   onCreateCodeChange?: (messageId: string, content: string) => void
+  onCodeChangeDeleted?: (messageId: string) => void
   canCreateCodeChange?: boolean
+  codeChangeModel?: string
+  codeChangeBackend?: RemoteEditBackend
   wikiMessageIds: Set<string>
   onRegenerate: (modelOverride?: string) => void | Promise<void>
   onEdit: (index: number) => void
@@ -90,7 +94,10 @@ export function ChatMessagesBase({
   onSaveToWiki,
   onPromoteArtifact,
   onCreateCodeChange,
+  onCodeChangeDeleted,
   canCreateCodeChange = true,
+  codeChangeModel,
+  codeChangeBackend,
   wikiMessageIds,
   onRegenerate,
   onEdit,
@@ -336,7 +343,11 @@ export function ChatMessagesBase({
 
           if (main.content.startsWith('__artifact-ref:')) {
             try {
-              const ref = JSON.parse(main.content.slice('__artifact-ref:'.length)) as { artifactId: string; versionId?: string }
+              const ref = JSON.parse(main.content.slice('__artifact-ref:'.length)) as {
+                artifactId: string
+                versionId?: string
+                pending?: boolean
+              }
               return (
                 <div
                   key={main.id}
@@ -345,7 +356,7 @@ export function ChatMessagesBase({
                   data-message-id={main.id}
                   data-message-role={main.role}
                 >
-                  <ArtifactCard artifactId={ref.artifactId} versionId={ref.versionId} />
+                  <ArtifactCard artifactId={ref.artifactId} versionId={ref.versionId} pending={ref.pending === true} />
                 </div>
               )
             } catch {
@@ -364,7 +375,12 @@ export function ChatMessagesBase({
                   data-message-id={main.id}
                   data-message-role={main.role}
                 >
-                  <CodeChangeCard reportId={ref.reportId} />
+                  <CodeChangeCard
+                    reportId={ref.reportId}
+                    chatModel={codeChangeModel}
+                    chatBackend={codeChangeBackend}
+                    onDeleted={() => onCodeChangeDeleted?.(main.id)}
+                  />
                 </div>
               )
             } catch {

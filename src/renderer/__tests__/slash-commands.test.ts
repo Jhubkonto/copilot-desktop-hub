@@ -54,8 +54,7 @@ function createContext(): SlashCommandContext {
     setMessages: vi.fn(),
     markComplete: vi.fn().mockResolvedValue(undefined),
     markIncomplete: vi.fn().mockResolvedValue(undefined),
-    runSlashGeneration: vi.fn().mockResolvedValue({ artifactId: 'art-1', versionId: 'ver-1' }),
-    attachArtifactMessage: vi.fn().mockResolvedValue(undefined),
+    startArtifactGeneration: vi.fn().mockResolvedValue({ ok: true }),
     startCodeChange: vi.fn().mockResolvedValue({ reportId: 'report-1' }),
   }
 }
@@ -121,19 +120,18 @@ describe('slash-commands', () => {
     expect(ctx.markIncomplete).toHaveBeenCalled()
   })
 
-  it('sc-12: /debrief runs generation against the conversation model and attaches the result', async () => {
+  it('sc-12: /debrief starts generation against the conversation model', async () => {
     const ctx = createContext()
     await expect(executeSlashCommand('/debrief', ctx)).resolves.toBe('handled')
-    expect(ctx.runSlashGeneration).toHaveBeenCalledWith('debrief', { model: undefined })
-    expect(ctx.attachArtifactMessage).toHaveBeenCalledWith('art-1', 'ver-1')
+    expect(ctx.startArtifactGeneration).toHaveBeenCalledWith('debrief', { model: undefined })
+    expect(ctx.pushSystemMessage).not.toHaveBeenCalled()
   })
 
-  it('sc-13: /quiz surfaces an error via pushSystemMessage without attaching anything', async () => {
+  it('sc-13: /quiz surfaces an error via pushSystemMessage when it fails to start', async () => {
     const ctx = createContext()
-    ctx.runSlashGeneration = vi.fn().mockResolvedValue({ error: 'No debrief found' })
+    ctx.startArtifactGeneration = vi.fn().mockResolvedValue({ error: 'No debrief found' })
     await expect(executeSlashCommand('/quiz', ctx)).resolves.toBe('handled')
     expect(ctx.pushSystemMessage).toHaveBeenCalledWith(expect.stringContaining('No debrief found'))
-    expect(ctx.attachArtifactMessage).not.toHaveBeenCalled()
   })
 
   it('sc-14: /code-change with no description shows usage and does not create a request', async () => {

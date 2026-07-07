@@ -1,18 +1,13 @@
 import { useState, type ReactNode } from 'react'
 import type {
-  AvailableModelEntry,
-  AvailableModelGroup,
-  CatalogModel,
   CodeChangeRequest,
   CodeChangeRequestPhase,
   ErrorReportEntry,
-  RemoteEditBackend,
   RemoteEditInvestigationActivity,
   RemoteEditInvestigationSettings,
 } from '@shared/types'
 import { CODE_CHANGE_PHASE_GUIDANCE, CODE_CHANGE_PHASE_LABELS, hasWorkspaceMismatch } from '@shared/code-changes'
 import { Button } from './ui/primitives'
-import { ModelPicker } from './chat/ModelPicker'
 import { CodeChangeInvestigationSection } from './CodeChangeInvestigationSection'
 
 interface CollapsibleStepProps {
@@ -62,12 +57,6 @@ interface CodeChangeDetailViewProps {
   diffViewer: ReactNode
   investigationSettings: RemoteEditInvestigationSettings
   onSetInvestigationSettings: (updater: (settings: RemoteEditInvestigationSettings) => RemoteEditInvestigationSettings) => void
-  onSetBackend: (backend: RemoteEditBackend) => void
-  backendOptions: Array<{ value: RemoteEditBackend; label: string }>
-  remoteEditModelGroups: AvailableModelGroup[]
-  selectedModelSourceLabel: string | undefined
-  catalogModels: CatalogModel[]
-  onSelectRemoteEditModel: (group: AvailableModelGroup, model: AvailableModelEntry) => void
   onSaveInvestigationSettings: () => void
   investigationStepCollapsed: boolean
   onToggleInvestigationStepCollapsed: () => void
@@ -98,12 +87,6 @@ export function CodeChangeDetailView({
   diffViewer,
   investigationSettings,
   onSetInvestigationSettings,
-  onSetBackend,
-  backendOptions,
-  remoteEditModelGroups,
-  selectedModelSourceLabel,
-  catalogModels,
-  onSelectRemoteEditModel,
   onSaveInvestigationSettings,
   investigationStepCollapsed,
   onToggleInvestigationStepCollapsed,
@@ -212,52 +195,7 @@ export function CodeChangeDetailView({
       {!investigationStarted && !isRunningNow && (
         <div className="rounded-md border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800/60">
           <p className="mb-2 text-[11px] font-semibold text-gray-700 dark:text-gray-200">Planning settings</p>
-          <div className="grid gap-2 md:grid-cols-2">
-            <label className="text-[11px] text-gray-600 dark:text-gray-400">
-              Backend
-              <select
-                value={investigationSettings.backend}
-                onChange={(event) => onSetBackend(event.target.value as RemoteEditBackend)}
-                className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-              >
-                {backendOptions.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </label>
-            <label className="text-[11px] text-gray-600 dark:text-gray-400">
-              Retries
-              <input
-                type="number"
-                min={0}
-                max={5}
-                value={investigationSettings.retryLimit}
-                onChange={(event) => onSetInvestigationSettings((s) => ({ ...s, retryLimit: Number(event.target.value) }))}
-                className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-              />
-            </label>
-          </div>
-          <div className="mt-2 text-[11px] text-gray-600 dark:text-gray-400">
-            <p>Model</p>
-            <ModelPicker
-              value={investigationSettings.model}
-              sourceLabel={selectedModelSourceLabel}
-              availableGroups={remoteEditModelGroups}
-              catalogModels={catalogModels}
-              includeDefault={false}
-              emptyLabel={
-                investigationSettings.backend === 'codex-cli'
-                  ? 'Codex CLI is not available'
-                  : investigationSettings.backend === 'claude-cli'
-                    ? 'Claude CLI is not available'
-                    : 'No provider models configured'
-              }
-              buttonClassName="mt-1 flex w-full items-center justify-between gap-2 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-800 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-              menuClassName="left-0 right-auto"
-              onSelectAvailableModel={onSelectRemoteEditModel}
-            />
-          </div>
-          <label className="mt-2 flex items-center gap-2 text-[11px] text-gray-600 dark:text-gray-400">
+          <label className="flex items-center gap-2 text-[11px] text-gray-600 dark:text-gray-400">
             <input
               type="checkbox"
               checked={investigationSettings.autoApproveTools}

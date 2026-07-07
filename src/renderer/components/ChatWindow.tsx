@@ -352,7 +352,6 @@ export function ChatWindow() {
     loadConversations,
     markConversationComplete: markConversationCompleteFn,
     markConversationIncomplete: markConversationIncompleteFn,
-    attachArtifact: chat.attachArtifact,
     onAfterSend: () => {
       setClipboardRef(null)
       setPromptInstructionRef(null)
@@ -1594,7 +1593,12 @@ export function ChatWindow() {
           onSaveToWiki={chatProjectId && chatProjectId !== '__none__' ? handleSaveToWiki : undefined}
           onPromoteArtifact={handleOpenArtifactPromotion}
           onCreateCodeChange={(messageId, content) => void handleCreateCodeChange(messageId, content)}
+          onCodeChangeDeleted={(messageId) => {
+            chat.setMessages((prev) => prev.filter((message) => message.id !== messageId))
+          }}
           canCreateCodeChange={Boolean(chatProjectId && chatProjectId !== '__none__')}
+          codeChangeModel={effectiveModel}
+          codeChangeBackend={chatAgentBackend === 'claude-cli' || chatAgentBackend === 'codex-cli' ? chatAgentBackend : 'byok'}
           wikiMessageIds={wikiMessageIds}
           onRegenerate={chat.handleRegenerate}
           onEdit={handleEditMessage}

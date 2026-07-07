@@ -9,7 +9,6 @@ import {
   transformCodeSlashCommand,
   type SlashCommandContext,
   type SlashCommandDef,
-  type SlashGenerationResult,
 } from '../slash-commands'
 import type {
   AtContextOption,
@@ -92,7 +91,6 @@ interface UseChatWindowActionsParams {
   loadConversations: () => Promise<void>
   markConversationComplete: (id: string) => Promise<void>
   markConversationIncomplete: (id: string) => Promise<void>
-  attachArtifact: (artifactId: string, versionId?: string) => Promise<void>
   onAfterSend?: () => void
   onEditStateConsumed?: () => void
 }
@@ -165,32 +163,47 @@ export function useChatWindowActions({
   loadConversations,
   markConversationComplete,
   markConversationIncomplete,
-  attachArtifact,
   onAfterSend,
   onEditStateConsumed,
 }: UseChatWindowActionsParams) {
   // Stores a CLI model and backend chosen before the conversation row exists (new chat), applied on first send.
   const pendingCliModelRef = useRef<string | null>(null)
   const pendingCliBackendRef = useRef<'claude-cli' | 'codex-cli' | null>(null)
+  // Slash commands (e.g. /debrief, /quiz) run an async IPC round-trip before clearing the
+  // composer, so isGenerating alone doesn't block a second Enter press mid-flight.
+  const executingSlashCommandRef = useRef(false)
 
-  const runSlashGeneration = useCallback(
-    async (kind: 'debrief' | 'quiz', opts?: { model?: string }): Promise<SlashGenerationResult | { error: string }> => {
+  // Kicks off /debrief or /quiz generation and immediately attaches a durable chat card
+  // referencing the artifact (created up front with status 'generating'). The actual LLM
+  // call runs in the main process in the background, so this resolves fast — the composer
+  // isn't blocked for the duration of generation, and the card keeps working if the user
+  // navigates away and comes back, since its state lives in the artifacts table.
+  const startArtifactGeneration = useCallback(
+    async (kind: 'debrief' | 'quiz', opts?: { model?: string }): Promise<{ ok: true } | { error: string }> => {
       if (!conversationId) return { error: 'No active conversation.' }
       const projectId = chatProjectId && chatProjectId !== '__none__' ? chatProjectId : null
       try {
-        if (kind === 'debrief') {
-          const result = await window.api.generateDebrief(conversationId, projectId, opts?.model)
-          if (hasIpcError(result)) return { error: result.error }
-          return { artifactId: result.artifactId, versionId: result.versionId }
-        }
-        const result = await window.api.generateQuiz(conversationId, projectId, opts?.model)
+        const result = kind === 'debrief'
+          ? await window.api.startDebriefGeneration(conversationId, projectId, opts?.model)
+          : await window.api.startQuizGeneration(conversationId, projectId, opts?.model)
         if (hasIpcError(result)) return { error: result.error }
-        return { artifactId: result.artifactId, versionId: result.versionId }
+
+        const content = `__artifact-ref:${JSON.stringify({ artifactId: result.artifactId, kind, pending: true })}`
+        const inserted = await window.api.insertConversationMessage(conversationId, 'system', content)
+        if (hasIpcError(inserted)) return { error: 'Failed to attach artifact card.' }
+        setMessages((prev) => [...prev, {
+          id: inserted.id,
+          role: inserted.role as ChatMessage['role'],
+          content: inserted.content,
+          timestamp: inserted.timestamp,
+          model: inserted.model ?? null,
+        }])
+        return { ok: true }
       } catch (error) {
-        return { error: error instanceof Error ? error.message : `Failed to generate ${kind}` }
+        return { error: error instanceof Error ? error.message : `Failed to start ${kind} generation` }
       }
     },
-    [conversationId, chatProjectId],
+    [conversationId, chatProjectId, setMessages],
   )
 
   const startCodeChange = useCallback(
@@ -260,8 +273,7 @@ export function useChatWindowActions({
       setMessages: setMessages as SlashCommandContext['setMessages'],
       markComplete: () => (conversationId ? markConversationComplete(conversationId) : Promise.resolve()),
       markIncomplete: () => (conversationId ? markConversationIncomplete(conversationId) : Promise.resolve()),
-      runSlashGeneration,
-      attachArtifactMessage: attachArtifact,
+      startArtifactGeneration,
       startCodeChange,
     }),
     [
@@ -285,8 +297,7 @@ export function useChatWindowActions({
       setMessages,
       markConversationComplete,
       markConversationIncomplete,
-      runSlashGeneration,
-      attachArtifact,
+      startArtifactGeneration,
       startCodeChange,
     ],
   )
@@ -353,7 +364,7 @@ export function useChatWindowActions({
   const handleSend = useCallback(async (inputOverride?: unknown) => {
     const draftInput = typeof inputOverride === 'string' ? inputOverride : input
     const hasContent = draftInput.trim().length > 0 || pendingImages.length > 0 || pendingAttachments.length > 0
-    if (!hasContent || isGenerating || rateLimitRemainingSec > 0) return
+    if (!hasContent || isGenerating || executingSlashCommandRef.current || rateLimitRemainingSec > 0) return
 
     // Block send while any OCR job is in progress
     if (pendingImages.some((img) => img.ocrPending)) return
@@ -367,7 +378,13 @@ export function useChatWindowActions({
       if (transformed) {
         content = transformed
       } else {
-        const outcome = await executeSlashCommand(content, slashCommandCtx)
+        executingSlashCommandRef.current = true
+        let outcome: Awaited<ReturnType<typeof executeSlashCommand>>
+        try {
+          outcome = await executeSlashCommand(content, slashCommandCtx)
+        } finally {
+          executingSlashCommandRef.current = false
+        }
         if (outcome === 'handled') {
           setInput('')
           closeSlashMenu()

@@ -152,7 +152,7 @@ describe('quiz-handlers', () => {
 
     it('throws for malformed JSON', async () => {
       mockSendProviderNonStreaming.mockResolvedValueOnce({ content: 'not json at all' })
-      await expect(invoke('conversation:generate-quiz', 'conv-1', null)).rejects.toThrow('No quiz questions could be generated')
+      await expect(invoke('conversation:generate-quiz', 'conv-1', null)).rejects.toThrow('not valid JSON')
     })
 
     it('throws when fewer than 2 valid questions', async () => {
@@ -166,7 +166,7 @@ describe('quiz-handlers', () => {
         },
       ])
       mockSendProviderNonStreaming.mockResolvedValueOnce({ content: oneQuestion })
-      await expect(invoke('conversation:generate-quiz', 'conv-1', null)).rejects.toThrow('No quiz questions could be generated')
+      await expect(invoke('conversation:generate-quiz', 'conv-1', null)).rejects.toThrow('only 1 were well-formed')
     })
 
     it('silently drops questions with invalid shape', async () => {

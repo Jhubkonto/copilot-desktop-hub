@@ -136,6 +136,11 @@ export function ArtifactsPane() {
 
   useEffect(() => { void loadAll() }, [loadAll])
 
+  // Debrief/quiz generation (and other artifact updates) run in the main process and can
+  // finish while this pane isn't focused — refetch on any artifact change rather than only
+  // reflecting state as of last mount.
+  useEffect(() => window.api.onArtifactUpdated(() => void loadAll()), [loadAll])
+
   const filtered = useMemo(
     () => deferredQuery
       ? artifacts.filter((a) => {

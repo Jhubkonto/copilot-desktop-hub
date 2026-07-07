@@ -90,6 +90,15 @@ export function ProjectArtifactsTab({ projectId }: { projectId: string }) {
 
   useEffect(() => { void loadAll() }, [loadAll])
 
+  // Debrief/quiz generation (and other artifact updates) happen in the main process and can
+  // complete while this tab isn't focused — without this, "0 artifacts" would keep showing
+  // until the tab happened to remount. Refetch whenever any artifact for this project changes.
+  useEffect(() => {
+    return window.api.onArtifactUpdated(({ projectId: updatedProjectId }) => {
+      if (updatedProjectId === projectId) void loadAll()
+    })
+  }, [projectId, loadAll])
+
   const filtered = useMemo(
     () => deferredQuery
       ? artifacts.filter((a) => {

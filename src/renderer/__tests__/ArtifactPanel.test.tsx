@@ -18,12 +18,14 @@ vi.mock('../components/ArtifactGeneratorModal', () => ({
 const ARTIFACT: ArtifactRow = {
   id: 'art-1',
   projectId: null,
+  conversationId: null,
   title: 'Test Artifact',
   kind: 'document',
   description: 'A test artifact',
   storageRoot: '/tmp/artifacts',
   currentVersionId: 'v1',
   status: 'ready',
+  errorMessage: null,
   createdAt: 1000,
   updatedAt: 1000,
   currentVersion: {

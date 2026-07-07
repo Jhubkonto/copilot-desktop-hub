@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { BrainCircuit, CheckCircle, Loader2, RefreshCw, XCircle } from 'lucide-react'
-import type { ArtifactRow, QuizQuestion, QuizResult } from '@shared/types'
+import type { ArtifactRow, ArtifactVersion, QuizQuestion, QuizResult } from '@shared/types'
 
-type Step = 'loading' | 'question' | 'feedback' | 'summary'
+type Step = 'loading' | 'generating' | 'question' | 'feedback' | 'summary'
 
 const CATEGORY_COLORS: Record<string, string> = {
   command: 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
@@ -27,8 +27,10 @@ function getScoreLabel(score: number, total: number): string {
  * open. "Try Again" re-walks the same questions; "Regenerate" reruns generation
  * (creating a new artifact version) and reloads this card in place.
  */
-export function QuizArtifactCard({ artifactId, versionId: _versionId }: { artifactId: string; versionId?: string }) {
+export function QuizArtifactCard({ artifactId, versionId, pending = false }: { artifactId: string; versionId?: string; pending?: boolean }) {
   const [artifact, setArtifact] = useState<ArtifactRow | null>(null)
+  const [version, setVersion] = useState<ArtifactVersion | null>(null)
+  const [lockedVersion, setLockedVersion] = useState<{ artifactId: string; versionId: string } | null>(null)
   const [step, setStep] = useState<Step>('loading')
   const [questions, setQuestions] = useState<QuizQuestion[]>([])
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -39,17 +41,42 @@ export function QuizArtifactCard({ artifactId, versionId: _versionId }: { artifa
   const [regenerating, setRegenerating] = useState(false)
 
   const nextBtnRef = useRef<HTMLButtonElement>(null)
+  const lockedVersionId = lockedVersion?.artifactId === artifactId ? lockedVersion.versionId : null
 
   const load = useCallback(() => {
-    setStep('loading')
     setError(null)
     window.api.artifactGet(artifactId)
       .then(async (a) => {
         if (!a) throw new Error('Artifact not found')
         setArtifact(a)
-        const versionId = a.currentVersionId
-        if (!versionId) throw new Error('Artifact has no content yet')
-        const result = await window.api.artifactGetFileContent(versionId, 'quiz.json')
+
+        const isPendingThisVersion = pending && !versionId && !lockedVersionId
+        if (a.status === 'failed' && (isPendingThisVersion || !a.currentVersionId)) {
+          setError(a.errorMessage ?? 'Quiz generation failed')
+          setVersion(null)
+          return
+        }
+        if (a.status === 'generating' && isPendingThisVersion) {
+          setVersion(null)
+          setStep('generating')
+          return
+        }
+
+        const targetVersionId = versionId ?? lockedVersionId ?? a.currentVersionId
+        if (!targetVersionId) {
+          setVersion(null)
+          setStep('loading')
+          return
+        }
+
+        const targetVersion = versionId || lockedVersionId
+          ? await window.api.artifactGetVersion(targetVersionId)
+          : a.currentVersion
+        if (!targetVersion) throw new Error('Quiz version not found')
+
+        if (!versionId && !lockedVersionId) setLockedVersion({ artifactId, versionId: targetVersion.id })
+        setVersion(targetVersion)
+        const result = await window.api.artifactGetFileContent(targetVersion.id, 'quiz.json')
         const parsed = JSON.parse(result.content) as QuizQuestion[]
         setQuestions(parsed)
         setCurrentIndex(0)
@@ -61,9 +88,36 @@ export function QuizArtifactCard({ artifactId, versionId: _versionId }: { artifa
       .catch((err: unknown) => {
         setError(err instanceof Error ? err.message : 'Failed to load quiz')
       })
-  }, [artifactId])
+  }, [artifactId, lockedVersionId, pending, versionId])
+
+  useEffect(() => {
+    setArtifact(null)
+    setVersion(null)
+    setStep('loading')
+    setQuestions([])
+    setCurrentIndex(0)
+    setSelectedIndex(null)
+    setResults([])
+    setScore(0)
+    setError(null)
+  }, [artifactId, versionId])
 
   useEffect(() => { load() }, [load])
+
+  // The artifact is created with status 'generating' before the LLM call resolves, so this
+  // card can be attached to the transcript immediately and survive the user navigating away
+  // mid-generation. Refresh on the push event, with a poll as a fallback in case it's missed.
+  useEffect(() => {
+    return window.api.onArtifactUpdated(({ artifactId: updatedId }) => {
+      if (updatedId === artifactId) load()
+    })
+  }, [artifactId, load])
+
+  useEffect(() => {
+    if (!(pending && !versionId && !lockedVersionId && step === 'generating')) return
+    const interval = setInterval(load, 4000)
+    return () => clearInterval(interval)
+  }, [step, load, lockedVersionId, pending, versionId])
 
   const handleSubmit = useCallback(() => {
     if (selectedIndex === null) return
@@ -96,18 +150,18 @@ export function QuizArtifactCard({ artifactId, versionId: _versionId }: { artifa
   }, [])
 
   const handleRegenerate = useCallback(async () => {
-    const conversationId = artifact?.currentVersion?.sourceConversationId
+    const conversationId = version?.sourceConversationId ?? artifact?.currentVersion?.sourceConversationId ?? artifact?.conversationId
     if (!conversationId) return
     setRegenerating(true)
     try {
-      await window.api.generateQuiz(conversationId, artifact?.projectId ?? null)
+      await window.api.startQuizGeneration(conversationId, artifact?.projectId ?? null)
       load()
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to regenerate quiz')
     } finally {
       setRegenerating(false)
     }
-  }, [artifact, load])
+  }, [artifact, load, version])
 
   const currentQuestion = questions[currentIndex]
   const total = questions.length
@@ -115,17 +169,29 @@ export function QuizArtifactCard({ artifactId, versionId: _versionId }: { artifa
   const getCategoryColor = (cat: string) => CATEGORY_COLORS[cat] ?? CATEGORY_COLORS.concept
 
   if (error) {
+    const canRegenerate = artifact?.status === 'failed' && Boolean(version?.sourceConversationId ?? artifact.currentVersion?.sourceConversationId ?? artifact.conversationId)
     return (
       <div className="flex flex-col items-center gap-3 px-4 py-4 rounded-lg border border-red-200 dark:border-red-800 max-w-xl">
         <XCircle className="w-8 h-8 text-red-400" />
         <p className="text-sm text-red-500 text-center">{error}</p>
         <button
           type="button"
-          onClick={load}
-          className="px-3 py-1.5 text-xs rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white transition-colors"
+          onClick={() => (canRegenerate ? void handleRegenerate() : load())}
+          disabled={regenerating}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white disabled:opacity-50 transition-colors"
         >
-          Retry
+          {regenerating && <Loader2 className="w-3 h-3 animate-spin" />}
+          {canRegenerate ? 'Try again' : 'Retry'}
         </button>
+      </div>
+    )
+  }
+
+  if (step === 'generating') {
+    return (
+      <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50/30 dark:bg-indigo-900/10 text-[11px] text-indigo-600 dark:text-indigo-300 max-w-xl">
+        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+        Generating quiz…
       </div>
     )
   }
@@ -144,8 +210,8 @@ export function QuizArtifactCard({ artifactId, versionId: _versionId }: { artifa
       <div className="flex items-center gap-2">
         <BrainCircuit className="w-4 h-4 text-indigo-500 shrink-0" />
         <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex-1 truncate">{artifact.title}</p>
-        {artifact.currentVersion && (
-          <span className="text-[10px] text-gray-400 shrink-0">v{artifact.currentVersion.versionNumber}</span>
+        {(version ?? artifact.currentVersion) && (
+          <span className="text-[10px] text-gray-400 shrink-0">v{(version ?? artifact.currentVersion)!.versionNumber}</span>
         )}
       </div>
 
