@@ -6,15 +6,16 @@ import {
   type Project,
   type ProjectAgent,
   type ProjectConfig,
-  type ProjectOrchestrationConfig
+  type ProjectOrchestrationConfig,
+  type ProjectSettingsTab
 } from '../types'
 
 export interface ProjectSlice {
   projects: Project[]
   activeProjectId: string | null
   historyProjectId: string | null
-  codeChangesProjectId: string | null
   pendingSettingsProjectId: string | null
+  projectSettingsInitialTab: ProjectSettingsTab | null
   showNewProjectForm: boolean
   showProjectGenerator: boolean
   setShowProjectGenerator: (show: boolean) => void
@@ -29,7 +30,6 @@ export interface ProjectSlice {
   selectProject: (id: string | null) => void
   setActiveProjectId: (id: string | null) => void
   setHistoryProjectId: (id: string | null) => void
-  setCodeChangesProjectId: (id: string | null) => void
   createProject: (name: string, color: string) => Promise<void>
   renameProject: (id: string, name: string) => Promise<void>
   deleteProject: (id: string) => Promise<void>
@@ -40,8 +40,9 @@ export interface ProjectSlice {
   setProjectDefaultModel: (id: string, model: string | null) => Promise<void>
   clearPendingSettingsProject: () => void
   setShowNewProjectForm: (show: boolean) => void
-  openEditProject: (id: string) => void
+  openEditProject: (id: string, initialTab?: ProjectSettingsTab) => void
   closeEditProject: () => void
+  clearProjectSettingsInitialTab: () => void
   duplicateProject: (id: string) => Promise<void>
   exportProject: (id: string) => Promise<void>
   loadProjectAgents: (projectId: string) => Promise<void>
@@ -70,8 +71,8 @@ export const createProjectSlice: StateCreator<
   projects: [],
   activeProjectId: null,
   historyProjectId: null,
-  codeChangesProjectId: null,
   pendingSettingsProjectId: null,
+  projectSettingsInitialTab: null,
   showNewProjectForm: false,
   showProjectGenerator: false,
   editingProjectId: null,
@@ -161,12 +162,6 @@ export const createProjectSlice: StateCreator<
     })
   },
 
-  setCodeChangesProjectId: (id) => {
-    set((s) => {
-      s.codeChangesProjectId = id
-    })
-  },
-
   createProject: async (name, color) => {
     try {
       const result = await window.api.createProject(name, color)
@@ -212,7 +207,6 @@ export const createProjectSlice: StateCreator<
       set((s) => {
         if (s.activeProjectId === id) s.activeProjectId = null
         if (s.historyProjectId === id) s.historyProjectId = null
-        if (s.codeChangesProjectId === id) s.codeChangesProjectId = null
       })
       await Promise.all([get().loadProjects(), get().loadConversations()])
       get().addToast('Project deleted', 'success')
@@ -268,15 +262,23 @@ export const createProjectSlice: StateCreator<
     })
   },
 
-  openEditProject: (id) => {
+  openEditProject: (id, initialTab) => {
     set((s) => {
       s.editingProjectId = id
+      s.projectSettingsInitialTab = initialTab ?? null
     })
   },
 
   closeEditProject: () => {
     set((s) => {
       s.editingProjectId = null
+      s.projectSettingsInitialTab = null
+    })
+  },
+
+  clearProjectSettingsInitialTab: () => {
+    set((s) => {
+      s.projectSettingsInitialTab = null
     })
   },
 
