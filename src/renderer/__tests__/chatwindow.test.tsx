@@ -828,20 +828,6 @@ describe("ChatWindow — Slash Commands", () => {
     expect(mockApi.saveTextFile).toHaveBeenCalled();
   });
 
-  it("executes /share gist and creates a GitHub gist", async () => {
-    const user = userEvent.setup();
-    render(<ChatWindow />);
-
-    const textarea = screen.getByRole("textbox", { name: /message input/i });
-    await user.type(textarea, "/share gist");
-    await user.click(screen.getByLabelText("Send message"));
-
-    expect(mockApi.createGist).toHaveBeenCalled();
-    await waitFor(() => {
-      expect(screen.getByText(/Created secret gist:/)).toBeInTheDocument();
-    });
-  });
-
   it("executes /models and prints the available models list", async () => {
     const user = userEvent.setup();
     render(<ChatWindow />);

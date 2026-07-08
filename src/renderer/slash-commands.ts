@@ -289,17 +289,6 @@ export async function executeSlashCommand(
         } else {
           ctx.pushSystemMessage('Save canceled.')
         }
-      } else if (argText.toLowerCase() === 'gist') {
-        try {
-          const gistUrl = await window.api.createGist(
-            'conversation.md',
-            markdown,
-            'Shared from Nexy'
-          )
-          ctx.pushSystemMessage(`Created secret gist:\n${gistUrl}`)
-        } catch {
-          ctx.pushSystemMessage('Failed to create gist. Make sure you are signed in to GitHub.')
-        }
       } else {
         await navigator.clipboard.writeText(markdown)
         ctx.pushSystemMessage('Conversation markdown copied to clipboard.')

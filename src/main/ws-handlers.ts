@@ -50,7 +50,15 @@ import {
   getManualWorkflowGeneratorModel,
   runManualWorkflowGeneratorChatForAndroid,
   setManualWorkflowGeneratorModel,
+  normalizeManualWorkflowSpec,
 } from './manual-workflow-generator'
+import {
+  saveManualWorkflowRunFromSpec,
+  listManualWorkflowRuns,
+  getManualWorkflowRun,
+  updateManualWorkflowRunStepStatus,
+  discardManualWorkflowRun,
+} from './manual-workflow-runs'
 import type { ProjectGeneratorSpec, AgentGeneratorSpec, SkillConfig, SkillGeneratorSpec, ScheduleGeneratorMessage, ScheduleGeneratorSpec, ArtifactGeneratorMessage, ArtifactSpec, PromptLibraryEntry, PromptLibraryVersion, ManualWorkflowGeneratorMessage } from '../shared/types'
 import { storeApiKey, removeApiKey, getAzureEndpoint, setAzureEndpoint } from './provider-secrets'
 import { testProviderKey } from './providers'
@@ -722,6 +730,8 @@ export function registerWsHandlers(): void {
             c.pinned,
             c.archived,
             c.completed_at,
+            c.thinking_effort_override,
+            c.full_auto_approve_override,
             json_extract(a.config_json, '$.name') AS agent_name,
             json_extract(a.config_json, '$.icon') AS agent_icon,
             c.project_id,
@@ -744,6 +754,28 @@ export function registerWsHandlers(): void {
       if (!conversationId) return
       db.prepare('UPDATE conversations SET model = ?, updated_at = ? WHERE id = ?').run(model, Date.now(), conversationId)
       reply({ event: 'conversation:model-updated', data: { conversationId, model } })
+      return
+    }
+
+    if (command === 'conversation:set-mode') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+      if (!conversationId) return
+      // Only the field(s) actually present in the payload are touched — see the matching
+      // Electron-IPC handler in conversation-handlers.ts for why this can't just default to null.
+      const existing = db
+        .prepare('SELECT thinking_effort_override, full_auto_approve_override FROM conversations WHERE id = ?')
+        .get(conversationId) as { thinking_effort_override: string | null; full_auto_approve_override: number | null } | undefined
+      const validEfforts = ['low', 'medium', 'high', 'max', 'disabled']
+      const thinkingEffortOverride = 'thinkingEffortOverride' in data
+        ? (typeof data.thinkingEffortOverride === 'string' && validEfforts.includes(data.thinkingEffortOverride) ? data.thinkingEffortOverride : null)
+        : (existing?.thinking_effort_override ?? null)
+      const fullAutoApproveOverride = 'fullAutoApproveOverride' in data
+        ? (data.fullAutoApproveOverride === true ? 1 : data.fullAutoApproveOverride === false ? 0 : null)
+        : (existing?.full_auto_approve_override ?? null)
+      db.prepare(
+        'UPDATE conversations SET thinking_effort_override = ?, full_auto_approve_override = ?, updated_at = ? WHERE id = ?'
+      ).run(thinkingEffortOverride, fullAutoApproveOverride, Date.now(), conversationId)
+      broadcastToMobile({ event: 'conversation:mode-updated', data: { conversationId, thinkingEffortOverride, fullAutoApproveOverride } })
       return
     }
 
@@ -2209,6 +2241,70 @@ export function registerWsHandlers(): void {
       const modelId = typeof data.modelId === 'string' ? data.modelId : ''
       setManualWorkflowGeneratorModel(modelId)
       broadcastToMobile({ event: 'manual-workflow-generator:model', data: { sessionId, modelId: getManualWorkflowGeneratorModel() } })
+      return
+    }
+
+    // Persisted manual workflow runs (distinct from the ephemeral generator chat above).
+    // These mirror the desktop-only IPC surface in manual-workflow-runs.ts so a plan
+    // saved from Android is the same durable entity desktop's Workflow tab shows.
+    function notifyManualWorkflowRunChanged(projectId: string, runId: string): void {
+      BrowserWindow.getAllWindows().forEach((w) => {
+        if (!w.isDestroyed()) w.webContents.send('manual-workflow-runs:changed', { projectId, runId })
+      })
+    }
+
+    if (command === 'manual-workflow-runs:list') {
+      const projectId = typeof data.projectId === 'string' ? data.projectId : ''
+      if (!projectId) return
+      reply({ event: 'manual-workflow-runs:list', data: { projectId, runs: listManualWorkflowRuns(projectId) } })
+      return
+    }
+
+    if (command === 'manual-workflow-runs:get') {
+      const runId = typeof data.runId === 'string' ? data.runId : ''
+      if (!runId) return
+      reply({ event: 'manual-workflow-runs:detail', data: { run: getManualWorkflowRun(runId) } })
+      return
+    }
+
+    if (command === 'manual-workflow-runs:save-spec') {
+      const projectId = typeof data.projectId === 'string' ? data.projectId : ''
+      const specRaw = data.spec
+      if (!projectId || !specRaw || typeof specRaw !== 'object') return
+      const spec = normalizeManualWorkflowSpec(specRaw as Record<string, unknown>)
+      const model = typeof data.model === 'string' ? data.model : null
+      const existingRunId = typeof data.existingRunId === 'string' ? data.existingRunId : null
+      const detail = saveManualWorkflowRunFromSpec(projectId, spec, model, existingRunId)
+      broadcastToMobile({ event: 'manual-workflow-runs:detail', data: { run: detail } })
+      notifyManualWorkflowRunChanged(projectId, detail.id)
+      reply({ event: 'manual-workflow-runs:detail', data: { run: detail } })
+      return
+    }
+
+    if (command === 'manual-workflow-runs:update-step-status') {
+      const runId = typeof data.runId === 'string' ? data.runId : ''
+      const stepDbId = typeof data.stepDbId === 'string' ? data.stepDbId : ''
+      const status = data.status
+      if (!runId || !stepDbId || (status !== 'not_started' && status !== 'started' && status !== 'done')) return
+      const detail = updateManualWorkflowRunStepStatus(runId, stepDbId, status)
+      if (detail) {
+        broadcastToMobile({ event: 'manual-workflow-runs:detail', data: { run: detail } })
+        notifyManualWorkflowRunChanged(detail.projectId, detail.id)
+      }
+      reply({ event: 'manual-workflow-runs:detail', data: { run: detail } })
+      return
+    }
+
+    if (command === 'manual-workflow-runs:discard') {
+      const runId = typeof data.runId === 'string' ? data.runId : ''
+      if (!runId) return
+      const existing = getManualWorkflowRun(runId)
+      const ok = discardManualWorkflowRun(runId)
+      if (ok && existing) {
+        broadcastToMobile({ event: 'manual-workflow-runs:discarded', data: { runId } })
+        notifyManualWorkflowRunChanged(existing.projectId, runId)
+      }
+      reply({ event: 'manual-workflow-runs:discarded', data: { runId, ok } })
       return
     }
 

@@ -19,8 +19,7 @@ beforeEach(() => {
       updateAgent: vi.fn().mockResolvedValue(true),
       setConversationModel: vi.fn().mockResolvedValue(true),
       setTheme: vi.fn().mockResolvedValue(true),
-      saveTextFile: vi.fn().mockResolvedValue('C:\\conversation.md'),
-      createGist: vi.fn().mockResolvedValue('https://gist.github.com/example')
+      saveTextFile: vi.fn().mockResolvedValue('C:\\conversation.md')
     },
     configurable: true,
     writable: true

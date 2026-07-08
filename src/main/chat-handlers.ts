@@ -274,8 +274,14 @@ export async function dispatchChatSend(
 
   // ── Provider resolution ────────────────────────────────────────────────────
   const convRow = db
-    .prepare('SELECT agent_id, model, cli_backend FROM conversations WHERE id = ?')
-    .get(conversationId) as { agent_id: string | null; model: string | null; cli_backend: string | null } | undefined
+    .prepare('SELECT agent_id, model, cli_backend, thinking_effort_override, full_auto_approve_override FROM conversations WHERE id = ?')
+    .get(conversationId) as {
+      agent_id: string | null
+      model: string | null
+      cli_backend: string | null
+      thinking_effort_override: string | null
+      full_auto_approve_override: number | null
+    } | undefined
   // Auto-heal: if cli_backend is missing but the stored model is a known CLI model, infer and persist it.
   // Skip healing if the model is in the OpenRouter cache — it's a BYOK model, not a CLI one.
   // Reverse-heal: if cli_backend was previously set by mistake for an OpenRouter model, clear it.
@@ -309,10 +315,14 @@ export async function dispatchChatSend(
   const maxTokensSetting = Number.parseInt(settingsMap.get('max_tokens') ?? '', 10)
   const effectiveAgentId = agentId ?? convRow?.agent_id ?? null
   const agentCfg2 = effectiveAgentId ? getAgentConfig(effectiveAgentId) : null
+  const effectiveFullAutoApprove =
+    convRow?.full_auto_approve_override === 1 ? true
+    : convRow?.full_auto_approve_override === 0 ? false
+    : (agentCfg2 ? isFullAutoApprove(agentCfg2) : false)
   const generationOptions = {
     temperature: Number.isFinite(temperatureSetting) ? Math.min(2, Math.max(0, temperatureSetting)) : 0.7,
     maxTokens: Number.isFinite(maxTokensSetting) ? Math.min(16384, Math.max(256, maxTokensSetting)) : 4096,
-    thinkingEffort: agentCfg2?.thinkingEffort as string | undefined,
+    thinkingEffort: (convRow?.thinking_effort_override ?? agentCfg2?.thinkingEffort) as string | undefined,
   }
   const agenticMode = agentCfg2?.agenticMode === true
   const conversationModel = typeof convRow?.model === 'string' ? convRow.model : undefined
@@ -688,7 +698,7 @@ export async function dispatchChatSend(
             if (serverFullyBlocked) continue
 
             if (serverNeedsApproval) {
-              const cliFullAuto = agentCfg2 ? isFullAutoApprove(agentCfg2) : false
+              const cliFullAuto = effectiveFullAutoApprove
               const approved = await requestApproval(
                 window.webContents,
                 `mcp__${server.key}`,
@@ -723,7 +733,7 @@ export async function dispatchChatSend(
           }
         })()
         const cliAllowedBuiltInTools = effectiveBackend === 'claude-cli'
-          ? await getClaudeCliAllowedBuiltInTools(window, agentCfg2, effectiveAgentId, sendActivity, agentCfg2 ? isFullAutoApprove(agentCfg2) : false)
+          ? await getClaudeCliAllowedBuiltInTools(window, agentCfg2, effectiveAgentId, sendActivity, effectiveFullAutoApprove)
           : []
         const cliAllowedTools = [...cliAllowedBuiltInTools, ...(cliAllowedMcpTools ?? [])]
         debugLog('chat', `cli-adapter: starting ${effectiveBackend} model=${cliModelForRequest || 'default'} mcpServers=${cliMcpServersFiltered?.length ?? 0} builtInTools=${cliAllowedBuiltInTools.length} mcpTools=${cliAllowedMcpTools?.length ?? 0}`)
@@ -750,8 +760,8 @@ export async function dispatchChatSend(
             conversationId,
             mcpServers: cliMcpServersFiltered,
             allowedTools: cliAllowedTools.length > 0 ? cliAllowedTools : undefined,
-            thinkingEffort: agentCfg2?.thinkingEffort as 'low' | 'medium' | 'high' | 'max' | 'disabled' | undefined,
-            skipPermissions: agentCfg2 ? isFullAutoApprove(agentCfg2) : false,
+            thinkingEffort: (convRow?.thinking_effort_override ?? agentCfg2?.thinkingEffort) as 'low' | 'medium' | 'high' | 'max' | 'disabled' | undefined,
+            skipPermissions: effectiveFullAutoApprove,
           },
           sendChunk,
           (event) => {
@@ -977,7 +987,7 @@ export async function dispatchChatSend(
       onModel: handleStreamModel,
       systemPrompt,
       toolPolicy: toolPolicy ?? undefined,
-      fullAutoApprove: agentCfg2 ? isFullAutoApprove(agentCfg2) : false,
+      fullAutoApprove: effectiveFullAutoApprove,
       onThinkingChunk: (blockId, chunk) => {
         const existing = byokThinkingBuffer.get(blockId) ?? { blockId, content: '', done: false }
         byokThinkingBuffer.set(blockId, { ...existing, content: existing.content + chunk })
