@@ -233,23 +233,32 @@ async function runProviderChat(
 ): Promise<string> {
   const selectedModel = modelOverride ?? getArtifactGeneratorModel()
 
+  let cliBackend: 'claude-cli' | 'codex-cli' | undefined
+  let cliModel = selectedModel
   if (selectedModel.includes(':')) {
     const colonIdx = selectedModel.indexOf(':')
     const prefix = selectedModel.slice(0, colonIdx)
-    const cliModel = selectedModel.slice(colonIdx + 1)
     if (prefix === 'claude-cli' || prefix === 'codex-cli') {
-      const adapter = getAdapter(prefix)
-      if (!adapter?.isAvailable()) throw new Error(`${prefix} is not available`)
-      const systemMsg = typeof providerMessages[0]?.content === 'string' && providerMessages[0].role === 'system'
-        ? providerMessages[0].content
-        : ARTIFACT_GENERATOR_SYSTEM_PROMPT
-      const conversationMessages = providerMessages.filter((m) => m.role !== 'system')
-      return adapter.send(
-        win,
-        { systemPrompt: systemMsg, messages: conversationMessages, cwd, model: cliModel, conversationId: sessionId },
-        sendChunk,
-      )
+      cliBackend = prefix
+      cliModel = selectedModel.slice(colonIdx + 1)
     }
+  } else if (ClaudeAdapter.isAvailable() && getCliModels('claude-cli').some((m) => m.id === selectedModel)) {
+    cliBackend = 'claude-cli'
+  } else if (CodexAdapter.isAvailable() && getCliModels('codex-cli').some((m) => m.id === selectedModel)) {
+    cliBackend = 'codex-cli'
+  }
+  if (cliBackend) {
+    const adapter = getAdapter(cliBackend)
+    if (!adapter?.isAvailable()) throw new Error(`${cliBackend} is not available`)
+    const systemMsg = typeof providerMessages[0]?.content === 'string' && providerMessages[0].role === 'system'
+      ? providerMessages[0].content
+      : ARTIFACT_GENERATOR_SYSTEM_PROMPT
+    const conversationMessages = providerMessages.filter((m) => m.role !== 'system')
+    return adapter.send(
+      win,
+      { systemPrompt: systemMsg, messages: conversationMessages, cwd, model: cliModel, conversationId: sessionId },
+      sendChunk,
+    )
   }
 
   const { provider, model } = getProviderForAgent(selectedModel)
