@@ -1,4 +1,4 @@
-import { type ChangeEvent, type ClipboardEvent, type KeyboardEvent, type PointerEvent, type RefObject } from 'react'
+import { useState, type ChangeEvent, type ClipboardEvent, type KeyboardEvent, type PointerEvent, type RefObject } from 'react'
 import { BookOpen, Camera, ClipboardPaste, Eye, Loader2, Mic, Package, Paperclip, SendHorizontal, Square, X } from 'lucide-react'
 import { ContextInspector } from '../ContextInspector'
 import { AttachmentBar } from './AttachmentBar'
@@ -6,6 +6,7 @@ import { AtContextMenu } from './AtContextMenu'
 import { SlashCommandMenu } from './SlashCommandMenu'
 import { ModelPicker } from './ModelPicker'
 import { CliLockedModelBadge } from './CliLockedModelBadge'
+import { ChatModePicker } from './ChatModePicker'
 import type { AgentConfig, AvailableModelEntry, AvailableModelGroup } from '../../../shared/types'
 import type { AtContextOption, ChatMessage, ContextRef, LocalAttachment, PastedImage } from '../../hooks/chat-types'
 import type { SlashCommandDef } from '../../slash-commands'
@@ -70,6 +71,9 @@ interface ChatComposerProps {
   cliLockedModels?: AvailableModelEntry[]
   onSelectCliModel?: (modelId: string) => void
   lockModelToAgentBackend?: boolean
+  conversationThinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null
+  conversationFullAutoApproveOverride?: boolean | null
+  onSetConversationMode?: (mode: { thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null; fullAutoApproveOverride?: boolean | null }) => void
 }
 
 export function ChatComposer({
@@ -130,7 +134,11 @@ export function ChatComposer({
   cliLockedModels,
   onSelectCliModel,
   lockModelToAgentBackend = false,
+  conversationThinkingEffortOverride = null,
+  conversationFullAutoApproveOverride = null,
+  onSetConversationMode,
 }: ChatComposerProps) {
+  const [showModePicker, setShowModePicker] = useState(false)
   const catalogModels = useAppStore((state) => state.catalogModels)
   const globalDefaultModel = useAppStore((state) => state.globalDefaultModel)
   const agentBackend = activeAgent?.backend
@@ -351,6 +359,15 @@ export function ChatComposer({
                       }
                     }}
                     onSelectAvailableModel={onSelectAvailableModel}
+                  />
+                )}
+                {conversationId && onSetConversationMode && (
+                  <ChatModePicker
+                    open={showModePicker}
+                    onOpenChange={setShowModePicker}
+                    thinkingEffortOverride={conversationThinkingEffortOverride}
+                    fullAutoApproveOverride={conversationFullAutoApproveOverride}
+                    onChange={onSetConversationMode}
                   />
                 )}
               </div>
