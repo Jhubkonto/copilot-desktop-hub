@@ -29,10 +29,6 @@ export function registerSystemHandlers(): void {
     },
   );
 
-  safeHandle("app:create-gist", async () => {
-    throw new Error("GitHub Gist sharing is unavailable without GitHub authentication. Use /share to save locally.");
-  });
-
   safeHandle("app:set-auto-start", (_event, enabled: boolean) => {
     app.setLoginItemSettings({
       openAtLogin: enabled,

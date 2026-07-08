@@ -415,7 +415,6 @@ export function createMockApi() {
     // Auto-start
     setAutoStart: vi.fn().mockResolvedValue(undefined),
     saveTextFile: vi.fn().mockResolvedValue('C:\\conversation.md'),
-    createGist: vi.fn().mockResolvedValue('https://gist.github.com/example/abc123'),
 
     // Updates
     checkForUpdates: vi.fn().mockResolvedValue(undefined),
@@ -468,6 +467,7 @@ export function createMockApi() {
     getManualWorkflowRun: vi.fn().mockResolvedValue(null),
     updateManualWorkflowRunStepStatus: vi.fn().mockResolvedValue(null),
     discardManualWorkflowRun: vi.fn().mockResolvedValue(true),
+    onManualWorkflowRunsChanged: vi.fn().mockReturnValue(() => {}),
     listWikiEntries: vi.fn().mockResolvedValue([]),
     createWikiEntry: vi.fn().mockResolvedValue({
       id: 'wiki-1',
