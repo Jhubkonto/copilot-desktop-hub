@@ -41,6 +41,7 @@ import io.nexy.android.data.repository.CapabilityState
 import io.nexy.android.data.repository.InternetState
 import io.nexy.android.notification.ApprovalNotificationManager
 import io.nexy.android.notification.ChatCompleteNotificationManager
+import io.nexy.android.notification.GenerationNotificationManager
 import io.nexy.android.NexyApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -538,6 +539,25 @@ object WsRepository : WsClient {
                         }
                         _activeChatSnapshots.value = _activeChatSnapshots.value - event.conversationId
                     }
+                    is WsEvent.DebriefReady -> {
+                        if (activelyViewedConversationId.value != event.debrief.conversationId) {
+                            val application = app
+                            if (application != null) {
+                                val title = _conversations.value.firstOrNull { it.id == event.debrief.conversationId }?.title ?: "Chat"
+                                GenerationNotificationManager.show(application, event.debrief.conversationId, "debrief", title)
+                            }
+                        }
+                    }
+                    is WsEvent.QuizReady -> {
+                        val convId = event.conversationId
+                        if (convId != null && activelyViewedConversationId.value != convId) {
+                            val application = app
+                            if (application != null) {
+                                val title = _conversations.value.firstOrNull { it.id == convId }?.title ?: "Chat"
+                                GenerationNotificationManager.show(application, convId, "quiz", title)
+                            }
+                        }
+                    }
                     is WsEvent.ConversationList -> {
                         val knownIds = _conversations.value.map { it.id }.toSet()
                         _pendingConversationIds.value = _pendingConversationIds.value - knownIds
@@ -555,6 +575,7 @@ object WsRepository : WsClient {
                         // Desktop came back online — clear the restart-expected flag
                         _intentionalRestartExpected.value = false
                         beginStandaloneSync()
+                        getActivityFeed()
                     }
                     is WsEvent.SyncWelcome -> {
                         scope.launch {
@@ -2271,6 +2292,10 @@ object WsRepository : WsClient {
             if (model != null) put("model", model)
         })
     }
+    fun getQuiz(conversationId: String) { send("conversation:get-quiz", mapOf("conversationId" to conversationId)) }
+
+    // ─── Activity feed ──────────────────────────────────────────────────────────
+    fun getActivityFeed() { send("activity:list", emptyMap()) }
 }
 
 fun ScheduleGeneratorSpec.toPayload(): Map<String, Any> {

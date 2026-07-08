@@ -1774,10 +1774,40 @@ fun parseWsEvent(
                     questions,
                     artifactId = data.nullableString("artifactId"),
                     versionId = data.nullableString("versionId"),
+                    conversationId = data.nullableString("conversationId"),
+                )
+            }
+
+            "quiz:loaded" -> {
+                val conversationId = data?.optString("conversationId") ?: return
+                val arr = data.optJSONArray("questions")
+                val questions = arr?.let { (0 until it.length()).map { i -> parseQuizQuestion(it.getJSONObject(i)) } }
+                WsEvent.QuizLoaded(
+                    conversationId,
+                    questions,
+                    artifactId = data.nullableString("artifactId"),
+                    versionId = data.nullableString("versionId"),
                 )
             }
 
             "quiz:error" -> WsEvent.QuizError(data?.optString("message") ?: "Unknown error")
+
+            "activity:changed" -> {
+                val arr = data?.optJSONArray("activities")
+                val list = arr?.let { array ->
+                    (0 until array.length()).mapNotNull { i ->
+                        val obj = array.optJSONObject(i) ?: return@mapNotNull null
+                        val id = obj.optString("id")
+                        val kind = obj.optString("kind")
+                        val label = obj.optString("label")
+                        val conversationId = obj.nullableString("conversationId")
+                        val route = routeForServerActivity(id, kind, conversationId) ?: return@mapNotNull null
+                        BackgroundActivity(id = id, label = label, route = route)
+                    }
+                } ?: emptyList()
+                BackgroundActivityTracker.applySnapshot(list)
+                WsEvent.ActivityChanged(list)
+            }
 
             "settings:value" -> {
                 val key = data?.optString("key") ?: return
@@ -2413,6 +2443,20 @@ private fun parseQuizQuestion(obj: JSONObject): QuizQuestion {
         explanation = obj.optString("explanation"),
         category = obj.optString("category"),
     )
+}
+
+/** Mirrors desktop's openBackgroundActivity kind-dispatch (backgroundActivitySlice.ts) — maps a
+ *  server-tracked activity kind to the Android nav route that shows it. Returns null for kinds
+ *  with no reachable Android destination. `id` is `<kind>:<reportId>` for remote-edit items. */
+private fun routeForServerActivity(id: String, kind: String, conversationId: String?): String? = when (kind) {
+    "chat", "debrief-generation", "quiz-generation", "orchestration" -> conversationId?.let { "chat/$it" }
+    "project-generator" -> "project-generator"
+    "agent-generator" -> "agent-generator"
+    "skill-generator" -> "skill-generator"
+    "scheduler-generator" -> "scheduled/generator"
+    "build" -> "settings/build-dashboard"
+    "remote-edit" -> "remote-edit/${android.net.Uri.encode(id.removePrefix("remote-edit:"))}"
+    else -> null
 }
 
 private fun parseScheduledTask(obj: JSONObject) = ScheduledTask(

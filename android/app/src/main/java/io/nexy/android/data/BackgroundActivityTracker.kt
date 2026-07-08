@@ -24,4 +24,13 @@ object BackgroundActivityTracker {
         if (_activities.value.none { it.id == id }) return
         _activities.value = _activities.value.filterNot { it.id == id }
     }
+
+    /** Reconciles with a server snapshot (src/main/activity-tracker.ts): authoritative for
+     *  anything it knows about, but preserves locally tracked entries the server hasn't echoed
+     *  back yet (or never will, e.g. manual-workflow-generator which has no server-side hook). */
+    fun applySnapshot(snapshot: List<BackgroundActivity>) {
+        val knownIds = snapshot.map { it.id }.toSet()
+        val localOnly = _activities.value.filterNot { it.id in knownIds }
+        _activities.value = snapshot + localOnly
+    }
 }

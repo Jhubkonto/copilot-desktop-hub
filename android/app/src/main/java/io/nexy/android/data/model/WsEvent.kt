@@ -348,8 +348,11 @@ sealed class WsEvent {
     data class DebriefConversationCompleted(val conversationId: String, val completedAt: Long) : WsEvent()
     data class DebriefConversationIncompleted(val conversationId: String) : WsEvent()
     // Quiz
-    data class QuizReady(val questions: List<QuizQuestion>, val artifactId: String? = null, val versionId: String? = null) : WsEvent()
+    data class QuizReady(val questions: List<QuizQuestion>, val artifactId: String? = null, val versionId: String? = null, val conversationId: String? = null) : WsEvent()
+    data class QuizLoaded(val conversationId: String, val questions: List<QuizQuestion>?, val artifactId: String? = null, val versionId: String? = null) : WsEvent()
     data class QuizError(val message: String) : WsEvent()
+
+    data class ActivityChanged(val activities: List<io.nexy.android.data.BackgroundActivity>) : WsEvent()
     // Provider Key Handoff (opt-in, consent-gated exception)
     data class ProviderKeyHandoffRequest(
         val providerId: String,
