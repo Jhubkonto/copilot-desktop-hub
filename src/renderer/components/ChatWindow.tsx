@@ -1,9 +1,9 @@
 /* eslint-disable react-hooks/exhaustive-deps -- chat/actions are aggregate hook objects; individual members are stable. */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { shouldFollowAnimatedGrowth } from '../chat-scroll-policy'
-import { CheckCircle, ChevronDown, ChevronRight, Download, Loader2, Lock, MoreHorizontal, Pin, PinOff, Sparkles, Upload, Zap } from 'lucide-react'
+import { CheckCircle, ChevronDown, ChevronRight, Download, ListChecks, Loader2, Lock, MoreHorizontal, Pin, PinOff, Sparkles, Upload, Users, X, Zap } from 'lucide-react'
 import { getAvailableModelIds, getModelLabel, modelIdSupportsTools } from '../../shared/models'
-import { isApiError, type AgentConfig, type ArtifactPromotionRequest, type AvailableModelEntry, type AvailableModelGroup, type ConversationExportPackFormat, type WikiCandidate } from '../../shared/types'
+import { isApiError, type AgentConfig, type ArtifactPromotionRequest, type AvailableModelEntry, type AvailableModelGroup, type ConversationExportPackFormat, type ManualWorkflowRunDetail, type ManualWorkflowRunStep, type WikiCandidate } from '../../shared/types'
 import type { ContextRef, ToastType } from '../hooks/chat-types'
 import { useAtMenu } from '../hooks/useAtMenu'
 import { useChat } from '../hooks/useChat'
@@ -14,7 +14,7 @@ import { useRateLimitTimer } from '../hooks/useRateLimitTimer'
 import { useVoiceInput } from '../hooks/useVoiceInput'
 import { useAppStore } from '../store/app-store'
 import { CONTEXT_INSPECTOR_MAX_TOKENS, estimateRefTokens, estimateTokens } from '../lib/context-token-estimate'
-import type { ContextInspectorSnapshot } from '../../shared/types'
+import type { ContextInspectorSnapshot, ProjectConfig } from '../../shared/types'
 import { ChatComposer } from './chat/ChatComposer'
 import { ChatMessages } from './chat/ChatMessages'
 import { DropdownPanel } from './DropdownPanel'
@@ -76,6 +76,7 @@ export function ChatWindow() {
   const newChat = useAppStore((state) => state.newChat)
   const openSectionPane = useAppStore((state) => state.openSectionPane)
   const openArtifactPanel = useAppStore((state) => state.openArtifactPanel)
+  const openEditProject = useAppStore((state) => state.openEditProject)
   const selectConversation = useAppStore((state) => state.selectConversation)
   const setTheme = useAppStore((state) => state.setTheme)
   const logout = useAppStore((state) => state.logout)
@@ -103,6 +104,9 @@ export function ChatWindow() {
   const [showContextInspector, setShowContextInspector] = useState(false)
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [projectRootDir, setProjectRootDir] = useState<string | null>(null)
+  const [projectWorkflowMode, setProjectWorkflowMode] = useState<ProjectConfig['workflowMode'] | null>(null)
+  const [activeWorkflowRun, setActiveWorkflowRun] = useState<ManualWorkflowRunDetail | null>(null)
+  const [dismissedWorkflowStepId, setDismissedWorkflowStepId] = useState<string | null>(null)
   const [inputPanelHeight, setInputPanelHeight] = useState<number | null>(null)
   const [hasUnreadBelow, setHasUnreadBelow] = useState(false)
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false)
@@ -429,6 +433,7 @@ export function ChatWindow() {
   useEffect(() => {
     if (!chatProjectId || chatProjectId === '__none__') {
       setProjectRootDir(null)
+      setProjectWorkflowMode(null)
       return
     }
 
@@ -440,9 +445,68 @@ export function ChatWindow() {
             ? ((config as Record<string, unknown>).rootDirectory as string)
             : null
         setProjectRootDir(rootDir || null)
+        const workflowMode =
+          config && typeof config === 'object' && 'workflowMode' in config
+            ? ((config as Record<string, unknown>).workflowMode as ProjectConfig['workflowMode'])
+            : null
+        setProjectWorkflowMode(workflowMode ?? null)
       })
-      .catch(() => setProjectRootDir(null))
+      .catch(() => {
+        setProjectRootDir(null)
+        setProjectWorkflowMode(null)
+      })
   }, [chatProjectId])
+
+  const loadActiveWorkflowRun = useCallback((projectId: string) => {
+    window.api.listManualWorkflowRuns(projectId).then(async (list) => {
+      if (isApiError(list)) { setActiveWorkflowRun(null); return }
+      const active = list.find((run) => run.status === 'active')
+      if (!active) { setActiveWorkflowRun(null); return }
+      const detail = await window.api.getManualWorkflowRun(active.id)
+      setActiveWorkflowRun(detail && !isApiError(detail) ? detail : null)
+    }).catch(() => setActiveWorkflowRun(null))
+  }, [])
+
+  useEffect(() => {
+    setDismissedWorkflowStepId(null)
+    if (!chatProjectId || chatProjectId === '__none__' || projectWorkflowMode !== 'manual-delegation') {
+      setActiveWorkflowRun(null)
+      return
+    }
+    loadActiveWorkflowRun(chatProjectId)
+  }, [chatProjectId, projectWorkflowMode, loadActiveWorkflowRun])
+
+  useEffect(() => {
+    const off = window.api.onManualWorkflowRunsChanged(({ projectId: changedProjectId }) => {
+      if (changedProjectId === chatProjectId && projectWorkflowMode === 'manual-delegation') {
+        loadActiveWorkflowRun(changedProjectId)
+      }
+    })
+    return off
+  }, [chatProjectId, projectWorkflowMode, loadActiveWorkflowRun])
+
+  const currentWorkflowStep = useMemo<ManualWorkflowRunStep | null>(() => {
+    if (!activeWorkflowRun) return null
+    const byKey = new Map(activeWorkflowRun.steps.map((s) => [s.id, s]))
+    const isDone = (key: string) => byKey.get(key)?.status === 'done'
+    return activeWorkflowRun.steps.find((s) => s.status !== 'done' && (s.dependsOnStepIds ?? []).every(isDone)) ?? null
+  }, [activeWorkflowRun])
+
+  const handleStartWorkflowStepFromBanner = useCallback(async (step: ManualWorkflowRunStep) => {
+    if (!chatProjectId || chatProjectId === '__none__' || !activeWorkflowRun) return
+    const conversation = await window.api.createConversation(step.agentId ?? undefined, chatProjectId)
+    if (!conversation || typeof conversation !== 'object' || !('id' in conversation) || typeof conversation.id !== 'string') {
+      addToast('Failed to create conversation for workflow step', 'error')
+      return
+    }
+    await conversationCreated(conversation.id)
+    await window.api.sendMessage(conversation.id, step.prompt, { agentId: step.agentId ?? undefined, projectId: chatProjectId })
+    if (step.status === 'not_started') {
+      const updated = await window.api.updateManualWorkflowRunStepStatus(activeWorkflowRun.id, step.dbId, 'started')
+      if (updated && !isApiError(updated)) setActiveWorkflowRun(updated)
+    }
+    addToast('Workflow step started in chat', 'success')
+  }, [chatProjectId, activeWorkflowRun, conversationCreated, addToast])
 
   useEffect(() => {
     if (!chatProjectId || chatProjectId === '__none__') {
@@ -1120,6 +1184,12 @@ export function ChatWindow() {
     return { label: 'No provider', cls: 'bg-gray-100 dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400' }
   }, [chatAgent?.backend, authMode, cliInstalled, installedClis.claude, installedClis.codex, effectiveModel, availableGroups, hasByok])
 
+  const workflowModeInfo = projectWorkflowMode === 'orchestrated'
+    ? { label: 'Orchestrated', Icon: Users, title: 'This project delegates tasks across the team automatically.' }
+    : projectWorkflowMode === 'manual-delegation'
+      ? { label: 'Manual', Icon: ListChecks, title: 'This project uses a manual delegation workflow — see the Workflow tab in project settings.' }
+      : null
+
   const contextBar = (
     <div className="border-b border-gray-200 dark:border-gray-700/80 bg-gray-50 dark:bg-gray-800/50">
     <div
@@ -1140,6 +1210,18 @@ export function ChatWindow() {
           'No project'
         )}
       </span>
+
+      {chatProject && workflowModeInfo && (
+        <span
+          className="inline-flex items-center gap-1 px-2 rounded-full text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 select-none"
+          style={{ lineHeight: '20px' }}
+          title={workflowModeInfo.title}
+          aria-label={`Workflow mode: ${workflowModeInfo.label}`}
+        >
+          <workflowModeInfo.Icon className="w-3 h-3" aria-hidden="true" />
+          {workflowModeInfo.label}
+        </span>
+      )}
 
       <span
         className="inline-flex items-center gap-1 px-2 rounded-full text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 select-none"
@@ -1190,6 +1272,12 @@ export function ChatWindow() {
     </div>
     </div>
   )
+
+  const handleSetConversationMode = useCallback(async (mode: { thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null; fullAutoApproveOverride?: boolean | null }) => {
+    if (!conversationId) return
+    await window.api.setConversationMode(conversationId, mode)
+    await loadConversations()
+  }, [conversationId, loadConversations])
 
   const composer = (
     <ChatComposer
@@ -1249,6 +1337,13 @@ export function ChatWindow() {
       onCloseAtMenu={atMenu.closeAtMenu}
       onSetConversationModel={actions.handleSetConversationModel}
       onSetPendingModel={setPendingModel}
+      conversationThinkingEffortOverride={currentConversation?.thinking_effort_override ?? null}
+      conversationFullAutoApproveOverride={
+        currentConversation?.full_auto_approve_override === 1 ? true
+          : currentConversation?.full_auto_approve_override === 0 ? false
+          : null
+      }
+      onSetConversationMode={handleSetConversationMode}
       availableGroups={availableGroups}
       onSelectAvailableModel={handleSelectAvailableModel}
       isEditingMessage={chat.isEditingMessage}
@@ -1295,6 +1390,34 @@ export function ChatWindow() {
     </div>
   ) : null
 
+  const workflowStepBanner = activeWorkflowRun && currentWorkflowStep && currentWorkflowStep.id !== dismissedWorkflowStepId ? (
+    <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 dark:bg-blue-950/30 border-b border-blue-200 dark:border-blue-900 text-blue-800 dark:text-blue-300 text-xs" role="status" aria-label="Manual workflow step">
+      <ListChecks className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+      <span className="flex-1 truncate">
+        <strong>{activeWorkflowRun.title}</strong> — Step {currentWorkflowStep.stepIndex + 1} of {activeWorkflowRun.steps.length}: {currentWorkflowStep.title}
+      </span>
+      <button
+        onClick={() => { void handleStartWorkflowStepFromBanner(currentWorkflowStep) }}
+        className="underline hover:no-underline font-medium shrink-0"
+      >
+        Start this step
+      </button>
+      <button
+        onClick={() => { if (chatProjectId && chatProjectId !== '__none__') openEditProject(chatProjectId, 'workflow') }}
+        className="underline hover:no-underline shrink-0"
+      >
+        View workflow
+      </button>
+      <button
+        onClick={() => setDismissedWorkflowStepId(currentWorkflowStep.id)}
+        aria-label="Dismiss workflow step banner"
+        className="shrink-0"
+      >
+        <X className="w-3 h-3" />
+      </button>
+    </div>
+  ) : null
+
   if (!conversationId && chat.messages.length === 0) {
     return (
       <div
@@ -1306,6 +1429,7 @@ export function ChatWindow() {
       >
         {contextBar}
         {autoApproveBanner}
+        {workflowStepBanner}
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center max-w-md">
             <h2 className="text-2xl font-medium text-gray-700 dark:text-gray-200 mb-2">
@@ -1361,6 +1485,7 @@ export function ChatWindow() {
     >
       {contextBar}
       {autoApproveBanner}
+      {workflowStepBanner}
 
       <div className="relative flex flex-col flex-1 min-h-0">
         {conversationId && completedConversationIds.includes(conversationId) && !chat.isGenerating && (

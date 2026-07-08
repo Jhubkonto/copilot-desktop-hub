@@ -978,6 +978,8 @@ export interface ConversationRow {
   created_at: number
   updated_at: number
   completed_at: number | null
+  thinking_effort_override: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null
+  full_auto_approve_override: number | null
 }
 
 export interface MessageRow {
@@ -1655,7 +1657,6 @@ export type IpcReturnMap = {
   'skill:update': SkillConfig
   // App
   'app:check-updates': void
-  'app:create-gist': string
   'app:download-update': void
   'app:get-setting': string | null
   'app:get-settings': Record<string, string>
@@ -1721,6 +1722,7 @@ export type IpcReturnMap = {
   'conversation:rename': boolean
   'conversation:search': ConversationRow[]
   'conversation:set-model': boolean
+  'conversation:set-mode': boolean
   'conversation:set-pinned': boolean
   'conversation:update-context': boolean
   'conversation:generate-debrief': DebriefArtifactResult
@@ -1847,6 +1849,7 @@ export type IpcReturnMap = {
   'manual-workflow-runs:get': ManualWorkflowRunDetail | null
   'manual-workflow-runs:update-step-status': ManualWorkflowRunDetail | null
   'manual-workflow-runs:discard': boolean
+  'manual-workflow-runs:changed': void
   // Scheduler
   'scheduler:list': ScheduledTask[]
   'scheduler:get': ScheduledTask | null
@@ -2054,7 +2057,6 @@ export type IpcChannels =
   | 'skill:reorder-for-agent'
   | 'skill:update'
   | 'app:check-updates'
-  | 'app:create-gist'
   | 'app:download-update'
   | 'app:get-setting'
   | 'app:get-settings'
@@ -2118,6 +2120,7 @@ export type IpcChannels =
   | 'conversation:rename'
   | 'conversation:search'
   | 'conversation:set-model'
+  | 'conversation:set-mode'
   | 'conversation:set-pinned'
   | 'conversation:update-context'
   | 'conversation:generate-debrief'
@@ -2232,6 +2235,7 @@ export type IpcChannels =
   | 'manual-workflow-runs:get'
   | 'manual-workflow-runs:update-step-status'
   | 'manual-workflow-runs:discard'
+  | 'manual-workflow-runs:changed'
   | 'scheduler:list'
   | 'scheduler:get'
   | 'scheduler:create'

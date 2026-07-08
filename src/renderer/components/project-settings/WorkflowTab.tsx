@@ -232,6 +232,24 @@ export function WorkflowTab({ projectId, members, projectConfig, onStartWorkflow
       .catch(() => setRuns([]))
   }, [projectId])
 
+  // Reflects runs/steps saved or updated from another connected client (e.g. Android) while
+  // this tab is open. Safe to refetch unconditionally: run/step data has no local unsaved-draft
+  // concept — every mutation here already round-trips through the IPC layer immediately.
+  useEffect(() => {
+    const off = window.api.onManualWorkflowRunsChanged(({ projectId: changedProjectId, runId }) => {
+      if (changedProjectId !== projectId) return
+      window.api.listManualWorkflowRuns(projectId).then((list) => {
+        if (!isApiError(list)) setRuns(list)
+      }).catch(() => {})
+      if (activeRunRef.current?.id === runId) {
+        window.api.getManualWorkflowRun(runId).then((detail) => {
+          if (detail && !isApiError(detail)) setActiveRun(detail)
+        }).catch(() => {})
+      }
+    })
+    return off
+  }, [projectId])
+
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streamingText])

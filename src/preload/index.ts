@@ -323,6 +323,8 @@ const api = {
     typedInvoke('conversation:rename', id, title),
   setConversationModel: (id: string, model: string | null, cliBackend?: string | null) =>
     typedInvoke('conversation:set-model', id, model, cliBackend),
+  setConversationMode: (id: string, mode: { thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null; fullAutoApproveOverride?: boolean | null }) =>
+    typedInvoke('conversation:set-mode', id, mode),
   setConversationPinned: (id: string, pinned: boolean) =>
     typedInvoke('conversation:set-pinned', id, pinned),
   updateConversationContext: (
@@ -621,6 +623,11 @@ const api = {
     typedInvoke('manual-workflow-runs:update-step-status', runId, stepId, status),
   discardManualWorkflowRun: (runId: string) =>
     typedInvoke('manual-workflow-runs:discard', runId),
+  onManualWorkflowRunsChanged: (callback: (data: { projectId: string; runId: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { projectId: string; runId: string }) => callback(data)
+    typedOn('manual-workflow-runs:changed', handler)
+    return () => typedOff('manual-workflow-runs:changed', handler)
+  },
   onTeamActivity: (callback: (step: {
     stepId: string
     agentId: string
@@ -679,8 +686,6 @@ const api = {
   setAutoStart: (enabled: boolean) => typedInvoke('app:set-auto-start', enabled),
   saveTextFile: (defaultFileName: string, content: string) =>
     typedInvoke('app:save-text-file', defaultFileName, content),
-  createGist: (filename: string, content: string, description?: string) =>
-    typedInvoke('app:create-gist', filename, content, description),
 
   // Updates
   checkForUpdates: () => typedInvoke('app:check-updates'),

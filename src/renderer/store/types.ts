@@ -8,6 +8,8 @@ export interface Conversation {
   created_at: number
   updated_at: number
   completed_at?: number | null
+  thinking_effort_override?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null
+  full_auto_approve_override?: number | null
 }
 
 export interface Project {
