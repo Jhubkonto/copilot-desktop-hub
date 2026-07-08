@@ -53,4 +53,8 @@ export function getActivitySnapshot(): BackgroundActivity[] {
 
 export function registerActivityHandlers(): void {
   safeHandle('activity:list', (): BackgroundActivity[] => getActivitySnapshot())
+  safeHandle('activity:dismiss', (_event, id: string): boolean => {
+    endActivity(id)
+    return true
+  })
 }

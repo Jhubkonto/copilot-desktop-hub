@@ -1759,6 +1759,7 @@ export type IpcReturnMap = {
   // Activity
   'activity:list': BackgroundActivity[]
   'activity:changed': void
+  'activity:dismiss': boolean
   // Debug
   'debug:set-enabled': boolean
   'debug:log': void
@@ -2162,6 +2163,7 @@ export type IpcChannels =
   | 'conversation:get-quiz'
   | 'activity:list'
   | 'activity:changed'
+  | 'activity:dismiss'
   | 'artifact:updated'
   | 'debug:set-enabled'
   | 'debug:log'

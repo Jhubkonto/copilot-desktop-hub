@@ -1,4 +1,4 @@
-import { Loader2, Zap } from 'lucide-react'
+import { Loader2, X, Zap } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import { ModalShell } from './ui/primitives'
 
@@ -15,6 +15,12 @@ export function ActivityFeedModal() {
   const activities = useAppStore((s) => s.backgroundActivities)
   const openBackgroundActivity = useAppStore((s) => s.openBackgroundActivity)
   const setShowActivityFeed = useAppStore((s) => s.setShowActivityFeed)
+  const removeBackgroundActivity = useAppStore((s) => s.removeBackgroundActivity)
+
+  const dismiss = (id: string) => {
+    removeBackgroundActivity(id)
+    void window.api.dismissActivity(id)
+  }
 
   const sorted = [...activities].sort((a, b) => b.startedAt - a.startedAt)
 
@@ -33,24 +39,37 @@ export function ActivityFeedModal() {
       ) : (
         <div className="space-y-0.5">
           {sorted.map((activity) => (
-            <button
+            <div
               key={activity.id}
-              type="button"
-              onClick={() => {
-                openBackgroundActivity(activity)
-                setShowActivityFeed(false)
-              }}
-              className="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-gray-100 dark:hover:bg-gray-800"
+              className="group w-full flex items-center gap-3 rounded-lg px-3 py-2.5 hover:bg-gray-100 dark:hover:bg-gray-800"
             >
-              <Loader2 className="w-4 h-4 text-blue-500 animate-spin shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm text-gray-800 dark:text-gray-200 truncate">{activity.label}</p>
-                {activity.detail && (
-                  <p className="text-xs text-gray-400 dark:text-gray-500 truncate">{activity.detail}</p>
-                )}
-              </div>
-              <span className="text-[10px] text-gray-400 dark:text-gray-500 shrink-0">{timeAgo(activity.startedAt)}</span>
-            </button>
+              <button
+                type="button"
+                onClick={() => {
+                  openBackgroundActivity(activity)
+                  setShowActivityFeed(false)
+                }}
+                className="flex-1 min-w-0 flex items-center gap-3 text-left"
+              >
+                <Loader2 className="w-4 h-4 text-blue-500 animate-spin shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-gray-800 dark:text-gray-200 truncate">{activity.label}</p>
+                  {activity.detail && (
+                    <p className="text-xs text-gray-400 dark:text-gray-500 truncate">{activity.detail}</p>
+                  )}
+                </div>
+                <span className="text-[10px] text-gray-400 dark:text-gray-500 shrink-0">{timeAgo(activity.startedAt)}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => dismiss(activity.id)}
+                title="Dismiss"
+                aria-label="Dismiss"
+                className="shrink-0 p-1 rounded text-gray-300 opacity-0 group-hover:opacity-100 hover:text-gray-600 dark:text-gray-600 dark:hover:text-gray-300 transition-opacity"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
           ))}
         </div>
       )}
