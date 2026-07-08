@@ -2,6 +2,7 @@ import { useDeferredValue, useEffect, useMemo, useState, useCallback } from 'rea
 import { Download, Loader2, Search, Trash2, X } from 'lucide-react'
 import type { ArtifactRow } from '../../../shared/types'
 import { useAppStore } from '../../store/app-store'
+import { DeleteArtifactDialog } from '../DeleteArtifactDialog'
 
 // ---------------------------------------------------------------------------
 // KindBadge (local; also duplicated in ProjectArtifactsTab)
@@ -107,26 +108,19 @@ export function ArtifactsPane() {
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
   const [scope, setScope] = useState<ArtifactScope>('all')
-  const [scopeProjectId, setScopeProjectId] = useState(projects[0]?.id ?? '')
+  const [scopeProjectId, setScopeProjectId] = useState('')
+  const [pendingDelete, setPendingDelete] = useState<ArtifactRow | null>(null)
 
   const loadAll = useCallback(async () => {
+    if (scope === 'project' && !scopeProjectId) {
+      setArtifacts([])
+      setLoading(false)
+      return
+    }
     setLoading(true)
     try {
-      if (scope === 'all') {
-        const [global, project] = await Promise.all([
-          window.api.artifactList(),
-          scopeProjectId ? window.api.artifactList(scopeProjectId) : Promise.resolve([]),
-        ])
-        const seen = new Set<string>()
-        const merged: ArtifactRow[] = []
-        for (const a of [...global, ...project]) {
-          if (!seen.has(a.id)) { seen.add(a.id); merged.push(a) }
-        }
-        setArtifacts(merged)
-      } else {
-        const effectiveProjectId = scope === 'project' ? scopeProjectId : undefined
-        setArtifacts(await window.api.artifactList(effectiveProjectId))
-      }
+      // No projectId means "every artifact regardless of project" (see artifact:list handler).
+      setArtifacts(scope === 'project' ? await window.api.artifactList(scopeProjectId) : await window.api.artifactList())
     } catch {
       // leave existing list
     } finally {
@@ -151,7 +145,10 @@ export function ArtifactsPane() {
     [artifacts, deferredQuery],
   )
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async () => {
+    if (!pendingDelete) return
+    const id = pendingDelete.id
+    setPendingDelete(null)
     try {
       await window.api.artifactDelete(id)
       setArtifacts((prev) => prev.filter((a) => a.id !== id))
@@ -221,7 +218,7 @@ export function ArtifactsPane() {
             {s === 'project' ? 'Project' : 'All'}
           </button>
         ))}
-        {(scope === 'project' || scope === 'all') && projects.length > 0 && (
+        {scope === 'project' && projects.length > 0 && (
           <select
             value={scopeProjectId}
             onChange={(e) => setScopeProjectId(e.target.value)}
@@ -256,7 +253,7 @@ export function ArtifactsPane() {
                 {deferredQuery
                     ? `No artifacts match "${deferredQuery}"`
                     : scope === 'project'
-                      ? 'No artifacts for this project yet'
+                      ? (scopeProjectId ? 'No artifacts for this project yet' : 'Select a project to filter by')
                       : 'No artifacts yet'}
               </p>
             ) : (
@@ -265,7 +262,7 @@ export function ArtifactsPane() {
                   key={artifact.id}
                   artifact={artifact}
                   onClick={openArtifactPanel}
-                  onDelete={(id) => void handleDelete(id)}
+                  onDelete={() => setPendingDelete(artifact)}
                   onExport={(a) => void handleExport(a)}
                 />
               ))
@@ -274,6 +271,13 @@ export function ArtifactsPane() {
         )}
       </div>
 
+      {pendingDelete && (
+        <DeleteArtifactDialog
+          artifactTitle={pendingDelete.title}
+          onConfirm={() => void handleDelete()}
+          onCancel={() => setPendingDelete(null)}
+        />
+      )}
     </div>
   )
 }

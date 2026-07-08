@@ -123,16 +123,28 @@ describe('ArtifactsPane', () => {
     expect(mockStore.openArtifactPanel).toHaveBeenCalledWith('art-1')
   })
 
-  it('calls artifactDelete when delete icon is clicked', async () => {
+  it('calls artifactDelete when delete is confirmed', async () => {
     render(<ArtifactsPane />)
     await waitFor(() => {
       expect(screen.getByText('My Readme')).toBeInTheDocument()
     })
     const deleteBtn = screen.getByRole('button', { name: /delete my readme/i })
     await userEvent.click(deleteBtn)
+    expect(screen.getByText('Delete "My Readme"?')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /delete artifact/i }))
     await waitFor(() => {
       expect(mockApi.artifactDelete).toHaveBeenCalledWith('art-1')
     })
+  })
+
+  it('does not delete when the confirm dialog is cancelled', async () => {
+    render(<ArtifactsPane />)
+    await waitFor(() => {
+      expect(screen.getByText('My Readme')).toBeInTheDocument()
+    })
+    await userEvent.click(screen.getByRole('button', { name: /delete my readme/i }))
+    await userEvent.click(screen.getByRole('button', { name: /cancel/i }))
+    expect(mockApi.artifactDelete).not.toHaveBeenCalled()
   })
 
   it('shows pending generation indicator from store', async () => {

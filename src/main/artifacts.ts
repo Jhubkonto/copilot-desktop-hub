@@ -514,9 +514,12 @@ export function writeArtifactVersionForConversation(input: WriteArtifactVersionF
 export function registerArtifactHandlers(): void {
   safeHandle('artifact:list', (_event, projectId?: string) => {
     const db = getDatabase()
+    // No projectId means "every artifact regardless of project" (used by the Artifacts pane's
+    // "All" scope and the sidebar's new-artifact badge) — NOT "only project-less artifacts".
+    // Pass a projectId to scope to one project's artifacts specifically.
     const rows = projectId
       ? (db.prepare('SELECT * FROM artifacts WHERE project_id = ? ORDER BY updated_at DESC').all(projectId) as Record<string, unknown>[])
-      : (db.prepare('SELECT * FROM artifacts WHERE project_id IS NULL ORDER BY updated_at DESC').all() as Record<string, unknown>[])
+      : (db.prepare('SELECT * FROM artifacts ORDER BY updated_at DESC').all() as Record<string, unknown>[])
 
     const versionIds = rows.map((r) => r.current_version_id != null ? String(r.current_version_id) : null).filter((id): id is string => id !== null)
     const versionsById = getVersionsWithFilesBatch(versionIds)
