@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
@@ -69,9 +70,11 @@ import io.nexy.android.data.model.Agent
 import io.nexy.android.data.model.ProjectAgentEntry
 import io.nexy.android.data.model.ProjectSettingsConfig
 import io.nexy.android.data.model.WsEvent
+import io.nexy.android.ui.components.NewChatItem
 import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyConnectionBanner
 import io.nexy.android.ui.components.NexyExpandableSection
+import io.nexy.android.ui.components.NexySearchField
 import io.nexy.android.ui.components.NexyTopAppBar
 import io.nexy.android.ui.settings.SettingsNavRow
 import kotlinx.coroutines.launch
@@ -81,6 +84,12 @@ private val instructionModeOptions = listOf(
     "append" to "Append",
     "replace" to "Replace",
     "standalone" to "Standalone",
+)
+
+private val workflowModeOptions = listOf(
+    "single-agent" to "Single",
+    "manual-delegation" to "Manual",
+    "orchestrated" to "Orchestrated",
 )
 
 private val instructionModeDescriptions = mapOf(
@@ -112,7 +121,7 @@ fun ProjectConfigScreen(
     var rootDirectory by remember { mutableStateOf("") }
     var instructionMode by remember { mutableStateOf("prepend") }
     var instructionsEnabled by remember { mutableStateOf(true) }
-    var orchestrationEnabled by remember { mutableStateOf(false) }
+    var workflowMode by remember { mutableStateOf("single-agent") }
     var maxDelegationDepth by remember { mutableStateOf("5") }
     var showTeamActivity by remember { mutableStateOf(true) }
     var instructionModeExpanded by remember { mutableStateOf(false) }
@@ -122,7 +131,7 @@ fun ProjectConfigScreen(
     var loadedRootDirectory by remember { mutableStateOf("") }
     var loadedInstructionMode by remember { mutableStateOf("prepend") }
     var loadedInstructionsEnabled by remember { mutableStateOf(true) }
-    var loadedOrchestrationEnabled by remember { mutableStateOf(false) }
+    var loadedWorkflowMode by remember { mutableStateOf("single-agent") }
     var loadedMaxDelegationDepth by remember { mutableStateOf("5") }
     var loadedShowTeamActivity by remember { mutableStateOf(true) }
     val variables = remember { mutableStateListOf<Map<String, String>>() }
@@ -135,6 +144,7 @@ fun ProjectConfigScreen(
     var loaded by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var showDiscardDialog by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -147,6 +157,16 @@ fun ProjectConfigScreen(
     var orchestrationExpanded by rememberSaveable { mutableStateOf(false) }
     var agentsExpanded by rememberSaveable { mutableStateOf(true) }
     var toolsExpanded by rememberSaveable { mutableStateOf(false) }
+
+    val hasUnsavedChanges = loaded && (
+        instructions != loadedInstructions ||
+        rootDirectory != loadedRootDirectory ||
+        instructionMode != loadedInstructionMode ||
+        instructionsEnabled != loadedInstructionsEnabled ||
+        workflowMode != loadedWorkflowMode ||
+        maxDelegationDepth != loadedMaxDelegationDepth ||
+        showTeamActivity != loadedShowTeamActivity
+    )
 
     LaunchedEffect(projectId) {
         loaded = false
@@ -162,7 +182,7 @@ fun ProjectConfigScreen(
                     rootDirectory = event.config.rootDirectory.orEmpty()
                     instructionMode = event.config.instructionMode
                     instructionsEnabled = event.config.instructionsEnabled
-                    orchestrationEnabled = event.config.orchestrationEnabled
+                    workflowMode = event.config.workflowMode
                     maxDelegationDepth = event.config.maxDelegationDepth.toString()
                     showTeamActivity = event.config.showTeamActivity
                     variables.replaceWith(event.config.variables)
@@ -174,7 +194,7 @@ fun ProjectConfigScreen(
                     loadedRootDirectory = event.config.rootDirectory.orEmpty()
                     loadedInstructionMode = event.config.instructionMode
                     loadedInstructionsEnabled = event.config.instructionsEnabled
-                    loadedOrchestrationEnabled = event.config.orchestrationEnabled
+                    loadedWorkflowMode = event.config.workflowMode
                     loadedMaxDelegationDepth = event.config.maxDelegationDepth.toString()
                     loadedShowTeamActivity = event.config.showTeamActivity
                     loaded = true
@@ -185,11 +205,16 @@ fun ProjectConfigScreen(
                     loadedRootDirectory = rootDirectory
                     loadedInstructionMode = instructionMode
                     loadedInstructionsEnabled = instructionsEnabled
-                    loadedOrchestrationEnabled = orchestrationEnabled
+                    loadedWorkflowMode = workflowMode
                     loadedMaxDelegationDepth = maxDelegationDepth
                     loadedShowTeamActivity = showTeamActivity
                     if (isNew) WsRepository.pendingHighlightProjectId.value = projectId
                     onBack()
+                }
+                is WsEvent.ProjectConfigChanged -> if (event.id == projectId && loaded && !hasUnsavedChanges) {
+                    // Config changed on another connected client (e.g. desktop). Safe to
+                    // silently refresh since there's nothing unsaved here to clobber.
+                    WsRepository.getProjectConfig(projectId)
                 }
                 is WsEvent.ProjectAgents -> if (event.id == projectId) {
                     projectAgents.clear()
@@ -199,16 +224,6 @@ fun ProjectConfigScreen(
             }
         }
     }
-
-    val hasUnsavedChanges = loaded && (
-        instructions != loadedInstructions ||
-        rootDirectory != loadedRootDirectory ||
-        instructionMode != loadedInstructionMode ||
-        instructionsEnabled != loadedInstructionsEnabled ||
-        orchestrationEnabled != loadedOrchestrationEnabled ||
-        maxDelegationDepth != loadedMaxDelegationDepth ||
-        showTeamActivity != loadedShowTeamActivity
-    )
 
     BackHandler(enabled = hasUnsavedChanges && !showDiscardDialog) {
         showDiscardDialog = true
@@ -222,6 +237,21 @@ fun ProjectConfigScreen(
             onConfirm = { showDiscardDialog = false; onBack() },
             onDismiss = { showDiscardDialog = false },
             destructive = true,
+        )
+    }
+
+    if (showDeleteDialog) {
+        NexyConfirmDialog(
+            title = "Delete project?",
+            message = "\"${project?.name}\" and its project settings will be deleted locally and synchronized when the desktop is available.",
+            confirmLabel = "Delete",
+            destructive = true,
+            onConfirm = {
+                showDeleteDialog = false
+                WsRepository.deleteProject(projectId)
+                onBack()
+            },
+            onDismiss = { showDeleteDialog = false },
         )
     }
 
@@ -263,6 +293,40 @@ fun ProjectConfigScreen(
                 },
                 onBack = { if (hasUnsavedChanges) showDiscardDialog = true else onBack() },
             )
+        },
+        bottomBar = {
+            if (project != null && loaded) {
+                Surface(shadowElevation = 3.dp) {
+                    Button(
+                        onClick = {
+                            if (saving || disconnected) return@Button
+                            saving = true
+                            WsRepository.updateProjectConfig(
+                                projectId,
+                                ProjectSettingsConfig(
+                                    instructions = instructions.trim(),
+                                    rootDirectory = rootDirectory.trim().ifBlank { null },
+                                    variables = variables.toList(),
+                                    instructionMode = instructionMode,
+                                    instructionsEnabled = instructionsEnabled,
+                                    workflowMode = workflowMode,
+                                    orchestrationEnabled = workflowMode == "orchestrated",
+                                    maxDelegationDepth = maxDelegationDepth.toIntOrNull()?.coerceIn(1, 10) ?: 5,
+                                    showTeamActivity = showTeamActivity,
+                                    inScope = inScope.toList(),
+                                    outOfScope = outOfScope.toList(),
+                                    milestones = milestones.toList(),
+                                    defaultModel = null,
+                                ),
+                            )
+                        },
+                        enabled = !saving && !disconnected,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                        Text(if (saving) "Saving…" else "Save settings")
+                    }
+                }
+            }
         },
     ) { padding ->
         if (project == null) {
@@ -360,6 +424,38 @@ fun ProjectConfigScreen(
                         instructionModeDescriptions[instructionMode].orEmpty(),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            // — Project Tools —
+            NexyExpandableSection(
+                title = "Project Tools",
+                expanded = toolsExpanded,
+                onToggle = { toolsExpanded = !toolsExpanded },
+            ) {
+                Column(modifier = Modifier.padding(bottom = 12.dp)) {
+                    SettingsNavRow(
+                        title = "Project changes",
+                        detail = "Review edits agents have made to this project's files",
+                        onClick = onOpenAudit,
+                    )
+                    SettingsNavRow(
+                        title = "Project wiki",
+                        detail = "Notes and knowledge captured for this project",
+                        onClick = onOpenWiki,
+                    )
+                    SettingsNavRow(
+                        title = "Project artifacts",
+                        detail = "Files and documents generated from chats in this project",
+                        onClick = onOpenArtifacts,
+                    )
+                    SettingsNavRow(
+                        title = "Manual workflow generator",
+                        detail = "Describe a goal to get an AI-drafted, step-by-step delegation plan",
+                        onClick = onOpenManualWorkflow,
                     )
                 }
             }
@@ -470,33 +566,50 @@ fun ProjectConfigScreen(
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-            // — Orchestration —
+            // — Workflow mode —
             NexyExpandableSection(
-                title = "Orchestration",
+                title = "Workflow mode",
                 expanded = orchestrationExpanded,
                 onToggle = { orchestrationExpanded = !orchestrationExpanded },
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(bottom = 12.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column {
-                            Text("Orchestration", style = MaterialTheme.typography.bodyMedium)
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Workflow mode", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "Choose whether the project runs as a single agent, manual delegation workflow, or full orchestration.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        val canOrchestrate = projectAgents.size >= 2
+                        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                            workflowModeOptions.forEachIndexed { i, (value, label) ->
+                                val optionDisabled = value == "orchestrated" && !canOrchestrate
+                                SegmentedButton(
+                                    selected = workflowMode == value,
+                                    onClick = { if (!saving && !disconnected && !optionDisabled) workflowMode = value },
+                                    shape = SegmentedButtonDefaults.itemShape(index = i, count = workflowModeOptions.size),
+                                    enabled = !saving && !disconnected && !optionDisabled,
+                                ) {
+                                    Text(label, style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                        }
+                        if (!canOrchestrate) {
                             Text(
-                                "Allow a leader agent to delegate tasks to others",
+                                "Add at least two agents to enable orchestration.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                        if (workflowMode == "manual-delegation") {
+                            Text(
+                                "Use the Manual workflow generator (below, under Project Tools) to turn a goal into a reusable delegation plan.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        Switch(
-                            checked = orchestrationEnabled,
-                            onCheckedChange = { if (!saving && !disconnected) orchestrationEnabled = it },
-                            enabled = !saving && !disconnected,
-                        )
                     }
-                    if (orchestrationEnabled) {
+                    if (workflowMode == "orchestrated") {
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             OutlinedTextField(
                                 value = maxDelegationDepth,
@@ -534,36 +647,6 @@ fun ProjectConfigScreen(
                         }
                     }
                 }
-            }
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-            Button(
-                onClick = {
-                    if (saving || disconnected) return@Button
-                    saving = true
-                    WsRepository.updateProjectConfig(
-                        projectId,
-                        ProjectSettingsConfig(
-                            instructions = instructions.trim(),
-                            rootDirectory = rootDirectory.trim().ifBlank { null },
-                            variables = variables.toList(),
-                            instructionMode = instructionMode,
-                            instructionsEnabled = instructionsEnabled,
-                            orchestrationEnabled = orchestrationEnabled,
-                            maxDelegationDepth = maxDelegationDepth.toIntOrNull()?.coerceIn(1, 10) ?: 5,
-                            showTeamActivity = showTeamActivity,
-                            inScope = inScope.toList(),
-                            outOfScope = outOfScope.toList(),
-                            milestones = milestones.toList(),
-                            defaultModel = null,
-                        ),
-                    )
-                },
-                enabled = !saving && !disconnected,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-            ) {
-                Text(if (saving) "Saving…" else "Save settings")
             }
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -675,35 +758,37 @@ fun ProjectConfigScreen(
                 }
             }
 
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            HorizontalDivider(color = MaterialTheme.colorScheme.error.copy(alpha = 0.3f))
 
-            // — Project Tools —
-            NexyExpandableSection(
-                title = "Project Tools",
-                expanded = toolsExpanded,
-                onToggle = { toolsExpanded = !toolsExpanded },
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
             ) {
-                Column(modifier = Modifier.padding(bottom = 12.dp)) {
-                    SettingsNavRow(
-                        title = "Project changes",
-                        detail = "Review edits agents have made to this project's files",
-                        onClick = onOpenAudit,
-                    )
-                    SettingsNavRow(
-                        title = "Project wiki",
-                        detail = "Notes and knowledge captured for this project",
-                        onClick = onOpenWiki,
-                    )
-                    SettingsNavRow(
-                        title = "Project artifacts",
-                        detail = "Files and documents generated from chats in this project",
-                        onClick = onOpenArtifacts,
-                    )
-                    SettingsNavRow(
-                        title = "Manual workflow generator",
-                        detail = "Describe a goal to get an AI-drafted, step-by-step delegation plan",
-                        onClick = onOpenManualWorkflow,
-                    )
+                Icon(Icons.Default.Warning, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.error)
+                Text("Danger Zone", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+            }
+            Surface(
+                color = MaterialTheme.colorScheme.errorContainer,
+                shape = MaterialTheme.shapes.medium,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Delete project", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "Permanently delete this project and its settings.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                        )
+                    }
+                    TextButton(onClick = { showDeleteDialog = true }, enabled = !desktopDisconnected) {
+                        Text("Delete", color = MaterialTheme.colorScheme.error)
+                    }
                 }
             }
         }
@@ -716,41 +801,34 @@ internal fun AddAgentToProjectSheetContent(
     onSelectAgent: (Agent) -> Unit,
     onCancel: () -> Unit,
 ) {
+    var query by remember { mutableStateOf("") }
+    val filtered = available.filter { query.isBlank() || it.name.contains(query, ignoreCase = true) }
     Text(
         "Add agent to project",
         style = MaterialTheme.typography.titleMedium,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
     )
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        if (available.isEmpty()) {
+    NexySearchField(query = query, onQueryChange = { query = it }, placeholder = "Search agents…")
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+    LazyColumn(modifier = Modifier.fillMaxWidth()) {
+        if (filtered.isEmpty()) {
             item {
                 Text(
-                    "All agents are already in this project.",
-                    style = MaterialTheme.typography.bodySmall,
+                    if (available.isEmpty()) "All agents are already in this project." else "No results for \"$query\"",
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 8.dp),
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp),
                 )
             }
         } else {
-            items(available) { agent ->
-                TextButton(
-                    onClick = { onSelectAgent(agent) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        if (agent.icon.isNotBlank()) "${agent.icon}  ${agent.name}" else agent.name,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+            items(filtered, key = { it.id }) { agent ->
+                NewChatItem(label = if (agent.icon.isNotBlank()) "${agent.icon}  ${agent.name}" else agent.name) {
+                    onSelectAgent(agent)
                 }
             }
         }
         item {
-            TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) {
+            TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
                 Text("Cancel")
             }
         }

@@ -10,6 +10,7 @@ internal fun buildProjectConfigPayload(id: String, config: ProjectSettingsConfig
         "variables" to config.variables,
         "instructionMode" to config.instructionMode,
         "instructionsEnabled" to config.instructionsEnabled,
+        "workflowMode" to config.workflowMode,
         "orchestrationEnabled" to config.orchestrationEnabled,
         "maxDelegationDepth" to config.maxDelegationDepth.coerceIn(1, 10),
         "showTeamActivity" to config.showTeamActivity,
