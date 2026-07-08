@@ -13,6 +13,7 @@ export interface UiSlice {
   showSidebar: boolean
   showMcpPanel: boolean
   showSettings: boolean
+  showActivityFeed: boolean
   showOnboarding: boolean
   pendingArtifactGeneration: { title: string; kind: string; startedAt: number } | null
   pendingArtifactAttach: { artifactId: string; versionId?: string } | null
@@ -38,6 +39,7 @@ export interface UiSlice {
   toggleAgentPanel: () => void
   setShowMcpPanel: (show: boolean) => void
   setShowSettings: (show: boolean) => void
+  setShowActivityFeed: (show: boolean) => void
   setPendingArtifactGeneration: (v: { title: string; kind: string; startedAt: number } | null) => void
   requestArtifactAttach: (artifactId: string, versionId?: string) => void
   clearPendingArtifactAttach: () => void
@@ -83,6 +85,7 @@ export const createUiSlice: StateCreator<
   showSidebar: true,
   showMcpPanel: false,
   showSettings: false,
+  showActivityFeed: false,
   settingsInitialTab: null,
   showOnboarding: false,
   pendingArtifactGeneration: null,
@@ -171,6 +174,12 @@ export const createUiSlice: StateCreator<
   setShowSettings: (show) => {
     set((s) => {
       s.showSettings = show
+    })
+  },
+
+  setShowActivityFeed: (show) => {
+    set((s) => {
+      s.showActivityFeed = show
     })
   },
 

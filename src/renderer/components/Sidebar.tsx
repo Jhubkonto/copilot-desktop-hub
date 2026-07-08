@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, type ReactNode } from 'react'
-import { Plus, MessageSquare, FolderOpen, Bot, Wrench, Package, SquareArrowOutUpRight, Loader2, Clock } from 'lucide-react'
+import { Plus, MessageSquare, FolderOpen, Bot, Wrench, Package, SquareArrowOutUpRight, Loader2, Clock, Zap } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import { ResizeHandle } from './ResizeHandle'
 import { Button } from './ui/primitives'
@@ -78,6 +78,8 @@ export function Sidebar() {
   const generatingConversationIds = useAppStore((s) => s.generatingConversationIds)
   const unreadConversationIds = useAppStore((s) => s.unreadConversationIds)
   const pendingConversationIds = useAppStore((s) => s.pendingConversationIds)
+  const backgroundActivities = useAppStore((s) => s.backgroundActivities)
+  const setShowActivityFeed = useAppStore((s) => s.setShowActivityFeed)
 
   const existingConvIds = new Set(conversations.map((c) => c.id))
   const pendingNew = pendingConversationIds.filter((id) => !existingConvIds.has(id))
@@ -138,6 +140,17 @@ export function Sidebar() {
           <Plus className="w-4 h-4" />
           <span>New Chat</span>
         </Button>
+        {backgroundActivities.length > 0 && (
+          <NavButton
+            icon={<Zap className="w-3.5 h-3.5" />}
+            label="Activity"
+            onClick={() => setShowActivityFeed(true)}
+            badgeCount={backgroundActivities.length}
+            running
+            modal
+            ariaLabel="Open activity feed"
+          />
+        )}
         <hr className="border-gray-200 dark:border-gray-700/80" />
         <NavButton
           icon={<MessageSquare className="w-3.5 h-3.5" />}

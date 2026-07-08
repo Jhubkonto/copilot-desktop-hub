@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useAppStore } from '../store/app-store'
-import type { BackgroundActivityKind } from '../store/types'
+import type { BackgroundActivity, BackgroundActivityKind } from '../store/types'
 
 interface BackgroundActivityStoreApi {
   upsertBackgroundActivity?: (activity: {
@@ -10,6 +10,7 @@ interface BackgroundActivityStoreApi {
     projectId?: string
   }) => void
   removeBackgroundActivity?: (id: string) => void
+  applyActivitySnapshot?: (snapshot: BackgroundActivity[]) => void
 }
 
 const activityLabels: Record<BackgroundActivityKind, string> = {
@@ -18,6 +19,12 @@ const activityLabels: Record<BackgroundActivityKind, string> = {
   'skill-generator': 'Generating skill…',
   'scheduler-generator': 'Generating scheduled task…',
   'manual-workflow-generator': 'Generating workflow…',
+  'debrief-generation': 'Generating debrief…',
+  'quiz-generation': 'Generating quiz…',
+  chat: 'Assistant is responding…',
+  build: 'Building…',
+  'remote-edit': 'Investigating code change…',
+  orchestration: 'Delegating to agent…',
 }
 
 function startActivity(kind: BackgroundActivityKind, projectId?: string) {
@@ -50,6 +57,20 @@ export function clearManualWorkflowGeneration(projectId: string) {
 }
 
 export function BackgroundActivityBridges() {
+  // Cross-device activity feed — hydrates from the main process on mount, then stays live via
+  // push. Server-authoritative for every kind it tracks (see src/main/activity-tracker.ts);
+  // reconciled against local-optimistic entries in applyActivitySnapshot.
+  useEffect(() => {
+    const state = (useAppStore as unknown as { getState?: () => BackgroundActivityStoreApi }).getState?.()
+    window.api.getActivityList().then((snapshot) => {
+      state?.applyActivitySnapshot?.(snapshot)
+    }).catch(() => {})
+    const off = window.api.onActivityChanged((snapshot) => {
+      state?.applyActivitySnapshot?.(snapshot)
+    })
+    return off
+  }, [])
+
   useEffect(() => {
     const offProjectToken = window.api.onProjectGeneratorToken(() => {
       startActivity('project-generator')

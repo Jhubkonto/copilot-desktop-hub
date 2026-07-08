@@ -9,7 +9,7 @@ import { DeleteAgentDialog } from './components/DeleteAgentDialog'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { AndroidLogPanel } from './components/AndroidLogPanel'
 import { BackgroundActivityBridges } from './components/BackgroundActivityBridges'
-import { BackgroundActivityDock } from './components/BackgroundActivityDock'
+import { ActivityFeedModal } from './components/ActivityFeedModal'
 import { useAppStore } from './store/app-store'
 
 const AgentPanel = lazy(() =>
@@ -57,6 +57,7 @@ export default function App() {
   const updateAvailable = useAppStore((s) => s.updateAvailable)
   const updateDownloaded = useAppStore((s) => s.updateDownloaded)
   const toasts = useAppStore((s) => s.toasts)
+  const showActivityFeed = useAppStore((s) => s.showActivityFeed)
 
   const showNewProjectForm = useAppStore((s) => s.showNewProjectForm)
   const showProjectGenerator = useAppStore((s) => s.showProjectGenerator)
@@ -324,7 +325,7 @@ export default function App() {
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
       <AndroidLogPanel enabled={androidDebugLog} />
       <BackgroundActivityBridges />
-      <BackgroundActivityDock />
+      {showActivityFeed && <ActivityFeedModal />}
     </div>
     </ErrorBoundary>
   )
