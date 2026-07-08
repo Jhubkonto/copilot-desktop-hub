@@ -50,8 +50,10 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -151,6 +153,9 @@ fun ChatScreen(
     onOpenFork: ((String) -> Unit)? = null,
     onOpenRemoteEditWithPrefill: ((String, String) -> Unit)? = null,
     onOpenCodeChange: ((String) -> Unit)? = null,
+    onStartWorkflowStep: ((String?, String) -> Unit)? = null,
+    onOpenManualWorkflow: ((String) -> Unit)? = null,
+    onNewChat: ((String?, String?) -> Unit)? = null,
     vm: ChatViewModel = viewModel(
         factory = remember(conversationId, agentId, projectId) {
             object : ViewModelProvider.Factory {
@@ -183,9 +188,45 @@ fun ChatScreen(
     val conversation = conversations.find { it.id == conversationId }
     val isCompleted = conversation?.completed_at != null
     val title = conversation?.title?.ifBlank { null } ?: "Chat"
+    val chatThinkingEffortOverride = conversation?.thinking_effort_override
+    val chatFullAutoApproveOverride = conversation?.full_auto_approve_override
     val chatAgentId = conversation?.agent_id ?: agentId
     val chatAgent = chatAgentId?.let { id -> agents.find { it.id == id } }
     val chatBackend = chatAgent?.backend
+    val statusProjectId = conversation?.project_id ?: projectId
+    var chatAgentFullAutoApprove by remember { mutableStateOf(false) }
+    var chatProjectWorkflowMode by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(chatAgentId) {
+        if (chatAgentId != null) WsRepository.requestAgentFull(chatAgentId) else chatAgentFullAutoApprove = false
+    }
+    LaunchedEffect(statusProjectId) {
+        if (!statusProjectId.isNullOrBlank()) WsRepository.getProjectConfig(statusProjectId) else chatProjectWorkflowMode = null
+    }
+
+    var activeWorkflowRun by remember { mutableStateOf<io.nexy.android.data.model.ManualWorkflowRunInfo?>(null) }
+    var dismissedWorkflowStepId by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(statusProjectId, chatProjectWorkflowMode) {
+        dismissedWorkflowStepId = null
+        if (!statusProjectId.isNullOrBlank() && chatProjectWorkflowMode == "manual-delegation") {
+            WsRepository.listManualWorkflowRuns(statusProjectId)
+        } else {
+            activeWorkflowRun = null
+        }
+    }
+
+    val currentWorkflowStep = remember(activeWorkflowRun) {
+        val run = activeWorkflowRun
+        if (run == null) {
+            null
+        } else {
+            val byKey = run.steps.associateBy { it.id }
+            fun isDone(key: String) = byKey[key]?.status == "done"
+            run.steps.firstOrNull { it.status != "done" && it.dependsOnStepIds.all(::isDone) }
+        }
+    }
+
     val customSlashCommands by vm.customSlashCommands.collectAsState()
     val draftFromVm by vm.draft.collectAsState()
     var input by remember { mutableStateOf(draftFromVm) }
@@ -200,6 +241,8 @@ fun ChatScreen(
     val context = LocalContext.current
     var showModelSheet by remember { mutableStateOf(false) }
     val modelSheetState = rememberModalBottomSheetState()
+    var showModeSheet by remember { mutableStateOf(false) }
+    val modeSheetState = rememberModalBottomSheetState()
     var showActionsSheet by remember { mutableStateOf(false) }
     var showPromptSheet by remember { mutableStateOf(false) }
     val promptSheetState = rememberModalBottomSheetState()
@@ -508,6 +551,24 @@ fun ChatScreen(
                         snackbarHostState.showSnackbar(event.message)
                     }
                 }
+                is io.nexy.android.data.model.WsEvent.AgentFull -> {
+                    if (event.config.id == chatAgentId) chatAgentFullAutoApprove = event.config.fullAutoApprove
+                }
+                is io.nexy.android.data.model.WsEvent.ProjectConfig -> {
+                    if (event.id == statusProjectId) chatProjectWorkflowMode = event.config.workflowMode
+                }
+                is io.nexy.android.data.model.WsEvent.ManualWorkflowRunsList -> {
+                    if (event.projectId == statusProjectId) {
+                        val active = event.runs.firstOrNull { it.status == "active" }
+                        if (active != null) WsRepository.getManualWorkflowRun(active.id) else activeWorkflowRun = null
+                    }
+                }
+                is io.nexy.android.data.model.WsEvent.ManualWorkflowRunDetailReady -> {
+                    val run = event.run
+                    if (run != null && run.projectId == statusProjectId && chatProjectWorkflowMode == "manual-delegation") {
+                        activeWorkflowRun = run
+                    }
+                }
                 else -> {}
             }
         }
@@ -582,6 +643,21 @@ fun ChatScreen(
                 vm.setModel(modelId)
                 scope.launch { modelSheetState.hide() }.invokeOnCompletion { showModelSheet = false }
             }
+        }
+    }
+
+    if (showModeSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showModeSheet = false },
+            sheetState = modeSheetState,
+            containerColor = MaterialTheme.colorScheme.surface,
+        ) {
+            ChatModeSheet(
+                thinkingEffortOverride = chatThinkingEffortOverride,
+                fullAutoApproveOverride = chatFullAutoApproveOverride,
+                onSetThinkingEffort = { vm.setThinkingEffortOverride(it) },
+                onSetFullAutoApprove = { vm.setFullAutoApproveOverride(it) },
+            )
         }
     }
 
@@ -859,6 +935,30 @@ fun ChatScreen(
                                 color = MaterialTheme.colorScheme.primary,
                             )
                         }
+                        if (chatProjectWorkflowMode == "manual-delegation" || chatProjectWorkflowMode == "orchestrated") {
+                            Text(
+                                if (chatProjectWorkflowMode == "orchestrated") "Orchestrated workflow" else "Manual workflow",
+                                maxLines = 1,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                        if (chatAgentFullAutoApprove) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Icon(
+                                    Icons.Default.Warning,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(12.dp),
+                                    tint = MaterialTheme.colorScheme.error,
+                                )
+                                Text(
+                                    "Auto-approve is on",
+                                    maxLines = 1,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            }
+                        }
                         if (isCompleted) {
                             ChatCompletedBadge()
                         }
@@ -882,6 +982,16 @@ fun ChatScreen(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.widthIn(max = 118.dp),
+                        )
+                    }
+                    IconButton(onClick = { showModeSheet = true }) {
+                        Icon(
+                            Icons.Default.Settings,
+                            contentDescription = "Chat mode settings",
+                            tint = if (chatThinkingEffortOverride != null || chatFullAutoApproveOverride != null)
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     if (assistantBusy) {
@@ -917,7 +1027,10 @@ fun ChatScreen(
                 canSend = canSend,
                 onSend = {
                     val chatProjectId = conversation?.project_id ?: projectId
-                    if (editingMessageId == null && vm.trySlashCommand(input, chatProjectId)) {
+                    val chatAgentId = conversation?.agent_id ?: agentId
+                    if (editingMessageId == null && vm.trySlashCommand(input, chatProjectId) {
+                            onNewChat?.invoke(chatAgentId, chatProjectId)
+                        }) {
                         input = ""
                         vm.setDraft("")
                     } else {
@@ -980,6 +1093,41 @@ fun ChatScreen(
             Column(modifier = Modifier.fillMaxSize()) {
                 if (connectionBanner) {
                     NexyConnectionBanner(connectionState, lastError)
+                }
+
+                val bannerRun = activeWorkflowRun
+                val bannerStep = currentWorkflowStep
+                if (bannerRun != null && bannerStep != null && bannerStep.id != dismissedWorkflowStepId) {
+                    val bannerContext = LocalContext.current
+                    Surface(color = MaterialTheme.colorScheme.primaryContainer) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                "${bannerRun.title} — Step ${bannerStep.stepIndex + 1} of ${bannerRun.steps.size}: ${bannerStep.title}",
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = {
+                                bannerContext.getSystemService(ClipboardManager::class.java)
+                                    ?.setPrimaryClip(ClipData.newPlainText("Workflow step prompt", bannerStep.prompt))
+                                if (bannerStep.status == "not_started") {
+                                    WsRepository.updateManualWorkflowRunStepStatus(bannerRun.id, bannerStep.dbId, "started")
+                                }
+                                onStartWorkflowStep?.invoke(bannerStep.agentId, bannerRun.projectId)
+                            }) { Text("Start", style = MaterialTheme.typography.labelSmall) }
+                            TextButton(onClick = { onOpenManualWorkflow?.invoke(bannerRun.projectId) }) {
+                                Text("View", style = MaterialTheme.typography.labelSmall)
+                            }
+                            IconButton(onClick = { dismissedWorkflowStepId = bannerStep.id }, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Default.Close, contentDescription = "Dismiss workflow step banner", modifier = Modifier.size(14.dp))
+                            }
+                        }
+                    }
                 }
 
                 LazyColumn(
@@ -1049,7 +1197,11 @@ fun ChatScreen(
                                 )
                             }
                             is ChatRenderItem.CodeChangeCard -> {
-                                CodeChangeRefBubble(ref = item.ref, onOpen = { onOpenCodeChange?.invoke(item.ref.reportId) })
+                                CodeChangeRefBubble(
+                                    ref = item.ref,
+                                    projectId = statusProjectId,
+                                    onOpen = { onOpenCodeChange?.invoke(item.ref.reportId) },
+                                )
                             }
                             is ChatRenderItem.UserMessage -> {
                                 val msg = item.message

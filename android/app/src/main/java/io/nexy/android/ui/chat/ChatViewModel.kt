@@ -609,7 +609,7 @@ class ChatViewModel(
      * dispatch over the mobile-appropriate command subset (SlashCommands.kt). Returns true if
      * the input was a recognized command (handled here, not sent as a normal chat message).
      */
-    fun trySlashCommand(rawInput: String, projectId: String?): Boolean {
+    fun trySlashCommand(rawInput: String, projectId: String?, onNewChat: () -> Unit = {}): Boolean {
         val trimmed = rawInput.trim()
         if (!trimmed.startsWith("/")) return false
         val parts = trimmed.split(Regex("\\s+"), limit = 2)
@@ -636,7 +636,7 @@ class ChatViewModel(
                 }
             }
             "/new" -> {
-                _slashCommandMessage.value = "Start a new chat from the home screen to begin a fresh conversation."
+                onNewChat()
             }
             "/complete" -> {
                 WsRepository.markConversationComplete(conversationId)
@@ -687,6 +687,29 @@ class ChatViewModel(
             mapOf(
                 "conversationId" to conversationId,
                 "model" to (normalized ?: "default"),
+            ),
+        )
+    }
+
+    // Each of these touches only its own field server-side — the other override is left as-is
+    // (JSONObject.NULL is the explicit "clear to agent default" signal; a Kotlin Map<String, Any>
+    // can't hold a plain null, and simply omitting the key would mean "don't touch this field").
+    fun setThinkingEffortOverride(value: String?) {
+        wsClient.send(
+            "conversation:set-mode",
+            mapOf(
+                "conversationId" to conversationId,
+                "thinkingEffortOverride" to (value ?: JSONObject.NULL),
+            ),
+        )
+    }
+
+    fun setFullAutoApproveOverride(value: Boolean?) {
+        wsClient.send(
+            "conversation:set-mode",
+            mapOf(
+                "conversationId" to conversationId,
+                "fullAutoApproveOverride" to (value ?: JSONObject.NULL),
             ),
         )
     }

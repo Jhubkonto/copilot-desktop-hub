@@ -39,6 +39,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.CallSplit
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
@@ -61,6 +62,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -82,7 +84,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.foundation.BorderStroke
+import io.nexy.android.data.WsRepository
+import io.nexy.android.data.model.CODE_CHANGE_PHASE_LABELS
 import io.nexy.android.data.model.ThinkingBlock
+import io.nexy.android.data.model.WsEvent
+import io.nexy.android.data.model.deriveCodeChangePhase
+import io.nexy.android.ui.theme.Indigo50
+import io.nexy.android.ui.theme.Indigo200
+import io.nexy.android.ui.theme.Indigo400
+import io.nexy.android.ui.theme.Indigo500
+import io.nexy.android.ui.theme.Indigo900
+import io.nexy.android.ui.theme.Indigo950
 import io.nexy.android.ui.theme.LocalNexyColors
 import io.nexy.android.ui.theme.Purple50
 import io.nexy.android.ui.theme.Purple200
@@ -831,85 +843,164 @@ fun ToolDetailSection(label: String, value: String) {
 
 /**
  * Inline chat card for a `__artifact-ref:` sentinel message — the Android counterpart of
- * desktop's ArtifactCard.tsx. A condensed, tappable row that deep-links into the existing
- * Artifacts screen for full detail/export, rather than duplicating that screen's fetch logic
- * inline (matches the plan's "condensed card + deep-link" default for CodeChangeRefBubble).
+ * desktop's ArtifactCard.tsx/DebriefArtifactCard.tsx/QuizArtifactCard.tsx. Bordered/tinted card
+ * matching desktop's color language (indigo for debrief/quiz, purple for generic artifacts) with
+ * a kind badge and the artifact's real title once fetched. Still deep-links into the existing
+ * Debrief/Quiz/Artifacts screens for full detail rather than rendering the content inline.
  */
 @Composable
 fun ArtifactRefBubble(ref: ArtifactRef, onOpen: () -> Unit) {
-    val label = when (ref.kind) {
+    var fetchedTitle by remember(ref.artifactId) { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(ref.artifactId) { WsRepository.getArtifact(ref.artifactId) }
+    LaunchedEffect(ref.artifactId) {
+        WsRepository.events.collect { event ->
+            if (event is WsEvent.ArtifactDetail && event.artifact?.id == ref.artifactId) {
+                fetchedTitle = event.artifact.title
+            }
+        }
+    }
+
+    val kindLabel = when (ref.kind) {
+        "debrief" -> "Debrief"
+        "quiz" -> "Quiz"
+        else -> "Artifact"
+    }
+    val fallbackTitle = when (ref.kind) {
         "debrief" -> "Open debrief"
         "quiz" -> "Start quiz"
         else -> "View artifact"
     }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.secondaryContainer)
-            .clickable(onClick = onOpen)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    val icon = when (ref.kind) {
+        "debrief" -> Icons.AutoMirrored.Filled.MenuBook
+        "quiz" -> Icons.Default.Psychology
+        else -> Icons.AutoMirrored.Filled.Article
+    }
+    val isIndigo = ref.kind == "debrief" || ref.kind == "quiz"
+
+    val isDark = LocalNexyColors.current.isDark
+    val bubbleColor = when {
+        isIndigo && isDark -> Indigo950.copy(alpha = 0.3f)
+        isIndigo -> Indigo50
+        isDark -> Purple950.copy(alpha = 0.3f)
+        else -> Purple50
+    }
+    val borderColor = when {
+        isIndigo && isDark -> Indigo900.copy(alpha = 0.6f)
+        isIndigo -> Indigo200
+        isDark -> Purple900.copy(alpha = 0.6f)
+        else -> Purple200
+    }
+    val accentColor = when {
+        isIndigo && isDark -> Indigo400
+        isIndigo -> Indigo500
+        isDark -> Purple400
+        else -> Purple500
+    }
+    val titleColor = when {
+        isIndigo && isDark -> Indigo400
+        isIndigo -> Indigo900
+        isDark -> Purple400
+        else -> Purple700
+    }
+
+    Surface(
+        onClick = onOpen,
+        shape = RoundedCornerShape(10.dp),
+        color = bubbleColor,
+        border = BorderStroke(1.dp, borderColor),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
     ) {
-        Icon(
-            Icons.AutoMirrored.Filled.Article,
-            contentDescription = null,
-            modifier = Modifier.size(18.dp),
-            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-        )
-        Text(
-            label,
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSecondaryContainer,
-            modifier = Modifier.weight(1f),
-        )
-        Icon(
-            Icons.AutoMirrored.Filled.KeyboardArrowRight,
-            contentDescription = null,
-            modifier = Modifier.size(18.dp),
-            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = accentColor)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    kindLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Medium,
+                    color = accentColor,
+                )
+                Text(
+                    fetchedTitle ?: fallbackTitle,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Medium,
+                    color = titleColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = accentColor,
+            )
+        }
     }
 }
 
 /**
  * Inline chat card for a `__code-change-ref:` sentinel message. Deep-links into the existing
  * RemoteEditReportDetailScreen for the full investigate/diff/apply/verify/commit flow rather
- * than natively reimplementing desktop's inline CodeChangeCard — Android's Code Changes screens
- * already exist and talk to the same self-heal:* WS surface.
+ * than natively reimplementing desktop's inline CodeChangeCard, but styled to match it — bordered
+ * purple card with the report's real title and current phase once fetched. `projectId` lets it
+ * opportunistically hydrate the report from `WsRepository.errorReports` if it isn't loaded yet.
  */
 @Composable
-fun CodeChangeRefBubble(ref: CodeChangeRef, onOpen: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.tertiaryContainer)
-            .clickable(onClick = onOpen)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+fun CodeChangeRefBubble(ref: CodeChangeRef, projectId: String?, onOpen: () -> Unit) {
+    val errorReports by WsRepository.errorReports.collectAsState()
+    val report = errorReports.find { it.id == ref.reportId }
+
+    LaunchedEffect(ref.reportId, projectId) {
+        if (report == null && !projectId.isNullOrBlank()) {
+            WsRepository.refreshReports(projectId)
+        }
+    }
+
+    val phaseLabel = report?.let { CODE_CHANGE_PHASE_LABELS[deriveCodeChangePhase(it)] }
+
+    val isDark = LocalNexyColors.current.isDark
+    val bubbleColor = if (isDark) Purple950.copy(alpha = 0.3f) else Purple50
+    val borderColor = if (isDark) Purple900.copy(alpha = 0.6f) else Purple200
+    val accentColor = if (isDark) Purple400 else Purple500
+    val titleColor = if (isDark) Purple400 else Purple700
+
+    Surface(
+        onClick = onOpen,
+        shape = RoundedCornerShape(10.dp),
+        color = bubbleColor,
+        border = BorderStroke(1.dp, borderColor),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
     ) {
-        Icon(
-            Icons.Default.Difference,
-            contentDescription = null,
-            modifier = Modifier.size(18.dp),
-            tint = MaterialTheme.colorScheme.onTertiaryContainer,
-        )
-        Text(
-            "View code change",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onTertiaryContainer,
-            modifier = Modifier.weight(1f),
-        )
-        Icon(
-            Icons.AutoMirrored.Filled.KeyboardArrowRight,
-            contentDescription = null,
-            modifier = Modifier.size(18.dp),
-            tint = MaterialTheme.colorScheme.onTertiaryContainer,
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(Icons.Default.Difference, contentDescription = null, modifier = Modifier.size(18.dp), tint = accentColor)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    report?.title ?: "View code change",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Medium,
+                    color = titleColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (phaseLabel != null) {
+                    Text(phaseLabel, style = MaterialTheme.typography.labelSmall, color = accentColor)
+                }
+            }
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = accentColor,
+            )
+        }
     }
 }
