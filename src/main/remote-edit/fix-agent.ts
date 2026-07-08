@@ -9,6 +9,7 @@ import { runProviderMcpToolLoop } from '../tool-loop'
 import type { ToolDefinition, ToolChoice, ProviderNonStreamResult } from '../provider-types'
 import { getAdapter } from '../cli-adapters/registry'
 import { broadcastToMobile } from '../ws-server'
+import { startActivity, endActivity } from '../activity-tracker'
 import type { ProviderMessage } from '../providers'
 import type {
   RemoteEditFixEvent,
@@ -232,6 +233,21 @@ interface FixCallbacks {
 }
 
 export async function runFix(
+  win: BrowserWindow,
+  reportId: string,
+  callbacks: FixCallbacks,
+): Promise<RemoteEditFixDone> {
+  const activityId = `remote-edit:${reportId}`
+  const projectRow = getDatabase().prepare('SELECT project_id FROM error_reports WHERE id = ?').get(reportId) as { project_id: string | null } | undefined
+  startActivity({ id: activityId, kind: 'remote-edit', label: 'Applying code change…', projectId: projectRow?.project_id ?? undefined })
+  try {
+    return await runFixInner(win, reportId, callbacks)
+  } finally {
+    endActivity(activityId)
+  }
+}
+
+async function runFixInner(
   win: BrowserWindow,
   reportId: string,
   callbacks: FixCallbacks,

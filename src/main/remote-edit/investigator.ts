@@ -16,6 +16,7 @@ import type {
   RemoteEditInvestigationSettings,
 } from '../../shared/types'
 import { broadcastToMobile } from '../ws-server'
+import { startActivity, endActivity } from '../activity-tracker'
 import { parseAffectedFilesFromFrontMatter } from './yaml'
 import { createPromptedToolCaller, injectPromptedToolSystemPrompt } from './prompted-tool-caller'
 import { getProjectRootDirectory } from '../project-handlers'
@@ -437,6 +438,22 @@ export function saveInvestigationSettings(input: RemoteEditInvestigationSettings
 }
 
 export async function runInvestigation(
+  win: BrowserWindow,
+  reportId: string,
+  callbacks: InvestigationCallbacks,
+  revisionNotes?: string,
+): Promise<RemoteEditInvestigationResult> {
+  const activityId = `remote-edit:${reportId}`
+  const projectRow = getDatabase().prepare('SELECT project_id FROM error_reports WHERE id = ?').get(reportId) as { project_id: string | null } | undefined
+  startActivity({ id: activityId, kind: 'remote-edit', label: 'Investigating code change…', projectId: projectRow?.project_id ?? undefined })
+  try {
+    return await runInvestigationInner(win, reportId, callbacks, revisionNotes)
+  } finally {
+    endActivity(activityId)
+  }
+}
+
+async function runInvestigationInner(
   win: BrowserWindow,
   reportId: string,
   callbacks: InvestigationCallbacks,

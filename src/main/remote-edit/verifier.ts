@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto'
 import type { BrowserWindow } from 'electron'
 import { getDatabase } from '../database'
 import { broadcastToMobile } from '../ws-server'
+import { startActivity, endActivity } from '../activity-tracker'
 import { getWorkspacePathForReport, loadInvestigationSettings } from './investigator'
 import type {
   RemoteEditVerificationCommand,
@@ -127,6 +128,22 @@ export function emitVerificationEvent(
 }
 
 export async function runVerification(
+  reportId: string,
+  emit: (event: RemoteEditVerificationEvent) => void,
+  initialRunId?: string,
+  reinvestigate?: () => Promise<void>,
+): Promise<RemoteEditVerificationDone> {
+  const activityId = `remote-edit:${reportId}`
+  const projectRow = getDatabase().prepare('SELECT project_id FROM error_reports WHERE id = ?').get(reportId) as { project_id: string | null } | undefined
+  startActivity({ id: activityId, kind: 'remote-edit', label: 'Verifying code change…', projectId: projectRow?.project_id ?? undefined })
+  try {
+    return await runVerificationInner(reportId, emit, initialRunId, reinvestigate)
+  } finally {
+    endActivity(activityId)
+  }
+}
+
+async function runVerificationInner(
   reportId: string,
   emit: (event: RemoteEditVerificationEvent) => void,
   initialRunId?: string,
