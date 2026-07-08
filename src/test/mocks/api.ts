@@ -607,6 +607,7 @@ export function createMockApi() {
     // Quiz
     generateQuiz: vi.fn().mockResolvedValue({ questions: [], artifactId: 'quiz-artifact-1', versionId: 'quiz-version-1' }),
     startQuizGeneration: vi.fn().mockResolvedValue({ artifactId: 'quiz-artifact-1' }),
+    getQuiz: vi.fn().mockResolvedValue(null),
 
     // Artifacts
     onArtifactUpdated: vi.fn().mockReturnValue(() => {}),

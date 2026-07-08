@@ -44,6 +44,7 @@ import type {
   ArtifactPromotionRequest,
   ArtifactSpec,
   McpServerWithStatus,
+  BackgroundActivity,
 } from '../shared/types'
 
 // ---------------------------------------------------------------------------
@@ -972,6 +973,16 @@ const api = {
     typedInvoke('conversation:generate-quiz', conversationId, projectId, model),
   startQuizGeneration: (conversationId: string, projectId: string | null, model?: string) =>
     typedInvoke('conversation:start-quiz-generation', conversationId, projectId, model),
+  getQuiz: (conversationId: string) =>
+    typedInvoke('conversation:get-quiz', conversationId),
+
+  // Activity feed
+  getActivityList: () => typedInvoke('activity:list'),
+  onActivityChanged: (callback: (activities: BackgroundActivity[]) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, activities: BackgroundActivity[]) => callback(activities)
+    typedOn('activity:changed', handler)
+    return () => typedOff('activity:changed', handler)
+  },
 
   // Artifacts (live updates)
   onArtifactUpdated: (callback: (data: { artifactId: string; projectId: string | null }) => void) => {
