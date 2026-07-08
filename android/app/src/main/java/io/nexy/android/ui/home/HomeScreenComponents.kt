@@ -394,34 +394,6 @@ fun FilterSheetItem(
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 }
 
-@Composable
-fun NewChatItem(
-    label: String,
-    dotColor: Color? = null,
-    onClick: () -> Unit,
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        color = MaterialTheme.colorScheme.surface,
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            if (dotColor != null) {
-                Box(
-                    modifier = Modifier
-                        .size(10.dp)
-                        .background(dotColor, CircleShape),
-                )
-            }
-            Text(label, style = MaterialTheme.typography.bodyLarge)
-        }
-    }
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RefreshableContent(

@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -78,6 +79,7 @@ import io.nexy.android.ui.chat.ModelPickerSheet
 import io.nexy.android.ui.components.NexyConfirmDialog
 import io.nexy.android.ui.components.NexyConnectionBanner
 import io.nexy.android.ui.components.NexyExpandableSection
+import io.nexy.android.ui.components.NexyInfoIcon
 import io.nexy.android.ui.components.NexyInputValidation
 import io.nexy.android.ui.components.NexySearchField
 import io.nexy.android.ui.components.NexyTopAppBar
@@ -412,6 +414,62 @@ fun AgentConfigScreen(
                 onBack = { if (hasUnsavedChanges) showDiscardDialog = true else onBack() },
             )
         },
+        bottomBar = {
+            if (agent != null && loaded) {
+                Surface(shadowElevation = 3.dp) {
+                    Button(
+                        onClick = {
+                            var valid = true
+                            if (name.isBlank()) { nameError = "Name is required"; valid = false }
+                            val maxTokensParsed = maxTokensText.trim().toIntOrNull()
+                            if (maxTokensParsed == null || maxTokensParsed !in 256..128000) {
+                                maxTokensError = "Enter a number between 256 and 128000"
+                                valid = false
+                            }
+                            if (!valid || saving || disconnected) return@Button
+                            saving = true
+                            val data = buildAgentUpdatePayload(
+                                AgentFullConfig(
+                                    id = agentId,
+                                    name = name.trim(),
+                                    icon = icon.trim(),
+                                    systemPrompt = systemPrompt.trim(),
+                                    backend = backend,
+                                    cliModel = cliModel.trim(),
+                                    temperature = temperature,
+                                    maxTokens = maxTokensParsed!!.coerceIn(256, 128000),
+                                    responseFormat = responseFormat,
+                                    agenticMode = agenticMode,
+                                    fullAutoApprove = fullAutoApprove,
+                                    memory = memory.trim(),
+                                    tools = AgentTools(
+                                        fileEdit = ToolConfig(enabled = fileEditEnabled, approval = fileEditApproval, instructions = fileEditInstructions),
+                                        terminal = ToolConfig(enabled = terminalEnabled, approval = terminalApproval, instructions = terminalInstructions),
+                                        webFetch = ToolConfig(enabled = webFetchEnabled, approval = webFetchApproval, instructions = webFetchInstructions),
+                                    ),
+                                    mcpServers = mcpServers,
+                                    thinkingEffort = thinkingEffort,
+                                    rootDirectory = rootDirectory.trim(),
+                                    contextDirectories = contextDirectories,
+                                    contextFiles = contextFiles,
+                                    contextRules = AgentContextRules(
+                                        ignoredGlobs = ignoredGlobs,
+                                        autoInjectWorkspace = autoInjectWorkspace,
+                                        autoInjectGit = autoInjectGit,
+                                    ),
+                                    customCommands = customCommands,
+                                )
+                            )
+                            WsRepository.send("agent:update", data)
+                        },
+                        enabled = !saving && !disconnected,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                        Text(if (saving) "Saving…" else "Save changes")
+                    }
+                }
+            }
+        },
     ) { padding ->
         if (agent == null) {
             Column(
@@ -486,8 +544,12 @@ fun AgentConfigScreen(
                     OutlinedTextField(
                         value = systemPrompt,
                         onValueChange = { systemPrompt = it },
-                        label = { Text("System prompt") },
-                        supportingText = { Text("Defines this agent's role and behavior. Sent as instructions before every message it handles.") },
+                        label = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("System prompt")
+                                NexyInfoIcon("Defines this agent's role and behavior. Sent as instructions before every message it handles.")
+                            }
+                        },
                         enabled = !saving && !disconnected,
                         minLines = 4,
                         maxLines = 12,
@@ -498,9 +560,13 @@ fun AgentConfigScreen(
                     OutlinedTextField(
                         value = memory,
                         onValueChange = { memory = it },
-                        label = { Text("Memory") },
+                        label = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("Memory")
+                                NexyInfoIcon("Always appended to the system prompt in every message — use it for facts or preferences that should persist across chats.")
+                            }
+                        },
                         placeholder = { Text("Notes this agent should always remember") },
-                        supportingText = { Text("Always appended to the system prompt in every message — use it for facts or preferences that should persist across chats.") },
                         enabled = !saving && !disconnected,
                         minLines = 3,
                         maxLines = 8,
@@ -518,38 +584,6 @@ fun AgentConfigScreen(
                             Text("Allow autonomous multi-step actions", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Switch(checked = agenticMode, onCheckedChange = { if (!saving && !disconnected) agenticMode = it }, enabled = !saving && !disconnected)
-                    }
-
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    "Auto-approve all actions",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onErrorContainer,
-                                )
-                                Text(
-                                    "All tool calls execute immediately without confirmation. Use only for fully trusted agents.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onErrorContainer,
-                                )
-                            }
-                            Switch(
-                                checked = fullAutoApprove,
-                                onCheckedChange = { checked ->
-                                    if (saving || disconnected) return@Switch
-                                    if (checked) showFullAutoApproveDialog = true else fullAutoApprove = false
-                                },
-                                enabled = !saving && !disconnected,
-                            )
-                        }
                     }
                 }
             }
@@ -633,6 +667,10 @@ fun AgentConfigScreen(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(bottom = 12.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Response format", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            NexyInfoIcon("A label for this agent's intended response style, for your own reference — it doesn't currently change the model's actual output.")
+                        }
                         ExposedDropdownMenuBox(
                             expanded = responseFormatMenuExpanded,
                             onExpandedChange = { if (!saving && !disconnected) responseFormatMenuExpanded = it },
@@ -661,16 +699,14 @@ fun AgentConfigScreen(
                                 }
                             }
                         }
-                        Text(
-                            "A label for this agent's intended response style, for your own reference — it doesn't currently change the model's actual output.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
                     }
 
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Temperature", style = MaterialTheme.typography.bodyMedium)
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("Temperature", style = MaterialTheme.typography.bodyMedium)
+                                NexyInfoIcon("Controls how much randomness the model uses when generating a response. Lower is more focused and repeatable; higher is more varied.")
+                            }
                             Text("%.2f".format(temperature), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
                         }
                         Slider(
@@ -685,11 +721,6 @@ fun AgentConfigScreen(
                             Text("Precise", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text("Creative", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Text(
-                            "Controls how much randomness the model uses when generating a response. Lower is more focused and repeatable; higher is more varied.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
                     }
 
                     NexyInputValidation(
@@ -705,6 +736,10 @@ fun AgentConfigScreen(
                     )
 
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Thinking effort", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            NexyInfoIcon("Extended reasoning before responding — supported on Claude CLI, Anthropic, and o-series models. Higher effort can improve complex answers but is slower.")
+                        }
                         ExposedDropdownMenuBox(
                             expanded = thinkingEffortMenuExpanded,
                             onExpandedChange = { if (!saving && !disconnected) thinkingEffortMenuExpanded = it },
@@ -733,11 +768,6 @@ fun AgentConfigScreen(
                                 }
                             }
                         }
-                        Text(
-                            "Extended reasoning before responding — supported on Claude CLI, Anthropic, and o-series models. Higher effort can improve complex answers but is slower.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
                     }
                 }
             }
@@ -1042,55 +1072,46 @@ fun AgentConfigScreen(
 
             Spacer(Modifier.height(16.dp))
 
-            Button(
-                onClick = {
-                    var valid = true
-                    if (name.isBlank()) { nameError = "Name is required"; valid = false }
-                    val maxTokensParsed = maxTokensText.trim().toIntOrNull()
-                    if (maxTokensParsed == null || maxTokensParsed !in 256..128000) {
-                        maxTokensError = "Enter a number between 256 and 128000"
-                        valid = false
-                    }
-                    if (!valid || saving || disconnected) return@Button
-                    saving = true
-                    val data = buildAgentUpdatePayload(
-                        AgentFullConfig(
-                            id = agentId,
-                            name = name.trim(),
-                            icon = icon.trim(),
-                            systemPrompt = systemPrompt.trim(),
-                            backend = backend,
-                            cliModel = cliModel.trim(),
-                            temperature = temperature,
-                            maxTokens = maxTokensParsed!!.coerceIn(256, 128000),
-                            responseFormat = responseFormat,
-                            agenticMode = agenticMode,
-                            fullAutoApprove = fullAutoApprove,
-                            memory = memory.trim(),
-                            tools = AgentTools(
-                                fileEdit = ToolConfig(enabled = fileEditEnabled, approval = fileEditApproval, instructions = fileEditInstructions),
-                                terminal = ToolConfig(enabled = terminalEnabled, approval = terminalApproval, instructions = terminalInstructions),
-                                webFetch = ToolConfig(enabled = webFetchEnabled, approval = webFetchApproval, instructions = webFetchInstructions),
-                            ),
-                            mcpServers = mcpServers,
-                            thinkingEffort = thinkingEffort,
-                            rootDirectory = rootDirectory.trim(),
-                            contextDirectories = contextDirectories,
-                            contextFiles = contextFiles,
-                            contextRules = AgentContextRules(
-                                ignoredGlobs = ignoredGlobs,
-                                autoInjectWorkspace = autoInjectWorkspace,
-                                autoInjectGit = autoInjectGit,
-                            ),
-                            customCommands = customCommands,
-                        )
-                    )
-                    WsRepository.send("agent:update", data)
-                },
-                enabled = !saving && !disconnected,
-                modifier = Modifier.fillMaxWidth(),
+            HorizontalDivider(color = MaterialTheme.colorScheme.error.copy(alpha = 0.3f))
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
             ) {
-                Text(if (saving) "Saving…" else "Save changes")
+                Icon(Icons.Default.Warning, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.error)
+                Text("Danger Zone", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+            }
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "Auto-approve all actions",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                        )
+                        Text(
+                            "All tool calls execute immediately without confirmation. Use only for fully trusted agents.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                        )
+                    }
+                    Switch(
+                        checked = fullAutoApprove,
+                        onCheckedChange = { checked ->
+                            if (saving || disconnected) return@Switch
+                            if (checked) showFullAutoApproveDialog = true else fullAutoApprove = false
+                        },
+                        enabled = !saving && !disconnected,
+                    )
+                }
             }
 
             Spacer(Modifier.height(8.dp))
@@ -1132,6 +1153,10 @@ private fun ToolCard(
             }
             if (enabled) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Approval", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        NexyInfoIcon("Auto runs this tool without asking; Always ask prompts you to confirm each use; Disabled blocks it entirely even though it's enabled above.")
+                    }
                     ExposedDropdownMenuBox(
                         expanded = approvalExpanded,
                         onExpandedChange = { if (!disabled) onApprovalExpandedChange(it) },
@@ -1160,11 +1185,6 @@ private fun ToolCard(
                             }
                         }
                     }
-                    Text(
-                        "Auto runs this tool without asking; Always ask prompts you to confirm each use; Disabled blocks it entirely even though it's enabled above.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
                 OutlinedTextField(
                     value = instructions,

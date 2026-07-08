@@ -63,6 +63,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.Agent
 import io.nexy.android.data.model.Conversation
 import io.nexy.android.data.model.Project
@@ -385,6 +386,8 @@ fun ChatsTab(
                                 },
                                 onDelete = { deletingConversation = conv },
                                 onTogglePin = { id, pinned -> onTogglePinConversation(id, pinned) },
+                                onMarkComplete = { id -> WsRepository.markConversationComplete(id) },
+                                onMarkIncomplete = { id -> WsRepository.markConversationIncomplete(id) },
                             )
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         }
