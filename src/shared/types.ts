@@ -74,6 +74,29 @@ export interface DebriefArtifactResult {
   versionId: string
 }
 
+export type BackgroundActivityKind =
+  | 'project-generator'
+  | 'agent-generator'
+  | 'skill-generator'
+  | 'scheduler-generator'
+  | 'manual-workflow-generator'
+  | 'debrief-generation'
+  | 'quiz-generation'
+  | 'chat'
+  | 'build'
+  | 'remote-edit'
+  | 'orchestration'
+
+export interface BackgroundActivity {
+  id: string
+  kind: BackgroundActivityKind
+  label: string
+  detail?: string
+  projectId?: string
+  conversationId?: string
+  startedAt: number
+}
+
 export interface QuizArtifactResult {
   questions: QuizQuestion[]
   artifactId: string
@@ -1732,6 +1755,10 @@ export type IpcReturnMap = {
   'conversation:mark-incomplete': boolean
   'conversation:generate-quiz': QuizArtifactResult
   'conversation:start-quiz-generation': { artifactId: string }
+  'conversation:get-quiz': QuizArtifactResult | null
+  // Activity
+  'activity:list': BackgroundActivity[]
+  'activity:changed': void
   // Debug
   'debug:set-enabled': boolean
   'debug:log': void
@@ -2132,6 +2159,9 @@ export type IpcChannels =
   | 'conversation:incompleted'
   | 'conversation:generate-quiz'
   | 'conversation:start-quiz-generation'
+  | 'conversation:get-quiz'
+  | 'activity:list'
+  | 'activity:changed'
   | 'artifact:updated'
   | 'debug:set-enabled'
   | 'debug:log'
