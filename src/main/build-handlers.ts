@@ -13,6 +13,7 @@ import { getDatabase } from './database'
 import { startFeedServer, isFeedRunning, getFeedUrl, getFeedPort } from './local-feed-server'
 import { broadcastToMobile } from './ws-server'
 import { debugTime, debugTimeEnd } from './debug-mode'
+import { startActivity, endActivity } from './activity-tracker'
 import type { BuildCommandName, BuildRecord, BuildStatus, LocalUpdateFeed, PreflightCheck, PublishedEntry, WorkspaceInfo } from '../shared/types'
 
 // ---------------------------------------------------------------------------
@@ -250,6 +251,7 @@ export async function startBuildFromMobile(command: BuildCommandName, mainWindow
   const cmd = BUILD_COMMANDS[command]
   const child = spawn(cmd, [], { shell: true, cwd: workspacePath })
   activeBuildProcesses.set(buildId, child)
+  startActivity({ id: `build:${buildId}`, kind: 'build', label: `Building (${command})…`, detail: wsInfo.branch ?? undefined })
 
   const logLines: string[] = []
   const MAX_LOG_CHARS = 4096
@@ -291,6 +293,7 @@ export async function startBuildFromMobile(command: BuildCommandName, mainWindow
 
   child.on('close', (code) => {
     activeBuildProcesses.delete(buildId)
+    endActivity(`build:${buildId}`)
     const exitCode = code ?? -1
     const status: BuildStatus = exitCode === 0 ? 'success' : 'failed'
     const finishedAt = Date.now()
@@ -326,6 +329,7 @@ export function cancelMobileBuild(buildId: string): boolean {
   if (!child) return false
   child.kill('SIGTERM')
   activeBuildProcesses.delete(buildId)
+  endActivity(`build:${buildId}`)
   const db = getDatabase()
   db.prepare(
     `UPDATE build_records SET status = 'cancelled', finished_at = ? WHERE id = ?`
@@ -368,6 +372,7 @@ export function registerBuildHandlers(mainWindow?: BrowserWindow): void {
     const cmd = BUILD_COMMANDS[command]
     const child = spawn(cmd, [], { shell: true, cwd: workspacePath })
     activeBuildProcesses.set(buildId, child)
+    startActivity({ id: `build:${buildId}`, kind: 'build', label: `Building (${command})…`, detail: wsInfo.branch ?? undefined })
 
     const logLines: string[] = []
     const MAX_LOG_CHARS = 4096
@@ -407,6 +412,7 @@ export function registerBuildHandlers(mainWindow?: BrowserWindow): void {
 
     child.on('close', (code) => {
       activeBuildProcesses.delete(buildId)
+      endActivity(`build:${buildId}`)
       const exitCode = code ?? -1
       const status: BuildStatus = exitCode === 0 ? 'success' : 'failed'
       const finishedAt = Date.now()
@@ -431,6 +437,7 @@ export function registerBuildHandlers(mainWindow?: BrowserWindow): void {
     if (!child) return false
     child.kill('SIGTERM')
     activeBuildProcesses.delete(buildId)
+    endActivity(`build:${buildId}`)
     db.prepare(
       `UPDATE build_records SET status = 'cancelled', finished_at = ? WHERE id = ?`
     ).run(Date.now(), buildId)

@@ -19,6 +19,7 @@ import { DEFAULT_PROJECT_CONFIG } from '../shared/types'
 import { randomUUID } from 'crypto'
 import { getDatabase } from './database'
 import { broadcastToMobile } from './ws-server'
+import { startActivity, endActivity } from './activity-tracker'
 import { PROJECT_COLORS } from './project-handlers'
 
 const SPEC_OPEN_TAG = '<project-spec>'
@@ -277,6 +278,7 @@ export async function runProjectGeneratorChat(
 
   let accumulated = ''
 
+  startActivity({ id: 'project-generator', kind: 'project-generator', label: 'Generating project…' })
   try {
     const fullText = await runProjectGeneratorProviderChat(
       win,
@@ -304,6 +306,8 @@ export async function runProjectGeneratorChat(
       })
     }
     throw error
+  } finally {
+    endActivity('project-generator')
   }
 }
 
@@ -317,26 +321,31 @@ export async function runProjectGeneratorChatForAndroid(
 
   let accumulated = ''
 
-  const fakeWin = { isDestroyed: () => false, webContents: { send: () => {}, isDestroyed: () => false } } as unknown as BrowserWindow
-  const fullText = await runProjectGeneratorProviderChat(
-    fakeWin,
-    providerMessages,
-    sessionId,
-    fakeWin.webContents,
-    (chunk) => {
-      accumulated += chunk
-      broadcastToMobile({ event: 'project-generator:token', data: { sessionId, chunk } })
-    },
-    modelOverride,
-  )
+  startActivity({ id: 'project-generator', kind: 'project-generator', label: 'Generating project…' })
+  try {
+    const fakeWin = { isDestroyed: () => false, webContents: { send: () => {}, isDestroyed: () => false } } as unknown as BrowserWindow
+    const fullText = await runProjectGeneratorProviderChat(
+      fakeWin,
+      providerMessages,
+      sessionId,
+      fakeWin.webContents,
+      (chunk) => {
+        accumulated += chunk
+        broadcastToMobile({ event: 'project-generator:token', data: { sessionId, chunk } })
+      },
+      modelOverride,
+    )
 
-  accumulated = fullText || accumulated
+    accumulated = fullText || accumulated
 
-  const spec = extractSpec(accumulated)
-  const assistantText = accumulated.replace(/<project-spec>[\s\S]*?<\/project-spec>/g, '').trim()
-  broadcastToMobile({ event: 'project-generator:turn-complete', data: { sessionId, content: assistantText, hasSpec: spec !== null } })
-  if (spec) {
-    broadcastToMobile({ event: 'project-generator:spec-ready', data: { sessionId, spec } })
+    const spec = extractSpec(accumulated)
+    const assistantText = accumulated.replace(/<project-spec>[\s\S]*?<\/project-spec>/g, '').trim()
+    broadcastToMobile({ event: 'project-generator:turn-complete', data: { sessionId, content: assistantText, hasSpec: spec !== null } })
+    if (spec) {
+      broadcastToMobile({ event: 'project-generator:spec-ready', data: { sessionId, spec } })
+    }
+  } finally {
+    endActivity('project-generator')
   }
 }
 

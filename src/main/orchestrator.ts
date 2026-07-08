@@ -18,6 +18,7 @@ import {
   type ProviderName
 } from './providers'
 import { broadcastToMobile } from './ws-server'
+import { startActivity, endActivity } from './activity-tracker'
 
 export const MAX_DELEGATION_DEPTH = 5
 
@@ -334,6 +335,8 @@ export async function runOrchestration(
       teamActivitySteps.push(step)
       window.webContents.send('chat:team-activity', { ...step })
       broadcastToMobile({ event: 'chat:team-activity', data: { conversationId: opts.conversationId, ...step } })
+      const activityId = `orchestration:${stepId}`
+      startActivity({ id: activityId, kind: 'orchestration', label: `Delegating to ${targetAgent.agentName}…`, conversationId: opts.conversationId })
 
       const taskContent = context ? `${task}\n\nContext:\n${context}` : task
       const delegateStart = Date.now()
@@ -349,6 +352,7 @@ export async function runOrchestration(
         step.status = 'error'
         step.result = specialistResult
       }
+      endActivity(activityId)
       step.durationMs = Date.now() - delegateStart
       window.webContents.send('chat:team-activity', { ...step })
       broadcastToMobile({ event: 'chat:team-activity', data: { conversationId: opts.conversationId, ...step } })

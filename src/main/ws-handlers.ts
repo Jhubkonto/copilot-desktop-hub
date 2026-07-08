@@ -67,7 +67,8 @@ import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
 import { insertWikiEntry, extractWikiLearningsForWs } from './wiki-handlers'
 import { generateDebriefForWs, getDebriefForWs, markCompleteForWs, markIncompleteForWs } from './debrief-handlers'
-import { generateQuizForWs } from './quiz-handlers'
+import { generateQuizForWs, getQuizForWs } from './quiz-handlers'
+import { getActivitySnapshot } from './activity-tracker'
 import { getMcpServersWithStatus, getMcpServerStatus, addMcpServer, updateMcpServer, removeMcpServer, restartMcpServer, listMcpTools, listMcpToolsForAgent } from './mcp'
 import {
   insertPromptLibraryEntry,
@@ -2701,8 +2702,21 @@ export function registerWsHandlers(): void {
       const model = typeof data.model === 'string' ? data.model : undefined
       if (!conversationId) return
       void generateQuizForWs(conversationId, projectId, model)
-        .then((result) => reply({ event: 'quiz:ready', data: result }))
+        .then((result) => reply({ event: 'quiz:ready', data: { ...result, conversationId } }))
         .catch((err: unknown) => reply({ event: 'quiz:error', data: { message: String(err) } }))
+      return
+    }
+
+    if (command === 'conversation:get-quiz') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+      if (!conversationId) return
+      const result = getQuizForWs(conversationId)
+      reply({ event: 'quiz:loaded', data: { conversationId, questions: result?.questions ?? null, artifactId: result?.artifactId, versionId: result?.versionId } })
+      return
+    }
+
+    if (command === 'activity:list') {
+      reply({ event: 'activity:changed', data: { activities: getActivitySnapshot() } })
       return
     }
   })

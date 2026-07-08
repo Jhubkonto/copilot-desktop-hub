@@ -13,6 +13,7 @@ import {
 import type { ProviderMessage } from './providers'
 import { ClaudeAdapter } from './cli-adapters/claude'
 import { broadcastToMobile } from './ws-server'
+import { startActivity, endActivity } from './activity-tracker'
 import {
   createPendingArtifactForConversation,
   findArtifactForConversation,
@@ -80,7 +81,17 @@ function sectionToDebrief(section: DebriefSectionData, conversationId: string, p
 
 export async function generateDebriefForWs(conversationId: string, projectId: string | null, model?: string): Promise<DebriefArtifactResult> {
   const db = getDatabase()
+  const activityId = `debrief-generation:${conversationId}`
+  const conversationTitleRow = db.prepare('SELECT title FROM conversations WHERE id = ?').get(conversationId) as { title: string } | undefined
+  startActivity({ id: activityId, kind: 'debrief-generation', label: 'Generating debrief…', detail: conversationTitleRow?.title, projectId: projectId ?? undefined, conversationId })
+  try {
+    return await generateDebriefForWsInner(db, conversationId, projectId, model)
+  } finally {
+    endActivity(activityId)
+  }
+}
 
+async function generateDebriefForWsInner(db: ReturnType<typeof getDatabase>, conversationId: string, projectId: string | null, model?: string): Promise<DebriefArtifactResult> {
   const rows = db.prepare(
     "SELECT role, content FROM messages WHERE conversation_id = ? AND role IN ('user', 'assistant') ORDER BY timestamp ASC"
   ).all(conversationId) as { role: string; content: string }[]

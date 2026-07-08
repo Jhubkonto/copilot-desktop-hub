@@ -20,6 +20,7 @@ import type { ProviderMessage } from './provider-core-types'
 import type { AgentGeneratorMessage, AgentGeneratorSpec } from '../shared/types'
 import { getDatabase } from './database'
 import { broadcastToMobile } from './ws-server'
+import { startActivity, endActivity } from './activity-tracker'
 
 const SPEC_OPEN_TAG = '<agent-spec>'
 const SPEC_CLOSE_TAG = '</agent-spec>'
@@ -257,6 +258,7 @@ export async function runAgentGeneratorChat(
 
   let accumulated = ''
 
+  startActivity({ id: 'agent-generator', kind: 'agent-generator', label: 'Generating agent…' })
   try {
     const fullText = await runAgentGeneratorProviderChat(
       win,
@@ -284,6 +286,8 @@ export async function runAgentGeneratorChat(
       })
     }
     throw error
+  } finally {
+    endActivity('agent-generator')
   }
 }
 
@@ -297,29 +301,34 @@ export async function runAgentGeneratorChatForAndroid(
 
   let accumulated = ''
 
-  const fullText = await runAgentGeneratorProviderChat(
-    fakeWin,
-    providerMessages,
-    sessionId,
-    fakeWin.webContents,
-    (chunk) => {
-      accumulated += chunk
-      broadcastToMobile({ event: 'agent-generator:token', data: { sessionId, chunk } })
-    },
-    modelOverride,
-  )
+  startActivity({ id: 'agent-generator', kind: 'agent-generator', label: 'Generating agent…' })
+  try {
+    const fullText = await runAgentGeneratorProviderChat(
+      fakeWin,
+      providerMessages,
+      sessionId,
+      fakeWin.webContents,
+      (chunk) => {
+        accumulated += chunk
+        broadcastToMobile({ event: 'agent-generator:token', data: { sessionId, chunk } })
+      },
+      modelOverride,
+    )
 
-  accumulated = fullText || accumulated
+    accumulated = fullText || accumulated
 
-  if (!accumulated.trim()) {
-    throw new Error('The model returned an empty response. Check that a provider API key is configured and the selected model is available.')
-  }
+    if (!accumulated.trim()) {
+      throw new Error('The model returned an empty response. Check that a provider API key is configured and the selected model is available.')
+    }
 
-  const spec = extractSpec(accumulated)
-  const assistantText = accumulated.replace(/<agent-spec>[\s\S]*?<\/agent-spec>/g, '').trim()
-  broadcastToMobile({ event: 'agent-generator:turn-complete', data: { sessionId, content: assistantText, hasSpec: spec !== null } })
-  if (spec) {
-    broadcastToMobile({ event: 'agent-generator:spec-ready', data: { sessionId, spec } })
+    const spec = extractSpec(accumulated)
+    const assistantText = accumulated.replace(/<agent-spec>[\s\S]*?<\/agent-spec>/g, '').trim()
+    broadcastToMobile({ event: 'agent-generator:turn-complete', data: { sessionId, content: assistantText, hasSpec: spec !== null } })
+    if (spec) {
+      broadcastToMobile({ event: 'agent-generator:spec-ready', data: { sessionId, spec } })
+    }
+  } finally {
+    endActivity('agent-generator')
   }
 }
 

@@ -18,6 +18,7 @@ import type { ProviderMessage } from './provider-core-types'
 import type { ScheduleGeneratorMessage, ScheduleGeneratorSpec, ScheduleType } from '../shared/types'
 import { getDatabase } from './database'
 import { broadcastToMobile } from './ws-server'
+import { startActivity, endActivity } from './activity-tracker'
 import { dbCreateTask, schedulerEngine } from './scheduler-engine'
 
 export const SPEC_OPEN_TAG = '<schedule-spec>'
@@ -221,6 +222,7 @@ export async function runScheduleGeneratorChat(
   const sessionId = `schedule-gen-${randomUUID()}`
   let accumulated = ''
 
+  startActivity({ id: 'scheduler-generator', kind: 'scheduler-generator', label: 'Generating scheduled task…' })
   try {
     const fullText = await runScheduleGeneratorProviderChat(
       win,
@@ -251,6 +253,8 @@ export async function runScheduleGeneratorChat(
       })
     }
     throw error
+  } finally {
+    endActivity('scheduler-generator')
   }
 }
 
@@ -263,29 +267,34 @@ export async function runScheduleGeneratorChatForAndroid(
   const fakeWin = { isDestroyed: () => false, webContents: { send: () => {}, isDestroyed: () => false } } as unknown as BrowserWindow
   let accumulated = ''
 
-  const fullText = await runScheduleGeneratorProviderChat(
-    fakeWin,
-    providerMessages,
-    sessionId,
-    fakeWin.webContents,
-    (chunk) => {
-      accumulated += chunk
-      broadcastToMobile({ event: 'scheduler-generator:token', data: { sessionId, chunk } })
-    },
-    modelOverride,
-  )
+  startActivity({ id: 'scheduler-generator', kind: 'scheduler-generator', label: 'Generating scheduled task…' })
+  try {
+    const fullText = await runScheduleGeneratorProviderChat(
+      fakeWin,
+      providerMessages,
+      sessionId,
+      fakeWin.webContents,
+      (chunk) => {
+        accumulated += chunk
+        broadcastToMobile({ event: 'scheduler-generator:token', data: { sessionId, chunk } })
+      },
+      modelOverride,
+    )
 
-  accumulated = fullText || accumulated
-  if (!accumulated.trim()) {
-    broadcastToMobile({ event: 'scheduler-generator:error', data: { sessionId, message: 'Schedule generator returned no response. Check the selected model/provider.' } })
-    return
-  }
+    accumulated = fullText || accumulated
+    if (!accumulated.trim()) {
+      broadcastToMobile({ event: 'scheduler-generator:error', data: { sessionId, message: 'Schedule generator returned no response. Check the selected model/provider.' } })
+      return
+    }
 
-  const spec = extractSpec(accumulated)
-  const assistantText = accumulated.replace(/<schedule-spec>[\s\S]*?<\/schedule-spec>/g, '').trim()
-  broadcastToMobile({ event: 'scheduler-generator:turn-complete', data: { sessionId, content: assistantText, hasSpec: spec !== null } })
-  if (spec) {
-    broadcastToMobile({ event: 'scheduler-generator:spec-ready', data: { sessionId, spec } })
+    const spec = extractSpec(accumulated)
+    const assistantText = accumulated.replace(/<schedule-spec>[\s\S]*?<\/schedule-spec>/g, '').trim()
+    broadcastToMobile({ event: 'scheduler-generator:turn-complete', data: { sessionId, content: assistantText, hasSpec: spec !== null } })
+    if (spec) {
+      broadcastToMobile({ event: 'scheduler-generator:spec-ready', data: { sessionId, spec } })
+    }
+  } finally {
+    endActivity('scheduler-generator')
   }
 }
 

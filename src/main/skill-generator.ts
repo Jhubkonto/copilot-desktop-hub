@@ -18,6 +18,7 @@ import type { ProviderMessage } from './provider-core-types'
 import type { SkillGeneratorMessage, SkillGeneratorSpec } from '../shared/types'
 import { getDatabase } from './database'
 import { broadcastToMobile } from './ws-server'
+import { startActivity, endActivity } from './activity-tracker'
 import { createSkillConfig } from './skills'
 
 const SPEC_OPEN_TAG = '<skill-spec>'
@@ -219,6 +220,7 @@ export async function runSkillGeneratorChat(
   const sessionId = `skill-gen-${randomUUID()}`
   let accumulated = ''
 
+  startActivity({ id: 'skill-generator', kind: 'skill-generator', label: 'Generating skill…' })
   try {
     const fullText = await runSkillGeneratorProviderChat(
       win,
@@ -249,6 +251,8 @@ export async function runSkillGeneratorChat(
       })
     }
     throw error
+  } finally {
+    endActivity('skill-generator')
   }
 }
 
@@ -262,29 +266,34 @@ export async function runSkillGeneratorChatForAndroid(
 
   let accumulated = ''
 
-  const fullText = await runSkillGeneratorProviderChat(
-    fakeWin,
-    providerMessages,
-    sessionId,
-    fakeWin.webContents,
-    (chunk) => {
-      accumulated += chunk
-      broadcastToMobile({ event: 'skill-generator:token', data: { sessionId, chunk } })
-    },
-    modelOverride,
-  )
+  startActivity({ id: 'skill-generator', kind: 'skill-generator', label: 'Generating skill…' })
+  try {
+    const fullText = await runSkillGeneratorProviderChat(
+      fakeWin,
+      providerMessages,
+      sessionId,
+      fakeWin.webContents,
+      (chunk) => {
+        accumulated += chunk
+        broadcastToMobile({ event: 'skill-generator:token', data: { sessionId, chunk } })
+      },
+      modelOverride,
+    )
 
-  accumulated = fullText || accumulated
-  if (!accumulated.trim()) {
-    broadcastToMobile({ event: 'skill-generator:error', data: { sessionId, message: 'Skill generator returned no response. Check the selected model/provider.' } })
-    return
-  }
+    accumulated = fullText || accumulated
+    if (!accumulated.trim()) {
+      broadcastToMobile({ event: 'skill-generator:error', data: { sessionId, message: 'Skill generator returned no response. Check the selected model/provider.' } })
+      return
+    }
 
-  const spec = extractSpec(accumulated)
-  const assistantText = accumulated.replace(/<skill-spec>[\s\S]*?<\/skill-spec>/g, '').trim()
-  broadcastToMobile({ event: 'skill-generator:turn-complete', data: { sessionId, content: assistantText, hasSpec: spec !== null } })
-  if (spec) {
-    broadcastToMobile({ event: 'skill-generator:spec-ready', data: { sessionId, spec } })
+    const spec = extractSpec(accumulated)
+    const assistantText = accumulated.replace(/<skill-spec>[\s\S]*?<\/skill-spec>/g, '').trim()
+    broadcastToMobile({ event: 'skill-generator:turn-complete', data: { sessionId, content: assistantText, hasSpec: spec !== null } })
+    if (spec) {
+      broadcastToMobile({ event: 'skill-generator:spec-ready', data: { sessionId, spec } })
+    }
+  } finally {
+    endActivity('skill-generator')
   }
 }
 

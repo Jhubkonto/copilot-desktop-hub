@@ -3,6 +3,7 @@ import type { ChatTurnEvent, ChatActivityState } from '../shared/chat-turn-types
 import type { WsPushEvent } from './ws-server'
 import { debugLog } from './debug-mode'
 import { recordActiveChatTurnEvent } from './active-chat-turns'
+import { startActivity, endActivity } from './activity-tracker'
 
 export interface ChatTurnEmitterSinks {
   sendDesktop?: (channel: string, ...args: unknown[]) => void
@@ -45,7 +46,12 @@ export class ChatTurnEmitter {
     this.sinks = sinks
   }
 
+  private get activityId(): string {
+    return `chat:${this.conversationId}`
+  }
+
   started(): ChatTurnEvent {
+    startActivity({ id: this.activityId, kind: 'chat', label: 'Assistant is responding…', conversationId: this.conversationId })
     return this.emit({ type: 'turn_started' })
   }
 
@@ -72,6 +78,7 @@ export class ChatTurnEmitter {
   }
 
   streamEnd(): ChatTurnEvent {
+    endActivity(this.activityId)
     const event = this.emit({ type: 'turn_completed' })
     this.sinks.sendDesktop?.('chat:stream-response', null)
     this.sinks.broadcastMobile?.({
@@ -82,6 +89,7 @@ export class ChatTurnEmitter {
   }
 
   closeStream(): void {
+    endActivity(this.activityId)
     this.sinks.sendDesktop?.('chat:stream-response', null)
     this.sinks.broadcastMobile?.({
       event: 'chat:stream-end',
@@ -94,6 +102,7 @@ export class ChatTurnEmitter {
   }
 
   streamError(error: StreamErrorPayload): ChatTurnEvent {
+    endActivity(this.activityId)
     const event = this.emit({
       type: 'turn_failed',
       errorType: error.type,

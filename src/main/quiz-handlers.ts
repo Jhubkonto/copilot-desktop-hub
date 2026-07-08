@@ -19,6 +19,7 @@ import {
   writeArtifactVersionForConversation,
 } from './artifacts'
 import { generateDebriefForWs, type DebriefSectionData } from './debrief-handlers'
+import { startActivity, endActivity } from './activity-tracker'
 
 const QUIZ_SYSTEM_PROMPT = `You are a quiz generator for a technical learning tool. You receive a structured debrief of a completed AI chat session and must produce multiple-choice questions that test the user's understanding.
 
@@ -46,6 +47,18 @@ function isValidQuestion(q: unknown): q is Omit<QuizQuestion, 'id'> {
 }
 
 export async function generateQuizForWs(conversationId: string, projectId: string | null, model?: string): Promise<QuizArtifactResult> {
+  const db = getDatabase()
+  const activityId = `quiz-generation:${conversationId}`
+  const conversationTitleRow = db.prepare('SELECT title FROM conversations WHERE id = ?').get(conversationId) as { title: string } | undefined
+  startActivity({ id: activityId, kind: 'quiz-generation', label: 'Generating quiz…', detail: conversationTitleRow?.title, projectId: projectId ?? undefined, conversationId })
+  try {
+    return await generateQuizForWsInner(conversationId, projectId, model)
+  } finally {
+    endActivity(activityId)
+  }
+}
+
+async function generateQuizForWsInner(conversationId: string, projectId: string | null, model?: string): Promise<QuizArtifactResult> {
   let debriefArtifact = findArtifactForConversation(conversationId, 'debrief')
   let debriefContent = debriefArtifact?.currentVersion
     ? readArtifactVersionFile(debriefArtifact.currentVersion.id, 'debrief.json')
@@ -177,6 +190,21 @@ export function startQuizGeneration(conversationId: string, projectId: string | 
   return { artifactId }
 }
 
+export function getQuizForWs(conversationId: string): QuizArtifactResult | null {
+  const artifact = findArtifactForConversation(conversationId, 'quiz')
+  const version = artifact?.currentVersion
+  if (!artifact || !version) return null
+  const content = readArtifactVersionFile(version.id, 'quiz.json')
+  if (!content) return null
+  let questions: QuizQuestion[]
+  try {
+    questions = JSON.parse(content) as QuizQuestion[]
+  } catch {
+    return null
+  }
+  return { questions, artifactId: artifact.id, versionId: version.id }
+}
+
 export function registerQuizHandlers(): void {
   safeHandle('conversation:generate-quiz', async (_event, conversationId: string, projectId: string | null, model?: string): Promise<QuizArtifactResult> => {
     return generateQuizForWs(conversationId, projectId, model)
@@ -184,5 +212,9 @@ export function registerQuizHandlers(): void {
 
   safeHandle('conversation:start-quiz-generation', (_event, conversationId: string, projectId: string | null, model?: string) => {
     return startQuizGeneration(conversationId, projectId, model)
+  })
+
+  safeHandle('conversation:get-quiz', (_event, conversationId: string): QuizArtifactResult | null => {
+    return getQuizForWs(conversationId)
   })
 }
