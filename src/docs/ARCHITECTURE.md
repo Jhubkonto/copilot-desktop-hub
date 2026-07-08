@@ -353,14 +353,14 @@ Each tool has an approval mode: `auto` (no prompt), `always-ask` (modal per call
 | `electron-builder` | Cross-platform distributable packaging |
 | `Vitest` | Test runner across main, renderer, and shared logic |
 | `eslint` + `typescript-eslint` | Linting |
-| `electron-rebuild` | Rebuilds native modules (better-sqlite3) against Electron's Node ABI |
+| `electron-builder install-app-deps` | Installs/rebuilds native modules for Electron packaging |
 
 ### Native module note
 
-`better-sqlite3` is a native Node addon. It must be compiled against **Electron's Node ABI** (not system Node). `postinstall` runs `electron-rebuild -f -w better-sqlite3` automatically after `npm install`. If native module errors appear at runtime after manual `npm rebuild` or agent-triggered builds, re-run:
+`better-sqlite3` and `node-pty` are native dependencies. `postinstall` runs `electron-builder install-app-deps` after `npm install` so packaging uses Electron-compatible native binaries. The builder is configured with `nativeRebuilder: legacy` because `node-pty` ships Windows prebuilds and the default `@electron/rebuild` path can fall back to a slow or failing node-gyp rebuild on Python 3.12+ systems. If native module errors appear at runtime after manual `npm rebuild` or agent-triggered builds, re-run:
 
 ```bash
-npx electron-rebuild -f -w better-sqlite3
+npm run postinstall
 ```
 
 ---
