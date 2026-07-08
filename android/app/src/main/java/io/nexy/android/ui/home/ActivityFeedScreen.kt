@@ -10,9 +10,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -84,7 +88,11 @@ fun ActivityFeedScreen(
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
                     items(activities, key = { it.id }) { activity ->
-                        ActivityFeedRow(activity = activity, onClick = { onOpenActivity(activity) })
+                        ActivityFeedRow(
+                            activity = activity,
+                            onClick = { onOpenActivity(activity) },
+                            onDismiss = { WsRepository.dismissActivity(activity.id) },
+                        )
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     }
                 }
@@ -94,12 +102,12 @@ fun ActivityFeedScreen(
 }
 
 @Composable
-private fun ActivityFeedRow(activity: BackgroundActivity, onClick: () -> Unit) {
+private fun ActivityFeedRow(activity: BackgroundActivity, onClick: () -> Unit, onDismiss: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .padding(start = 16.dp, end = 4.dp, top = 14.dp, bottom = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -109,7 +117,15 @@ private fun ActivityFeedRow(activity: BackgroundActivity, onClick: () -> Unit) {
             style = MaterialTheme.typography.bodyMedium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.weight(1f),
         )
+        IconButton(onClick = onDismiss) {
+            Icon(
+                Icons.Default.Close,
+                contentDescription = "Dismiss",
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
