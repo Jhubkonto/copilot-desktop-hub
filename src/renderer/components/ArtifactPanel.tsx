@@ -4,6 +4,7 @@ import type { ArtifactRow, ArtifactVersion } from '../../shared/types'
 import { useAppStore } from '../store/app-store'
 import { ResizeHandle } from './ResizeHandle'
 import { ArtifactGeneratorModal } from './ArtifactGeneratorModal'
+import { DeleteArtifactDialog } from './DeleteArtifactDialog'
 
 const SUPPORTED_EXPORT_FORMATS = ['raw-files', 'markdown', 'json'] as const
 type ExportFormat = typeof SUPPORTED_EXPORT_FORMATS[number]
@@ -424,30 +425,19 @@ export function ArtifactPanel({ artifactId }: { artifactId: string }) {
       {/* Footer */}
       {artifact && (
         <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-700 shrink-0">
-          {!confirmDelete ? (
-            <button
-              onClick={() => setConfirmDelete(true)}
-              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              Delete
-            </button>
-          ) : (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-500">Delete artifact?</span>
-              <button
-                onClick={() => void handleDelete()}
-                className="text-xs px-2.5 py-1 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors"
-              >
-                Confirm
-              </button>
-              <button
-                onClick={() => setConfirmDelete(false)}
-                className="text-xs px-2.5 py-1 rounded-lg border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
+          <button
+            onClick={() => setConfirmDelete(true)}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            Delete
+          </button>
+          {confirmDelete && (
+            <DeleteArtifactDialog
+              artifactTitle={artifact.title}
+              onConfirm={() => { setConfirmDelete(false); void handleDelete() }}
+              onCancel={() => setConfirmDelete(false)}
+            />
           )}
           {currentConversationId && (
             <button

@@ -115,15 +115,15 @@ describe('ArtifactPanel', () => {
     await waitFor(() => screen.getByText('Test Artifact'))
     const deleteBtn = screen.getByRole('button', { name: /^delete$/i })
     await userEvent.click(deleteBtn)
-    expect(screen.getByText(/delete artifact\?/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /confirm/i })).toBeInTheDocument()
+    expect(screen.getByText('Delete "Test Artifact"?')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /delete artifact/i })).toBeInTheDocument()
   })
 
   it('calls artifactDelete and closes panel on confirm delete', async () => {
     render(<ArtifactPanel artifactId="art-1" />)
     await waitFor(() => screen.getByText('Test Artifact'))
     await userEvent.click(screen.getByRole('button', { name: /^delete$/i }))
-    await userEvent.click(screen.getByRole('button', { name: /confirm/i }))
+    await userEvent.click(screen.getByRole('button', { name: /delete artifact/i }))
     await waitFor(() => {
       expect(mockApi.artifactDelete).toHaveBeenCalledWith('art-1')
       expect(mockStore.closeArtifactPanel).toHaveBeenCalled()
