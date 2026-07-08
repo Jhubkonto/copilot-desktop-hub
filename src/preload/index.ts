@@ -983,6 +983,7 @@ const api = {
     typedOn('activity:changed', handler)
     return () => typedOff('activity:changed', handler)
   },
+  dismissActivity: (id: string) => typedInvoke('activity:dismiss', id),
 
   // Artifacts (live updates)
   onArtifactUpdated: (callback: (data: { artifactId: string; projectId: string | null }) => void) => {
