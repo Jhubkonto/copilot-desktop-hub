@@ -68,7 +68,7 @@ import { CodexAdapter } from './cli-adapters/codex'
 import { insertWikiEntry, extractWikiLearningsForWs } from './wiki-handlers'
 import { generateDebriefForWs, getDebriefForWs, markCompleteForWs, markIncompleteForWs } from './debrief-handlers'
 import { generateQuizForWs, getQuizForWs } from './quiz-handlers'
-import { getActivitySnapshot } from './activity-tracker'
+import { getActivitySnapshot, endActivity } from './activity-tracker'
 import { getMcpServersWithStatus, getMcpServerStatus, addMcpServer, updateMcpServer, removeMcpServer, restartMcpServer, listMcpTools, listMcpToolsForAgent } from './mcp'
 import {
   insertPromptLibraryEntry,
@@ -2717,6 +2717,12 @@ export function registerWsHandlers(): void {
 
     if (command === 'activity:list') {
       reply({ event: 'activity:changed', data: { activities: getActivitySnapshot() } })
+      return
+    }
+
+    if (command === 'activity:dismiss') {
+      const id = typeof data.id === 'string' ? data.id : ''
+      if (id) endActivity(id)
       return
     }
   })

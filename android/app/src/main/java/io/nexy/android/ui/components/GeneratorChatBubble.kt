@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -29,16 +30,18 @@ fun GeneratorChatBubble(role: String, text: String, streaming: Boolean = false, 
             },
             modifier = Modifier.fillMaxWidth(0.85f),
         ) {
-            Text(
-                text = text + if (streaming) "▍" else "",
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(12.dp),
-                color = when {
-                    isError -> MaterialTheme.colorScheme.onErrorContainer
-                    isUser -> MaterialTheme.colorScheme.onPrimaryContainer
-                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                },
-            )
+            SelectionContainer {
+                Text(
+                    text = text + if (streaming) "▍" else "",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(12.dp),
+                    color = when {
+                        isError -> MaterialTheme.colorScheme.onErrorContainer
+                        isUser -> MaterialTheme.colorScheme.onPrimaryContainer
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
         }
     }
 }

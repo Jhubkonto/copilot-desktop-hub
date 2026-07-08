@@ -2296,6 +2296,10 @@ object WsRepository : WsClient {
 
     // ─── Activity feed ──────────────────────────────────────────────────────────
     fun getActivityFeed() { send("activity:list", emptyMap()) }
+    fun dismissActivity(id: String) {
+        BackgroundActivityTracker.unregister(id)
+        send("activity:dismiss", mapOf("id" to id))
+    }
 }
 
 fun ScheduleGeneratorSpec.toPayload(): Map<String, Any> {
