@@ -3,6 +3,7 @@ productName: Nexy
 directories:
   output: release
   buildResources: resources
+nativeRebuilder: legacy
 files:
   - dist/**/*
   - package.json

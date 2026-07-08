@@ -5,7 +5,7 @@
   "type": "module",
   "main": "dist/main/index.js",
   "scripts": {
-    "postinstall": "electron-rebuild -f -w better-sqlite3,node-pty",
+    "postinstall": "electron-builder install-app-deps",
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
@@ -35,7 +35,6 @@
     "autoprefixer": "^10.4.0",
     "electron": "^33.0.0",
     "electron-builder": "^25.0.0",
-    "electron-rebuild": "^3.2.9",
     "electron-vite": "^3.0.0",
     "eslint": "^9.0.0",
     "eslint-plugin-react-hooks": "^5.0.0",
@@ -75,5 +74,8 @@
     "tesseract.js": "^7.0.0",
     "ws": "^8.21.0",
     "zustand": "^5.0.12"
+  },
+  "overrides": {
+    "node-gyp": "^10.3.1"
   }
 }
