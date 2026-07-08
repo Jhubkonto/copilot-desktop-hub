@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
@@ -296,7 +297,7 @@ fun ProjectConfigScreen(
         },
         bottomBar = {
             if (project != null && loaded) {
-                Surface(shadowElevation = 3.dp) {
+                Surface(shadowElevation = 3.dp, modifier = Modifier.navigationBarsPadding()) {
                     Button(
                         onClick = {
                             if (saving || disconnected) return@Button
@@ -603,7 +604,7 @@ fun ProjectConfigScreen(
                         }
                         if (workflowMode == "manual-delegation") {
                             Text(
-                                "Use the Manual workflow generator (below, under Project Tools) to turn a goal into a reusable delegation plan.",
+                                "Use the Manual workflow generator (above, under Project Tools) to turn a goal into a reusable delegation plan.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
