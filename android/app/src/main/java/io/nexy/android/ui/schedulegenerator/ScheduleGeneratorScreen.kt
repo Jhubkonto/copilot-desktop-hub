@@ -39,7 +39,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.activity.ComponentActivity
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -64,7 +66,9 @@ private val notificationPrefs = listOf("always", "failures_only", "off")
 @Composable
 fun ScheduleGeneratorScreen(
     onBack: () -> Unit,
-    viewModel: ScheduleGeneratorViewModel = viewModel(),
+    // Scoped to the hosting Activity (not the nav back-stack entry) so an in-progress
+    // generation survives leaving and re-entering this screen instead of losing all state.
+    viewModel: ScheduleGeneratorViewModel = viewModel(LocalContext.current as ComponentActivity),
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val models by WsRepository.models.collectAsState()
