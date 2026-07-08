@@ -293,6 +293,21 @@ fun NavGraph(
                     )
                 },
                 onOpenCodeChange = { reportId -> navController.navigate("remote-edit/${Uri.encode(reportId)}") },
+                onStartWorkflowStep = { stepAgentId, stepProjectId ->
+                    val newConversationId = java.util.UUID.randomUUID().toString()
+                    navController.navigate(
+                        "chat/$newConversationId?agentId=${Uri.encode(stepAgentId.orEmpty())}&projectId=${Uri.encode(stepProjectId)}",
+                    )
+                },
+                onOpenManualWorkflow = { workflowProjectId -> navController.navigate("manual-workflow/${Uri.encode(workflowProjectId)}") },
+                onNewChat = { newAgentId, newProjectId ->
+                    val newConversationId = java.util.UUID.randomUUID().toString()
+                    val agentParam = Uri.encode(newAgentId.orEmpty())
+                    val projectParam = Uri.encode(newProjectId.orEmpty())
+                    navController.navigate(
+                        "chat/$newConversationId?agentId=$agentParam&projectId=$projectParam",
+                    )
+                },
             )
         }
 

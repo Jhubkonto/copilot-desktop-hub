@@ -15,6 +15,8 @@ data class Conversation(
     val pinned: Boolean = false,
     val archived: Boolean = false,
     val completed_at: Long? = null,
+    val thinking_effort_override: String? = null,
+    val full_auto_approve_override: Boolean? = null,
 )
 
 data class ModelOption(

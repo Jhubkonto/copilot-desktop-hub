@@ -170,6 +170,7 @@ sealed class WsEvent {
     ) : WsEvent()
     data class RemoteEditActiveCodeChangesChanged(val countsByProjectId: Map<String, Int>) : WsEvent()
     data class ConversationModelUpdated(val conversationId: String, val model: String?) : WsEvent()
+    data class ConversationModeUpdated(val conversationId: String, val thinkingEffortOverride: String?, val fullAutoApproveOverride: Boolean?) : WsEvent()
     data class ConversationCreated(
         val id: String,
         val agentId: String?,
@@ -264,6 +265,7 @@ sealed class WsEvent {
     data class ProjectGeneratorError(val sessionId: String?, val message: String) : WsEvent()
     data class ProjectGeneratorCancelled(val sessionId: String?) : WsEvent()
     data class ProjectConfigUpdated(val id: String) : WsEvent()
+    data class ProjectConfigChanged(val id: String) : WsEvent()
     data class ProjectConfig(val id: String, val config: ProjectSettingsConfig) : WsEvent()
     data class ProjectAgents(val id: String, val agents: List<ProjectAgentEntry>) : WsEvent()
     data class ProjectAuditSessions(val projectId: String?, val sessions: List<ProjectAuditSession>) : WsEvent()
@@ -364,12 +366,20 @@ sealed class WsEvent {
         val goalSummary: String,
         val assumptions: String,
         val steps: List<ManualWorkflowStepInfo>,
+        /** The raw spec JSON (title/goalSummary/assumptions/steps incl. agentId + dependsOnStepIds),
+         *  kept verbatim so it can be forwarded as-is to manual-workflow-runs:save-spec without
+         *  the friendlier [ManualWorkflowStepInfo] view's field loss. */
+        val rawSpec: Map<String, Any> = emptyMap(),
     ) : WsEvent()
     data class ManualWorkflowModel(val sessionId: String, val modelId: String) : WsEvent()
     data class ManualWorkflowToken(val sessionId: String, val chunk: String) : WsEvent()
     data class ManualWorkflowMessage(val sessionId: String, val message: String) : WsEvent()
     data class ManualWorkflowError(val sessionId: String, val message: String) : WsEvent()
     data class ManualWorkflowCancelled(val sessionId: String) : WsEvent()
+    // Persisted manual workflow runs
+    data class ManualWorkflowRunsList(val projectId: String, val runs: List<ManualWorkflowRunInfo>) : WsEvent()
+    data class ManualWorkflowRunDetailReady(val run: ManualWorkflowRunInfo?) : WsEvent()
+    data class ManualWorkflowRunDiscarded(val runId: String, val ok: Boolean) : WsEvent()
 }
 
 data class BuildRecord(
@@ -562,6 +572,42 @@ data class ManualWorkflowStepInfo(
     val prompt: String,
     val expectedOutput: String,
 )
+
+/** Mirrors desktop's `ManualWorkflowRunStep` (src/shared/types.ts). */
+data class ManualWorkflowRunStepData(
+    val id: String,
+    val dbId: String,
+    val runId: String,
+    val stepIndex: Int,
+    val title: String,
+    val summary: String,
+    val agentId: String?,
+    val agentName: String?,
+    val prompt: String,
+    val expectedOutput: String,
+    val dependsOnStepIds: List<String> = emptyList(),
+    val status: String,
+    val startedAt: Long?,
+    val completedAt: Long?,
+)
+
+/** Mirrors desktop's `ManualWorkflowRunDetail extends ManualWorkflowRunSummary` (src/shared/types.ts).
+ *  Used for both list rows (steps/assumptions empty) and full detail (steps populated). */
+data class ManualWorkflowRunInfo(
+    val id: String,
+    val projectId: String,
+    val title: String,
+    val goalSummary: String,
+    val model: String?,
+    val status: String,
+    val stepCounts: StepCounts,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val assumptions: List<String> = emptyList(),
+    val steps: List<ManualWorkflowRunStepData> = emptyList(),
+) {
+    data class StepCounts(val total: Int, val notStarted: Int, val started: Int, val done: Int)
+}
 
 data class ProviderInfo(
     val id: String,
@@ -796,6 +842,7 @@ data class ProjectSettingsConfig(
     val variables: List<Map<String, String>> = emptyList(),
     val instructionMode: String,
     val instructionsEnabled: Boolean = true,
+    val workflowMode: String = "single-agent",
     val orchestrationEnabled: Boolean,
     val maxDelegationDepth: Int = 5,
     val showTeamActivity: Boolean = true,

@@ -42,3 +42,11 @@ val Purple500 = Color(0xFFA855F7)
 val Purple700 = Color(0xFF7E22CE)
 val Purple900 = Color(0xFF581C87)
 val Purple950 = Color(0xFF3B0764)
+
+// Indigo accent — matches desktop's Tailwind indigo palette used for debrief/quiz artifact cards
+val Indigo50  = Color(0xFFEEF2FF)
+val Indigo200 = Color(0xFFC7D2FE)
+val Indigo400 = Color(0xFF818CF8)
+val Indigo500 = Color(0xFF6366F1)
+val Indigo900 = Color(0xFF312E81)
+val Indigo950 = Color(0xFF1E1B4B)

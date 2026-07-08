@@ -293,6 +293,9 @@ object WsRepository : WsClient {
         val goalSummary: String = "",
         val assumptions: String = "",
         val steps: List<io.nexy.android.data.model.ManualWorkflowStepInfo> = emptyList(),
+        val rawSpec: Map<String, Any>? = null,
+        val savedRunId: String? = null,
+        val saving: Boolean = false,
         val currentModel: String? = null,
         val isActive: Boolean = true,
         val isLoading: Boolean = false,
@@ -391,6 +394,36 @@ object WsRepository : WsClient {
         val session = _manualWorkflowSession.value ?: return
         send("manual-workflow-generator:cancel", mapOf("sessionId" to session.sessionId))
         _manualWorkflowSession.value = null
+    }
+
+    fun saveManualWorkflowRun(projectId: String, spec: Map<String, Any>, model: String?, existingRunId: String?) {
+        val current = _manualWorkflowSession.value
+        if (current != null) _manualWorkflowSession.value = current.copy(saving = true)
+        send(
+            "manual-workflow-runs:save-spec",
+            buildMap {
+                put("projectId", projectId)
+                put("spec", spec)
+                if (model != null) put("model", model)
+                if (existingRunId != null) put("existingRunId", existingRunId)
+            },
+        )
+    }
+
+    fun listManualWorkflowRuns(projectId: String) {
+        send("manual-workflow-runs:list", mapOf("projectId" to projectId))
+    }
+
+    fun getManualWorkflowRun(runId: String) {
+        send("manual-workflow-runs:get", mapOf("runId" to runId))
+    }
+
+    fun updateManualWorkflowRunStepStatus(runId: String, stepDbId: String, status: String) {
+        send("manual-workflow-runs:update-step-status", mapOf("runId" to runId, "stepDbId" to stepDbId, "status" to status))
+    }
+
+    fun discardManualWorkflowRun(runId: String) {
+        send("manual-workflow-runs:discard", mapOf("runId" to runId))
     }
 
     private val pendingCommands = mutableListOf<Pair<String, Map<String, Any>>>()
@@ -620,11 +653,16 @@ object WsRepository : WsClient {
                     is WsEvent.ManualWorkflowReady -> {
                         val current = _manualWorkflowSession.value
                         if (current != null && current.sessionId == event.sessionId) {
+                            // savedRunId is intentionally kept across a regeneration: tapping Save
+                            // again passes it as existingRunId so the server updates the same run
+                            // in place (it only does so if no step has progressed; otherwise it
+                            // transparently branches into a new run and returns a different id).
                             _manualWorkflowSession.value = current.copy(
                                 title = event.title,
                                 goalSummary = event.goalSummary,
                                 assumptions = event.assumptions,
                                 steps = event.steps,
+                                rawSpec = event.rawSpec,
                             )
                         }
                     }
@@ -667,6 +705,12 @@ object WsRepository : WsClient {
                         val current = _manualWorkflowSession.value
                         if (current != null && current.sessionId == event.sessionId) {
                             _manualWorkflowSession.value = null
+                        }
+                    }
+                    is WsEvent.ManualWorkflowRunDetailReady -> {
+                        val current = _manualWorkflowSession.value
+                        if (current != null && current.saving && event.run != null && event.run.projectId == current.projectId) {
+                            _manualWorkflowSession.value = current.copy(saving = false, savedRunId = event.run.id)
                         }
                     }
                     else -> {}

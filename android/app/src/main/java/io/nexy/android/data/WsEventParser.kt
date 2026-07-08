@@ -487,6 +487,20 @@ fun parseWsEvent(
                 WsEvent.ConversationModelUpdated(conversationId, model)
             }
 
+            "conversation:mode-updated" -> {
+                val conversationId = data?.optString("conversationId") ?: ""
+                val thinkingEffortOverride = data?.nullableString("thinkingEffortOverride")
+                val fullAutoApproveOverride = if (data != null && data.has("fullAutoApproveOverride") && !data.isNull("fullAutoApproveOverride")) {
+                    data.optInt("fullAutoApproveOverride") != 0
+                } else null
+                conversations.value = conversations.value.map { conversation ->
+                    if (conversation.id == conversationId) {
+                        conversation.copy(thinking_effort_override = thinkingEffortOverride, full_auto_approve_override = fullAutoApproveOverride)
+                    } else conversation
+                }
+                WsEvent.ConversationModeUpdated(conversationId, thinkingEffortOverride, fullAutoApproveOverride)
+            }
+
             "conversation:messages" -> {
                 val conversationId = data?.optString("conversationId") ?: ""
                 val messagesArray = data?.optJSONArray("messages") ?: JSONArray()
@@ -1225,6 +1239,8 @@ fun parseWsEvent(
 
             "project:config-updated" -> WsEvent.ProjectConfigUpdated(id = data?.optString("id") ?: "")
 
+            "project:config-changed" -> WsEvent.ProjectConfigChanged(id = data?.optString("id") ?: "")
+
             "project:config" -> {
                 val c = data?.optJSONObject("config") ?: JSONObject()
                 WsEvent.ProjectConfig(
@@ -1798,7 +1814,7 @@ fun parseWsEvent(
                         expectedOutput = step.optString("expectedOutput", ""),
                     )
                 }
-                WsEvent.ManualWorkflowReady(sessionId, title, goalSummary, assumptions, steps)
+                WsEvent.ManualWorkflowReady(sessionId, title, goalSummary, assumptions, steps, rawSpec = jsonObjectToMap(spec))
             }
             "manual-workflow-generator:model" -> {
                 val sessionId = data?.optString("sessionId") ?: return
@@ -1823,6 +1839,23 @@ fun parseWsEvent(
             "manual-workflow-generator:cancelled" -> {
                 val sessionId = data?.optString("sessionId") ?: return
                 WsEvent.ManualWorkflowCancelled(sessionId)
+            }
+
+            "manual-workflow-runs:list" -> {
+                val projectId = data?.optString("projectId") ?: return
+                val arr = data.optJSONArray("runs") ?: JSONArray()
+                val runs = (0 until arr.length()).map { parseManualWorkflowRun(arr.getJSONObject(it)) }
+                WsEvent.ManualWorkflowRunsList(projectId, runs)
+            }
+
+            "manual-workflow-runs:detail" -> {
+                val runObj = data?.optJSONObject("run")
+                WsEvent.ManualWorkflowRunDetailReady(if (runObj != null) parseManualWorkflowRun(runObj) else null)
+            }
+
+            "manual-workflow-runs:discarded" -> {
+                val runId = data?.optString("runId") ?: return
+                WsEvent.ManualWorkflowRunDiscarded(runId, data.optBoolean("ok", false))
             }
 
             else -> return
@@ -2113,19 +2146,72 @@ internal fun parseProjectSettingsConfig(config: JSONObject): ProjectSettingsConf
         val array = config.optJSONArray(key) ?: return emptyList()
         return (0 until array.length()).map { stringMap(array.optJSONObject(it) ?: JSONObject()) }
     }
+    val orchestrationEnabled = config.optBoolean("orchestrationEnabled", false)
+    val workflowMode = config.optString("workflowMode", "").let {
+        if (it == "manual-delegation" || it == "orchestrated" || it == "single-agent") it
+        else if (orchestrationEnabled) "orchestrated" else "single-agent"
+    }
     return ProjectSettingsConfig(
         instructions = config.optString("instructions", ""),
         rootDirectory = config.nullableString("rootDirectory"),
         variables = objectList("variables"),
         instructionMode = config.optString("instructionMode", "prepend"),
         instructionsEnabled = config.optBoolean("instructionsEnabled", true),
-        orchestrationEnabled = config.optBoolean("orchestrationEnabled", false),
+        workflowMode = workflowMode,
+        orchestrationEnabled = workflowMode == "orchestrated",
         maxDelegationDepth = config.optInt("maxDelegationDepth", 5).coerceIn(1, 10),
         showTeamActivity = config.optBoolean("showTeamActivity", true),
         inScope = objectList("inScope"),
         outOfScope = objectList("outOfScope"),
         milestones = objectList("milestones"),
         defaultModel = config.nullableString("defaultModel"),
+    )
+}
+
+private fun parseManualWorkflowRunStep(obj: JSONObject): io.nexy.android.data.model.ManualWorkflowRunStepData {
+    val dependsArr = obj.optJSONArray("dependsOnStepIds")
+    val dependsOn = if (dependsArr != null) (0 until dependsArr.length()).map { dependsArr.optString(it) } else emptyList()
+    return io.nexy.android.data.model.ManualWorkflowRunStepData(
+        id = obj.optString("id"),
+        dbId = obj.optString("dbId"),
+        runId = obj.optString("runId"),
+        stepIndex = obj.optInt("stepIndex", 0),
+        title = obj.optString("title", ""),
+        summary = obj.optString("summary", ""),
+        agentId = obj.nullableString("agentId"),
+        agentName = obj.nullableString("agentName"),
+        prompt = obj.optString("prompt", ""),
+        expectedOutput = obj.optString("expectedOutput", ""),
+        dependsOnStepIds = dependsOn,
+        status = obj.optString("status", "not_started"),
+        startedAt = if (obj.isNull("startedAt")) null else obj.optLong("startedAt"),
+        completedAt = if (obj.isNull("completedAt")) null else obj.optLong("completedAt"),
+    )
+}
+
+private fun parseManualWorkflowRun(obj: JSONObject): io.nexy.android.data.model.ManualWorkflowRunInfo {
+    val stepCounts = obj.optJSONObject("stepCounts")
+    val assumptionsArr = obj.optJSONArray("assumptions")
+    val assumptions = if (assumptionsArr != null) (0 until assumptionsArr.length()).map { assumptionsArr.optString(it) } else emptyList()
+    val stepsArr = obj.optJSONArray("steps")
+    val steps = if (stepsArr != null) (0 until stepsArr.length()).map { parseManualWorkflowRunStep(stepsArr.getJSONObject(it)) } else emptyList()
+    return io.nexy.android.data.model.ManualWorkflowRunInfo(
+        id = obj.optString("id"),
+        projectId = obj.optString("projectId"),
+        title = obj.optString("title", ""),
+        goalSummary = obj.optString("goalSummary", ""),
+        model = obj.nullableString("model"),
+        status = obj.optString("status", "active"),
+        stepCounts = io.nexy.android.data.model.ManualWorkflowRunInfo.StepCounts(
+            total = stepCounts?.optInt("total", 0) ?: 0,
+            notStarted = stepCounts?.optInt("notStarted", 0) ?: 0,
+            started = stepCounts?.optInt("started", 0) ?: 0,
+            done = stepCounts?.optInt("done", 0) ?: 0,
+        ),
+        createdAt = obj.optLong("createdAt", 0L),
+        updatedAt = obj.optLong("updatedAt", 0L),
+        assumptions = assumptions,
+        steps = steps,
     )
 }
 
@@ -2295,6 +2381,8 @@ private fun parseConversationArray(arr: JSONArray): List<Conversation> =
             last_message = row.nullableString("last_message"),
             pinned = row.optInt("pinned", 0) != 0,
             completed_at = if (row.has("completed_at") && !row.isNull("completed_at")) row.optLong("completed_at") else null,
+            thinking_effort_override = row.nullableString("thinking_effort_override"),
+            full_auto_approve_override = if (row.has("full_auto_approve_override") && !row.isNull("full_auto_approve_override")) row.optInt("full_auto_approve_override") != 0 else null,
         )
     }
 
