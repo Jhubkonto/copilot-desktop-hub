@@ -67,6 +67,7 @@ data class ArtifactRef(
     val versionId: String?,
     val kind: String? = null,
     val conversationId: String? = null,
+    val pending: Boolean = false,
 )
 
 /** Parsed from a `__code-change-ref:{...}` sentinel message content (desktop's CodeChangeCard
@@ -516,6 +517,7 @@ class ChatViewModel(
                         }
                     }
                     event is WsEvent.DebriefReady && event.debrief.conversationId == conversationId -> {
+                        removePendingArtifactRefMessage("debrief")
                         if (event.artifactId != null) {
                             insertArtifactRefMessage(
                                 artifactId = event.artifactId,
@@ -528,10 +530,12 @@ class ChatViewModel(
                         }
                     }
                     event is WsEvent.DebriefError -> {
+                        removePendingArtifactRefMessage("debrief")
                         _slashCommandMessage.value = "Failed to generate debrief: ${event.message}"
                     }
                     event is WsEvent.QuizReady && awaitingQuizInsert -> {
                         awaitingQuizInsert = false
+                        removePendingArtifactRefMessage("quiz")
                         if (event.artifactId != null) {
                             insertArtifactRefMessage(
                                 artifactId = event.artifactId,
@@ -545,6 +549,7 @@ class ChatViewModel(
                     }
                     event is WsEvent.QuizError && awaitingQuizInsert -> {
                         awaitingQuizInsert = false
+                        removePendingArtifactRefMessage("quiz")
                         _slashCommandMessage.value = "Failed to generate quiz: ${event.message}"
                     }
                     event is WsEvent.ErrorReportCaptured && awaitingCodeChangeInsert -> {
@@ -604,6 +609,31 @@ class ChatViewModel(
         WsRepository.insertMessage(conversationId, "system", content)
     }
 
+    private fun pendingArtifactMessageId(kind: String) = "pending-$kind-$conversationId"
+
+    /** Shows an immediate, local-only placeholder card (spinner, no chevron) while a debrief/quiz
+     *  generates in the background, instead of leaving the user with only a toast. Removed by
+     *  [removePendingArtifactRefMessage] once the real artifact-ref message arrives or generation
+     *  fails — never persisted server-side. */
+    private fun insertPendingArtifactRefMessage(kind: String) {
+        val id = pendingArtifactMessageId(kind)
+        if (_messages.value.any { it.id == id }) return
+        val pendingMessage = ChatMessage(
+            id = id,
+            text = "",
+            isUser = false,
+            isStreaming = false,
+            timestamp = System.currentTimeMillis(),
+            artifactRef = ArtifactRef(artifactId = "", versionId = null, kind = kind, conversationId = conversationId, pending = true),
+        )
+        _messages.value = _messages.value + pendingMessage
+    }
+
+    private fun removePendingArtifactRefMessage(kind: String) {
+        val id = pendingArtifactMessageId(kind)
+        _messages.value = _messages.value.filter { it.id != id }
+    }
+
     /**
      * Android's counterpart of desktop's executeSlashCommand (slash-commands.ts) — a hardcoded
      * dispatch over the mobile-appropriate command subset (SlashCommands.kt). Returns true if
@@ -647,12 +677,12 @@ class ChatViewModel(
                 _slashCommandMessage.value = "Conversation marked incomplete."
             }
             "/debrief" -> {
-                _slashCommandMessage.value = "Generating debrief…"
+                insertPendingArtifactRefMessage("debrief")
                 WsRepository.generateDebrief(conversationId, projectId, argText.ifBlank { null })
             }
             "/quiz" -> {
                 awaitingQuizInsert = true
-                _slashCommandMessage.value = "Generating quiz…"
+                insertPendingArtifactRefMessage("quiz")
                 WsRepository.generateQuiz(conversationId, projectId, argText.ifBlank { null })
             }
             "/code-change" -> {

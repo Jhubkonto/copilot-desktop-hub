@@ -103,6 +103,7 @@ fun QuizScreen(
                 .padding(padding),
         ) { currentState ->
             when (currentState) {
+                is QuizUiState.CheckingExisting -> GeneratingContent()
                 is QuizUiState.Generating -> GeneratingContent()
                 is QuizUiState.Question -> QuestionContent(
                     state = currentState,

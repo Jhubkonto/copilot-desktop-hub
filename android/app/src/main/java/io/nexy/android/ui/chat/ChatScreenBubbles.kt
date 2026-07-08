@@ -852,7 +852,9 @@ fun ToolDetailSection(label: String, value: String) {
 fun ArtifactRefBubble(ref: ArtifactRef, onOpen: () -> Unit) {
     var fetchedTitle by remember(ref.artifactId) { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(ref.artifactId) { WsRepository.getArtifact(ref.artifactId) }
+    LaunchedEffect(ref.artifactId, ref.pending) {
+        if (!ref.pending && ref.artifactId.isNotBlank()) WsRepository.getArtifact(ref.artifactId)
+    }
     LaunchedEffect(ref.artifactId) {
         WsRepository.events.collect { event ->
             if (event is WsEvent.ArtifactDetail && event.artifact?.id == ref.artifactId) {
@@ -866,9 +868,12 @@ fun ArtifactRefBubble(ref: ArtifactRef, onOpen: () -> Unit) {
         "quiz" -> "Quiz"
         else -> "Artifact"
     }
-    val fallbackTitle = when (ref.kind) {
-        "debrief" -> "Open debrief"
-        "quiz" -> "Start quiz"
+    val fallbackTitle = when {
+        ref.pending && ref.kind == "debrief" -> "Generating debrief…"
+        ref.pending && ref.kind == "quiz" -> "Generating quiz…"
+        ref.pending -> "Generating…"
+        ref.kind == "debrief" -> "Open debrief"
+        ref.kind == "quiz" -> "Start quiz"
         else -> "View artifact"
     }
     val icon = when (ref.kind) {
@@ -906,6 +911,7 @@ fun ArtifactRefBubble(ref: ArtifactRef, onOpen: () -> Unit) {
 
     Surface(
         onClick = onOpen,
+        enabled = !ref.pending,
         shape = RoundedCornerShape(10.dp),
         color = bubbleColor,
         border = BorderStroke(1.dp, borderColor),
@@ -933,12 +939,20 @@ fun ArtifactRefBubble(ref: ArtifactRef, onOpen: () -> Unit) {
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = accentColor,
-            )
+            if (ref.pending) {
+                androidx.compose.material3.CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                    color = accentColor,
+                )
+            } else {
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = accentColor,
+                )
+            }
         }
     }
 }

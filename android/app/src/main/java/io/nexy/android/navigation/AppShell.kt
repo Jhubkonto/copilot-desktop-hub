@@ -9,7 +9,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.navigation.compose.rememberNavController
 import io.nexy.android.data.BackgroundActivityTracker
-import io.nexy.android.ui.home.BackgroundActivityDock
+import io.nexy.android.ui.home.ActivityEdgeTab
 import kotlinx.coroutines.flow.MutableStateFlow
 
 @Composable
@@ -26,10 +26,10 @@ fun AppShell(
             onRequestNotificationPermission = onRequestNotificationPermission,
             pendingDeeplink = pendingDeeplink,
         )
-        BackgroundActivityDock(
-            activities = backgroundActivities,
-            onOpenActivity = { activity -> navController.navigate(activity.route) },
-            modifier = Modifier.align(Alignment.BottomCenter),
+        ActivityEdgeTab(
+            visible = backgroundActivities.isNotEmpty(),
+            onClick = { navController.navigate("activity-feed") },
+            modifier = Modifier.align(Alignment.CenterStart),
         )
     }
 }

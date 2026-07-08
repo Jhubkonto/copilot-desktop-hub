@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 sealed class QuizUiState {
+    object CheckingExisting : QuizUiState()
     object Generating : QuizUiState()
     data class Question(
         val question: QuizQuestion,
@@ -36,7 +37,7 @@ sealed class QuizUiState {
 
 class QuizViewModel(app: Application) : AndroidViewModel(app) {
 
-    private val _state = MutableStateFlow<QuizUiState>(QuizUiState.Generating)
+    private val _state = MutableStateFlow<QuizUiState>(QuizUiState.CheckingExisting)
     val state: StateFlow<QuizUiState> = _state.asStateFlow()
 
     private var questions: List<QuizQuestion> = emptyList()
@@ -56,6 +57,18 @@ class QuizViewModel(app: Application) : AndroidViewModel(app) {
                             _state.value = QuizUiState.Error("No questions generated.")
                         }
                     }
+                    is WsEvent.QuizLoaded -> {
+                        if (event.conversationId != loadedConversationId) return@collect
+                        if (event.questions != null && event.questions.isNotEmpty()) {
+                            questions = event.questions
+                            answers = MutableList(questions.size) { -1 }
+                            _state.value = QuizUiState.Question(questions[0], 0, questions.size)
+                        } else {
+                            // No quiz exists yet for this conversation — generate one now.
+                            _state.value = QuizUiState.Generating
+                            WsRepository.generateQuiz(loadedConversationId!!)
+                        }
+                    }
                     is WsEvent.QuizError -> _state.value = QuizUiState.Error(event.message)
                     else -> {}
                 }
@@ -63,12 +76,15 @@ class QuizViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Checks for an existing quiz artifact first (mirrors DebriefViewModel.load()) — only
+     *  generates a new one if none exists, instead of unconditionally regenerating every time
+     *  this screen opens. */
     fun startQuiz(conversationId: String) {
         loadedConversationId = conversationId
         questions = emptyList()
         answers = mutableListOf()
-        _state.value = QuizUiState.Generating
-        WsRepository.generateQuiz(conversationId)
+        _state.value = QuizUiState.CheckingExisting
+        WsRepository.getQuiz(conversationId)
     }
 
     fun selectOption(index: Int) {
@@ -108,7 +124,13 @@ class QuizViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Explicit user request for a fresh attempt — always regenerates rather than reusing the
+     *  cached quiz, unlike startQuiz() which only generates when nothing exists yet. */
     fun tryAgain(conversationId: String) {
-        startQuiz(conversationId)
+        loadedConversationId = conversationId
+        questions = emptyList()
+        answers = mutableListOf()
+        _state.value = QuizUiState.Generating
+        WsRepository.generateQuiz(conversationId)
     }
 }

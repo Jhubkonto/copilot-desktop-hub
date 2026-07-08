@@ -30,6 +30,7 @@ import io.nexy.android.ui.chat.ChatScreen
 import io.nexy.android.ui.projects.ProjectConfigScreen
 import io.nexy.android.ui.projects.ProjectAuditScreen
 import io.nexy.android.ui.projects.ManualWorkflowScreen
+import io.nexy.android.ui.home.ActivityFeedScreen
 import io.nexy.android.ui.home.AgentConfigScreen
 import io.nexy.android.ui.home.HistoryScope
 import io.nexy.android.ui.home.HomeScreen
@@ -216,6 +217,13 @@ fun NavGraph(
             PairingScreen(
                 onBack = { navController.popBackStack() },
                 onConnected = { navController.popBackStack() },
+            )
+        }
+
+        composable("activity-feed") {
+            ActivityFeedScreen(
+                onBack = { navController.popBackStack() },
+                onOpenActivity = { activity -> navController.navigate(activity.route) },
             )
         }
 
