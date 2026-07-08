@@ -18,7 +18,6 @@ const ALL_CHANNELS = [
   'agent:update',
   'agent:update-knowledge-inject-mode',
   'app:check-updates',
-  'app:create-gist',
   'app:download-update',
   'app:get-setting',
   'app:get-settings',

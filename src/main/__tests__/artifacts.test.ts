@@ -120,10 +120,10 @@ describe('artifact:list', () => {
     return handler({} as Electron.IpcMainInvokeEvent, ...args)
   }
 
-  it('queries global artifacts when no projectId given', () => {
+  it('queries every artifact regardless of project when no projectId given', () => {
     invoke('artifact:list')
     const calls = mockDb.prepare.mock.calls.map((c: unknown[]) => String(c[0]))
-    expect(calls.some((s: string) => s.includes('project_id IS NULL'))).toBe(true)
+    expect(calls.some((s: string) => s.includes('FROM artifacts') && !s.includes('WHERE'))).toBe(true)
   })
 
   it('queries project-scoped artifacts when projectId given', () => {

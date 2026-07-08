@@ -1019,6 +1019,16 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
       ALTER TABLE artifacts ADD COLUMN error_message TEXT;
     `,
   },
+  {
+    // Per-conversation overrides for thinking effort and tool approval mode. NULL means
+    // "inherit the agent's configured default" for both columns — these only take effect
+    // when explicitly set via the composer's per-chat mode picker.
+    version: 64,
+    sql: `
+      ALTER TABLE conversations ADD COLUMN thinking_effort_override TEXT;
+      ALTER TABLE conversations ADD COLUMN full_auto_approve_override INTEGER;
+    `,
+  },
 ];
 
 

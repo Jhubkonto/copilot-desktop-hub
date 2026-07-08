@@ -338,7 +338,7 @@ describe('chat handlers', () => {
       cliModel: 'gpt-5.5',
     } as never)
     vi.mocked(sendOpenAIMessage).mockClear()
-    state.getOverrides.set('SELECT agent_id, model, cli_backend FROM conversations', {
+    state.getOverrides.set('SELECT agent_id, model, cli_backend', {
       agent_id: 'agent-1',
       model: 'gpt-5-mini',
       cli_backend: null,

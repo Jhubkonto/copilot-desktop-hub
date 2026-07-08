@@ -4,6 +4,7 @@ import { execFileSync } from "child_process";
 import { existsSync, readdirSync, statSync, writeFileSync } from "fs";
 import { getDatabase } from "./database";
 import { safeHandle } from "./safe-handle";
+import { broadcastToMobile } from "./ws-server";
 import {
   DEFAULT_PROJECT_CONFIG,
   type ProjectConfig,
@@ -354,6 +355,10 @@ export function registerProjectHandlers(): void {
       db.prepare(
         "UPDATE projects SET config_json = ?, updated_at = ? WHERE id = ?",
       ).run(JSON.stringify(merged), Date.now(), id);
+      // Distinct from the WS-originated "project:config-updated" ack (which Android
+      // treats as "my own save finished, close this screen"). This event just tells
+      // Android something changed remotely so it can silently refresh if safe to do so.
+      broadcastToMobile({ event: "project:config-changed", data: { id, config: merged } });
       return true;
     },
   );
