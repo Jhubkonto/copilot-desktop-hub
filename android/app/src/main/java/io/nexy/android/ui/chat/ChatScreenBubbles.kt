@@ -8,6 +8,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.StartOffset
 import androidx.compose.animation.core.animateFloat
@@ -40,6 +41,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CallSplit
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
@@ -81,6 +83,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.foundation.BorderStroke
@@ -89,6 +92,15 @@ import io.nexy.android.data.model.CODE_CHANGE_PHASE_LABELS
 import io.nexy.android.data.model.ThinkingBlock
 import io.nexy.android.data.model.WsEvent
 import io.nexy.android.data.model.deriveCodeChangePhase
+import io.nexy.android.ui.theme.Blue100
+import io.nexy.android.ui.theme.Blue400
+import io.nexy.android.ui.theme.Blue500
+import io.nexy.android.ui.theme.Blue900
+import io.nexy.android.ui.theme.Gray100
+import io.nexy.android.ui.theme.Gray400
+import io.nexy.android.ui.theme.Gray500
+import io.nexy.android.ui.theme.Gray900
+import io.nexy.android.ui.theme.Green500
 import io.nexy.android.ui.theme.Indigo50
 import io.nexy.android.ui.theme.Indigo200
 import io.nexy.android.ui.theme.Indigo400
@@ -103,6 +115,7 @@ import io.nexy.android.ui.theme.Purple500
 import io.nexy.android.ui.theme.Purple700
 import io.nexy.android.ui.theme.Purple900
 import io.nexy.android.ui.theme.Purple950
+import io.nexy.android.ui.theme.Red500
 import io.noties.markwon.Markwon
 import kotlinx.coroutines.delay
 
@@ -135,8 +148,16 @@ fun ChatStartHeader() {
     }
 }
 
+/**
+ * The ephemeral "awaiting response" indicator, shown before any text/reasoning has streamed in
+ * for a turn. Mirrors desktop's `live-activity` render item (ChatMessages.tsx:636-661) exactly:
+ * icon+label row, then a bouncing-dots row *below* it — not the raw backend activity label text
+ * (e.g. a CLI-specific "Started Codex turn." string), and not purple — this is a distinct visual
+ * state from the (purple) reasoning-content bubbles below, gated on `activity.state`, not on
+ * whatever raw text the backend happened to send.
+ */
 @Composable
-fun ThinkingBubble(label: String, generationStartedAt: Long? = null) {
+fun ThinkingBubble(activity: ChatTurnActivity, generationStartedAt: Long? = null) {
     var elapsedSec by remember { mutableIntStateOf(0) }
     LaunchedEffect(generationStartedAt) {
         if (generationStartedAt == null || generationStartedAt == 0L) {
@@ -148,42 +169,57 @@ fun ThinkingBubble(label: String, generationStartedAt: Long? = null) {
             delay(250L)
         }
     }
+    val isTool = activity.state == "tool"
     val isDark = LocalNexyColors.current.isDark
-    val bubbleColor = if (isDark) Purple950.copy(alpha = 0.3f) else Purple50
-    val borderColor = if (isDark) Purple900.copy(alpha = 0.6f) else Purple200
-    val textColor = if (isDark) Purple400 else Purple700
-    val dotColor = if (isDark) Purple400 else Purple500
+    val blue = if (isDark) Blue400 else Blue500
+    val textColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val dotColor = if (isDark) Gray500 else Gray400
 
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-        horizontalArrangement = Arrangement.Start,
-    ) {
-        Surface(
-            shape = RoundedCornerShape(topStart = 4.dp, topEnd = 16.dp, bottomStart = 16.dp, bottomEnd = 16.dp),
-            color = bubbleColor,
-            border = BorderStroke(1.dp, borderColor),
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Icon(
-                    Icons.Default.Psychology,
-                    contentDescription = null,
-                    modifier = Modifier.size(14.dp),
-                    tint = dotColor,
+            if (isTool) {
+                val pulseTransition = rememberInfiniteTransition(label = "tool-icon-pulse")
+                val pulseAlpha by pulseTransition.animateFloat(
+                    initialValue = 1f,
+                    targetValue = 0.5f,
+                    animationSpec = infiniteRepeatable(tween(1000), repeatMode = RepeatMode.Reverse),
+                    label = "tool-icon-pulse-alpha",
                 )
-                val displayLabel = if (elapsedSec > 0) "$label · ${elapsedSec}s" else label
-                Text(
-                    displayLabel,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Medium,
+                Icon(
+                    Icons.Default.Build,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp).alpha(pulseAlpha),
+                    tint = blue,
+                )
+            } else {
+                androidx.compose.material3.CircularProgressIndicator(
+                    modifier = Modifier.size(14.dp),
+                    strokeWidth = 2.dp,
                     color = textColor,
                 )
-                TypingDots(dotColor)
+            }
+            if (isTool) {
+                val toolLabel = activity.toolName ?: activity.label
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Using ", style = MaterialTheme.typography.bodyMedium, color = textColor)
+                    Text(toolLabel, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace, color = blue)
+                    if (!activity.serverName.isNullOrBlank()) {
+                        Text(" · ${activity.serverName}", style = MaterialTheme.typography.bodyMedium, color = dotColor)
+                    }
+                }
+            } else {
+                Text(
+                    if (elapsedSec > 0) "Thinking · ${elapsedSec}s" else "Thinking...",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = textColor,
+                )
             }
         }
+        TypingDots(dotColor)
     }
 }
 
@@ -260,26 +296,19 @@ fun ThinkingHistoryBubble(
     LaunchedEffect(Unit) { alpha.animateTo(1f, animationSpec = tween(280, easing = FastOutSlowInEasing)) }
 
     val isDark = LocalNexyColors.current.isDark
-    val bubbleColor = if (isDark) Purple950.copy(alpha = 0.3f) else Purple50
-    val borderColor = if (isDark) Purple900.copy(alpha = 0.6f) else Purple200
     val textColor = if (isDark) Purple400 else Purple700
     val iconColor = if (isDark) Purple400 else Purple500
     val contentTextColor = if (isDark) Color(0xFFE9D5FF) else Purple900
 
-    Surface(
-        shape = RoundedCornerShape(10.dp),
-        color = bubbleColor,
-        border = BorderStroke(1.dp, borderColor),
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp).alpha(alpha.value),
-    ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
+    ChatTimelineEntry(beadColor = thinkingBeadColor(streaming = isLive), pulse = isLive) {
+        Column(modifier = Modifier.fillMaxWidth().alpha(alpha.value)) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { collapsed = !collapsed }
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .padding(vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Icon(
                     Icons.Default.Psychology,
@@ -301,18 +330,22 @@ fun ThinkingHistoryBubble(
                     tint = iconColor,
                 )
             }
-            if (!collapsed) {
-                HorizontalDivider(color = borderColor, thickness = 1.dp)
+            AnimatedVisibility(
+                visible = !collapsed,
+                enter = expandVertically(animationSpec = tween(200, easing = LinearOutSlowInEasing)),
+                exit = shrinkVertically(animationSpec = tween(200, easing = LinearOutSlowInEasing)),
+            ) {
                 SelectionContainer(
                     modifier = Modifier
-                        .padding(12.dp)
+                        .padding(vertical = 4.dp)
                         .heightIn(max = THINKING_VIEWPORT_MAX_HEIGHT)
                         .verticalScroll(scrollState)
                         .fillMaxWidth(),
                 ) {
                     Text(
                         combinedContent,
-                        style = MaterialTheme.typography.bodySmall,
+                        fontSize = 13.sp,
+                        lineHeight = 20.sp,
                         color = contentTextColor,
                     )
                 }
@@ -365,7 +398,7 @@ fun MessageBubble(
                     if (onRetry != null) DropdownMenuItem(text = { Text("Retry") }, onClick = { menuExpanded = false; onRetry() })
                     if (onEditAssistant != null) DropdownMenuItem(text = { Text("Edit message") }, onClick = { menuExpanded = false; onEditAssistant() })
                     if (onBranch != null) DropdownMenuItem(text = { Text("Branch in new chat") }, onClick = { menuExpanded = false; onBranch() })
-                    if (onAddToProject != null) DropdownMenuItem(text = { Text("Add to project sources") }, onClick = { menuExpanded = false; onAddToProject() })
+                    if (onAddToProject != null) DropdownMenuItem(text = { Text("Save to wiki") }, onClick = { menuExpanded = false; onAddToProject() })
                     if (onSaveAsArtifact != null) DropdownMenuItem(text = { Text("Save as artifact") }, onClick = { menuExpanded = false; onSaveAsArtifact() })
                     if (onInvestigateWithAi != null) DropdownMenuItem(text = { Text("Create code change") }, onClick = { menuExpanded = false; onInvestigateWithAi() })
                     if (onReadAloud != null) DropdownMenuItem(text = { Text("Read aloud") }, onClick = { menuExpanded = false; onReadAloud() })
@@ -458,12 +491,23 @@ fun MessageBubble(
                                 }
                             }
                         }
-                        if (!msg.isStreaming && (msg.inputTokens > 0 || msg.outputTokens > 0)) {
-                            Text(
-                                "${msg.inputTokens}↑ ${msg.outputTokens}↓",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
-                            )
+                        if (!msg.isStreaming && (!msg.model.isNullOrBlank() || msg.inputTokens > 0 || msg.outputTokens > 0)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (!msg.model.isNullOrBlank()) {
+                                    Text(
+                                        "Model: ${msg.model}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                                    )
+                                }
+                                if (msg.inputTokens > 0 || msg.outputTokens > 0) {
+                                    Text(
+                                        "${msg.inputTokens}↑ ${msg.outputTokens}↓",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -494,7 +538,7 @@ fun MessageBubble(
                             if (onRetry != null) DropdownMenuItem(text = { Text("Retry") }, onClick = { overflowExpanded = false; onRetry() })
                             if (onEditAssistant != null) DropdownMenuItem(text = { Text("Edit message") }, onClick = { overflowExpanded = false; onEditAssistant() })
                             if (onBranch != null) DropdownMenuItem(text = { Text("Branch in new chat") }, onClick = { overflowExpanded = false; onBranch() })
-                            if (onAddToProject != null) DropdownMenuItem(text = { Text("Add to project sources") }, onClick = { overflowExpanded = false; onAddToProject() })
+                            if (onAddToProject != null) DropdownMenuItem(text = { Text("Save to wiki") }, onClick = { overflowExpanded = false; onAddToProject() })
                             if (onSaveAsArtifact != null) DropdownMenuItem(text = { Text("Save as artifact") }, onClick = { overflowExpanded = false; onSaveAsArtifact() })
                             if (onInvestigateWithAi != null) DropdownMenuItem(text = { Text("Create code change") }, onClick = { overflowExpanded = false; onInvestigateWithAi() })
                             DropdownMenuItem(text = { Text("Delete") }, onClick = { overflowExpanded = false; onDelete?.invoke() }, enabled = onDelete != null)
@@ -514,9 +558,10 @@ fun MessageBubble(
     } else {
         // --- User: right-aligned pill bubble ---
         var menuExpanded by remember { mutableStateOf(false) }
-        val bubbleColor = MaterialTheme.colorScheme.primary
-        val textColor = MaterialTheme.colorScheme.onPrimary
-        val bubbleShape = RoundedCornerShape(topStart = 16.dp, topEnd = 4.dp, bottomStart = 16.dp, bottomEnd = 16.dp)
+        val isDark = LocalNexyColors.current.isDark
+        val bubbleColor = if (isDark) Blue900.copy(alpha = 0.6f) else Blue100
+        val textColor = if (isDark) Gray100 else Gray900
+        val bubbleShape = RoundedCornerShape(8.dp)
         val displayText = remember(msg.text) { stripInjectedContextBlocks(msg.text) }
 
         val highlightAlpha = remember { Animatable(0f) }
@@ -531,13 +576,13 @@ fun MessageBubble(
             modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
             horizontalAlignment = Alignment.End,
         ) {
-            Box(modifier = Modifier.widthIn(max = 300.dp)) {
+            Box(modifier = Modifier.fillMaxWidth(0.8f)) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(bubbleColor, bubbleShape)
                     .combinedClickable(onClick = {}, onLongClick = { menuExpanded = true })
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
             ) {
                 DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                     DropdownMenuItem(text = { Text("Copy") }, onClick = { menuExpanded = false; onCopy() })
@@ -603,12 +648,36 @@ fun MessageBubble(
     }
 }
 
+// Exact truncation thresholds mirrored from desktop's ToolCallBlock.tsx:20-22, so the
+// "+N more lines" breakpoint feels identical between platforms.
+internal const val RESULT_PREVIEW_LINES = 3
+internal const val RESULT_PREVIEW_CHARS = 240
+internal const val RESULT_MAX_CHARS = 2000
+
+internal data class ResultPreview(val text: String, val hiddenLineCount: Int, val truncated: Boolean)
+
+internal fun buildResultPreview(result: String, lineCap: Int = RESULT_PREVIEW_LINES): ResultPreview {
+    val lines = result.split("\n")
+    val previewLines = lines.take(lineCap)
+    var preview = previewLines.joinToString("\n")
+    var hiddenLineCount = (lines.size - lineCap).coerceAtLeast(0)
+    val charTruncated = preview.length > RESULT_PREVIEW_CHARS
+    if (charTruncated) preview = preview.take(RESULT_PREVIEW_CHARS)
+    return ResultPreview(preview, hiddenLineCount, truncated = hiddenLineCount > 0 || charTruncated)
+}
+
+internal fun buildExpandedResult(result: String): String =
+    if (result.length > RESULT_MAX_CHARS) result.take(RESULT_MAX_CHARS) + "\n…(truncated)" else result
+
 @Composable
 fun ToolCallBubble(msg: ChatMessage, inProgress: Boolean = false) {
-    val isTeamActivity = msg.serverName == "Team activity"
     val hasDetails = !msg.toolArgs.isNullOrBlank() || !msg.toolResult.isNullOrBlank()
-    var expanded by remember { mutableStateOf(false) }
-    var userCollapsed by remember { mutableStateOf(false) }
+    // Pure user-toggle expand/collapse — desktop removed the timed auto-collapse entirely
+    // (ToolCallBlock.tsx no longer has one), so Android must not reintroduce it either.
+    var expanded by remember { mutableStateOf(inProgress && hasDetails) }
+    LaunchedEffect(inProgress, hasDetails) {
+        if (inProgress && hasDetails) expanded = true
+    }
     val preview = when {
         inProgress -> "Running…"
         msg.toolResult?.isNotBlank() == true -> cleanToolResultPreview(msg.toolResult)
@@ -616,127 +685,141 @@ fun ToolCallBubble(msg: ChatMessage, inProgress: Boolean = false) {
         else -> "Failed"
     }
 
-    // Track hasDetails without restarting the collapse timer when result arrives (M4).
-    val hasDetailsRef = remember { mutableStateOf(hasDetails) }
-    hasDetailsRef.value = hasDetails
-
-    // Expand when in-progress and details arrive; only depends on inProgress (M4).
-    // Team activity bubbles never auto-collapse — they hold orchestration context the user needs.
-    LaunchedEffect(inProgress) {
-        if (inProgress) {
-            if (hasDetailsRef.value && !userCollapsed) expanded = true
-        } else if (!isTeamActivity && expanded && !userCollapsed) {
-            delay(2000)
-            expanded = false
-            userCollapsed = false
-        }
-    }
-
-    // Expand when details first arrive mid-progress (hasDetails flips true while inProgress).
-    LaunchedEffect(hasDetails) {
-        if (inProgress && hasDetails && !userCollapsed) expanded = true
-    }
-
-    // Re-expand when content updates arrive while in-progress (prevents collapse between steps).
-    LaunchedEffect(msg.toolResult, msg.toolArgs) {
-        if (inProgress && hasDetailsRef.value && !userCollapsed) expanded = true
-    }
-
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(enabled = hasDetails) {
-                    val next = !expanded
-                    expanded = next
-                    if (!next && inProgress) userCollapsed = true
-                    if (next) userCollapsed = false
-                }
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Crossfade(targetState = inProgress, label = "tool-status-icon") { running ->
-                if (running) {
-                    Icon(
-                        Icons.Default.Psychology,
-                        contentDescription = "Tool running",
-                        modifier = Modifier.size(15.dp),
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                } else {
-                    Icon(
-                        if (msg.toolSuccess) Icons.Default.CheckCircle else Icons.Default.Error,
-                        contentDescription = if (msg.toolSuccess) "Tool succeeded" else "Tool failed",
-                        modifier = Modifier.size(15.dp),
-                        tint = if (msg.toolSuccess) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                    )
-                }
-            }
-            Text(
-                msg.toolName ?: "Tool call",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            if (!msg.serverName.isNullOrBlank()) {
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                ) {
-                    Text(
-                        msg.serverName,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                    )
-                }
-            }
-            Text(
-                preview,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            if (hasDetails) {
-                Icon(
-                    if (expanded) Icons.Default.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                    contentDescription = if (expanded) "Collapse tool details" else "Expand tool details",
-                    modifier = Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        AnimatedVisibility(
-            visible = expanded,
-            enter = expandVertically() + fadeIn(),
-            exit = shrinkVertically() + fadeOut(),
-        ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+    ChatTimelineEntry(beadColor = toolCallBeadColor(inProgress, msg.toolSuccess), pulse = inProgress) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = hasDetails) { expanded = !expanded }
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                if (!msg.toolArgs.isNullOrBlank()) {
-                    ToolDetailSection(label = "Arguments", value = msg.toolArgs)
+                Crossfade(targetState = inProgress, label = "tool-status-icon") { running ->
+                    if (running) {
+                        Icon(
+                            Icons.Default.Psychology,
+                            contentDescription = "Tool running",
+                            modifier = Modifier.size(14.dp),
+                            tint = Blue500,
+                        )
+                    } else {
+                        Icon(
+                            if (msg.toolSuccess) Icons.Default.CheckCircle else Icons.Default.Error,
+                            contentDescription = if (msg.toolSuccess) "Tool succeeded" else "Tool failed",
+                            modifier = Modifier.size(14.dp),
+                            tint = if (msg.toolSuccess) Green500 else Red500,
+                        )
+                    }
                 }
-                if (!msg.toolResult.isNullOrBlank()) {
-                    ToolDetailSection(label = "Result", value = msg.toolResult)
+                Text(
+                    msg.toolName ?: "Tool call",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (!msg.serverName.isNullOrBlank()) {
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                    ) {
+                        Text(
+                            msg.serverName,
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 0.dp),
+                        )
+                    }
+                }
+                Text(
+                    preview,
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (hasDetails) {
+                    Icon(
+                        if (expanded) Icons.Default.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = if (expanded) "Collapse tool details" else "Expand tool details",
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandVertically(animationSpec = tween(200, easing = LinearOutSlowInEasing)),
+                exit = shrinkVertically(animationSpec = tween(200, easing = LinearOutSlowInEasing)),
+            ) {
+                Column(
+                    modifier = Modifier.padding(vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    if (!msg.toolArgs.isNullOrBlank()) {
+                        ToolDetailSection(label = "Arguments", value = msg.toolArgs)
+                    }
+                    if (!msg.toolResult.isNullOrBlank()) {
+                        ToolResultPreviewSection(result = msg.toolResult, isError = !msg.toolSuccess)
+                    }
                 }
             }
         }
     }
 }
 
+@Composable
+private fun ToolResultPreviewSection(result: String, isError: Boolean) {
+    var expanded by remember { mutableStateOf(false) }
+    val cleaned = remember(result) { stripAnsiEscapes(result) }
+    val lineCap = if (isError) RESULT_PREVIEW_LINES + 1 else RESULT_PREVIEW_LINES
+    val preview = remember(cleaned, lineCap) { buildResultPreview(cleaned, lineCap) }
+    val textColor = if (isError) Red500 else MaterialTheme.colorScheme.onSurfaceVariant
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(
+            "RESULT",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = FontWeight.SemiBold,
+        )
+        SelectionContainer {
+            Text(
+                if (expanded) buildExpandedResult(cleaned) else preview.text,
+                fontSize = 11.sp,
+                lineHeight = 17.sp,
+                fontFamily = FontFamily.Monospace,
+                color = textColor,
+            )
+        }
+        if (preview.truncated) {
+            Text(
+                if (expanded) "Show less" else if (preview.hiddenLineCount > 0) "+${preview.hiddenLineCount} more line(s)" else "Show more",
+                fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                modifier = Modifier.clickable { expanded = !expanded },
+            )
+        }
+    }
+}
+
+// Strips ANSI/VT100 escape sequences (SGR color codes, cursor movement, etc.) that raw CLI
+// subprocess output — e.g. Codex's own PowerShell "Run Command" tool results — can embed
+// directly in the string. Left unstripped these render as either invisible control-byte tofu
+// boxes or, once unescapeJsonString correctly decodes \uXXXX escapes, literal "ESC[31;1m"-style
+// noise, neither of which is meaningful in a chat bubble with no terminal to interpret them.
+private val ANSI_ESCAPE_RE = Regex("\u001B\\[[0-9;]*[a-zA-Z]")
+
+internal fun stripAnsiEscapes(text: String): String = text.replace(ANSI_ESCAPE_RE, "")
+
 internal fun cleanToolResultPreview(result: String): String {
-    val trimmed = result.trim()
+    val trimmed = stripAnsiEscapes(result.trim())
     // If it looks like JSON, extract a meaningful summary rather than raw structure
     if ((trimmed.startsWith("{") && trimmed.endsWith("}")) ||
         (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
@@ -746,12 +829,8 @@ internal fun cleanToolResultPreview(result: String): String {
             val pattern = """"$field"\s*:\s*"((?:\\.|[^"\\]){1,120})"""".toRegex()
             val match = pattern.find(trimmed)
             if (match != null) {
-                val v = match.groupValues[1]
-                    .replace("\\n", " ")
-                    .replace("\\\"", "\"")
-                    .replace("\\\\", "\\")
-                    .trim()
-                if (v.isNotBlank()) return v.replace(Regex("\\s+"), " ")
+                val v = unescapeJsonString(match.groupValues[1]).trim()
+                if (v.isNotBlank()) return stripAnsiEscapes(v).replace(Regex("\\s+"), " ")
             }
         }
         // Fall back to a compact single-line version of the JSON
@@ -771,12 +850,7 @@ internal fun parseJsonKeyValuePairs(json: String): List<Pair<String, String>>? {
         .sortedBy { it.range.first }
     for (m in allMatches) {
         val key = m.groupValues[1]
-        val raw = m.groupValues[2]
-        val value = raw
-            .replace("\\n", " ")
-            .replace("\\\"", "\"")
-            .replace("\\\\", "\\")
-            .trim()
+        val value = stripAnsiEscapes(unescapeJsonString(m.groupValues[2])).trim()
         if (value.isNotBlank()) result.add(key to value.take(120))
     }
     return if (result.isEmpty()) null else result
@@ -795,6 +869,8 @@ private fun relativeTime(timestampMs: Long): String? {
 
 @Composable
 fun ToolDetailSection(label: String, value: String) {
+    // Inline mono key: value lines, no card chrome — mirrors ToolCallBlock.tsx:113-118
+    // rather than desktop's older raw-JSON dump in a bordered box.
     val pairs = remember(value) { parseJsonKeyValuePairs(value) }
     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Text(
@@ -803,40 +879,34 @@ fun ToolDetailSection(label: String, value: String) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontWeight = FontWeight.SemiBold,
         )
-        Surface(
-            shape = RoundedCornerShape(6.dp),
-            color = MaterialTheme.colorScheme.surface,
-        ) {
-            if (pairs != null) {
-                Column(
-                    modifier = Modifier.padding(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    pairs.forEach { (k, v) ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(
-                                "$k:",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontWeight = FontWeight.Medium,
-                            )
-                            Text(
-                                v,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
+        if (pairs != null) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                pairs.forEach { (k, v) ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            "$k:",
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+                        )
+                        Text(
+                            v,
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                 }
-            } else {
-                Text(
-                    value,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.padding(8.dp),
-                )
             }
+        } else {
+            Text(
+                value,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
