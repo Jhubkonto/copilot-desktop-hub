@@ -33,33 +33,38 @@ export function ThinkingBlock({ content, done, label = 'Reasoning' }: ThinkingBl
   }
 
   return (
-    <div className="message-enter my-1 overflow-hidden rounded-lg border border-purple-200 bg-purple-50 text-xs shadow-sm dark:border-purple-900/60 dark:bg-purple-950/30">
+    // No border of its own — the parent (ChatMessages) wraps a whole sequence of these
+    // (reasoning, tool calls, final text) in one shared left-border-accent container, so
+    // they read as a single continuous chained timeline rather than separate segments.
+    <div className="message-enter text-xs">
       <button
         type="button"
         onClick={handleToggle}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-purple-100 dark:hover:bg-purple-900/30"
+        className="flex w-full items-center gap-2 py-1 text-left transition-opacity hover:opacity-80 disabled:hover:opacity-100"
         aria-expanded={!collapsed}
         disabled={content.length === 0}
       >
         <Brain className="h-3.5 w-3.5 shrink-0 text-purple-500 dark:text-purple-400" />
-        <span className="flex-1 font-medium text-purple-700 dark:text-purple-300">
+        <span className="flex-1 font-medium text-gray-800 dark:text-gray-100">
           {done
             ? `${label} · ${charCount > 2000 ? `>${Math.floor(charCount / 1000)}k` : `~${Math.max(100, Math.round(charCount / 100) * 100)}`} chars`
             : `${label}…`}
         </span>
         {!done && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-purple-400" />}
         {content.length > 0 && (collapsed
-          ? <ChevronRight className="h-3.5 w-3.5 shrink-0 text-purple-400" />
-          : <ChevronDown className="h-3.5 w-3.5 shrink-0 text-purple-400" />)}
+          ? <ChevronRight className="h-3.5 w-3.5 shrink-0 text-gray-400" />
+          : <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400" />)}
       </button>
-      {!collapsed && content.length > 0 && (
-        <div className="border-t border-purple-200 px-3 py-2 dark:border-purple-900/60">
-          <pre
-            ref={contentRef}
-            className={`${VIEWPORT_CLASS} overflow-y-auto whitespace-pre-wrap text-[13px] leading-relaxed text-purple-800 dark:text-purple-200`}
-          >
-            {content}
-          </pre>
+      {content.length > 0 && (
+        <div className={`grid transition-[grid-template-rows] duration-200 ease-out ${collapsed ? 'grid-rows-[0fr]' : 'grid-rows-[1fr]'}`}>
+          <div className="overflow-hidden">
+            <pre
+              ref={contentRef}
+              className={`${VIEWPORT_CLASS} overflow-y-auto whitespace-pre-wrap py-1 text-[13px] leading-relaxed text-gray-600 dark:text-gray-400`}
+            >
+              {content}
+            </pre>
+          </div>
         </div>
       )}
     </div>

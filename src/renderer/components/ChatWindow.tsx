@@ -148,6 +148,11 @@ export function ChatWindow() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  // The scrollable container itself never changes size (overflow-y-auto, fixed height),
+  // so a ResizeObserver on it wouldn't see content growth — observe the inner content
+  // column instead, whose natural height grows as messages/streamed text/tool blocks
+  // are appended (see the ResizeObserver-based auto-follow effect below).
+  const contentContainerRef = useRef<HTMLDivElement>(null)
   const isUserScrolledUpRef = useRef(false)
   // Set immediately before a programmatic scroll and cleared a frame later. Content
   // growing taller between the scrollTo() call and the browser's resulting scroll
@@ -160,8 +165,6 @@ export function ChatWindow() {
   // Set while a manual "scroll to request" jump is in flight so the generation
   // auto-follow effect doesn't fight it and drag the view back to the bottom.
   const suppressAutoFollowUntilRef = useRef(0)
-  // Coalesces auto-follow into at most one pending rAF at a time.
-  const autoFollowRafRef = useRef<number | null>(null)
   const prevGeneratingRef = useRef(false)
   const prevMessagesLengthRef = useRef(0)
   // Single threshold for "is the view at the bottom", shared by scrollToBottom's
@@ -627,22 +630,6 @@ export function ChatWindow() {
     return unsubscribe
   }, [])
 
-  useEffect(() => {
-    if (typeof window.api.onToolAutoApproved !== 'function') return
-    const unsubscribe = window.api.onToolAutoApproved(({ toolName }) => {
-      chat.setMessages((prev) => [
-        ...prev,
-        {
-          id: crypto.randomUUID(),
-          role: 'system' as const,
-          content: `⚡ ${toolName} auto-approved`,
-          timestamp: Date.now(),
-        },
-      ])
-    })
-    return unsubscribe
-  }, [chat.setMessages])
-
   const pendingArtifactAttach = useAppStore((state) => state.pendingArtifactAttach)
   const clearPendingArtifactAttach = useAppStore((state) => state.clearPendingArtifactAttach)
   useEffect(() => {
@@ -696,11 +683,17 @@ export function ChatWindow() {
     }
   }, [conversationId, markConversationRead])
 
-  // Cancel any pending coalesced auto-follow rAF on unmount.
-  useEffect(() => {
-    return () => {
-      if (autoFollowRafRef.current !== null) cancelAnimationFrame(autoFollowRafRef.current)
-    }
+  // NOTE: this can't be used to *gate* whether an in-flight streaming effect should
+  // attempt to follow — right when new content is appended, the container's scrollHeight
+  // has already grown but hasn't been scrolled to catch up yet, so a fresh measurement at
+  // that exact instant reads "not near bottom" even for a user who was sitting right at
+  // the bottom a moment ago (that's what isUserScrolledUpRef, updated only by real scroll
+  // events reflecting position *before* the update, is for). It's only meaningful once
+  // content has actually settled — e.g. at turn completion, below.
+  const isNearBottom = useCallback(() => {
+    const el = scrollContainerRef.current
+    if (!el) return true
+    return el.scrollTop + el.clientHeight >= el.scrollHeight - SCROLL_BOTTOM_THRESHOLD
   }, [])
 
   // Suppresses the generation auto-follow effects for a short window so a manual
@@ -709,29 +702,26 @@ export function ChatWindow() {
     suppressAutoFollowUntilRef.current = Date.now() + 2000
   }, [])
 
-  // Auto-scroll only when user is at the bottom.
-  // Fires on displayedContent (the drained queue output), which now updates on
-  // nearly every animation frame while text streams in. Coalesce into at most one
-  // pending rAF so we don't stack a scrollTo() call (and its forced layout read)
-  // on every single tick, and skip entirely while a manual navigation (e.g. jump
-  // to the in-reply-to request) is in flight so this doesn't drag the view back.
-  // Uses a double rAF: a single rAF only guarantees "before the next paint", which
-  // for a large one-shot layout change (e.g. the reasoning bubble mounting at up to
-  // ~7.5rem tall in one render, as opposed to gradual per-character text growth)
-  // can still read a stale scrollHeight from before that layout was committed —
-  // scrolling to the wrong, too-short "bottom" and silently leaving the view behind.
-  // The second rAF runs after the browser has actually painted the new layout.
+  // Auto-scroll only when the user is at the bottom, driven by a ResizeObserver on the
+  // content column rather than guessing how many animation frames a given change (streamed
+  // text, a mounting tool-call/thinking block, its CSS grid-rows transition, syntax
+  // highlighting, images loading) takes to actually land in layout. A fixed rAF count
+  // previously either fired too early (reading a stale, too-short scrollHeight and leaving
+  // the view behind — the exact "user left behind after the response arrived" bug) or was
+  // tuned per-case for each source of growth. ResizeObserver fires exactly when the
+  // observed box's size changes, however that change happened, so it can't race ahead of
+  // or lag behind the real content growth.
   useEffect(() => {
-    if (isUserScrolledUpRef.current) return
-    if (autoFollowRafRef.current !== null) return
-    autoFollowRafRef.current = requestAnimationFrame(() => {
-      autoFollowRafRef.current = requestAnimationFrame(() => {
-        autoFollowRafRef.current = null
-        if (Date.now() < suppressAutoFollowUntilRef.current) return
-        if (shouldFollowAnimatedGrowth(isUserScrolledUpRef.current)) scrollToBottom('auto')
-      })
+    const content = contentContainerRef.current
+    if (!content) return
+    const observer = new ResizeObserver(() => {
+      if (isUserScrolledUpRef.current) return
+      if (Date.now() < suppressAutoFollowUntilRef.current) return
+      if (shouldFollowAnimatedGrowth(isUserScrolledUpRef.current)) scrollToBottom('auto')
     })
-  }, [chat.messages, chat.displayedContent, chat.liveTeamActivity, scrollToBottom])
+    observer.observe(content)
+    return () => observer.disconnect()
+  }, [scrollToBottom])
 
   // Track new content arriving while user is scrolled up → mark unread
   useEffect(() => {
@@ -757,21 +747,22 @@ export function ChatWindow() {
     return () => cancelAnimationFrame(raf1)
   }, [chat.isGenerating, scrollToBottom])
 
-  // Scroll when live thinking blocks expand (new block added or content grows).
-  // Shares the same coalesced-rAF + suppression guard as the content auto-follow
-  // effect above — thinking blocks get a new Map reference on every streamed
-  // chunk, so without coalescing this fires at the same high frequency.
+  // Safety net when generation *ends*: content is now stable (nothing else about to grow
+  // and shift the "bottom" out from under us), so a fresh measurement is trustworthy here
+  // in a way it isn't mid-stream (see isNearBottom's comment above). This catches drift
+  // accumulated during the turn — e.g. isUserScrolledUpRef having been transiently wrong
+  // for one of the streaming-follow effects above — without needing to trust that ref for
+  // this one decision. Still skips entirely if the user is genuinely scrolled away reading
+  // history: isNearBottom reflects their real current position, not a stale flag.
   useEffect(() => {
-    if (isUserScrolledUpRef.current || chat.liveTurnState.thinkingBlocks.size === 0) return
-    if (autoFollowRafRef.current !== null) return
-    autoFollowRafRef.current = requestAnimationFrame(() => {
-      autoFollowRafRef.current = requestAnimationFrame(() => {
-        autoFollowRafRef.current = null
-        if (Date.now() < suppressAutoFollowUntilRef.current) return
-        if (!isUserScrolledUpRef.current) scrollToBottom('auto')
+    if (chat.isGenerating) return
+    const raf1 = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (isNearBottom()) scrollToBottom('auto')
       })
     })
-  }, [chat.liveTurnState.thinkingBlocks, scrollToBottom])
+    return () => cancelAnimationFrame(raf1)
+  }, [chat.isGenerating, scrollToBottom, isNearBottom])
 
   // Reset scroll state on conversation switch
   useEffect(() => {
@@ -1712,6 +1703,7 @@ export function ChatWindow() {
           loadingFailed={chat.loadingFailed}
           messagesEndRef={messagesEndRef}
           scrollContainerRef={scrollContainerRef}
+          contentContainerRef={contentContainerRef}
           onScroll={handleScrollContainerScroll}
           onNavigateToRequest={handleNavigateToRequest}
           onCopy={handleCopy}

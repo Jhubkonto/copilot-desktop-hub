@@ -1,6 +1,8 @@
 import { AlertCircle, Loader2, Wrench } from 'lucide-react'
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { useGenerationTimer } from '../../hooks/useGenerationTimer'
+import { useThrottledValue } from '../../hooks/useThrottledValue'
+import { CHAT_MARKDOWN_THROTTLE_MS } from '../../../shared/chat-animation'
 import { getModelLabel } from '../../../shared/models'
 import { useAppStore } from '../../store/app-store'
 import { MarkdownRenderer } from '../MarkdownRenderer'
@@ -8,9 +10,10 @@ import { MessageBubble, stripInjectedBlocks } from '../MessageBubble'
 import { TeamActivityBlock } from '../TeamActivityBlock'
 import { ToolCallBlock } from './ToolCallBlock'
 import { ThinkingBlock } from './ThinkingBlock'
+import { CodexActionLine } from './CodexActionLine'
 import { ArtifactCard } from '../artifacts/ArtifactCard'
 import { CodeChangeCard } from './CodeChangeCard'
-import type { ActivityEvent, ChatMessage, CliCostSummary, TeamActivityStep } from '../../hooks/chat-types'
+import type { ChatMessage, CliCostSummary, TeamActivityStep } from '../../hooks/chat-types'
 import type { RemoteEditBackend } from '@shared/types'
 import { buildChatRenderItems } from '../../hooks/chat-render-items'
 import { createEmptyChatTurnState, type ChatTurnState } from '../../hooks/chat-turn-reducer'
@@ -22,11 +25,11 @@ interface ChatMessagesProps {
   liveTeamActivity: TeamActivityStep[]
   streamingContent: string
   cliCost?: CliCostSummary | null
-  currentActivity?: ActivityEvent | null
   generationStartedAt: number | null
   loadingFailed: boolean
   messagesEndRef: RefObject<HTMLDivElement | null>
   scrollContainerRef?: RefObject<HTMLDivElement | null>
+  contentContainerRef?: RefObject<HTMLDivElement | null>
   onScroll?: () => void
   onNavigateToRequest?: () => void
   onCopy: (content: string) => void
@@ -58,14 +61,44 @@ interface MsgGroup {
   index: number
 }
 
-function toolCallSignature(toolName?: string, serverName?: string, result?: string): string {
-  return [toolName ?? '', serverName ?? '', result ?? ''].join('\u0000')
+export function getThinkingBlockLabel(blockId: string): string {
+  if (blockId.startsWith('codex-reasoning-summary')) return 'Reasoning summary'
+  return 'Reasoning'
 }
 
-export function getThinkingBlockLabel(blockId: string): string {
-  if (blockId === 'codex-reasoning-summary') return 'Reasoning summary'
-  if (blockId === 'codex-activity') return 'Codex activity'
-  return 'Reasoning'
+// Codex CLI turns render their reasoning/tool-call timeline as short bulleted lines
+// (matching Codex's own CLI output) instead of the boxed ThinkingBlock/ToolCallBlock
+// cards every other backend uses — both signals below already exist on the data
+// without any extra backend plumbing.
+function isCodexThinkingBlock(blockId: string): boolean {
+  return blockId.startsWith('codex-reasoning-summary')
+}
+function isCodexToolCall(serverName: string | undefined): boolean {
+  return serverName === 'codex-cli'
+}
+
+// A status-colored bead sitting directly on the shared timeline border, marking each
+// step's position along it — mirrors the connected dot-and-line action list used for
+// tool calls in Claude Code's own CLI output.
+function TimelineEntry({ children, colorClass, pulse }: { children: ReactNode; colorClass: string; pulse?: boolean }) {
+  return (
+    <div className="relative">
+      <span
+        aria-hidden="true"
+        className={`absolute -left-[17px] top-1.5 h-2.5 w-2.5 shrink-0 rounded-full ring-2 ring-white dark:ring-gray-900 ${colorClass} ${pulse ? 'animate-pulse' : ''}`}
+      />
+      {children}
+    </div>
+  )
+}
+
+function toolCallDotColor(inProgress: boolean | undefined, success: boolean | undefined): string {
+  if (inProgress) return 'bg-blue-500'
+  return success === false ? 'bg-red-500' : 'bg-green-500'
+}
+
+function thinkingDotColor(done: boolean): string {
+  return done ? 'bg-purple-500' : 'bg-purple-400'
 }
 
 function getRequestPreview(content: string): string {
@@ -83,11 +116,11 @@ export function ChatMessagesBase({
   liveTeamActivity,
   streamingContent,
   cliCost,
-  currentActivity,
   generationStartedAt,
   loadingFailed,
   messagesEndRef,
   scrollContainerRef,
+  contentContainerRef,
   onScroll,
   onNavigateToRequest,
   onCopy,
@@ -109,6 +142,10 @@ export function ChatMessagesBase({
 }: ChatMessagesProps) {
   const catalogModels = useAppStore((state) => state.catalogModels)
   const generationElapsedSec = useGenerationTimer(isGenerating, generationStartedAt)
+  // ReactMarkdown + rehype-highlight re-parse their entire input on every render, which is
+  // too expensive (and visually flickery on incomplete code fences) to run at the reveal
+  // animation's ~60fps cadence — throttle what's handed to MarkdownRenderer while streaming.
+  const throttledStreamingContent = useThrottledValue(streamingContent, CHAT_MARKDOWN_THROTTLE_MS, isGenerating)
   const messageElementsRef = useRef(new Map<string, HTMLDivElement>())
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [visibleMessageIds, setVisibleMessageIds] = useState<Set<string>>(new Set())
@@ -137,53 +174,46 @@ export function ChatMessagesBase({
 
   // Group consecutive tool-call messages with the assistant message that follows them.
   // This ensures one message-enter animation per turn rather than one per block.
+  // Dangling tool calls with no assistant message yet (mid-turn: they're inserted into
+  // `messages` immediately for progress display, before the turn commits) are further
+  // merged with each other into one chained group instead of one group per call — without
+  // this, each landed as its own top-level item with the generous space-y-8 gap between
+  // top-level items, then visibly "condensed" down to the tighter chained-timeline spacing
+  // the instant the turn committed and they got grouped with the assistant message.
   const msgGroups = useMemo<MsgGroup[]>(() => {
-    return buildChatRenderItems(messages, createEmptyChatTurnState(null), { includeLiveTurn: false })
-      .flatMap((item): MsgGroup[] => {
-        if (item.type === 'historical-tool-group') {
-          return [{ main: item.message, toolCalls: item.toolCalls, index: item.index }]
-        }
-        if (item.type === 'historical-message') {
-          return [{ main: item.message, toolCalls: [], index: item.index }]
-        }
-        return []
+    const rawItems = buildChatRenderItems(messages, createEmptyChatTurnState(null), { includeLiveTurn: false })
+    const groups: MsgGroup[] = []
+    let pendingDanglingToolCalls: ChatMessage[] = []
+    const flushDangling = () => {
+      if (pendingDanglingToolCalls.length === 0) return
+      const [main, ...rest] = pendingDanglingToolCalls
+      groups.push({ main, toolCalls: rest, index: messages.length })
+      pendingDanglingToolCalls = []
+    }
+    for (const item of rawItems) {
+      if (item.type === 'historical-tool-group') {
+        flushDangling()
+        groups.push({ main: item.message, toolCalls: item.toolCalls, index: item.index })
+      } else if (item.type === 'historical-message' && item.message.role === 'tool-call') {
+        pendingDanglingToolCalls.push(item.message)
+      } else if (item.type === 'historical-message') {
+        flushDangling()
+        groups.push({ main: item.message, toolCalls: [], index: item.index })
       }
-      )
+    }
+    flushDangling()
+    return groups
   }, [messages])
   const effectiveLiveTurnState = liveTurnState ?? createEmptyChatTurnState(null)
+  // buildChatRenderItems already de-dupes against committed historical messages and
+  // interleaves thinking blocks/tool calls by firstSeenSequence — the live area below
+  // renders this directly instead of maintaining separate parallel derivations.
   const liveRenderItems = useMemo(
     () => buildChatRenderItems(messages, effectiveLiveTurnState, { includeLiveTurn: true })
       .filter((item) => item.type !== 'historical-message' && item.type !== 'historical-tool-group'),
     [messages, effectiveLiveTurnState],
   )
-  const effectiveLiveThinkingBlocks = liveTurnState?.thinkingBlocks
-  const effectiveCurrentActivity =
-    currentActivity ?? (
-      liveTurnState?.activity
-        ? liveTurnState.activity.state === 'tool'
-          ? {
-              type: 'tool' as const,
-              name: liveTurnState.activity.toolName ?? liveTurnState.activity.label,
-              server: liveTurnState.activity.serverName ?? '',
-            }
-          : { type: 'thinking' as const }
-        : null
-    )
   const effectiveCliCost = cliCost ?? liveTurnState?.cost ?? null
-  const liveToolCalls = useMemo(() => {
-    if (!liveTurnState?.toolCalls.length) return []
-    const committedIds = new Set<string>()
-    const committedSignatures = new Set<string>()
-    for (const message of messages) {
-      if (message.role !== 'tool-call') continue
-      if (message.toolCallId) committedIds.add(message.toolCallId)
-      committedSignatures.add(toolCallSignature(message.toolName, message.serverName, message.toolResult))
-    }
-    return liveTurnState.toolCalls.filter((toolCall) => {
-      if (toolCall.id && committedIds.has(toolCall.id)) return false
-      return !committedSignatures.has(toolCallSignature(toolCall.toolName, toolCall.serverName, toolCall.result))
-    })
-  }, [liveTurnState?.toolCalls, messages])
 
   const updateVisibleMessages = useCallback(() => {
     const container = scrollContainerRef?.current
@@ -295,7 +325,7 @@ export function ChatMessagesBase({
           </button>
         </div>
       )}
-      <div className="max-w-3xl mx-auto space-y-8 pt-6">
+      <div ref={contentContainerRef} className="max-w-3xl mx-auto space-y-8 pt-6">
         {/* Conversation start marker — decorative top treatment */}
         {!isLoadingMessages && messages.length > 0 && (
           <div className="chat-start-divider pb-6 pt-2">
@@ -388,26 +418,44 @@ export function ChatMessagesBase({
             }
           }
 
-          // Standalone tool-call (edge case: flushed trailing tool-call with no following assistant message)
-          if (main.role === 'tool-call' && toolCalls.length === 0) {
+          // Standalone tool-call chain (dangling calls with no assistant message yet —
+          // either still mid-turn, or the edge case of a turn that ends in tool calls
+          // with no trailing text). All merged into one shared-border chained group so
+          // this reads the same whether the turn is still generating or already settled.
+          if (main.role === 'tool-call') {
             return (
               <div
                 key={main.id}
                 ref={registerMessageElement(main.id)}
-                className="max-w-3xl mx-auto message-enter"
+                className="max-w-3xl mx-auto message-enter pl-3 border-l-2 border-gray-200 dark:border-gray-700 space-y-3"
                 data-message-id={main.id}
                 data-message-role={main.role}
               >
-                <ToolCallBlock
-                  toolName={main.toolName ?? main.content}
-                  serverName={main.serverName}
-                  args={main.toolArgs}
-                  result={main.toolResult}
-                  success={main.toolSuccess ?? true}
-                  inProgress={main.toolInProgress}
-                  resultImages={main.toolResultImages}
-                  onUseImageAsContext={onUseImageAsContext}
-                />
+                {[main, ...toolCalls].map((tc) => (
+                  <TimelineEntry key={tc.id} colorClass={toolCallDotColor(tc.toolInProgress, tc.toolSuccess ?? true)} pulse={tc.toolInProgress}>
+                    {isCodexToolCall(tc.serverName) ? (
+                      <CodexActionLine
+                        kind="tool"
+                        toolName={tc.toolName ?? tc.content}
+                        args={tc.toolArgs}
+                        result={tc.toolResult}
+                        success={tc.toolSuccess ?? true}
+                        inProgress={tc.toolInProgress}
+                      />
+                    ) : (
+                      <ToolCallBlock
+                        toolName={tc.toolName ?? tc.content}
+                        serverName={tc.serverName}
+                        args={tc.toolArgs}
+                        result={tc.toolResult}
+                        success={tc.toolSuccess ?? true}
+                        inProgress={tc.toolInProgress}
+                        resultImages={tc.toolResultImages}
+                        onUseImageAsContext={onUseImageAsContext}
+                      />
+                    )}
+                  </TimelineEntry>
+                ))}
               </div>
             )
           }
@@ -421,32 +469,48 @@ export function ChatMessagesBase({
               data-message-id={main.id}
               data-message-role={main.role}
             >
-              {main.role === 'assistant' && main.thinkingBlocks && main.thinkingBlocks.size > 0 && (
-                <div className="mb-1">
-                  {Array.from(main.thinkingBlocks.values()).map((block) => (
-                    <ThinkingBlock
-                      key={block.blockId}
-                      content={block.content}
-                      done={block.done}
-                      label={getThinkingBlockLabel(block.blockId)}
-                    />
+              {((main.role === 'assistant' && main.thinkingBlocks && main.thinkingBlocks.size > 0) || toolCalls.length > 0) && (
+                // One shared left-border thread for the whole sequence — reasoning and
+                // tool calls read as chained steps rather than separately-bordered blocks,
+                // with generous spacing between them along it.
+                <div className="mb-2 pl-3 border-l-2 border-gray-200 dark:border-gray-700 space-y-3">
+                  {main.role === 'assistant' && main.thinkingBlocks && Array.from(main.thinkingBlocks.values()).map((block) => (
+                    <TimelineEntry key={block.blockId} colorClass={thinkingDotColor(block.done)} pulse={!block.done}>
+                      {isCodexThinkingBlock(block.blockId) ? (
+                        <CodexActionLine kind="reasoning" content={block.content} />
+                      ) : (
+                        <ThinkingBlock
+                          content={block.content}
+                          done={block.done}
+                          label={getThinkingBlockLabel(block.blockId)}
+                        />
+                      )}
+                    </TimelineEntry>
                   ))}
-                </div>
-              )}
-              {toolCalls.length > 0 && (
-                <div className="mb-1">
                   {toolCalls.map((tc) => (
-                    <ToolCallBlock
-                      key={tc.id}
-                      toolName={tc.toolName ?? tc.content}
-                      serverName={tc.serverName}
-                      args={tc.toolArgs}
-                      result={tc.toolResult}
-                      success={tc.toolSuccess ?? true}
-                      inProgress={tc.toolInProgress}
-                      resultImages={tc.toolResultImages}
-                      onUseImageAsContext={onUseImageAsContext}
-                    />
+                    <TimelineEntry key={tc.id} colorClass={toolCallDotColor(tc.toolInProgress, tc.toolSuccess ?? true)} pulse={tc.toolInProgress}>
+                      {isCodexToolCall(tc.serverName) ? (
+                        <CodexActionLine
+                          kind="tool"
+                          toolName={tc.toolName ?? tc.content}
+                          args={tc.toolArgs}
+                          result={tc.toolResult}
+                          success={tc.toolSuccess ?? true}
+                          inProgress={tc.toolInProgress}
+                        />
+                      ) : (
+                        <ToolCallBlock
+                          toolName={tc.toolName ?? tc.content}
+                          serverName={tc.serverName}
+                          args={tc.toolArgs}
+                          result={tc.toolResult}
+                          success={tc.toolSuccess ?? true}
+                          inProgress={tc.toolInProgress}
+                          resultImages={tc.toolResultImages}
+                          onUseImageAsContext={onUseImageAsContext}
+                        />
+                      )}
+                    </TimelineEntry>
                   ))}
                 </div>
               )}
@@ -498,82 +562,122 @@ export function ChatMessagesBase({
             <TeamActivityBlock steps={liveTeamActivity} isLive={true} />
           </div>
         )}
-        {/* Live generation area: thinking + streaming text + activity dots in one container */}
-        {(effectiveLiveThinkingBlocks && effectiveLiveThinkingBlocks.size > 0 || liveToolCalls.length > 0 || isGenerating) && (
-          <div>
-            {effectiveLiveThinkingBlocks && effectiveLiveThinkingBlocks.size > 0 && (() => {
-              // Collect blockIds already committed to a historical message to avoid
-              // rendering both the live block and the frozen copy simultaneously (C1).
-              const lastAssistant = messages.length > 0
-                ? [...messages].reverse().find((m) => m.role === 'assistant')
-                : null
-              const committedBlockIds = lastAssistant?.thinkingBlocks
-                ? new Set(lastAssistant.thinkingBlocks.keys())
-                : new Set<string>()
-              const visibleLiveBlocks = Array.from(effectiveLiveThinkingBlocks.values()).filter(
-                (block) => !committedBlockIds.has(block.blockId),
-              )
-              if (visibleLiveBlocks.length === 0) return null
-              return (
-                <div>
-                  {visibleLiveBlocks.map((block) => (
-                    <ThinkingBlock
-                      key={block.blockId}
-                      content={block.content}
-                      // The reducer marks blocks done the instant the backend's turn-completion
-                      // event arrives, ahead of the text reveal animation. Keep showing the
-                      // live/streaming style for as long as isGenerating is true (i.e. until the
-                      // reveal animation actually finishes draining) so the two don't decouple.
-                      done={block.done && !isGenerating}
-                      label={getThinkingBlockLabel(block.blockId)}
-                    />
-                  ))}
-                </div>
-              )
-            })()}
-            {liveToolCalls.length > 0 && (
-              <div className="mb-1">
-                {liveToolCalls.map((toolCall, index) => (
-                  <ToolCallBlock
-                    key={toolCall.id ?? `${toolCall.toolName}-${index}`}
-                    toolName={toolCall.toolName}
-                    serverName={toolCall.serverName}
-                    args={toolCall.args}
-                    result={toolCall.result}
-                    success={toolCall.success}
-                    resultImages={toolCall.resultImages}
-                    onUseImageAsContext={onUseImageAsContext}
-                  />
-                ))}
-              </div>
-            )}
-            {isGenerating && (streamingContent || liveRenderItems.some((item) => item.type === 'live-assistant-text')) && (
-              <div className="message-enter pl-3 border-l-2 border-gray-200 dark:border-gray-700 text-sm text-gray-900 dark:text-gray-100">
-                <MarkdownRenderer content={streamingContent} />
-                <span className="animate-pulse text-gray-400">▊</span>
-              </div>
-            )}
-            {isGenerating && !streamingContent && !liveRenderItems.some((item) => item.type === 'live-assistant-text') && (
-              <div className="pl-3 border-l-2 border-gray-200 dark:border-gray-700 text-sm text-gray-500 dark:text-gray-400">
-                <div className="flex items-center gap-2 mb-2">
-                  {effectiveCurrentActivity?.type === 'tool' ? (
-                    <Wrench className="w-3.5 h-3.5 animate-pulse shrink-0 text-blue-500 dark:text-blue-400" />
-                  ) : (
+        {/* Live generation area: thinking blocks, tool calls, streaming text, and the
+            activity indicator, rendered in true chronological order via liveRenderItems
+            (see chat-render-items.ts) — a bubble never jumps out of the sequence it
+            actually happened in, and each distinct reasoning burst gets its own block.
+            Thinking/tool-call items render whenever present, independent of isGenerating
+            (they can legitimately outlive the turn briefly); the text/activity items are
+            explicitly gated on isGenerating below since liveTurnState.text/activity stay
+            populated after completion until the next turn resets them — without that gate
+            the streaming cursor would linger after the committed message already replaced it. */}
+        {(liveRenderItems.length > 0 || isGenerating) && (
+          // One shared left-border thread for the whole live sequence, with generous
+          // spacing between steps along it — reads as a chained timeline rather than a
+          // stack of separately-bordered blocks.
+          <div className="pl-3 border-l-2 border-gray-200 dark:border-gray-700 space-y-3">
+            {liveRenderItems.map((item) => {
+              if (item.type === 'live-thinking-block') {
+                // The reducer marks blocks done the instant the backend's turn-completion
+                // event arrives, ahead of the text reveal animation. Keep showing the
+                // live/streaming style for as long as isGenerating is true (i.e. until the
+                // reveal animation actually finishes draining) so the two don't decouple.
+                const done = item.block.done && !isGenerating
+                return (
+                  <TimelineEntry key={item.id} colorClass={thinkingDotColor(done)} pulse={!done}>
+                    {isCodexThinkingBlock(item.block.blockId) ? (
+                      <CodexActionLine kind="reasoning" content={item.block.content} />
+                    ) : (
+                      <ThinkingBlock
+                        content={item.block.content}
+                        done={done}
+                        label={getThinkingBlockLabel(item.block.blockId)}
+                      />
+                    )}
+                  </TimelineEntry>
+                )
+              }
+              if (item.type === 'live-tool-call') {
+                return (
+                  <TimelineEntry key={item.id} colorClass={toolCallDotColor(item.toolCall.inProgress, item.toolCall.success)} pulse={item.toolCall.inProgress}>
+                    {isCodexToolCall(item.toolCall.serverName) ? (
+                      <CodexActionLine
+                        kind="tool"
+                        toolName={item.toolCall.toolName}
+                        args={item.toolCall.args}
+                        result={item.toolCall.result}
+                        success={item.toolCall.success}
+                        inProgress={item.toolCall.inProgress}
+                      />
+                    ) : (
+                      <ToolCallBlock
+                        toolName={item.toolCall.toolName}
+                        serverName={item.toolCall.serverName}
+                        args={item.toolCall.args}
+                        result={item.toolCall.result}
+                        success={item.toolCall.success}
+                        inProgress={item.toolCall.inProgress}
+                        resultImages={item.toolCall.resultImages}
+                        onUseImageAsContext={onUseImageAsContext}
+                      />
+                    )}
+                  </TimelineEntry>
+                )
+              }
+              if (item.type === 'live-assistant-text') {
+                if (!isGenerating) return null
+                return (
+                  <div key={item.id} className="message-enter text-sm text-gray-900 dark:text-gray-100">
+                    <MarkdownRenderer content={throttledStreamingContent} />
+                    <span className="animate-pulse text-gray-400">▊</span>
+                  </div>
+                )
+              }
+              if (item.type === 'live-activity') {
+                if (!isGenerating) return null
+                return (
+                  <TimelineEntry key={item.id} colorClass={item.state === 'tool' ? 'bg-blue-500' : 'bg-gray-400'} pulse>
+                    <div className="text-sm text-gray-500 dark:text-gray-400">
+                      <div className="flex items-center gap-2 mb-2">
+                        {item.state === 'tool' ? (
+                          <Wrench className="w-3.5 h-3.5 animate-pulse shrink-0 text-blue-500 dark:text-blue-400" />
+                        ) : (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                        )}
+                        <span>
+                          {item.state === 'tool'
+                            ? <>Using <span className="font-mono text-blue-600 dark:text-blue-400">{item.toolName ?? item.label}</span>{item.serverName ? <span className="text-gray-400 dark:text-gray-500"> · {item.serverName}</span> : null}</>
+                            : <>Thinking{generationElapsedSec > 0 ? ` · ${generationElapsedSec}s` : '...'}</>
+                          }
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce [animation-delay:-0.3s]" />
+                        <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce [animation-delay:-0.15s]" />
+                        <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce" />
+                      </div>
+                    </div>
+                  </TimelineEntry>
+                )
+              }
+              return null
+            })}
+            {/* Covers the brief window after isGenerating flips true but before the first
+                turn_started/activity_changed event has arrived, so there's no dead gap. */}
+            {isGenerating && liveRenderItems.length === 0 && (
+              <TimelineEntry colorClass="bg-gray-400" pulse>
+                <div className="text-sm text-gray-500 dark:text-gray-400">
+                  <div className="flex items-center gap-2 mb-2">
                     <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-                  )}
-                  <span>
-                    {effectiveCurrentActivity?.type === 'tool'
-                      ? <>Using <span className="font-mono text-blue-600 dark:text-blue-400">{effectiveCurrentActivity.name}</span>{effectiveCurrentActivity.server ? <span className="text-gray-400 dark:text-gray-500"> · {effectiveCurrentActivity.server}</span> : null}</>
-                      : <>Thinking{generationElapsedSec > 0 ? ` · ${generationElapsedSec}s` : '...'}</>
-                    }
-                  </span>
+                    <span>Thinking{generationElapsedSec > 0 ? ` · ${generationElapsedSec}s` : '...'}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce [animation-delay:-0.3s]" />
+                    <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce [animation-delay:-0.15s]" />
+                    <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce" />
+                  </div>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce [animation-delay:-0.3s]" />
-                  <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce [animation-delay:-0.15s]" />
-                  <span className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce" />
-                </div>
-              </div>
+              </TimelineEntry>
             )}
           </div>
         )}

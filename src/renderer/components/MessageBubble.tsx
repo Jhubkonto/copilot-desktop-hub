@@ -310,7 +310,9 @@ export function MessageBubbleBase({
               ? 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 text-red-800 dark:text-red-200'
               : isSystem
                 ? 'bg-gray-50 dark:bg-gray-800/60 border border-dashed border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-300 italic'
-              : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+              : isUser
+                ? 'bg-blue-100 dark:bg-blue-900/60 text-gray-900 dark:text-gray-100'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
           } transition-shadow ${isHighlighted ? 'ring-2 ring-blue-400/70 dark:ring-blue-300/70 shadow-md' : ''}`}
         >
           {/* User image attachments */}
