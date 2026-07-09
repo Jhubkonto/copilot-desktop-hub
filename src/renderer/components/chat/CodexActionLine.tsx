@@ -2,6 +2,8 @@
 // bulleted line ("Running <command>" -> "Ran <command>", indented output beneath) —
 // this mirrors that instead of the boxed ThinkingBlock/ToolCallBlock cards used for
 // every other backend, so a Codex turn reads like Codex's own CLI session.
+import { stripAnsiEscapes } from '../../../shared/ansi'
+
 const RESULT_PREVIEW_LINES = 3
 const RESULT_PREVIEW_CHARS = 240
 
@@ -53,7 +55,8 @@ export function CodexActionLine(props: CodexActionLineProps) {
   const { toolName, args, result, success = true, inProgress = false } = props
   const arg = primaryArg(args)
   const verb = inProgress ? 'Running' : success ? 'Ran' : 'Failed:'
-  const { preview, hiddenLineCount } = result ? buildPreview(result) : { preview: '', hiddenLineCount: 0 }
+  const cleanedResult = result ? stripAnsiEscapes(result) : result
+  const { preview, hiddenLineCount } = cleanedResult ? buildPreview(cleanedResult) : { preview: '', hiddenLineCount: 0 }
 
   return (
     <div className="text-xs font-mono">

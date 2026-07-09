@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight, Globe, Loader2, Pin } from 'lucide-react'
+import { stripAnsiEscapes } from '../../../shared/ansi'
 
 interface ToolCallBlockProps {
   toolName: string
@@ -47,11 +48,12 @@ export function ToolCallBlock({
   toolName, serverName, args, result, success = true, inProgress = false, resultImages, onUseImageAsContext
 }: ToolCallBlockProps) {
   const argEntries = args ? Object.entries(args) : []
-  const hasDetails = argEntries.length > 0 || !!result || !!resultImages?.length
-  const resultPreview = result?.replace(/\s+/g, ' ').trim()
+  const cleanedResult = result ? stripAnsiEscapes(result) : result
+  const hasDetails = argEntries.length > 0 || !!cleanedResult || !!resultImages?.length
+  const resultPreview = cleanedResult?.replace(/\s+/g, ' ').trim()
 
   const { preview: previewText, truncated: resultTruncated, remainder: remainderText, hiddenLineCount } =
-    result ? buildResultPreview(result) : { preview: '', truncated: false, remainder: '', hiddenLineCount: 0 }
+    cleanedResult ? buildResultPreview(cleanedResult) : { preview: '', truncated: false, remainder: '', hiddenLineCount: 0 }
   // Anything the always-visible preview above doesn't already show — more result content,
   // or screenshots (kept behind the toggle since they're visually heavy).
   const hasExpandableContent = resultTruncated || !!resultImages?.length
