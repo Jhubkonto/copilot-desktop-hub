@@ -518,7 +518,7 @@ describe('CLI adapters', () => {
     })
   })
 
-  it('CodexAdapter emits activity and reasoning summary as thinking events', async () => {
+  it('CodexAdapter emits transient activity events and reasoning summary as thinking events', async () => {
     const proc = makeProc()
     mockSpawn.mockReturnValue(proc)
 
@@ -542,27 +542,24 @@ describe('CLI adapters', () => {
     proc.emit('close', 0)
 
     await expect(sendPromise).resolves.toBe('Done.')
+    // Lifecycle narration is now a transient activity event — never persisted into a
+    // thinking block, unlike real model reasoning below.
+    expect(onEvent).toHaveBeenCalledWith({ type: 'activity', label: 'Starting Codex CLI.' })
+    expect(onEvent).toHaveBeenCalledWith({ type: 'activity', label: 'Started Codex session.' })
+    expect(onEvent).toHaveBeenCalledWith({ type: 'activity', label: 'Started Codex turn.' })
+    expect(onEvent).toHaveBeenCalledWith({ type: 'activity', label: 'Codex turn completed.' })
     expect(onEvent).toHaveBeenCalledWith({
       type: 'thinking_chunk',
-      blockId: 'codex-activity',
-      chunk: 'Starting Codex CLI.\n',
-    })
-    expect(onEvent).toHaveBeenCalledWith({
-      type: 'thinking_chunk',
-      blockId: 'codex-reasoning-summary',
+      blockId: 'codex-reasoning-summary-0',
       chunk: 'I will inspect the request.',
     })
     expect(onEvent).toHaveBeenCalledWith({
       type: 'thinking_end',
-      blockId: 'codex-reasoning-summary',
-    })
-    expect(onEvent).toHaveBeenCalledWith({
-      type: 'thinking_end',
-      blockId: 'codex-activity',
+      blockId: 'codex-reasoning-summary-0',
     })
   })
 
-  it('CodexAdapter records failed tool activity', async () => {
+  it('CodexAdapter records failed tool activity via tool_end, without duplicating it as a thinking block', async () => {
     const proc = makeProc()
     mockSpawn.mockReturnValue(proc)
 
@@ -606,10 +603,146 @@ describe('CLI adapters', () => {
       content: 'Permission denied',
       isError: true,
     })
+    // Tool-call narration is deliberately not surfaced as a separate activity/thinking
+    // event anymore — it would just duplicate the tool_end event and its ToolCallBlock.
+    expect(onEvent).not.toHaveBeenCalledWith(expect.objectContaining({ label: expect.stringContaining('browser_navigate') }))
+  })
+
+  it('CodexAdapter emits tool_start/tool_end for native command_execution and file_change items, not just MCP tool calls', async () => {
+    const proc = makeProc()
+    mockSpawn.mockReturnValue(proc)
+
+    const onEvent = vi.fn()
+    const sendPromise = CodexAdapter.send({} as never, {
+      messages: [{ role: 'user', content: 'create a file' }],
+      cwd: 'C:\\workspace',
+      model: 'default',
+      conversationId: 'conv-1',
+    }, () => {}, onEvent)
+
+    proc.stdout.emit('data', Buffer.from([
+      JSON.stringify({
+        type: 'item.started',
+        item: { id: 'cmd-1', type: 'command_execution', command: 'ls -la' },
+      }),
+      JSON.stringify({
+        type: 'item.completed',
+        item: { id: 'cmd-1', type: 'command_execution', command: 'ls -la', aggregated_output: 'file.txt', status: 'completed' },
+      }),
+      JSON.stringify({
+        type: 'item.started',
+        item: { id: 'fc-1', type: 'file_change', path: 'src/foo.ts' },
+      }),
+      JSON.stringify({
+        type: 'item.completed',
+        item: { id: 'fc-1', type: 'file_change', path: 'src/foo.ts', status: 'completed' },
+      }),
+      JSON.stringify({ type: 'item.completed', item: { id: 'item_2', type: 'agent_message', text: 'Done.' } }),
+      '',
+    ].join('\n')))
+    proc.emit('close', 0)
+
+    await expect(sendPromise).resolves.toBe('Done.')
+
     expect(onEvent).toHaveBeenCalledWith({
-      type: 'thinking_chunk',
-      blockId: 'codex-activity',
-      chunk: 'Failed browser_navigate.\n',
+      type: 'tool_start',
+      id: 'cmd-1',
+      name: 'Run Command',
+      input: { command: 'ls -la' },
+    })
+    expect(onEvent).toHaveBeenCalledWith({
+      type: 'tool_end',
+      id: 'cmd-1',
+      content: 'file.txt',
+      isError: false,
+    })
+    expect(onEvent).toHaveBeenCalledWith({
+      type: 'tool_start',
+      id: 'fc-1',
+      name: 'Edit File',
+      input: { path: 'src/foo.ts' },
+    })
+    expect(onEvent).toHaveBeenCalledWith({
+      type: 'tool_end',
+      id: 'fc-1',
+      content: '',
+      isError: false,
+    })
+  })
+
+  it('CodexAdapter inserts a paragraph break between text segments split apart by a tool call', async () => {
+    const proc = makeProc()
+    mockSpawn.mockReturnValue(proc)
+
+    const chunks: string[] = []
+    const sendPromise = CodexAdapter.send({} as never, {
+      messages: [{ role: 'user', content: 'create a file' }],
+      cwd: 'C:\\workspace',
+      model: 'default',
+      conversationId: 'conv-1',
+    }, (chunk: string) => chunks.push(chunk))
+
+    proc.stdout.emit('data', Buffer.from([
+      JSON.stringify({ type: 'item.completed', item: { id: 'msg-1', type: 'agent_message', text: "I'll check whether the file exists." } }),
+      JSON.stringify({
+        type: 'item.completed',
+        item: { id: 'cmd-1', type: 'command_execution', command: 'Test-Path file', aggregated_output: 'False', status: 'completed' },
+      }),
+      JSON.stringify({ type: 'item.completed', item: { id: 'msg-2', type: 'agent_message', text: 'The file is missing, so I created it.' } }),
+      '',
+    ].join('\n')))
+    proc.emit('close', 0)
+
+    await expect(sendPromise).resolves.toBe(
+      "I'll check whether the file exists.\n\nThe file is missing, so I created it.",
+    )
+    expect(chunks).toEqual([
+      "I'll check whether the file exists.",
+      '\n\nThe file is missing, so I created it.',
+    ])
+  })
+
+  it('CodexAdapter does not re-emit tool_start when the approval flow re-announces the same item.started id', async () => {
+    const proc = makeProc()
+    mockSpawn.mockReturnValue(proc)
+
+    const onEvent = vi.fn()
+    const sendPromise = CodexAdapter.send({} as never, {
+      messages: [{ role: 'user', content: 'run a command' }],
+      cwd: 'C:\\workspace',
+      model: 'default',
+      conversationId: 'conv-1',
+    }, () => {}, onEvent)
+
+    proc.stdout.emit('data', Buffer.from([
+      // Proposed, awaiting approval.
+      JSON.stringify({
+        type: 'item.started',
+        item: { id: 'cmd-1', type: 'command_execution', command: 'rm -rf build', aggregated_output: null, exit_code: null },
+      }),
+      // Re-announced once approved — same id, same fields.
+      JSON.stringify({
+        type: 'item.started',
+        item: { id: 'cmd-1', type: 'command_execution', command: 'rm -rf build', aggregated_output: null, exit_code: null },
+      }),
+      JSON.stringify({
+        type: 'item.completed',
+        item: { id: 'cmd-1', type: 'command_execution', command: 'rm -rf build', aggregated_output: 'removed', status: 'completed', exit_code: 0 },
+      }),
+      JSON.stringify({ type: 'item.completed', item: { id: 'item_2', type: 'agent_message', text: 'Done.' } }),
+      '',
+    ].join('\n')))
+    proc.emit('close', 0)
+
+    await expect(sendPromise).resolves.toBe('Done.')
+
+    const toolStartCalls = onEvent.mock.calls.filter(([event]) => event.type === 'tool_start' && event.id === 'cmd-1')
+    expect(toolStartCalls).toHaveLength(1)
+    expect(onEvent).toHaveBeenCalledWith({
+      type: 'tool_end',
+      id: 'cmd-1',
+      content: 'removed',
+      isError: false,
     })
   })
 

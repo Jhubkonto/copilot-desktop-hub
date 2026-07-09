@@ -114,6 +114,13 @@ vi.mock('../tools', () => ({ requestApproval: vi.fn(), registerApprovalResolver:
 vi.mock('../context-compression', () => ({
   applyRollingContextCompression: vi.fn((_db, _conversationId, messages) => ({ messages, summary: null })),
 }))
+vi.mock('../chat-context-builder', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../chat-context-builder')>()
+  // Wrapped in vi.fn() so a single test can override it (e.g. simulate an unexpected
+  // throw) via mockRejectedValueOnce, while every other test still gets the real
+  // implementation by default.
+  return { ...actual, buildChatContext: vi.fn(actual.buildChatContext) }
+})
 vi.mock('../providers', () => ({
   DEFAULT_PROVIDER_MODEL: 'gpt-5-mini',
   NO_PROVIDER_CONFIGURED_MESSAGE: 'No provider configured. Add an API key in Settings.',
@@ -145,6 +152,8 @@ import { getApiKey, sendOpenAIMessage } from '../providers'
 import { requestApproval } from '../tools'
 import { runOrchestration } from '../orchestrator'
 import { runProviderMcpToolLoop } from '../tool-loop'
+import { buildChatContext } from '../chat-context-builder'
+import { getActivitySnapshot } from '../activity-tracker'
 
 describe('chat handlers', () => {
   beforeEach(() => {
@@ -601,6 +610,54 @@ describe('chat handlers', () => {
 
     await expect(handler({}, 'conv-1')).resolves.toBe(true)
     expect(state.abortActiveStream).toHaveBeenCalledWith('conv-1')
+  })
+
+  it('closes out the background activity entry when an unexpected error occurs before any provider/CLI dispatch begins', async () => {
+    // buildChatContext runs before any of the branch-specific try/catch blocks — an
+    // unhandled throw there used to skip every turnEmitter.closeStream()/sendStreamEnd()
+    // call, leaving the chat's activity-tracker entry ("still generating") stuck forever.
+    vi.mocked(buildChatContext).mockRejectedValueOnce(new Error('context build blew up'))
+
+    const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<unknown>
+    await handler({ sender: {} }, 'conv-context-crash', 'Hello there')
+
+    expect(state.send).toHaveBeenCalledWith('chat:stream-error', expect.objectContaining({
+      message: 'context build blew up',
+    }))
+    // chat:stream-response with a null payload is how closeStream signals the turn ended.
+    expect(state.send).toHaveBeenCalledWith('chat:stream-response', null)
+    const assistantMessage = state.messages.find((message) => message.role === 'assistant')
+    expect(assistantMessage?.content).toBe('context build blew up')
+    expect(getActivitySnapshot().some((activity) => activity.id === 'chat:conv-context-crash')).toBe(false)
+  })
+
+  it('clears the background activity entry after a successful CLI turn that includes a failed tool call followed by a retry', async () => {
+    // Reproduces a reported "Activity" sidebar badge stuck on 'Assistant is responding…'
+    // after a normal, fully-completed CLI response — specifically one where the CLI's own
+    // agentic loop hit a tool_use_error (e.g. writing to a file it hadn't read yet) and
+    // recovered with a follow-up tool call before finishing successfully.
+    const mockAdapter = {
+      isAvailable: () => true,
+      send: vi.fn(async (_win: unknown, _req: unknown, onChunk: (chunk: string) => void, onEvent: (event: unknown) => void) => {
+        onEvent({ type: 'tool_start', id: 'call-1', name: 'Write', input: { file_path: 'x.test' } })
+        onEvent({ type: 'tool_end', id: 'call-1', content: '<tool_use_error>File has not been read yet.</tool_use_error>', isError: true })
+        onEvent({ type: 'tool_start', id: 'call-2', name: 'Read', input: { file_path: 'x.test' } })
+        onEvent({ type: 'tool_end', id: 'call-2', content: '1  // ok', isError: false })
+        onEvent({ type: 'cost', totalCostUsd: 0.06, inputTokens: 26, outputTokens: 1130 })
+        onChunk('It is ready to go!')
+        return 'It is ready to go!'
+      }),
+    }
+    vi.mocked(getAdapter).mockReturnValue(mockAdapter as never)
+    vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(true)
+    vi.mocked(retrieveAuthMode).mockReturnValue('none')
+    vi.mocked(getApiKey).mockReturnValue(null)
+
+    const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<{ assistantMsgId: string }>
+    await handler({ sender: {} }, 'conv-cli-retry', 'This is a test.')
+
+    expect(state.send).toHaveBeenCalledWith('chat:stream-response', null)
+    expect(getActivitySnapshot().some((activity) => activity.id === 'chat:conv-cli-retry')).toBe(false)
   })
 
   it('broadcasts messages and stream-end to mobile after orchestration completes', async () => {
