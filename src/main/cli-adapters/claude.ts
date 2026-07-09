@@ -156,7 +156,24 @@ export const ClaudeAdapter: CliAgentAdapter = {
       // Track whether we received per-token delta events. When true, the final
       // `assistant` message carries the same text and must not be re-emitted.
       let receivedDeltas = false
+      // Same duplication risk as text: streamed thinking_delta events and the final
+      // consolidated `assistant` message's thinking block both carry the same content.
+      let receivedThinkingDeltas = false
       const openToolIds = new Set<string>()
+      // The Anthropic content-block index resets to 0 for every new `assistant` message,
+      // and one CLI turn can emit several such messages as it works through tool calls —
+      // so a later, unrelated reasoning burst that happens to land at index 0 again would
+      // otherwise collide with an earlier one under the same blockId (`thinking-0`) and
+      // silently merge into it. Track reasoning as an "open block" instead: it's reused
+      // across consecutive thinking events, but any other event in between (text, a tool
+      // call) or an explicit end closes it, so the next reasoning burst gets a fresh id.
+      let thinkingBlockSeq = 0
+      let openReasoningBlockId: string | null = null
+      const nextReasoningBlockId = (): string => {
+        if (!openReasoningBlockId) openReasoningBlockId = `thinking-${thinkingBlockSeq++}`
+        return openReasoningBlockId
+      }
+      const interruptReasoning = () => { openReasoningBlockId = null }
 
       proc.stderr?.on('data', (chunk: Buffer) => {
         stderrText += chunk.toString('utf8')
@@ -176,17 +193,25 @@ export const ClaudeAdapter: CliAgentAdapter = {
             for (let i = 0; i < content.length; i++) {
               const block = content[i]
               if (block.type === 'thinking') {
-                const blockId = `thinking-${i}`
-                const thinkingText = (block as { type: 'thinking'; thinking?: string; text?: string }).thinking ?? block.text ?? ''
-                // Emit chunk before end — no async boundary between them (H6).
-                if (thinkingText) onEvent?.({ type: 'thinking_chunk', blockId, chunk: thinkingText })
-                onEvent?.({ type: 'thinking_end', blockId })
+                // Only emit here when no thinking_delta events streamed this burst already
+                // (batch mode) — otherwise this consolidated block duplicates the same text.
+                if (!receivedThinkingDeltas) {
+                  const blockId = nextReasoningBlockId()
+                  const thinkingText = (block as { type: 'thinking'; thinking?: string; text?: string }).thinking ?? block.text ?? ''
+                  // Emit chunk before end — no async boundary between them (H6).
+                  if (thinkingText) onEvent?.({ type: 'thinking_chunk', blockId, chunk: thinkingText })
+                  onEvent?.({ type: 'thinking_end', blockId })
+                }
+                // This block resolved atomically (chunk + end emitted together above), so
+                // any further thinking — even later in this same message — is a new burst.
+                interruptReasoning()
               }
               if (block.type === 'text' && block.text) {
                 if (!receivedDeltas) {
                   onChunk(block.text)
                   fullText += block.text
                 }
+                interruptReasoning()
               }
               if (block.type === 'tool_use' && 'id' in block && 'name' in block) {
                 openToolIds.add(block.id)
@@ -196,6 +221,7 @@ export const ClaudeAdapter: CliAgentAdapter = {
                   name: block.name,
                   input: 'input' in block ? (block.input ?? {}) : {},
                 })
+                interruptReasoning()
               }
             }
           }
@@ -210,6 +236,7 @@ export const ClaudeAdapter: CliAgentAdapter = {
                 content: textFromClaudeContent(block.content),
                 isError: !!block.is_error,
               })
+              interruptReasoning()
             }
           }
           if (obj.type === 'tool_result') {
@@ -221,6 +248,7 @@ export const ClaudeAdapter: CliAgentAdapter = {
                 content: textFromClaudeContent(obj.content),
                 isError: !!obj.is_error,
               })
+              interruptReasoning()
             }
           }
           if (obj.type === 'result') {
@@ -238,17 +266,24 @@ export const ClaudeAdapter: CliAgentAdapter = {
           if (obj.type === 'content_block_delta' && obj.delta) {
             const delta = obj.delta as Record<string, unknown>
             if (delta.type === 'thinking_delta' && typeof delta.thinking === 'string') {
-              const blockId = `thinking-${(obj as Record<string, unknown>).index ?? 0}`
+              receivedThinkingDeltas = true
+              const blockId = nextReasoningBlockId()
               onEvent?.({ type: 'thinking_chunk', blockId, chunk: delta.thinking })
             } else if (typeof delta.text === 'string') {
               receivedDeltas = true
               onChunk(delta.text)
               fullText += delta.text
+              interruptReasoning()
             }
           }
           if (obj.type === 'content_block_stop') {
-            const blockId = `thinking-${(obj as Record<string, unknown>).index ?? 0}`
-            onEvent?.({ type: 'thinking_end', blockId })
+            // Only fires thinking_end when a reasoning block is actually open — the old
+            // index-based lookup fired a (harmless but spurious) thinking_end for every
+            // content block's stop event, including text/tool blocks that never opened one.
+            if (openReasoningBlockId) {
+              onEvent?.({ type: 'thinking_end', blockId: openReasoningBlockId })
+              interruptReasoning()
+            }
           }
         } catch {
           // non-JSON lines — ignore
@@ -274,6 +309,10 @@ export const ClaudeAdapter: CliAgentAdapter = {
             onChunk(trimmed)
             fullText += trimmed
           }
+        }
+        if (openReasoningBlockId) {
+          onEvent?.({ type: 'thinking_end', blockId: openReasoningBlockId })
+          openReasoningBlockId = null
         }
         for (const id of openToolIds) {
           onEvent?.({

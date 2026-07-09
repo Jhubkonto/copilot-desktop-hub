@@ -13,13 +13,7 @@ function stripAnsi(str: string): string {
 }
 
 type TextResult = { text: string; isDelta: boolean }
-type ThinkingResult = { blockId: string; text: string; done?: boolean }
-
-const CODEX_ACTIVITY_BLOCK_ID = 'codex-activity'
-
-function formatActivityLine(text: string): string {
-  return `${text.trim()}\n`
-}
+type ThinkingResult = { text: string; done?: boolean; isDelta: boolean }
 
 function extractText(line: string): TextResult | null {
   try {
@@ -135,22 +129,24 @@ function extractThinking(line: string): ThinkingResult | null {
 
     if (REASONING_DELTA_TYPES.has(type)) {
       const delta = obj.delta
-      if (typeof delta === 'string' && delta) return { blockId: 'codex-reasoning-summary', text: delta }
+      if (typeof delta === 'string' && delta) return { text: delta, isDelta: true }
       const deltaRecord = asRecord(delta)
       if (typeof deltaRecord?.text === 'string' && deltaRecord.text) {
-        return { blockId: 'codex-reasoning-summary', text: deltaRecord.text }
+        return { text: deltaRecord.text, isDelta: true }
       }
     }
 
     if (REASONING_DONE_TYPES.has(type)) {
-      return { blockId: 'codex-reasoning-summary', text: '', done: true }
+      return { text: '', done: true, isDelta: true }
     }
 
     if (type === 'item.completed') {
       const item = asRecord(obj.item)
       if (item?.type === 'reasoning' || item?.type === 'reasoning_summary') {
         const text = textFromUnknown(item.summary ?? item.content ?? item.text ?? '')
-        if (text) return { blockId: 'codex-reasoning-summary', text, done: true }
+        // Consolidated (non-delta) reasoning payload — the caller only emits this when
+        // no reasoning_summary deltas already streamed the same text, to avoid duplicating it.
+        if (text) return { text, done: true, isDelta: false }
       }
     }
   } catch {
@@ -159,47 +155,49 @@ function extractThinking(line: string): ThinkingResult | null {
   return null
 }
 
-function extractActivity(line: string): { text: string; done?: boolean } | null {
+// A transient status line — never persisted, just surfaces as the live "Thinking…"
+// indicator. Item lifecycle narration (item.started/item.completed) is deliberately
+// excluded here: every non-reasoning, non-agent_message item is now a formal
+// tool_start/tool_end event (see extractToolEvent) so it renders as a persistent
+// ToolCallBlock instead of a transient line that vanishes once the turn ends.
+function extractActivity(line: string): { text: string } | null {
   try {
     const obj = JSON.parse(line) as Record<string, unknown>
     const type = typeof obj.type === 'string' ? obj.type : ''
 
     if (type === 'thread.started') return { text: 'Started Codex session.' }
     if (type === 'turn.started') return { text: 'Started Codex turn.' }
-    if (type === 'turn.completed') return { text: 'Codex turn completed.', done: true }
+    if (type === 'turn.completed') return { text: 'Codex turn completed.' }
     if (type === 'turn.failed') {
       const err = obj.error as Record<string, unknown> | undefined
       const message = typeof err?.message === 'string' ? normalizeErrorMessage(err.message) : 'Codex turn failed'
-      return { text: `Codex turn failed: ${message}`, done: true }
+      return { text: `Codex turn failed: ${message}` }
     }
     if (type === 'error') {
       const message = typeof obj.message === 'string' ? normalizeErrorMessage(obj.message) : 'Codex reported an error'
       return { text: `Codex error: ${message}` }
-    }
-
-    if (type === 'item.started' || type === 'item.completed') {
-      const item = asRecord(obj.item)
-      if (!item) return null
-      const itemType = typeof item.type === 'string' ? item.type : ''
-      if (itemType === 'agent_message') return null
-      if (/mcp|tool/.test(itemType)) {
-        const name =
-          typeof item.name === 'string' ? item.name
-            : typeof item.tool_name === 'string' ? item.tool_name
-            : typeof item.tool === 'string' ? item.tool
-            : itemType
-        if (type === 'item.started') return { text: `Running ${name}.` }
-        const failed = item.status === 'failed' || item.status === 'error' || Boolean(item.error)
-        return { text: `${failed ? 'Failed' : 'Completed'} ${name}.` }
-      }
-      if (type === 'item.started') return { text: `Started ${itemType || 'Codex item'}.` }
-      if (type === 'item.completed') return { text: `Completed ${itemType || 'Codex item'}.` }
     }
   } catch {
     // not JSON
   }
   return null
 }
+
+// Human-friendly labels for Codex's native (non-MCP) item types. Anything not
+// listed falls back to the raw itemType string.
+const ITEM_TYPE_LABELS: Record<string, string> = {
+  command_execution: 'Run Command',
+  local_shell_call: 'Run Command',
+  file_change: 'Edit File',
+  patch_apply: 'Edit File',
+  web_search_call: 'Web Search',
+  web_search: 'Web Search',
+}
+
+// Fields that describe the item's identity/outcome rather than its input — everything
+// else on the item (command, cwd, path, diff, query, arguments, ...) is surfaced as the
+// tool call's input so the ToolCallBlock shows whatever Codex actually reported.
+const ITEM_NON_INPUT_KEYS = new Set(['id', 'type', 'status', 'output', 'result', 'error', 'content', 'name', 'tool_name', 'tool'])
 
 function normalizeErrorMessage(message: string): string {
   try {
@@ -326,7 +324,13 @@ function extractToolEvent(line: string):
     const item = asRecord(obj.item)
     if (!item) return null
     const itemType = typeof item.type === 'string' ? item.type : ''
-    if (!/mcp|tool/.test(itemType) || itemType === 'agent_message') return null
+    // agent_message (final text) and reasoning (thinking blocks) have their own handlers
+    // above — every other item type (command_execution, file_change, mcp_tool_call,
+    // web_search_call, ...) is a formal tool call so it renders as a persistent
+    // ToolCallBlock instead of disappearing once the turn ends.
+    if (!itemType || itemType === 'agent_message' || itemType === 'reasoning' || itemType === 'reasoning_summary') {
+      return null
+    }
 
     const id = typeof item.id === 'string' ? item.id : `${itemType}-${Date.now()}`
     if (obj.type === 'item.started') {
@@ -334,19 +338,20 @@ function extractToolEvent(line: string):
         typeof item.name === 'string' ? item.name
           : typeof item.tool_name === 'string' ? item.tool_name
           : typeof item.tool === 'string' ? item.tool
-          : itemType
-      return {
-        phase: 'start',
-        id,
-        name,
-        input: objectFromUnknown(item.arguments ?? item.input ?? item.args),
-      }
+          : ITEM_TYPE_LABELS[itemType] ?? itemType
+
+      const explicitInput = objectFromUnknown(item.arguments ?? item.input ?? item.args)
+      const input = Object.keys(explicitInput).length > 0
+        ? explicitInput
+        : Object.fromEntries(Object.entries(item).filter(([key]) => !ITEM_NON_INPUT_KEYS.has(key)))
+
+      return { phase: 'start', id, name, input }
     }
 
     return {
       phase: 'end',
       id,
-      content: textFromUnknown(item.output ?? item.result ?? item.content ?? item.error ?? ''),
+      content: textFromUnknown(item.output ?? item.result ?? item.content ?? item.aggregated_output ?? item.error ?? ''),
       isError: item.status === 'failed' || item.status === 'error' || Boolean(item.error),
     }
   } catch {
@@ -484,13 +489,34 @@ export const CodexAdapter: CliAgentAdapter = {
       let parsedAnyJson = false
       let receivedDeltas = false
       let turnError: string | null = null
-      let emittedActivity = false
       const endedThinkingBlocks = new Set<string>()
+      // The model can reason, call a tool, then reason again — 'codex-reasoning-summary'
+      // used to be one fixed blockId for the entire turn, silently merging every burst
+      // into a single bubble. Track it as an "open block" instead: reused across
+      // consecutive reasoning deltas, but a done signal or an unrelated tool/text event
+      // closes it, so the next burst gets a fresh id and its own bubble.
+      let reasoningSeq = 0
+      let openReasoningBlockId: string | null = null
+      let receivedReasoningDeltas = false
+      // Codex's approval flow can re-announce the same command_execution/file_change item
+      // via a second item.started once the user (or auto-approve) accepts it — without this
+      // guard that produced two identical "Run Command" blocks in the timeline for one call.
+      const openToolIds = new Set<string>()
+      // Codex emits the final answer as several separate agent_message/agent_message_delta
+      // bursts — one per stretch of narration between tool calls — rather than one
+      // continuous stream. Naively concatenating them runs two sentences together with
+      // no space ("...content.The file is missing..."). Track whether a tool call
+      // interrupted the text since the last chunk and, if so, insert a paragraph break
+      // before the next burst resumes.
+      let needsParagraphBreak = false
+      const nextReasoningBlockId = (): string => {
+        if (!openReasoningBlockId) openReasoningBlockId = `codex-reasoning-summary-${reasoningSeq++}`
+        return openReasoningBlockId
+      }
 
       const emitThinking = (blockId: string, chunk: string, done = false) => {
         if (chunk) {
           onEvent?.({ type: 'thinking_chunk', blockId, chunk })
-          emittedActivity = emittedActivity || blockId === CODEX_ACTIVITY_BLOCK_ID
         }
         if (done && !endedThinkingBlocks.has(blockId)) {
           onEvent?.({ type: 'thinking_end', blockId })
@@ -498,7 +524,7 @@ export const CodexAdapter: CliAgentAdapter = {
         }
       }
 
-      emitThinking(CODEX_ACTIVITY_BLOCK_ID, formatActivityLine('Starting Codex CLI.'))
+      onEvent?.({ type: 'activity', label: 'Starting Codex CLI.' })
 
       proc.stderr?.on('data', (chunk: Buffer) => {
         stderrText += chunk.toString('utf8')
@@ -516,19 +542,30 @@ export const CodexAdapter: CliAgentAdapter = {
         const errMsg = extractError(line)
         if (errMsg) {
           turnError = errMsg
-          emitThinking(CODEX_ACTIVITY_BLOCK_ID, formatActivityLine(`Codex error: ${errMsg}`))
+          onEvent?.({ type: 'activity', label: `Codex error: ${errMsg}` })
           return
         }
 
         const thinking = extractThinking(line)
         if (thinking) {
-          emitThinking(thinking.blockId, thinking.text, thinking.done === true)
+          if (thinking.isDelta) {
+            receivedReasoningDeltas = true
+            const blockId = nextReasoningBlockId()
+            emitThinking(blockId, thinking.text, thinking.done === true)
+            if (thinking.done) openReasoningBlockId = null
+          } else if (!receivedReasoningDeltas) {
+            // Consolidated reasoning item and no deltas streamed this burst already —
+            // safe to emit without duplicating text a delta already sent.
+            const blockId = nextReasoningBlockId()
+            emitThinking(blockId, thinking.text, true)
+            openReasoningBlockId = null
+          }
           if (thinking.text || thinking.done) return
         }
 
         const activity = extractActivity(line)
         if (activity) {
-          emitThinking(CODEX_ACTIVITY_BLOCK_ID, formatActivityLine(activity.text), activity.done === true)
+          onEvent?.({ type: 'activity', label: activity.text })
         }
 
         const costData = extractCost(line)
@@ -539,14 +576,20 @@ export const CodexAdapter: CliAgentAdapter = {
 
         const toolEvent = extractToolEvent(line)
         if (toolEvent) {
+          openReasoningBlockId = null
+          if (fullText) needsParagraphBreak = true
           if (toolEvent.phase === 'start') {
-            onEvent?.({
-              type: 'tool_start',
-              id: toolEvent.id,
-              name: toolEvent.name,
-              input: toolEvent.input,
-            })
+            if (!openToolIds.has(toolEvent.id)) {
+              openToolIds.add(toolEvent.id)
+              onEvent?.({
+                type: 'tool_start',
+                id: toolEvent.id,
+                name: toolEvent.name,
+                input: toolEvent.input,
+              })
+            }
           } else {
+            openToolIds.delete(toolEvent.id)
             onEvent?.({
               type: 'tool_end',
               id: toolEvent.id,
@@ -561,6 +604,11 @@ export const CodexAdapter: CliAgentAdapter = {
         if (result !== null) {
           parsedAnyJson = true
           turnError = null
+          openReasoningBlockId = null
+          if (needsParagraphBreak && result.text) {
+            result.text = `\n\n${result.text}`
+            needsParagraphBreak = false
+          }
           if (result.isDelta) {
             receivedDeltas = true
             onChunk(result.text)
@@ -590,6 +638,16 @@ export const CodexAdapter: CliAgentAdapter = {
         if (buffer.trim()) parseLine(buffer)
         cleanup()
 
+        if (openReasoningBlockId) {
+          emitThinking(openReasoningBlockId, '', true)
+          openReasoningBlockId = null
+        }
+
+        for (const id of openToolIds) {
+          onEvent?.({ type: 'tool_end', id, content: '', isError: code !== 0 })
+        }
+        openToolIds.clear()
+
         if (!parsedAnyJson && !turnError && rawStdout.trim()) {
           const cleaned = stripAnsi(rawStdout).trim()
           if (cleaned) {
@@ -599,17 +657,14 @@ export const CodexAdapter: CliAgentAdapter = {
         }
 
         if (fullText) {
-          if (emittedActivity) emitThinking(CODEX_ACTIVITY_BLOCK_ID, '', true)
           resolve(fullText)
         } else if (turnError) {
-          emitThinking(CODEX_ACTIVITY_BLOCK_ID, '', true)
           reject(new Error(`Codex error: ${turnError}`))
         } else if (code !== 0) {
           const detail = stderrText.trim() ? `: ${stderrText.trim()}` : ''
-          emitThinking(CODEX_ACTIVITY_BLOCK_ID, formatActivityLine(`Codex exited with code ${code}${detail}`), true)
+          onEvent?.({ type: 'activity', label: `Codex exited with code ${code}${detail}` })
           reject(new Error(`codex exited with code ${code}${detail}`))
         } else {
-          if (emittedActivity) emitThinking(CODEX_ACTIVITY_BLOCK_ID, '', true)
           resolve(fullText)
         }
       })

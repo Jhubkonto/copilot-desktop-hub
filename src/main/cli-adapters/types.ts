@@ -27,6 +27,11 @@ export type CliStreamEvent =
   | { type: 'cost'; totalCostUsd: number; inputTokens: number; outputTokens: number }
   | { type: 'thinking_chunk'; blockId: string; chunk: string }
   | { type: 'thinking_end'; blockId: string }
+  // A transient status update (e.g. CLI lifecycle narration) — surfaced as the live
+  // "Thinking…" activity line, never persisted into message history. Distinct from
+  // thinking_chunk/thinking_end, which accumulate into a reasoning block that sticks
+  // around after the turn completes.
+  | { type: 'activity'; label: string }
 
 export interface CliAgentAdapter {
   readonly name: string
