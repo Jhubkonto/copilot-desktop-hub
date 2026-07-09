@@ -22,7 +22,13 @@ sealed class ChatRenderItem {
         val message: ChatMessage,
         val listIndex: Int,
     ) : ChatRenderItem() {
-        override val key: String get() = "tool_${message.toolName}_$listIndex"
+        // Prefer the message's own stable id — both the live ChatToolCallEvent path and the
+        // persisted HistoryMessage path now assign one — over listIndex, which is recomputed
+        // fresh from scratch on every render as "position among tool-call messages currently
+        // in the list" and so shifts (forcing a Compose remount) whenever a history-sync
+        // reconciliation changes the count/order of tool calls ahead of this one. listIndex
+        // stays only as a fallback for the rare case content arrives with a blank id.
+        override val key: String get() = message.id.ifBlank { "tool_${message.toolName}_$listIndex" }
     }
 
     data class LiveThinking(
