@@ -513,6 +513,7 @@ fun parseWsEvent(
                         timestamp = m.optLong("timestamp"),
                         attachments = attachmentsFromJson(m.nullableString("attachments")),
                         thinkingBlocks = parseThinkingBlocks(m.nullableString("thinking_blocks")),
+                        model = m.nullableString("model"),
                     )
                 }
                 WsEvent.ConversationMessages(conversationId, messages)
