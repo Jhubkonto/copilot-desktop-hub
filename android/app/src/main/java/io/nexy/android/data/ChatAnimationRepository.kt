@@ -117,7 +117,17 @@ object ChatAnimationRepository {
 
     @Synchronized
     fun clear(conversationId: String) {
-        states.remove(conversationId)
+        // Reset the existing MutableStateFlow's *value* in place — do not remove it from
+        // `states`. observe() hands out `.asStateFlow()` wrappers bound to one specific
+        // instance; removing the map entry here meant the next accept()/restore() call would
+        // getOrPut a brand-new instance, permanently orphaning any collector already running
+        // against the old one (e.g. ChatViewModel's live-render collector, subscribed once in
+        // init{}). Since this is called on every sendMessage(), not just Retry, every turn
+        // after the very first in a chat session fed a state flow nobody was listening to
+        // anymore — live text and thinking blocks stopped rendering incrementally, only
+        // reappearing via the end-of-turn full history refetch. Resetting in place keeps the
+        // same instance alive so existing collectors keep receiving updates.
+        states[conversationId]?.value = ChatAnimationState()
         drainJobs.remove(conversationId)?.cancel()
     }
 
