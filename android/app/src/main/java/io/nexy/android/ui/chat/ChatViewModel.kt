@@ -485,12 +485,25 @@ class ChatViewModel(
                         }
                     }
                     event is WsEvent.ChatToolCallEvent && event.conversationId == conversationId -> {
-                        // Clear thinking from live state — tool call starts a new thinking cycle.
-                        _liveTurnState.value = _liveTurnState.value.copy(
-                            thinkingBlocks = emptyList(),
-                            pendingThinkingEnds = emptySet(),
-                        )
+                        // Used to clear _liveTurnState.thinkingBlocks here on the theory that a
+                        // tool call starts a fresh "thinking cycle" — but thinkingBlocks is keyed
+                        // by blockId (reduceChatTurn's upsertThinkingBlock), so a new reasoning
+                        // phase after this tool call already gets its own distinct blockId/bubble
+                        // without needing the list wiped first. Wiping it here instead discarded
+                        // every reasoning block accumulated *before* this tool call on every
+                        // single tool call in the turn — for a Codex turn with many interleaved
+                        // tool calls, that meant each reasoning bubble visibly vanished the
+                        // moment the next tool call fired, then "came back" once the *next*
+                        // reasoning phase started accumulating from scratch. Removed.
                         _messages.value = freezeCurrentStreamingMessage() + ChatMessage(
+                            // A stable id (not the default "") so ChatRenderItem.ToolCall's key
+                            // stays fixed for this tool call's whole life in the live-tracked
+                            // list — otherwise its key derived from position among tool-call
+                            // messages, which shifts (and forces a Compose remount) whenever a
+                            // history-sync reconciliation changes how many/which tool calls
+                            // precede it. Same bug class as the streaming-text key instability
+                            // fixed via currentLiveMessageId, just for tool calls.
+                            id = UUID.randomUUID().toString(),
                             text = "",
                             isUser = false,
                             isStreaming = false,
