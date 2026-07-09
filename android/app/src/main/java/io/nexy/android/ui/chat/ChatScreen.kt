@@ -76,6 +76,9 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import io.nexy.android.ui.theme.Blue500
+import io.nexy.android.ui.theme.Gray400
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -171,6 +174,7 @@ fun ChatScreen(
     val isAwaitingResponse by vm.isAwaitingResponse.collectAsState()
     val isRefreshing by vm.isRefreshing.collectAsState()
     val activityLabel by vm.activityLabel.collectAsState()
+    val liveActivity by vm.liveActivity.collectAsState()
     val liveThinkingBlocks by vm.liveThinkingBlocks.collectAsState()
     val generationStartedAt by vm.generationStartedAt.collectAsState()
     val selectedModel by vm.selectedModel.collectAsState()
@@ -731,7 +735,7 @@ fun ChatScreen(
         if (chatProjectId != null) {
             AlertDialog(
                 onDismissRequest = { addToProjectMessage = null; addToProjectTitle = "" },
-                title = { Text("Add to project sources") },
+                title = { Text("Save to wiki") },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
@@ -1053,13 +1057,13 @@ fun ChatScreen(
             )
         },
     ) { padding ->
-        val renderItems = remember(messages, isAwaitingResponse, isStreaming, liveThinkingBlocks, activityLabel, generationStartedAt) {
+        val renderItems = remember(messages, isAwaitingResponse, isStreaming, liveThinkingBlocks, liveActivity, generationStartedAt) {
             buildChatRenderItems(
                 messages = messages,
                 liveThinkingBlocks = liveThinkingBlocks,
                 isAwaitingResponse = isAwaitingResponse,
                 isStreaming = isStreaming,
-                activityLabel = activityLabel,
+                activity = liveActivity,
                 generationStartedAt = generationStartedAt,
             )
         }
@@ -1158,30 +1162,63 @@ fun ChatScreen(
                             }
                         },
                     ) { item ->
-                        // animateItem() smooths reordering/insertion/removal within the list —
-                        // most notably the live-thinking/live-activity items being swapped out
-                        // for the settled AssistantMessage item once the turn completes, which
-                        // otherwise pops instantly since they're different keys/content types.
-                        // Slightly longer, gentler fade than the default to match the desktop
-                        // client's 200ms message-enter fade and read as fluid rather than snappy.
+                        // animateItem() smooths reordering within the list via placementSpec.
+                        // fadeIn/fadeOut used to be enabled here (280ms/180ms, later tried at
+                        // 60ms) to soften the live→settled item swap, but any nonzero fade
+                        // duration means two multi-line text items briefly coexist at partial
+                        // alpha in the same slot — for stacked paragraph text that reads as
+                        // garbled/double-printed rather than a clean cross-dissolve, and it
+                        // reproduced on every new message append, not just the live-item swap.
+                        // Disabled outright: items now appear/disappear at their measured
+                        // position with no alpha-coexistence window. Only smooth repositioning
+                        // (existing items shifting for an insertion) is animated.
                         Column(
                             modifier = Modifier
                                 .animateItem(
-                                    fadeInSpec = tween(280, easing = FastOutSlowInEasing),
-                                    fadeOutSpec = tween(180, easing = FastOutSlowInEasing),
+                                    fadeInSpec = null,
+                                    fadeOutSpec = null,
                                     placementSpec = tween(320, easing = FastOutSlowInEasing),
                                 )
                                 .fillMaxWidth(),
                         ) {
                         when (item) {
                             is ChatRenderItem.ToolCall -> {
-                                ToolCallBubble(item.message, inProgress = false)
+                                if (isCodexToolCall(item.message.serverName)) {
+                                    ChatTimelineGroup {
+                                        ChatTimelineEntry(beadColor = toolCallBeadColor(inProgress = false, success = item.message.toolSuccess)) {
+                                            CodexToolActionLine(item.message, inProgress = false)
+                                        }
+                                    }
+                                } else {
+                                    ChatTimelineGroup { ToolCallBubble(item.message, inProgress = false) }
+                                }
                             }
                             is ChatRenderItem.LiveThinking -> {
-                                ThinkingHistoryBubble(item.blocks, isLive = true)
+                                if (isCodexReasoning(item.blocks)) {
+                                    ChatTimelineGroup {
+                                        item.blocks.forEach { block ->
+                                            key(block.blockId) {
+                                                ChatTimelineEntry(beadColor = thinkingBeadColor(streaming = !block.done), pulse = !block.done) {
+                                                    CodexReasoningActionLine(listOf(block))
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    ChatTimelineGroup {
+                                        item.blocks.forEach { block ->
+                                            key(block.blockId) { ThinkingHistoryBubble(listOf(block), isLive = true) }
+                                        }
+                                    }
+                                }
                             }
                             is ChatRenderItem.LiveActivity -> {
-                                ThinkingBubble(item.label, item.generationStartedAt)
+                                val isTool = item.activity.state == "tool"
+                                ChatTimelineGroup {
+                                    ChatTimelineEntry(beadColor = if (isTool) Blue500 else Gray400, pulse = true) {
+                                        ThinkingBubble(item.activity, item.generationStartedAt)
+                                    }
+                                }
                             }
                             is ChatRenderItem.ArtifactCard -> {
                                 val targetConversationId = item.ref.conversationId ?: conversationId
@@ -1235,17 +1272,53 @@ fun ChatScreen(
                                     .lastOrNull()?.message
                                 val chatProjectId = conversation?.project_id ?: projectId
                                 androidx.compose.foundation.layout.Column {
-                                    // Live thinking blocks pre-filtered by buildChatRenderItems (C1 guard)
-                                    if (item.liveThinkingBlocks.isNotEmpty()) {
-                                        ThinkingHistoryBubble(item.liveThinkingBlocks, isLive = true)
-                                    }
-                                    // Historical thinking: skip if live blocks cover same content
-                                    if (msg.thinkingBlocks.isNotEmpty() && item.liveThinkingBlocks.isEmpty()) {
-                                        ThinkingHistoryBubble(msg.thinkingBlocks, isLive = false)
-                                    }
-                                    // Tool calls grouped inline above the response text
-                                    msg.toolCalls.forEach { tc ->
-                                        ToolCallBubble(tc, inProgress = tc.isStreaming)
+                                    val hasTimelineContent = item.liveThinkingBlocks.isNotEmpty() ||
+                                        (msg.thinkingBlocks.isNotEmpty() && item.liveThinkingBlocks.isEmpty()) ||
+                                        msg.toolCalls.isNotEmpty()
+                                    if (hasTimelineContent) {
+                                        if (isCodexReasoning(item.liveThinkingBlocks) || isCodexReasoning(msg.thinkingBlocks)) {
+                                            ChatTimelineGroup {
+                                                val thinkingBlocksToShow = item.liveThinkingBlocks.ifEmpty { msg.thinkingBlocks }
+                                                thinkingBlocksToShow.forEach { block ->
+                                                    key(block.blockId) {
+                                                        ChatTimelineEntry(beadColor = thinkingBeadColor(streaming = !block.done), pulse = !block.done) {
+                                                            CodexReasoningActionLine(listOf(block))
+                                                        }
+                                                    }
+                                                }
+                                                msg.toolCalls.forEach { tc ->
+                                                    if (isCodexToolCall(tc.serverName)) {
+                                                        ChatTimelineEntry(beadColor = toolCallBeadColor(inProgress = tc.isStreaming, success = tc.toolSuccess), pulse = tc.isStreaming) {
+                                                            CodexToolActionLine(tc, inProgress = tc.isStreaming)
+                                                        }
+                                                    } else {
+                                                        ToolCallBubble(tc, inProgress = tc.isStreaming)
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            ChatTimelineGroup {
+                                                // Live thinking blocks pre-filtered by buildChatRenderItems (C1 guard).
+                                                // Each block is its own bubble — desktop shows each reasoning phase
+                                                // separately (ThinkingBlock.tsx renders once per block), so joining
+                                                // every block's content into one combined bubble here (the old
+                                                // behavior) collapsed a multi-phase turn into a single "> 2k chars"
+                                                // blob instead of one bubble per phase.
+                                                item.liveThinkingBlocks.forEach { block ->
+                                                    key(block.blockId) { ThinkingHistoryBubble(listOf(block), isLive = true) }
+                                                }
+                                                // Historical thinking: skip if live blocks cover same content
+                                                if (item.liveThinkingBlocks.isEmpty()) {
+                                                    msg.thinkingBlocks.forEach { block ->
+                                                        key(block.blockId) { ThinkingHistoryBubble(listOf(block), isLive = false) }
+                                                    }
+                                                }
+                                                // Tool calls grouped inline above the response text
+                                                msg.toolCalls.forEach { tc ->
+                                                    ToolCallBubble(tc, inProgress = tc.isStreaming)
+                                                }
+                                            }
+                                        }
                                     }
                                     MessageBubble(
                                         msg = msg,
