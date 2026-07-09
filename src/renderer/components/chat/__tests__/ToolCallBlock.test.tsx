@@ -22,40 +22,50 @@ describe('ToolCallBlock', () => {
     expect(screen.getByRole('button')).toBeInTheDocument()
   })
 
-  it('expands to show args and result when clicked', () => {
+  it('shows args and a short result immediately, with nothing to expand', () => {
     const args = { selector: 'button[type="submit"]' }
     const result = 'Clicked successfully'
 
     render(<ToolCallBlock toolName="browser_click" args={args} result={result} />)
 
-    expect(screen.queryByText('Arguments')).not.toBeInTheDocument()
-    expect(screen.queryByText('Result')).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button'))
-
-    expect(screen.getAllByText('Clicked successfully')).toHaveLength(2)
-    expect(screen.getByText('Arguments')).toBeInTheDocument()
-    expect(screen.getByText('Result')).toBeInTheDocument()
+    // A short (single-line, under the char cap) result is already fully shown in the
+    // always-visible preview — no click needed, and there's nothing left to expand.
+    const button = screen.getByRole('button')
+    expect(button).toBeDisabled()
+    expect(button).toHaveAttribute('aria-expanded', 'false')
     expect(screen.getByText(/selector/)).toBeInTheDocument()
+    // Once in the header's compact status text, once in the always-visible preview.
+    expect(screen.getAllByText('Clicked successfully')).toHaveLength(2)
   })
 
-  it('collapses when clicked again', () => {
-    render(<ToolCallBlock toolName="browser_click" args={{ x: 1 }} result="ok" />)
+  it('reveals the rest of a long multi-line result when clicked, and hides it again on a second click', () => {
+    const lines = Array.from({ length: 6 }, (_, i) => `line ${i + 1}`)
+    render(<ToolCallBlock toolName="browser_click" args={{ x: 1 }} result={lines.join('\n')} />)
     const button = screen.getByRole('button')
 
-    fireEvent.click(button)
-    expect(screen.getByText('Result')).toBeInTheDocument()
-    expect(screen.getAllByText('ok')).toHaveLength(2)
+    // The remainder stays mounted at all times (just visually collapsed via a CSS grid
+    // transition, so it can animate open smoothly) — aria-expanded and the "+N more
+    // lines" hint are the reliable signals for the toggle state, not text presence.
+    expect(screen.getByText('+3 more lines')).toBeInTheDocument()
+    expect(button).toHaveAttribute('aria-expanded', 'false')
 
     fireEvent.click(button)
-    expect(screen.queryByText('Result')).not.toBeInTheDocument()
-    expect(screen.getByText('ok')).toBeInTheDocument()
+    expect(button).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.queryByText('+3 more lines')).not.toBeInTheDocument()
+
+    fireEvent.click(button)
+    expect(button).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByText('+3 more lines')).toBeInTheDocument()
   })
 
-  it('truncates long results', () => {
+  it('truncates a very long single-line result by character count', () => {
     render(<ToolCallBlock toolName="t" result={'x'.repeat(3000)} />)
+    const button = screen.getByRole('button')
 
-    fireEvent.click(screen.getByRole('button'))
+    // No newlines to count, so the hint falls back to a generic label instead of "+N lines".
+    expect(screen.getByText('Show more')).toBeInTheDocument()
+
+    fireEvent.click(button)
 
     expect(screen.getByText(/…\(truncated\)/)).toBeInTheDocument()
   })

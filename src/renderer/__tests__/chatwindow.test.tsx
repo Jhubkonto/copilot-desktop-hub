@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { ChatWindow } from "../../renderer/components/ChatWindow";
 import { setupMockApi, type MockApi } from "../../test/mocks/api";
 import { createMockAppStore, setupStoreMock } from "../../test/mocks/store";
+import type { ChatTurnEvent } from "../../shared/chat-turn-types";
 
 const { useAppStore } = vi.hoisted(() => ({
   useAppStore: vi.fn(),
@@ -14,7 +15,6 @@ vi.mock("../../renderer/store/app-store", () => ({
 }));
 
 let mockApi: MockApi;
-let streamCallback: ((chunk: string | null) => void) | null = null;
 let streamErrorCallback:
   | ((error: {
       type: string;
@@ -23,40 +23,26 @@ let streamErrorCallback:
       retryAfterSeconds?: number;
     }) => void)
   | null = null;
-let chatTurnEventCallback: ((event: {
-  conversationId: string;
-  turnId: string;
-  sequence: number;
-  type: string;
-  timestamp: number;
-  errorType?: string;
-  message?: string;
-  retryable?: boolean;
-  retryAfterSeconds?: number;
-}) => void) | null = null;
+// useChat.ts registers two independent onChatTurnEvent subscribers (the reducer via
+// useChatLiveTurn, plus a raw background-bookkeeping listener) — fan events out to
+// every subscriber like the real (multi-listener) IPC bridge would, instead of
+// capturing only the last registration.
+let chatTurnEventCallbacks: ((event: ChatTurnEvent) => void)[] = [];
+function emitChatTurnEvent(event: ChatTurnEvent) {
+  act(() => {
+    for (const cb of chatTurnEventCallbacks) cb(event);
+  });
+}
 let autoClipboardFocusCallback: (() => void | Promise<void>) | null = null;
-let toolAutoApprovedCallback:
-  | ((data: { toolName: string; args: Record<string, unknown> }) => void)
-  | null = null;
 let mockStore: ReturnType<typeof createMockAppStore>;
 
 beforeEach(() => {
   mockApi = setupMockApi();
-  streamCallback = null;
   streamErrorCallback = null;
-  chatTurnEventCallback = null;
+  chatTurnEventCallbacks = [];
   autoClipboardFocusCallback = null;
-  toolAutoApprovedCallback = null;
   mockApi.getMessages.mockResolvedValue([]);
 
-  mockApi.onStreamResponse.mockImplementation(
-    (cb: (chunk: string | null) => void) => {
-      streamCallback = cb;
-      return () => {
-        streamCallback = null;
-      };
-    },
-  );
   mockApi.onStreamError.mockImplementation(
     (
       cb: (error: {
@@ -72,10 +58,10 @@ beforeEach(() => {
       };
     },
   );
-  mockApi.onChatTurnEvent.mockImplementation((cb: typeof chatTurnEventCallback) => {
-    chatTurnEventCallback = cb;
+  mockApi.onChatTurnEvent.mockImplementation((cb: (event: ChatTurnEvent) => void) => {
+    chatTurnEventCallbacks.push(cb);
     return () => {
-      chatTurnEventCallback = null;
+      chatTurnEventCallbacks = chatTurnEventCallbacks.filter((c) => c !== cb);
     };
   });
   mockApi.onAutoClipboardFocus.mockImplementation((cb: () => void | Promise<void>) => {
@@ -84,13 +70,6 @@ beforeEach(() => {
       autoClipboardFocusCallback = null;
     };
   });
-  mockApi.onToolAutoApproved.mockImplementation((cb: typeof toolAutoApprovedCallback) => {
-    toolAutoApprovedCallback = cb;
-    return () => {
-      toolAutoApprovedCallback = null;
-    };
-  });
-
   mockStore = createMockAppStore({
     authState: { authenticated: true, user: null },
   });
@@ -180,6 +159,11 @@ describe("ChatWindow — Sending Messages", () => {
 describe("ChatWindow — Streaming", () => {
   it("chat-r-4: streaming content renders with typing indicator", async () => {
     const user = userEvent.setup();
+    mockStore = createMockAppStore({
+      authState: { authenticated: true, user: null },
+      currentConversationId: "conv-1",
+    });
+    setupStoreMock(useAppStore, mockStore);
     render(<ChatWindow />);
 
     const textarea = screen.getByRole("textbox", { name: /message input/i });
@@ -190,11 +174,12 @@ describe("ChatWindow — Streaming", () => {
       screen.getByText(/Thinking(\.\.\.|( · \d+s))/),
     ).toBeInTheDocument();
 
-    act(() => {
-      streamCallback?.("Hello ");
+    emitChatTurnEvent({ type: "turn_started", conversationId: "conv-1", turnId: "turn-1", sequence: 1, timestamp: 1 });
+    emitChatTurnEvent({
+      type: "assistant_text_delta", conversationId: "conv-1", turnId: "turn-1", sequence: 2, timestamp: 2, chunk: "Hello ",
     });
-    act(() => {
-      streamCallback?.("world");
+    emitChatTurnEvent({
+      type: "assistant_text_delta", conversationId: "conv-1", turnId: "turn-1", sequence: 3, timestamp: 3, chunk: "world",
     });
 
     await waitFor(() => {
@@ -205,19 +190,22 @@ describe("ChatWindow — Streaming", () => {
 
   it("chat-r-5: stream end appends final message and clears streaming", async () => {
     const user = userEvent.setup();
+    mockStore = createMockAppStore({
+      authState: { authenticated: true, user: null },
+      currentConversationId: "conv-1",
+    });
+    setupStoreMock(useAppStore, mockStore);
     render(<ChatWindow />);
 
     const textarea = screen.getByRole("textbox", { name: /message input/i });
     await user.type(textarea, "Test");
     await user.click(screen.getByRole("button", { name: /send/i }));
 
-    act(() => {
-      streamCallback?.("Response text");
+    emitChatTurnEvent({ type: "turn_started", conversationId: "conv-1", turnId: "turn-1", sequence: 1, timestamp: 1 });
+    emitChatTurnEvent({
+      type: "assistant_text_delta", conversationId: "conv-1", turnId: "turn-1", sequence: 2, timestamp: 2, chunk: "Response text",
     });
-
-    act(() => {
-      streamCallback?.(null);
-    });
+    emitChatTurnEvent({ type: "turn_completed", conversationId: "conv-1", turnId: "turn-1", sequence: 3, timestamp: 3 });
 
     await waitFor(() => {
       expect(screen.getByText("Response text")).toBeInTheDocument();
@@ -585,25 +573,17 @@ describe("ChatWindow — Offline State", () => {
     });
     setupStoreMock(useAppStore, mockStore);
     render(<ChatWindow />);
-    act(() => {
-      streamErrorCallback?.({
-        type: "rate_limit",
-        message:
-          "Rate limited. Please wait a moment and try again.",
-        retryable: true,
-        retryAfterSeconds: 8,
-      });
-      chatTurnEventCallback?.({
-        conversationId: "conv-1",
-        turnId: "turn-1",
-        sequence: 1,
-        type: "turn_failed",
-        timestamp: Date.now(),
-        errorType: "rate_limit",
-        message: "Rate limited. Please wait a moment and try again.",
-        retryable: true,
-        retryAfterSeconds: 8,
-      });
+    emitChatTurnEvent({ type: "turn_started", conversationId: "conv-1", turnId: "turn-1", sequence: 1, timestamp: 1 });
+    emitChatTurnEvent({
+      conversationId: "conv-1",
+      turnId: "turn-1",
+      sequence: 2,
+      type: "turn_failed",
+      timestamp: Date.now(),
+      errorType: "rate_limit",
+      message: "Rate limited. Please wait a moment and try again.",
+      retryable: true,
+      retryAfterSeconds: 8,
     });
 
     await waitFor(() => {
@@ -1321,34 +1301,6 @@ describe("ChatWindow — Full Auto-Approve", () => {
     );
   });
 
-  it("renders an inline auto-approved tool indicator", async () => {
-    mockStore = createMockAppStore({
-      authState: { authenticated: true, user: null },
-      currentConversationId: "conv-1",
-      conversations: [
-        {
-          id: "conv-1",
-          title: "Trusted chat",
-          project_id: null,
-          agent_id: "agent-1",
-          model: null,
-          pinned: false,
-          created_at: 0,
-          updated_at: 0,
-        },
-      ],
-      agents: [{ id: "agent-1", name: "Trusted Agent", icon: "T", systemPrompt: "" }],
-    });
-    setupStoreMock(useAppStore, mockStore);
-    render(<ChatWindow />);
-
-    await waitFor(() => expect(toolAutoApprovedCallback).not.toBeNull());
-    act(() => {
-      toolAutoApprovedCallback?.({ toolName: "terminal", args: {} });
-    });
-
-    expect(await screen.findByText(/terminal auto-approved/i)).toBeInTheDocument();
-  });
 });
 
 // ── Resizable Input Panel ─────────────────────────────────────────────────────

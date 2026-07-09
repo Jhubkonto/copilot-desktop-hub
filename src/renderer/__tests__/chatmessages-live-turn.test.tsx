@@ -119,7 +119,10 @@ describe('ChatMessages normalized live turn fallback', () => {
     })
 
     expect(screen.getByText('read_file')).toBeInTheDocument()
-    expect(screen.getByText('contents')).toBeInTheDocument()
+    // Appears twice by design: the header's compact result preview, plus the full
+    // result in the (collapsed-by-default, always-mounted for a smooth expand
+    // transition) details section below it.
+    expect(screen.getAllByText('contents')).toHaveLength(2)
 
     rerender(
       <ChatMessagesBase
@@ -155,6 +158,8 @@ describe('ChatMessages normalized live turn fallback', () => {
     )
 
     expect(screen.getAllByText('read_file')).toHaveLength(1)
-    expect(screen.getAllByText('contents')).toHaveLength(1)
+    // Still 2 (header preview + hidden detail pre) — confirms exactly one ToolCallBlock
+    // rendered, not both the live and the now-committed historical version.
+    expect(screen.getAllByText('contents')).toHaveLength(2)
   })
 })

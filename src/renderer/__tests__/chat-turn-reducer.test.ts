@@ -57,6 +57,7 @@ describe('chatTurnReducer', () => {
       blockId: 'reasoning-1',
       content: 'Planned steps',
       done: true,
+      firstSeenSequence: 3,
     })
     expect(state.pendingThinkingEnds.size).toBe(0)
   })
@@ -140,12 +141,60 @@ describe('chatTurnReducer', () => {
       result: 'Snapshot captured',
       success: true,
       resultImages: undefined,
+      inProgress: false,
+      firstSeenSequence: 4,
     }])
     expect(state.cost).toEqual({
       inputTokens: 100,
       outputTokens: 25,
       totalCostUsd: 0.01,
     })
+  })
+
+  it('inserts an in-progress placeholder on tool_started and resolves it on tool_finished', () => {
+    let state = createEmptyChatTurnState('conv-1')
+    state = chatTurnReducer(state, event({ type: 'turn_started', sequence: 1 }))
+    state = chatTurnReducer(state, event({
+      type: 'tool_started',
+      sequence: 2,
+      id: 'call-1',
+      name: 'read_file',
+      input: { path: 'a.ts' },
+      serverName: 'claude-cli',
+    }))
+
+    expect(state.toolCalls).toEqual([{
+      id: 'call-1',
+      toolName: 'read_file',
+      serverName: 'claude-cli',
+      args: { path: 'a.ts' },
+      result: '',
+      success: true,
+      inProgress: true,
+      firstSeenSequence: 2,
+    }])
+
+    state = chatTurnReducer(state, event({
+      type: 'tool_finished',
+      sequence: 3,
+      id: 'call-1',
+      toolName: 'read_file',
+      serverName: 'claude-cli',
+      result: 'file contents',
+      success: true,
+    }))
+
+    expect(state.toolCalls).toEqual([{
+      id: 'call-1',
+      toolName: 'read_file',
+      serverName: 'claude-cli',
+      args: undefined,
+      result: 'file contents',
+      success: true,
+      resultImages: undefined,
+      inProgress: false,
+      firstSeenSequence: 2,
+    }])
   })
 
   it('updates duplicate tool_finished events with the same id', () => {
@@ -176,6 +225,8 @@ describe('chatTurnReducer', () => {
       result: 'new',
       success: false,
       resultImages: undefined,
+      inProgress: false,
+      firstSeenSequence: 2,
     }])
   })
 })
