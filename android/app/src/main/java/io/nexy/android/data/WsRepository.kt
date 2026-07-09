@@ -452,6 +452,15 @@ object WsRepository : WsClient {
         scope.launch {
             events.collect { event ->
                 when (event) {
+                    // The main process pushes this on every activity mutation (activity-tracker.ts:
+                    // broadcast(), called from startActivity/updateActivity/endActivity), so this
+                    // real-time push — not the one-shot activity:list request sent on (re)connect
+                    // — is what's supposed to clear a conversation's "Assistant is responding…"
+                    // entry the moment the desktop's chat-turn-emitter ends it. It was parsed by
+                    // WsEventParser but never wired to a handler, so the Activity tab only ever
+                    // updated on reconnect or a manual pull-to-refresh, leaving finished chats
+                    // stuck showing "in progress" until one of those happened to fire.
+                    is WsEvent.ActivityChanged -> BackgroundActivityTracker.applySnapshot(event.activities)
                     is WsEvent.ChatTurnEvent -> ChatAnimationRepository.accept(event)
                     is WsEvent.ChatActiveTurnSnapshot -> {
                         if (event.turnId.isNotBlank()) ChatAnimationRepository.restore(event)
