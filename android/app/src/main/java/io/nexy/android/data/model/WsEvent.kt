@@ -555,6 +555,7 @@ data class HistoryMessage(
     val timestamp: Long,
     val attachments: List<AttachmentMeta> = emptyList(),
     val thinkingBlocks: List<ThinkingBlock> = emptyList(),
+    val model: String? = null,
 )
 
 data class ThinkingBlock(val blockId: String, val content: String, val done: Boolean)
