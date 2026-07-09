@@ -57,6 +57,7 @@ data class ChatMessage(
     val toolCalls: List<ChatMessage> = emptyList(),
     val artifactRef: ArtifactRef? = null,
     val codeChangeRef: CodeChangeRef? = null,
+    val model: String? = null,
 )
 
 /** Parsed from a `__artifact-ref:{...}` sentinel message content. `kind`/`conversationId`
@@ -137,6 +138,12 @@ class ChatViewModel(
         state.activity?.label?.takeIf { it.isNotBlank() } ?: "Assistant is thinking"
     }.stateIn(viewModelScope, SharingStarted.Eagerly, "Assistant is thinking")
 
+    // Structured activity (state/toolName/serverName), not just the raw label — the live-activity
+    // indicator computes its own display text from `state` (matching desktop's ChatMessages.tsx
+    // live-activity branch, which ignores the raw backend label entirely for the non-tool case
+    // and always shows "Thinking…Ns"), so it needs more than the flattened `activityLabel` string.
+    val liveActivity: StateFlow<ChatTurnActivity?> = DerivedStateFlow(_liveTurnState) { state -> state.activity }
+
     val liveThinkingBlocks: StateFlow<List<ThinkingBlock>> = DerivedStateFlow(_liveTurnState) { state ->
         state.thinkingBlocks
     }
@@ -194,6 +201,67 @@ class ChatViewModel(
 
     private var activeHistoryPollJob: Job? = null
 
+    // See ChatAnimationRepository.observe collector below and freezeCurrentStreamingMessage —
+    // together these let a tool call that interrupts mid-stream text push subsequent text into
+    // a new message ordered after it, instead of the whole turn staying one growing blob glued
+    // to its original (pre-interruption) position in the list.
+    private var lastAnimationDisplayedLength = 0
+    private var textSegmentStart = 0
+
+    // The live-streaming assistant message's stable identity for its *current* segment.
+    // ChatRenderItem keys AssistantMessage by id.ifBlank { "asst_$timestamp" } — a fresh
+    // UUID assigned once per segment (not derived from timestamp, which used to get
+    // re-stamped on every freeze and so changed the key each time) means the key never
+    // changes for a segment across its whole streaming→frozen→settled lifecycle. Changing
+    // it was the actual cause of tool-interrupted Codex turns visibly flickering: LazyColumn
+    // treats a key change as the old item vanishing and a brand-new one mounting in its
+    // place, discarding any in-flight fade/placement animation state for that item.
+    private var currentLiveMessageId: String = UUID.randomUUID().toString()
+
+    /**
+     * If an assistant message is currently streaming, freezes it in place (stops it from
+     * absorbing further text deltas) and records where the next segment should start reading
+     * from in the turn's accumulated text. Called just before inserting a tool-call or team-
+     * activity message so any text that resumes afterward renders as a new message below it,
+     * matching desktop's chronological (rather than grouped-by-type) turn ordering.
+     */
+    private fun freezeCurrentStreamingMessage(): List<ChatMessage> {
+        val current = _messages.value
+        val streamingIdx = current.indexOfFirst { it.id == currentLiveMessageId }
+        // The next segment (if any) gets its own fresh identity — the just-frozen message
+        // keeps the id it already has, so its key is untouched by this call.
+        currentLiveMessageId = UUID.randomUUID().toString()
+        if (streamingIdx < 0) return current
+        textSegmentStart = lastAnimationDisplayedLength
+        return current.toMutableList().also {
+            it[streamingIdx] = it[streamingIdx].copy(isStreaming = false)
+        }
+    }
+
+    /**
+     * `startActiveHistoryPolling` re-requests `conversation:get-messages` every
+     * ACTIVE_HISTORY_POLL_MS while a turn is active, as a catch-up mechanism for cases where
+     * this client wasn't connected to the live WS event stream (e.g. it just reconnected).
+     * But when the client *was* connected the whole time, `_messages` is already being kept
+     * current in real time by the ChatToolCallEvent/ChatTeamActivity/animation-observer
+     * handlers — those run ahead of the backend actually persisting each tool-call/reasoning
+     * row to disk. A poll response that lands mid-turn can therefore be a stale snapshot from
+     * *before* the backend caught up, and applying it verbatim would make already-visible
+     * content vanish, then reappear piecemeal as later polls (or the terminal sync) catch up —
+     * exactly the flicker long, many-tool-call Codex turns kept reproducing. Once the turn has
+     * genuinely finished (`historyHasAssistantResponse`) the fetched list is authoritative and
+     * always wins; only a still-in-progress turn gets this regression guard.
+     */
+    private fun preferFullerActiveState(
+        fetched: List<ChatMessage>,
+        current: List<ChatMessage>,
+        historyHasAssistantResponse: Boolean,
+        turnTerminal: Boolean,
+    ): List<ChatMessage> {
+        if (historyHasAssistantResponse || turnTerminal) return fetched
+        return if (fetched.size < current.size) current else fetched
+    }
+
     private val isTurnTerminal: Boolean
         get() = _liveTurnState.value.status == ChatTurnStatus.Completed ||
                 _liveTurnState.value.status == ChatTurnStatus.Failed
@@ -241,29 +309,40 @@ class ChatViewModel(
             viewModelScope.launch {
                 ChatAnimationRepository.observe(conversationId).collect { animation ->
                     if (animation.turnId == null) return@collect
+                    lastAnimationDisplayedLength = animation.displayedText.length
                     val current = _messages.value
-                    val streamingIdx = current.indexOfLast { it.isStreaming && !it.isToolCall }
+                    val streamingIdx = current.indexOfFirst { it.id == currentLiveMessageId }
                     // "Settled" requires both the backend turn to be terminal AND the reveal
                     // animation to have actually caught up (no backlog left) — using `terminal`
                     // alone would flip the message to its done/frozen appearance (spinner gone,
                     // thinking blocks attached) the instant the backend finishes, ahead of
                     // whatever text is still being animated in.
                     val settled = animation.terminal && animation.backlogLength <= 0
+                    // ChatAnimationRepository accumulates one continuous string for the whole
+                    // turn, but a tool call mid-turn freezes the streaming message it interrupted
+                    // (see freezeCurrentStreamingMessage) and remembers the offset — so any text
+                    // that streams in *after* the tool call becomes its own message, rendered
+                    // below the tool call rather than invisibly merging into the frozen one above
+                    // it. When no tool call has interrupted the turn, textSegmentStart stays 0 and
+                    // this is exactly the prior single-message behavior.
+                    val segmentText = animation.displayedText.drop(textSegmentStart)
                     val message = ChatMessage(
-                        text = animation.displayedText,
+                        id = currentLiveMessageId,
+                        text = segmentText,
                         isUser = false,
                         isStreaming = !settled,
                         thinkingBlocks = if (settled) _liveTurnState.value.thinkingBlocks else emptyList(),
+                        model = _liveTurnState.value.model,
                     )
                     val lastAssistant = current.lastOrNull { !it.isUser && !it.isToolCall }
                     // A settled animation frame whose text already matches the last persisted
                     // assistant message is a stale replay racing a history sync (e.g. after
                     // Retry) — applying it would append a second copy of the same answer.
                     val isStaleReplay = settled && lastAssistant != null &&
-                        !lastAssistant.isStreaming && lastAssistant.text == animation.displayedText
+                        !lastAssistant.isStreaming && lastAssistant.text == segmentText
                     _messages.value = if (streamingIdx >= 0) {
                         current.toMutableList().also { it[streamingIdx] = message }
-                    } else if (animation.displayedText.isNotEmpty() && !isStaleReplay) {
+                    } else if (segmentText.isNotEmpty() && !isStaleReplay) {
                         current + message
                     } else current
                     _drainActive.value = animation.backlogLength > 0
@@ -274,6 +353,7 @@ class ChatViewModel(
             wsClient.events.collect { event ->
                 when {
                     event is WsEvent.ConversationMessages && event.conversationId == conversationId -> {
+                        val messagesBeforeSync = _messages.value
                         val mapped = event.messages.map { msg -> msg.toChatMessage() }
                         val persistedAssistantText = mapped.lastOrNull { !it.isUser && !it.isToolCall }?.text
                         val historyHasAssistantResponse =
@@ -342,9 +422,10 @@ class ChatViewModel(
                                             toolSuccess = tc.success,
                                         )
                                     }
-                                _messages.value = if (missingToolCalls.isNotEmpty()) mapped + missingToolCalls else mapped
+                                val reconciled = if (missingToolCalls.isNotEmpty()) mapped + missingToolCalls else mapped
+                                _messages.value = preferFullerActiveState(reconciled, messagesBeforeSync, historyHasAssistantResponse, turnTerminal)
                             } else {
-                                _messages.value = mapped
+                                _messages.value = preferFullerActiveState(mapped, messagesBeforeSync, historyHasAssistantResponse, turnTerminal)
                                 // Only restore the awaiting indicator when the desktop is confirmed active
                                 // for this conversation. Checking activeConversationIds prevents a glitched
                                 // chat (where no activity ever arrived) from showing a perpetual spinner.
@@ -363,6 +444,11 @@ class ChatViewModel(
                     }
                     event is WsEvent.ChatTurnEvent && event.conversationId == conversationId -> {
                         _liveTurnState.value = reduceChatTurn(_liveTurnState.value, event)
+                        if (event.type == "turn_started") {
+                            textSegmentStart = 0
+                            lastAnimationDisplayedLength = 0
+                            currentLiveMessageId = UUID.randomUUID().toString()
+                        }
                         if (event.type == "turn_completed" || event.type == "turn_failed") {
                             _drainActive.value = false
                             stopActiveHistoryPolling()
@@ -404,7 +490,7 @@ class ChatViewModel(
                             thinkingBlocks = emptyList(),
                             pendingThinkingEnds = emptySet(),
                         )
-                        _messages.value = _messages.value + ChatMessage(
+                        _messages.value = freezeCurrentStreamingMessage() + ChatMessage(
                             text = "",
                             isUser = false,
                             isStreaming = false,
@@ -441,7 +527,7 @@ class ChatViewModel(
                         _messages.value = if (idx >= 0) {
                             current.toMutableList().also { it[idx] = teamMessage }
                         } else {
-                            current + teamMessage
+                            freezeCurrentStreamingMessage() + teamMessage
                         }
                     }
                     event is WsEvent.ChatStreamChunk && event.conversationId == conversationId -> {
