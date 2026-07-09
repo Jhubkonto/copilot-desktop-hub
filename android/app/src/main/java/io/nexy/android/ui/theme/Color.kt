@@ -24,6 +24,7 @@ val Blue900 = Color(0xFF1E3A8A)
 
 // Semantic
 val Red400 = Color(0xFFF87171)
+val Red500 = Color(0xFFEF4444)
 val Red600 = Color(0xFFDC2626)
 
 // Green — approve/success state
