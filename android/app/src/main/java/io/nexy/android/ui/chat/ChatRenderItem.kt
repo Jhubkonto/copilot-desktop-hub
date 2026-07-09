@@ -32,7 +32,7 @@ sealed class ChatRenderItem {
     }
 
     data class LiveActivity(
-        val label: String,
+        val activity: ChatTurnActivity,
         val generationStartedAt: Long?,
     ) : ChatRenderItem() {
         override val key: String get() = "live_activity"
@@ -58,7 +58,7 @@ fun buildChatRenderItems(
     liveThinkingBlocks: List<ThinkingBlock>,
     isAwaitingResponse: Boolean,
     isStreaming: Boolean,
-    activityLabel: String,
+    activity: ChatTurnActivity?,
     generationStartedAt: Long?,
 ): List<ChatRenderItem> {
     val result = mutableListOf<ChatRenderItem>()
@@ -96,7 +96,8 @@ fun buildChatRenderItems(
         if (liveThinkingBlocks.isNotEmpty()) {
             result.add(ChatRenderItem.LiveThinking(liveThinkingBlocks))
         }
-        result.add(ChatRenderItem.LiveActivity(activityLabel, generationStartedAt))
+        val fallbackActivity = ChatTurnActivity(state = "thinking", label = "Assistant is thinking")
+        result.add(ChatRenderItem.LiveActivity(activity ?: fallbackActivity, generationStartedAt))
     }
 
     return result
