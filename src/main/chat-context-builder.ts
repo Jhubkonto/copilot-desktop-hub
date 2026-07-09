@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from 'fs'
-import { basename } from 'path'
+import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { basename, relative, resolve, isAbsolute } from 'path'
 import { nativeImage } from 'electron'
 import type { WebContents } from 'electron'
 import type { Database } from 'better-sqlite3'
@@ -9,6 +9,7 @@ import { parseProjectConfig } from './project-handlers'
 import { getRelevantWikiEntries, formatWikiSection } from './wiki-context'
 import { insertWikiEntry } from './wiki-handlers'
 import { requestApproval } from './tools'
+import { inferProjectAuditTarget, recordProjectAuditChange } from './project-audit'
 import type { ToolDefinition } from './provider-types'
 import { debugLog } from './debug-mode'
 
@@ -29,6 +30,7 @@ export type ChatContextOptions = {
   agentId?: string
   projectId?: string
   conversationModel?: string
+  fullAutoApprove?: boolean
 }
 
 export type BuiltContext = {
@@ -38,6 +40,21 @@ export type BuiltContext = {
   wikiProjectId: string | null
   wikiToolDefs: ToolDefinition[]
   wikiInlineHandlers: Map<string, InlineHandler>
+  fileToolDefs: ToolDefinition[]
+  fileInlineHandlers: Map<string, InlineHandler>
+}
+
+/**
+ * Resolves a model-supplied relative path against the project root and verifies the
+ * result stays inside it, preventing a BYOK model from writing/reading files elsewhere
+ * on disk (e.g. via "../../" traversal) using only the root directory as authorization.
+ */
+function resolveWithinRoot(rootDirectory: string, requestedPath: string): string | null {
+  const candidate = isAbsolute(requestedPath) ? requestedPath : resolve(rootDirectory, requestedPath)
+  const resolved = resolve(candidate)
+  const rel = relative(resolve(rootDirectory), resolved)
+  if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) return resolved
+  return null
 }
 
 // Session-scoped cache for directory listings. Keyed by project ID.
@@ -120,7 +137,7 @@ export async function buildChatContext(
   webContents: WebContents,
   sendActivity: (a: MobileChatActivity) => void,
 ): Promise<BuiltContext> {
-  const { attachments, images: pastedImages = [], agentId, projectId } = options
+  const { attachments, images: pastedImages = [], agentId, projectId, fullAutoApprove } = options
 
   // ── Attachment and image processing ────────────────────────────────────────
   const attachedImages: { id: string; name: string; dataUrl: string }[] = [...pastedImages]
@@ -510,6 +527,102 @@ export async function buildChatContext(
     })
   }
 
+  // ── Project file tools (read/write scoped to the project root) ─────────────
+  const fileToolDefs: ToolDefinition[] = []
+  const fileInlineHandlers = new Map<string, InlineHandler>()
+
+  if (injectedRootDirectory) {
+    const capturedRoot = injectedRootDirectory
+    const capturedWebContentsForFiles = webContents
+    const capturedFullAutoApprove = fullAutoApprove
+
+    fileToolDefs.push(
+      {
+        type: 'function' as const,
+        function: {
+          name: 'read_project_file',
+          description:
+            'Read the contents of a file within the project directory. Path may be relative to the project root.',
+          parameters: {
+            type: 'object',
+            properties: {
+              path: { type: 'string', description: 'File path, relative to the project root' },
+            },
+            required: ['path'],
+          },
+        },
+      },
+      {
+        type: 'function' as const,
+        function: {
+          name: 'write_project_file',
+          description:
+            'Create or overwrite a file within the project directory. Path may be relative to the project root. Always requires explicit user approval before writing.',
+          parameters: {
+            type: 'object',
+            properties: {
+              path: { type: 'string', description: 'File path, relative to the project root' },
+              content: { type: 'string', description: 'Full content to write to the file' },
+            },
+            required: ['path', 'content'],
+          },
+        },
+      },
+    )
+
+    fileInlineHandlers.set('read_project_file', async (args) => {
+      const requestedPath = typeof args.path === 'string' ? args.path : String(args.path ?? '')
+      const resolvedPath = resolveWithinRoot(capturedRoot, requestedPath)
+      if (!resolvedPath) return { success: false, error: 'Path is outside the project directory' }
+      sendActivity({ state: 'tool', label: `Reading ${requestedPath}`, toolName: 'read_project_file' })
+      if (!existsSync(resolvedPath)) return { success: false, error: `File not found: ${requestedPath}` }
+      try {
+        const text = readFileSync(resolvedPath, 'utf-8')
+        const truncated = text.length > 100000 ? text.slice(0, 100000) + '\n\n... (truncated, file too large)' : text
+        return { success: true, result: truncated }
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : 'Failed to read file' }
+      }
+    })
+
+    fileInlineHandlers.set('write_project_file', async (args) => {
+      const requestedPath = typeof args.path === 'string' ? args.path : String(args.path ?? '')
+      const fileContent = typeof args.content === 'string' ? args.content : String(args.content ?? '')
+      const resolvedPath = resolveWithinRoot(capturedRoot, requestedPath)
+      if (!resolvedPath) return { success: false, error: 'Path is outside the project directory' }
+      if (capturedWebContentsForFiles.isDestroyed())
+        return { success: false, error: 'Window closed — cannot request approval' }
+      sendActivity({ state: 'approval', label: 'Waiting for file write approval', toolName: 'write_project_file' })
+      const approved = await requestApproval(
+        capturedWebContentsForFiles,
+        'write_project_file',
+        { path: requestedPath },
+        `Write file: ${requestedPath}`,
+        { noRemember: true, autoApprove: capturedFullAutoApprove },
+      )
+      if (!approved) return { success: false, error: 'User declined file write' }
+      try {
+        const existed = existsSync(resolvedPath)
+        writeFileSync(resolvedPath, fileContent, 'utf-8')
+        const auditTarget = inferProjectAuditTarget(resolvedPath)
+        if (auditTarget) {
+          recordProjectAuditChange({
+            projectId: auditTarget.projectId,
+            title: 'Tool file write',
+            source: 'chat-tool',
+            relativePath: auditTarget.relativePath,
+            status: existed ? 'modified' : 'created',
+            lastOperation: existed ? 'write' : 'create',
+          })
+        }
+        sendActivity({ state: 'tool', label: `Wrote ${requestedPath}`, toolName: 'write_project_file' })
+        return { success: true, result: `Successfully wrote ${fileContent.length} characters to ${requestedPath}` }
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : 'Failed to write file' }
+      }
+    })
+  }
+
   return {
     augmentedContent,
     attachedImages,
@@ -517,5 +630,7 @@ export async function buildChatContext(
     wikiProjectId,
     wikiToolDefs,
     wikiInlineHandlers,
+    fileToolDefs,
+    fileInlineHandlers,
   }
 }

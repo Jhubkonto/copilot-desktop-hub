@@ -51,6 +51,7 @@ export type ProviderDispatchOptions = {
   onToolFinished?: (event: ToolLoopToolFinishedEvent) => void
   toolPolicy?: { preApproved: string[]; alwaysAsk: string[]; neverAllow: string[] }
   fullAutoApprove?: boolean
+  forceFirstToolChoice?: boolean
 }
 
 function makeActivityHandler(sendActivity: (a: MobileChatActivity) => void) {
@@ -68,7 +69,6 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
     providerName,
     providerModel,
     byokKey,
-    chatMessages,
     toolDefs,
     toolMap,
     effectiveAgentId,
@@ -81,13 +81,14 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
     sendChunk,
     sendActivity,
     onModel,
-    systemPrompt,
     onThinkingChunk: callerOnThinkingChunk,
     onThinkingEnd: callerOnThinkingEnd,
     onToolFinished,
     toolPolicy,
     fullAutoApprove,
+    forceFirstToolChoice,
   } = opts
+  let { chatMessages, systemPrompt } = opts
 
   // Strip thinking effort for providers that don't support it (H5).
   // openrouter does not expose Anthropic extended thinking via its OpenAI-compatible endpoint.
@@ -125,6 +126,28 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
   const inlineHandlers = wikiInlineHandlers.size > 0 ? wikiInlineHandlers : undefined
   const agentId = effectiveAgentId ?? 'default'
   const onActivity = makeActivityHandler(sendActivity)
+
+  // When this model/endpoint can't actually call tools but the agent has tools configured
+  // (toolDefs.length > 0), the system prompt built upstream still describes those tools as
+  // available. Left uncorrected, models — especially ones with a strong "helpful assistant"
+  // prior and no tool support (e.g. OpenRouter Hermes/Nous-family models) — will hallucinate
+  // having performed the action instead of admitting they can't. Override that impression here,
+  // where toolsSupported is actually known, rather than relying on the model to infer it.
+  const noToolSupportNotice =
+    !toolsSupported && toolDefs.length > 0
+      ? '\n\nIMPORTANT: Despite any tool descriptions elsewhere in this prompt, this model/endpoint does ' +
+        'not support tool calling in this conversation. You cannot read, write, or modify files, search ' +
+        'the wiki, or call any other tool — you have no way to actually perform those actions. If the ' +
+        'user asks you to do something that would require a tool, say plainly that this model does not ' +
+        'support tool calling and suggest switching to a tool-capable model. Do NOT claim to have read, ' +
+        'written, or otherwise acted on any file or system, and do NOT invent a result as if a tool had run.'
+      : ''
+  if (noToolSupportNotice) {
+    chatMessages = chatMessages.map((m, i) =>
+      i === 0 && m.role === 'system' ? { ...m, content: `${m.content as string}${noToolSupportNotice}` } : m,
+    )
+    systemPrompt = `${systemPrompt}${noToolSupportNotice}`
+  }
 
   const thinkingCallbacks = {
     onThinkingChunk: (blockId: string, chunk: string) => {
@@ -165,6 +188,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
         toolPolicy,
         onToolFinished,
         fullAutoApprove,
+        forceFirstToolChoice,
       )
     }
     sendActivity({ state: 'thinking', label: 'Generating response' })
@@ -201,6 +225,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
         toolPolicy,
         onToolFinished,
         fullAutoApprove,
+        forceFirstToolChoice,
       )
     }
     sendActivity({ state: 'thinking', label: 'Generating response' })
@@ -256,6 +281,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
         toolPolicy,
         onToolFinished,
         fullAutoApprove,
+        forceFirstToolChoice,
       )
     }
     sendActivity({ state: 'thinking', label: 'Generating response' })
@@ -299,6 +325,7 @@ export async function dispatchToProvider(opts: ProviderDispatchOptions): Promise
       toolPolicy,
       onToolFinished,
       fullAutoApprove,
+      forceFirstToolChoice,
     )
   }
   sendActivity({ state: 'thinking', label: 'Generating response' })

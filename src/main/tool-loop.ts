@@ -117,6 +117,7 @@ export async function runProviderMcpToolLoop(
   toolPolicy?: { preApproved: string[]; alwaysAsk: string[]; neverAllow: string[] },
   onToolFinished?: (event: ToolLoopToolFinishedEvent) => void,
   fullAutoApprove?: boolean,
+  forceFirstToolChoice?: boolean,
 ): Promise<string> {
   const toolNames = [...new Set(toolDefs.map((t) => t.function.name.split('__').pop()))].join(', ')
   const directive = toolDirective ??
@@ -143,7 +144,7 @@ export async function runProviderMcpToolLoop(
   // we force one additional 'required' iteration rather than exiting immediately.
   let prevIterationInspectionOnly = false
   let hasRecovered = false
-  let forcedToolChoice: 'required' | null = null
+  let forcedToolChoice: 'required' | null = forceFirstToolChoice ? 'required' : null
 
   const sendActivity = (event: { type: 'thinking' } | { type: 'tool'; name: string; server: string }) => {
     if (!webContents.isDestroyed()) webContents.send('chat:activity', event)

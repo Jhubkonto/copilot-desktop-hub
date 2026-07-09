@@ -33,6 +33,7 @@ import { dispatchToProvider } from './chat-provider-dispatch'
 import type { MobileChatActivity } from './chat-context-builder'
 import { debugLog } from './debug-mode'
 import { ChatTurnEmitter } from './chat-turn-emitter'
+import { endActivity } from './activity-tracker'
 import { clearActiveChatTurn } from './active-chat-turns'
 import { formatWikiSection, getRelevantWikiEntries } from './wiki-context'
 
@@ -214,6 +215,25 @@ export async function dispatchChatSend(
     }
   }
 
+  // Wraps the entire dispatch body as a last-resort safety net. Most branches below
+  // already have their own try/catch around the specific provider/CLI/orchestration call
+  // (recoverable, expected failures with tailored error messages) — but the setup code
+  // between here and the first of those inner try blocks (DB writes, buildChatContext's
+  // file/git/wiki I/O, agent/model resolution) runs completely unguarded. An unexpected
+  // throw there used to propagate straight out of dispatchChatSend, skipping every
+  // turnEmitter.closeStream()/sendStreamEnd() call — which leaves the chat's background
+  // activity entry (registered by turnEmitter.started() above) stuck "active" forever,
+  // since nothing else ever clears it. This outer catch guarantees cleanup regardless of
+  // where in the function something goes wrong.
+  //
+  // The `finally` below is a second, independent guarantee on top of that: rather than
+  // relying on every branch (CLI success, CLI error, BYOK success, BYOK error, orchestration
+  // success, orchestration error, and this outer catch) to each remember to clear the
+  // sidebar's "Assistant is responding…" entry via sendStreamEnd()/closeStream(), it
+  // unconditionally clears it once this function actually settles — so a future branch that
+  // forgets, or any path not yet covered, can't leave it stuck. endActivity() is a no-op if
+  // the entry was already cleared by one of those branches, so this is safe to call twice.
+  try {
   const attachments = options?.attachments
   const pastedImages = options?.images ?? []
   const regenerate = options?.regenerate === true
@@ -341,12 +361,20 @@ export async function dispatchChatSend(
     'If the user asks which model or language model is running this chat, answer with this exact value.'
 
   // ── Context augmentation ───────────────────────────────────────────────────
-  const { augmentedContent, attachedImages, injectedRootDirectory, wikiProjectId, wikiToolDefs, wikiInlineHandlers } =
-    await buildChatContext(
+  const {
+    augmentedContent,
+    attachedImages,
+    injectedRootDirectory,
+    wikiProjectId,
+    wikiToolDefs,
+    wikiInlineHandlers,
+    fileToolDefs,
+    fileInlineHandlers,
+  } = await buildChatContext(
       db,
       conversationId,
       content,
-      { attachments, images: pastedImages, agentId, projectId, conversationModel },
+      { attachments, images: pastedImages, agentId, projectId, conversationModel, fullAutoApprove: effectiveFullAutoApprove },
       window.webContents,
       sendActivity,
     )
@@ -620,6 +648,7 @@ export async function dispatchChatSend(
             'tool-call',
             JSON.stringify({
               __type: 'tool-call',
+              toolCallId: tc.id,
               toolName: tc.name,
               serverName: effectiveBackend,
               toolArgs: tc.input,
@@ -799,6 +828,8 @@ export async function dispatchChatSend(
               turnEmitter.thinkingEnd(event.blockId)
               const existing = cliThinkingBuffer.get(event.blockId)
               if (existing) cliThinkingBuffer.set(event.blockId, { ...existing, done: true })
+            } else if (event.type === 'activity') {
+              sendActivity({ state: 'thinking', label: event.label })
             }
           },
           cliAbortController.signal,
@@ -929,10 +960,13 @@ export async function dispatchChatSend(
       },
     }
   })
-  toolDefs.push(...wikiToolDefs)
+  toolDefs.push(...wikiToolDefs, ...fileToolDefs)
+
+  const inlineHandlers = new Map([...wikiInlineHandlers, ...fileInlineHandlers])
 
   const hasMcpTools = mcpTools.length > 0
   const hasWikiTools = wikiToolDefs.length > 0
+  const hasFileTools = fileToolDefs.length > 0
   const browserDirective = hasMcpTools
     ? `You have browser automation tools available: ${mcpTools.map((t) => t.name).join(', ')}. ` +
       "CRITICAL: Only use these tools when the user's request explicitly requires interacting with a web browser or web page. " +
@@ -947,7 +981,22 @@ export async function dispatchChatSend(
       'Use create_wiki_entry only when the user explicitly asks to save something to the wiki — it always requires user approval. ' +
       'For all other questions, respond directly without calling any tools.'
     : ''
-  const toolDirective = [browserDirective, wikiDirective].filter(Boolean).join('\n\n')
+  const fileDirective = hasFileTools
+    ? 'You have access to read_project_file and write_project_file tools, scoped to the project root directory. ' +
+      'When the user asks you to create, edit, or inspect a file in the project, immediately call the tool in the same turn — never respond with text asking permission first, and never claim you lack file access or that a prior write happened without approval. ' +
+      'There is no separate approval step for you to perform: calling write_project_file IS the entire action. Do not describe, narrate, or ask about it beforehand.'
+    : ''
+  const toolDirective = [browserDirective, wikiDirective, fileDirective].filter(Boolean).join('\n\n')
+
+  // Heuristic: when the user's message clearly asks for a file operation and file tools are
+  // available, force the model to call a tool on the first iteration instead of leaving
+  // toolChoice='auto' — small models otherwise tend to ask for permission in chat text rather
+  // than invoking write_project_file, since a soft system-prompt directive alone doesn't compel
+  // a tool call. Scoped narrowly to file-shaped requests so unrelated questions aren't affected.
+  const looksLikeFileIntent =
+    /\b(create|write|save|edit|update|make)\b[^.?!]{0,60}\.\w{1,8}\b/i.test(content) ||
+    /\bfile\s+(called|named)\b/i.test(content)
+  const forceFirstToolChoice = hasFileTools && looksLikeFileIntent
 
   let capturedStreamModel: string | null = null
   const handleStreamModel = (m: string) => {
@@ -977,7 +1026,7 @@ export async function dispatchChatSend(
       toolMap,
       effectiveAgentId,
       agenticMode,
-      wikiInlineHandlers,
+      wikiInlineHandlers: inlineHandlers,
       toolDirective,
       generationOptions,
       conversationId,
@@ -988,6 +1037,7 @@ export async function dispatchChatSend(
       systemPrompt,
       toolPolicy: toolPolicy ?? undefined,
       fullAutoApprove: effectiveFullAutoApprove,
+      forceFirstToolChoice,
       onThinkingChunk: (blockId, chunk) => {
         const existing = byokThinkingBuffer.get(blockId) ?? { blockId, content: '', done: false }
         byokThinkingBuffer.set(blockId, { ...existing, content: existing.content + chunk })
@@ -1040,6 +1090,21 @@ export async function dispatchChatSend(
   }
 
   return { assistantMsgId }
+  } catch (dispatchError) {
+    // Last-resort handler — see the comment at the top of the try block. Anything that
+    // reaches here bypassed every branch-specific error path above, so the activity
+    // registered by turnEmitter.started() would otherwise never get closed.
+    const message = dispatchError instanceof Error ? dispatchError.message : 'Unexpected error'
+    console.error('[chat] dispatchChatSend unexpected error:', dispatchError)
+    turnEmitter.streamError({ type: 'api', message, retryable: true })
+    sendActivity({ state: 'error', label: message })
+    turnEmitter.closeStream()
+    const assistantMsgId = persistAssistantMessage(db, conversationId, message, null)
+    broadcastConversationMessages(conversationId)
+    return { assistantMsgId }
+  } finally {
+    endActivity(`chat:${conversationId}`)
+  }
 }
 
 export function registerChatHandlers(): void {
