@@ -35,7 +35,12 @@ fun buildCodeBlockHtml(language: String?, code: String): String {
             <pre><code class="$langClass">$escapedCode</code></pre>
           </div>
           <script>
-            hljs.highlightAll();
+            // Swallow highlight.js failures (e.g. an unrecognized language class from the
+            // model's fence tag) — otherwise a thrown error here stops the script before
+            // reportHeight ever runs, leaving the WebView pinned at the small loading-skeleton
+            // height with the code invisible below the fold instead of falling back to
+            // plain, unhighlighted text at its real height.
+            try { hljs.highlightAll(); } catch (e) {}
             function copyCode() {
               AndroidBridge.onCopy(document.querySelector('code').innerText);
             }
