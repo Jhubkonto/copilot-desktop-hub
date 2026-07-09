@@ -1,6 +1,11 @@
 export const CHAT_REVEAL_TARGET_MS = 2800
 export const CHAT_REVEAL_MIN_PER_FRAME = 2
 export const CHAT_REVEAL_MAX_PER_FRAME = 64
+// Markdown (ReactMarkdown + rehype-highlight) re-parses its entire input on every render,
+// which is too expensive to run at the reveal animation's ~60fps cadence — throttling the
+// content handed to it to this interval keeps re-parses cheap and avoids code-block flicker
+// from repeatedly re-highlighting incomplete/unclosed fences mid-stream.
+export const CHAT_MARKDOWN_THROTTLE_MS = 120
 
 export interface ChatAnimationState {
   turnId: string | null

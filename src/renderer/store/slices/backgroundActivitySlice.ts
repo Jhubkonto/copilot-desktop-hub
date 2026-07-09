@@ -8,6 +8,10 @@ type BackgroundActivityInput =
 
 export interface BackgroundActivitySlice {
   backgroundActivities: BackgroundActivity[]
+  // Internal bookkeeping for applyActivitySnapshot's reconciliation — every activity id the
+  // main-process server has EVER confirmed via a snapshot. See applyActivitySnapshot for why
+  // this is required: without it, a completed activity gets resurrected forever.
+  confirmedActivityIds: Record<string, true>
   upsertBackgroundActivity: (activity: BackgroundActivityInput) => void
   removeBackgroundActivity: (id: string) => void
   openBackgroundActivity: (activity: BackgroundActivity) => void
@@ -21,6 +25,7 @@ export const createBackgroundActivitySlice: StateCreator<
   BackgroundActivitySlice
 > = (set, get) => ({
   backgroundActivities: [],
+  confirmedActivityIds: {},
 
   upsertBackgroundActivity: (activity) => {
     set((s) => {
@@ -49,11 +54,26 @@ export const createBackgroundActivitySlice: StateCreator<
   // is removed even if this device never saw the end event locally), but preserves any locally
   // tracked entries not yet echoed back by the server (e.g. a generator turn started a moment
   // ago, or manual-workflow-generator which only has local-optimistic tracking).
+  //
+  // Critically, "not in this snapshot" is ambiguous on its own: it's true both for a brand-new
+  // local-optimistic entry the server hasn't echoed back YET, and for an entry the server
+  // already confirmed in an EARLIER snapshot and has since ended. Naively preserving every
+  // absent id resurrects every completed activity forever, since it'll never appear in a
+  // later snapshot either — this is what caused the "Activity" sidebar badge to stay stuck
+  // on 'Assistant is responding…' after every chat turn. confirmedActivityIds tracks which
+  // ids the server has ever vouched for, so only genuinely-still-unconfirmed local entries
+  // get the grace period; anything already confirmed is strictly governed by presence in the
+  // latest snapshot from here on.
   applyActivitySnapshot: (snapshot) => {
     set((s) => {
       const knownIds = new Set(snapshot.map((item) => item.id))
-      const localOnly = s.backgroundActivities.filter((item) => !knownIds.has(item.id))
+      const localOnly = s.backgroundActivities.filter(
+        (item) => !knownIds.has(item.id) && !s.confirmedActivityIds[item.id],
+      )
       s.backgroundActivities = [...snapshot, ...localOnly]
+      for (const item of snapshot) {
+        s.confirmedActivityIds[item.id] = true
+      }
     })
   },
 
