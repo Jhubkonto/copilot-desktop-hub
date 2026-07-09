@@ -80,6 +80,7 @@ internal fun HistoryMessage.toChatMessage(): ChatMessage {
             timestamp = timestamp,
             attachments = attachments,
             thinkingBlocks = thinkingBlocks,
+            model = model,
         )
     }
 
@@ -114,11 +115,32 @@ internal fun HistoryMessage.toChatMessage(): ChatMessage {
 internal fun jsonString(json: String, key: String): String? {
     val pattern = """"$key"\s*:\s*"((?:\\.|[^"\\])*)"""".toRegex()
     return pattern.find(json)?.groupValues?.getOrNull(1)
-        ?.replace("\\\"", "\"")
-        ?.replace("\\n", "\n")
-        ?.replace("\\\\", "\\")
+        ?.let(::unescapeJsonString)
         ?.takeIf { it.isNotBlank() }
 }
+
+private val JSON_ESCAPE_RE = Regex("""\\(u[0-9a-fA-F]{4}|.)""")
+
+/**
+ * Decodes JSON string escapes in a single pass. This parser is a hand-rolled regex extractor,
+ * not a real JSON parser (see jsonString/jsonObject above), so it has to unescape manually —
+ * sequential String.replace(\\", ...).replace(\\n, ...).replace(\\\\, ...) calls (the previous
+ * approach) double-process overlapping escapes (e.g. a literal "\\n" — backslash then n — gets
+ * mangled by the \\n pass before the \\\\ pass ever sees it) and never handled \uXXXX at all, so
+ * any unicode escape (ANSI control bytes from a CLI tool's output included) came through as
+ * literal backslash-u-XXXX text instead of the actual character.
+ */
+internal fun unescapeJsonString(raw: String): String =
+    JSON_ESCAPE_RE.replace(raw) { m ->
+        val esc = m.groupValues[1]
+        when {
+            esc.length == 5 && esc[0] == 'u' -> esc.substring(1).toIntOrNull(16)?.toChar()?.toString() ?: m.value
+            esc == "n" -> "\n"
+            esc == "r" -> "\r"
+            esc == "t" -> "\t"
+            else -> esc
+        }
+    }
 
 internal fun jsonBoolean(json: String, key: String): Boolean? {
     val pattern = """"$key"\s*:\s*(true|false)""".toRegex()
