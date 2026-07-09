@@ -588,6 +588,22 @@ class StandaloneChatService(
                 ?: json.optString("message")
         }.getOrNull()?.takeIf(String::isNotBlank) ?: fallback
 
+        // Standalone chat never offers any tool schema to the provider, for any model — unlike
+        // the desktop's noToolSupportNotice (chat-provider-dispatch.ts), which only fires when
+        // tools *were* configured but the specific model can't call them. Here no model, however
+        // capable, has a way to actually touch the filesystem, so the guardrail must be
+        // unconditional or a confident model will "helpfully" narrate a fake file-write and claim
+        // success, matching desktop's HermesHallucination failure mode but without ever having
+        // been offered a tool to hallucinate about in the first place.
+        private const val STANDALONE_CAPABILITY_NOTICE =
+            "\n\nIMPORTANT: This is a standalone chat session with no file system, workspace, or tool " +
+                "access of any kind. You cannot read, write, or modify files, run code, browse the " +
+                "project, or perform any action outside this conversation. If the user asks for something " +
+                "that would require file or workspace access, say plainly that standalone mode does not " +
+                "support that and suggest connecting to the paired desktop app. Do NOT claim to have " +
+                "created, read, or modified any file, and do NOT invent a result as if such an action had " +
+                "been performed."
+
         private fun combineSystemPrompt(agentPrompt: String?, summary: String?): String? {
             val sections = buildList {
                 agentPrompt?.takeIf(String::isNotBlank)?.let(::add)
@@ -595,7 +611,8 @@ class StandaloneChatService(
                     add("Earlier conversation summary:\n$it")
                 }
             }
-            return sections.takeIf { it.isNotEmpty() }?.joinToString("\n\n")
+            val base = sections.joinToString("\n\n")
+            return base + STANDALONE_CAPABILITY_NOTICE
         }
 
         /**
