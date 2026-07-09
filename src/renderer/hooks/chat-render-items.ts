@@ -62,17 +62,46 @@ export function buildChatRenderItems(
 
   if (!includeLiveTurn || liveTurnState.status === 'idle') return items
 
+  // Thinking blocks and tool calls are two separate collections in ChatTurnState (a Map
+  // and an array), each only ordered relative to its own type. Interleave them by
+  // firstSeenSequence so a chronologically later tool call doesn't get pushed below a
+  // thinking block that actually happened first, or vice versa — ties (e.g. state built
+  // by hand without sequence numbers) fall back to this push order via a stable sort.
+  const liveThinkingAndTools: Array<
+    | { type: 'live-thinking-block'; id: string; block: ChatTurnThinkingBlock; seq: number }
+    | { type: 'live-tool-call'; id: string; toolCall: ChatTurnToolCall; seq: number }
+  > = []
+
   for (const block of liveTurnState.thinkingBlocks.values()) {
     if (!committedThinkingBlockIds.has(block.blockId)) {
-      items.push({ type: 'live-thinking-block', id: `live-thinking-${block.blockId}`, block })
+      liveThinkingAndTools.push({
+        type: 'live-thinking-block',
+        id: `live-thinking-${block.blockId}`,
+        block,
+        seq: block.firstSeenSequence ?? 0,
+      })
     }
   }
 
   liveTurnState.toolCalls.forEach((toolCall, index) => {
     if (!toolCall.id || !committedToolCallIds.has(toolCall.id)) {
-      items.push({ type: 'live-tool-call', id: toolCall.id ?? `live-tool-${index}`, toolCall })
+      liveThinkingAndTools.push({
+        type: 'live-tool-call',
+        id: toolCall.id ?? `live-tool-${index}`,
+        toolCall,
+        seq: toolCall.firstSeenSequence ?? 0,
+      })
     }
   })
+
+  liveThinkingAndTools.sort((a, b) => a.seq - b.seq)
+  for (const item of liveThinkingAndTools) {
+    if (item.type === 'live-thinking-block') {
+      items.push({ type: 'live-thinking-block', id: item.id, block: item.block })
+    } else {
+      items.push({ type: 'live-tool-call', id: item.id, toolCall: item.toolCall })
+    }
+  }
 
   if (liveTurnState.text) {
     items.push({

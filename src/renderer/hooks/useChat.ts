@@ -5,7 +5,6 @@ import type { CatalogModel } from '../../shared/types'
 import type {
   ChatMessage,
   TeamActivityStep,
-  ToolCallEvent,
   ToastType,
 } from './chat-types'
 import { useChatLiveTurn } from './useChatLiveTurn'
@@ -53,30 +52,35 @@ export function useChat({
   const [isEditingMessage, setIsEditingMessage] = useState(false)
   const [liveTeamActivity, setLiveTeamActivity] = useState<TeamActivityStep[]>([])
   const [generationStartedAt, setGenerationStartedAt] = useState<number | null>(null)
-  const liveTurnStateRef = useRef(liveTurnState)
-  liveTurnStateRef.current = liveTurnState
-  // The onStreamResponse handler below is registered in a useEffect whose deps don't
-  // include isDraining (re-subscribing on every drain tick would be wasteful/racy) —
-  // read the live value through this ref instead of the closed-over state value, which
-  // would otherwise stay frozen at whatever isDraining was when the effect last ran.
+  // The terminal-turn effect below doesn't include isDraining in its deps (re-running
+  // it on every drain tick would be wasteful/racy) — read the live value through this
+  // ref instead of the closed-over state value, which would otherwise stay frozen at
+  // whatever isDraining was when the effect last ran.
   const isDrainingRef = useRef(isDraining)
   isDrainingRef.current = isDraining
 
+  // Kept in sync from liveTurnState (see the text-delta effect below) rather than
+  // written directly from an IPC handler — useChatWindowActions still reads/writes
+  // these refs to track partial content across a Stop click and to seed the optimistic
+  // model label before the first turn_started event arrives.
   const streamingContentRef = useRef('')
   const ignoreRemoteStreamRef = useRef(false)
-  // Set by the onStreamError handler so the failed-turn effect knows to skip UI updates.
-  const errorWasBackgroundRef = useRef(false)
   const liveToolCallsRef = useRef<ChatMessage[]>([])
   const streamModelRef = useRef<string | null>(null)
   const activeConversationRef = useRef<string | null>(conversationId)
   // Locked to the conversation that started the current stream; cleared on stream end/error.
   const streamingConversationRef = useRef<string | null>(null)
-  // Set to true when the WS stream ends; isGenerating stays true until the drain queue also empties.
+  // Set to true when the turn completes; isGenerating stays true until the drain queue also empties.
   const streamEndedRef = useRef(false)
-  // Set to true when the null sentinel arrives; gates late thinking_end events.
-  const streamClosedRef = useRef(false)
-  // Stores blockIds for thinking_end events that arrived before the matching chunk.
-  const pendingThinkingEndsRef = useRef<Set<string>>(new Set())
+  // How much of liveTurnState.text has already been enqueued into the reveal animation —
+  // lets the text-delta effect enqueue only the new suffix on each liveTurnState update.
+  const enqueuedTextLenRef = useRef(0)
+  // Maps a tool call's stable key (its id, or array index for id-less BYOK calls) to the
+  // ChatMessage.id already inserted for it, so later updates patch in place instead of
+  // re-appending.
+  const toolCallMessageIdsRef = useRef<Map<string, string>>(new Map())
+  // Guards the terminal-turn effect against re-running for a turn it already handled.
+  const handledTurnRef = useRef<string | null>(null)
   const justCreatedConversationRef = useRef(false)
   const lastUndoneUserMessageRef = useRef<string | null>(null)
   const pendingEditedResendRef = useRef(false)
@@ -207,6 +211,11 @@ export function useChat({
                     return {
                       ...base,
                       content: typeof parsed.toolResult === 'string' ? parsed.toolResult : '',
+                      // Without this, a live-turn tool call that just got persisted (same
+                      // conversationId, liveTurnState not yet reset) can't be recognized as
+                      // already-committed on the next render, so it gets rendered a second
+                      // time as a stray live-tool-call block on top of this historical one.
+                      toolCallId: typeof parsed.toolCallId === 'string' ? parsed.toolCallId : undefined,
                       toolName: typeof parsed.toolName === 'string' ? parsed.toolName : undefined,
                       serverName: typeof parsed.serverName === 'string' ? parsed.serverName : undefined,
                       toolArgs: (typeof parsed.toolArgs === 'object' && parsed.toolArgs !== null)
@@ -255,8 +264,9 @@ export function useChat({
     setGenerationStartedAt(null)
     setLiveTeamActivity([])
     liveToolCallsRef.current = []
-    streamClosedRef.current = false
-    pendingThinkingEndsRef.current.clear()
+    enqueuedTextLenRef.current = 0
+    toolCallMessageIdsRef.current.clear()
+    handledTurnRef.current = null
     setLoadingFailed(false)
   }, [conversationId, addToast, snapQueue])
 
@@ -297,6 +307,11 @@ export function useChat({
                 return {
                   ...base,
                   content: typeof parsed.toolResult === 'string' ? parsed.toolResult : '',
+                  // Without this, a live-turn tool call that just got persisted (same
+                  // conversationId, liveTurnState not yet reset) can't be recognized as
+                  // already-committed on the next render, so it gets rendered a second
+                  // time as a stray live-tool-call block on top of this historical one.
+                  toolCallId: typeof parsed.toolCallId === 'string' ? parsed.toolCallId : undefined,
                   toolName: typeof parsed.toolName === 'string' ? parsed.toolName : undefined,
                   serverName: typeof parsed.serverName === 'string' ? parsed.serverName : undefined,
                   toolArgs: (typeof parsed.toolArgs === 'object' && parsed.toolArgs !== null)
@@ -355,56 +370,12 @@ export function useChat({
     }
   }, [isDraining, applyPendingFinalize])
 
-  // React to turn_failed reducer state — handle regen rollback or append error message.
-  // Transport-level cleanup (refs, generating state) happens in onStreamError; this
-  // effect handles the message-list consequences so rollback is expressed as a reaction
-  // to reducer state rather than being buried in an IPC closure.
-  const handledFailedTurnRef = useRef<string | null>(null)
-  useEffect(() => {
-    if (liveTurnState.status !== 'failed' || !liveTurnState.turnId) return
-    if (handledFailedTurnRef.current === liveTurnState.turnId) return
-    if (errorWasBackgroundRef.current) {
-      errorWasBackgroundRef.current = false
-      handledFailedTurnRef.current = liveTurnState.turnId
-      return
-    }
-    handledFailedTurnRef.current = liveTurnState.turnId
-
-    const error = liveTurnState.error
-    if (preRegenMessagesRef.current) {
-      setMessages(preRegenMessagesRef.current)
-      preRegenMessagesRef.current = null
-      pendingDeleteMessageRef.current = null
-      if (error) addToastRef.current(error.message, 'error')
-    } else if (error) {
-      const errorMessage: ChatMessage = {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        content: error.message,
-        timestamp: Date.now(),
-        isError: true,
-        errorType: error.type,
-        retryable: error.retryable,
-      }
-      setLoadingFailed(true)
-      setMessages((prev) => [...prev, errorMessage])
-
-      if (error.type === 'rate_limit') {
-        const waitSeconds =
-          typeof error.retryAfterSeconds === 'number' && error.retryAfterSeconds > 0
-            ? error.retryAfterSeconds
-            : 15
-        rateLimitSetterRef?.current(waitSeconds)
-      }
-    }
-  }, [liveTurnState.status, liveTurnState.turnId, liveTurnState.error, rateLimitSetterRef])
-
   useEffect(() => {
     const unsubscribeRemoteMessage = window.api.onRemoteMessage(({ conversationId: remoteId, content, images }) => {
       if (remoteId !== activeConversationRef.current) {
         // Stream is for a background conversation — suppress all chunks but still
-        // mark the streaming conversation so the stream-end handler can fire
-        // loadConversations() and update the sidebar without touching the current view.
+        // mark the streaming conversation so the sidebar can reflect it without
+        // touching the current view.
         streamingConversationRef.current = remoteId
         ignoreRemoteStreamRef.current = true
         markConversationGenerating(remoteId)
@@ -425,188 +396,261 @@ export function useChat({
       markConversationGenerating(remoteId)
     })
 
-    const unsubscribeStream = window.api.onStreamResponse((chunk: string | null) => {
-      if (chunk === null) {
-        const wasBackground = ignoreRemoteStreamRef.current
-        ignoreRemoteStreamRef.current = false
-        streamClosedRef.current = true
-        const doneConvId = streamingConversationRef.current ?? activeConversationRef.current ?? ''
-        streamingConversationRef.current = null
-        markConversationDoneGenerating(doneConvId)
-        void loadConversations()
+    return () => {
+      unsubscribeRemoteMessage()
+    }
+  }, [markConversationGenerating])
 
-        if (wasBackground) {
-          // Stream ran for a background conversation — don't touch current view state.
-          streamingContentRef.current = ''
-          streamModelRef.current = null
-          liveToolCallsRef.current = []
-          streamClosedRef.current = false
-          return
-        }
-
-        const finalContent = streamingContentRef.current
-        const hadToolCalls = liveToolCallsRef.current.length > 0
-        const displayContent = finalContent || (!hadToolCalls ? '_(no response)_' : '')
-
-        // Mark all live thinking blocks done before freezing — handles late/missing thinking_end events (H1).
-        // Read from the reducer state (via ref) since liveThinkingBlocks state has been removed.
-        const currentBlocks = liveTurnStateRef.current.thinkingBlocks
-        const frozenThinking: Map<string, { blockId: string; content: string; done: boolean }> | null =
-          currentBlocks.size > 0
-            ? new Map(Array.from(currentBlocks.entries()).map(([k, v]) => [k, { ...v, done: true }]))
-            : null
-
-        // Defer committing the finished message (and freezing thinking blocks) until
-        // the reveal animation actually finishes draining — computed here from the
-        // now-complete backend data, but only applied once isDraining goes false so
-        // the settled appearance never pops in ahead of the in-progress animation.
-        pendingFinalizeRef.current = {
-          assistantMessage: displayContent
-            ? {
-                id: crypto.randomUUID(),
-                role: 'assistant',
-                content: displayContent,
-                timestamp: Date.now(),
-                model: streamModelRef.current,
-                ...(frozenThinking ? { thinkingBlocks: frozenThinking } : {}),
-              }
-            : null,
-          frozenThinking: !displayContent ? frozenThinking : null,
-        }
-        pendingThinkingEndsRef.current.clear()
-        streamClosedRef.current = false
-
-        streamingContentRef.current = ''
-        streamModelRef.current = null
-        // Now that the new response arrived, delete the old assistant message from DB
-        // (regen cleanup) before any reload — reloadMessages awaits this promise so a
-        // re-fetch can never race ahead of the delete and briefly show both messages.
-        if (pendingDeleteMessageRef.current) {
-          pendingDeletePromiseRef.current = window.api.deleteMessage(pendingDeleteMessageRef.current.id).catch(() => {})
-          pendingDeleteMessageRef.current = null
-        }
-        // Signal stream end — actual isGenerating=false deferred until drain queue empties
-        // so the streaming cursor stays visible until all buffered chars are rendered.
-        streamEndedRef.current = true
-        // If the queue is already empty (no buffered content), the useEffect won't fire
-        // because isDraining never changes — apply the finalize immediately in that case.
-        // Read via ref: isDraining in this closure is stale (see isDrainingRef above).
-        if (!isDrainingRef.current) {
-          streamEndedRef.current = false
-          applyPendingFinalize()
-          setStreamingContent('')
-          setIsGenerating(false)
-          setLoadingFailed(false)
-          setGenerationStartedAt(null)
-          setLiveTeamActivity([])
-          liveToolCallsRef.current = []
-          reloadMessagesRef.current()
-        }
-        preRegenMessagesRef.current = null
-        return
-      }
-
-      if (ignoreRemoteStreamRef.current) return
-      if (streamingConversationRef.current && streamingConversationRef.current !== activeConversationRef.current) return
-      streamingContentRef.current += chunk
-      setStreamingContent((prev) => prev + chunk)
-      enqueue(chunk)
+  // liveTurnState is already scoped to the active conversationId (useChatLiveTurn drops
+  // events for any other conversation), so a turn belonging to a background conversation
+  // never reaches it. This raw, unfiltered subscription is the one place that still needs
+  // to see every conversation's turns, purely to keep the sidebar's generating indicator
+  // and conversation list in sync when a background (e.g. mobile-initiated) turn finishes.
+  useEffect(() => {
+    return window.api.onChatTurnEvent((event) => {
+      if (event.type !== 'turn_completed' && event.type !== 'turn_failed') return
+      if (event.conversationId === activeConversationRef.current) return
+      markConversationDoneGenerating(event.conversationId)
+      void loadConversations()
     })
+  }, [loadConversations, markConversationDoneGenerating])
 
-    const unsubscribeError = window.api.onStreamError(() => {
-      const wasBackground = ignoreRemoteStreamRef.current
-      ignoreRemoteStreamRef.current = false
-      errorWasBackgroundRef.current = wasBackground
-      streamClosedRef.current = true
-      const errorConvId = streamingConversationRef.current ?? activeConversationRef.current ?? ''
-      streamingConversationRef.current = null
+  // Feeds the reveal animation from liveTurnState.text (cumulative) by enqueuing only
+  // the newly-arrived suffix on each update — replaces the old per-chunk IPC channel.
+  useEffect(() => {
+    if (!conversationId || liveTurnState.conversationId !== conversationId) return
+    if (ignoreRemoteStreamRef.current) return
+    const newLen = liveTurnState.text.length
+    if (newLen <= enqueuedTextLenRef.current) {
+      enqueuedTextLenRef.current = newLen
+      return
+    }
+    const delta = liveTurnState.text.slice(enqueuedTextLenRef.current)
+    enqueuedTextLenRef.current = newLen
+    streamingContentRef.current = liveTurnState.text
+    setStreamingContent(liveTurnState.text)
+    enqueue(delta)
+  }, [conversationId, liveTurnState.conversationId, liveTurnState.text, enqueue])
+
+  // Keeps streamModelRef (read by useChatWindowActions for the stopped-message model
+  // label) in sync with the model reported by the active turn.
+  useEffect(() => {
+    if (liveTurnState.conversationId !== activeConversationRef.current) return
+    if (liveTurnState.model) streamModelRef.current = liveTurnState.model
+  }, [liveTurnState.conversationId, liveTurnState.model])
+
+  // Resets the per-turn tracking refs whenever a new turn begins (turnId changes).
+  const lastTurnIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (liveTurnState.turnId === lastTurnIdRef.current) return
+    lastTurnIdRef.current = liveTurnState.turnId
+    enqueuedTextLenRef.current = 0
+    toolCallMessageIdsRef.current.clear()
+  }, [liveTurnState.turnId])
+
+  // Derives tool-call messages from liveTurnState.toolCalls: appends a new message the
+  // first time a tool call (keyed by id, or array index for id-less BYOK calls) appears,
+  // and patches it in place on subsequent updates (e.g. CLI in-progress → finished).
+  useEffect(() => {
+    if (liveTurnState.conversationId !== activeConversationRef.current) return
+    if (liveTurnState.toolCalls.length === 0) return
+    const seen = toolCallMessageIdsRef.current
+    const toUpdate: { msgId: string; result: string; success: boolean; args?: Record<string, unknown>; inProgress: boolean; resultImages?: { dataUrl: string }[] }[] = []
+    const toInsert: { key: string; tc: (typeof liveTurnState.toolCalls)[number] }[] = []
+    liveTurnState.toolCalls.forEach((tc, index) => {
+      const key = tc.id ?? `idx-${index}`
+      const existingMsgId = seen.get(key)
+      if (existingMsgId) {
+        toUpdate.push({
+          msgId: existingMsgId,
+          result: tc.result,
+          success: tc.success,
+          args: tc.args,
+          inProgress: tc.inProgress === true,
+          resultImages: tc.resultImages,
+        })
+      } else {
+        toInsert.push({ key, tc })
+      }
+    })
+    if (toUpdate.length === 0 && toInsert.length === 0) return
+    if (toInsert.length > 0) {
+      // Flush pending streamed text before inserting the tool block so the text
+      // always appears before the tool call in the DOM (C2).
+      flush()
+    }
+    setMessages((prev) => {
+      let next = prev
+      if (toUpdate.length > 0) {
+        const updateMap = new Map(toUpdate.map((u) => [u.msgId, u]))
+        next = next.map((m) => {
+          const u = updateMap.get(m.id)
+          if (!u) return m
+          return {
+            ...m,
+            content: u.result,
+            toolResult: u.result,
+            toolSuccess: u.success,
+            toolArgs: u.args ?? m.toolArgs,
+            toolInProgress: u.inProgress,
+            ...(u.resultImages?.length ? { toolResultImages: u.resultImages } : {}),
+          }
+        })
+      }
+      if (toInsert.length > 0) {
+        const newMessages = toInsert.map(({ key, tc }) => {
+          const msg: ChatMessage = {
+            id: crypto.randomUUID(),
+            role: 'tool-call',
+            content: tc.result,
+            timestamp: Date.now(),
+            toolCallId: tc.id,
+            toolName: tc.toolName,
+            serverName: tc.serverName,
+            toolArgs: tc.args,
+            toolResult: tc.result,
+            toolSuccess: tc.success,
+            toolInProgress: tc.inProgress === true,
+            ...(tc.resultImages?.length ? { toolResultImages: tc.resultImages } : {}),
+          }
+          seen.set(key, msg.id)
+          return msg
+        })
+        liveToolCallsRef.current = [...liveToolCallsRef.current, ...newMessages]
+        next = [...next, ...newMessages]
+      }
+      return next
+    })
+  }, [liveTurnState.conversationId, liveTurnState.toolCalls, flush])
+
+  // Reacts to a turn reaching a terminal state (completed/failed) for the active
+  // conversation — the single place that now handles stream-end bookkeeping, regen
+  // rollback, and error-message insertion, replacing the old per-channel handlers.
+  useEffect(() => {
+    if (liveTurnState.status !== 'completed' && liveTurnState.status !== 'failed') return
+    if (!liveTurnState.turnId) return
+    if (handledTurnRef.current === liveTurnState.turnId) return
+    handledTurnRef.current = liveTurnState.turnId
+
+    const wasBackground = ignoreRemoteStreamRef.current
+    ignoreRemoteStreamRef.current = false
+    const doneConvId = liveTurnState.conversationId ?? activeConversationRef.current ?? ''
+    streamingConversationRef.current = null
+    markConversationDoneGenerating(doneConvId)
+    void loadConversations()
+
+    if (wasBackground) {
       streamingContentRef.current = ''
       streamModelRef.current = null
       liveToolCallsRef.current = []
-      pendingThinkingEndsRef.current.clear()
-      streamClosedRef.current = false
-      markConversationDoneGenerating(errorConvId)
-      void loadConversations()
+      return
+    }
 
-      if (wasBackground) {
-        // Error from a background conversation — don't pollute the current view.
-        return
+    if (liveTurnState.status === 'failed') {
+      const hadRegenRollback = preRegenMessagesRef.current !== null
+      const error = liveTurnState.error
+      if (preRegenMessagesRef.current) {
+        setMessages(preRegenMessagesRef.current)
+        preRegenMessagesRef.current = null
+        pendingDeleteMessageRef.current = null
+        if (error) addToastRef.current(error.message, 'error')
+      } else if (error) {
+        const errorMessage: ChatMessage = {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: error.message,
+          timestamp: Date.now(),
+          isError: true,
+          errorType: error.type,
+          retryable: error.retryable,
+        }
+        setMessages((prev) => [...prev, errorMessage])
+
+        if (error.type === 'rate_limit') {
+          const waitSeconds =
+            typeof error.retryAfterSeconds === 'number' && error.retryAfterSeconds > 0
+              ? error.retryAfterSeconds
+              : 15
+          rateLimitSetterRef?.current(waitSeconds)
+        }
       }
 
-      // Message rollback and error insertion are handled by the liveTurnState.status==='failed'
-      // useEffect above, which reacts to the turn_failed reducer event emitted alongside this error.
       flush()
+      setStreamingContent('')
+      streamingContentRef.current = ''
+      streamModelRef.current = null
+      setIsGenerating(false)
+      setLoadingFailed(!hadRegenRollback)
+      setGenerationStartedAt(null)
+      return
+    }
+
+    // completed
+    const finalContent = liveTurnState.text
+    const hadToolCalls = liveTurnState.toolCalls.length > 0
+    const displayContent = finalContent || (!hadToolCalls ? '_(no response)_' : '')
+    const frozenThinking = liveTurnState.thinkingBlocks.size > 0
+      ? new Map(liveTurnState.thinkingBlocks)
+      : null
+
+    // Defer committing the finished message (and freezing thinking blocks) until the
+    // reveal animation actually finishes draining, so the settled appearance never pops
+    // in ahead of the in-progress animation.
+    pendingFinalizeRef.current = {
+      assistantMessage: displayContent
+        ? {
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            content: displayContent,
+            timestamp: Date.now(),
+            model: liveTurnState.model,
+            ...(frozenThinking ? { thinkingBlocks: frozenThinking } : {}),
+          }
+        : null,
+      frozenThinking: !displayContent ? frozenThinking : null,
+    }
+
+    streamingContentRef.current = ''
+    streamModelRef.current = null
+    // Now that the new response arrived, delete the old assistant message from DB
+    // (regen cleanup) before any reload — reloadMessages awaits this promise so a
+    // re-fetch can never race ahead of the delete and briefly show both messages.
+    if (pendingDeleteMessageRef.current) {
+      pendingDeletePromiseRef.current = window.api.deleteMessage(pendingDeleteMessageRef.current.id).catch(() => {})
+      pendingDeleteMessageRef.current = null
+    }
+    // Signal stream end — actual isGenerating=false deferred until drain queue empties
+    // so the streaming cursor stays visible until all buffered chars are rendered.
+    streamEndedRef.current = true
+    // If the queue is already empty (no buffered content), the isDraining effect won't
+    // fire because isDraining never changes — apply the finalize immediately.
+    if (!isDrainingRef.current) {
+      streamEndedRef.current = false
+      applyPendingFinalize()
       setStreamingContent('')
       setIsGenerating(false)
       setLoadingFailed(false)
       setGenerationStartedAt(null)
-
-      void loadConversations()
-    })
-
-    const unsubscribeToolCall = window.api.onToolCallEvent((data: ToolCallEvent) => {
-      if (data.conversationId === null || data.conversationId !== activeConversationRef.current) return
-      const toolCallMsg: ChatMessage = {
-        id: crypto.randomUUID(),
-        role: 'tool-call',
-        content: data.result,
-        timestamp: Date.now(),
-        toolName: data.toolName,
-        serverName: data.serverName,
-        toolArgs: data.args,
-        toolResult: data.result,
-        toolSuccess: data.success,
-        ...(data.resultImages?.length && { toolResultImages: data.resultImages }),
-      }
-      liveToolCallsRef.current = [...liveToolCallsRef.current, toolCallMsg]
-      setMessages((prev) => [...prev, toolCallMsg])
-    })
-
-    const unsubscribeCliToolStart = window.api.onCliToolStart(({ id, name, input }) => {
-      if (streamingConversationRef.current && streamingConversationRef.current !== activeConversationRef.current) return
-      // Flush pending streamed text before inserting the tool block so the text
-      // always appears before the tool call in the DOM (C2).
-      flush()
-      const toolCallMsg: ChatMessage = {
-        id: crypto.randomUUID(),
-        role: 'tool-call',
-        content: '',
-        timestamp: Date.now(),
-        toolCallId: id,
-        toolName: name,
-        toolArgs: input,
-        toolInProgress: true,
-        toolSuccess: true,
-      }
-      setMessages((prev) => [...prev, toolCallMsg])
-    })
-
-    const unsubscribeCliToolEnd = window.api.onCliToolEnd(({ id, content, isError }) => {
-      if (streamingConversationRef.current && streamingConversationRef.current !== activeConversationRef.current) return
-      setMessages((prev) =>
-        prev.map((message) =>
-          message.toolCallId === id
-            ? { ...message, toolResult: content, toolSuccess: !isError, toolInProgress: false }
-            : message
-        )
-      )
-    })
-
-    const unsubscribeStreamModel = window.api.onStreamModel((model) => {
-      if (streamingConversationRef.current && streamingConversationRef.current !== activeConversationRef.current) return
-      streamModelRef.current = model
-    })
-
-    return () => {
-      unsubscribeRemoteMessage()
-      unsubscribeStream()
-      unsubscribeError()
-      unsubscribeToolCall()
-      unsubscribeCliToolStart()
-      unsubscribeCliToolEnd()
-      unsubscribeStreamModel()
+      setLiveTeamActivity([])
+      liveToolCallsRef.current = []
+      reloadMessagesRef.current()
     }
-  }, [loadConversations, rateLimitSetterRef, flush])
+    preRegenMessagesRef.current = null
+  }, [
+    liveTurnState.status,
+    liveTurnState.turnId,
+    liveTurnState.conversationId,
+    liveTurnState.text,
+    liveTurnState.thinkingBlocks,
+    liveTurnState.toolCalls,
+    liveTurnState.model,
+    liveTurnState.error,
+    rateLimitSetterRef,
+    markConversationDoneGenerating,
+    loadConversations,
+    applyPendingFinalize,
+    flush,
+  ])
 
   useEffect(() => {
     const unsubscribe = window.api.onTeamActivity((step) => {

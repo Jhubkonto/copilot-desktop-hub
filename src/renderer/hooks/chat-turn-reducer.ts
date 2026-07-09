@@ -7,6 +7,11 @@ export interface ChatTurnThinkingBlock {
   blockId: string
   content: string
   done: boolean
+  // The sequence number of the event that first created this block — lets render
+  // code interleave thinking blocks and tool calls in true chronological order
+  // instead of grouping all of one type before the other. Optional so state built
+  // by hand (e.g. tests) doesn't need to supply it; ties fall back to insertion order.
+  firstSeenSequence?: number
 }
 
 export interface ChatTurnToolCall {
@@ -17,6 +22,8 @@ export interface ChatTurnToolCall {
   result: string
   success: boolean
   resultImages?: { dataUrl: string }[]
+  inProgress?: boolean
+  firstSeenSequence?: number
 }
 
 export interface ChatTurnActivity {
@@ -92,6 +99,7 @@ export function chatTurnReducer(state: ChatTurnState, event: ChatTurnEvent): Cha
         blockId: event.blockId,
         content: '',
         done: false,
+        firstSeenSequence: event.sequence,
       }
       const pendingThinkingEnds = new Set(state.pendingThinkingEnds)
       const done = existing.done || pendingThinkingEnds.delete(event.blockId)
@@ -121,6 +129,16 @@ export function chatTurnReducer(state: ChatTurnState, event: ChatTurnEvent): Cha
       return {
         ...base,
         status: 'active',
+        toolCalls: upsertToolCall(state.toolCalls, {
+          id: event.id,
+          toolName: event.name,
+          serverName: event.serverName,
+          args: event.input,
+          result: '',
+          success: true,
+          inProgress: true,
+          firstSeenSequence: event.sequence,
+        }),
         activity: {
           state: 'tool',
           label: `Running ${event.name}`,
@@ -141,6 +159,8 @@ export function chatTurnReducer(state: ChatTurnState, event: ChatTurnEvent): Cha
           result: event.result,
           success: event.success,
           resultImages: event.resultImages,
+          inProgress: false,
+          firstSeenSequence: event.sequence,
         }),
       }
 
@@ -205,6 +225,9 @@ function upsertToolCall(toolCalls: ChatTurnToolCall[], next: ChatTurnToolCall): 
   const index = toolCalls.findIndex((toolCall) => toolCall.id === next.id)
   if (index === -1) return [...toolCalls, next]
   const updated = [...toolCalls]
-  updated[index] = next
+  // Preserve the original firstSeenSequence (from tool_started) rather than
+  // overwriting it with tool_finished's later sequence — it anchors this tool
+  // call's position in the interleaved render order.
+  updated[index] = { ...next, firstSeenSequence: toolCalls[index].firstSeenSequence }
   return updated
 }
