@@ -47,19 +47,27 @@ import {
 import { promoteConversationMessageToArtifact } from './artifacts'
 import { getActiveChatTurnSnapshot } from './active-chat-turns'
 import {
-  getManualWorkflowGeneratorModel,
-  runManualWorkflowGeneratorChatForAndroid,
-  setManualWorkflowGeneratorModel,
-  normalizeManualWorkflowSpec,
-} from './manual-workflow-generator'
+  getAutomatedWorkflowGeneratorModel,
+  runAutomatedWorkflowGeneratorChatForAndroid,
+  setAutomatedWorkflowGeneratorModel,
+  normalizeAutomatedWorkflowSpec,
+} from './automated-workflow-generator'
 import {
-  saveManualWorkflowRunFromSpec,
-  listManualWorkflowRuns,
-  getManualWorkflowRun,
-  updateManualWorkflowRunStepStatus,
-  discardManualWorkflowRun,
-} from './manual-workflow-runs'
-import type { ProjectGeneratorSpec, AgentGeneratorSpec, SkillConfig, SkillGeneratorSpec, ScheduleGeneratorMessage, ScheduleGeneratorSpec, ArtifactGeneratorMessage, ArtifactSpec, PromptLibraryEntry, PromptLibraryVersion, ManualWorkflowGeneratorMessage } from '../shared/types'
+  saveAutomatedWorkflowRunFromSpec,
+  listAutomatedWorkflowRuns,
+  getAutomatedWorkflowRun,
+  updateAutomatedWorkflowRunStepStatus,
+  discardAutomatedWorkflowRun,
+} from './automated-workflow-runs'
+import {
+  startAutomatedWorkflowRun,
+  confirmAutomatedWorkflowStep,
+  retryAutomatedWorkflowStep,
+  skipAutomatedWorkflowStep,
+  abortAutomatedWorkflowRun,
+  setAutomatedWorkflowConfirmationMode,
+} from './automated-workflow-executor'
+import type { ProjectGeneratorSpec, AgentGeneratorSpec, SkillConfig, SkillGeneratorSpec, ScheduleGeneratorMessage, ScheduleGeneratorSpec, ArtifactGeneratorMessage, ArtifactSpec, PromptLibraryEntry, PromptLibraryVersion, AutomatedWorkflowGeneratorMessage, AutomatedWorkflowStepStatus } from '../shared/types'
 import { storeApiKey, removeApiKey, getAzureEndpoint, setAzureEndpoint } from './provider-secrets'
 import { testProviderKey } from './providers'
 import { detectAllClis } from './cli-detection'
@@ -928,8 +936,8 @@ export function registerWsHandlers(): void {
       if (typeof data.instructions === 'string') patch.instructions = data.instructions
       if (typeof data.rootDirectory === 'string') patch.rootDirectory = data.rootDirectory
       if (Array.isArray(data.variables)) patch.variables = data.variables
-      if (typeof data.workflowMode === 'string' && ['single-agent', 'manual-delegation', 'orchestrated'].includes(data.workflowMode)) {
-        patch.workflowMode = data.workflowMode
+      if (typeof data.workflowMode === 'string' && ['single-agent', 'automated-delegation', 'manual-delegation', 'orchestrated'].includes(data.workflowMode)) {
+        patch.workflowMode = data.workflowMode === 'manual-delegation' ? 'automated-delegation' : data.workflowMode
         patch.orchestrationEnabled = data.workflowMode === 'orchestrated'
       } else if (typeof data.orchestrationEnabled === 'boolean') {
         patch.orchestrationEnabled = data.orchestrationEnabled
@@ -2188,15 +2196,15 @@ export function registerWsHandlers(): void {
       return
     }
 
-    if (command === 'manual-workflow-generator:start' || command === 'manual-workflow-generator:message') {
+    if (command === 'automated-workflow-generator:start' || command === 'automated-workflow-generator:message') {
       const projectId = typeof data.projectId === 'string' ? data.projectId.trim() : ''
       if (!projectId) {
         const sessionId = typeof data.sessionId === 'string' ? data.sessionId : undefined
-        broadcastToMobile({ event: 'manual-workflow-generator:error', data: { sessionId, message: 'Missing projectId' } })
+        broadcastToMobile({ event: 'automated-workflow-generator:error', data: { sessionId, message: 'Missing projectId' } })
         return
       }
       const rawMessages = Array.isArray(data.messages) ? data.messages : []
-      const messages: ManualWorkflowGeneratorMessage[] = rawMessages
+      const messages: AutomatedWorkflowGeneratorMessage[] = rawMessages
         .filter((m): m is Record<string, unknown> => typeof m === 'object' && m !== null)
         .map((m) => ({
           role: m.role === 'assistant' ? 'assistant' : 'user',
@@ -2204,106 +2212,204 @@ export function registerWsHandlers(): void {
         }))
       const sessionId = typeof data.sessionId === 'string' && data.sessionId.trim()
         ? data.sessionId.trim()
-        : `android-manual-workflow-${Date.now()}`
+        : `android-automated-workflow-${Date.now()}`
       const modelOverride = typeof data.model === 'string' && data.model.trim() ? data.model.trim() : undefined
-      if (command === 'manual-workflow-generator:start') {
+      if (command === 'automated-workflow-generator:start') {
         try {
-          const resolvedModel = modelOverride ?? getManualWorkflowGeneratorModel()
-          broadcastToMobile({ event: 'manual-workflow-generator:model', data: { sessionId, modelId: resolvedModel } })
+          const resolvedModel = modelOverride ?? getAutomatedWorkflowGeneratorModel()
+          broadcastToMobile({ event: 'automated-workflow-generator:model', data: { sessionId, modelId: resolvedModel } })
         } catch { /* no configured provider; generator error will surface */ }
       }
-      void runManualWorkflowGeneratorChatForAndroid(projectId, messages, sessionId, modelOverride)
+      void runAutomatedWorkflowGeneratorChatForAndroid(projectId, messages, sessionId, modelOverride)
         .catch((err: unknown) => {
-          broadcastToMobile({ event: 'manual-workflow-generator:error', data: { sessionId, message: String(err) } })
+          broadcastToMobile({ event: 'automated-workflow-generator:error', data: { sessionId, message: String(err) } })
         })
       return
     }
 
-    if (command === 'manual-workflow-generator:cancel') {
+    if (command === 'automated-workflow-generator:cancel') {
       const sessionId = typeof data.sessionId === 'string' ? data.sessionId : undefined
-      broadcastToMobile({ event: 'manual-workflow-generator:cancelled', data: { sessionId } })
+      broadcastToMobile({ event: 'automated-workflow-generator:cancelled', data: { sessionId } })
       return
     }
 
-    if (command === 'manual-workflow-generator:get-model') {
+    if (command === 'automated-workflow-generator:get-model') {
       const sessionId = typeof data.sessionId === 'string' ? data.sessionId : undefined
       try {
-        broadcastToMobile({ event: 'manual-workflow-generator:model', data: { sessionId, modelId: getManualWorkflowGeneratorModel() } })
+        broadcastToMobile({ event: 'automated-workflow-generator:model', data: { sessionId, modelId: getAutomatedWorkflowGeneratorModel() } })
       } catch (err) {
-        broadcastToMobile({ event: 'manual-workflow-generator:error', data: { sessionId, message: err instanceof Error ? err.message : String(err) } })
+        broadcastToMobile({ event: 'automated-workflow-generator:error', data: { sessionId, message: err instanceof Error ? err.message : String(err) } })
       }
       return
     }
 
-    if (command === 'manual-workflow-generator:set-model') {
+    if (command === 'automated-workflow-generator:set-model') {
       const sessionId = typeof data.sessionId === 'string' ? data.sessionId : undefined
       const modelId = typeof data.modelId === 'string' ? data.modelId : ''
-      setManualWorkflowGeneratorModel(modelId)
-      broadcastToMobile({ event: 'manual-workflow-generator:model', data: { sessionId, modelId: getManualWorkflowGeneratorModel() } })
+      setAutomatedWorkflowGeneratorModel(modelId)
+      broadcastToMobile({ event: 'automated-workflow-generator:model', data: { sessionId, modelId: getAutomatedWorkflowGeneratorModel() } })
       return
     }
 
-    // Persisted manual workflow runs (distinct from the ephemeral generator chat above).
-    // These mirror the desktop-only IPC surface in manual-workflow-runs.ts so a plan
-    // saved from Android is the same durable entity desktop's Workflow tab shows.
-    function notifyManualWorkflowRunChanged(projectId: string, runId: string): void {
+    // Persisted automated workflow runs (distinct from the ephemeral generator chat above).
+    // These mirror the desktop-only IPC surface in automated-workflow-runs.ts so a plan
+    // saved from Android is the same durable entity desktop's Workflow tab shows. Each handler
+    // below is wrapped in try/catch-with-reply (rather than relying on the outer command
+    // dispatcher's swallow-on-error) so a bad spec or a DB error surfaces to the Android client
+    // instead of leaving it stuck (e.g. a permanently-disabled "Saving…" button) with no signal.
+    function notifyAutomatedWorkflowRunChanged(projectId: string, runId: string): void {
       BrowserWindow.getAllWindows().forEach((w) => {
-        if (!w.isDestroyed()) w.webContents.send('manual-workflow-runs:changed', { projectId, runId })
+        if (!w.isDestroyed()) w.webContents.send('automated-workflow-runs:changed', { projectId, runId })
       })
     }
 
-    if (command === 'manual-workflow-runs:list') {
+    if (command === 'automated-workflow-runs:list') {
       const projectId = typeof data.projectId === 'string' ? data.projectId : ''
       if (!projectId) return
-      reply({ event: 'manual-workflow-runs:list', data: { projectId, runs: listManualWorkflowRuns(projectId) } })
+      try {
+        reply({ event: 'automated-workflow-runs:list', data: { projectId, runs: listAutomatedWorkflowRuns(projectId) } })
+      } catch (err) {
+        reply({ event: 'automated-workflow-runs:error', data: { message: err instanceof Error ? err.message : String(err) } })
+      }
       return
     }
 
-    if (command === 'manual-workflow-runs:get') {
+    if (command === 'automated-workflow-runs:get') {
       const runId = typeof data.runId === 'string' ? data.runId : ''
       if (!runId) return
-      reply({ event: 'manual-workflow-runs:detail', data: { run: getManualWorkflowRun(runId) } })
+      try {
+        reply({ event: 'automated-workflow-runs:detail', data: { run: getAutomatedWorkflowRun(runId) } })
+      } catch (err) {
+        reply({ event: 'automated-workflow-runs:error', data: { message: err instanceof Error ? err.message : String(err) } })
+      }
       return
     }
 
-    if (command === 'manual-workflow-runs:save-spec') {
+    if (command === 'automated-workflow-runs:save-spec') {
       const projectId = typeof data.projectId === 'string' ? data.projectId : ''
       const specRaw = data.spec
-      if (!projectId || !specRaw || typeof specRaw !== 'object') return
-      const spec = normalizeManualWorkflowSpec(specRaw as Record<string, unknown>)
-      const model = typeof data.model === 'string' ? data.model : null
-      const existingRunId = typeof data.existingRunId === 'string' ? data.existingRunId : null
-      const detail = saveManualWorkflowRunFromSpec(projectId, spec, model, existingRunId)
-      broadcastToMobile({ event: 'manual-workflow-runs:detail', data: { run: detail } })
-      notifyManualWorkflowRunChanged(projectId, detail.id)
-      reply({ event: 'manual-workflow-runs:detail', data: { run: detail } })
+      if (!projectId || !specRaw || typeof specRaw !== 'object') {
+        reply({ event: 'automated-workflow-runs:error', data: { message: 'Missing projectId or spec' } })
+        return
+      }
+      try {
+        const spec = normalizeAutomatedWorkflowSpec(specRaw as Record<string, unknown>)
+        const model = typeof data.model === 'string' ? data.model : null
+        const existingRunId = typeof data.existingRunId === 'string' ? data.existingRunId : null
+        const detail = saveAutomatedWorkflowRunFromSpec(projectId, spec, model, existingRunId)
+        broadcastToMobile({ event: 'automated-workflow-runs:detail', data: { run: detail } })
+        notifyAutomatedWorkflowRunChanged(projectId, detail.id)
+        reply({ event: 'automated-workflow-runs:detail', data: { run: detail } })
+      } catch (err) {
+        reply({ event: 'automated-workflow-runs:error', data: { message: err instanceof Error ? err.message : String(err) } })
+      }
       return
     }
 
-    if (command === 'manual-workflow-runs:update-step-status') {
+    if (command === 'automated-workflow-runs:update-step-status') {
       const runId = typeof data.runId === 'string' ? data.runId : ''
       const stepDbId = typeof data.stepDbId === 'string' ? data.stepDbId : ''
       const status = data.status
-      if (!runId || !stepDbId || (status !== 'not_started' && status !== 'started' && status !== 'done')) return
-      const detail = updateManualWorkflowRunStepStatus(runId, stepDbId, status)
-      if (detail) {
-        broadcastToMobile({ event: 'manual-workflow-runs:detail', data: { run: detail } })
-        notifyManualWorkflowRunChanged(detail.projectId, detail.id)
+      const validStatuses: AutomatedWorkflowStepStatus[] = ['pending', 'running', 'awaiting_confirmation', 'done', 'failed', 'skipped', 'cancelled']
+      if (!runId || !stepDbId || typeof status !== 'string' || !validStatuses.includes(status as AutomatedWorkflowStepStatus)) {
+        reply({ event: 'automated-workflow-runs:error', data: { message: 'Missing or invalid runId/stepDbId/status' } })
+        return
       }
-      reply({ event: 'manual-workflow-runs:detail', data: { run: detail } })
+      try {
+        const detail = updateAutomatedWorkflowRunStepStatus(runId, stepDbId, status as AutomatedWorkflowStepStatus)
+        if (detail) {
+          broadcastToMobile({ event: 'automated-workflow-runs:detail', data: { run: detail } })
+          notifyAutomatedWorkflowRunChanged(detail.projectId, detail.id)
+        }
+        reply({ event: 'automated-workflow-runs:detail', data: { run: detail } })
+      } catch (err) {
+        reply({ event: 'automated-workflow-runs:error', data: { message: err instanceof Error ? err.message : String(err) } })
+      }
       return
     }
 
-    if (command === 'manual-workflow-runs:discard') {
+    if (command === 'automated-workflow-runs:discard') {
       const runId = typeof data.runId === 'string' ? data.runId : ''
       if (!runId) return
-      const existing = getManualWorkflowRun(runId)
-      const ok = discardManualWorkflowRun(runId)
-      if (ok && existing) {
-        broadcastToMobile({ event: 'manual-workflow-runs:discarded', data: { runId } })
-        notifyManualWorkflowRunChanged(existing.projectId, runId)
+      try {
+        const existing = getAutomatedWorkflowRun(runId)
+        const ok = discardAutomatedWorkflowRun(runId)
+        if (ok && existing) {
+          broadcastToMobile({ event: 'automated-workflow-runs:discarded', data: { runId } })
+          notifyAutomatedWorkflowRunChanged(existing.projectId, runId)
+        }
+        reply({ event: 'automated-workflow-runs:discarded', data: { runId, ok } })
+      } catch (err) {
+        reply({ event: 'automated-workflow-runs:error', data: { message: err instanceof Error ? err.message : String(err) } })
       }
-      reply({ event: 'manual-workflow-runs:discarded', data: { runId, ok } })
+      return
+    }
+
+    if (command === 'automated-workflow-runs:start') {
+      const runId = typeof data.runId === 'string' ? data.runId : ''
+      if (!runId) { reply({ event: 'automated-workflow-runs:error', data: { message: 'Missing runId' } }); return }
+      startAutomatedWorkflowRun(runId)
+        .then((detail) => reply({ event: 'automated-workflow-runs:detail', data: { run: detail } }))
+        .catch((err: unknown) => reply({ event: 'automated-workflow-runs:error', data: { message: err instanceof Error ? err.message : String(err) } }))
+      return
+    }
+
+    if (command === 'automated-workflow-runs:confirm-step') {
+      const runId = typeof data.runId === 'string' ? data.runId : ''
+      const stepDbId = typeof data.stepDbId === 'string' ? data.stepDbId : ''
+      const editedOutput = typeof data.editedOutput === 'string' ? data.editedOutput : undefined
+      if (!runId || !stepDbId) { reply({ event: 'automated-workflow-runs:error', data: { message: 'Missing runId/stepDbId' } }); return }
+      confirmAutomatedWorkflowStep(runId, stepDbId, editedOutput)
+        .then((detail) => reply({ event: 'automated-workflow-runs:detail', data: { run: detail } }))
+        .catch((err: unknown) => reply({ event: 'automated-workflow-runs:error', data: { message: err instanceof Error ? err.message : String(err) } }))
+      return
+    }
+
+    if (command === 'automated-workflow-runs:retry-step') {
+      const runId = typeof data.runId === 'string' ? data.runId : ''
+      const stepDbId = typeof data.stepDbId === 'string' ? data.stepDbId : ''
+      if (!runId || !stepDbId) { reply({ event: 'automated-workflow-runs:error', data: { message: 'Missing runId/stepDbId' } }); return }
+      retryAutomatedWorkflowStep(runId, stepDbId)
+        .then((detail) => reply({ event: 'automated-workflow-runs:detail', data: { run: detail } }))
+        .catch((err: unknown) => reply({ event: 'automated-workflow-runs:error', data: { message: err instanceof Error ? err.message : String(err) } }))
+      return
+    }
+
+    if (command === 'automated-workflow-runs:skip-step') {
+      const runId = typeof data.runId === 'string' ? data.runId : ''
+      const stepDbId = typeof data.stepDbId === 'string' ? data.stepDbId : ''
+      if (!runId || !stepDbId) { reply({ event: 'automated-workflow-runs:error', data: { message: 'Missing runId/stepDbId' } }); return }
+      skipAutomatedWorkflowStep(runId, stepDbId)
+        .then((detail) => reply({ event: 'automated-workflow-runs:detail', data: { run: detail } }))
+        .catch((err: unknown) => reply({ event: 'automated-workflow-runs:error', data: { message: err instanceof Error ? err.message : String(err) } }))
+      return
+    }
+
+    if (command === 'automated-workflow-runs:abort') {
+      const runId = typeof data.runId === 'string' ? data.runId : ''
+      if (!runId) { reply({ event: 'automated-workflow-runs:error', data: { message: 'Missing runId' } }); return }
+      try {
+        const detail = abortAutomatedWorkflowRun(runId)
+        reply({ event: 'automated-workflow-runs:detail', data: { run: detail } })
+      } catch (err) {
+        reply({ event: 'automated-workflow-runs:error', data: { message: err instanceof Error ? err.message : String(err) } })
+      }
+      return
+    }
+
+    if (command === 'automated-workflow-runs:set-confirmation-mode') {
+      const runId = typeof data.runId === 'string' ? data.runId : ''
+      const mode = data.mode
+      if (!runId || (mode !== 'gated' && mode !== 'auto')) {
+        reply({ event: 'automated-workflow-runs:error', data: { message: 'Missing runId or invalid mode' } })
+        return
+      }
+      try {
+        const detail = setAutomatedWorkflowConfirmationMode(runId, mode)
+        reply({ event: 'automated-workflow-runs:detail', data: { run: detail } })
+      } catch (err) {
+        reply({ event: 'automated-workflow-runs:error', data: { message: err instanceof Error ? err.message : String(err) } })
+      }
       return
     }
 

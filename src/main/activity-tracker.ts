@@ -6,7 +6,7 @@ import type { BackgroundActivity } from '../shared/types'
 /**
  * Cross-device "ongoing activity" registry — the main-process source of truth so activity
  * started on either desktop or Android (generation, chat streaming, builds, remote-edit,
- * orchestration, and the project/agent/skill/scheduler/manual-workflow generators) is visible
+ * orchestration, and the project/agent/skill/scheduler/automated-workflow generators) is visible
  * on both. Mirrors the round-trip pattern used for conversation complete/incomplete: every
  * mutation pushes the full snapshot to all desktop windows and to connected mobile clients.
  */
