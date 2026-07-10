@@ -178,7 +178,13 @@ export function buildInlineHandlers(workspacePath: string, confirmedPaths?: Set<
   ])
 }
 
-const BUGFIX_REQUEST_TYPES = new Set<ErrorReportEntry['request_type']>(['bugfix', 'investigation', null, undefined])
+// Only an explicit 'bugfix' type gets bug-investigation framing ("Investigate the captured
+// bug", verbatim-quote evidence, a root_cause field). Every other type — including a missing
+// request_type — gets the generic change-request framing, matching toCodeChangeRequest's own
+// unset->'edit' default in src/shared/code-changes.ts. Migration v50 (database-migrations.ts)
+// wiped all pre-project-scoped error_reports rows, so there is no surviving legacy data that
+// depended on null implicitly meaning "bug report" here.
+const BUGFIX_REQUEST_TYPES = new Set<ErrorReportEntry['request_type']>(['bugfix'])
 
 function buildPrompt(report: ErrorReportEntry, workspacePath: string, revisionNotes?: string): ProviderMessage[] {
   const isBugfix = BUGFIX_REQUEST_TYPES.has(report.request_type)
@@ -366,7 +372,7 @@ function persistResult(reportId: string, result: RemoteEditInvestigationResult):
   return { ...result, reportId, completedAt }
 }
 
-function persistError(reportId: string, error: unknown): RemoteEditInvestigationResult {
+export function persistError(reportId: string, error: unknown): RemoteEditInvestigationResult {
   const completedAt = Date.now()
   const message = error instanceof Error ? error.message : String(error)
   const markdown = [
@@ -400,6 +406,26 @@ function persistError(reportId: string, error: unknown): RemoteEditInvestigation
     affectedFiles: [],
     error: message,
     completedAt,
+  }
+}
+
+// activeInvestigations (remote-edit-handlers.ts) is a fresh, empty in-memory Set on every
+// process start, so any row still parked at status='investigating' with no investigation_
+// markdown at startup was interrupted by a crash or restart before producing any plan content —
+// there is no code path that could otherwise leave it there. A row with markdown already present
+// is a normal, healthy "plan ready, awaiting Accept/Reject" state and must not be touched. Reuses
+// persistError's exact status/markdown shape so the existing "Planning failed" / Retry UI
+// (CodeChangeDetailView.tsx's planFailed condition) picks it up unchanged, instead of the
+// resumedInBackground guard disabling the Plan button forever.
+export function recoverStuckInvestigations(): void {
+  const stuck = getDatabase()
+    .prepare(
+      `SELECT id FROM error_reports
+       WHERE status = 'investigating' AND (investigation_markdown IS NULL OR investigation_markdown = '')`,
+    )
+    .all() as { id: string }[]
+  for (const { id } of stuck) {
+    persistError(id, new Error('The app was closed or restarted while this was planning.'))
   }
 }
 

@@ -7,6 +7,7 @@ import type {
   RemoteEditStagedFileEntry,
   RemoteEditVerificationRun,
   RemoteEditVerificationStep,
+  RemoteEditVerifyCommandConfig,
 } from '@shared/types'
 import { Button } from './ui/primitives'
 import { RevisePlanControl } from './RevisePlanControl'
@@ -20,6 +21,7 @@ interface DiffViewerProps {
   onReviseInvestigation: (reportId: string, notes: string) => void
   reviseModelPicker: ReactNode
   verificationRun: RemoteEditVerificationRun | null
+  verifyCommands: RemoteEditVerifyCommandConfig[]
   verificationRunning: string | null
   expandedVerifyCommand: string | null
   gitPrepare: RemoteEditGitPrepareResult | null
@@ -28,7 +30,6 @@ interface DiffViewerProps {
   recoveryRun: RemoteEditRecoveryRun | null
   recoveryRunning: boolean
   stagedDiffs: Record<string, RemoteEditStagedFileDiff | null>
-  reviewedFiles: Record<string, boolean>
   expandedDiffFile: string | null
   committingFix: boolean
   onStartFix: (reportId: string) => void
@@ -78,22 +79,25 @@ function PhaseSection({
 
 export function RemoteEditDiffViewer({
   report, fixRunning, fixStatus, runningReportId, onReviseInvestigation, reviseModelPicker,
-  verificationRun, verificationRunning, expandedVerifyCommand,
+  verificationRun, verifyCommands, verificationRunning, expandedVerifyCommand,
   gitPrepare, gitMessage, gitRunning, recoveryRun, recoveryRunning,
-  stagedDiffs, reviewedFiles, expandedDiffFile,
+  stagedDiffs, expandedDiffFile,
   committingFix, onStartFix, onStartVerification, onExpandVerifyCommand,
   onPrepareGitCommit, onCommitGitFix, onPushGitFix, onSetGitMessage, onUndoChange,
   onLoadDiff, onRevertFile, onMarkReviewed, onCommitFix, onExpandDiff,
   sectionsCollapsed, onToggleSection,
 }: DiffViewerProps) {
+  // reviewed is read straight from the persisted RemoteEditStagedFileEntry (server-side, via
+  // remote-edit:mark-file-reviewed) rather than local component state, so review progress
+  // survives this card unmounting/remounting (e.g. navigating to another conversation and back).
   const stagedFiles: RemoteEditStagedFileEntry[] = (() => {
     try { return JSON.parse(report.fix_staged_files || '[]') } catch { return [] }
   })()
 
-  const allReviewed = stagedFiles.length > 0 && stagedFiles.every((f) => reviewedFiles[f.relativePath])
+  const allReviewed = stagedFiles.length > 0 && stagedFiles.every((f) => f.reviewed)
   const canApply = report.fix_status === 'staged' && allReviewed && !committingFix
-  const verificationCommands: RemoteEditVerificationStep['command'][] = ['typecheck', 'lint', 'test', 'build']
-  const verificationSteps = verificationCommands.map((command) => {
+  const verifyCommandLabels = new Map(verifyCommands.map((c) => [c.id, c.label]))
+  const verificationSteps = verifyCommands.map(({ id: command }) => {
     return verificationRun?.steps.find((step) => step.command === command) ?? {
       command,
       status: 'pending' as const,
@@ -177,7 +181,7 @@ export function RemoteEditDiffViewer({
             <div className="rounded border border-gray-200 dark:border-gray-700 overflow-hidden">
               {stagedFiles.map((file) => {
                 const diff = stagedDiffs[file.relativePath]
-                const reviewed = reviewedFiles[file.relativePath] ?? false
+                const reviewed = file.reviewed
                 const isExpanded = expandedDiffFile === file.relativePath
                 const isApplied = report.fix_status === 'applied'
 
@@ -309,7 +313,7 @@ export function RemoteEditDiffViewer({
                     onClick={() => onExpandVerifyCommand(isExpanded ? null : step.command)}
                     className="w-full justify-start gap-2 px-3 py-2 bg-gray-50 text-left dark:bg-gray-900/50"
                   >
-                    <span className="flex-1 text-xs font-medium text-gray-700 dark:text-gray-300">{step.command}</span>
+                    <span className="flex-1 text-xs font-medium text-gray-700 dark:text-gray-300">{verifyCommandLabels.get(step.command) ?? step.command}</span>
                     <span className={`text-xs font-medium ${statusClass(step.status)}`}>{step.status}</span>
                   </Button>
                   {isExpanded && (

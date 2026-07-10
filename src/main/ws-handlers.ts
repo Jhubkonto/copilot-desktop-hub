@@ -16,8 +16,8 @@ import pathModule from 'path'
 import { networkInterfaces } from 'os'
 import { startFeedServer, getFeedLanUrl } from './local-feed-server'
 import { createErrorReport, rowToErrorReport, deleteErrorReport } from './error-report-handlers'
-import { applyStagedPatchToWorkspace, computeActiveCodeChangesByProject } from './remote-edit-handlers'
-import { listHistory } from './remote-edit/history'
+import { applyStagedPatchToWorkspace, computeActiveCodeChangesByProject, markStagedFileReviewed } from './remote-edit-handlers'
+import { getHistoryEntryForReport, listHistory } from './remote-edit/history'
 import {
   emitInvestigationEvent,
   loadInvestigationSettings,
@@ -27,7 +27,7 @@ import {
 import { runFix, emitFixEvent } from './remote-edit/fix-agent'
 import { emitVerificationEvent, runVerification } from './remote-edit/verifier'
 import { commitRemoteEditFix, prepareRemoteEditCommit, pushRemoteEditFix } from './remote-edit/git-ops'
-import { approveRelaunch, getRecoveryRuns, prepareReload, rollbackHeal, startReload } from './remote-edit/recovery'
+import { getRecoveryRuns, prepareReload, rollbackHeal } from './remote-edit/recovery'
 import { runProjectGeneratorChatForAndroid, createProjectFromSpec, getProjectGeneratorAgentSummaries, getProjectGeneratorModel } from './project-generator'
 import { runAgentGeneratorChatForAndroid, createAgentFromSpec, getAgentGeneratorModel } from './agent-generator'
 import { runSkillGeneratorChatForAndroid, createSkillFromSpec, getSkillGeneratorModel } from './skill-generator'
@@ -294,6 +294,12 @@ export function registerWsHandlers(): void {
       return
     }
 
+    if (command === 'self-heal:get-history-for-report') {
+      const reportId = typeof data.reportId === 'string' ? data.reportId : ''
+      reply({ event: 'self-heal:history-for-report', data: { reportId, entry: getHistoryEntryForReport(reportId) } })
+      return
+    }
+
     if (command === 'self-heal:get-reports') {
       // projectId is effectively required by both current callers (desktop's own error-report:list
       // IPC path is unaffected by this handler; Android always has a project in scope now) — kept
@@ -320,7 +326,7 @@ export function registerWsHandlers(): void {
     if (command === 'self-heal:set-report-status') {
       const reportId = typeof data.reportId === 'string' ? data.reportId : ''
       const status = typeof data.status === 'string' ? data.status : ''
-      if (!reportId || !['open', 'investigating', 'investigated', 'fixed', 'rejected'].includes(status)) return
+      if (!reportId || !['open', 'investigating', 'investigated', 'completed', 'rejected'].includes(status)) return
       const now = Date.now()
       getDatabase().prepare('UPDATE error_reports SET status = ?, updated_at = ? WHERE id = ?').run(status, now, reportId)
       const projectId = typeof data.projectId === 'string' && data.projectId ? data.projectId : null
@@ -446,6 +452,14 @@ export function registerWsHandlers(): void {
       return
     }
 
+    if (command === 'self-heal:mark-file-reviewed') {
+      const reportId = typeof data.reportId === 'string' ? data.reportId : ''
+      const relativePath = typeof data.relativePath === 'string' ? data.relativePath : ''
+      const reviewed = markStagedFileReviewed(reportId, relativePath)
+      reply({ event: 'self-heal:file-reviewed-result', data: { reportId, relativePath, reviewed } })
+      return
+    }
+
     if (command === 'self-heal:git-prepare-commit') {
       const reportId = typeof data.reportId === 'string' ? data.reportId : ''
       if (!reportId) return
@@ -488,22 +502,6 @@ export function registerWsHandlers(): void {
       const reportId = typeof data.reportId === 'string' ? data.reportId : ''
       if (!reportId) return
       reply({ event: 'self-heal:recovery-runs', data: { reportId, runs: getRecoveryRuns(reportId) } })
-      return
-    }
-
-    if (command === 'self-heal:start-reload') {
-      const recoveryId = typeof data.recoveryId === 'string' ? data.recoveryId : ''
-      if (!recoveryId) return
-      void startReload(recoveryId).then((result) => {
-        reply({ event: 'self-heal:reload-start-result', data: result })
-      })
-      return
-    }
-
-    if (command === 'self-heal:approve-relaunch') {
-      const recoveryId = typeof data.recoveryId === 'string' ? data.recoveryId : ''
-      if (!recoveryId) return
-      reply({ event: 'self-heal:relaunch-result', data: approveRelaunch(recoveryId) })
       return
     }
 

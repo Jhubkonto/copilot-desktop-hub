@@ -72,9 +72,10 @@ export type {
   Milestone,
   ProjectVariable,
   ProjectConfig,
+  RemoteEditVerifyCommandConfig,
 } from '../../shared/types'
 export { DEFAULT_PROJECT_CONFIG } from '../../shared/types'
 
 export type Theme = 'light' | 'dark'
 export type ActiveSectionPane = 'projects' | 'agents' | 'chats' | 'skills' | 'scheduled' | 'artifacts' | null
-export type ProjectSettingsTab = 'general' | 'scope' | 'milestones' | 'team' | 'workflow' | 'changes' | 'wiki' | 'artifacts'
+export type ProjectSettingsTab = 'general' | 'scope' | 'milestones' | 'team' | 'workflow' | 'verify' | 'changes' | 'wiki' | 'artifacts'

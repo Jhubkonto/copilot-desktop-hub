@@ -104,7 +104,7 @@ const api = {
   findActiveCodeChangeForConversation: (conversationId: string) => typedInvoke('error-report:find-active-for-conversation', conversationId),
   getInvestigationSettings: () => typedInvoke('remote-edit:get-investigation-settings'),
   setInvestigationSettings: (input: RemoteEditInvestigationSettings) => typedInvoke('remote-edit:set-investigation-settings', input),
-  setRemoteEditReportStatus: (reportId: string, status: 'open' | 'investigating' | 'investigated' | 'fixed' | 'rejected') =>
+  setRemoteEditReportStatus: (reportId: string, status: 'open' | 'investigating' | 'investigated' | 'completed' | 'rejected') =>
     typedInvoke('remote-edit:set-report-status', reportId, status),
   startInvestigation: (reportId: string, revisionNotes?: string) =>
     typedInvoke('remote-edit:start-investigation', reportId, revisionNotes),
@@ -134,6 +134,8 @@ const api = {
   commitFixToWorkspace: (reportId: string) => typedInvoke('remote-edit:commit-to-workspace', reportId),
   revertStagedFile: (reportId: string, relativePath: string) =>
     typedInvoke('remote-edit:revert-staged-file', reportId, relativePath),
+  markStagedFileReviewed: (reportId: string, relativePath: string) =>
+    typedInvoke('remote-edit:mark-file-reviewed', reportId, relativePath),
   getStagedDiff: (reportId: string, relativePath: string) =>
     typedInvoke('remote-edit:get-staged-diff', reportId, relativePath),
   onFixEvent: (callback: (event: RemoteEditFixEvent) => void) => {
@@ -169,11 +171,9 @@ const api = {
   },
   prepareRemoteEditReload: (reportId: string) => typedInvoke('remote-edit:prepare-reload', reportId),
   getRemoteEditRecoveryRuns: (reportId: string) => typedInvoke('remote-edit:get-recovery-runs', reportId),
-  startRemoteEditReload: (recoveryId: string) => typedInvoke('remote-edit:start-reload', recoveryId),
-  approveRemoteEditRelaunch: (recoveryId: string) => typedInvoke('remote-edit:approve-relaunch', recoveryId),
-  confirmRemoteEditStartup: () => typedInvoke('remote-edit:confirm-startup'),
   rollbackRemoteEdit: (recoveryId: string) => typedInvoke('remote-edit:rollback', recoveryId),
   getRemoteEditHistory: () => typedInvoke('remote-edit:get-history'),
+  getRemoteEditHistoryForReport: (reportId: string) => typedInvoke('remote-edit:get-history-for-report', reportId),
   onRemoteEditRecoveryEvent: (callback: (event: RemoteEditRecoveryEvent) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, data: RemoteEditRecoveryEvent) => callback(data)
     typedOn('remote-edit:recovery-event', handler)
@@ -458,17 +458,8 @@ const api = {
   },
 
   // Tools
-  listTools: () => typedInvoke('tool:list'),
-  executeTool: (
-    name: string,
-    args: Record<string, unknown>,
-    agentToolConfig?: { enabled: boolean; approval: string; instructions: string }
-  ) => typedInvoke('tool:execute', name, args, agentToolConfig),
   respondToToolApproval: (requestId: string, approved: boolean, remember: boolean) =>
     typedInvoke('tool:approval-response', requestId, approved, remember),
-  setToolPreference: (toolName: string, value: string) =>
-    typedInvoke('tool:set-preference', toolName, value),
-  getToolPreferences: () => typedInvoke('tool:get-preferences'),
   onToolApprovalRequest: (
     callback: (data: {
       requestId: string

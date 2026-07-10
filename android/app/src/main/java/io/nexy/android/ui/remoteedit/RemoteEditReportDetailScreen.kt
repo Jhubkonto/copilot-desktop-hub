@@ -684,8 +684,13 @@ fun RemoteEditReportDetailScreen(
     val latestVerificationRun = verificationRuns[reportId]?.firstOrNull()
     val latestRecoveryRun = recoveryRuns[reportId]?.firstOrNull()
 
+    var committed by remember { mutableStateOf(false) }
+
     LaunchedEffect(reportId, disconnected) {
-        if (!disconnected) WsRepository.listStagedFiles(reportId)
+        if (!disconnected) {
+            WsRepository.listStagedFiles(reportId)
+            WsRepository.getRemoteEditHistoryForReport(reportId)
+        }
         WsRepository.events.collect { event ->
             when {
                 event is WsEvent.RemoteEditInvestigationActivity && event.reportId == reportId -> {
@@ -711,6 +716,21 @@ fun RemoteEditReportDetailScreen(
                 }
                 event is WsEvent.RemoteEditStagedDiff && event.reportId == reportId -> {
                     diffContents[event.relativePath] = event.hunksJson?.let { renderDiffHunks(it) }
+                }
+                event is WsEvent.RemoteEditFileReviewed && event.reportId == reportId -> {
+                    // Mirrors the persisted RemoteEditStagedFileEntry.reviewed field written
+                    // server-side by self-heal:mark-file-reviewed, so "all files reviewed" (the
+                    // gate on Apply patch below) survives navigating away from this screen and
+                    // back, instead of living only in this composable's local state.
+                    stagedFiles = stagedFiles.map { file ->
+                        if (file.relativePath == event.relativePath) file.copy(reviewed = event.reviewed) else file
+                    }
+                }
+                event is WsEvent.RemoteEditHistoryForReport && event.reportId == reportId -> {
+                    // Source of truth for the "Committed" phase — this used to be hardcoded to
+                    // false below, so the phase stepper could never show Committed even after a
+                    // real commit (made via desktop, or in a previous session).
+                    committed = event.committed
                 }
                 else -> {}
             }
@@ -802,7 +822,7 @@ fun RemoteEditReportDetailScreen(
             val phase = deriveCodeChangePhase(
                 report = report,
                 verificationStatus = latestVerificationRun?.status,
-                committed = false,
+                committed = committed,
             )
             PhaseStepper(phase = phase, onStepClick = ::scrollToPhase)
             Text(
@@ -1091,6 +1111,10 @@ fun RemoteEditReportDetailScreen(
                     }
                 }
 
+                fun onMarkReviewed(path: String) {
+                    WsRepository.markFileReviewed(reportId, path)
+                }
+
                 if (isFlat) {
                     fileTree.forEach { node ->
                         val leaf = node as FileTreeNode.FileLeaf
@@ -1099,6 +1123,7 @@ fun RemoteEditReportDetailScreen(
                             expanded = expandedDiffs[leaf.relativePath] == true,
                             diffContent = diffContents[leaf.relativePath],
                             onToggle = { onToggleDiff(leaf.relativePath) },
+                            onMarkReviewed = { onMarkReviewed(leaf.relativePath) },
                         )
                     }
                 } else {
@@ -1108,16 +1133,25 @@ fun RemoteEditReportDetailScreen(
                         expandedDiffs = expandedDiffs,
                         diffContents = diffContents,
                         onToggleDiff = ::onToggleDiff,
+                        onMarkReviewed = ::onMarkReviewed,
                     )
                 }
 
                 if (report.fixStatus == "staged") {
+                    val allReviewed = stagedFiles.isNotEmpty() && stagedFiles.all { it.reviewed }
                     NexyPrimaryButton(
                         text = if (isApplying == reportId) "Applying…" else "Apply patch",
                         onClick = { vm.applyPatch(reportId) },
-                        enabled = isApplying == null,
+                        enabled = isApplying == null && allReviewed,
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    if (!allReviewed) {
+                        Text(
+                            "Review all files before applying",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
                 }
                 }

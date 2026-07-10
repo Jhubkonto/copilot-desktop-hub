@@ -1029,6 +1029,118 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
       ALTER TABLE conversations ADD COLUMN full_auto_approve_override INTEGER;
     `,
   },
+  {
+    // status='fixed' was the only terminal-success value for error_reports regardless of
+    // request_type, which reads correctly for a bugfix but mislabels a completed
+    // 'feature'/'edit'/'refactor'/'custom' request (Code Changes is a general change-request
+    // feature, not just a bug-fixing one — see BUGFIX_REQUEST_TYPES in remote-edit/investigator.ts
+    // for the matching fix on the planning-prompt side). Widens the CHECK constraint to add a
+    // type-neutral 'completed' value and backfills every existing 'fixed' row to it. SQLite has
+    // no ALTER COLUMN and cannot modify a CHECK constraint in place, so this rebuilds the table
+    // (same pattern as migrations 47/49), copying columns dynamically via PRAGMA table_info to
+    // avoid hardcoding a column list that would go stale against later ALTER TABLE ADD COLUMN
+    // migrations (e.g. investigation_revision_notes from v51, conversation_id from v60).
+    version: 65,
+    run: (db: Database.Database) => {
+      db.exec(`
+        DROP TABLE IF EXISTS error_reports_v65;
+        CREATE TABLE error_reports_v65 (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          screenshot_path TEXT,
+          log_snapshot TEXT,
+          status TEXT NOT NULL CHECK (status IN ('open', 'investigating', 'investigated', 'completed', 'rejected')) DEFAULT 'open',
+          app_version TEXT,
+          platform TEXT,
+          os_version TEXT,
+          investigation_markdown TEXT,
+          investigation_confidence TEXT,
+          investigation_root_cause TEXT,
+          investigation_affected_files TEXT NOT NULL DEFAULT '[]',
+          investigation_revision_notes TEXT,
+          investigation_started_at INTEGER,
+          investigation_completed_at INTEGER,
+          fix_status TEXT NOT NULL DEFAULT 'none',
+          fix_staged_files TEXT NOT NULL DEFAULT '[]',
+          fix_started_at INTEGER,
+          fix_completed_at INTEGER,
+          fix_error TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          request_type TEXT
+            CHECK (request_type IN ('edit', 'refactor', 'bugfix', 'feature', 'investigation', 'custom')),
+          request_origin TEXT
+            CHECK (request_origin IN ('chat', 'android', 'manual', 'build-failure', 'legacy-bug-report')),
+          workspace_root TEXT,
+          project_id TEXT,
+          custom_type_label TEXT,
+          conversation_id TEXT
+        );
+      `);
+      const sourceColumns = (db.prepare("PRAGMA table_info(error_reports)").all() as Array<{ name: string }>)
+        .map((col) => col.name);
+      const targetColumns = (db.prepare("PRAGMA table_info(error_reports_v65)").all() as Array<{ name: string }>)
+        .map((col) => col.name)
+        .filter((name) => name !== "status" && sourceColumns.includes(name));
+      const columnList = targetColumns.join(", ");
+      db.exec(`
+        INSERT OR IGNORE INTO error_reports_v65 (status, ${columnList})
+          SELECT CASE WHEN status = 'fixed' THEN 'completed' ELSE status END, ${columnList}
+          FROM error_reports;
+        DROP TABLE error_reports;
+        ALTER TABLE error_reports_v65 RENAME TO error_reports;
+        CREATE INDEX IF NOT EXISTS idx_error_reports_status_created
+          ON error_reports(status, created_at);
+        CREATE INDEX IF NOT EXISTS idx_error_reports_origin
+          ON error_reports(request_origin, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_error_reports_conversation
+          ON error_reports(conversation_id);
+      `);
+    },
+  },
+  {
+    // Widens project_edit_sessions.source to add 'cli-tool' — Claude CLI / Codex CLI file edits
+    // during normal chat used to be entirely invisible to Project Audit (only the BYOK
+    // write_project_file tool and Code Changes recorded anything), so switching between a BYOK
+    // chat and a CLI-backed chat in the same project silently produced a fragmented audit trail.
+    // SQLite cannot modify a CHECK constraint in place, so this rebuilds the table (same pattern
+    // as migrations 47/49/65). Drops the project_id/conversation_id/agent_id REFERENCES clauses
+    // (plain TEXT columns instead) — same precedent migration 49 already set for error_reports'
+    // project_id — since keeping a FOREIGN KEY ... REFERENCES agents(id) on a rebuilt table
+    // throws "no such table: agents" against certain SQLite builds when the referenced table
+    // doesn't exist yet at rebuild time (e.g. a DB mid-upgrade from a very old schema version).
+    version: 66,
+    run: (db: Database.Database) => {
+      db.exec(`
+        DROP TABLE IF EXISTS project_edit_sessions_v66;
+        CREATE TABLE project_edit_sessions_v66 (
+          id TEXT PRIMARY KEY,
+          project_id TEXT,
+          conversation_id TEXT,
+          agent_id TEXT,
+          title TEXT NOT NULL DEFAULT '',
+          source TEXT NOT NULL CHECK (source IN ('chat-tool', 'remote-edit', 'self-heal', 'manual-apply', 'code-changes', 'cli-tool')),
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+      `);
+      const sourceColumns = (db.prepare("PRAGMA table_info(project_edit_sessions)").all() as Array<{ name: string }>)
+        .map((col) => col.name);
+      const targetColumns = (db.prepare("PRAGMA table_info(project_edit_sessions_v66)").all() as Array<{ name: string }>)
+        .map((col) => col.name)
+        .filter((name) => sourceColumns.includes(name));
+      const columnList = targetColumns.join(", ");
+      db.exec(`
+        INSERT OR IGNORE INTO project_edit_sessions_v66 (${columnList})
+          SELECT ${columnList} FROM project_edit_sessions;
+        DROP TABLE project_edit_sessions;
+        ALTER TABLE project_edit_sessions_v66 RENAME TO project_edit_sessions;
+        CREATE INDEX IF NOT EXISTS idx_project_edit_sessions_project
+          ON project_edit_sessions(project_id, updated_at DESC);
+      `);
+    },
+  },
 ];
 
 

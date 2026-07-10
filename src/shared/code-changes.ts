@@ -7,7 +7,17 @@ import type {
   ErrorReportEntry,
   ProjectWorkspaceMetadata,
   RemoteEditVerificationRun,
+  RemoteEditVerifyCommandConfig,
 } from './types'
+
+// The verification commands used when a project has no ProjectConfig.verifyCommands override —
+// reproduces the behavior this list used to be hardcoded to in remote-edit/verifier.ts.
+export const DEFAULT_VERIFY_COMMANDS: RemoteEditVerifyCommandConfig[] = [
+  { id: 'typecheck', label: 'Typecheck', command: 'npm run typecheck' },
+  { id: 'lint', label: 'Lint', command: 'npm run lint' },
+  { id: 'test', label: 'Test', command: 'npm run test' },
+  { id: 'build', label: 'Build', command: 'npm run build' },
+]
 
 export function toCodeChangeRequest(
   report: ErrorReportEntry,

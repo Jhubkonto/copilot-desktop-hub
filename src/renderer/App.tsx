@@ -101,9 +101,7 @@ export default function App() {
 
   // Hydrate store on mount
   useEffect(() => {
-    hydrate()
-      .then(() => window.api.confirmRemoteEditStartup?.())
-      .catch(() => {})
+    hydrate().catch(() => {})
   }, [hydrate])
 
   // Listen for tool approval requests

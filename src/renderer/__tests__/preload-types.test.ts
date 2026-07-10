@@ -17,8 +17,6 @@ import type {
   McpTool,
   McpToolOverrideRow,
   McpCallResult,
-  BuiltinToolDefinition,
-  ToolExecuteResult,
   DirectoryEntry,
   ContextFileResult,
   ProviderInfo,
@@ -45,11 +43,8 @@ import type {
   RemoteEditGitPushResult,
   RemoteEditGitStatus,
   RemoteEditRecoveryEvent,
-  RemoteEditRelaunchResult,
   RemoteEditRecoveryRun,
-  RemoteEditReloadStartResult,
   RemoteEditReloadPrepareResult,
-  RemoteEditStartupConfirmationResult,
   WikiEntry,
   WikiExtractionResult,
 } from '../../shared/types'
@@ -84,9 +79,12 @@ describe('preload IPC return types', () => {
     expectTypeOf<ReturnType<ElectronAPI['callMcpTool']>>().toEqualTypeOf<Promise<McpCallResult>>()
   })
 
-  it('tool methods return typed results', () => {
-    expectTypeOf<ReturnType<ElectronAPI['listTools']>>().toEqualTypeOf<Promise<BuiltinToolDefinition[]>>()
-    expectTypeOf<ReturnType<ElectronAPI['executeTool']>>().toEqualTypeOf<Promise<ToolExecuteResult>>()
+  it('does not expose the removed generic file/shell/fetch tool system', () => {
+    type ApiKeys = keyof ElectronAPI
+    expectTypeOf<'listTools' extends ApiKeys ? true : false>().toEqualTypeOf<false>()
+    expectTypeOf<'executeTool' extends ApiKeys ? true : false>().toEqualTypeOf<false>()
+    expectTypeOf<'setToolPreference' extends ApiKeys ? true : false>().toEqualTypeOf<false>()
+    expectTypeOf<'getToolPreferences' extends ApiKeys ? true : false>().toEqualTypeOf<false>()
   })
 
   it('file/directory methods return typed results', () => {
@@ -161,10 +159,14 @@ describe('preload IPC return types', () => {
   it('remote-edit recovery APIs are typed', () => {
     expectTypeOf<ReturnType<ElectronAPI['prepareRemoteEditReload']>>().toEqualTypeOf<Promise<RemoteEditReloadPrepareResult>>()
     expectTypeOf<ReturnType<ElectronAPI['getRemoteEditRecoveryRuns']>>().toEqualTypeOf<Promise<RemoteEditRecoveryRun[]>>()
-    expectTypeOf<ReturnType<ElectronAPI['startRemoteEditReload']>>().toEqualTypeOf<Promise<RemoteEditReloadStartResult>>()
-    expectTypeOf<ReturnType<ElectronAPI['approveRemoteEditRelaunch']>>().toEqualTypeOf<Promise<RemoteEditRelaunchResult>>()
-    expectTypeOf<ReturnType<ElectronAPI['confirmRemoteEditStartup']>>().toEqualTypeOf<Promise<RemoteEditStartupConfirmationResult>>()
     expectTypeOf<Parameters<ElectronAPI['onRemoteEditRecoveryEvent']>[0]>().toEqualTypeOf<(event: RemoteEditRecoveryEvent) => void>()
+  })
+
+  it('does not expose the removed package-and-relaunch recovery methods', () => {
+    type ApiKeys = keyof ElectronAPI
+    expectTypeOf<'startRemoteEditReload' extends ApiKeys ? true : false>().toEqualTypeOf<false>()
+    expectTypeOf<'approveRemoteEditRelaunch' extends ApiKeys ? true : false>().toEqualTypeOf<false>()
+    expectTypeOf<'confirmRemoteEditStartup' extends ApiKeys ? true : false>().toEqualTypeOf<false>()
   })
 
   it('does not expose terminal methods (removed in RF.13)', () => {

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 /* ── Hoisted mocks ─────────────────────────────────────────── */
-const { mockIpcMain, mockDb, mockBrowserWindow, mockExistsSync, mockReadFileSync, mockWriteFileSync, mockExec, mockExecFile } = vi.hoisted(() => {
+const { mockIpcMain, mockDb } = vi.hoisted(() => {
   const store = new Map<string, string>()
   const handlers = new Map<string, (...args: unknown[]) => unknown>()
 
@@ -30,63 +30,19 @@ const { mockIpcMain, mockDb, mockBrowserWindow, mockExistsSync, mockReadFileSync
         }
         return undefined
       }),
-      all: vi.fn(() => {
-        if (sql.includes("LIKE 'tool_pref:%'")) {
-          const prefs: { key: string; value: string }[] = []
-          for (const [k, v] of store) {
-            if (k.startsWith('tool_pref:')) prefs.push({ key: k, value: v })
-          }
-          return prefs
-        }
-        return []
-      })
     })),
     _store: store
   }
 
-  const mockBrowserWindow = {
-    fromWebContents: vi.fn(() => ({
-      webContents: {
-        send: vi.fn()
-      }
-    }))
-  }
-
-  return {
-    mockIpcMain,
-    mockDb,
-    mockBrowserWindow,
-    mockExistsSync: vi.fn(),
-    mockReadFileSync: vi.fn(),
-    mockWriteFileSync: vi.fn(),
-    mockExec: vi.fn(),
-    mockExecFile: vi.fn()
-  }
+  return { mockIpcMain, mockDb }
 })
 
 vi.mock('electron', () => ({
   ipcMain: mockIpcMain,
-  BrowserWindow: mockBrowserWindow
-}))
-
-const { mockInferProjectAuditTarget, mockRecordProjectAuditChange } = vi.hoisted(() => ({
-  mockInferProjectAuditTarget: vi.fn(),
-  mockRecordProjectAuditChange: vi.fn(),
 }))
 
 vi.mock('../database', () => ({
   getDatabase: () => mockDb
-}))
-
-vi.mock('fs', () => ({
-  existsSync: mockExistsSync,
-  readFileSync: mockReadFileSync,
-  writeFileSync: mockWriteFileSync
-}))
-
-vi.mock('child_process', () => ({
-  exec: mockExec,
-  execFile: mockExecFile
 }))
 
 const { mockBroadcastToMobile, mockSendApprovalPush, mockIsMobileInForeground } = vi.hoisted(() => ({
@@ -108,11 +64,6 @@ vi.mock('../safe-handle', () => ({
   safeHandle: mockIpcMain.handle,
 }))
 
-vi.mock('../project-audit', () => ({
-  inferProjectAuditTarget: mockInferProjectAuditTarget,
-  recordProjectAuditChange: mockRecordProjectAuditChange,
-}))
-
 /* ── Helpers ─────────────────────────────────────────── */
 async function invokeHandler(channel: string, ...args: unknown[]): Promise<any> {
   const handler = mockIpcMain._handlers.get(channel)
@@ -122,174 +73,61 @@ async function invokeHandler(channel: string, ...args: unknown[]): Promise<any> 
 }
 
 /* ── Import & Register ─────────────────────────────────────── */
-import { registerToolHandlers, executeTool, TOOL_DEFINITIONS, requestApproval, drainPendingApprovals } from '../tools'
+import { registerToolHandlers, requestApproval, drainPendingApprovals } from '../tools'
 
 beforeEach(() => {
   mockDb._store.clear()
   vi.clearAllMocks()
-  mockInferProjectAuditTarget.mockReturnValue(null)
   registerToolHandlers()
 })
 
 /* ── Tests ─────────────────────────────────────── */
-describe('Tools — TOOL_DEFINITIONS', () => {
-  it('exports 4 built-in tool definitions', () => {
-    expect(TOOL_DEFINITIONS).toHaveLength(4)
-    const names = TOOL_DEFINITIONS.map((t) => t.name)
-    expect(names).toEqual(['fileRead', 'fileWrite', 'shellExec', 'webFetch'])
-  })
-})
+describe('Tools — tool:approval-response', () => {
+  it('resolves a pending approval and remembers the preference when no onRemember/noRemember override is given', async () => {
+    const send = vi.fn()
+    const wc = { send, isDestroyed: () => false } as unknown as Electron.WebContents
 
-describe('Tools — executeTool', () => {
-  it('fileRead returns file content', async () => {
-    mockExistsSync.mockReturnValue(true)
-    mockReadFileSync.mockReturnValue('hello world')
-    const r = await executeTool('fileRead', { path: '/tmp/test.txt' })
-    expect(r.success).toBe(true)
-    expect(r.result).toBe('hello world')
-  })
+    const approvalPromise = requestApproval(wc, 'myTool', { path: '/test.txt' }, 'desc')
+    await new Promise((r) => setTimeout(r, 0))
 
-  it('fileRead returns error for missing file', async () => {
-    mockExistsSync.mockReturnValue(false)
-    const r = await executeTool('fileRead', { path: '/tmp/nope.txt' })
-    expect(r.success).toBe(false)
-    expect(r.error).toContain('File not found')
-  })
-
-  it('fileRead truncates large files', async () => {
-    mockExistsSync.mockReturnValue(true)
-    mockReadFileSync.mockReturnValue('x'.repeat(200000))
-    const r = await executeTool('fileRead', { path: '/tmp/big.txt' })
-    expect(r.success).toBe(true)
-    expect(r.result).toContain('truncated')
-    expect(r.result!.length).toBeLessThan(200000)
-  })
-
-  it('fileWrite writes content and returns success', async () => {
-    const r = await executeTool('fileWrite', { path: '/tmp/out.txt', content: 'data' })
-    expect(r.success).toBe(true)
-    expect(r.result).toContain('4 characters')
-    expect(mockWriteFileSync).toHaveBeenCalledWith('/tmp/out.txt', 'data', 'utf-8')
-  })
-
-  it('fileWrite records project audit entries for project-scoped writes', async () => {
-    mockExistsSync.mockReturnValue(false)
-    mockInferProjectAuditTarget.mockReturnValue({ projectId: 'proj-1', relativePath: 'src/out.txt' })
-
-    const r = await executeTool('fileWrite', { path: '/tmp/out.txt', content: 'data' })
-
-    expect(r.success).toBe(true)
-    expect(mockRecordProjectAuditChange).toHaveBeenCalledWith(expect.objectContaining({
-      projectId: 'proj-1',
-      title: 'Tool file write',
-      source: 'chat-tool',
-      relativePath: 'src/out.txt',
-      status: 'created',
-      lastOperation: 'create',
-    }))
-  })
-
-  it('shellExec runs command and returns stdout', async () => {
-    mockExec.mockImplementation((
-      _cmd: string,
-      _opts: unknown,
-      cb: (error: Error | null, stdout: string, stderr: string) => void
-    ) => {
-      cb(null, 'output text', '')
-    })
-    const r = await executeTool('shellExec', { command: 'echo hi' })
-    expect(r.success).toBe(true)
-    expect(r.result).toBe('output text')
-  })
-
-  it('shellExec returns error on failure with no output', async () => {
-    mockExec.mockImplementation((
-      _cmd: string,
-      _opts: unknown,
-      cb: (error: Error | null, stdout: string, stderr: string) => void
-    ) => {
-      cb(new Error('command failed'), '', '')
-    })
-    const r = await executeTool('shellExec', { command: 'bad' })
-    expect(r.success).toBe(false)
-    expect(r.error).toBe('command failed')
-  })
-
-  it('unknown tool returns error', async () => {
-    const r = await executeTool('nonexistent', {})
-    expect(r.success).toBe(false)
-    expect(r.error).toContain('Unknown tool')
-  })
-})
-
-describe('Tools — IPC Handlers', () => {
-  it('tool:list returns definitions', async () => {
-    const r = await invokeHandler('tool:list')
-    expect(r).toEqual(TOOL_DEFINITIONS)
-  })
-
-  it('tool:execute with always_allow preference runs immediately', async () => {
-    mockDb._store.set('tool_pref:fileRead', 'always_allow')
-    mockExistsSync.mockReturnValue(true)
-    mockReadFileSync.mockReturnValue('content')
-
-    const r = await invokeHandler('tool:execute', 'fileRead', { path: '/test.txt' })
-    expect(r.success).toBe(true)
-  })
-
-  it('tool:execute with always_deny preference rejects', async () => {
-    mockDb._store.set('tool_pref:shellExec', 'always_deny')
-
-    const r = await invokeHandler('tool:execute', 'shellExec', { command: 'rm -rf /' })
-    expect(r.success).toBe(false)
-    expect(r.error).toContain('denied')
-  })
-
-  it('tool:set-preference stores preference', async () => {
-    await invokeHandler('tool:set-preference', 'fileRead', 'always_allow')
-    expect(mockDb._store.get('tool_pref:fileRead')).toBe('always_allow')
-  })
-
-  it('tool:get-preferences returns all stored prefs', async () => {
-    mockDb._store.set('tool_pref:fileRead', 'always_allow')
-    mockDb._store.set('tool_pref:shellExec', 'always_deny')
-
-    const r = await invokeHandler('tool:get-preferences')
-    expect(r).toEqual({ fileRead: 'always_allow', shellExec: 'always_deny' })
-  })
-
-  it('tool:approval-response resolves pending approval and remembers pref', async () => {
-    // We need to trigger an approval flow — send tool:execute without pref
-    // The execute call will hang waiting for approval
-    mockExistsSync.mockReturnValue(true)
-    mockReadFileSync.mockReturnValue('data')
-
-    // Get the window mock to capture the requestId
-    const sendMock = vi.fn()
-    mockBrowserWindow.fromWebContents.mockReturnValue({
-      webContents: { send: sendMock }
-    })
-
-    // Start execute — it will wait for approval
-    const executePromise = invokeHandler('tool:execute', 'fileRead', { path: '/test.txt' })
-
-    // Wait for the approval request to be sent
-    await new Promise((r) => setTimeout(r, 50))
-
-    // Get the requestId from the send call
-    const approvalCall = sendMock.mock.calls.find(
-      (c: unknown[]) => c[0] === 'tool:request-approval'
-    )
+    const approvalCall = send.mock.calls.find((c: unknown[]) => c[0] === 'tool:request-approval')
     expect(approvalCall).toBeDefined()
     const requestId = approvalCall![1].requestId
 
-    // Approve with remember=true
     await invokeHandler('tool:approval-response', requestId, true, true)
 
-    const result = await executePromise
-    expect(result.success).toBe(true)
-    // Preference should be stored
-    expect(mockDb._store.get('tool_pref:fileRead')).toBe('always_allow')
+    expect(await approvalPromise).toBe(true)
+    expect(mockDb._store.get('tool_pref:myTool')).toBe('always_allow')
+  })
+
+  it('does not persist a preference when remember is false', async () => {
+    const send = vi.fn()
+    const wc = { send, isDestroyed: () => false } as unknown as Electron.WebContents
+
+    const approvalPromise = requestApproval(wc, 'myTool', {}, 'desc')
+    await new Promise((r) => setTimeout(r, 0))
+    const requestId = send.mock.calls.find((c: unknown[]) => c[0] === 'tool:request-approval')![1].requestId
+
+    await invokeHandler('tool:approval-response', requestId, true, false)
+
+    expect(await approvalPromise).toBe(true)
+    expect(mockDb._store.has('tool_pref:myTool')).toBe(false)
+  })
+
+  it('calls onRemember instead of writing the global preference when provided', async () => {
+    const send = vi.fn()
+    const wc = { send, isDestroyed: () => false } as unknown as Electron.WebContents
+    const onRemember = vi.fn()
+
+    const approvalPromise = requestApproval(wc, 'myTool', {}, 'desc', { onRemember })
+    await new Promise((r) => setTimeout(r, 0))
+    const requestId = send.mock.calls.find((c: unknown[]) => c[0] === 'tool:request-approval')![1].requestId
+
+    await invokeHandler('tool:approval-response', requestId, true, true)
+
+    expect(await approvalPromise).toBe(true)
+    expect(onRemember).toHaveBeenCalledWith(true)
+    expect(mockDb._store.has('tool_pref:myTool')).toBe(false)
   })
 })
 

@@ -39,7 +39,6 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, 'src/preload/index.ts'),
           overlay: resolve(__dirname, 'src/preload/overlay.ts'),
-          'failsafe-preload': resolve(__dirname, 'src/main/failsafe-preload.ts'),
         },
         output: {
           format: 'cjs',

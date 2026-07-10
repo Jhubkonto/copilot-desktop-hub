@@ -84,8 +84,6 @@ vi.mock('../ws-server', () => ({
 vi.mock('../tools', () => ({
   drainPendingApprovals: vi.fn(),
   registerToolHandlers: vi.fn(),
-  executeTool: vi.fn(),
-  TOOL_DEFINITIONS: [],
   requestApproval: vi.fn(),
 }))
 

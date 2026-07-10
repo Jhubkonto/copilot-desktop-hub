@@ -1,27 +1,12 @@
 import Database from 'better-sqlite3'
-import { EventEmitter } from 'events'
 import { execFileSync } from 'child_process'
 import { mkdirSync, rmSync, writeFileSync } from 'fs'
 import path from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initializeBaseSchema, runMigrations } from '../database-migrations'
 
-const { spawnMock, relaunchMock, exitMock } = vi.hoisted(() => ({
-  spawnMock: vi.fn(),
-  relaunchMock: vi.fn(),
-  exitMock: vi.fn(),
-}))
-
-vi.mock('child_process', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('child_process')>()
-  return { ...actual, spawn: spawnMock }
-})
-
 vi.mock('electron', () => ({
-  app: {
-    relaunch: relaunchMock,
-    exit: exitMock,
-  },
+  ipcMain: { handle: vi.fn() },
 }))
 
 vi.mock('../ws-server', () => ({
@@ -56,7 +41,7 @@ function createDatabase() {
       id, title, description, screenshot_path, log_snapshot, status,
       app_version, platform, os_version, investigation_markdown,
       fix_status, fix_staged_files, workspace_root, created_at, updated_at
-    ) VALUES (?, 'Recovery test', '', NULL, NULL, 'fixed', NULL, NULL, NULL, 'done', 'applied', ?, ?, 1, 1)`,
+    ) VALUES (?, 'Recovery test', '', NULL, NULL, 'completed', NULL, NULL, NULL, 'done', 'applied', ?, ?, 1, 1)`,
   ).run(
     'report-1',
     JSON.stringify([{ relativePath: 'src/example.ts', stagingPath: '', backupPath: path.join(testRoot, 'backup.ts'), diffLineCount: 1, reviewed: true }]),
@@ -73,9 +58,6 @@ function createDatabase() {
 describe('remote-edit recovery preparation', () => {
   beforeEach(() => {
     vi.resetModules()
-    spawnMock.mockReset()
-    relaunchMock.mockReset()
-    exitMock.mockReset()
     removeTestRoot()
     mkdirSync(path.join(workspacePath, 'src'), { recursive: true })
     execFileSync('git', ['init'], { cwd: workspacePath, stdio: 'pipe' })
@@ -147,89 +129,10 @@ describe('remote-edit recovery preparation', () => {
     expect(result.reason).toBe('No backup manifest is available for rollback')
   })
 
-  it('starts a package build and marks the recovery run as reloading', async () => {
-    const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter }
-    child.stdout = new EventEmitter()
-    child.stderr = new EventEmitter()
-    spawnMock.mockReturnValue(child)
-    const emit = vi.fn()
-    const { prepareReload, startReload, getRecoveryRuns } = await import('../remote-edit/recovery')
-    const prepared = await prepareReload('report-1')
-
-    const result = await startReload(prepared.recovery!.id, emit)
-    child.stdout.emit('data', Buffer.from('packaged\n'))
-    child.emit('close', 0)
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    expect(result.started).toBe(true)
-    expect(result.buildId).toMatch(/[0-9a-f-]+/)
-    expect(spawnMock).toHaveBeenCalledWith('npm', ['run', 'package'], expect.objectContaining({ cwd: workspacePath, shell: true }))
-    expect(getRecoveryRuns('report-1')[0].status).toBe('reloading')
-    expect(
-      db.prepare('SELECT command, status, exit_code FROM build_records WHERE id = ?').get(result.buildId),
-    ).toEqual({ command: 'package', status: 'success', exit_code: 0 })
-    expect(emit).toHaveBeenCalledWith(expect.objectContaining({ label: 'Package complete. Relaunch approval required.' }))
-  })
-
-  it('schedules Electron relaunch only from a reloading recovery run', async () => {
-    const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter }
-    child.stdout = new EventEmitter()
-    child.stderr = new EventEmitter()
-    spawnMock.mockReturnValue(child)
-    const { prepareReload, startReload, approveRelaunch } = await import('../remote-edit/recovery')
-    const prepared = await prepareReload('report-1')
-    await startReload(prepared.recovery!.id)
-
-    const result = approveRelaunch(prepared.recovery!.id)
-
-    expect(result.scheduled).toBe(true)
-    expect(relaunchMock).toHaveBeenCalled()
-    expect(exitMock).toHaveBeenCalledWith(0)
-    expect(db.prepare("SELECT value FROM settings WHERE key = 'remote_edit_pending_recovery_id'").get()).toEqual({
-      value: prepared.recovery!.id,
-    })
-  })
-
-  it('confirms startup only after a pending relaunch marker exists', async () => {
-    const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter }
-    child.stdout = new EventEmitter()
-    child.stderr = new EventEmitter()
-    spawnMock.mockReturnValue(child)
-    const emit = vi.fn()
-    const { prepareReload, startReload, approveRelaunch, confirmStartupAfterRelaunch, getRecoveryRuns } = await import('../remote-edit/recovery')
-    const prepared = await prepareReload('report-1')
-    await startReload(prepared.recovery!.id)
-    approveRelaunch(prepared.recovery!.id)
-
-    const result = confirmStartupAfterRelaunch(emit)
-
-    expect(result.confirmed).toBe(true)
-    expect(result.recovery).toEqual(expect.objectContaining({ status: 'confirmed', confirmedAt: expect.any(Number) }))
-    expect(getRecoveryRuns('report-1')[0].status).toBe('confirmed')
-    expect(db.prepare("SELECT value FROM settings WHERE key = 'remote_edit_pending_recovery_id'").get()).toBeUndefined()
-    expect(emit).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'confirm',
-      label: 'Startup confirmed after remote-edit reload',
-      status: 'confirmed',
-    }))
-  })
-
-  it('returns not-confirmed when no pending recovery key exists', async () => {
-    const { confirmStartupAfterRelaunch } = await import('../remote-edit/recovery')
-    const result = confirmStartupAfterRelaunch()
-    expect(result.confirmed).toBe(false)
-    expect(result.recovery).toBeNull()
-  })
-
   it('rolls back files from backupManifest to workspace', async () => {
-    const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter }
-    child.stdout = new EventEmitter()
-    child.stderr = new EventEmitter()
-    spawnMock.mockReturnValue(child)
     const emit = vi.fn()
-    const { prepareReload, startReload, rollbackHeal, getRecoveryRuns } = await import('../remote-edit/recovery')
+    const { prepareReload, rollbackHeal, getRecoveryRuns } = await import('../remote-edit/recovery')
     const prepared = await prepareReload('report-1')
-    await startReload(prepared.recovery!.id)
     // Create a backup file to restore
     writeFileSync(path.join(testRoot, 'backup.ts'), 'export const value = 1\n', 'utf8')
 
@@ -244,17 +147,12 @@ describe('remote-edit recovery preparation', () => {
   })
 
   it('skips backup entries with null backupPath during rollback', async () => {
-    const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter }
-    child.stdout = new EventEmitter()
-    child.stderr = new EventEmitter()
-    spawnMock.mockReturnValue(child)
     // Override staged files so backupPath is null
     db.prepare("UPDATE error_reports SET fix_staged_files = ? WHERE id = 'report-1'").run(
       JSON.stringify([{ relativePath: 'src/example.ts', stagingPath: '', backupPath: null, diffLineCount: 1, reviewed: true }]),
     )
-    const { prepareReload, startReload, rollbackHeal, getRecoveryRuns } = await import('../remote-edit/recovery')
+    const { prepareReload, rollbackHeal, getRecoveryRuns } = await import('../remote-edit/recovery')
     const prepared = await prepareReload('report-1')
-    await startReload(prepared.recovery!.id)
 
     const result = await rollbackHeal(prepared.recovery!.id)
 
@@ -269,7 +167,7 @@ describe('remote-edit recovery preparation', () => {
     expect(result.error).toMatch(/not found/)
   })
 
-  it('rolls back directly from a freshly prepared recovery run, skipping reload/relaunch', async () => {
+  it('rolls back directly from a freshly prepared recovery run', async () => {
     const { prepareReload, rollbackHeal, getRecoveryRuns } = await import('../remote-edit/recovery')
     const prepared = await prepareReload('report-1')
     writeFileSync(path.join(testRoot, 'backup.ts'), 'export const value = 1\n', 'utf8')

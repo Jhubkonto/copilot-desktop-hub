@@ -35,6 +35,23 @@ export function getBackupDir(reportId: string): string {
   return path.join(app.getPath('userData'), 'remote-edit', 'backups', reportId)
 }
 
+// activeFixRuns (remote-edit-handlers.ts) is a fresh, empty in-memory Set on every process
+// start, so any row still parked at fix_status='staging' at startup was interrupted by a crash
+// or restart mid-generation, not a normal in-progress run — there is no code path that could
+// otherwise leave it there. Resets it to the existing 'failed' shape so the already-correct
+// "Regenerate patch" UI (RemoteEditDiffViewer.tsx) picks it up unchanged, instead of the request
+// staying silently stuck on "Generating patch..." forever.
+export function recoverStuckFixRuns(): void {
+  const now = Date.now()
+  getDatabase()
+    .prepare(
+      `UPDATE error_reports
+       SET fix_status = 'failed', fix_error = ?, fix_completed_at = ?, updated_at = ?
+       WHERE fix_status = 'staging'`,
+    )
+    .run('The app was closed or restarted while generating this patch.', now, now)
+}
+
 // ---------------------------------------------------------------------------
 // Context guard (E4.3)
 // ---------------------------------------------------------------------------

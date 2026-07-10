@@ -95,6 +95,56 @@ describe('remote-edit fix staging', () => {
     rmSync(testRoot.value, { recursive: true, force: true })
   })
 
+  it('recovers a patch generation stuck mid-staging from a previous crash', async () => {
+    // Regression: activeFixRuns (in-memory) is always empty on a fresh process, so a row still
+    // at fix_status='staging' was interrupted by a crash/restart, not an actually-running
+    // generation — it used to stay stuck on "Generating patch..." forever with no retry path.
+    db.prepare("UPDATE error_reports SET fix_status = 'staging' WHERE id = ?").run('report-1')
+
+    const { recoverStuckFixRuns } = await import('../remote-edit/fix-agent')
+    recoverStuckFixRuns()
+
+    const row = db.prepare('SELECT fix_status, fix_error FROM error_reports WHERE id = ?').get('report-1') as Record<string, unknown>
+    expect(row.fix_status).toBe('failed')
+    expect(String(row.fix_error)).toContain('closed or restarted')
+  })
+
+  it('rolls back files already applied when a later file in the same patch fails to copy', async () => {
+    // Regression: applyStagedPatchToWorkspace copies staged files to the workspace one by one;
+    // if file N throws, files 0..N-1 used to stay live on disk with the whole request just
+    // marked failed — a half-applied patch that's neither the original code nor the full patch,
+    // with no indication of what actually changed. Backups already exist for exactly this, so a
+    // mid-loop failure now restores (or deletes, if newly created) every file already copied.
+    const otherPath = path.join(workspacePath, 'src', 'other.ts')
+    const stagedOtherDir = path.join(testRoot.value, 'staged-other')
+    mkdirSync(stagedOtherDir, { recursive: true })
+    const stagedExamplePath = path.join(stagedOtherDir, 'example.ts')
+    writeFileSync(stagedExamplePath, 'export const value = 2', 'utf8')
+
+    const staged = [
+      { relativePath: 'src/example.ts', stagingPath: stagedExamplePath, backupPath: null, diffLineCount: 1, reviewed: true },
+      // No staged file was ever written at this path — forces copyFileSync to throw on the
+      // second entry, after the first has already been copied into the workspace.
+      { relativePath: 'src/other.ts', stagingPath: path.join(stagedOtherDir, 'does-not-exist.ts'), backupPath: null, diffLineCount: 1, reviewed: true },
+    ]
+    db.prepare("UPDATE error_reports SET fix_status = 'staged', fix_staged_files = ? WHERE id = ?")
+      .run(JSON.stringify(staged), 'report-1')
+
+    const { applyStagedPatchToWorkspace } = await import('../remote-edit-handlers')
+    const result = applyStagedPatchToWorkspace('report-1')
+
+    expect(result && 'error' in result).toBe(true)
+    // src/example.ts was fully applied then rolled back to its pre-apply content.
+    expect(readFileSync(sourcePath, 'utf8')).toBe('export const value = 1\n')
+    // src/other.ts never successfully applied, so it was never created in the first place.
+    expect(existsSync(otherPath)).toBe(false)
+    expect(db.prepare('SELECT fix_status FROM error_reports WHERE id = ?').get('report-1')).toEqual({ fix_status: 'failed' })
+    // The rolled-back file must not leave an audit entry claiming it was actually changed.
+    expect(
+      db.prepare('SELECT COUNT(*) AS count FROM project_edit_sessions WHERE id = ?').get('remote-edit:report-1'),
+    ).toEqual({ count: 0 })
+  })
+
   it('stages generated files without touching the workspace, then applies with backup only after approval', async () => {
     sendProviderWithToolsMock.mockResolvedValue({
       content: [
@@ -130,7 +180,7 @@ describe('remote-edit fix staging', () => {
     expect(readFileSync(backupPath, 'utf8')).toBe('export const value = 1\n')
     expect(db.prepare('SELECT fix_status, status FROM error_reports WHERE id = ?').get('report-1')).toEqual({
       fix_status: 'applied',
-      status: 'fixed',
+      status: 'completed',
     })
     expect(
       db.prepare('SELECT project_id, title, source FROM project_edit_sessions WHERE id = ?').get('remote-edit:report-1')

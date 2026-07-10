@@ -10,18 +10,21 @@ import {
   saveInvestigationSettings,
   getWorkspacePathForReport,
   resolveInsideWorkspace,
+  recoverStuckInvestigations,
 } from './remote-edit/investigator'
 import {
   runFix,
   emitFixEvent,
   getBackupDir,
+  recoverStuckFixRuns,
 } from './remote-edit/fix-agent'
 import {
   emitVerificationEvent,
   getVerificationRuns,
   runVerification,
+  recoverStuckVerificationRuns,
 } from './remote-edit/verifier'
-import { getOrCreateHistoryEntry, listHistory, updateHistoryEntry } from './remote-edit/history'
+import { getHistoryEntryForReport, getOrCreateHistoryEntry, listHistory, updateHistoryEntry } from './remote-edit/history'
 import { prepareReload } from './remote-edit/recovery'
 import { sendRemoteEditNotification } from './fcm-sender'
 import { getDatabase } from './database'
@@ -116,14 +119,20 @@ export function applyStagedPatchToWorkspace(
   const appliedFiles: string[] = []
   const backupPaths: string[] = []
   const updatedStaged: RemoteEditStagedFileEntry[] = staged.map((e) => ({ ...e }))
+  // Audit entries are recorded only after every file has copied successfully (see the success
+  // path below) — recording them eagerly per-file used to mean a mid-loop failure left audit
+  // rows claiming files were modified/created that the catch block below then rolls back,
+  // silently making the audit trail wrong about what's actually on disk.
+  const pendingAudit: { relativePath: string; hadExistingFile: boolean }[] = []
 
   try {
     for (let i = 0; i < staged.length; i++) {
       const entry = staged[i]
       const workspaceFilePath = resolveInsideWorkspace(workspacePath, entry.relativePath)
       const backupPath = path.join(backupDir, entry.relativePath)
+      const hadExistingFile = existsSync(workspaceFilePath)
 
-      if (existsSync(workspaceFilePath)) {
+      if (hadExistingFile) {
         mkdirSync(path.dirname(backupPath), { recursive: true })
         copyFileSync(workspaceFilePath, backupPath)
         updatedStaged[i] = { ...updatedStaged[i], backupPath }
@@ -133,40 +142,103 @@ export function applyStagedPatchToWorkspace(
       mkdirSync(path.dirname(workspaceFilePath), { recursive: true })
       copyFileSync(entry.stagingPath, workspaceFilePath)
       appliedFiles.push(entry.relativePath)
-
-      const diffRow = db
-        .prepare('SELECT diff_json FROM remote_edit_diffs WHERE report_id = ? AND relative_path = ?')
-        .get(reportId, entry.relativePath) as { diff_json: string } | undefined
-      recordProjectAuditChange({
-        sessionId: `remote-edit:${reportId}`,
-        projectId,
-        title: reportMeta?.title?.trim() || `Remote edit ${reportId}`,
-        source: 'remote-edit',
-        relativePath: entry.relativePath,
-        status: existsSync(backupPath) ? 'modified' : 'created',
-        lastOperation: 'apply',
-        diff: diffRow?.diff_json ? (JSON.parse(diffRow.diff_json) as { hunks: unknown[] }) : null,
-      })
+      pendingAudit.push({ relativePath: entry.relativePath, hadExistingFile })
     }
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err)
     const completedAt = Date.now()
+
+    // Roll back every file that was successfully copied to the workspace before the failure, so
+    // a mid-apply crash never leaves the workspace in a half-applied state that's neither the
+    // original code nor the full patch. A file that existed before (has a backup) is restored
+    // from it; a file newly created by this apply (no backup — it didn't exist before) is
+    // deleted. Best-effort: a rollback failure doesn't mask the original error, which is what
+    // actually gets surfaced to the user via fix_error either way.
+    for (const relativePath of appliedFiles) {
+      const entry = updatedStaged.find((e) => e.relativePath === relativePath)
+      const workspaceFilePath = resolveInsideWorkspace(workspacePath, relativePath)
+      try {
+        if (entry?.backupPath && existsSync(entry.backupPath)) {
+          copyFileSync(entry.backupPath, workspaceFilePath)
+        } else if (existsSync(workspaceFilePath)) {
+          unlinkSync(workspaceFilePath)
+        }
+      } catch { /* best-effort rollback */ }
+    }
+
     db.prepare(
       `UPDATE error_reports SET fix_status = 'failed', fix_error = ?, fix_completed_at = ?, updated_at = ? WHERE id = ?`,
     ).run(errorMsg, completedAt, completedAt, reportId)
     return { error: errorMsg }
   }
 
+  for (const { relativePath, hadExistingFile } of pendingAudit) {
+    const diffRow = db
+      .prepare('SELECT diff_json FROM remote_edit_diffs WHERE report_id = ? AND relative_path = ?')
+      .get(reportId, relativePath) as { diff_json: string } | undefined
+    recordProjectAuditChange({
+      sessionId: `remote-edit:${reportId}`,
+      projectId,
+      title: reportMeta?.title?.trim() || `Remote edit ${reportId}`,
+      source: 'remote-edit',
+      relativePath,
+      status: hadExistingFile ? 'modified' : 'created',
+      lastOperation: 'apply',
+      diff: diffRow?.diff_json ? (JSON.parse(diffRow.diff_json) as { hunks: unknown[] }) : null,
+    })
+  }
+
   const completedAt = Date.now()
   db.prepare(
-    `UPDATE error_reports SET fix_status = 'applied', status = 'fixed', fix_staged_files = ?, fix_completed_at = ?, updated_at = ? WHERE id = ?`,
+    `UPDATE error_reports SET fix_status = 'applied', status = 'completed', fix_staged_files = ?, fix_completed_at = ?, updated_at = ? WHERE id = ?`,
   ).run(JSON.stringify(updatedStaged), completedAt, completedAt, reportId)
 
   updateHistoryEntry(reportId, { fixAppliedAt: completedAt, status: 'fix-applied' })
   return { appliedFiles, backupPaths }
 }
 
+// Call once at app startup, before any renderer can observe Code Changes state. The in-memory
+// activeInvestigations/activeFixRuns/activeVerificationRuns Sets below always start empty on a
+// fresh process, so any DB row still parked in a "running" state from a previous process was
+// interrupted by a crash or restart, not an actually-in-progress run — without this sweep those
+// rows stayed permanently stuck (e.g. CodeChangeDetailView.tsx's resumedInBackground guard
+// disabling the Plan button forever, with no way to retry except deleting the request).
+export function recoverStuckCodeChanges(): void {
+  recoverStuckInvestigations()
+  recoverStuckFixRuns()
+  recoverStuckVerificationRuns()
+}
+
+// The gate blocking "Apply to workspace" until every staged file is marked reviewed used to be
+// computed purely from renderer-local React state, discarded the moment the chat card unmounted
+// (e.g. navigating to another conversation and back) — the persisted RemoteEditStagedFileEntry.
+// reviewed field existed but was never actually written to. This is the single write path for
+// it, shared by both the desktop IPC handler and the Android WS command below.
+export function markStagedFileReviewed(reportId: string, relativePath: string): boolean {
+  if (!reportId || !relativePath) return false
+  const db = getDatabase()
+  const row = db
+    .prepare('SELECT fix_staged_files FROM error_reports WHERE id = ?')
+    .get(reportId) as { fix_staged_files: string } | undefined
+  if (!row) return false
+
+  const staged: RemoteEditStagedFileEntry[] = JSON.parse(row.fix_staged_files || '[]')
+  const index = staged.findIndex((f) => f.relativePath === relativePath)
+  if (index === -1) return false
+
+  staged[index] = { ...staged[index], reviewed: true }
+  const now = Date.now()
+  db.prepare('UPDATE error_reports SET fix_staged_files = ?, updated_at = ? WHERE id = ?')
+    .run(JSON.stringify(staged), now, reportId)
+  return true
+}
+
 export function registerRemoteEditHandlers(mainWindow?: BrowserWindow): void {
+  // Runs once, here, since this function itself only runs once per process (real startup via
+  // ipc-handlers.ts, or once per test "startup") — see recoverStuckCodeChanges's own comment for
+  // why any row still in a "running" state at this point must have been interrupted.
+  recoverStuckCodeChanges()
+
   safeHandle('remote-edit:get-investigation-settings', () => loadInvestigationSettings())
 
   safeHandle('remote-edit:set-investigation-settings', (_event, input: RemoteEditInvestigationSettings) =>
@@ -174,7 +246,7 @@ export function registerRemoteEditHandlers(mainWindow?: BrowserWindow): void {
   )
 
   safeHandle('remote-edit:set-report-status', (_event, reportId: string, status: ErrorReportStatus) => {
-    if (!['open', 'investigating', 'investigated', 'fixed', 'rejected'].includes(status)) return null
+    if (!['open', 'investigating', 'investigated', 'completed', 'rejected'].includes(status)) return null
     const now = Date.now()
     getDatabase().prepare('UPDATE error_reports SET status = ?, updated_at = ? WHERE id = ?').run(status, now, reportId)
     return getDatabase().prepare('SELECT * FROM error_reports WHERE id = ?').get(reportId) as ErrorReportEntry | null
@@ -310,6 +382,10 @@ export function registerRemoteEditHandlers(mainWindow?: BrowserWindow): void {
     return true
   })
 
+  safeHandle('remote-edit:mark-file-reviewed', (_event, reportId: string, relativePath: string) =>
+    markStagedFileReviewed(reportId, relativePath)
+  )
+
   safeHandle('remote-edit:commit-to-workspace', (_event, reportId: string) => {
     const result = applyStagedPatchToWorkspace(reportId)
     if (result && 'error' in result) return null
@@ -370,4 +446,5 @@ export function registerRemoteEditHandlers(mainWindow?: BrowserWindow): void {
   })
 
   safeHandle('remote-edit:get-history', () => listHistory())
+  safeHandle('remote-edit:get-history-for-report', (_event, reportId: string) => getHistoryEntryForReport(reportId))
 }

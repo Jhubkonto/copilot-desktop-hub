@@ -21,7 +21,7 @@ vi.mock('electron', () => ({
 import { safeHandle, validateSender } from '../safe-handle'
 
 const TEST_CHANNELS = {
-  register: 'tool:list',
+  register: 'tool:approval-response',
   success: 'app:get-settings',
   error: 'chat:send-message',
   unknown: 'conversation:list',

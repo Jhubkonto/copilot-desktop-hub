@@ -194,14 +194,6 @@ export function deleteErrorReport(reportId: string): boolean {
     .get(reportId) as { id: string } | undefined
   if (!row) return false
 
-  const recoveryRows = db
-    .prepare('SELECT id FROM remote_edit_recovery_runs WHERE report_id = ?')
-    .all(reportId) as Array<{ id: string }>
-  const recoveryIds = new Set(recoveryRows.map((recovery) => recovery.id))
-  const pendingRecovery = db
-    .prepare("SELECT value FROM settings WHERE key = 'remote_edit_pending_recovery_id'")
-    .get() as { value: string } | undefined
-
   db.transaction(() => {
     db.prepare('DELETE FROM remote_edit_diffs WHERE report_id = ?').run(reportId)
     db.prepare('DELETE FROM remote_edit_verification_runs WHERE report_id = ?').run(reportId)
@@ -209,9 +201,6 @@ export function deleteErrorReport(reportId: string): boolean {
     db.prepare('DELETE FROM remote_edit_history WHERE report_id = ?').run(reportId)
     deleteCodeChangeRefMessages(reportId)
     db.prepare('DELETE FROM error_reports WHERE id = ?').run(reportId)
-    if (pendingRecovery?.value && recoveryIds.has(pendingRecovery.value)) {
-      db.prepare("DELETE FROM settings WHERE key = 'remote_edit_pending_recovery_id'").run()
-    }
   })()
 
   removeUserDataChild('error-reports', reportId)

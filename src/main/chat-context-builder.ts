@@ -10,6 +10,7 @@ import { getRelevantWikiEntries, formatWikiSection } from './wiki-context'
 import { insertWikiEntry } from './wiki-handlers'
 import { requestApproval } from './tools'
 import { inferProjectAuditTarget, recordProjectAuditChange } from './project-audit'
+import { computeLineDiff } from './remote-edit/fix-agent'
 import type { ToolDefinition } from './provider-types'
 import { debugLog } from './debug-mode'
 
@@ -603,6 +604,7 @@ export async function buildChatContext(
       if (!approved) return { success: false, error: 'User declined file write' }
       try {
         const existed = existsSync(resolvedPath)
+        const beforeContent = existed ? readFileSync(resolvedPath, 'utf-8') : ''
         writeFileSync(resolvedPath, fileContent, 'utf-8')
         const auditTarget = inferProjectAuditTarget(resolvedPath)
         if (auditTarget) {
@@ -613,6 +615,7 @@ export async function buildChatContext(
             relativePath: auditTarget.relativePath,
             status: existed ? 'modified' : 'created',
             lastOperation: existed ? 'write' : 'create',
+            diff: { hunks: computeLineDiff(beforeContent, fileContent) },
           })
         }
         sendActivity({ state: 'tool', label: `Wrote ${requestedPath}`, toolName: 'write_project_file' })

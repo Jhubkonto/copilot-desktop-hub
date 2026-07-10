@@ -37,7 +37,7 @@ function createDatabase() {
       id, title, description, screenshot_path, log_snapshot, status,
       app_version, platform, os_version, investigation_markdown,
       fix_status, fix_staged_files, workspace_root, created_at, updated_at
-    ) VALUES (?, 'Renderer crash', '', NULL, NULL, 'fixed', NULL, NULL, NULL, 'done', 'applied', ?, ?, 1, 1)`,
+    ) VALUES (?, 'Renderer crash', '', NULL, NULL, 'completed', NULL, NULL, NULL, 'done', 'applied', ?, ?, 1, 1)`,
   ).run('report-1', JSON.stringify([{ relativePath: 'src/example.ts', stagingPath: '', action: 'modified' }]), workspacePath)
   database.prepare(
     `INSERT INTO remote_edit_verification_runs

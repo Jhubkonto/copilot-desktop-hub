@@ -300,6 +300,7 @@ private fun sessionSourceLabel(source: String): String = when (source) {
     "self-heal" -> "Legacy code repair"
     "manual-apply" -> "Manual apply"
     "chat-tool" -> "Chat tool"
+    "cli-tool" -> "CLI tool"
     else -> source.ifBlank { "Unknown" }
 }
 

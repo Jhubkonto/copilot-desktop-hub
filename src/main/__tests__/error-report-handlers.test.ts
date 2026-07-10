@@ -187,7 +187,6 @@ describe('error report handlers', () => {
       .run('msg-other-code-change-ref', 'conv-delete', 'system', `__code-change-ref:${JSON.stringify({ reportId: 'other-report' })}`, 3)
     db.prepare('INSERT INTO messages (id, conversation_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)')
       .run('msg-normal', 'conv-delete', 'assistant', 'Keep me', 4)
-    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('remote_edit_pending_recovery_id', 'recovery-1')").run()
 
     expect(invoke<boolean>('error-report:delete', result.reportId)).toBe(true)
 
@@ -199,7 +198,6 @@ describe('error report handlers', () => {
     expect(db.prepare('SELECT COUNT(*) AS count FROM messages WHERE id = ?').get('msg-code-change-ref')).toEqual({ count: 0 })
     expect(db.prepare('SELECT COUNT(*) AS count FROM messages WHERE id = ?').get('msg-other-code-change-ref')).toEqual({ count: 1 })
     expect(db.prepare('SELECT COUNT(*) AS count FROM messages WHERE id = ?').get('msg-normal')).toEqual({ count: 1 })
-    expect(db.prepare("SELECT value FROM settings WHERE key = 'remote_edit_pending_recovery_id'").get()).toBeUndefined()
     expect(existsSync(`${testRoot.value}/error-reports/${result.reportId}`)).toBe(false)
     expect(existsSync(`${testRoot.value}/remote-edit/staging/${result.reportId}`)).toBe(false)
     expect(existsSync(`${testRoot.value}/remote-edit/backups/${result.reportId}`)).toBe(false)
@@ -272,7 +270,7 @@ describe('error report handlers', () => {
         origin: 'chat',
         conversationId: 'conv-2',
       })
-      db.prepare("UPDATE error_reports SET status = 'fixed' WHERE id = ?").run(created.reportId)
+      db.prepare("UPDATE error_reports SET status = 'completed' WHERE id = ?").run(created.reportId)
 
       const found = invoke<{ id: string } | null>('error-report:find-active-for-conversation', 'conv-2')
       expect(found).toBeNull()

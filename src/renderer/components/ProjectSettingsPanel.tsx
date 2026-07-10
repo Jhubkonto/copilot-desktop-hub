@@ -7,13 +7,14 @@ import { ScopeTab } from './project-settings/ScopeTab'
 import { MilestonesTab } from './project-settings/MilestonesTab'
 import { TeamTab } from './project-settings/TeamTab'
 import { WorkflowTab } from './project-settings/WorkflowTab'
+import { VerifyTab } from './project-settings/VerifyTab'
 import { DraftTeamPicker } from './project-settings/DraftTeamPicker'
 import { WikiTab } from './project-settings/WikiTab'
 import { ProjectArtifactsTab } from './project-settings/ProjectArtifactsTab'
 import { AuditTab } from './project-settings/AuditTab'
 import { SaveStatus, type SaveState } from './ui/primitives'
 
-type TabId = 'general' | 'scope' | 'milestones' | 'team' | 'workflow' | 'changes' | 'wiki' | 'artifacts'
+type TabId = 'general' | 'scope' | 'milestones' | 'team' | 'workflow' | 'verify' | 'changes' | 'wiki' | 'artifacts'
 
 interface EditProps {
   projectId: string
@@ -410,7 +411,7 @@ export function ProjectSettingsPanel(props: Props) {
 
       {/* Tab bar */}
       <div className="flex items-center gap-4 px-3 pt-2 pb-0 flex-wrap border-b border-gray-200 dark:border-gray-700" role="tablist">
-        {(['general', 'scope', 'milestones', 'team', ...(!isDraft ? ['workflow', 'changes', 'wiki', 'artifacts'] : [])] as TabId[]).map((tab) => (
+        {(['general', 'scope', 'milestones', 'team', ...(!isDraft ? ['workflow', 'verify', 'changes', 'wiki', 'artifacts'] : [])] as TabId[]).map((tab) => (
           <button
             key={tab}
             type="button"
@@ -433,6 +434,8 @@ export function ProjectSettingsPanel(props: Props) {
                   ? 'Team'
                   : tab === 'workflow'
                     ? 'Workflow'
+                  : tab === 'verify'
+                    ? 'Verify'
                   : tab === 'changes'
                     ? 'Changes'
                   : tab === 'wiki'
@@ -554,6 +557,10 @@ export function ProjectSettingsPanel(props: Props) {
             onStartWorkflowStep={handleStartWorkflowStep}
             onToast={addToast}
           />
+        )}
+
+        {activeTab === 'verify' && !isDraft && projectId && (
+          <VerifyTab projectId={projectId} verifyCommands={projectConfig.verifyCommands} />
         )}
       </div>
 

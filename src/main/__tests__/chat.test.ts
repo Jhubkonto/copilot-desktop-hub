@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { mkdirSync, rmSync, writeFileSync } from 'fs'
+import path from 'path'
 
 const state = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>()
@@ -15,7 +17,8 @@ const state = vi.hoisted(() => {
   // Per-test overrides: map SQL substrings to fixed return values for get()
   const getOverrides = new Map<string, unknown>()
   const allOverrides = new Map<string, unknown[]>()
-  return { handlers, messages, events, send, broadcastToMobile, abortActiveStream, getOverrides, allOverrides }
+  const recordProjectAuditChange = vi.fn()
+  return { handlers, messages, events, send, broadcastToMobile, abortActiveStream, getOverrides, allOverrides, recordProjectAuditChange }
 })
 
 vi.mock('../safe-handle', () => ({
@@ -114,6 +117,13 @@ vi.mock('../tools', () => ({ requestApproval: vi.fn(), registerApprovalResolver:
 vi.mock('../context-compression', () => ({
   applyRollingContextCompression: vi.fn((_db, _conversationId, messages) => ({ messages, summary: null })),
 }))
+vi.mock('../project-audit', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../project-audit')>()
+  // inferProjectAuditTarget stays real — it's pure path-matching logic against the (mocked)
+  // getDatabase() projects table, worth exercising for real. recordProjectAuditChange is spied
+  // so tests can assert on it without needing the fake db to actually persist rows.
+  return { ...actual, recordProjectAuditChange: state.recordProjectAuditChange }
+})
 vi.mock('../chat-context-builder', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../chat-context-builder')>()
   // Wrapped in vi.fn() so a single test can override it (e.g. simulate an unexpected
@@ -154,6 +164,8 @@ import { runOrchestration } from '../orchestrator'
 import { runProviderMcpToolLoop } from '../tool-loop'
 import { buildChatContext } from '../chat-context-builder'
 import { getActivitySnapshot } from '../activity-tracker'
+import { parseProjectConfig } from '../project-handlers'
+import { DEFAULT_PROJECT_CONFIG } from '../../shared/types'
 
 describe('chat handlers', () => {
   beforeEach(() => {
@@ -176,6 +188,7 @@ describe('chat handlers', () => {
     vi.mocked(getApiKey).mockReturnValue('test-key')
     vi.mocked(runProviderMcpToolLoop).mockReset()
     vi.mocked(requestApproval).mockResolvedValue(false)
+    state.recordProjectAuditChange.mockClear()
     registerChatHandlers()
   })
 
@@ -658,6 +671,149 @@ describe('chat handlers', () => {
 
     expect(state.send).toHaveBeenCalledWith('chat:stream-response', null)
     expect(getActivitySnapshot().some((activity) => activity.id === 'chat:conv-cli-retry')).toBe(false)
+  })
+
+  it('records a CLI-driven file edit in Project Audit with a real diff, matching what write_project_file already does for BYOK chat', async () => {
+    // Regression: Claude CLI / Codex CLI edit files directly inside their own subprocess, so
+    // Nexy only ever saw a plain ToolCallBlock for these edits — no diff, no undo, no entry in
+    // Project Settings -> Changes — unlike write_project_file (BYOK chat's own file tool), which
+    // has always called recordProjectAuditChange. This exercises the tool_start (snapshot
+    // "before") / tool_end (diff against "after") flow added to close that gap.
+    const testRoot = path.join(process.cwd(), '.test-chat-cli-audit')
+    const targetFile = path.join(testRoot, 'src', 'example.ts')
+    mkdirSync(path.dirname(targetFile), { recursive: true })
+    writeFileSync(targetFile, 'export const value = 1\n', 'utf8')
+
+    state.allOverrides.set('SELECT id, config_json FROM projects', [
+      { id: 'proj-1', config_json: JSON.stringify({ rootDirectory: testRoot }) },
+    ])
+
+    const mockAdapter = {
+      isAvailable: () => true,
+      send: vi.fn(async (_win: unknown, _req: unknown, onChunk: (chunk: string) => void, onEvent: (event: unknown) => void) => {
+        onEvent({ type: 'tool_start', id: 'call-1', name: 'Write', input: { file_path: targetFile, content: 'export const value = 2\n' } })
+        // Simulates the CLI subprocess actually performing the edit on disk between the two
+        // events — Nexy never writes this itself, it only observes tool_start/tool_end.
+        writeFileSync(targetFile, 'export const value = 2\n', 'utf8')
+        onEvent({ type: 'tool_end', id: 'call-1', content: 'File written', isError: false })
+        onChunk('Done')
+        return 'Done'
+      }),
+    }
+    vi.mocked(getAdapter).mockReturnValue(mockAdapter as never)
+    vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(true)
+    vi.mocked(retrieveAuthMode).mockReturnValue('none')
+    vi.mocked(getApiKey).mockReturnValue(null)
+
+    try {
+      const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<{ assistantMsgId: string }>
+      await handler({ sender: {} }, 'conv-cli-audit', 'edit the file', { projectId: 'proj-1' })
+
+      expect(state.recordProjectAuditChange).toHaveBeenCalledWith(expect.objectContaining({
+        projectId: 'proj-1',
+        source: 'cli-tool',
+        relativePath: 'src/example.ts',
+        status: 'modified',
+        lastOperation: 'write',
+        diff: { hunks: expect.arrayContaining([expect.objectContaining({
+          lines: expect.arrayContaining([
+            expect.objectContaining({ type: 'removed', content: 'export const value = 1' }),
+            expect.objectContaining({ type: 'added', content: 'export const value = 2' }),
+          ]),
+        })]) },
+      }))
+    } finally {
+      rmSync(testRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('does not record Project Audit for a failed CLI file-edit tool call', async () => {
+    const testRoot = path.join(process.cwd(), '.test-chat-cli-audit-fail')
+    const targetFile = path.join(testRoot, 'src', 'example.ts')
+    mkdirSync(path.dirname(targetFile), { recursive: true })
+    writeFileSync(targetFile, 'export const value = 1\n', 'utf8')
+
+    state.allOverrides.set('SELECT id, config_json FROM projects', [
+      { id: 'proj-1', config_json: JSON.stringify({ rootDirectory: testRoot }) },
+    ])
+
+    const mockAdapter = {
+      isAvailable: () => true,
+      send: vi.fn(async (_win: unknown, _req: unknown, onChunk: (chunk: string) => void, onEvent: (event: unknown) => void) => {
+        onEvent({ type: 'tool_start', id: 'call-1', name: 'Write', input: { file_path: targetFile, content: 'export const value = 2\n' } })
+        onEvent({ type: 'tool_end', id: 'call-1', content: '<tool_use_error>Permission denied</tool_use_error>', isError: true })
+        onChunk('Could not write the file.')
+        return 'Could not write the file.'
+      }),
+    }
+    vi.mocked(getAdapter).mockReturnValue(mockAdapter as never)
+    vi.mocked(ClaudeAdapter.isAvailable).mockReturnValue(true)
+    vi.mocked(retrieveAuthMode).mockReturnValue('none')
+    vi.mocked(getApiKey).mockReturnValue(null)
+
+    try {
+      const handler = state.handlers.get('chat:send-message') as (...args: unknown[]) => Promise<{ assistantMsgId: string }>
+      await handler({ sender: {} }, 'conv-cli-audit-fail', 'edit the file', { projectId: 'proj-1' })
+
+      expect(state.recordProjectAuditChange).not.toHaveBeenCalled()
+    } finally {
+      rmSync(testRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('attaches a real diff when write_project_file overwrites an existing file, matching the CLI-driven audit path', async () => {
+    // Regression: write_project_file recorded a Project Audit entry with no diff at all
+    // (diff omitted entirely), so AuditTab.tsx's "View diff" only ever lit up for
+    // Code-Changes-sourced rows even though every source rendered the same affordance.
+    const testRoot = path.join(process.cwd(), '.test-chat-write-project-file')
+    const targetFile = path.join(testRoot, 'notes.md')
+    mkdirSync(testRoot, { recursive: true })
+    writeFileSync(targetFile, 'old notes', 'utf8')
+
+    vi.mocked(parseProjectConfig).mockReturnValueOnce({
+      ...DEFAULT_PROJECT_CONFIG,
+      rootDirectory: testRoot,
+    } as ReturnType<typeof parseProjectConfig>)
+    vi.mocked(requestApproval).mockResolvedValue(true)
+    // inferProjectAuditTarget (called inside write_project_file) resolves the project via
+    // getDatabase() directly, independent of the stubDb passed to buildChatContext below.
+    state.allOverrides.set('SELECT id, config_json FROM projects', [
+      { id: 'proj-1', config_json: JSON.stringify({ rootDirectory: testRoot }) },
+    ])
+
+    const stubDb = {
+      prepare: (sql: string) => ({
+        get: () => (sql.includes('COUNT(*)') ? { count: 0 } : undefined),
+        all: () => [],
+        run: () => ({ changes: 1 }),
+      }),
+    } as unknown as Parameters<typeof buildChatContext>[0]
+    const stubWebContents = { isDestroyed: () => false } as unknown as Parameters<typeof buildChatContext>[4]
+
+    try {
+      const built = await buildChatContext(
+        stubDb, 'conv-write-project-file', 'update notes.md',
+        { projectId: 'proj-1' }, stubWebContents, vi.fn(),
+      )
+      const writeHandler = built.fileInlineHandlers.get('write_project_file')!
+      const result = await writeHandler({ path: 'notes.md', content: 'new notes' })
+
+      expect(result.success).toBe(true)
+      expect(state.recordProjectAuditChange).toHaveBeenCalledWith(expect.objectContaining({
+        source: 'chat-tool',
+        relativePath: 'notes.md',
+        status: 'modified',
+        lastOperation: 'write',
+        diff: { hunks: expect.arrayContaining([expect.objectContaining({
+          lines: expect.arrayContaining([
+            expect.objectContaining({ type: 'removed', content: 'old notes' }),
+            expect.objectContaining({ type: 'added', content: 'new notes' }),
+          ]),
+        })]) },
+      }))
+    } finally {
+      rmSync(testRoot, { recursive: true, force: true })
+    }
   })
 
   it('broadcasts messages and stream-end to mobile after orchestration completes', async () => {

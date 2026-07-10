@@ -10,6 +10,7 @@ import type {
   RemoteEditFixEvent,
   RemoteEditGitEvent,
   RemoteEditGitPrepareResult,
+  RemoteEditHistoryEntry,
   RemoteEditInvestigationActivity,
   RemoteEditInvestigationSettings,
   RemoteEditRecoveryEvent,
@@ -23,6 +24,7 @@ import type {
 import { isApiError } from '@shared/types'
 import {
   CODE_CHANGE_PHASE_LABELS,
+  DEFAULT_VERIFY_COMMANDS,
   deriveCodeChangePhase,
   toCodeChangeRequest,
 } from '@shared/code-changes'
@@ -81,7 +83,6 @@ export function CodeChangeCard({
   const [fixRunning, setFixRunning] = useState(false)
   const [fixStatus, setFixStatus] = useState<string | null>(null)
   const [stagedDiffs, setStagedDiffs] = useState<Record<string, RemoteEditStagedFileDiff | null>>({})
-  const [reviewedFiles, setReviewedFiles] = useState<Record<string, boolean>>({})
   const [committingFix, setCommittingFix] = useState(false)
   const [expandedDiffFile, setExpandedDiffFile] = useState<string | null>(null)
   const [verificationRuns, setVerificationRuns] = useState<RemoteEditVerificationRun[]>([])
@@ -98,9 +99,13 @@ export function CodeChangeCard({
   const [deleting, setDeleting] = useState(false)
   const [pendingDelete, setPendingDelete] = useState(false)
   const [reportMissing, setReportMissing] = useState(false)
+  const [historyEntry, setHistoryEntry] = useState<RemoteEditHistoryEntry | null>(null)
 
   const projectId = report?.project_id ?? null
   const projectConfig = projectId ? (projectConfigs[projectId] ?? DEFAULT_PROJECT_CONFIG) : DEFAULT_PROJECT_CONFIG
+  const verifyCommands = projectConfig.verifyCommands && projectConfig.verifyCommands.length > 0
+    ? projectConfig.verifyCommands
+    : DEFAULT_VERIFY_COMMANDS
   const rootDirectory = projectConfig.rootDirectory?.trim() ?? ''
   const workspaceBinding = {
     rootDirectory,
@@ -108,7 +113,7 @@ export function CodeChangeCard({
   }
 
   const request = report ? toCodeChangeRequest(report, { projectId, workspaceRoot: workspaceBinding.rootDirectory || null }) : null
-  const phase = report ? deriveCodeChangePhase(report, verificationRuns[0] ?? null, gitPrepare?.canCommit === false) : null
+  const phase = report ? deriveCodeChangePhase(report, verificationRuns[0] ?? null, historyEntry?.committed ?? false) : null
 
   const remoteEditModelGroups = availableModelGroups.filter((group) => {
     if (investigationSettings.backend === 'claude-cli') return group.sourceKey === 'claude-cli'
@@ -149,8 +154,10 @@ export function CodeChangeCard({
   }
   const loadVerificationRuns = async () => setVerificationRuns(await window.api.getVerificationRuns(reportId))
   const loadRecoveryRuns = async () => setRecoveryRuns(await window.api.getRemoteEditRecoveryRuns(reportId))
+  const loadHistoryEntry = async () => setHistoryEntry(await window.api.getRemoteEditHistoryForReport(reportId))
 
   useEffect(() => { void loadReport() }, [reportId])
+  useEffect(() => { void loadHistoryEntry() }, [reportId])
   useEffect(() => {
     if (projectId) void loadProjectConfig(projectId)
   }, [projectId, loadProjectConfig])
@@ -169,7 +176,7 @@ export function CodeChangeCard({
   }, [chatBackend, chatModel])
   useEffect(() => {
     if (!expanded) return
-    const interval = setInterval(() => { void loadReport() }, 4000)
+    const interval = setInterval(() => { void loadReport(); void loadHistoryEntry() }, 4000)
     return () => clearInterval(interval)
   }, [expanded, reportId])
   useEffect(() => {
@@ -221,7 +228,7 @@ export function CodeChangeCard({
         const existingRun = index === -1
           ? {
               id: event.runId, reportId, status: 'running' as const,
-              steps: ['typecheck', 'lint', 'test', 'build'].map((command) => ({
+              steps: verifyCommands.map(({ id: command }) => ({
                 command: command as RemoteEditVerificationStep['command'], status: 'pending' as const,
                 exitCode: null, log: '', startedAt: null, completedAt: null,
               })),
@@ -278,7 +285,6 @@ export function CodeChangeCard({
     const off = window.api.onRemoteEditRecoveryEvent((event: RemoteEditRecoveryEvent) => {
       if (event.reportId !== reportId) return
       if (event.type === 'prepare') { setRecoveryRunning(false); void loadRecoveryRuns() }
-      if (event.type === 'reload') void loadRecoveryRuns()
     })
     return off
   }, [reportId])
@@ -324,7 +330,6 @@ export function CodeChangeCard({
     setFixRunning(true)
     setFixStatus('Generating staged patch...')
     setStagedDiffs({})
-    setReviewedFiles({})
     setExpandedDiffFile(null)
     try {
       await persistInvestigationSettings()
@@ -343,13 +348,13 @@ export function CodeChangeCard({
   const handleRevertFile = async (_reportId: string, relativePath: string) => {
     await window.api.revertStagedFile(reportId, relativePath)
     setStagedDiffs((prev) => { const next = { ...prev }; delete next[relativePath]; return next })
-    setReviewedFiles((prev) => { const next = { ...prev }; delete next[relativePath]; return next })
     if (expandedDiffFile === relativePath) setExpandedDiffFile(null)
     void loadReport()
   }
-  const handleMarkReviewed = (relativePath: string) => {
-    setReviewedFiles((prev) => ({ ...prev, [relativePath]: true }))
+  const handleMarkReviewed = async (relativePath: string) => {
     setExpandedDiffFile(null)
+    await window.api.markStagedFileReviewed(reportId, relativePath)
+    void loadReport()
   }
   const handleCommitFix = async () => {
     setCommittingFix(true)
@@ -372,7 +377,7 @@ export function CodeChangeCard({
     setVerificationRuns((prev) => [
       {
         id: runId, reportId, status: 'running',
-        steps: ['typecheck', 'lint', 'test', 'build'].map((command) => ({
+        steps: verifyCommands.map(({ id: command }) => ({
           command: command as RemoteEditVerificationStep['command'], status: 'pending' as const,
           exitCode: null, log: '', startedAt: null, completedAt: null,
         })),
@@ -393,6 +398,10 @@ export function CodeChangeCard({
     const result = await window.api.commitRemoteEditFix(reportId, gitMessage)
     setGitPrepare((existing) => existing ? { ...existing, status: result.status, canCommit: !result.committed, reason: result.error, authRequired: result.authRequired, authHelp: result.authHelp } : null)
     setGitRunning(null)
+    // The phase bar's "Committed" state reads historyEntry.committed (persisted), not gitPrepare
+    // (ephemeral, only populated after "Check git") — refresh it so a successful commit reflects
+    // immediately instead of waiting for the next 4s poll.
+    if (result.committed) void loadHistoryEntry()
   }
   const handlePushGitFix = async () => {
     setGitRunning('push')
@@ -517,6 +526,7 @@ export function CodeChangeCard({
                 onReviseInvestigation={() => void handleStartInvestigation('revise')}
                 reviseModelPicker={reviseModelPicker}
                 verificationRun={verificationRuns[0] ?? null}
+                verifyCommands={verifyCommands}
                 verificationRunning={verificationRunning ? reportId : null}
                 expandedVerifyCommand={expandedVerifyCommand}
                 gitPrepare={gitPrepare}
@@ -525,7 +535,6 @@ export function CodeChangeCard({
                 recoveryRun={recoveryRuns[0] ?? null}
                 recoveryRunning={recoveryRunning}
                 stagedDiffs={stagedDiffs}
-                reviewedFiles={reviewedFiles}
                 expandedDiffFile={expandedDiffFile}
                 committingFix={committingFix}
                 onStartFix={() => void handleStartFix()}

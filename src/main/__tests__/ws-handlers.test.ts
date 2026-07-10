@@ -22,6 +22,7 @@ const state = vi.hoisted(() => {
   const applyStagedPatchToWorkspace = vi.fn<
     (reportId: string) => { appliedFiles: string[]; backupPaths: string[] } | { error: string } | null
   >(() => null)
+  const markStagedFileReviewed = vi.fn<(reportId: string, relativePath: string) => boolean>(() => false)
 
   return {
     get commandHandler() { return commandHandler },
@@ -41,6 +42,7 @@ const state = vi.hoisted(() => {
     setManualWorkflowGeneratorModel,
     deleteErrorReport,
     applyStagedPatchToWorkspace,
+    markStagedFileReviewed,
     get projectConfigJson() { return projectConfigJson },
     set projectConfigJson(value) { projectConfigJson = value },
     get errorReportRows() { return errorReportRows },
@@ -178,6 +180,7 @@ vi.mock('../error-report-handlers', async (importOriginal) => {
 
 vi.mock('../remote-edit-handlers', () => ({
   applyStagedPatchToWorkspace: state.applyStagedPatchToWorkspace,
+  markStagedFileReviewed: state.markStagedFileReviewed,
 }))
 
 import { registerWsHandlers, registerApprovalResolver } from '../ws-handlers'
@@ -221,6 +224,8 @@ describe('ws handlers', () => {
     state.deleteErrorReport.mockReturnValue(true)
     state.applyStagedPatchToWorkspace.mockReset()
     state.applyStagedPatchToWorkspace.mockReturnValue(null)
+    state.markStagedFileReviewed.mockReset()
+    state.markStagedFileReviewed.mockReturnValue(true)
     state.errorReportRows = []
     vi.mocked(retrieveAuthMode).mockReturnValue('byok')
     vi.mocked(getAndroidUpdateManifest).mockResolvedValue(null)
@@ -517,6 +522,29 @@ describe('ws handlers', () => {
         relativePath: 'src/example.ts',
         hunks: [{ header: '@@ -1,1 +1,1 @@', lines: [] }],
       },
+    })
+  })
+
+  it('marks a staged file reviewed for mobile self-heal requests, mirroring the desktop IPC path', () => {
+    const reply = sendCommand('self-heal:mark-file-reviewed', { reportId: 'report-1', relativePath: 'src/example.ts' })
+
+    expect(state.markStagedFileReviewed).toHaveBeenCalledWith('report-1', 'src/example.ts')
+    expect(reply).toHaveBeenCalledWith({
+      event: 'self-heal:file-reviewed-result',
+      data: { reportId: 'report-1', relativePath: 'src/example.ts', reviewed: true },
+    })
+  })
+
+  it('replies with the persisted history entry for a report, the source of truth for the Committed phase on mobile', () => {
+    // getHistoryEntryForReport runs against the real (mocked-DB) history.ts module here — the
+    // mocked getDatabase() has no matching handler for remote_edit_history SELECTs, so it
+    // resolves to no row / entry: null. This exercises the WS command's wiring and reply shape,
+    // not the SQL itself (covered with a real DB in remote-edit-history.test.ts).
+    const reply = sendCommand('self-heal:get-history-for-report', { reportId: 'report-1' })
+
+    expect(reply).toHaveBeenCalledWith({
+      event: 'self-heal:history-for-report',
+      data: { reportId: 'report-1', entry: null },
     })
   })
 

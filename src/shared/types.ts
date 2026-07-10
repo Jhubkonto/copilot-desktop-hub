@@ -238,7 +238,7 @@ export interface ProjectWorkspaceMetadata {
   scannedAt: number
 }
 
-export type ProjectEditSource = 'chat-tool' | 'remote-edit' | 'self-heal' | 'manual-apply' | 'code-changes'
+export type ProjectEditSource = 'chat-tool' | 'remote-edit' | 'self-heal' | 'manual-apply' | 'code-changes' | 'cli-tool'
 export type ProjectTouchedFileStatus = 'modified' | 'created' | 'deleted'
 
 export type CodeChangeRequestType = 'edit' | 'refactor' | 'bugfix' | 'feature' | 'investigation' | 'custom'
@@ -312,6 +312,9 @@ export interface ProjectConfig extends ProjectOrchestrationConfig {
   inScope: ScopeRule[]
   outOfScope: ScopeRule[]
   milestones: Milestone[]
+  // null means "use the built-in npm typecheck/lint/test/build default" — see
+  // DEFAULT_VERIFY_COMMANDS in shared/code-changes.ts.
+  verifyCommands: RemoteEditVerifyCommandConfig[] | null
 }
 
 export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
@@ -329,6 +332,7 @@ export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
   inScope: [],
   outOfScope: [],
   milestones: [],
+  verifyCommands: null,
 }
 
 export interface McpServerConfig {
@@ -384,7 +388,7 @@ export interface ErrorLogEntry {
   timestamp: number
 }
 
-export type ErrorReportStatus = 'open' | 'investigating' | 'investigated' | 'fixed' | 'rejected'
+export type ErrorReportStatus = 'open' | 'investigating' | 'investigated' | 'completed' | 'rejected'
 
 export interface ErrorReportCaptureInput {
   title: string
@@ -487,8 +491,19 @@ export interface RemoteEditFixDone {
   completedAt: number
 }
 
-export type RemoteEditVerificationCommand = 'typecheck' | 'lint' | 'test' | 'build'
+// A stable identifier for a verification step (e.g. 'typecheck'), not the shell command itself —
+// see RemoteEditVerifyCommandConfig.command for what actually gets executed.
+export type RemoteEditVerificationCommand = string
 export type RemoteEditVerificationStepStatus = 'pending' | 'running' | 'success' | 'failed' | 'skipped'
+
+// Per-project override for what verification runs. Stored on ProjectConfig.verifyCommands; when
+// unset, DEFAULT_VERIFY_COMMANDS (shared/code-changes.ts) reproduces today's hardcoded
+// npm run typecheck/lint/test/build behavior.
+export interface RemoteEditVerifyCommandConfig {
+  id: string
+  label: string
+  command: string
+}
 
 export interface RemoteEditVerificationStep {
   command: RemoteEditVerificationCommand
@@ -629,31 +644,9 @@ export interface RemoteEditReloadPrepareResult {
 export interface RemoteEditRecoveryEvent {
   reportId: string
   recoveryId?: string
-  type: 'prepare' | 'reload' | 'confirm' | 'rollback'
+  type: 'prepare' | 'rollback'
   label: string
   status?: RemoteEditRecoveryRun['status']
-  error?: string
-}
-
-export interface RemoteEditReloadStartResult {
-  reportId: string
-  recoveryId: string
-  started: boolean
-  buildId: string | null
-  recovery: RemoteEditRecoveryRun | null
-  error?: string
-}
-
-export interface RemoteEditRelaunchResult {
-  reportId: string
-  recoveryId: string
-  scheduled: boolean
-  error?: string
-}
-
-export interface RemoteEditStartupConfirmationResult {
-  confirmed: boolean
-  recovery: RemoteEditRecoveryRun | null
   error?: string
 }
 
@@ -1575,23 +1568,6 @@ export interface McpCallResult {
 }
 
 // ---------------------------------------------------------------------------
-// Tools
-// ---------------------------------------------------------------------------
-
-/** Shape returned by `tool:list` (built-in tool catalogue). */
-export interface BuiltinToolDefinition {
-  name: string
-  description: string
-  args: { name: string; type: string; required: boolean }[]
-}
-
-export interface ToolExecuteResult {
-  success: boolean
-  result?: string
-  error?: string
-}
-
-// ---------------------------------------------------------------------------
 // Files / directories
 // ---------------------------------------------------------------------------
 
@@ -1790,6 +1766,7 @@ export type IpcReturnMap = {
   'remote-edit:start-fix': { reportId: string }
   'remote-edit:commit-to-workspace': { appliedFiles: string[]; backupPaths: string[] } | null
   'remote-edit:revert-staged-file': boolean
+  'remote-edit:mark-file-reviewed': boolean
   'remote-edit:get-staged-diff': RemoteEditStagedFileDiff | null
   'remote-edit:fix-event': void
   'remote-edit:fix-done': void
@@ -1807,12 +1784,10 @@ export type IpcReturnMap = {
   // Self-heal recovery/reload
   'remote-edit:prepare-reload': RemoteEditReloadPrepareResult
   'remote-edit:get-recovery-runs': RemoteEditRecoveryRun[]
-  'remote-edit:start-reload': RemoteEditReloadStartResult
-  'remote-edit:approve-relaunch': RemoteEditRelaunchResult
-  'remote-edit:confirm-startup': RemoteEditStartupConfirmationResult
   'remote-edit:rollback': { rolledBack: boolean; error?: string }
   'remote-edit:recovery-event': void
   'remote-edit:get-history': RemoteEditHistoryEntry[]
+  'remote-edit:get-history-for-report': RemoteEditHistoryEntry | null
   // Deeplink (push-only)
   'deeplink:open-agent': void
   'deeplink:open-chat': void
@@ -1973,12 +1948,8 @@ export type IpcReturnMap = {
   // Tool
   'tool:approval-response': boolean
   'tool:auto-approved': void
-  'tool:execute': ToolExecuteResult
-  'tool:get-preferences': Record<string, string>
-  'tool:list': BuiltinToolDefinition[]
   'tool:request-approval': void
   'tool:approval-resolved': void
-  'tool:set-preference': boolean
   // Project generator
   'project-generator:chat': { started: boolean }
   'project-generator:token': void
@@ -2190,6 +2161,7 @@ export type IpcChannels =
   | 'remote-edit:start-fix'
   | 'remote-edit:commit-to-workspace'
   | 'remote-edit:revert-staged-file'
+  | 'remote-edit:mark-file-reviewed'
   | 'remote-edit:get-staged-diff'
   | 'remote-edit:fix-event'
   | 'remote-edit:fix-done'
@@ -2204,12 +2176,10 @@ export type IpcChannels =
   | 'remote-edit:git-event'
   | 'remote-edit:prepare-reload'
   | 'remote-edit:get-recovery-runs'
-  | 'remote-edit:start-reload'
-  | 'remote-edit:approve-relaunch'
-  | 'remote-edit:confirm-startup'
   | 'remote-edit:rollback'
   | 'remote-edit:recovery-event'
   | 'remote-edit:get-history'
+  | 'remote-edit:get-history-for-report'
   | 'deeplink:open-agent'
   | 'deeplink:open-chat'
   | 'file:add-recent-dir'
@@ -2305,12 +2275,8 @@ export type IpcChannels =
   | 'voice:transcribe'
   | 'tool:approval-response'
   | 'tool:auto-approved'
-  | 'tool:execute'
-  | 'tool:get-preferences'
-  | 'tool:list'
   | 'tool:request-approval'
   | 'tool:approval-resolved'
-  | 'tool:set-preference'
   | 'updater:download-progress'
   | 'updater:error'
   | 'updater:no-update'

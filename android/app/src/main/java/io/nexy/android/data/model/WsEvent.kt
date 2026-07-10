@@ -137,6 +137,16 @@ sealed class WsEvent {
         val relativePath: String,
         val hunksJson: String?,
     ) : WsEvent()
+    data class RemoteEditFileReviewed(
+        val reportId: String,
+        val relativePath: String,
+        val reviewed: Boolean,
+    ) : WsEvent()
+    data class RemoteEditHistoryForReport(
+        val reportId: String,
+        val committed: Boolean,
+        val commitSha: String?,
+    ) : WsEvent()
     data class RemoteEditGitCommitResult(
         val reportId: String,
         val sha: String?,

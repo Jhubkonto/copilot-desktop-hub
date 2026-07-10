@@ -44,6 +44,16 @@ function rowToEntry(row: HistoryRow): RemoteEditHistoryEntry {
   }
 }
 
+// Pure read, unlike getOrCreateHistoryEntry — used as the persisted source of truth for whether
+// a request has actually been committed (deriveCodeChangePhase's `committed` flag), so it must
+// not have the side effect of creating a history row just from being queried.
+export function getHistoryEntryForReport(reportId: string): RemoteEditHistoryEntry | null {
+  const row = getDatabase()
+    .prepare('SELECT * FROM remote_edit_history WHERE report_id = ? ORDER BY created_at DESC LIMIT 1')
+    .get(reportId) as HistoryRow | undefined
+  return row ? rowToEntry(row) : null
+}
+
 export function getOrCreateHistoryEntry(reportId: string): RemoteEditHistoryEntry {
   const db = getDatabase()
   const existing = db

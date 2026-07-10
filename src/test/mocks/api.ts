@@ -44,6 +44,7 @@ export function createMockApi() {
     startFix: vi.fn().mockResolvedValue({ reportId: 'report-1' }),
     commitFixToWorkspace: vi.fn().mockResolvedValue({ reportId: 'report-1', committed: true }),
     revertStagedFile: vi.fn().mockResolvedValue({ reportId: 'report-1', reverted: true }),
+    markStagedFileReviewed: vi.fn().mockResolvedValue(true),
     getStagedDiff: vi.fn().mockResolvedValue(null),
     getActiveInvestigation: vi.fn().mockResolvedValue({ running: false, activity: [], output: '' }),
     getActiveCodeChanges: vi.fn().mockResolvedValue({}),
@@ -55,6 +56,7 @@ export function createMockApi() {
     onFixDone: vi.fn().mockReturnValue(() => {}),
     startVerification: vi.fn().mockResolvedValue({ reportId: 'report-1', runId: 'verify-1' }),
     getVerificationRuns: vi.fn().mockResolvedValue([]),
+    getRemoteEditHistoryForReport: vi.fn().mockResolvedValue(null),
     onVerificationEvent: vi.fn().mockReturnValue(() => {}),
     onVerificationDone: vi.fn().mockReturnValue(() => {}),
     getRemoteEditGitStatus: vi.fn().mockResolvedValue({
@@ -127,22 +129,6 @@ export function createMockApi() {
       },
     }),
     getRemoteEditRecoveryRuns: vi.fn().mockResolvedValue([]),
-    startRemoteEditReload: vi.fn().mockResolvedValue({
-      reportId: 'report-1',
-      recoveryId: 'recovery-1',
-      started: true,
-      buildId: 'build-1',
-      recovery: null,
-    }),
-    approveRemoteEditRelaunch: vi.fn().mockResolvedValue({
-      reportId: 'report-1',
-      recoveryId: 'recovery-1',
-      scheduled: true,
-    }),
-    confirmRemoteEditStartup: vi.fn().mockResolvedValue({
-      confirmed: false,
-      recovery: null,
-    }),
     onRemoteEditRecoveryEvent: vi.fn().mockReturnValue(() => {}),
     rollbackRemoteEdit: vi.fn().mockResolvedValue({ recoveryId: 'recovery-1', rolledBack: true }),
     onErrorLogEntry: vi.fn().mockReturnValue(() => {}),
@@ -329,11 +315,7 @@ export function createMockApi() {
     onCatalogUpdated: vi.fn().mockReturnValue(() => {}),
 
     // Tools
-    listTools: vi.fn().mockResolvedValue([]),
-    executeTool: vi.fn().mockResolvedValue(null),
     respondToToolApproval: vi.fn().mockResolvedValue(undefined),
-    setToolPreference: vi.fn().mockResolvedValue(undefined),
-    getToolPreferences: vi.fn().mockResolvedValue({}),
     onToolApprovalRequest: vi.fn().mockReturnValue(() => {}),
 
     // MCP

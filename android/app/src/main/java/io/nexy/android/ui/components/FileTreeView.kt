@@ -38,6 +38,7 @@ sealed class FileTreeNode {
         override val name: String,
         val relativePath: String,
         val diffLineCount: Int,
+        val reviewed: Boolean,
     ) : FileTreeNode()
 }
 
@@ -80,7 +81,7 @@ private class TrieNode {
         for ((name, child) in children) {
             val leafEntry = child.entry
             if (leafEntry != null && child.children.isEmpty()) {
-                files.add(FileTreeNode.FileLeaf(name, leafEntry.relativePath, leafEntry.diffLineCount))
+                files.add(FileTreeNode.FileLeaf(name, leafEntry.relativePath, leafEntry.diffLineCount, leafEntry.reviewed))
             } else {
                 folders.add(FileTreeNode.Folder(name, child.toNodes()))
             }
@@ -98,6 +99,7 @@ fun FileTreeView(
     expandedDiffs: Map<String, Boolean>,
     diffContents: Map<String, String?>,
     onToggleDiff: (relativePath: String) -> Unit,
+    onMarkReviewed: ((relativePath: String) -> Unit)? = null,
     modifier: Modifier = Modifier,
     depth: Int = 0,
     parentPath: String = "",
@@ -121,6 +123,7 @@ fun FileTreeView(
                             expandedDiffs = expandedDiffs,
                             diffContents = diffContents,
                             onToggleDiff = onToggleDiff,
+                            onMarkReviewed = onMarkReviewed,
                             depth = depth + 1,
                             parentPath = fullPath,
                         )
@@ -133,6 +136,7 @@ fun FileTreeView(
                         expanded = expandedDiffs[node.relativePath] == true,
                         diffContent = diffContents[node.relativePath],
                         onToggle = { onToggleDiff(node.relativePath) },
+                        onMarkReviewed = onMarkReviewed?.let { { it(node.relativePath) } },
                     )
                 }
             }
@@ -193,6 +197,7 @@ fun FileLeafRow(
     expanded: Boolean,
     diffContent: String?,
     onToggle: () -> Unit,
+    onMarkReviewed: (() -> Unit)? = null,
     depth: Int = 0,
 ) {
     Card(
@@ -222,6 +227,21 @@ fun FileLeafRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(end = 4.dp),
                 )
+            }
+            if (node.reviewed) {
+                Text(
+                    text = "✓ Reviewed",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(end = 4.dp),
+                )
+            } else if (onMarkReviewed != null) {
+                androidx.compose.material3.TextButton(
+                    onClick = onMarkReviewed,
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                ) {
+                    Text("Mark reviewed", style = MaterialTheme.typography.labelSmall)
+                }
             }
             Icon(
                 if (expanded) Icons.Default.ExpandMore else Icons.Default.ChevronRight,

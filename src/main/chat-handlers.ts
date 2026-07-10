@@ -1,6 +1,7 @@
 import { BrowserWindow } from 'electron'
 import { randomUUID } from 'crypto'
-import { existsSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
+import path from 'path'
 import { getDatabase } from './database'
 import {
   DEFAULT_PROVIDER_MODEL,
@@ -29,6 +30,8 @@ import { getAgentConfig } from './agents'
 import { isFullAutoApprove } from './agentic-policy'
 import { buildChatContext, buildStoredAttachments } from './chat-context-builder'
 import { getWorkingDirectory } from './file-handlers'
+import { inferProjectAuditTarget, recordProjectAuditChange } from './project-audit'
+import { computeLineDiff } from './remote-edit/fix-agent'
 import { dispatchToProvider } from './chat-provider-dispatch'
 import type { MobileChatActivity } from './chat-context-builder'
 import { debugLog } from './debug-mode'
@@ -113,6 +116,64 @@ const CLAUDE_CLI_BUILT_IN_TOOLS: Array<{
     description: 'Allow Claude CLI to fetch or search web content for this message?',
   },
 ]
+
+// ---------------------------------------------------------------------------
+// Project Audit for CLI-driven file edits (E4.x follow-up)
+//
+// Claude CLI / Codex CLI edit files directly inside their own subprocess — Nexy never sees the
+// write, only the tool_start/tool_end events the adapter surfaces. Unlike BYOK chat's
+// write_project_file (chat-context-builder.ts), which records recordProjectAuditChange itself
+// at the point of writing, CLI-driven edits used to have no equivalent at all: they rendered as
+// a plain ToolCallBlock with no diff, no undo, and no entry in Project Settings -> Changes,
+// fragmenting the audit trail depending on which backend a given chat happened to use.
+// ---------------------------------------------------------------------------
+
+// Mirrors CLAUDE_CLI_BUILT_IN_TOOLS's own 'fileEdit' entry (Read is excluded — it's not a
+// mutation) rather than duplicating the literal list.
+const CLAUDE_FILE_EDIT_TOOL_NAMES = new Set(
+  CLAUDE_CLI_BUILT_IN_TOOLS.find((t) => t.key === 'fileEdit')!.claudeTools.filter((name) => name !== 'Read'),
+)
+// Codex's file-editing item types (file_change/patch_apply) reach chat-handlers.ts as this
+// human-friendly label — see ITEM_TYPE_LABELS in cli-adapters/codex.ts; extractToolEvent there
+// only falls back to it when the raw item has no explicit name/tool_name/tool field, which is
+// the normal case for these built-in item types.
+const CODEX_FILE_EDIT_TOOL_NAMES = new Set(['Edit File'])
+
+function isFileEditToolCall(backend: 'claude-cli' | 'codex-cli', toolName: string): boolean {
+  return backend === 'claude-cli' ? CLAUDE_FILE_EDIT_TOOL_NAMES.has(toolName) : CODEX_FILE_EDIT_TOOL_NAMES.has(toolName)
+}
+
+function resolveMaybeRelativePath(cwd: string, candidate: string): string {
+  return path.isAbsolute(candidate) ? candidate : path.join(cwd, candidate)
+}
+
+// Best-effort: a CLI tool call's input shape isn't a contract Nexy controls. Claude Code's
+// Write/Edit/MultiEdit consistently use `file_path`; Codex's file-editing item fields aren't
+// pinned down to one exact schema here, so this also checks common alternate field names and
+// array-of-edits shapes rather than assuming a single fixed key. Never throws — returns [] when
+// nothing recognizable is found, so an unrecognized shape just means that edit silently isn't
+// audited (the same as before this existed), not a broken chat turn.
+function extractCliEditedPaths(input: Record<string, unknown>, cwd: string): string[] {
+  const paths = new Set<string>()
+  const addCandidate = (value: unknown) => {
+    if (typeof value === 'string' && value.trim()) paths.add(resolveMaybeRelativePath(cwd, value.trim()))
+  }
+  addCandidate(input.file_path)
+  addCandidate(input.path)
+  addCandidate(input.filePath)
+  for (const key of ['changes', 'edits', 'files']) {
+    const entries = input[key]
+    if (!Array.isArray(entries)) continue
+    for (const entry of entries) {
+      if (!entry || typeof entry !== 'object') continue
+      const record = entry as Record<string, unknown>
+      addCandidate(record.path)
+      addCandidate(record.file_path)
+      addCandidate(record.filePath)
+    }
+  }
+  return [...paths]
+}
 
 async function getClaudeCliAllowedBuiltInTools(
   window: BrowserWindow,
@@ -767,6 +828,45 @@ export async function dispatchChatSend(
         const cliAllowedTools = [...cliAllowedBuiltInTools, ...(cliAllowedMcpTools ?? [])]
         debugLog('chat', `cli-adapter: starting ${effectiveBackend} model=${cliModelForRequest || 'default'} mcpServers=${cliMcpServersFiltered?.length ?? 0} builtInTools=${cliAllowedBuiltInTools.length} mcpTools=${cliAllowedMcpTools?.length ?? 0}`)
 
+        const cliCwd = (() => {
+          if (projectId) {
+            const row = db.prepare('SELECT config_json FROM projects WHERE id = ?').get(projectId) as { config_json: string | null } | undefined
+            const root: string | undefined = row?.config_json ? (JSON.parse(row.config_json) as { rootDirectory?: string }).rootDirectory : undefined
+            if (root && existsSync(root)) return root
+          }
+          const agentRoot: string | undefined = typeof agentCfg2?.rootDirectory === 'string' ? agentCfg2.rootDirectory : undefined
+          if (agentRoot && existsSync(agentRoot)) return agentRoot
+          return getWorkingDirectory()
+        })()
+        // Groups every file this CLI turn touches into a single Project Audit session, rather
+        // than one session per tool call — mirrors how Code Changes groups an entire apply under
+        // one session (remote-edit:<reportId>) instead of fragmenting it per file.
+        const cliAuditSessionId = `cli-tool:${conversationId}:${randomUUID()}`
+        // Snapshot content BEFORE each edit tool actually runs (tool_start, not tool_end — by
+        // tool_end the file is already mutated), keyed by resolved absolute path so it survives
+        // multiple tool calls touching the same file within one turn.
+        const cliFileContentBeforeEdit = new Map<string, string | null>()
+        const recordCliFileEditAudit = (absPath: string, before: string | null) => {
+          try {
+            if (!existsSync(absPath)) return
+            const after = readFileSync(absPath, 'utf8')
+            if (before === after) return
+            const auditTarget = inferProjectAuditTarget(absPath)
+            if (!auditTarget) return
+            recordProjectAuditChange({
+              sessionId: cliAuditSessionId,
+              projectId: auditTarget.projectId,
+              conversationId,
+              title: `${effectiveBackend === 'claude-cli' ? 'Claude CLI' : 'Codex CLI'} edits`,
+              source: 'cli-tool',
+              relativePath: auditTarget.relativePath,
+              status: before === null ? 'created' : 'modified',
+              lastOperation: before === null ? 'create' : 'write',
+              diff: { hunks: computeLineDiff(before ?? '', after) },
+            })
+          } catch { /* best-effort audit — never let this break the chat turn */ }
+        }
+
         const cliAbortController = new AbortController()
         activeCliAbortControllers.set(conversationId, cliAbortController)
         const cliResponseContent = await adapter.send(
@@ -775,16 +875,7 @@ export async function dispatchChatSend(
             systemPrompt: cliSystemPrompt,
             messages: [{ role: 'user' as const, content: cliUserContent }],
             images: attachedImages.length > 0 ? attachedImages : undefined,
-            cwd: (() => {
-              if (projectId) {
-                const row = db.prepare('SELECT config_json FROM projects WHERE id = ?').get(projectId) as { config_json: string | null } | undefined
-                const root: string | undefined = row?.config_json ? (JSON.parse(row.config_json) as { rootDirectory?: string }).rootDirectory : undefined
-                if (root && existsSync(root)) return root
-              }
-              const agentRoot: string | undefined = typeof agentCfg2?.rootDirectory === 'string' ? agentCfg2.rootDirectory : undefined
-              if (agentRoot && existsSync(agentRoot)) return agentRoot
-              return getWorkingDirectory()
-            })(),
+            cwd: cliCwd,
             model: cliModelForRequest,
             conversationId,
             mcpServers: cliMcpServersFiltered,
@@ -798,6 +889,13 @@ export async function dispatchChatSend(
             if (event.type === 'tool_start') {
               debugLog('chat', `cli-tool-start: id=${event.id} name=${event.name}`)
               pendingTools.set(event.id, { name: event.name, input: event.input, startTime: Date.now() })
+              if (isFileEditToolCall(effectiveBackend as 'claude-cli' | 'codex-cli', event.name)) {
+                for (const absPath of extractCliEditedPaths(event.input as Record<string, unknown>, cliCwd)) {
+                  if (!cliFileContentBeforeEdit.has(absPath)) {
+                    cliFileContentBeforeEdit.set(absPath, existsSync(absPath) ? readFileSync(absPath, 'utf8') : null)
+                  }
+                }
+              }
               turnEmitter.cliToolStart(event.id, event.name, event.input as Record<string, unknown>)
               sendActivity({
                 state: 'tool',
@@ -811,6 +909,11 @@ export async function dispatchChatSend(
               if (pending) {
                 completedToolCalls.push({ id: event.id, ...pending, content: event.content, isError: event.isError })
                 pendingTools.delete(event.id)
+                if (!event.isError && isFileEditToolCall(effectiveBackend as 'claude-cli' | 'codex-cli', pending.name)) {
+                  for (const absPath of extractCliEditedPaths(pending.input, cliCwd)) {
+                    recordCliFileEditAudit(absPath, cliFileContentBeforeEdit.get(absPath) ?? null)
+                  }
+                }
               }
               turnEmitter.cliToolEnd(event.id, event.content, event.isError, pending ? {
                 name: pending.name,

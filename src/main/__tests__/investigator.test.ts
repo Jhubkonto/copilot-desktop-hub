@@ -46,11 +46,15 @@ describe('remote-edit investigator', () => {
     db = createDatabase()
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('build_workspace_path', ?)").run(process.cwd())
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('remote_edit_backend', 'byok')").run()
+    // request_type is explicitly 'bugfix' here — bug-investigation framing is no longer the
+    // default for an unset request_type (see BUGFIX_REQUEST_TYPES in investigator.ts), so the
+    // bugfix-path tests below need it set explicitly. Tests exercising the non-bugfix path
+    // already override this per-test (e.g. UPDATE ... SET request_type = 'refactor').
     db.prepare(
       `INSERT INTO error_reports (
         id, title, description, screenshot_path, log_snapshot, status,
-        app_version, platform, os_version, created_at, updated_at
-      ) VALUES (?, ?, ?, NULL, ?, 'open', '0.9.0-test', 'test', 'test', 1, 1)`,
+        app_version, platform, os_version, request_type, created_at, updated_at
+      ) VALUES (?, ?, ?, NULL, ?, 'open', '0.9.0-test', 'test', 'test', 'bugfix', 1, 1)`,
     ).run('report-1', 'Synthetic failure', 'Something failed', '[{"message":"boom"}]')
   })
 
@@ -381,6 +385,30 @@ describe('remote-edit investigator', () => {
     expect(userMessage?.content).toContain('approach (a one-sentence summary')
     expect(userMessage?.content).not.toContain('Recommended Next Steps')
     expect(userMessage?.content).toContain('the concrete steps you propose to make this change')
+  })
+
+  it('uses plan-this-change language (not bug-diagnosis language) when request_type is unset', async () => {
+    // Regression: BUGFIX_REQUEST_TYPES used to include null/undefined, so any request lacking
+    // an explicit type silently got bug-investigation framing — contradicting
+    // toCodeChangeRequest's own unset->'edit' default in src/shared/code-changes.ts. Every real
+    // creation path sets an explicit requestType today, but this guards the fallback itself.
+    db.prepare("UPDATE error_reports SET request_type = NULL WHERE id = 'report-1'").run()
+    sendProviderWithToolsMock.mockResolvedValue({
+      content: ['---', 'confidence: high', 'approach: x', 'affected_files: []', '---', '', '# Summary'].join('\n'),
+      toolCalls: [],
+      model: 'gpt-5-mini',
+    })
+    const { runInvestigation } = await import('../remote-edit/investigator')
+    await runInvestigation(
+      { isDestroyed: () => false, webContents: { isDestroyed: () => false, send: vi.fn() } } as never,
+      'report-1',
+      { onChunk: vi.fn(), onActivity: vi.fn() },
+    )
+    const messages = sendProviderWithToolsMock.mock.calls[0][3] as { role: string; content: string }[]
+    const systemMessage = messages.find((m) => m.role === 'system')
+    expect(systemMessage?.content).toContain('Plan this change request')
+    expect(systemMessage?.content).not.toContain('Investigate the captured bug')
+    expect(systemMessage?.content).toContain('confidence, approach, and affected_files')
   })
 
   it('parses the approach: key (not root_cause:) from a non-bugfix plan into the same rootCause field', async () => {

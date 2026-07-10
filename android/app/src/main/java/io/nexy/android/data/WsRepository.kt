@@ -1883,6 +1883,12 @@ object WsRepository : WsClient {
     fun getStagedDiff(reportId: String, relativePath: String) {
         send("self-heal:get-staged-diff", mapOf("reportId" to reportId, "relativePath" to relativePath))
     }
+    fun markFileReviewed(reportId: String, relativePath: String) {
+        send("self-heal:mark-file-reviewed", mapOf("reportId" to reportId, "relativePath" to relativePath))
+    }
+    fun getRemoteEditHistoryForReport(reportId: String) {
+        send("self-heal:get-history-for-report", mapOf("reportId" to reportId))
+    }
     fun remoteEditGitCommit(reportId: String, message: String) {
         send("self-heal:git-commit", mapOf("reportId" to reportId, "message" to message))
     }

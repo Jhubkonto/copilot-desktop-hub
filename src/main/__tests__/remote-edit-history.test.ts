@@ -79,6 +79,23 @@ describe('remote_edit_history table', () => {
     expect(first.id).toBe(second.id)
   })
 
+  it('getHistoryEntryForReport is a pure read — returns null instead of creating a row, unlike getOrCreateHistoryEntry', async () => {
+    const { getHistoryEntryForReport } = await import('../remote-edit/history')
+
+    expect(getHistoryEntryForReport('report-h1')).toBeNull()
+    expect(db.prepare('SELECT COUNT(*) AS count FROM remote_edit_history WHERE report_id = ?').get('report-h1')).toEqual({ count: 0 })
+  })
+
+  it('getHistoryEntryForReport reflects a persisted commit — the source of truth for the phase bar\'s Committed state', async () => {
+    const { getOrCreateHistoryEntry, updateHistoryEntry, getHistoryEntryForReport } = await import('../remote-edit/history')
+    getOrCreateHistoryEntry('report-h1')
+    updateHistoryEntry('report-h1', { committed: true, commitSha: 'abc123', status: 'committed' })
+
+    const entry = getHistoryEntryForReport('report-h1')
+    expect(entry?.committed).toBe(true)
+    expect(entry?.commitSha).toBe('abc123')
+  })
+
   it('updates history fields via updateHistoryEntry', async () => {
     const { getOrCreateHistoryEntry, updateHistoryEntry, listHistory } = await import('../remote-edit/history')
     getOrCreateHistoryEntry('report-h1')
@@ -168,7 +185,6 @@ describe('remote_edit_history table', () => {
       stagingPath: '',
       backupPath: path.join(testRoot, 'backup-file.ts'),
     }]))
-    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('remote_edit_pending_recovery_id', 'rec-1')").run()
 
     const { getOrCreateHistoryEntry, listHistory } = await import('../remote-edit/history')
     getOrCreateHistoryEntry('report-h1')

@@ -472,6 +472,21 @@ fun parseWsEvent(
                 hunksJson = data?.optJSONArray("hunks")?.toString(),
             )
 
+            "self-heal:file-reviewed-result" -> WsEvent.RemoteEditFileReviewed(
+                reportId = data?.optString("reportId") ?: "",
+                relativePath = data?.optString("relativePath") ?: "",
+                reviewed = data?.optBoolean("reviewed", false) ?: false,
+            )
+
+            "self-heal:history-for-report" -> {
+                val entry = data?.optJSONObject("entry")
+                WsEvent.RemoteEditHistoryForReport(
+                    reportId = data?.optString("reportId") ?: "",
+                    committed = entry?.optBoolean("committed", false) ?: false,
+                    commitSha = entry?.nullableString("commitSha"),
+                )
+            }
+
             "self-heal:git-commit-result" -> WsEvent.RemoteEditGitCommitResult(
                 reportId = data?.optString("reportId") ?: "",
                 sha = data?.nullableString("sha"),
