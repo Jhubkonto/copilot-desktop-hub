@@ -16,13 +16,12 @@ object BackgroundActivityTracker {
     private val _activities = MutableStateFlow<List<BackgroundActivity>>(emptyList())
     val activities: StateFlow<List<BackgroundActivity>> = _activities
 
-    // Ids ever passed to register() — e.g. "manual-workflow-generator", which has no
-    // server-side hook and so never appears in a server snapshot at all. applySnapshot uses
-    // this to tell "genuinely local-only, server will never know about it" apart from "was in
-    // a previous server snapshot but has since ended" — both look identical as "missing from
-    // the new snapshot" otherwise, and conflating them was why a finished chat's "Assistant is
-    // responding…" entry stayed stuck forever: it wasn't in the newer (post-completion)
-    // snapshot, so it got treated as a protected local-only entry and re-added right back.
+    // Ids ever passed to register() — used to tell "genuinely local-only, server will never
+    // know about it" apart from "was in a previous server snapshot but has since ended". Both
+    // look identical as "missing from the new snapshot" otherwise, and conflating them was why
+    // a finished chat's "Assistant is responding…" entry stayed stuck forever: it wasn't in the
+    // newer (post-completion) snapshot, so it got treated as a protected local-only entry and
+    // re-added right back.
     private val locallyRegisteredIds = mutableSetOf<String>()
 
     fun register(id: String, label: String, route: String) {
@@ -38,7 +37,7 @@ object BackgroundActivityTracker {
 
     /** Reconciles with a server snapshot (src/main/activity-tracker.ts): authoritative for
      *  anything it knows about, but preserves locally tracked entries the server hasn't echoed
-     *  back yet (or never will, e.g. manual-workflow-generator which has no server-side hook). */
+     *  back yet. */
     fun applySnapshot(snapshot: List<BackgroundActivity>) {
         val knownIds = snapshot.map { it.id }.toSet()
         val localOnly = _activities.value.filter { it.id in locallyRegisteredIds && it.id !in knownIds }

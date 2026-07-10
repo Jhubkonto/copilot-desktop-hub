@@ -276,36 +276,48 @@ object WsRepository : WsClient {
     private val _confirmedKeyHandoffs = MutableStateFlow<Set<String>>(emptySet())
     val confirmedKeyHandoffs: StateFlow<Set<String>> = _confirmedKeyHandoffs
 
-    // Manual Workflow Generator state tracking
-    data class ManualWorkflowMessage(
+    // Automated Workflow Generator state tracking
+    data class AutomatedWorkflowMessage(
         val role: String,
         val text: String,
         val isError: Boolean = false,
     )
 
-    // Mirrors ManualWorkflowGeneratorMessage on desktop — resent in full on every
-    // manual-workflow-generator:message call, matching the other Android generator screens.
-    data class ManualWorkflowChatMessage(val role: String, val content: String)
+    // Mirrors AutomatedWorkflowGeneratorMessage on desktop — resent in full on every
+    // automated-workflow-generator:message call, matching the other Android generator screens.
+    data class AutomatedWorkflowChatMessage(val role: String, val content: String)
 
-    data class ManualWorkflowSession(
+    data class AutomatedWorkflowSession(
         val sessionId: String,
         val projectId: String = "",
         val title: String = "",
         val goalSummary: String = "",
         val assumptions: String = "",
-        val steps: List<io.nexy.android.data.model.ManualWorkflowStepInfo> = emptyList(),
+        val steps: List<io.nexy.android.data.model.AutomatedWorkflowStepInfo> = emptyList(),
         val rawSpec: Map<String, Any>? = null,
         val savedRunId: String? = null,
         val saving: Boolean = false,
         val currentModel: String? = null,
         val isActive: Boolean = true,
         val isLoading: Boolean = false,
-        val messages: List<ManualWorkflowMessage> = emptyList(),
-        val chatHistory: List<ManualWorkflowChatMessage> = emptyList(),
+        val messages: List<AutomatedWorkflowMessage> = emptyList(),
+        val chatHistory: List<AutomatedWorkflowChatMessage> = emptyList(),
         val streamingText: String = "",
     )
-    private val _manualWorkflowSession = MutableStateFlow<ManualWorkflowSession?>(null)
-    val manualWorkflowSession: StateFlow<ManualWorkflowSession?> = _manualWorkflowSession
+    private val _automatedWorkflowSession = MutableStateFlow<AutomatedWorkflowSession?>(null)
+    val automatedWorkflowSession: StateFlow<AutomatedWorkflowSession?> = _automatedWorkflowSession
+
+    // Live step-execution output for whichever step is currently 'running', keyed by stepDbId —
+    // separate from the session above since it streams from the runner (automated-workflow-runs:*),
+    // not the plan-generation chat (automated-workflow-generator:*). Cleared whenever the active
+    // run detail changes so a re-run of the same step doesn't briefly show the previous attempt's
+    // leftover text before new chunks arrive (mirrors the desktop AutomatedWorkflowTab.tsx pattern).
+    private val _automatedWorkflowStepStreamText = MutableStateFlow<Map<String, String>>(emptyMap())
+    val automatedWorkflowStepStreamText: StateFlow<Map<String, String>> = _automatedWorkflowStepStreamText
+
+    fun pruneAutomatedWorkflowStepStreamText(runningStepDbIds: Set<String>) {
+        _automatedWorkflowStepStreamText.value = _automatedWorkflowStepStreamText.value.filterKeys { it in runningStepDbIds }
+    }
 
     private data class GeneratorActivityConfig(
         val label: String,
@@ -337,7 +349,7 @@ object WsRepository : WsClient {
     // Extracted for testability: whether `model` ends up in the outgoing payload is the one bit
     // of real logic here (an explicit `null` must be omitted, not sent as a literal null, so the
     // desktop's own default-model resolution kicks in).
-    internal fun buildManualWorkflowStartPayload(
+    internal fun buildAutomatedWorkflowStartPayload(
         projectId: String,
         sessionId: String,
         initialMessage: String,
@@ -349,10 +361,10 @@ object WsRepository : WsClient {
         if (model != null) put("model", model)
     }
 
-    internal fun buildManualWorkflowMessagePayload(
+    internal fun buildAutomatedWorkflowMessagePayload(
         projectId: String,
         sessionId: String,
-        history: List<ManualWorkflowChatMessage>,
+        history: List<AutomatedWorkflowChatMessage>,
         model: String?,
     ): Map<String, Any> = buildMap {
         put("projectId", projectId)
@@ -361,47 +373,47 @@ object WsRepository : WsClient {
         if (model != null) put("model", model)
     }
 
-    fun startManualWorkflow(projectId: String, initialMessage: String, model: String? = null): String {
+    fun startAutomatedWorkflowGeneration(projectId: String, initialMessage: String, model: String? = null): String {
         val sessionId = java.util.UUID.randomUUID().toString()
-        _manualWorkflowSession.value = ManualWorkflowSession(
+        _automatedWorkflowSession.value = AutomatedWorkflowSession(
             sessionId = sessionId,
             projectId = projectId,
             isLoading = true,
-            messages = listOf(ManualWorkflowMessage("user", initialMessage)),
-            chatHistory = listOf(ManualWorkflowChatMessage("user", initialMessage)),
+            messages = listOf(AutomatedWorkflowMessage("user", initialMessage)),
+            chatHistory = listOf(AutomatedWorkflowChatMessage("user", initialMessage)),
         )
         send(
-            "manual-workflow-generator:start",
-            buildManualWorkflowStartPayload(projectId, sessionId, initialMessage, model),
+            "automated-workflow-generator:start",
+            buildAutomatedWorkflowStartPayload(projectId, sessionId, initialMessage, model),
         )
         return sessionId
     }
 
-    fun sendManualWorkflowMessage(text: String, model: String? = null) {
-        val session = _manualWorkflowSession.value ?: return
-        val updatedHistory = session.chatHistory + ManualWorkflowChatMessage("user", text)
-        _manualWorkflowSession.value = session.copy(
+    fun sendAutomatedWorkflowGeneratorMessage(text: String, model: String? = null) {
+        val session = _automatedWorkflowSession.value ?: return
+        val updatedHistory = session.chatHistory + AutomatedWorkflowChatMessage("user", text)
+        _automatedWorkflowSession.value = session.copy(
             isLoading = true,
             chatHistory = updatedHistory,
-            messages = session.messages + ManualWorkflowMessage("user", text),
+            messages = session.messages + AutomatedWorkflowMessage("user", text),
         )
         send(
-            "manual-workflow-generator:message",
-            buildManualWorkflowMessagePayload(session.projectId, session.sessionId, updatedHistory, model),
+            "automated-workflow-generator:message",
+            buildAutomatedWorkflowMessagePayload(session.projectId, session.sessionId, updatedHistory, model),
         )
     }
 
-    fun cancelManualWorkflow() {
-        val session = _manualWorkflowSession.value ?: return
-        send("manual-workflow-generator:cancel", mapOf("sessionId" to session.sessionId))
-        _manualWorkflowSession.value = null
+    fun cancelAutomatedWorkflowGeneration() {
+        val session = _automatedWorkflowSession.value ?: return
+        send("automated-workflow-generator:cancel", mapOf("sessionId" to session.sessionId))
+        _automatedWorkflowSession.value = null
     }
 
-    fun saveManualWorkflowRun(projectId: String, spec: Map<String, Any>, model: String?, existingRunId: String?) {
-        val current = _manualWorkflowSession.value
-        if (current != null) _manualWorkflowSession.value = current.copy(saving = true)
+    fun saveAutomatedWorkflowRun(projectId: String, spec: Map<String, Any>, model: String?, existingRunId: String?) {
+        val current = _automatedWorkflowSession.value
+        if (current != null) _automatedWorkflowSession.value = current.copy(saving = true)
         send(
-            "manual-workflow-runs:save-spec",
+            "automated-workflow-runs:save-spec",
             buildMap {
                 put("projectId", projectId)
                 put("spec", spec)
@@ -411,20 +423,51 @@ object WsRepository : WsClient {
         )
     }
 
-    fun listManualWorkflowRuns(projectId: String) {
-        send("manual-workflow-runs:list", mapOf("projectId" to projectId))
+    fun listAutomatedWorkflowRuns(projectId: String) {
+        send("automated-workflow-runs:list", mapOf("projectId" to projectId))
     }
 
-    fun getManualWorkflowRun(runId: String) {
-        send("manual-workflow-runs:get", mapOf("runId" to runId))
+    fun getAutomatedWorkflowRun(runId: String) {
+        send("automated-workflow-runs:get", mapOf("runId" to runId))
     }
 
-    fun updateManualWorkflowRunStepStatus(runId: String, stepDbId: String, status: String) {
-        send("manual-workflow-runs:update-step-status", mapOf("runId" to runId, "stepDbId" to stepDbId, "status" to status))
+    fun updateAutomatedWorkflowRunStepStatus(runId: String, stepDbId: String, status: String) {
+        send("automated-workflow-runs:update-step-status", mapOf("runId" to runId, "stepDbId" to stepDbId, "status" to status))
     }
 
-    fun discardManualWorkflowRun(runId: String) {
-        send("manual-workflow-runs:discard", mapOf("runId" to runId))
+    fun discardAutomatedWorkflowRun(runId: String) {
+        send("automated-workflow-runs:discard", mapOf("runId" to runId))
+    }
+
+    fun startAutomatedWorkflowRun(runId: String) {
+        send("automated-workflow-runs:start", mapOf("runId" to runId))
+    }
+
+    fun confirmAutomatedWorkflowStep(runId: String, stepDbId: String, editedOutput: String? = null) {
+        send(
+            "automated-workflow-runs:confirm-step",
+            buildMap {
+                put("runId", runId)
+                put("stepDbId", stepDbId)
+                if (editedOutput != null) put("editedOutput", editedOutput)
+            },
+        )
+    }
+
+    fun retryAutomatedWorkflowStep(runId: String, stepDbId: String) {
+        send("automated-workflow-runs:retry-step", mapOf("runId" to runId, "stepDbId" to stepDbId))
+    }
+
+    fun skipAutomatedWorkflowStep(runId: String, stepDbId: String) {
+        send("automated-workflow-runs:skip-step", mapOf("runId" to runId, "stepDbId" to stepDbId))
+    }
+
+    fun abortAutomatedWorkflowRun(runId: String) {
+        send("automated-workflow-runs:abort", mapOf("runId" to runId))
+    }
+
+    fun setAutomatedWorkflowConfirmationMode(runId: String, mode: String) {
+        send("automated-workflow-runs:set-confirmation-mode", mapOf("runId" to runId, "mode" to mode))
     }
 
     private val pendingCommands = mutableListOf<Pair<String, Map<String, Any>>>()
@@ -437,15 +480,23 @@ object WsRepository : WsClient {
             }
         }
         scope.launch {
-            _manualWorkflowSession.collect { session ->
+            // Per-project id (matches desktop's activity-tracker.ts: automated-workflow-generator
+            // is keyed by project so two projects generating concurrently get separate activity
+            // entries, and so this local-optimistic registration reconciles by id with the
+            // server-confirmed snapshot entry instead of leaving a duplicate/orphaned one).
+            var registeredActivityId: String? = null
+            _automatedWorkflowSession.collect { session ->
                 if (session?.isLoading == true) {
+                    val activityId = "automated-workflow-generator:${session.projectId}"
+                    registeredActivityId = activityId
                     BackgroundActivityTracker.register(
-                        "manual-workflow-generator",
+                        activityId,
                         "Generating workflow…",
-                        "manual-workflow/${android.net.Uri.encode(session.projectId)}",
+                        "automated-workflow/${android.net.Uri.encode(session.projectId)}",
                     )
                 } else {
-                    BackgroundActivityTracker.unregister("manual-workflow-generator")
+                    registeredActivityId?.let { BackgroundActivityTracker.unregister(it) }
+                    registeredActivityId = null
                 }
             }
         }
@@ -680,14 +731,14 @@ object WsRepository : WsClient {
                             }
                         }
                     }
-                    is WsEvent.ManualWorkflowReady -> {
-                        val current = _manualWorkflowSession.value
+                    is WsEvent.AutomatedWorkflowReady -> {
+                        val current = _automatedWorkflowSession.value
                         if (current != null && current.sessionId == event.sessionId) {
                             // savedRunId is intentionally kept across a regeneration: tapping Save
                             // again passes it as existingRunId so the server updates the same run
                             // in place (it only does so if no step has progressed; otherwise it
                             // transparently branches into a new run and returns a different id).
-                            _manualWorkflowSession.value = current.copy(
+                            _automatedWorkflowSession.value = current.copy(
                                 title = event.title,
                                 goalSummary = event.goalSummary,
                                 assumptions = event.assumptions,
@@ -696,51 +747,56 @@ object WsRepository : WsClient {
                             )
                         }
                     }
-                    is WsEvent.ManualWorkflowModel -> {
-                        val current = _manualWorkflowSession.value
+                    is WsEvent.AutomatedWorkflowModel -> {
+                        val current = _automatedWorkflowSession.value
                         if (current != null && current.sessionId == event.sessionId) {
-                            _manualWorkflowSession.value = current.copy(currentModel = event.modelId)
+                            _automatedWorkflowSession.value = current.copy(currentModel = event.modelId)
                         }
                     }
-                    is WsEvent.ManualWorkflowToken -> {
-                        val current = _manualWorkflowSession.value
+                    is WsEvent.AutomatedWorkflowToken -> {
+                        val current = _automatedWorkflowSession.value
                         if (current != null && current.sessionId == event.sessionId) {
-                            _manualWorkflowSession.value = current.copy(
+                            _automatedWorkflowSession.value = current.copy(
                                 streamingText = current.streamingText + event.chunk,
                             )
                         }
                     }
-                    is WsEvent.ManualWorkflowMessage -> {
-                        val current = _manualWorkflowSession.value
+                    is WsEvent.AutomatedWorkflowMessage -> {
+                        val current = _automatedWorkflowSession.value
                         if (current != null && current.sessionId == event.sessionId) {
-                            _manualWorkflowSession.value = current.copy(
+                            _automatedWorkflowSession.value = current.copy(
                                 isLoading = false,
                                 streamingText = "",
-                                messages = current.messages + ManualWorkflowMessage("assistant", event.message),
-                                chatHistory = current.chatHistory + ManualWorkflowChatMessage("assistant", event.message),
+                                messages = current.messages + AutomatedWorkflowMessage("assistant", event.message),
+                                chatHistory = current.chatHistory + AutomatedWorkflowChatMessage("assistant", event.message),
                             )
                         }
                     }
-                    is WsEvent.ManualWorkflowError -> {
-                        val current = _manualWorkflowSession.value
+                    is WsEvent.AutomatedWorkflowError -> {
+                        val current = _automatedWorkflowSession.value
                         if (current != null && current.sessionId == event.sessionId) {
-                            _manualWorkflowSession.value = current.copy(
+                            _automatedWorkflowSession.value = current.copy(
                                 isLoading = false,
                                 isActive = false,
-                                messages = current.messages + ManualWorkflowMessage("assistant", event.message, isError = true),
+                                messages = current.messages + AutomatedWorkflowMessage("assistant", event.message, isError = true),
                             )
                         }
                     }
-                    is WsEvent.ManualWorkflowCancelled -> {
-                        val current = _manualWorkflowSession.value
+                    is WsEvent.AutomatedWorkflowCancelled -> {
+                        val current = _automatedWorkflowSession.value
                         if (current != null && current.sessionId == event.sessionId) {
-                            _manualWorkflowSession.value = null
+                            _automatedWorkflowSession.value = null
                         }
                     }
-                    is WsEvent.ManualWorkflowRunDetailReady -> {
-                        val current = _manualWorkflowSession.value
+                    is WsEvent.AutomatedWorkflowRunDetailReady -> {
+                        val current = _automatedWorkflowSession.value
                         if (current != null && current.saving && event.run != null && event.run.projectId == current.projectId) {
-                            _manualWorkflowSession.value = current.copy(saving = false, savedRunId = event.run.id)
+                            _automatedWorkflowSession.value = current.copy(saving = false, savedRunId = event.run.id)
+                        }
+                    }
+                    is WsEvent.AutomatedWorkflowStepStream -> {
+                        _automatedWorkflowStepStreamText.value = _automatedWorkflowStepStreamText.value.toMutableMap().apply {
+                            this[event.stepDbId] = (this[event.stepDbId] ?: "") + event.chunk
                         }
                     }
                     else -> {}

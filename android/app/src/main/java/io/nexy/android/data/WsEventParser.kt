@@ -1817,7 +1817,8 @@ fun parseWsEvent(
                         val kind = obj.optString("kind")
                         val label = obj.optString("label")
                         val conversationId = obj.nullableString("conversationId")
-                        val route = routeForServerActivity(id, kind, conversationId) ?: return@mapNotNull null
+                        val projectId = obj.nullableString("projectId")
+                        val route = routeForServerActivity(id, kind, conversationId, projectId) ?: return@mapNotNull null
                         BackgroundActivity(id = id, label = label, route = route)
                     }
                 } ?: emptyList()
@@ -1841,7 +1842,7 @@ fun parseWsEvent(
                 val keyValue = data?.optString("value") ?: return
                 WsEvent.ProviderKeyHandoffValue(providerId, keyValue)
             }
-            "manual-workflow-generator:spec-ready" -> {
+            "automated-workflow-generator:spec-ready" -> {
                 val sessionId = data?.optString("sessionId") ?: return
                 val spec = data.optJSONObject("spec") ?: return
                 val title = spec.optString("title", "")
@@ -1851,7 +1852,7 @@ fun parseWsEvent(
                 val stepsArr = spec.optJSONArray("steps") ?: JSONArray()
                 val steps = (0 until stepsArr.length()).map { i ->
                     val step = stepsArr.getJSONObject(i)
-                    io.nexy.android.data.model.ManualWorkflowStepInfo(
+                    io.nexy.android.data.model.AutomatedWorkflowStepInfo(
                         id = step.optString("id", i.toString()),
                         title = step.optString("title", ""),
                         summary = step.optString("summary", ""),
@@ -1860,48 +1861,60 @@ fun parseWsEvent(
                         expectedOutput = step.optString("expectedOutput", ""),
                     )
                 }
-                WsEvent.ManualWorkflowReady(sessionId, title, goalSummary, assumptions, steps, rawSpec = jsonObjectToMap(spec))
+                WsEvent.AutomatedWorkflowReady(sessionId, title, goalSummary, assumptions, steps, rawSpec = jsonObjectToMap(spec))
             }
-            "manual-workflow-generator:model" -> {
+            "automated-workflow-generator:model" -> {
                 val sessionId = data?.optString("sessionId") ?: return
                 val modelId = data?.optString("modelId") ?: return
-                WsEvent.ManualWorkflowModel(sessionId, modelId)
+                WsEvent.AutomatedWorkflowModel(sessionId, modelId)
             }
-            "manual-workflow-generator:token" -> {
+            "automated-workflow-generator:token" -> {
                 val sessionId = data?.optString("sessionId") ?: return
                 val chunk = data.optString("chunk", "")
-                WsEvent.ManualWorkflowToken(sessionId, chunk)
+                WsEvent.AutomatedWorkflowToken(sessionId, chunk)
             }
-            "manual-workflow-generator:turn-complete" -> {
+            "automated-workflow-generator:turn-complete" -> {
                 val sessionId = data?.optString("sessionId") ?: return
                 val content = data.optString("content", "")
-                WsEvent.ManualWorkflowMessage(sessionId, content)
+                WsEvent.AutomatedWorkflowMessage(sessionId, content)
             }
-            "manual-workflow-generator:error" -> {
+            "automated-workflow-generator:error" -> {
                 val sessionId = data?.optString("sessionId") ?: return
                 val message = data?.optString("message") ?: return
-                WsEvent.ManualWorkflowError(sessionId, message)
+                WsEvent.AutomatedWorkflowError(sessionId, message)
             }
-            "manual-workflow-generator:cancelled" -> {
+            "automated-workflow-generator:cancelled" -> {
                 val sessionId = data?.optString("sessionId") ?: return
-                WsEvent.ManualWorkflowCancelled(sessionId)
+                WsEvent.AutomatedWorkflowCancelled(sessionId)
             }
 
-            "manual-workflow-runs:list" -> {
+            "automated-workflow-runs:list" -> {
                 val projectId = data?.optString("projectId") ?: return
                 val arr = data.optJSONArray("runs") ?: JSONArray()
-                val runs = (0 until arr.length()).map { parseManualWorkflowRun(arr.getJSONObject(it)) }
-                WsEvent.ManualWorkflowRunsList(projectId, runs)
+                val runs = (0 until arr.length()).map { parseAutomatedWorkflowRun(arr.getJSONObject(it)) }
+                WsEvent.AutomatedWorkflowRunsList(projectId, runs)
             }
 
-            "manual-workflow-runs:detail" -> {
+            "automated-workflow-runs:detail" -> {
                 val runObj = data?.optJSONObject("run")
-                WsEvent.ManualWorkflowRunDetailReady(if (runObj != null) parseManualWorkflowRun(runObj) else null)
+                WsEvent.AutomatedWorkflowRunDetailReady(if (runObj != null) parseAutomatedWorkflowRun(runObj) else null)
             }
 
-            "manual-workflow-runs:discarded" -> {
+            "automated-workflow-runs:discarded" -> {
                 val runId = data?.optString("runId") ?: return
-                WsEvent.ManualWorkflowRunDiscarded(runId, data.optBoolean("ok", false))
+                WsEvent.AutomatedWorkflowRunDiscarded(runId, data.optBoolean("ok", false))
+            }
+
+            "automated-workflow-runs:step-stream" -> {
+                val runId = data?.optString("runId") ?: return
+                val stepDbId = data.optString("stepDbId") ?: return
+                val chunk = data.optString("chunk", "")
+                WsEvent.AutomatedWorkflowStepStream(runId, stepDbId, chunk)
+            }
+
+            "automated-workflow-runs:error" -> {
+                val message = data?.optString("message") ?: return
+                WsEvent.AutomatedWorkflowRunsError(message)
             }
 
             else -> return
@@ -2194,8 +2207,14 @@ internal fun parseProjectSettingsConfig(config: JSONObject): ProjectSettingsConf
     }
     val orchestrationEnabled = config.optBoolean("orchestrationEnabled", false)
     val workflowMode = config.optString("workflowMode", "").let {
-        if (it == "manual-delegation" || it == "orchestrated" || it == "single-agent") it
-        else if (orchestrationEnabled) "orchestrated" else "single-agent"
+        // "manual-delegation" is the pre-rename value (self-heals to "automated-delegation" on
+        // the desktop side too, see project-handlers.ts's parseProjectConfig).
+        when {
+            it == "manual-delegation" -> "automated-delegation"
+            it == "automated-delegation" || it == "orchestrated" || it == "single-agent" -> it
+            orchestrationEnabled -> "orchestrated"
+            else -> "single-agent"
+        }
     }
     return ProjectSettingsConfig(
         instructions = config.optString("instructions", ""),
@@ -2214,10 +2233,10 @@ internal fun parseProjectSettingsConfig(config: JSONObject): ProjectSettingsConf
     )
 }
 
-private fun parseManualWorkflowRunStep(obj: JSONObject): io.nexy.android.data.model.ManualWorkflowRunStepData {
+private fun parseAutomatedWorkflowRunStep(obj: JSONObject): io.nexy.android.data.model.AutomatedWorkflowRunStepData {
     val dependsArr = obj.optJSONArray("dependsOnStepIds")
     val dependsOn = if (dependsArr != null) (0 until dependsArr.length()).map { dependsArr.optString(it) } else emptyList()
-    return io.nexy.android.data.model.ManualWorkflowRunStepData(
+    return io.nexy.android.data.model.AutomatedWorkflowRunStepData(
         id = obj.optString("id"),
         dbId = obj.optString("dbId"),
         runId = obj.optString("runId"),
@@ -2229,30 +2248,40 @@ private fun parseManualWorkflowRunStep(obj: JSONObject): io.nexy.android.data.mo
         prompt = obj.optString("prompt", ""),
         expectedOutput = obj.optString("expectedOutput", ""),
         dependsOnStepIds = dependsOn,
-        status = obj.optString("status", "not_started"),
+        status = obj.optString("status", "pending"),
+        attempt = obj.optInt("attempt", 0),
+        output = obj.optString("output", ""),
+        error = obj.nullableString("error"),
+        conversationId = obj.nullableString("conversationId"),
         startedAt = if (obj.isNull("startedAt")) null else obj.optLong("startedAt"),
         completedAt = if (obj.isNull("completedAt")) null else obj.optLong("completedAt"),
     )
 }
 
-private fun parseManualWorkflowRun(obj: JSONObject): io.nexy.android.data.model.ManualWorkflowRunInfo {
+private fun parseAutomatedWorkflowRun(obj: JSONObject): io.nexy.android.data.model.AutomatedWorkflowRunInfo {
     val stepCounts = obj.optJSONObject("stepCounts")
     val assumptionsArr = obj.optJSONArray("assumptions")
     val assumptions = if (assumptionsArr != null) (0 until assumptionsArr.length()).map { assumptionsArr.optString(it) } else emptyList()
     val stepsArr = obj.optJSONArray("steps")
-    val steps = if (stepsArr != null) (0 until stepsArr.length()).map { parseManualWorkflowRunStep(stepsArr.getJSONObject(it)) } else emptyList()
-    return io.nexy.android.data.model.ManualWorkflowRunInfo(
+    val steps = if (stepsArr != null) (0 until stepsArr.length()).map { parseAutomatedWorkflowRunStep(stepsArr.getJSONObject(it)) } else emptyList()
+    return io.nexy.android.data.model.AutomatedWorkflowRunInfo(
         id = obj.optString("id"),
         projectId = obj.optString("projectId"),
         title = obj.optString("title", ""),
         goalSummary = obj.optString("goalSummary", ""),
         model = obj.nullableString("model"),
-        status = obj.optString("status", "active"),
-        stepCounts = io.nexy.android.data.model.ManualWorkflowRunInfo.StepCounts(
+        status = obj.optString("status", "pending"),
+        confirmationMode = obj.optString("confirmationMode", "gated"),
+        currentStepId = obj.nullableString("currentStepId"),
+        lastError = obj.nullableString("lastError"),
+        stepCounts = io.nexy.android.data.model.AutomatedWorkflowRunInfo.StepCounts(
             total = stepCounts?.optInt("total", 0) ?: 0,
-            notStarted = stepCounts?.optInt("notStarted", 0) ?: 0,
-            started = stepCounts?.optInt("started", 0) ?: 0,
+            pending = stepCounts?.optInt("pending", 0) ?: 0,
+            running = stepCounts?.optInt("running", 0) ?: 0,
+            awaitingConfirmation = stepCounts?.optInt("awaitingConfirmation", 0) ?: 0,
             done = stepCounts?.optInt("done", 0) ?: 0,
+            failed = stepCounts?.optInt("failed", 0) ?: 0,
+            skipped = stepCounts?.optInt("skipped", 0) ?: 0,
         ),
         createdAt = obj.optLong("createdAt", 0L),
         updatedAt = obj.optLong("updatedAt", 0L),
@@ -2464,12 +2493,13 @@ private fun parseQuizQuestion(obj: JSONObject): QuizQuestion {
 /** Mirrors desktop's openBackgroundActivity kind-dispatch (backgroundActivitySlice.ts) — maps a
  *  server-tracked activity kind to the Android nav route that shows it. Returns null for kinds
  *  with no reachable Android destination. `id` is `<kind>:<reportId>` for remote-edit items. */
-private fun routeForServerActivity(id: String, kind: String, conversationId: String?): String? = when (kind) {
-    "chat", "debrief-generation", "quiz-generation", "orchestration" -> conversationId?.let { "chat/$it" }
+private fun routeForServerActivity(id: String, kind: String, conversationId: String?, projectId: String?): String? = when (kind) {
+    "chat", "debrief-generation", "quiz-generation", "orchestration", "automated-workflow-run" -> conversationId?.let { "chat/$it" }
     "project-generator" -> "project-generator"
     "agent-generator" -> "agent-generator"
     "skill-generator" -> "skill-generator"
     "scheduler-generator" -> "scheduled/generator"
+    "automated-workflow-generator" -> projectId?.let { "automated-workflow/${android.net.Uri.encode(it)}" }
     "build" -> "settings/build-dashboard"
     "remote-edit" -> "remote-edit/${android.net.Uri.encode(id.removePrefix("remote-edit:"))}"
     else -> null

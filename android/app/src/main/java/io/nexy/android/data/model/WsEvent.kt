@@ -372,27 +372,34 @@ sealed class WsEvent {
         val providerId: String,
         val keyValue: String,
     ) : WsEvent()
-    // Manual Workflow Generator
-    data class ManualWorkflowReady(
+    // Automated Workflow Generator
+    data class AutomatedWorkflowReady(
         val sessionId: String,
         val title: String,
         val goalSummary: String,
         val assumptions: String,
-        val steps: List<ManualWorkflowStepInfo>,
+        val steps: List<AutomatedWorkflowStepInfo>,
         /** The raw spec JSON (title/goalSummary/assumptions/steps incl. agentId + dependsOnStepIds),
-         *  kept verbatim so it can be forwarded as-is to manual-workflow-runs:save-spec without
-         *  the friendlier [ManualWorkflowStepInfo] view's field loss. */
+         *  kept verbatim so it can be forwarded as-is to automated-workflow-runs:save-spec without
+         *  the friendlier [AutomatedWorkflowStepInfo] view's field loss. */
         val rawSpec: Map<String, Any> = emptyMap(),
     ) : WsEvent()
-    data class ManualWorkflowModel(val sessionId: String, val modelId: String) : WsEvent()
-    data class ManualWorkflowToken(val sessionId: String, val chunk: String) : WsEvent()
-    data class ManualWorkflowMessage(val sessionId: String, val message: String) : WsEvent()
-    data class ManualWorkflowError(val sessionId: String, val message: String) : WsEvent()
-    data class ManualWorkflowCancelled(val sessionId: String) : WsEvent()
-    // Persisted manual workflow runs
-    data class ManualWorkflowRunsList(val projectId: String, val runs: List<ManualWorkflowRunInfo>) : WsEvent()
-    data class ManualWorkflowRunDetailReady(val run: ManualWorkflowRunInfo?) : WsEvent()
-    data class ManualWorkflowRunDiscarded(val runId: String, val ok: Boolean) : WsEvent()
+    data class AutomatedWorkflowModel(val sessionId: String, val modelId: String) : WsEvent()
+    data class AutomatedWorkflowToken(val sessionId: String, val chunk: String) : WsEvent()
+    data class AutomatedWorkflowMessage(val sessionId: String, val message: String) : WsEvent()
+    data class AutomatedWorkflowError(val sessionId: String, val message: String) : WsEvent()
+    data class AutomatedWorkflowCancelled(val sessionId: String) : WsEvent()
+    // Persisted automated workflow runs
+    data class AutomatedWorkflowRunsList(val projectId: String, val runs: List<AutomatedWorkflowRunInfo>) : WsEvent()
+    data class AutomatedWorkflowRunDetailReady(val run: AutomatedWorkflowRunInfo?) : WsEvent()
+    data class AutomatedWorkflowRunDiscarded(val runId: String, val ok: Boolean) : WsEvent()
+    /** Live token stream for a step actually being executed by the automated runner — distinct
+     *  from AutomatedWorkflowToken, which streams the plan-generation chat, not a step's own run. */
+    data class AutomatedWorkflowStepStream(val runId: String, val stepDbId: String, val chunk: String) : WsEvent()
+    /** automated-workflow-runs:* commands reply with this on failure (a bad spec, a DB error) —
+     *  see ws-handlers.ts's try/catch-with-reply — so the UI can surface it instead of a
+     *  permanently-stuck "Saving…" button with no explanation. */
+    data class AutomatedWorkflowRunsError(val message: String) : WsEvent()
 }
 
 data class BuildRecord(
@@ -577,8 +584,10 @@ data class AttachmentMeta(
     val thumbnailDataUrl: String?,
 )
 
-/** Mirrors desktop's `ManualWorkflowStep` (src/shared/types.ts). */
-data class ManualWorkflowStepInfo(
+/** Mirrors desktop's `AutomatedWorkflowStep` (src/shared/types.ts). Notably missing
+ *  `dependsOnStepIds`: it's structurally dropped from this pre-save view — only the saved-run
+ *  model ([AutomatedWorkflowRunStepData]) carries it. */
+data class AutomatedWorkflowStepInfo(
     val id: String,
     val title: String,
     val summary: String,
@@ -587,8 +596,8 @@ data class ManualWorkflowStepInfo(
     val expectedOutput: String,
 )
 
-/** Mirrors desktop's `ManualWorkflowRunStep` (src/shared/types.ts). */
-data class ManualWorkflowRunStepData(
+/** Mirrors desktop's `AutomatedWorkflowRunStep` (src/shared/types.ts). */
+data class AutomatedWorkflowRunStepData(
     val id: String,
     val dbId: String,
     val runId: String,
@@ -601,26 +610,41 @@ data class ManualWorkflowRunStepData(
     val expectedOutput: String,
     val dependsOnStepIds: List<String> = emptyList(),
     val status: String,
+    val attempt: Int = 0,
+    val output: String = "",
+    val error: String? = null,
+    val conversationId: String? = null,
     val startedAt: Long?,
     val completedAt: Long?,
 )
 
-/** Mirrors desktop's `ManualWorkflowRunDetail extends ManualWorkflowRunSummary` (src/shared/types.ts).
+/** Mirrors desktop's `AutomatedWorkflowRunDetail extends AutomatedWorkflowRunSummary` (src/shared/types.ts).
  *  Used for both list rows (steps/assumptions empty) and full detail (steps populated). */
-data class ManualWorkflowRunInfo(
+data class AutomatedWorkflowRunInfo(
     val id: String,
     val projectId: String,
     val title: String,
     val goalSummary: String,
     val model: String?,
     val status: String,
+    val confirmationMode: String = "gated",
+    val currentStepId: String? = null,
+    val lastError: String? = null,
     val stepCounts: StepCounts,
     val createdAt: Long,
     val updatedAt: Long,
     val assumptions: List<String> = emptyList(),
-    val steps: List<ManualWorkflowRunStepData> = emptyList(),
+    val steps: List<AutomatedWorkflowRunStepData> = emptyList(),
 ) {
-    data class StepCounts(val total: Int, val notStarted: Int, val started: Int, val done: Int)
+    data class StepCounts(
+        val total: Int,
+        val pending: Int,
+        val running: Int = 0,
+        val awaitingConfirmation: Int = 0,
+        val done: Int,
+        val failed: Int = 0,
+        val skipped: Int = 0,
+    )
 }
 
 data class ProviderInfo(
