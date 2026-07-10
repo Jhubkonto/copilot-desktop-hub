@@ -111,13 +111,13 @@ export function TeamTab({
         <div className="space-y-1">
           <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Workflow mode</span>
           <p className="text-[10px] text-gray-500 dark:text-gray-400">
-            Choose whether the project runs as a single agent, manual delegation workflow, or full orchestration.
+            Choose whether the project runs as a single agent, automated delegation workflow, or full orchestration.
           </p>
         </div>
         <div className="grid grid-cols-3 gap-1.5">
           {[
             { value: 'single-agent', label: 'Single' },
-            { value: 'manual-delegation', label: 'Manual' },
+            { value: 'automated-delegation', label: 'Automated' },
             { value: 'orchestrated', label: 'Orchestrated', disabled: !canOrchestrate },
           ].map((option) => {
             const selected = workflowMode === option.value
@@ -155,7 +155,7 @@ export function TeamTab({
             Some assigned agents are not currently runnable with this machine’s configured backends: {unavailableMembers.map((member) => member.agentName).join(', ')}.
           </p>
         )}
-        {(workflowMode === 'manual-delegation' || workflowMode === 'orchestrated') && !hasGeneratorBackend && (
+        {(workflowMode === 'automated-delegation' || workflowMode === 'orchestrated') && !hasGeneratorBackend && (
           <p className="text-[10px] text-amber-600 dark:text-amber-400">
             No provider or supported CLI backend is configured. Add an API key or install a CLI backend in Settings before using this workflow mode.
           </p>
@@ -184,7 +184,7 @@ export function TeamTab({
             </label>
           </div>
         )}
-        {workflowMode === 'manual-delegation' && (
+        {workflowMode === 'automated-delegation' && (
           <div className="rounded-md border border-blue-200/70 dark:border-blue-900/50 bg-blue-50/70 dark:bg-blue-950/20 p-3 space-y-2">
             <div className="flex items-center gap-1.5 text-blue-700 dark:text-blue-300">
               <Sparkles className="w-3.5 h-3.5" />

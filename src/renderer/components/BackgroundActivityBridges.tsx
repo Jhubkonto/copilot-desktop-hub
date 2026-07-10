@@ -18,7 +18,8 @@ const activityLabels: Record<BackgroundActivityKind, string> = {
   'agent-generator': 'Generating agent…',
   'skill-generator': 'Generating skill…',
   'scheduler-generator': 'Generating scheduled task…',
-  'manual-workflow-generator': 'Generating workflow…',
+  'automated-workflow-generator': 'Generating workflow…',
+  'automated-workflow-run': 'Running workflow step…',
   'debrief-generation': 'Generating debrief…',
   'quiz-generation': 'Generating quiz…',
   chat: 'Assistant is responding…',
@@ -28,7 +29,7 @@ const activityLabels: Record<BackgroundActivityKind, string> = {
 }
 
 function startActivity(kind: BackgroundActivityKind, projectId?: string) {
-  const id = kind === 'manual-workflow-generator' && projectId
+  const id = kind === 'automated-workflow-generator' && projectId
     ? `${kind}:${projectId}`
     : kind
   const state = (useAppStore as unknown as { getState?: () => BackgroundActivityStoreApi }).getState?.()
@@ -41,19 +42,19 @@ function startActivity(kind: BackgroundActivityKind, projectId?: string) {
 }
 
 function stopActivity(kind: BackgroundActivityKind, projectId?: string) {
-  const id = kind === 'manual-workflow-generator' && projectId
+  const id = kind === 'automated-workflow-generator' && projectId
     ? `${kind}:${projectId}`
     : kind
   const state = (useAppStore as unknown as { getState?: () => BackgroundActivityStoreApi }).getState?.()
   state?.removeBackgroundActivity?.(id)
 }
 
-export function trackManualWorkflowGeneration(projectId: string) {
-  startActivity('manual-workflow-generator', projectId)
+export function trackAutomatedWorkflowGeneration(projectId: string) {
+  startActivity('automated-workflow-generator', projectId)
 }
 
-export function clearManualWorkflowGeneration(projectId: string) {
-  stopActivity('manual-workflow-generator', projectId)
+export function clearAutomatedWorkflowGeneration(projectId: string) {
+  stopActivity('automated-workflow-generator', projectId)
 }
 
 export function BackgroundActivityBridges() {

@@ -53,7 +53,7 @@ export const createBackgroundActivitySlice: StateCreator<
   // The server snapshot is authoritative for anything it knows about (so truly-ended activity
   // is removed even if this device never saw the end event locally), but preserves any locally
   // tracked entries not yet echoed back by the server (e.g. a generator turn started a moment
-  // ago, or manual-workflow-generator which only has local-optimistic tracking).
+  // ago, before the next snapshot round-trip confirms it).
   //
   // Critically, "not in this snapshot" is ambiguous on its own: it's true both for a brand-new
   // local-optimistic entry the server hasn't echoed back YET, and for an entry the server
@@ -94,7 +94,7 @@ export const createBackgroundActivitySlice: StateCreator<
       get().setShowSchedulerGenerator(true)
       return
     }
-    if (activity.kind === 'manual-workflow-generator') {
+    if (activity.kind === 'automated-workflow-generator') {
       set((s) => {
         s.activeSectionPane = 'projects'
       })
@@ -103,7 +103,7 @@ export const createBackgroundActivitySlice: StateCreator<
       }
       return
     }
-    if (activity.kind === 'chat' || activity.kind === 'debrief-generation' || activity.kind === 'quiz-generation' || activity.kind === 'orchestration') {
+    if (activity.kind === 'chat' || activity.kind === 'debrief-generation' || activity.kind === 'quiz-generation' || activity.kind === 'orchestration' || activity.kind === 'automated-workflow-run') {
       if (activity.conversationId) {
         get().selectConversation(activity.conversationId)
       }

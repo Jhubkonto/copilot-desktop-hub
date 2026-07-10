@@ -3,7 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { shouldFollowAnimatedGrowth } from '../chat-scroll-policy'
 import { CheckCircle, ChevronDown, ChevronRight, Download, ListChecks, Loader2, Lock, MoreHorizontal, Pin, PinOff, Sparkles, Upload, Users, X, Zap } from 'lucide-react'
 import { getAvailableModelIds, getModelLabel, modelIdSupportsTools } from '../../shared/models'
-import { isApiError, type AgentConfig, type ArtifactPromotionRequest, type AvailableModelEntry, type AvailableModelGroup, type ConversationExportPackFormat, type ManualWorkflowRunDetail, type ManualWorkflowRunStep, type WikiCandidate } from '../../shared/types'
+import { isApiError, type AgentConfig, type ArtifactPromotionRequest, type AvailableModelEntry, type AvailableModelGroup, type ConversationExportPackFormat, type AutomatedWorkflowRunDetail, type AutomatedWorkflowRunStep, type WikiCandidate } from '../../shared/types'
 import type { ContextRef, ToastType } from '../hooks/chat-types'
 import { useAtMenu } from '../hooks/useAtMenu'
 import { useChat } from '../hooks/useChat'
@@ -105,7 +105,7 @@ export function ChatWindow() {
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [projectRootDir, setProjectRootDir] = useState<string | null>(null)
   const [projectWorkflowMode, setProjectWorkflowMode] = useState<ProjectConfig['workflowMode'] | null>(null)
-  const [activeWorkflowRun, setActiveWorkflowRun] = useState<ManualWorkflowRunDetail | null>(null)
+  const [activeWorkflowRun, setActiveWorkflowRun] = useState<AutomatedWorkflowRunDetail | null>(null)
   const [dismissedWorkflowStepId, setDismissedWorkflowStepId] = useState<string | null>(null)
   const [inputPanelHeight, setInputPanelHeight] = useState<number | null>(null)
   const [hasUnreadBelow, setHasUnreadBelow] = useState(false)
@@ -461,18 +461,18 @@ export function ChatWindow() {
   }, [chatProjectId])
 
   const loadActiveWorkflowRun = useCallback((projectId: string) => {
-    window.api.listManualWorkflowRuns(projectId).then(async (list) => {
+    window.api.listAutomatedWorkflowRuns(projectId).then(async (list) => {
       if (isApiError(list)) { setActiveWorkflowRun(null); return }
-      const active = list.find((run) => run.status === 'active')
+      const active = list.find((run) => run.status !== 'done' && run.status !== 'cancelled')
       if (!active) { setActiveWorkflowRun(null); return }
-      const detail = await window.api.getManualWorkflowRun(active.id)
+      const detail = await window.api.getAutomatedWorkflowRun(active.id)
       setActiveWorkflowRun(detail && !isApiError(detail) ? detail : null)
     }).catch(() => setActiveWorkflowRun(null))
   }, [])
 
   useEffect(() => {
     setDismissedWorkflowStepId(null)
-    if (!chatProjectId || chatProjectId === '__none__' || projectWorkflowMode !== 'manual-delegation') {
+    if (!chatProjectId || chatProjectId === '__none__' || projectWorkflowMode !== 'automated-delegation') {
       setActiveWorkflowRun(null)
       return
     }
@@ -480,36 +480,59 @@ export function ChatWindow() {
   }, [chatProjectId, projectWorkflowMode, loadActiveWorkflowRun])
 
   useEffect(() => {
-    const off = window.api.onManualWorkflowRunsChanged(({ projectId: changedProjectId }) => {
-      if (changedProjectId === chatProjectId && projectWorkflowMode === 'manual-delegation') {
+    const off = window.api.onAutomatedWorkflowRunsChanged(({ projectId: changedProjectId }) => {
+      if (changedProjectId === chatProjectId && projectWorkflowMode === 'automated-delegation') {
         loadActiveWorkflowRun(changedProjectId)
       }
     })
     return off
   }, [chatProjectId, projectWorkflowMode, loadActiveWorkflowRun])
 
-  const currentWorkflowStep = useMemo<ManualWorkflowRunStep | null>(() => {
+  // Steps auto-advance now, so "current" means "needs a human's attention" — running (informational
+  // only), awaiting_confirmation (needs approval), or failed (needs retry/skip) — rather than
+  // "the next one a human would manually start".
+  const currentWorkflowStep = useMemo<AutomatedWorkflowRunStep | null>(() => {
     if (!activeWorkflowRun) return null
-    const byKey = new Map(activeWorkflowRun.steps.map((s) => [s.id, s]))
-    const isDone = (key: string) => byKey.get(key)?.status === 'done'
-    return activeWorkflowRun.steps.find((s) => s.status !== 'done' && (s.dependsOnStepIds ?? []).every(isDone)) ?? null
+    return activeWorkflowRun.steps.find((s) => s.status === 'running' || s.status === 'awaiting_confirmation' || s.status === 'failed') ?? null
   }, [activeWorkflowRun])
 
-  const handleStartWorkflowStepFromBanner = useCallback(async (step: ManualWorkflowRunStep) => {
-    if (!chatProjectId || chatProjectId === '__none__' || !activeWorkflowRun) return
-    const conversation = await window.api.createConversation(step.agentId ?? undefined, chatProjectId)
-    if (!conversation || typeof conversation !== 'object' || !('id' in conversation) || typeof conversation.id !== 'string') {
-      addToast('Failed to create conversation for workflow step', 'error')
-      return
+  const [bannerActionBusy, setBannerActionBusy] = useState(false)
+
+  const handleApproveFromBanner = useCallback(async (step: AutomatedWorkflowRunStep) => {
+    if (!activeWorkflowRun) return
+    setBannerActionBusy(true)
+    try {
+      await window.api.confirmAutomatedWorkflowStep(activeWorkflowRun.id, step.dbId)
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : 'Failed to approve step', 'error')
+    } finally {
+      setBannerActionBusy(false)
     }
-    await conversationCreated(conversation.id)
-    await window.api.sendMessage(conversation.id, step.prompt, { agentId: step.agentId ?? undefined, projectId: chatProjectId })
-    if (step.status === 'not_started') {
-      const updated = await window.api.updateManualWorkflowRunStepStatus(activeWorkflowRun.id, step.dbId, 'started')
-      if (updated && !isApiError(updated)) setActiveWorkflowRun(updated)
+  }, [activeWorkflowRun, addToast])
+
+  const handleRetryFromBanner = useCallback(async (step: AutomatedWorkflowRunStep) => {
+    if (!activeWorkflowRun) return
+    setBannerActionBusy(true)
+    try {
+      await window.api.retryAutomatedWorkflowStep(activeWorkflowRun.id, step.dbId)
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : 'Failed to retry step', 'error')
+    } finally {
+      setBannerActionBusy(false)
     }
-    addToast('Workflow step started in chat', 'success')
-  }, [chatProjectId, activeWorkflowRun, conversationCreated, addToast])
+  }, [activeWorkflowRun, addToast])
+
+  const handleSkipFromBanner = useCallback(async (step: AutomatedWorkflowRunStep) => {
+    if (!activeWorkflowRun) return
+    setBannerActionBusy(true)
+    try {
+      await window.api.skipAutomatedWorkflowStep(activeWorkflowRun.id, step.dbId)
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : 'Failed to skip step', 'error')
+    } finally {
+      setBannerActionBusy(false)
+    }
+  }, [activeWorkflowRun, addToast])
 
   useEffect(() => {
     if (!chatProjectId || chatProjectId === '__none__') {
@@ -1177,8 +1200,8 @@ export function ChatWindow() {
 
   const workflowModeInfo = projectWorkflowMode === 'orchestrated'
     ? { label: 'Orchestrated', Icon: Users, title: 'This project delegates tasks across the team automatically.' }
-    : projectWorkflowMode === 'manual-delegation'
-      ? { label: 'Manual', Icon: ListChecks, title: 'This project uses a manual delegation workflow — see the Workflow tab in project settings.' }
+    : projectWorkflowMode === 'automated-delegation'
+      ? { label: 'Automated', Icon: ListChecks, title: 'This project uses an automated delegation workflow — see the Workflow tab in project settings.' }
       : null
 
   const contextBar = (
@@ -1382,17 +1405,43 @@ export function ChatWindow() {
   ) : null
 
   const workflowStepBanner = activeWorkflowRun && currentWorkflowStep && currentWorkflowStep.id !== dismissedWorkflowStepId ? (
-    <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 dark:bg-blue-950/30 border-b border-blue-200 dark:border-blue-900 text-blue-800 dark:text-blue-300 text-xs" role="status" aria-label="Manual workflow step">
-      <ListChecks className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+    <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 dark:bg-blue-950/30 border-b border-blue-200 dark:border-blue-900 text-blue-800 dark:text-blue-300 text-xs" role="status" aria-label="Automated workflow step">
+      {currentWorkflowStep.status === 'running'
+        ? <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin" aria-hidden="true" />
+        : <ListChecks className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />}
       <span className="flex-1 truncate">
         <strong>{activeWorkflowRun.title}</strong> — Step {currentWorkflowStep.stepIndex + 1} of {activeWorkflowRun.steps.length}: {currentWorkflowStep.title}
+        {currentWorkflowStep.status === 'running' && ' — running…'}
+        {currentWorkflowStep.status === 'awaiting_confirmation' && (activeWorkflowRun.confirmationMode === 'gated' ? ' — ready for your review' : ' — advancing automatically…')}
+        {currentWorkflowStep.status === 'failed' && ` — failed${currentWorkflowStep.error ? `: ${currentWorkflowStep.error}` : ''}`}
       </span>
-      <button
-        onClick={() => { void handleStartWorkflowStepFromBanner(currentWorkflowStep) }}
-        className="underline hover:no-underline font-medium shrink-0"
-      >
-        Start this step
-      </button>
+      {currentWorkflowStep.status === 'awaiting_confirmation' && activeWorkflowRun.confirmationMode === 'gated' && (
+        <button
+          disabled={bannerActionBusy}
+          onClick={() => { void handleApproveFromBanner(currentWorkflowStep) }}
+          className="underline hover:no-underline font-medium shrink-0 disabled:opacity-50"
+        >
+          Approve
+        </button>
+      )}
+      {currentWorkflowStep.status === 'failed' && (
+        <>
+          <button
+            disabled={bannerActionBusy}
+            onClick={() => { void handleRetryFromBanner(currentWorkflowStep) }}
+            className="underline hover:no-underline font-medium shrink-0 disabled:opacity-50"
+          >
+            Retry
+          </button>
+          <button
+            disabled={bannerActionBusy}
+            onClick={() => { void handleSkipFromBanner(currentWorkflowStep) }}
+            className="underline hover:no-underline shrink-0 disabled:opacity-50"
+          >
+            Skip
+          </button>
+        </>
+      )}
       <button
         onClick={() => { if (chatProjectId && chatProjectId !== '__none__') openEditProject(chatProjectId, 'workflow') }}
         className="underline hover:no-underline shrink-0"

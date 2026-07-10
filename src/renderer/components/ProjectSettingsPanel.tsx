@@ -6,7 +6,7 @@ import { GeneralTab } from './project-settings/GeneralTab'
 import { ScopeTab } from './project-settings/ScopeTab'
 import { MilestonesTab } from './project-settings/MilestonesTab'
 import { TeamTab } from './project-settings/TeamTab'
-import { WorkflowTab } from './project-settings/WorkflowTab'
+import { AutomatedWorkflowTab } from './project-settings/AutomatedWorkflowTab'
 import { VerifyTab } from './project-settings/VerifyTab'
 import { DraftTeamPicker } from './project-settings/DraftTeamPicker'
 import { WikiTab } from './project-settings/WikiTab'
@@ -61,8 +61,8 @@ export function ProjectSettingsPanel(props: Props) {
   const updateProjectOrchestration = useAppStore((s) => s.updateProjectOrchestration)
   const loadProjectConfig = useAppStore((s) => s.loadProjectConfig)
   const addToast = useAppStore((s) => s.addToast)
-  const conversationCreated = useAppStore((s) => s.conversationCreated)
   const selectProject = useAppStore((s) => s.selectProject)
+  const selectConversation = useAppStore((s) => s.selectConversation)
 
   const projectId = isDraft ? null : (props as EditProps).projectId
   const project = projectId ? projects.find((p) => p.id === projectId) : null
@@ -346,18 +346,11 @@ export function ProjectSettingsPanel(props: Props) {
     if (agent) addToast(`🤖 ${agent.name} added to project`, 'success')
   }
 
-  const handleStartWorkflowStep = async (agentId: string | null, prompt: string) => {
+  const handleOpenWorkflowConversation = (conversationId: string) => {
     if (!projectId) return
-    const selectedAgentId = agentId ?? members.find((member) => member.isPrimary)?.agentId ?? members[0]?.agentId ?? null
-    const conversation = await window.api.createConversation(selectedAgentId ?? undefined, projectId)
-    if (!conversation || typeof conversation !== 'object' || !('id' in conversation) || typeof conversation.id !== 'string') {
-      addToast('Failed to create conversation for workflow step', 'error')
-      return
-    }
     selectProject(projectId)
-    await conversationCreated(conversation.id)
-    await window.api.sendMessage(conversation.id, prompt, { agentId: selectedAgentId ?? undefined, projectId })
-    addToast('Workflow step started in chat', 'success')
+    selectConversation(conversationId)
+    onClose()
   }
 
   // ── Draft team handlers ───────────────────────────────────────────────────
@@ -550,11 +543,11 @@ export function ProjectSettingsPanel(props: Props) {
         )}
 
         {activeTab === 'workflow' && !isDraft && projectId && (
-          <WorkflowTab
+          <AutomatedWorkflowTab
             projectId={projectId}
             members={members}
             projectConfig={projectConfig}
-            onStartWorkflowStep={handleStartWorkflowStep}
+            onOpenConversation={handleOpenWorkflowConversation}
             onToast={addToast}
           />
         )}
