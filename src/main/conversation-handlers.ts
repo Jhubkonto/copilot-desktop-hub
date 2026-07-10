@@ -30,6 +30,38 @@ export {
   getConversationCompressionPreview,
 };
 
+export interface ConversationRecord {
+  id: string;
+  agent_id: string | null;
+  project_id: string | null;
+  title: string;
+  created_at: number;
+  updated_at: number;
+}
+
+/** Extracted so non-IPC callers (e.g. the automated workflow executor) can create a real,
+ *  persisted conversation without going through the IPC invoke layer. */
+export function createConversationRecord(
+  agentId?: string | null,
+  projectId?: string | null,
+  title = "New Chat",
+): ConversationRecord {
+  const db = getDatabase();
+  const id = randomUUID();
+  const now = Date.now();
+  db.prepare(
+    "INSERT INTO conversations (id, agent_id, project_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+  ).run(id, agentId ?? null, projectId ?? null, title, now, now);
+  return {
+    id,
+    agent_id: agentId ?? null,
+    project_id: projectId ?? null,
+    title,
+    created_at: now,
+    updated_at: now,
+  };
+}
+
 export function registerConversationHandlers(): void {
   const db = getDatabase();
   const columns = db
@@ -54,21 +86,7 @@ export function registerConversationHandlers(): void {
 
   safeHandle(
     "conversation:create",
-    (_event, agentId?: string, projectId?: string) => {
-      const id = randomUUID();
-      const now = Date.now();
-      db.prepare(
-        "INSERT INTO conversations (id, agent_id, project_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-      ).run(id, agentId ?? null, projectId ?? null, "New Chat", now, now);
-      return {
-        id,
-        agent_id: agentId ?? null,
-        project_id: projectId ?? null,
-        title: "New Chat",
-        created_at: now,
-        updated_at: now,
-      };
-    },
+    (_event, agentId?: string, projectId?: string) => createConversationRecord(agentId, projectId),
   );
 
   safeHandle("conversation:compression-preview", (_event, conversationId: string) => {

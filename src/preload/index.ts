@@ -37,9 +37,10 @@ import type {
   SkillGeneratorSpec,
   ScheduleGeneratorMessage,
   ScheduleGeneratorSpec,
-  ManualWorkflowGeneratorMessage,
-  ManualWorkflowSpec,
-  ManualWorkflowStepStatus,
+  AutomatedWorkflowConfirmationMode,
+  AutomatedWorkflowGeneratorMessage,
+  AutomatedWorkflowSpec,
+  AutomatedWorkflowStepStatus,
   ArtifactGeneratorMessage,
   ArtifactPromotionRequest,
   ArtifactSpec,
@@ -581,44 +582,61 @@ const api = {
     typedInvoke('project-audit:list-files', sessionId),
   getProjectAuditDiff: (sessionId: string, relativePath: string) =>
     typedInvoke('project-audit:get-diff', sessionId, relativePath),
-  manualWorkflowGeneratorChat: (projectId: string, messages: ManualWorkflowGeneratorMessage[], modelOverride?: string) =>
-    typedInvoke('manual-workflow-generator:chat', projectId, messages, modelOverride),
-  onManualWorkflowGeneratorToken: (callback: (chunk: string) => void) => {
+  automatedWorkflowGeneratorChat: (projectId: string, messages: AutomatedWorkflowGeneratorMessage[], modelOverride?: string) =>
+    typedInvoke('automated-workflow-generator:chat', projectId, messages, modelOverride),
+  onAutomatedWorkflowGeneratorToken: (callback: (chunk: string) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, chunk: string) => callback(chunk)
-    typedOn('manual-workflow-generator:token', handler)
-    return () => typedOff('manual-workflow-generator:token', handler)
+    typedOn('automated-workflow-generator:token', handler)
+    return () => typedOff('automated-workflow-generator:token', handler)
   },
-  onManualWorkflowGeneratorSpecReady: (callback: (spec: ManualWorkflowSpec) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, spec: ManualWorkflowSpec) => callback(spec)
-    typedOn('manual-workflow-generator:spec-ready', handler)
-    return () => typedOff('manual-workflow-generator:spec-ready', handler)
+  onAutomatedWorkflowGeneratorSpecReady: (callback: (spec: AutomatedWorkflowSpec) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, spec: AutomatedWorkflowSpec) => callback(spec)
+    typedOn('automated-workflow-generator:spec-ready', handler)
+    return () => typedOff('automated-workflow-generator:spec-ready', handler)
   },
-  onManualWorkflowGeneratorDone: (callback: (data: { hasSpec: boolean }) => void) => {
+  onAutomatedWorkflowGeneratorDone: (callback: (data: { hasSpec: boolean }) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, data: { hasSpec: boolean }) => callback(data)
-    typedOn('manual-workflow-generator:done', handler)
-    return () => typedOff('manual-workflow-generator:done', handler)
+    typedOn('automated-workflow-generator:done', handler)
+    return () => typedOff('automated-workflow-generator:done', handler)
   },
-  onManualWorkflowGeneratorError: (callback: (data: { message: string }) => void) => {
+  onAutomatedWorkflowGeneratorError: (callback: (data: { message: string }) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, data: { message: string }) => callback(data)
-    typedOn('manual-workflow-generator:error', handler)
-    return () => typedOff('manual-workflow-generator:error', handler)
+    typedOn('automated-workflow-generator:error', handler)
+    return () => typedOff('automated-workflow-generator:error', handler)
   },
-  getManualWorkflowGeneratorModel: () => typedInvoke('manual-workflow-generator:get-model'),
-  setManualWorkflowGeneratorModel: (modelId: string) => typedInvoke('manual-workflow-generator:set-model', modelId),
-  saveManualWorkflowRunFromSpec: (projectId: string, spec: ManualWorkflowSpec, model: string | null, existingRunId?: string | null) =>
-    typedInvoke('manual-workflow-runs:save-spec', projectId, spec, model, existingRunId),
-  listManualWorkflowRuns: (projectId: string) =>
-    typedInvoke('manual-workflow-runs:list', projectId),
-  getManualWorkflowRun: (runId: string) =>
-    typedInvoke('manual-workflow-runs:get', runId),
-  updateManualWorkflowRunStepStatus: (runId: string, stepId: string, status: ManualWorkflowStepStatus) =>
-    typedInvoke('manual-workflow-runs:update-step-status', runId, stepId, status),
-  discardManualWorkflowRun: (runId: string) =>
-    typedInvoke('manual-workflow-runs:discard', runId),
-  onManualWorkflowRunsChanged: (callback: (data: { projectId: string; runId: string }) => void) => {
+  getAutomatedWorkflowGeneratorModel: () => typedInvoke('automated-workflow-generator:get-model'),
+  setAutomatedWorkflowGeneratorModel: (modelId: string) => typedInvoke('automated-workflow-generator:set-model', modelId),
+  saveAutomatedWorkflowRunFromSpec: (projectId: string, spec: AutomatedWorkflowSpec, model: string | null, existingRunId?: string | null) =>
+    typedInvoke('automated-workflow-runs:save-spec', projectId, spec, model, existingRunId),
+  listAutomatedWorkflowRuns: (projectId: string) =>
+    typedInvoke('automated-workflow-runs:list', projectId),
+  getAutomatedWorkflowRun: (runId: string) =>
+    typedInvoke('automated-workflow-runs:get', runId),
+  updateAutomatedWorkflowRunStepStatus: (runId: string, stepId: string, status: AutomatedWorkflowStepStatus) =>
+    typedInvoke('automated-workflow-runs:update-step-status', runId, stepId, status),
+  discardAutomatedWorkflowRun: (runId: string) =>
+    typedInvoke('automated-workflow-runs:discard', runId),
+  onAutomatedWorkflowRunsChanged: (callback: (data: { projectId: string; runId: string }) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, data: { projectId: string; runId: string }) => callback(data)
-    typedOn('manual-workflow-runs:changed', handler)
-    return () => typedOff('manual-workflow-runs:changed', handler)
+    typedOn('automated-workflow-runs:changed', handler)
+    return () => typedOff('automated-workflow-runs:changed', handler)
+  },
+  startAutomatedWorkflowRun: (runId: string) =>
+    typedInvoke('automated-workflow-runs:start', runId),
+  confirmAutomatedWorkflowStep: (runId: string, stepDbId: string, editedOutput?: string) =>
+    typedInvoke('automated-workflow-runs:confirm-step', runId, stepDbId, editedOutput),
+  retryAutomatedWorkflowStep: (runId: string, stepDbId: string) =>
+    typedInvoke('automated-workflow-runs:retry-step', runId, stepDbId),
+  skipAutomatedWorkflowStep: (runId: string, stepDbId: string) =>
+    typedInvoke('automated-workflow-runs:skip-step', runId, stepDbId),
+  abortAutomatedWorkflowRun: (runId: string) =>
+    typedInvoke('automated-workflow-runs:abort', runId),
+  setAutomatedWorkflowConfirmationMode: (runId: string, mode: AutomatedWorkflowConfirmationMode) =>
+    typedInvoke('automated-workflow-runs:set-confirmation-mode', runId, mode),
+  onAutomatedWorkflowStepStream: (callback: (data: { runId: string; stepDbId: string; chunk: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { runId: string; stepDbId: string; chunk: string }) => callback(data)
+    typedOn('automated-workflow-runs:step-stream', handler)
+    return () => typedOff('automated-workflow-runs:step-stream', handler)
   },
   onTeamActivity: (callback: (step: {
     stepId: string

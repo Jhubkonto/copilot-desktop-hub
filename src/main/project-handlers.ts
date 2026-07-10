@@ -152,8 +152,11 @@ export function parseProjectConfig(
     if (typeof raw.rootDirectory === 'string' && raw.rootDirectory.includes('\n')) {
       raw.rootDirectory = raw.rootDirectory.split('\n')[0]?.trim() ?? ''
     }
-    const workflowMode = raw.workflowMode === 'manual-delegation' || raw.workflowMode === 'orchestrated' || raw.workflowMode === 'single-agent'
-      ? raw.workflowMode
+    // 'manual-delegation' is the pre-rename value (this mode was "Manual Workflow" before it
+    // became "Automated Workflow") — accepted here so old project rows self-heal on next load
+    // without a dedicated migration pass, since workflowMode lives in a JSON blob, not a column.
+    const workflowMode = raw.workflowMode === 'automated-delegation' || raw.workflowMode === 'manual-delegation' || raw.workflowMode === 'orchestrated' || raw.workflowMode === 'single-agent'
+      ? (raw.workflowMode === 'manual-delegation' ? 'automated-delegation' : raw.workflowMode)
       : (raw.orchestrationEnabled === true ? 'orchestrated' : 'single-agent')
     raw.workflowMode = workflowMode
     raw.orchestrationEnabled = workflowMode === 'orchestrated'
@@ -184,8 +187,8 @@ function normalizeProjectConfigPatch(config: Record<string, unknown>): Record<st
     normalized.rootDirectory = normalized.rootDirectory.split('\n')[0]?.trim() ?? ''
   }
   const workflowMode =
-    normalized.workflowMode === 'manual-delegation' || normalized.workflowMode === 'orchestrated' || normalized.workflowMode === 'single-agent'
-      ? normalized.workflowMode
+    normalized.workflowMode === 'automated-delegation' || normalized.workflowMode === 'manual-delegation' || normalized.workflowMode === 'orchestrated' || normalized.workflowMode === 'single-agent'
+      ? (normalized.workflowMode === 'manual-delegation' ? 'automated-delegation' : normalized.workflowMode)
       : typeof normalized.orchestrationEnabled === 'boolean'
         ? (normalized.orchestrationEnabled ? 'orchestrated' : 'single-agent')
         : undefined

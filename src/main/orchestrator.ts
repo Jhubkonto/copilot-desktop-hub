@@ -19,6 +19,7 @@ import {
 } from './providers'
 import { broadcastToMobile } from './ws-server'
 import { startActivity, endActivity } from './activity-tracker'
+import { runAgentTurn } from './agent-turn-runner'
 
 export const MAX_DELEGATION_DEPTH = 5
 
@@ -152,6 +153,8 @@ async function callLeaderStreaming(
 /**
  * Call a specialist agent using its configured provider, with one retry if no output was emitted.
  * Uses a per-step request ID to allow parallel specialist calls without request tracking collisions.
+ * Thin wrapper over the shared runAgentTurn primitive (agent-turn-runner.ts), which also backs the
+ * automated workflow executor's per-step agent calls.
  */
 async function callSpecialist(
   agentId: string,
@@ -162,59 +165,15 @@ async function callSpecialist(
   conversationId: string,
   generationOptions: { temperature: number; maxTokens: number }
 ): Promise<string> {
-  const cfg = getAgentConfig(agentId)
-  const agentModel = typeof cfg?.model === 'string' && cfg.model !== 'default' ? cfg.model : fallbackModel
-  const { provider, model } = getProviderForAgent(agentModel)
-  const apiKey = getApiKey(provider)
-  if (!apiKey) {
-    throw new Error(NO_PROVIDER_CONFIGURED_MESSAGE)
-  }
-
-  const systemContent = typeof cfg?.systemPrompt === 'string'
-    ? `${cfg.systemPrompt}\n\nYou are a specialist in the team. Answer concisely and factually.`
-    : 'You are a specialist AI assistant. Answer concisely and factually.'
-
-  const messages: ProviderMessage[] = [
-    { role: 'system', content: systemContent },
-    { role: 'user', content: taskContent }
-  ]
-
-  // Per-step request ID to avoid collision when multiple specialists run in parallel
-  const stepConversationId = `${conversationId}:${stepId}`
-
-  let chunksEmitted = 0
-  const onChunk = (chunk: string) => {
-    chunksEmitted++
-    window.webContents.send('chat:team-step-stream', { stepId, chunk })
-  }
-
-  const attempt = (): Promise<string> => {
-    if (provider === 'openai') {
-      return sendOpenAIMessage(stepConversationId, apiKey, model, messages, onChunk, generationOptions)
-    }
-    if (provider === 'anthropic') {
-      return sendAnthropicMessage(stepConversationId, apiKey, model, messages.filter((m) => m.role !== 'system'), systemContent, onChunk, generationOptions)
-    }
-    const providerCfg = PROVIDERS.find((p) => p.name === provider)
-    if (providerCfg?.baseUrl) {
-      return sendOpenAIMessage(stepConversationId, apiKey, model, messages, onChunk, generationOptions, providerCfg.baseUrl)
-    }
-    const endpoint = getAzureEndpoint()
-    if (!endpoint) {
-      throw new Error('Azure endpoint not configured')
-    }
-    return sendAzureMessage(stepConversationId, apiKey, endpoint, model, messages, onChunk, generationOptions)
-  }
-
-  try {
-    return await attempt()
-  } catch (firstError) {
-    // Only retry if no chunks were emitted — avoids duplicating partial streamed output
-    if (chunksEmitted === 0) {
-      return attempt()
-    }
-    throw firstError
-  }
+  return runAgentTurn({
+    agentId,
+    fallbackModel,
+    taskContent,
+    // Per-step request ID to avoid collision when multiple specialists run in parallel
+    requestId: `${conversationId}:${stepId}`,
+    generationOptions,
+    onChunk: (chunk) => window.webContents.send('chat:team-step-stream', { stepId, chunk }),
+  })
 }
 
 /**
