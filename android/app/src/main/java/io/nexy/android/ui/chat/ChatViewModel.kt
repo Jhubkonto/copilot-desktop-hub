@@ -379,6 +379,21 @@ class ChatViewModel(
                                 _drainActive.value = false
                                 stopActiveHistoryPolling()
                                 WsRepository.clearConversationActiveState(conversationId)
+                                // _messages.value is about to be replaced wholesale by the
+                                // persisted `mapped` list below, which no longer contains
+                                // currentLiveMessageId. ChatAnimationRepository's drain job
+                                // (ensureDrain) keeps ticking independently of that swap — if
+                                // left running, its next emission finds streamingIdx == -1 in
+                                // the new list and, since its mid-catch-up segmentText doesn't
+                                // yet equal the now-final persisted text, falls into the
+                                // append-not-replace branch of the animation observer and
+                                // inserts a second, orphaned copy of the response that's never
+                                // cleaned up. Cancelling the drain job here — the same instant
+                                // we commit to history being authoritative — prevents any
+                                // further stray emissions for this turn.
+                                if (wsClient === WsRepository) {
+                                    ChatAnimationRepository.clear(conversationId)
+                                }
                             }
 
                             // Restore in-progress state from the WsRepository snapshot if the chat

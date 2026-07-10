@@ -85,7 +85,18 @@ function MarkdownRendererBase({ content }: MarkdownRendererProps) {
             return <CodeBlockWrapper lang={lang}>{children}</CodeBlockWrapper>
           },
           code: ({ className, children, ...props }) => {
-            const isBlock = className && (className.includes('hljs') || className.includes('language-'))
+            // rehype-highlight defaults `detect: false` — a fenced block with no language
+            // tag gets no `hljs`/`language-` class at all, so className alone misclassifies
+            // it as an inline span here and applies the inline-pill background below. Since
+            // that pill is on a `display: inline` element, CSS fragments its background per
+            // visual line when the content wraps across multiple preserved newlines — the
+            // "separate highlighted background on every line" look in unlabeled code blocks.
+            // Inline code spans can never contain a literal newline (CommonMark collapses
+            // them), so multi-line content is an unambiguous block-code signal independent
+            // of whether highlight.js classified it.
+            const hasHljsClass = className && (className.includes('hljs') || className.includes('language-'))
+            const isMultiline = typeof children === 'string' && children.includes('\n')
+            const isBlock = hasHljsClass || isMultiline
             if (isBlock) {
               return <code className={className} {...props}>{children}</code>
             }

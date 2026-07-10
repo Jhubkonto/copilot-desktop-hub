@@ -304,7 +304,17 @@ export const createUiSlice: StateCreator<
 
   markConversationRead: (id) => {
     set((s) => {
-      s.unreadConversationIds = s.unreadConversationIds.filter((cid) => cid !== id)
+      // Guard mirrors markConversationUnread above — without it this reassigns a brand-new
+      // array (even when `id` was never present) on every call. ChatWindow's scroll handler
+      // calls this on every scroll event while within SCROLL_BOTTOM_THRESHOLD of the bottom,
+      // not just once on crossing it, and ChatsPane subscribes to this array by reference
+      // (`useAppStore((s) => s.unreadConversationIds)`) — so a no-op new-reference array was
+      // re-rendering the entire sidebar conversation list on every scroll tick for the whole
+      // final stretch of scrolling to the bottom, which is exactly the "lag right before
+      // reaching the bottom" reported in every chat window with enough content to scroll.
+      if (s.unreadConversationIds.includes(id)) {
+        s.unreadConversationIds = s.unreadConversationIds.filter((cid) => cid !== id)
+      }
     })
   },
 
