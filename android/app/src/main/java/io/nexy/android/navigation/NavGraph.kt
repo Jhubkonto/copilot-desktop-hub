@@ -293,7 +293,9 @@ fun NavGraph(
                     navController.navigate("artifacts?artifactId=${Uri.encode(artifactId.orEmpty())}")
                 },
                 onOpenDebrief = { cid -> navController.navigate("debrief/${Uri.encode(cid)}") },
-                onOpenQuiz = { cid -> navController.navigate("quiz/${Uri.encode(cid)}") },
+                onOpenQuiz = { cid, artifactId ->
+                    navController.navigate("quiz/${Uri.encode(cid)}?artifactId=${Uri.encode(artifactId)}")
+                },
                 onOpenFork = { forkedId -> navController.navigate("chat/$forkedId") },
                 onOpenRemoteEditWithPrefill = { prefill, projectIdForPrefill ->
                     navController.navigate(
@@ -616,8 +618,14 @@ fun NavGraph(
         }
 
         composable(
-            route = "quiz/{conversationId}",
-            arguments = listOf(navArgument("conversationId") { type = NavType.StringType }),
+            route = "quiz/{conversationId}?artifactId={artifactId}",
+            arguments = listOf(
+                navArgument("conversationId") { type = NavType.StringType },
+                navArgument("artifactId") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+            ),
             enterTransition = {
                 slideInVertically(initialOffsetY = { it / 6 }, animationSpec = tween(280)) + fadeIn(tween(280))
             },
@@ -626,8 +634,10 @@ fun NavGraph(
             },
         ) { backStackEntry ->
             val conversationId = backStackEntry.arguments?.getString("conversationId") ?: return@composable
+            val artifactId = backStackEntry.arguments?.getString("artifactId")?.takeIf { it.isNotBlank() }
             QuizScreen(
                 conversationId = conversationId,
+                artifactId = artifactId,
                 onBack = { navController.popBackStack() },
             )
         }

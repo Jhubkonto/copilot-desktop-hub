@@ -205,6 +205,32 @@ export function getQuizForWs(conversationId: string): QuizArtifactResult | null 
   return { questions, artifactId: artifact.id, versionId: version.id }
 }
 
+/**
+ * Loads quiz content by artifact id directly, bypassing the conversation_id/artifact_chat_refs
+ * lookup findArtifactForConversation relies on. That lookup can miss for older or otherwise
+ * unlinked rows (the chat card that references this artifact already knows its id — resolving
+ * it directly here sidesteps whatever caused the conversation link to be missing entirely,
+ * rather than requiring it be repaired). Tapping an existing quiz card must never fall through
+ * to "no quiz found, generate a new one" just because that link is stale.
+ */
+export function getQuizByArtifactIdForWs(artifactId: string): QuizArtifactResult | null {
+  const db = getDatabase()
+  const artifactRow = db.prepare(`SELECT * FROM artifacts WHERE id = ? AND kind = 'quiz'`).get(artifactId) as
+    | { current_version_id: string | null }
+    | undefined
+  const versionId = artifactRow?.current_version_id
+  if (!versionId) return null
+  const content = readArtifactVersionFile(versionId, 'quiz.json')
+  if (!content) return null
+  let questions: QuizQuestion[]
+  try {
+    questions = JSON.parse(content) as QuizQuestion[]
+  } catch {
+    return null
+  }
+  return { questions, artifactId, versionId }
+}
+
 export function registerQuizHandlers(): void {
   safeHandle('conversation:generate-quiz', async (_event, conversationId: string, projectId: string | null, model?: string): Promise<QuizArtifactResult> => {
     return generateQuizForWs(conversationId, projectId, model)

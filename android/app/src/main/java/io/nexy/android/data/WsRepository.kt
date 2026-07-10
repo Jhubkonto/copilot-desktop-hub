@@ -2303,6 +2303,15 @@ object WsRepository : WsClient {
     }
     fun getQuiz(conversationId: String) { send("conversation:get-quiz", mapOf("conversationId" to conversationId)) }
 
+    // Loads quiz content by artifact id directly rather than re-deriving "the quiz for this
+    // conversation" — the tapped chat card already knows its exact artifactId, and looking it
+    // up that way sidesteps conversation_id/artifact_chat_refs linkage that can be missing for
+    // older rows, which otherwise makes opening an existing quiz look like "no quiz found" and
+    // silently trigger an unwanted regeneration.
+    fun getQuizByArtifact(conversationId: String, artifactId: String) {
+        send("quiz:get-by-artifact", mapOf("conversationId" to conversationId, "artifactId" to artifactId))
+    }
+
     // ─── Activity feed ──────────────────────────────────────────────────────────
     fun getActivityFeed() { send("activity:list", emptyMap()) }
     fun dismissActivity(id: String) {

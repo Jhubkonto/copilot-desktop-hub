@@ -43,6 +43,11 @@ class QuizViewModel(app: Application) : AndroidViewModel(app) {
     private var questions: List<QuizQuestion> = emptyList()
     private var answers: MutableList<Int> = mutableListOf()
     private var loadedConversationId: String? = null
+    // True while waiting on a startQuizForArtifact() lookup — a specific, already-confirmed-
+    // to-exist quiz was tapped, so an empty result here means something's actually wrong
+    // (corrupt/missing file, deleted artifact), not "no quiz yet." That must surface as an
+    // error, never silently fall through to generating an unwanted replacement quiz.
+    private var isArtifactLookup: Boolean = false
 
     init {
         viewModelScope.launch {
@@ -63,6 +68,10 @@ class QuizViewModel(app: Application) : AndroidViewModel(app) {
                             questions = event.questions
                             answers = MutableList(questions.size) { -1 }
                             _state.value = QuizUiState.Question(questions[0], 0, questions.size)
+                        } else if (isArtifactLookup) {
+                            _state.value = QuizUiState.Error(
+                                "This quiz could not be loaded. It may have been deleted or its content is missing.",
+                            )
                         } else {
                             // No quiz exists yet for this conversation — generate one now.
                             _state.value = QuizUiState.Generating
@@ -81,10 +90,28 @@ class QuizViewModel(app: Application) : AndroidViewModel(app) {
      *  this screen opens. */
     fun startQuiz(conversationId: String) {
         loadedConversationId = conversationId
+        isArtifactLookup = false
         questions = emptyList()
         answers = mutableListOf()
         _state.value = QuizUiState.CheckingExisting
         WsRepository.getQuiz(conversationId)
+    }
+
+    /**
+     * Loads a specific, already-known quiz by artifact id instead of re-deriving "the quiz
+     * for this conversation" server-side. The chat card that opened this screen already
+     * resolved its exact artifactId (and confirmed it's a real, ready quiz) before the user
+     * ever tapped it — re-deriving by conversationId alone can miss for older/unlinked rows
+     * and silently fall through to "no quiz found, generate a new one" instead, which is
+     * exactly the bug this bypasses: tapping an existing quiz must never trigger regeneration.
+     */
+    fun startQuizForArtifact(conversationId: String, artifactId: String) {
+        loadedConversationId = conversationId
+        isArtifactLookup = true
+        questions = emptyList()
+        answers = mutableListOf()
+        _state.value = QuizUiState.CheckingExisting
+        WsRepository.getQuizByArtifact(conversationId, artifactId)
     }
 
     fun selectOption(index: Int) {
@@ -128,6 +155,7 @@ class QuizViewModel(app: Application) : AndroidViewModel(app) {
      *  cached quiz, unlike startQuiz() which only generates when nothing exists yet. */
     fun tryAgain(conversationId: String) {
         loadedConversationId = conversationId
+        isArtifactLookup = false
         questions = emptyList()
         answers = mutableListOf()
         _state.value = QuizUiState.Generating

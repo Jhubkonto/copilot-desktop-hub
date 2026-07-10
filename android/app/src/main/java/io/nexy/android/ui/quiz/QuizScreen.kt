@@ -73,11 +73,21 @@ import io.nexy.android.ui.components.NexyTopAppBar
 fun QuizScreen(
     conversationId: String,
     onBack: () -> Unit,
+    artifactId: String? = null,
     vm: QuizViewModel = viewModel(),
 ) {
     val state by vm.state.collectAsState()
 
-    LaunchedEffect(conversationId) { vm.startQuiz(conversationId) }
+    LaunchedEffect(conversationId, artifactId) {
+        // A known artifactId (opening an existing quiz card) always loads that exact quiz —
+        // never re-derives "the quiz for this conversation," which is what let a stale/missing
+        // conversation link silently fall through to generating an unwanted replacement.
+        if (!artifactId.isNullOrBlank()) {
+            vm.startQuizForArtifact(conversationId, artifactId)
+        } else {
+            vm.startQuiz(conversationId)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -121,7 +131,13 @@ fun QuizScreen(
                 )
                 is QuizUiState.Error -> ErrorContent(
                     message = currentState.message,
-                    onRetry = { vm.startQuiz(conversationId) },
+                    onRetry = {
+                        if (!artifactId.isNullOrBlank()) {
+                            vm.startQuizForArtifact(conversationId, artifactId)
+                        } else {
+                            vm.startQuiz(conversationId)
+                        }
+                    },
                 )
             }
         }

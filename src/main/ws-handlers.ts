@@ -67,7 +67,7 @@ import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
 import { insertWikiEntry, extractWikiLearningsForWs } from './wiki-handlers'
 import { generateDebriefForWs, getDebriefForWs, markCompleteForWs, markIncompleteForWs } from './debrief-handlers'
-import { generateQuizForWs, getQuizForWs } from './quiz-handlers'
+import { generateQuizForWs, getQuizForWs, getQuizByArtifactIdForWs } from './quiz-handlers'
 import { getActivitySnapshot, endActivity } from './activity-tracker'
 import { getMcpServersWithStatus, getMcpServerStatus, addMcpServer, updateMcpServer, removeMcpServer, restartMcpServer, listMcpTools, listMcpToolsForAgent } from './mcp'
 import {
@@ -2711,6 +2711,15 @@ export function registerWsHandlers(): void {
       const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
       if (!conversationId) return
       const result = getQuizForWs(conversationId)
+      reply({ event: 'quiz:loaded', data: { conversationId, questions: result?.questions ?? null, artifactId: result?.artifactId, versionId: result?.versionId } })
+      return
+    }
+
+    if (command === 'quiz:get-by-artifact') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+      const artifactId = typeof data.artifactId === 'string' ? data.artifactId : ''
+      if (!conversationId || !artifactId) return
+      const result = getQuizByArtifactIdForWs(artifactId)
       reply({ event: 'quiz:loaded', data: { conversationId, questions: result?.questions ?? null, artifactId: result?.artifactId, versionId: result?.versionId } })
       return
     }
