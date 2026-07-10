@@ -15,9 +15,9 @@ const state = vi.hoisted(() => {
   const getRemoteEditAuditDiff = vi.fn<(reportId: string, relativePath: string) => RemoteEditStagedFileDiff | null>(() => null)
   let projectConfigJson: string | null = null
   let errorReportRows: Record<string, unknown>[] = []
-  const runManualWorkflowGeneratorChatForAndroid = vi.fn()
-  const getManualWorkflowGeneratorModel = vi.fn(() => 'gpt-5.5')
-  const setManualWorkflowGeneratorModel = vi.fn()
+  const runAutomatedWorkflowGeneratorChatForAndroid = vi.fn()
+  const getAutomatedWorkflowGeneratorModel = vi.fn(() => 'gpt-5.5')
+  const setAutomatedWorkflowGeneratorModel = vi.fn()
   const deleteErrorReport = vi.fn<(reportId: string) => boolean>(() => true)
   const applyStagedPatchToWorkspace = vi.fn<
     (reportId: string) => { appliedFiles: string[]; backupPaths: string[] } | { error: string } | null
@@ -37,9 +37,9 @@ const state = vi.hoisted(() => {
     listProjectAuditFiles,
     getProjectAuditDiff,
     getRemoteEditAuditDiff,
-    runManualWorkflowGeneratorChatForAndroid,
-    getManualWorkflowGeneratorModel,
-    setManualWorkflowGeneratorModel,
+    runAutomatedWorkflowGeneratorChatForAndroid,
+    getAutomatedWorkflowGeneratorModel,
+    setAutomatedWorkflowGeneratorModel,
     deleteErrorReport,
     applyStagedPatchToWorkspace,
     markStagedFileReviewed,
@@ -164,10 +164,11 @@ vi.mock('../scheduler-engine', () => ({
   },
 }))
 
-vi.mock('../manual-workflow-generator', () => ({
-  runManualWorkflowGeneratorChatForAndroid: state.runManualWorkflowGeneratorChatForAndroid,
-  getManualWorkflowGeneratorModel: state.getManualWorkflowGeneratorModel,
-  setManualWorkflowGeneratorModel: state.setManualWorkflowGeneratorModel,
+vi.mock('../automated-workflow-generator', () => ({
+  runAutomatedWorkflowGeneratorChatForAndroid: state.runAutomatedWorkflowGeneratorChatForAndroid,
+  getAutomatedWorkflowGeneratorModel: state.getAutomatedWorkflowGeneratorModel,
+  setAutomatedWorkflowGeneratorModel: state.setAutomatedWorkflowGeneratorModel,
+  normalizeAutomatedWorkflowSpec: (raw: Record<string, unknown>) => raw,
 }))
 
 vi.mock('../error-report-handlers', async (importOriginal) => {
@@ -215,11 +216,11 @@ describe('ws handlers', () => {
     state.getProjectAuditDiff.mockReturnValue(null)
     state.getRemoteEditAuditDiff.mockReset()
     state.getRemoteEditAuditDiff.mockReturnValue(null)
-    state.runManualWorkflowGeneratorChatForAndroid.mockReset()
-    state.runManualWorkflowGeneratorChatForAndroid.mockResolvedValue(undefined)
-    state.getManualWorkflowGeneratorModel.mockReset()
-    state.getManualWorkflowGeneratorModel.mockReturnValue('gpt-5.5')
-    state.setManualWorkflowGeneratorModel.mockReset()
+    state.runAutomatedWorkflowGeneratorChatForAndroid.mockReset()
+    state.runAutomatedWorkflowGeneratorChatForAndroid.mockResolvedValue(undefined)
+    state.getAutomatedWorkflowGeneratorModel.mockReset()
+    state.getAutomatedWorkflowGeneratorModel.mockReturnValue('gpt-5.5')
+    state.setAutomatedWorkflowGeneratorModel.mockReset()
     state.deleteErrorReport.mockReset()
     state.deleteErrorReport.mockReturnValue(true)
     state.applyStagedPatchToWorkspace.mockReset()
@@ -695,7 +696,7 @@ describe('ws handlers', () => {
     expect(state.applyStagedPatchToWorkspace).not.toHaveBeenCalled()
   })
 
-  it('normalizes project:get-config workflow mode for mobile consumers', () => {
+  it('normalizes project:get-config workflow mode for mobile consumers, self-healing the pre-rename value', () => {
     state.projectConfigJson = '{"workflowMode":"manual-delegation","orchestrationEnabled":true}'
 
     const reply = sendCommand('project:get-config', { id: 'proj-1' })
@@ -705,7 +706,7 @@ describe('ws handlers', () => {
       data: {
         id: 'proj-1',
         config: expect.objectContaining({
-          workflowMode: 'manual-delegation',
+          workflowMode: 'automated-delegation',
           orchestrationEnabled: false,
         }),
       },
@@ -715,32 +716,32 @@ describe('ws handlers', () => {
   it('broadcasts normalized workflow config after mobile project:update-config', () => {
     state.projectConfigJson = '{"orchestrationEnabled":true}'
 
-    sendCommand('project:update-config', { id: 'proj-1', workflowMode: 'manual-delegation' })
+    sendCommand('project:update-config', { id: 'proj-1', workflowMode: 'automated-delegation' })
 
     expect(state.broadcastToMobile).toHaveBeenCalledWith({
       event: 'project:config-updated',
       data: {
         id: 'proj-1',
         config: expect.objectContaining({
-          workflowMode: 'manual-delegation',
+          workflowMode: 'automated-delegation',
           orchestrationEnabled: false,
         }),
       },
     })
   })
 
-  it('starts the manual workflow generator for mobile consumers', () => {
-    sendCommand('manual-workflow-generator:start', {
+  it('starts the automated workflow generator for mobile consumers', () => {
+    sendCommand('automated-workflow-generator:start', {
       projectId: 'proj-1',
       messages: [{ role: 'user', content: 'Plan the release' }],
       sessionId: 'mw-1',
     })
 
     expect(state.broadcastToMobile).toHaveBeenCalledWith({
-      event: 'manual-workflow-generator:model',
+      event: 'automated-workflow-generator:model',
       data: { sessionId: 'mw-1', modelId: 'gpt-5.5' },
     })
-    expect(state.runManualWorkflowGeneratorChatForAndroid).toHaveBeenCalledWith(
+    expect(state.runAutomatedWorkflowGeneratorChatForAndroid).toHaveBeenCalledWith(
       'proj-1',
       [{ role: 'user', content: 'Plan the release' }],
       'mw-1',
@@ -748,12 +749,12 @@ describe('ws handlers', () => {
     )
   })
 
-  it('updates the mobile manual workflow generator model', () => {
-    sendCommand('manual-workflow-generator:set-model', { sessionId: 'mw-2', modelId: 'gpt-5.4-mini' })
+  it('updates the mobile automated workflow generator model', () => {
+    sendCommand('automated-workflow-generator:set-model', { sessionId: 'mw-2', modelId: 'gpt-5.4-mini' })
 
-    expect(state.setManualWorkflowGeneratorModel).toHaveBeenCalledWith('gpt-5.4-mini')
+    expect(state.setAutomatedWorkflowGeneratorModel).toHaveBeenCalledWith('gpt-5.4-mini')
     expect(state.broadcastToMobile).toHaveBeenCalledWith({
-      event: 'manual-workflow-generator:model',
+      event: 'automated-workflow-generator:model',
       data: { sessionId: 'mw-2', modelId: 'gpt-5.5' },
     })
   })

@@ -48,7 +48,7 @@ describe('database migrations', () => {
     initializeBaseSchema(db)
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(66)
+    expect(db.pragma('user_version', { simple: true })).toBe(67)
     expect(getColumnNames(db, 'projects')).toEqual(
       expect.arrayContaining(['default_model', 'config_json'])
     )
@@ -176,7 +176,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(66)
+    expect(db.pragma('user_version', { simple: true })).toBe(67)
     const tableNames = (
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>
     ).map((row) => row.name)
@@ -213,7 +213,7 @@ describe('database migrations', () => {
       runMigrations(db)
       runMigrations(db)
     }).not.toThrow()
-    expect(db.pragma('user_version', { simple: true })).toBe(66)
+    expect(db.pragma('user_version', { simple: true })).toBe(67)
   })
 
   it('only runs pending migrations for a partial upgrade', () => {
@@ -267,7 +267,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(66)
+    expect(db.pragma('user_version', { simple: true })).toBe(67)
     expect(getColumnNames(db, 'messages')).toEqual(
       expect.arrayContaining(['is_edited', 'previous_content', 'context_snapshot'])
     )
@@ -330,7 +330,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(66)
+    expect(db.pragma('user_version', { simple: true })).toBe(67)
     expect(() => insertMessageWithRole(db, 'tool-call')).not.toThrow()
     expect(
       db.prepare("SELECT COUNT(*) AS count FROM messages WHERE role = ?").get('assistant')
@@ -445,7 +445,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(66)
+    expect(db.pragma('user_version', { simple: true })).toBe(67)
     expect(getColumnNames(db, 'error_reports')).toEqual(
       expect.arrayContaining(['request_type', 'request_origin', 'workspace_root', 'project_id', 'custom_type_label']),
     )

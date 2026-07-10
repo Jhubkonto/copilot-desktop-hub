@@ -9,8 +9,14 @@ describe('project config parsing', () => {
   })
 
   it('keeps explicit workflow mode and mirrors orchestrationEnabled from it', () => {
+    expect(parseProjectConfig('{"workflowMode":"automated-delegation","orchestrationEnabled":true}')).toEqual(
+      expect.objectContaining({ workflowMode: 'automated-delegation', orchestrationEnabled: false })
+    )
+  })
+
+  it('self-heals the pre-rename "manual-delegation" workflow mode to "automated-delegation"', () => {
     expect(parseProjectConfig('{"workflowMode":"manual-delegation","orchestrationEnabled":true}')).toEqual(
-      expect.objectContaining({ workflowMode: 'manual-delegation', orchestrationEnabled: false })
+      expect.objectContaining({ workflowMode: 'automated-delegation', orchestrationEnabled: false })
     )
   })
 

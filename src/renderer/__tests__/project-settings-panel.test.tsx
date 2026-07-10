@@ -208,8 +208,8 @@ describe('ProjectSettingsPanel — coding workspace metadata', () => {
   })
 })
 
-describe('ProjectSettingsPanel — manual workflow mode', () => {
-  it('shows manual workflow controls and starts generation in manual mode', async () => {
+describe('ProjectSettingsPanel — automated workflow mode', () => {
+  it('shows automated workflow controls and starts generation in automated mode', async () => {
     const api = setupMockApi()
     mockStore = createMockAppStore({
       authState: { authenticated: true, mode: 'byok', user: null, cliInstalled: false, clis: { claude: false, codex: false } },
@@ -217,7 +217,7 @@ describe('ProjectSettingsPanel — manual workflow mode', () => {
       projectConfigs: {
         'proj-1': {
           ...BASE_CONFIG,
-          workflowMode: 'manual-delegation',
+          workflowMode: 'automated-delegation',
         },
       },
       projectAgents: {
@@ -239,34 +239,37 @@ describe('ProjectSettingsPanel — manual workflow mode', () => {
     expect(screen.getByText(/generate a delegation plan/i)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /open workflow tab/i }))
 
-    expect(screen.getByText(/manual delegation execution plan/i)).toBeInTheDocument()
+    expect(screen.getByText(/automated delegation execution plan/i)).toBeInTheDocument()
     await user.type(screen.getByPlaceholderText(/describe the project goal/i), 'Plan a release')
     await user.click(screen.getByRole('button', { name: /generate workflow/i }))
 
-    expect(api.manualWorkflowGeneratorChat).toHaveBeenCalledWith('proj-1', [
+    expect(api.automatedWorkflowGeneratorChat).toHaveBeenCalledWith('proj-1', [
       { role: 'user', content: 'Plan a release' },
     ], undefined)
   })
 
-  it('renders generated workflow steps and starts a step in chat', async () => {
+  it('renders generated workflow steps and starts the workflow run', async () => {
     const api = setupMockApi()
-    let onSpecReady!: (spec: import('../../shared/types').ManualWorkflowSpec) => void
-    api.onManualWorkflowGeneratorSpecReady.mockImplementation((callback) => {
+    let onSpecReady!: (spec: import('../../shared/types').AutomatedWorkflowSpec) => void
+    api.onAutomatedWorkflowGeneratorSpecReady.mockImplementation((callback) => {
       onSpecReady = callback
       return () => {}
     })
-    api.saveManualWorkflowRunFromSpec.mockImplementation(async (
+    api.saveAutomatedWorkflowRunFromSpec.mockImplementation(async (
       projectId: string,
-      spec: import('../../shared/types').ManualWorkflowSpec,
+      spec: import('../../shared/types').AutomatedWorkflowSpec,
     ) => ({
       id: 'run-1',
       projectId,
       title: spec.title,
       goalSummary: spec.goalSummary,
       model: null,
-      status: 'active' as const,
+      status: 'pending' as const,
+      confirmationMode: 'gated' as const,
+      currentStepId: null,
+      lastError: null,
       assumptions: spec.assumptions,
-      stepCounts: { total: spec.steps.length, notStarted: spec.steps.length, started: 0, done: 0 },
+      stepCounts: { total: spec.steps.length, pending: spec.steps.length, running: 0, awaitingConfirmation: 0, done: 0, failed: 0, skipped: 0 },
       createdAt: 1,
       updatedAt: 1,
       steps: spec.steps.map((step, index) => ({
@@ -274,7 +277,11 @@ describe('ProjectSettingsPanel — manual workflow mode', () => {
         dbId: `db-${step.id}`,
         runId: 'run-1',
         stepIndex: index,
-        status: 'not_started' as const,
+        status: 'pending' as const,
+        attempt: 0,
+        output: '',
+        error: null,
+        conversationId: null,
         startedAt: null,
         completedAt: null,
       })),
@@ -285,7 +292,7 @@ describe('ProjectSettingsPanel — manual workflow mode', () => {
       projectConfigs: {
         'proj-1': {
           ...BASE_CONFIG,
-          workflowMode: 'manual-delegation',
+          workflowMode: 'automated-delegation',
         },
       },
       projectAgents: {
@@ -322,23 +329,19 @@ describe('ProjectSettingsPanel — manual workflow mode', () => {
     })
 
     expect(await screen.findByText(/release workflow/i)).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /start in chat/i }))
+    await user.click(screen.getByRole('button', { name: /start workflow/i }))
 
-    expect(api.createConversation).toHaveBeenCalledWith('agent-1', 'proj-1')
-    expect(api.sendMessage).toHaveBeenCalledWith('conv-1', 'Review the code and list risks.', {
-      agentId: 'agent-1',
-      projectId: 'proj-1',
-    })
+    expect(api.startAutomatedWorkflowRun).toHaveBeenCalledWith('run-1')
   })
 
-  it('shows backend availability warning when manual mode has no configured backend', () => {
+  it('shows backend availability warning when automated mode has no configured backend', () => {
     mockStore = createMockAppStore({
       authState: { authenticated: false, mode: 'none', user: null, cliInstalled: false, clis: { claude: false, codex: false } },
       projects: [PROJECT],
       projectConfigs: {
         'proj-1': {
           ...BASE_CONFIG,
-          workflowMode: 'manual-delegation',
+          workflowMode: 'automated-delegation',
         },
       },
       projectAgents: {
