@@ -10,10 +10,10 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Regression coverage for item 5 of the UX follow-up roadmap: ManualWorkflowScreen hand-rolled
+ * Regression coverage for item 5 of the UX follow-up roadmap: AutomatedWorkflowScreen hand-rolled
  * its own message bubble instead of the ChatBubble already duplicated identically across the
  * Project/Agent/Skill generator screens. Extracted here as a single shared component all of
- * them (plus Manual Workflow) now use.
+ * them (plus Automated Workflow) now use.
  */
 @RunWith(AndroidJUnit4::class)
 class GeneratorChatBubbleTest {
