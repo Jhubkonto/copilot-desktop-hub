@@ -31,6 +31,33 @@ sealed class ChatRenderItem {
         override val key: String get() = message.id.ifBlank { "tool_${message.toolName}_$listIndex" }
     }
 
+    /**
+     * A single settled (non-live) reasoning block from a completed assistant turn, as its own
+     * top-level LazyColumn item rather than bundled inside AssistantMessage's Column. A turn
+     * with many reasoning blocks used to compose/measure all of them at once as part of one
+     * large AssistantMessage item — LazyColumn only virtualizes at item granularity, so that
+     * whole burst of SelectionContainer/Text/AnimatedVisibility/timeline-bead work landed in a
+     * single frame whenever the item entered the composed window, which is exactly the jitter
+     * scrolling past reasoning-heavy history. Standalone ChatRenderItem.ToolCall already gets
+     * its own item+ChatTimelineGroup for the same reason — this mirrors that existing pattern
+     * rather than introducing a new one.
+     */
+    data class ThinkingBlockItem(
+        val block: ThinkingBlock,
+        val messageId: String,
+        val index: Int,
+    ) : ChatRenderItem() {
+        // block.blockId alone is not a safe LazyColumn key: persisted history parses it via
+        // `obj.optString("blockId")` (WsEventParser.parseThinkingBlocks), which defaults to ""
+        // when a stored block predates blockId tracking or otherwise omits it. Every such block
+        // across an entire conversation collapsed onto the same key "thinking_" once these
+        // became real LazyColumn items — items(key=) requires strict uniqueness and throws at
+        // runtime on a collision, which is what made scrolling crash. Scoping to the owning
+        // message plus its position in that message's block list guarantees uniqueness even
+        // when blockId is blank or duplicated, since a settled message's block list is frozen.
+        override val key: String get() = "thinking_${messageId}_${block.blockId}_$index"
+    }
+
     data class LiveThinking(
         val blocks: List<ThinkingBlock>,
     ) : ChatRenderItem() {
@@ -88,6 +115,14 @@ fun buildChatRenderItems(
                 liveThinkingBlocks.filter { it.blockId !in committedBlockIds }
             } else {
                 emptyList()
+            }
+            // Historical thinking blocks precede the message as their own items — see
+            // ThinkingBlockItem's doc. Skipped when live blocks already cover the same
+            // content, mirroring the prior bundled-rendering condition exactly.
+            if (visibleLiveThinking.isEmpty()) {
+                for ((index, block) in msg.thinkingBlocks.withIndex()) {
+                    result.add(ChatRenderItem.ThinkingBlockItem(block, msg.id, index))
+                }
             }
             result.add(ChatRenderItem.AssistantMessage(
                 message = msg,

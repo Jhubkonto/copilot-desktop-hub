@@ -152,7 +152,10 @@ fun ChatScreen(
     onBack: () -> Unit,
     onOpenArtifacts: ((String?) -> Unit)? = null,
     onOpenDebrief: ((String) -> Unit)? = null,
-    onOpenQuiz: ((String) -> Unit)? = null,
+    // (conversationId, artifactId) — artifactId is the specific quiz card tapped, so the
+    // quiz screen can load that exact artifact instead of re-deriving "the quiz for this
+    // conversation" (see ArtifactRefBubble's onOpenQuiz dispatch for why that matters).
+    onOpenQuiz: ((String, String) -> Unit)? = null,
     onOpenFork: ((String) -> Unit)? = null,
     onOpenRemoteEditWithPrefill: ((String, String) -> Unit)? = null,
     onOpenCodeChange: ((String) -> Unit)? = null,
@@ -1159,6 +1162,7 @@ fun ChatScreen(
                                 is ChatRenderItem.LiveActivity -> 4
                                 is ChatRenderItem.ArtifactCard -> 5
                                 is ChatRenderItem.CodeChangeCard -> 6
+                                is ChatRenderItem.ThinkingBlockItem -> 7
                             }
                         },
                     ) { item ->
@@ -1193,6 +1197,17 @@ fun ChatScreen(
                                     ChatTimelineGroup { ToolCallBubble(item.message, inProgress = false) }
                                 }
                             }
+                            is ChatRenderItem.ThinkingBlockItem -> {
+                                if (isCodexReasoning(listOf(item.block))) {
+                                    ChatTimelineGroup {
+                                        ChatTimelineEntry(beadColor = thinkingBeadColor(streaming = !item.block.done), pulse = !item.block.done) {
+                                            CodexReasoningActionLine(listOf(item.block))
+                                        }
+                                    }
+                                } else {
+                                    ChatTimelineGroup { ThinkingHistoryBubble(listOf(item.block), isLive = false) }
+                                }
+                            }
                             is ChatRenderItem.LiveThinking -> {
                                 if (isCodexReasoning(item.blocks)) {
                                     ChatTimelineGroup {
@@ -1224,13 +1239,9 @@ fun ChatScreen(
                                 val targetConversationId = item.ref.conversationId ?: conversationId
                                 ArtifactRefBubble(
                                     ref = item.ref,
-                                    onOpen = {
-                                        when (item.ref.kind) {
-                                            "debrief" -> onOpenDebrief?.invoke(targetConversationId)
-                                            "quiz" -> onOpenQuiz?.invoke(targetConversationId)
-                                            else -> onOpenArtifacts?.invoke(item.ref.artifactId)
-                                        }
-                                    },
+                                    onOpenDebrief = { onOpenDebrief?.invoke(targetConversationId) },
+                                    onOpenQuiz = { onOpenQuiz?.invoke(targetConversationId, item.ref.artifactId) },
+                                    onOpenArtifact = { onOpenArtifacts?.invoke(item.ref.artifactId) },
                                 )
                             }
                             is ChatRenderItem.CodeChangeCard -> {
@@ -1272,14 +1283,18 @@ fun ChatScreen(
                                     .lastOrNull()?.message
                                 val chatProjectId = conversation?.project_id ?: projectId
                                 androidx.compose.foundation.layout.Column {
+                                    // Historical (settled) thinking blocks no longer render here — they're
+                                    // emitted as their own top-level ChatRenderItem.ThinkingBlockItem entries
+                                    // by buildChatRenderItems, immediately preceding this item (see its doc
+                                    // for why: avoids bursting a reasoning-heavy turn's composition/measure
+                                    // work into a single LazyColumn item). Only still-live thinking blocks and
+                                    // this turn's tool calls render inline here.
                                     val hasTimelineContent = item.liveThinkingBlocks.isNotEmpty() ||
-                                        (msg.thinkingBlocks.isNotEmpty() && item.liveThinkingBlocks.isEmpty()) ||
                                         msg.toolCalls.isNotEmpty()
                                     if (hasTimelineContent) {
                                         if (isCodexReasoning(item.liveThinkingBlocks) || isCodexReasoning(msg.thinkingBlocks)) {
                                             ChatTimelineGroup {
-                                                val thinkingBlocksToShow = item.liveThinkingBlocks.ifEmpty { msg.thinkingBlocks }
-                                                thinkingBlocksToShow.forEach { block ->
+                                                item.liveThinkingBlocks.forEach { block ->
                                                     key(block.blockId) {
                                                         ChatTimelineEntry(beadColor = thinkingBeadColor(streaming = !block.done), pulse = !block.done) {
                                                             CodexReasoningActionLine(listOf(block))
@@ -1306,12 +1321,6 @@ fun ChatScreen(
                                                 // blob instead of one bubble per phase.
                                                 item.liveThinkingBlocks.forEach { block ->
                                                     key(block.blockId) { ThinkingHistoryBubble(listOf(block), isLive = true) }
-                                                }
-                                                // Historical thinking: skip if live blocks cover same content
-                                                if (item.liveThinkingBlocks.isEmpty()) {
-                                                    msg.thinkingBlocks.forEach { block ->
-                                                        key(block.blockId) { ThinkingHistoryBubble(listOf(block), isLive = false) }
-                                                    }
                                                 }
                                                 // Tool calls grouped inline above the response text
                                                 msg.toolCalls.forEach { tc ->

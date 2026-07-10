@@ -26,11 +26,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -44,12 +47,14 @@ import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CallSplit
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Difference
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Share
@@ -85,6 +90,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.foundation.BorderStroke
 import io.nexy.android.data.WsRepository
@@ -273,6 +280,10 @@ fun TypingDots(dotColor: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
 // no jarring shrink right as the answer arrives.
 private val THINKING_VIEWPORT_MAX_HEIGHT = 120.dp
 
+// Generous upper bound on how much of a settled block's text the inline card actually lays
+// out — see the comment at inlineDisplayContent below for why this exists at all.
+private const val THINKING_INLINE_PREVIEW_CHARS = 1200
+
 @Composable
 fun ThinkingHistoryBubble(
     blocks: List<ThinkingBlock>,
@@ -280,8 +291,25 @@ fun ThinkingHistoryBubble(
 ) {
     if (blocks.isEmpty()) return
     var collapsed by remember { mutableStateOf(false) }
+    var showFullscreen by remember { mutableStateOf(false) }
     val totalChars = blocks.sumOf { it.content.length }
     val combinedContent = remember(blocks) { blocks.joinToString("\n\n") { it.content } }
+    // The inline card's viewport is capped at THINKING_VIEWPORT_MAX_HEIGHT (~6 lines) and, for
+    // a settled block, never scrolls past its initial position 0 (touch-scroll is disabled
+    // below; live blocks alone auto-scroll to their tail via the LaunchedEffect that follows).
+    // So only the first ~120dp of text is ever visible in the card regardless of how long the
+    // full block is — laying out the entire string anyway wastes text-measurement work that
+    // scales with content length, which is exactly what makes scrolling past large reasoning
+    // blocks (often legacy ones from before a turn's reasoning was split into several smaller
+    // phase blocks) visibly janky. The full, untruncated text is still one tap away via the
+    // fullscreen view. Live blocks are excluded: truncating to the first N characters there
+    // would defeat the tail-following auto-scroll below, and a still-streaming block isn't
+    // what's implicated in this jitter anyway.
+    val inlineDisplayContent = if (!isLive && combinedContent.length > THINKING_INLINE_PREVIEW_CHARS) {
+        combinedContent.take(THINKING_INLINE_PREVIEW_CHARS) + "…"
+    } else {
+        combinedContent
+    }
     val scrollState = rememberScrollState()
 
     // Keep the viewport scrolled to the latest reasoning text as it streams in.
@@ -291,9 +319,17 @@ fun ThinkingHistoryBubble(
 
     // Fade in on first appearance — this bubble is often nested inline inside an
     // AssistantMessage item rather than its own lazy item, so it doesn't get the
-    // LazyColumn's animateItem() fade; animate it directly instead.
-    val alpha = remember { Animatable(0f) }
-    LaunchedEffect(Unit) { alpha.animateTo(1f, animationSpec = tween(280, easing = FastOutSlowInEasing)) }
+    // LazyColumn's animateItem() fade; animate it directly instead. Gated to isLive only:
+    // this composable's `remember` state lives inside the parent AssistantMessage item's
+    // composition, not its own lazy item, so scrolling a tall message (many reasoning
+    // blocks) off-screen and back disposes and recomposes it from scratch — alpha would
+    // reset to 0 and this LaunchedEffect would refire, replaying the fade every time a
+    // historical block scrolls back into view. That's the "jitter" scrolling past a long
+    // reasoning-heavy turn. Only a genuinely new live/streaming block should fade in.
+    val alpha = remember { Animatable(if (isLive) 0f else 1f) }
+    LaunchedEffect(Unit) {
+        if (isLive) alpha.animateTo(1f, animationSpec = tween(280, easing = FastOutSlowInEasing))
+    }
 
     val isDark = LocalNexyColors.current.isDark
     val textColor = if (isDark) Purple400 else Purple700
@@ -323,6 +359,16 @@ fun ThinkingHistoryBubble(
                     color = textColor,
                     modifier = Modifier.weight(1f),
                 )
+                if (!collapsed && totalChars > 0) {
+                    IconButton(onClick = { showFullscreen = true }, modifier = Modifier.size(24.dp)) {
+                        Icon(
+                            Icons.Default.OpenInFull,
+                            contentDescription = "View full reasoning text",
+                            modifier = Modifier.size(13.dp),
+                            tint = iconColor,
+                        )
+                    }
+                }
                 Icon(
                     if (collapsed) Icons.AutoMirrored.Filled.KeyboardArrowRight else Icons.Default.KeyboardArrowDown,
                     contentDescription = if (collapsed) "Expand thinking" else "Collapse thinking",
@@ -339,16 +385,85 @@ fun ThinkingHistoryBubble(
                     modifier = Modifier
                         .padding(vertical = 4.dp)
                         .heightIn(max = THINKING_VIEWPORT_MAX_HEIGHT)
-                        .verticalScroll(scrollState)
+                        // Touch-driven scroll disabled: this viewport is nested inside the
+                        // outer LazyColumn, and Compose gives a nested scrollable first claim
+                        // on drag gestures — a finger's drag path crossing this box mid-scroll
+                        // would partially intercept the gesture before handing the remainder
+                        // back to the list, producing a stutter every time you scroll past a
+                        // reasoning block. `enabled = false` only blocks touch input; the
+                        // auto-scroll-to-latest-text LaunchedEffect above still drives
+                        // scrollState programmatically while live. Reading a long completed
+                        // block past the 120dp cap now goes through the fullscreen view instead.
+                        .verticalScroll(scrollState, enabled = false)
                         .fillMaxWidth(),
                 ) {
                     Text(
-                        combinedContent,
+                        inlineDisplayContent,
                         fontSize = 13.sp,
                         lineHeight = 20.sp,
                         color = contentTextColor,
                     )
                 }
+            }
+        }
+    }
+
+    if (showFullscreen) {
+        ThinkingFullscreenDialog(
+            content = combinedContent,
+            contentTextColor = contentTextColor,
+            onDismiss = { showFullscreen = false },
+        )
+    }
+}
+
+/**
+ * Full-screen reader for a reasoning block's complete text. The inline viewport caps at
+ * [THINKING_VIEWPORT_MAX_HEIGHT] and no longer accepts touch-scroll (see the comment at its
+ * `verticalScroll` call site), so this is the only way to read a long completed block past
+ * that cap — mirrors CodeBlockWebView's fullscreen dialog for the same reason and UX.
+ */
+@Composable
+private fun ThinkingFullscreenDialog(
+    content: String,
+    contentTextColor: Color,
+    onDismiss: () -> Unit,
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .statusBarsPadding()
+                .navigationBarsPadding(),
+        ) {
+            SelectionContainer(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+            ) {
+                Text(
+                    content,
+                    fontSize = 14.sp,
+                    lineHeight = 22.sp,
+                    color = contentTextColor,
+                )
+            }
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(8.dp),
+            ) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "Close fullscreen reasoning view",
+                    tint = MaterialTheme.colorScheme.onBackground,
+                )
             }
         }
     }
@@ -919,8 +1034,23 @@ fun ToolDetailSection(label: String, value: String) {
  * Debrief/Quiz/Artifacts screens for full detail rather than rendering the content inline.
  */
 @Composable
-fun ArtifactRefBubble(ref: ArtifactRef, onOpen: () -> Unit) {
+fun ArtifactRefBubble(
+    ref: ArtifactRef,
+    onOpenDebrief: () -> Unit,
+    onOpenQuiz: () -> Unit,
+    onOpenArtifact: () -> Unit,
+) {
     var fetchedTitle by remember(ref.artifactId) { mutableStateOf<String?>(null) }
+    // The __artifact-ref: chat message caches a `kind` snapshot at the time it was written,
+    // which can end up stale or missing (e.g. an older ref updated by
+    // pinLatestPendingArtifactRefMessage without re-deriving kind) even though the artifacts
+    // table row itself has the correct kind — that mismatch is exactly what caused a real
+    // quiz card to show the generic "Artifact" label/color and route to the artifact detail
+    // page instead of the quiz screen on tap. The fetched artifact detail is authoritative;
+    // prefer it over the message-embedded kind once it arrives, same as fetchedTitle already
+    // overrides any placeholder title.
+    var fetchedKind by remember(ref.artifactId) { mutableStateOf<String?>(null) }
+    val effectiveKind = fetchedKind ?: ref.kind
 
     LaunchedEffect(ref.artifactId, ref.pending) {
         if (!ref.pending && ref.artifactId.isNotBlank()) WsRepository.getArtifact(ref.artifactId)
@@ -929,29 +1059,30 @@ fun ArtifactRefBubble(ref: ArtifactRef, onOpen: () -> Unit) {
         WsRepository.events.collect { event ->
             if (event is WsEvent.ArtifactDetail && event.artifact?.id == ref.artifactId) {
                 fetchedTitle = event.artifact.title
+                fetchedKind = event.artifact.kind
             }
         }
     }
 
-    val kindLabel = when (ref.kind) {
+    val kindLabel = when (effectiveKind) {
         "debrief" -> "Debrief"
         "quiz" -> "Quiz"
         else -> "Artifact"
     }
     val fallbackTitle = when {
-        ref.pending && ref.kind == "debrief" -> "Generating debrief…"
-        ref.pending && ref.kind == "quiz" -> "Generating quiz…"
+        ref.pending && effectiveKind == "debrief" -> "Generating debrief…"
+        ref.pending && effectiveKind == "quiz" -> "Generating quiz…"
         ref.pending -> "Generating…"
-        ref.kind == "debrief" -> "Open debrief"
-        ref.kind == "quiz" -> "Start quiz"
+        effectiveKind == "debrief" -> "Open debrief"
+        effectiveKind == "quiz" -> "Start quiz"
         else -> "View artifact"
     }
-    val icon = when (ref.kind) {
+    val icon = when (effectiveKind) {
         "debrief" -> Icons.AutoMirrored.Filled.MenuBook
         "quiz" -> Icons.Default.Psychology
         else -> Icons.AutoMirrored.Filled.Article
     }
-    val isIndigo = ref.kind == "debrief" || ref.kind == "quiz"
+    val isIndigo = effectiveKind == "debrief" || effectiveKind == "quiz"
 
     val isDark = LocalNexyColors.current.isDark
     val bubbleColor = when {
@@ -980,7 +1111,16 @@ fun ArtifactRefBubble(ref: ArtifactRef, onOpen: () -> Unit) {
     }
 
     Surface(
-        onClick = onOpen,
+        // Dispatch on effectiveKind (fetched artifact detail), not the possibly-stale
+        // ref.kind embedded in the chat message — this is the actual fix for tapping a quiz
+        // card and landing on the generic artifact detail page instead of the quiz screen.
+        onClick = {
+            when (effectiveKind) {
+                "debrief" -> onOpenDebrief()
+                "quiz" -> onOpenQuiz()
+                else -> onOpenArtifact()
+            }
+        },
         enabled = !ref.pending,
         shape = RoundedCornerShape(10.dp),
         color = bubbleColor,
