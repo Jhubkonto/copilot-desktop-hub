@@ -1141,6 +1141,91 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
       `);
     },
   },
+  {
+    // "Manual Workflow" was never supposed to be manual — it's the fallback for getting
+    // multi-step, multi-agent delegation working when orchestration isn't available (CLI
+    // backends disable orchestration, see chat-handlers.ts's `orchEnabled` check). What
+    // shipped in migration 62 was a fully human-click-through checklist instead. This rebuilds
+    // it as "Automated Workflow": steps execute automatically via a real agent turn, with a
+    // per-run confirmation_mode choosing whether execution pauses for user approval after each
+    // step ('gated') or advances immediately and only pauses on failure ('auto'). Widens the
+    // status vocabulary at both levels ('awaiting_confirmation' distinguishes "a step just
+    // finished and needs a look" from 'running'; 'failed'/'skipped' didn't exist before at
+    // all) and adds columns the old design had no use for (attempt, output, error,
+    // conversation_id, current_step_id) since a step is now a real, capturable agent turn
+    // instead of a copy-pasted prompt the user ran by hand in an untracked conversation.
+    // Backfilled rows always land in 'pending'/'gated' — none of them have ever actually run
+    // automatically, and mapping an old 'active' run to 'running' would make the crash-recovery
+    // startup sweep (which treats any 'running' row as an interrupted, now-unrecoverable LLM
+    // call) immediately fail every migrated in-progress workflow the moment a user upgrades.
+    // Plain TEXT columns instead of FOREIGN KEY ... REFERENCES (project_id/run_id/conversation_id)
+    // — same precedent as migration 66: with foreign_keys=ON, the backfill INSERT below fails
+    // with "no such table: projects" on any upgrade path where this migration runs before the
+    // referenced table exists yet in that path (e.g. from a stripped-down pre-projects fixture).
+    version: 67,
+    sql: `
+      CREATE TABLE IF NOT EXISTS automated_workflow_runs (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        goal_summary TEXT NOT NULL DEFAULT '',
+        assumptions_json TEXT NOT NULL DEFAULT '[]',
+        model TEXT,
+        status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'awaiting_confirmation', 'failed', 'done', 'cancelled')) DEFAULT 'pending',
+        confirmation_mode TEXT NOT NULL CHECK (confirmation_mode IN ('gated', 'auto')) DEFAULT 'gated',
+        current_step_id TEXT,
+        error TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        started_at INTEGER,
+        completed_at INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_automated_workflow_runs_project_updated
+        ON automated_workflow_runs(project_id, updated_at DESC);
+
+      CREATE TABLE IF NOT EXISTS automated_workflow_run_steps (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        step_index INTEGER NOT NULL,
+        step_key TEXT NOT NULL,
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL DEFAULT '',
+        agent_id TEXT,
+        agent_name TEXT,
+        prompt TEXT NOT NULL,
+        expected_output TEXT NOT NULL DEFAULT '',
+        depends_on_step_ids_json TEXT NOT NULL DEFAULT '[]',
+        status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'awaiting_confirmation', 'done', 'failed', 'skipped', 'cancelled')) DEFAULT 'pending',
+        attempt INTEGER NOT NULL DEFAULT 0,
+        output TEXT NOT NULL DEFAULT '',
+        error TEXT,
+        conversation_id TEXT,
+        started_at INTEGER,
+        completed_at INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_automated_workflow_run_steps_run_index
+        ON automated_workflow_run_steps(run_id, step_index);
+
+      INSERT INTO automated_workflow_runs
+        (id, project_id, title, goal_summary, assumptions_json, model, status, confirmation_mode, created_at, updated_at)
+        SELECT id, project_id, title, goal_summary, assumptions_json, model,
+          CASE status WHEN 'completed' THEN 'done' ELSE 'pending' END,
+          'gated', created_at, updated_at
+        FROM manual_workflow_runs;
+
+      INSERT INTO automated_workflow_run_steps
+        (id, run_id, step_index, step_key, title, summary, agent_id, agent_name, prompt, expected_output, depends_on_step_ids_json, status, attempt, output, started_at, completed_at)
+        SELECT id, run_id, step_index, step_key, title, summary, agent_id, agent_name, prompt, expected_output, depends_on_step_ids_json,
+          CASE status WHEN 'done' THEN 'done' ELSE 'pending' END,
+          0,
+          CASE status WHEN 'done' THEN '(marked done under the previous Manual Workflow -- original output was not captured)' ELSE '' END,
+          started_at, completed_at
+        FROM manual_workflow_run_steps;
+
+      DROP TABLE IF EXISTS manual_workflow_run_steps;
+      DROP TABLE IF EXISTS manual_workflow_runs;
+    `,
+  },
 ];
 
 
@@ -1266,23 +1351,28 @@ export function initializeBaseSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_remote_edit_recovery_report
       ON remote_edit_recovery_runs(report_id, created_at);
 
-    CREATE TABLE IF NOT EXISTS manual_workflow_runs (
+    CREATE TABLE IF NOT EXISTS automated_workflow_runs (
       id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL,
       title TEXT NOT NULL,
       goal_summary TEXT NOT NULL DEFAULT '',
       assumptions_json TEXT NOT NULL DEFAULT '[]',
       model TEXT,
-      status TEXT NOT NULL CHECK (status IN ('active', 'completed')) DEFAULT 'active',
+      status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'awaiting_confirmation', 'failed', 'done', 'cancelled')) DEFAULT 'pending',
+      confirmation_mode TEXT NOT NULL CHECK (confirmation_mode IN ('gated', 'auto')) DEFAULT 'gated',
+      current_step_id TEXT,
+      error TEXT,
       created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
+      updated_at INTEGER NOT NULL,
+      started_at INTEGER,
+      completed_at INTEGER
     );
-    CREATE INDEX IF NOT EXISTS idx_manual_workflow_runs_project_updated
-      ON manual_workflow_runs(project_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_automated_workflow_runs_project_updated
+      ON automated_workflow_runs(project_id, updated_at DESC);
 
-    CREATE TABLE IF NOT EXISTS manual_workflow_run_steps (
+    CREATE TABLE IF NOT EXISTS automated_workflow_run_steps (
       id TEXT PRIMARY KEY,
-      run_id TEXT NOT NULL REFERENCES manual_workflow_runs(id) ON DELETE CASCADE,
+      run_id TEXT NOT NULL,
       step_index INTEGER NOT NULL,
       step_key TEXT NOT NULL,
       title TEXT NOT NULL,
@@ -1292,12 +1382,16 @@ export function initializeBaseSchema(db: Database.Database): void {
       prompt TEXT NOT NULL,
       expected_output TEXT NOT NULL DEFAULT '',
       depends_on_step_ids_json TEXT NOT NULL DEFAULT '[]',
-      status TEXT NOT NULL CHECK (status IN ('not_started', 'started', 'done')) DEFAULT 'not_started',
+      status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'awaiting_confirmation', 'done', 'failed', 'skipped', 'cancelled')) DEFAULT 'pending',
+      attempt INTEGER NOT NULL DEFAULT 0,
+      output TEXT NOT NULL DEFAULT '',
+      error TEXT,
+      conversation_id TEXT,
       started_at INTEGER,
       completed_at INTEGER
     );
-    CREATE INDEX IF NOT EXISTS idx_manual_workflow_run_steps_run_index
-      ON manual_workflow_run_steps(run_id, step_index);
+    CREATE INDEX IF NOT EXISTS idx_automated_workflow_run_steps_run_index
+      ON automated_workflow_run_steps(run_id, step_index);
 
     CREATE TABLE IF NOT EXISTS agents (
       id TEXT PRIMARY KEY,

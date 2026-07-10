@@ -79,7 +79,8 @@ export type BackgroundActivityKind =
   | 'agent-generator'
   | 'skill-generator'
   | 'scheduler-generator'
-  | 'manual-workflow-generator'
+  | 'automated-workflow-generator'
+  | 'automated-workflow-run'
   | 'debrief-generation'
   | 'quiz-generation'
   | 'chat'
@@ -201,7 +202,7 @@ export interface CliInstallStatus {
 }
 
 export interface ProjectOrchestrationConfig {
-  workflowMode: 'single-agent' | 'manual-delegation' | 'orchestrated'
+  workflowMode: 'single-agent' | 'automated-delegation' | 'orchestrated'
   orchestrationEnabled: boolean
   maxDelegationDepth: number
   showTeamActivity: boolean
@@ -805,7 +806,7 @@ export interface ScheduleGeneratorMessage {
   content: string
 }
 
-export interface ManualWorkflowStep {
+export interface AutomatedWorkflowStep {
   id: string
   title: string
   summary: string
@@ -816,48 +817,69 @@ export interface ManualWorkflowStep {
   dependsOnStepIds?: string[]
 }
 
-export interface ManualWorkflowSpec {
+export interface AutomatedWorkflowSpec {
   title: string
   goalSummary: string
   assumptions: string[]
-  steps: ManualWorkflowStep[]
+  steps: AutomatedWorkflowStep[]
 }
 
-export interface ManualWorkflowGeneratorMessage {
+export interface AutomatedWorkflowGeneratorMessage {
   role: 'user' | 'assistant'
   content: string
 }
 
-export type ManualWorkflowStepStatus = 'not_started' | 'started' | 'done'
-export type ManualWorkflowRunStatus = 'active' | 'completed'
+export type AutomatedWorkflowStepStatus =
+  'pending' | 'running' | 'awaiting_confirmation' | 'done' | 'failed' | 'skipped' | 'cancelled'
+export type AutomatedWorkflowRunStatus =
+  'pending' | 'running' | 'awaiting_confirmation' | 'failed' | 'done' | 'cancelled'
+export type AutomatedWorkflowConfirmationMode = 'gated' | 'auto'
 
 /** A persisted step. `id` stays the generator's own step key (e.g. "step-1") so
  *  existing dependsOnStepIds matching logic needs no changes; `dbId` is the
- *  actual manual_workflow_run_steps primary key, used only for status mutations. */
-export interface ManualWorkflowRunStep extends ManualWorkflowStep {
+ *  actual automated_workflow_run_steps primary key, used only for status mutations. */
+export interface AutomatedWorkflowRunStep extends AutomatedWorkflowStep {
   dbId: string
   runId: string
   stepIndex: number
-  status: ManualWorkflowStepStatus
+  status: AutomatedWorkflowStepStatus
+  attempt: number
+  output: string
+  error: string | null
+  conversationId: string | null
   startedAt: number | null
   completedAt: number | null
 }
 
-export interface ManualWorkflowRunSummary {
+export interface AutomatedWorkflowRunSummary {
   id: string
   projectId: string
   title: string
   goalSummary: string
   model: string | null
-  status: ManualWorkflowRunStatus
-  stepCounts: { total: number; notStarted: number; started: number; done: number }
+  status: AutomatedWorkflowRunStatus
+  confirmationMode: AutomatedWorkflowConfirmationMode
+  currentStepId: string | null
+  // Named lastError, not error — a top-level `error: string` property on an IPC return value
+  // collides with isApiError()'s duck-typing check (shared/types.ts's isApiError treats any
+  // object with a string `error` field as a failed call and gets silently discarded by callers).
+  lastError: string | null
+  stepCounts: {
+    total: number
+    pending: number
+    running: number
+    awaitingConfirmation: number
+    done: number
+    failed: number
+    skipped: number
+  }
   createdAt: number
   updatedAt: number
 }
 
-export interface ManualWorkflowRunDetail extends ManualWorkflowRunSummary {
+export interface AutomatedWorkflowRunDetail extends AutomatedWorkflowRunSummary {
   assumptions: string[]
-  steps: ManualWorkflowRunStep[]
+  steps: AutomatedWorkflowRunStep[]
 }
 
 export type ArtifactKind =
@@ -1840,19 +1862,26 @@ export type IpcReturnMap = {
   'project-audit:list-sessions': ProjectEditSession[]
   'project-audit:list-files': ProjectTouchedFile[]
   'project-audit:get-diff': RemoteEditStagedFileDiff | null
-  'manual-workflow-generator:chat': { started: boolean }
-  'manual-workflow-generator:token': void
-  'manual-workflow-generator:spec-ready': void
-  'manual-workflow-generator:done': { hasSpec: boolean }
-  'manual-workflow-generator:error': { message: string }
-  'manual-workflow-generator:get-model': string
-  'manual-workflow-generator:set-model': void
-  'manual-workflow-runs:save-spec': ManualWorkflowRunDetail
-  'manual-workflow-runs:list': ManualWorkflowRunSummary[]
-  'manual-workflow-runs:get': ManualWorkflowRunDetail | null
-  'manual-workflow-runs:update-step-status': ManualWorkflowRunDetail | null
-  'manual-workflow-runs:discard': boolean
-  'manual-workflow-runs:changed': void
+  'automated-workflow-generator:chat': { started: boolean }
+  'automated-workflow-generator:token': void
+  'automated-workflow-generator:spec-ready': void
+  'automated-workflow-generator:done': { hasSpec: boolean }
+  'automated-workflow-generator:error': { message: string }
+  'automated-workflow-generator:get-model': string
+  'automated-workflow-generator:set-model': void
+  'automated-workflow-runs:save-spec': AutomatedWorkflowRunDetail
+  'automated-workflow-runs:list': AutomatedWorkflowRunSummary[]
+  'automated-workflow-runs:get': AutomatedWorkflowRunDetail | null
+  'automated-workflow-runs:update-step-status': AutomatedWorkflowRunDetail | null
+  'automated-workflow-runs:discard': boolean
+  'automated-workflow-runs:changed': void
+  'automated-workflow-runs:start': AutomatedWorkflowRunDetail | null
+  'automated-workflow-runs:confirm-step': AutomatedWorkflowRunDetail | null
+  'automated-workflow-runs:retry-step': AutomatedWorkflowRunDetail | null
+  'automated-workflow-runs:skip-step': AutomatedWorkflowRunDetail | null
+  'automated-workflow-runs:abort': AutomatedWorkflowRunDetail | null
+  'automated-workflow-runs:set-confirmation-mode': AutomatedWorkflowRunDetail | null
+  'automated-workflow-runs:step-stream': void
   // Scheduler
   'scheduler:list': ScheduledTask[]
   'scheduler:get': ScheduledTask | null
@@ -2225,19 +2254,26 @@ export type IpcChannels =
   | 'project-audit:list-sessions'
   | 'project-audit:list-files'
   | 'project-audit:get-diff'
-  | 'manual-workflow-generator:chat'
-  | 'manual-workflow-generator:token'
-  | 'manual-workflow-generator:spec-ready'
-  | 'manual-workflow-generator:done'
-  | 'manual-workflow-generator:error'
-  | 'manual-workflow-generator:get-model'
-  | 'manual-workflow-generator:set-model'
-  | 'manual-workflow-runs:save-spec'
-  | 'manual-workflow-runs:list'
-  | 'manual-workflow-runs:get'
-  | 'manual-workflow-runs:update-step-status'
-  | 'manual-workflow-runs:discard'
-  | 'manual-workflow-runs:changed'
+  | 'automated-workflow-generator:chat'
+  | 'automated-workflow-generator:token'
+  | 'automated-workflow-generator:spec-ready'
+  | 'automated-workflow-generator:done'
+  | 'automated-workflow-generator:error'
+  | 'automated-workflow-generator:get-model'
+  | 'automated-workflow-generator:set-model'
+  | 'automated-workflow-runs:save-spec'
+  | 'automated-workflow-runs:list'
+  | 'automated-workflow-runs:get'
+  | 'automated-workflow-runs:update-step-status'
+  | 'automated-workflow-runs:discard'
+  | 'automated-workflow-runs:changed'
+  | 'automated-workflow-runs:start'
+  | 'automated-workflow-runs:confirm-step'
+  | 'automated-workflow-runs:retry-step'
+  | 'automated-workflow-runs:skip-step'
+  | 'automated-workflow-runs:abort'
+  | 'automated-workflow-runs:set-confirmation-mode'
+  | 'automated-workflow-runs:step-stream'
   | 'scheduler:list'
   | 'scheduler:get'
   | 'scheduler:create'
