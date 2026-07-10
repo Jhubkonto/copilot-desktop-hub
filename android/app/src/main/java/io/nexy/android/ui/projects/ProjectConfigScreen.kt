@@ -89,7 +89,7 @@ private val instructionModeOptions = listOf(
 
 private val workflowModeOptions = listOf(
     "single-agent" to "Single",
-    "manual-delegation" to "Manual",
+    "automated-delegation" to "Automated",
     "orchestrated" to "Orchestrated",
 )
 
@@ -111,7 +111,7 @@ fun ProjectConfigScreen(
     onOpenWiki: () -> Unit = {},
     onOpenArtifacts: () -> Unit = {},
     onOpenAudit: () -> Unit = {},
-    onOpenManualWorkflow: () -> Unit = {},
+    onOpenAutomatedWorkflow: () -> Unit = {},
 ) {
     val projects by WsRepository.projects.collectAsState()
     val allAgents by WsRepository.agents.collectAsState()
@@ -454,9 +454,9 @@ fun ProjectConfigScreen(
                         onClick = onOpenArtifacts,
                     )
                     SettingsNavRow(
-                        title = "Manual workflow generator",
-                        detail = "Describe a goal to get an AI-drafted, step-by-step delegation plan",
-                        onClick = onOpenManualWorkflow,
+                        title = "Automated workflow generator",
+                        detail = "Describe a goal to get an AI-drafted, step-by-step delegation plan that runs itself",
+                        onClick = onOpenAutomatedWorkflow,
                     )
                 }
             }
@@ -602,9 +602,9 @@ fun ProjectConfigScreen(
                                 color = MaterialTheme.colorScheme.error,
                             )
                         }
-                        if (workflowMode == "manual-delegation") {
+                        if (workflowMode == "automated-delegation") {
                             Text(
-                                "Use the Manual workflow generator (above, under Project Tools) to turn a goal into a reusable delegation plan.",
+                                "Use the Automated workflow generator (above, under Project Tools) to turn a goal into a reusable delegation plan that runs itself.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

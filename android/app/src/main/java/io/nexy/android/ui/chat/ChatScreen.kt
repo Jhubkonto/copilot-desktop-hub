@@ -1,7 +1,6 @@
 package io.nexy.android.ui.chat
 
 import android.Manifest
-import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -159,8 +158,7 @@ fun ChatScreen(
     onOpenFork: ((String) -> Unit)? = null,
     onOpenRemoteEditWithPrefill: ((String, String) -> Unit)? = null,
     onOpenCodeChange: ((String) -> Unit)? = null,
-    onStartWorkflowStep: ((String?, String) -> Unit)? = null,
-    onOpenManualWorkflow: ((String) -> Unit)? = null,
+    onOpenAutomatedWorkflow: ((String) -> Unit)? = null,
     onNewChat: ((String?, String?) -> Unit)? = null,
     vm: ChatViewModel = viewModel(
         factory = remember(conversationId, agentId, projectId) {
@@ -211,26 +209,28 @@ fun ChatScreen(
         if (!statusProjectId.isNullOrBlank()) WsRepository.getProjectConfig(statusProjectId) else chatProjectWorkflowMode = null
     }
 
-    var activeWorkflowRun by remember { mutableStateOf<io.nexy.android.data.model.ManualWorkflowRunInfo?>(null) }
+    var activeWorkflowRun by remember { mutableStateOf<io.nexy.android.data.model.AutomatedWorkflowRunInfo?>(null) }
     var dismissedWorkflowStepId by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(statusProjectId, chatProjectWorkflowMode) {
+    // Keyed on connectionState too — not just statusProjectId/chatProjectWorkflowMode — so a
+    // reconnect re-fetches instead of leaving the banner showing whatever state it had before
+    // the phone disconnected (a run can fully progress through several auto-executed steps
+    // while disconnected). Mirrors RemoteEditReportDetailScreen.kt's established pattern.
+    LaunchedEffect(statusProjectId, chatProjectWorkflowMode, connectionState) {
         dismissedWorkflowStepId = null
-        if (!statusProjectId.isNullOrBlank() && chatProjectWorkflowMode == "manual-delegation") {
-            WsRepository.listManualWorkflowRuns(statusProjectId)
-        } else {
+        if (!statusProjectId.isNullOrBlank() && chatProjectWorkflowMode == "automated-delegation" && connectionState == ConnectionState.CONNECTED) {
+            WsRepository.listAutomatedWorkflowRuns(statusProjectId)
+        } else if (chatProjectWorkflowMode != "automated-delegation") {
             activeWorkflowRun = null
         }
     }
 
+    // "Current" means "needs a human's attention" — running (informational only),
+    // awaiting_confirmation (needs approval), or failed (needs retry/skip) — rather than "the
+    // next one a human would manually start" (steps auto-advance now).
     val currentWorkflowStep = remember(activeWorkflowRun) {
-        val run = activeWorkflowRun
-        if (run == null) {
-            null
-        } else {
-            val byKey = run.steps.associateBy { it.id }
-            fun isDone(key: String) = byKey[key]?.status == "done"
-            run.steps.firstOrNull { it.status != "done" && it.dependsOnStepIds.all(::isDone) }
+        activeWorkflowRun?.steps?.firstOrNull {
+            it.status == "running" || it.status == "awaiting_confirmation" || it.status == "failed"
         }
     }
 
@@ -564,17 +564,24 @@ fun ChatScreen(
                 is io.nexy.android.data.model.WsEvent.ProjectConfig -> {
                     if (event.id == statusProjectId) chatProjectWorkflowMode = event.config.workflowMode
                 }
-                is io.nexy.android.data.model.WsEvent.ManualWorkflowRunsList -> {
+                is io.nexy.android.data.model.WsEvent.AutomatedWorkflowRunsList -> {
                     if (event.projectId == statusProjectId) {
-                        val active = event.runs.firstOrNull { it.status == "active" }
-                        if (active != null) WsRepository.getManualWorkflowRun(active.id) else activeWorkflowRun = null
+                        val active = event.runs.firstOrNull { it.status != "done" && it.status != "cancelled" }
+                        if (active != null) WsRepository.getAutomatedWorkflowRun(active.id) else activeWorkflowRun = null
                     }
                 }
-                is io.nexy.android.data.model.WsEvent.ManualWorkflowRunDetailReady -> {
+                is io.nexy.android.data.model.WsEvent.AutomatedWorkflowRunDetailReady -> {
                     val run = event.run
-                    if (run != null && run.projectId == statusProjectId && chatProjectWorkflowMode == "manual-delegation") {
+                    if (run != null && run.projectId == statusProjectId && chatProjectWorkflowMode == "automated-delegation") {
                         activeWorkflowRun = run
                     }
+                }
+                is io.nexy.android.data.model.WsEvent.AutomatedWorkflowRunsError -> {
+                    // Approve/Retry/Skip in the banner below send WS commands with no reply
+                    // path other than this event — without surfacing it, a failed action (e.g. a
+                    // race with another device that already resolved the step) looks identical to
+                    // "still processing" and the user has no idea their tap did nothing.
+                    snackbarHostState.showSnackbar(event.message)
                 }
                 else -> {}
             }
@@ -942,9 +949,9 @@ fun ChatScreen(
                                 color = MaterialTheme.colorScheme.primary,
                             )
                         }
-                        if (chatProjectWorkflowMode == "manual-delegation" || chatProjectWorkflowMode == "orchestrated") {
+                        if (chatProjectWorkflowMode == "automated-delegation" || chatProjectWorkflowMode == "orchestrated") {
                             Text(
-                                if (chatProjectWorkflowMode == "orchestrated") "Orchestrated workflow" else "Manual workflow",
+                                if (chatProjectWorkflowMode == "orchestrated") "Orchestrated workflow" else "Automated workflow",
                                 maxLines = 1,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary,
@@ -1104,33 +1111,48 @@ fun ChatScreen(
 
                 val bannerRun = activeWorkflowRun
                 val bannerStep = currentWorkflowStep
-                if (bannerRun != null && bannerStep != null && bannerStep.id != dismissedWorkflowStepId) {
-                    val bannerContext = LocalContext.current
+                // Keyed on status+attempt, not just the step's stable logical id: a retried step
+                // keeps the same id, so dismissing a failed-step banner must not permanently
+                // silence it once that same step fails again on a later attempt.
+                val bannerStepKey = bannerStep?.let { "${it.id}:${it.status}:${it.attempt}" }
+                if (bannerRun != null && bannerStep != null && bannerStepKey != dismissedWorkflowStepId) {
+                    val gated = bannerRun.confirmationMode == "gated"
                     Surface(color = MaterialTheme.colorScheme.primaryContainer) {
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
+                            val statusSuffix = when (bannerStep.status) {
+                                "running" -> " — running…"
+                                "awaiting_confirmation" -> if (gated) " — ready for your review" else " — advancing automatically…"
+                                "failed" -> " — failed" + (bannerStep.error?.let { ": $it" } ?: "")
+                                else -> ""
+                            }
                             Text(
-                                "${bannerRun.title} — Step ${bannerStep.stepIndex + 1} of ${bannerRun.steps.size}: ${bannerStep.title}",
+                                "${bannerRun.title} — Step ${bannerStep.stepIndex + 1} of ${bannerRun.steps.size}: ${bannerStep.title}$statusSuffix",
                                 style = MaterialTheme.typography.labelSmall,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f),
                             )
-                            TextButton(onClick = {
-                                bannerContext.getSystemService(ClipboardManager::class.java)
-                                    ?.setPrimaryClip(ClipData.newPlainText("Workflow step prompt", bannerStep.prompt))
-                                if (bannerStep.status == "not_started") {
-                                    WsRepository.updateManualWorkflowRunStepStatus(bannerRun.id, bannerStep.dbId, "started")
+                            if (bannerStep.status == "awaiting_confirmation" && gated) {
+                                TextButton(onClick = { WsRepository.confirmAutomatedWorkflowStep(bannerRun.id, bannerStep.dbId) }) {
+                                    Text("Approve", style = MaterialTheme.typography.labelSmall)
                                 }
-                                onStartWorkflowStep?.invoke(bannerStep.agentId, bannerRun.projectId)
-                            }) { Text("Start", style = MaterialTheme.typography.labelSmall) }
-                            TextButton(onClick = { onOpenManualWorkflow?.invoke(bannerRun.projectId) }) {
+                            }
+                            if (bannerStep.status == "failed") {
+                                TextButton(onClick = { WsRepository.retryAutomatedWorkflowStep(bannerRun.id, bannerStep.dbId) }) {
+                                    Text("Retry", style = MaterialTheme.typography.labelSmall)
+                                }
+                                TextButton(onClick = { WsRepository.skipAutomatedWorkflowStep(bannerRun.id, bannerStep.dbId) }) {
+                                    Text("Skip", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                            TextButton(onClick = { onOpenAutomatedWorkflow?.invoke(bannerRun.projectId) }) {
                                 Text("View", style = MaterialTheme.typography.labelSmall)
                             }
-                            IconButton(onClick = { dismissedWorkflowStepId = bannerStep.id }, modifier = Modifier.size(28.dp)) {
+                            IconButton(onClick = { dismissedWorkflowStepId = bannerStepKey }, modifier = Modifier.size(28.dp)) {
                                 Icon(Icons.Default.Close, contentDescription = "Dismiss workflow step banner", modifier = Modifier.size(14.dp))
                             }
                         }

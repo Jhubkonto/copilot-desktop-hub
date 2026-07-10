@@ -29,7 +29,7 @@ import io.nexy.android.ui.skillgenerator.SkillGeneratorScreen
 import io.nexy.android.ui.chat.ChatScreen
 import io.nexy.android.ui.projects.ProjectConfigScreen
 import io.nexy.android.ui.projects.ProjectAuditScreen
-import io.nexy.android.ui.projects.ManualWorkflowScreen
+import io.nexy.android.ui.projects.AutomatedWorkflowScreen
 import io.nexy.android.ui.home.ActivityFeedScreen
 import io.nexy.android.ui.home.AgentConfigScreen
 import io.nexy.android.ui.home.HistoryScope
@@ -303,13 +303,7 @@ fun NavGraph(
                     )
                 },
                 onOpenCodeChange = { reportId -> navController.navigate("remote-edit/${Uri.encode(reportId)}") },
-                onStartWorkflowStep = { stepAgentId, stepProjectId ->
-                    val newConversationId = java.util.UUID.randomUUID().toString()
-                    navController.navigate(
-                        "chat/$newConversationId?agentId=${Uri.encode(stepAgentId.orEmpty())}&projectId=${Uri.encode(stepProjectId)}",
-                    )
-                },
-                onOpenManualWorkflow = { workflowProjectId -> navController.navigate("manual-workflow/${Uri.encode(workflowProjectId)}") },
+                onOpenAutomatedWorkflow = { workflowProjectId -> navController.navigate("automated-workflow/${Uri.encode(workflowProjectId)}") },
                 onNewChat = { newAgentId, newProjectId ->
                     val newConversationId = java.util.UUID.randomUUID().toString()
                     val agentParam = Uri.encode(newAgentId.orEmpty())
@@ -438,18 +432,19 @@ fun NavGraph(
                 onOpenAudit = { navController.navigate("project-audit/${Uri.encode(projectId)}") },
                 onOpenWiki = { navController.navigate("wiki/${Uri.encode(projectId)}") },
                 onOpenArtifacts = { navController.navigate("artifacts?artifactId=") },
-                onOpenManualWorkflow = { navController.navigate("manual-workflow/${Uri.encode(projectId)}") },
+                onOpenAutomatedWorkflow = { navController.navigate("automated-workflow/${Uri.encode(projectId)}") },
             )
         }
 
         composable(
-            route = "manual-workflow/{projectId}",
+            route = "automated-workflow/{projectId}",
             arguments = listOf(navArgument("projectId") { type = NavType.StringType }),
         ) { backStackEntry ->
             val projectId = backStackEntry.arguments?.getString("projectId") ?: return@composable
-            ManualWorkflowScreen(
+            AutomatedWorkflowScreen(
                 projectId = projectId,
                 onBack = { navController.popBackStack() },
+                onOpenConversation = { conversationId -> navController.navigate("chat/$conversationId") },
             )
         }
 
