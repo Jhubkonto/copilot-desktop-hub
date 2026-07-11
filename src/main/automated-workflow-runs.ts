@@ -13,7 +13,7 @@ import type {
 
 interface RunRow {
   id: string
-  project_id: string
+  project_id: string | null
   title: string
   goal_summary: string
   assumptions_json: string
@@ -24,6 +24,8 @@ interface RunRow {
   error: string | null
   created_at: number
   updated_at: number
+  scheduled_run_id: string | null
+  spec_sort_order: number | null
 }
 
 interface StepRow {
@@ -35,6 +37,7 @@ interface StepRow {
   summary: string
   agent_id: string | null
   agent_name: string | null
+  model: string | null
   prompt: string
   expected_output: string
   depends_on_step_ids_json: string
@@ -67,6 +70,7 @@ function rowToRunStep(row: StepRow): AutomatedWorkflowRunStep {
     summary: row.summary,
     agentId: row.agent_id ?? undefined,
     agentName: row.agent_name ?? undefined,
+    model: row.model ?? undefined,
     prompt: row.prompt,
     expectedOutput: row.expected_output,
     dependsOnStepIds: dependsOnStepIds.length > 0 ? dependsOnStepIds : undefined,
@@ -120,9 +124,9 @@ function insertSteps(runId: string, steps: AutomatedWorkflowSpec['steps']): void
   const db = getDatabase()
   const insert = db.prepare(`
     INSERT INTO automated_workflow_run_steps (
-      id, run_id, step_index, step_key, title, summary, agent_id, agent_name,
+      id, run_id, step_index, step_key, title, summary, agent_id, agent_name, model,
       prompt, expected_output, depends_on_step_ids_json, status, attempt, output, started_at, completed_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, '', NULL, NULL)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, '', NULL, NULL)
   `)
   steps.forEach((step, index) => {
     insert.run(
@@ -134,6 +138,7 @@ function insertSteps(runId: string, steps: AutomatedWorkflowSpec['steps']): void
       step.summary,
       step.agentId ?? null,
       step.agentName ?? null,
+      step.model ?? null,
       step.prompt,
       step.expectedOutput,
       JSON.stringify(step.dependsOnStepIds ?? []),
@@ -154,23 +159,39 @@ export function getAutomatedWorkflowRun(runId: string): AutomatedWorkflowRunDeta
   }
 }
 
-export function listAutomatedWorkflowRuns(projectId: string): AutomatedWorkflowRunSummary[] {
+export function listAutomatedWorkflowRuns(projectId: string | null): AutomatedWorkflowRunSummary[] {
+  // `IS ?` (not `= ?`) — SQL `=` never matches NULL, so a project-less run would be silently
+  // excluded from both `listAutomatedWorkflowRuns(null)` and `listAutomatedWorkflowRuns('some-id')`
+  // if this used `=`. `IS` is NULL-safe in SQLite.
   const rows = getDatabase()
-    .prepare('SELECT * FROM automated_workflow_runs WHERE project_id = ? ORDER BY updated_at DESC')
+    .prepare('SELECT * FROM automated_workflow_runs WHERE project_id IS ? ORDER BY updated_at DESC')
     .all(projectId) as RunRow[]
+  return rows.map((row) => rowToRunSummary(row, computeStepCounts(loadRunSteps(row.id))))
+}
+
+/** Every run regardless of project — backs the global, top-level Automated Workflows pane/screen. */
+export function listAllAutomatedWorkflowRuns(): AutomatedWorkflowRunSummary[] {
+  const rows = getDatabase()
+    .prepare('SELECT * FROM automated_workflow_runs ORDER BY updated_at DESC')
+    .all() as RunRow[]
   return rows.map((row) => rowToRunSummary(row, computeStepCounts(loadRunSteps(row.id))))
 }
 
 /**
  * Persists a generated spec. If `existingRunId` names a run whose steps are all still
  * `pending` (or has none yet), it's replaced in place — otherwise a new run is created,
- * so an in-progress plan is never clobbered by a regeneration.
+ * so an in-progress plan is never clobbered by a regeneration. `projectId` is nullable — a
+ * project-less run is a fully supported, self-contained Automated Workflow (see
+ * src/roadmap-new/). `scheduledRunId`/`specSortOrder` tag a run spawned by a schedule firing
+ * (see scheduler-engine.ts), used only for that path's retry-idempotency guard — omitted for
+ * every other (user-driven) creation path.
  */
 export function saveAutomatedWorkflowRunFromSpec(
-  projectId: string,
+  projectId: string | null,
   spec: AutomatedWorkflowSpec,
   model: string | null,
   existingRunId?: string | null,
+  scheduleTag?: { scheduledRunId: string; specSortOrder: number },
 ): AutomatedWorkflowRunDetail {
   const db = getDatabase()
   const now = Date.now()
@@ -181,7 +202,7 @@ export function saveAutomatedWorkflowRunFromSpec(
   let runId = ''
   db.transaction(() => {
     const existing = existingRunId
-      ? db.prepare('SELECT * FROM automated_workflow_runs WHERE id = ? AND project_id = ?').get(existingRunId, projectId) as RunRow | undefined
+      ? db.prepare('SELECT * FROM automated_workflow_runs WHERE id = ? AND project_id IS ?').get(existingRunId, projectId) as RunRow | undefined
       : undefined
     const existingSteps = existing ? loadRunSteps(existing.id) : []
     const canReplaceInPlace = existing && existingSteps.every((s) => s.status === 'pending')
@@ -202,9 +223,9 @@ export function saveAutomatedWorkflowRunFromSpec(
     const id = randomUUID()
     db.prepare(`
       INSERT INTO automated_workflow_runs
-        (id, project_id, title, goal_summary, assumptions_json, model, status, confirmation_mode, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'pending', 'gated', ?, ?)
-    `).run(id, projectId, spec.title, spec.goalSummary, assumptionsJson, model, now, now)
+        (id, project_id, title, goal_summary, assumptions_json, model, status, confirmation_mode, created_at, updated_at, scheduled_run_id, spec_sort_order)
+      VALUES (?, ?, ?, ?, ?, ?, 'pending', 'gated', ?, ?, ?, ?)
+    `).run(id, projectId, spec.title, spec.goalSummary, assumptionsJson, model, now, now, scheduleTag?.scheduledRunId ?? null, scheduleTag?.specSortOrder ?? null)
     insertSteps(id, spec.steps)
     runId = id
   })()
@@ -212,6 +233,16 @@ export function saveAutomatedWorkflowRunFromSpec(
   const detail = getAutomatedWorkflowRun(runId)
   if (!detail) throw new Error('Failed to save workflow run')
   return detail
+}
+
+/** Looks up a run already spawned for a given schedule firing + attached-spec position — the
+ *  retry-idempotency guard scheduler-engine.ts uses so a retried scheduled_runs row doesn't
+ *  re-execute a workflow spec that already completed under an earlier attempt of the same run. */
+export function findAutomatedWorkflowRunByScheduleTag(scheduledRunId: string, specSortOrder: number): AutomatedWorkflowRunDetail | null {
+  const row = getDatabase()
+    .prepare('SELECT id FROM automated_workflow_runs WHERE scheduled_run_id = ? AND spec_sort_order = ?')
+    .get(scheduledRunId, specSortOrder) as { id: string } | undefined
+  return row ? getAutomatedWorkflowRun(row.id) : null
 }
 
 /**
@@ -274,10 +305,12 @@ export function discardAutomatedWorkflowRun(runId: string): boolean {
 }
 
 export function registerAutomatedWorkflowRunHandlers(): void {
-  safeHandle('automated-workflow-runs:save-spec', (_event, projectId: string, spec: AutomatedWorkflowSpec, model: string | null, existingRunId?: string | null) =>
+  safeHandle('automated-workflow-runs:save-spec', (_event, projectId: string | null, spec: AutomatedWorkflowSpec, model: string | null, existingRunId?: string | null) =>
     saveAutomatedWorkflowRunFromSpec(projectId, spec, model, existingRunId))
 
-  safeHandle('automated-workflow-runs:list', (_event, projectId: string) => listAutomatedWorkflowRuns(projectId))
+  safeHandle('automated-workflow-runs:list', (_event, projectId: string | null) => listAutomatedWorkflowRuns(projectId))
+
+  safeHandle('automated-workflow-runs:list-all', () => listAllAutomatedWorkflowRuns())
 
   safeHandle('automated-workflow-runs:get', (_event, runId: string) => getAutomatedWorkflowRun(runId))
 

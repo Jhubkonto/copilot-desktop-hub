@@ -349,6 +349,9 @@ sealed class WsEvent {
     data class SchedulerRunUpdated(val run: ScheduledRun) : WsEvent()
     data class SchedulerRunList(val taskId: String, val runs: List<ScheduledRun>) : WsEvent()
     data class SchedulerRunError(val taskId: String, val error: String) : WsEvent()
+    /** Candidate saved Automated Workflow runs for the "attach an existing workflow to this
+     *  schedule" picker — fetched over WS since Android has no direct DB access. */
+    data class SchedulerWorkflowTemplates(val runs: List<AutomatedWorkflowRunInfo>) : WsEvent()
     // Debrief
     // artifactId/versionId are the debrief's artifact-backed home (desktop Phase 2) — null when
     // talking to an older desktop build that hasn't migrated debrief off conversation_debriefs yet.
@@ -390,7 +393,9 @@ sealed class WsEvent {
     data class AutomatedWorkflowError(val sessionId: String, val message: String) : WsEvent()
     data class AutomatedWorkflowCancelled(val sessionId: String) : WsEvent()
     // Persisted automated workflow runs
-    data class AutomatedWorkflowRunsList(val projectId: String, val runs: List<AutomatedWorkflowRunInfo>) : WsEvent()
+    data class AutomatedWorkflowRunsList(val projectId: String?, val runs: List<AutomatedWorkflowRunInfo>) : WsEvent()
+    /** Every run regardless of project — backs the global, top-level Automated Workflows list screen. */
+    data class AutomatedWorkflowRunsListAll(val runs: List<AutomatedWorkflowRunInfo>) : WsEvent()
     data class AutomatedWorkflowRunDetailReady(val run: AutomatedWorkflowRunInfo?) : WsEvent()
     data class AutomatedWorkflowRunDiscarded(val runId: String, val ok: Boolean) : WsEvent()
     /** Live token stream for a step actually being executed by the automated runner — distinct
@@ -594,6 +599,8 @@ data class AutomatedWorkflowStepInfo(
     val agentName: String?,
     val prompt: String,
     val expectedOutput: String,
+    // Alternative to agentName — a bare-model step (no agent) gets no skill augmentation at all.
+    val model: String? = null,
 )
 
 /** Mirrors desktop's `AutomatedWorkflowRunStep` (src/shared/types.ts). */
@@ -616,13 +623,18 @@ data class AutomatedWorkflowRunStepData(
     val conversationId: String? = null,
     val startedAt: Long?,
     val completedAt: Long?,
+    // Alternative to agentId, not additional to it — a step fulfilled by a bare model gets no
+    // skill augmentation at all (skills are strictly agent-gated).
+    val model: String? = null,
 )
 
 /** Mirrors desktop's `AutomatedWorkflowRunDetail extends AutomatedWorkflowRunSummary` (src/shared/types.ts).
- *  Used for both list rows (steps/assumptions empty) and full detail (steps populated). */
+ *  Used for both list rows (steps/assumptions empty) and full detail (steps populated).
+ *  projectId is nullable — an Automated Workflow run is project-optional, so it can be a
+ *  self-contained, standalone entity (see src/roadmap-new/). */
 data class AutomatedWorkflowRunInfo(
     val id: String,
-    val projectId: String,
+    val projectId: String?,
     val title: String,
     val goalSummary: String,
     val model: String?,

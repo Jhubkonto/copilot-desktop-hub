@@ -11,4 +11,8 @@ data class ScheduleGeneratorSpec(
     val agentId: String? = null,
     val projectId: String? = null,
     val notificationPref: String = "always",
+    // Defaults to "chat". "automated_workflow" requires sourceRunId — attaches an existing saved
+    // Automated Workflow run rather than authoring a new spec inline.
+    val targetType: String = "chat",
+    val sourceRunId: String? = null,
 )

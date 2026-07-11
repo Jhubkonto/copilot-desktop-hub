@@ -12,7 +12,9 @@ import {
 import type { ProviderMessage } from './provider-core-types'
 
 export interface AgentTurnOptions {
-  agentId: string
+  /** Omit for a bare-model turn — no agent config is resolved, so no skills apply either
+   *  (skill access is strictly agent-gated; there is no "skills for a bare model" mode). */
+  agentId?: string
   fallbackModel: string
   taskContent: string
   /** Used as the provider-request conversation id — must be unique per call. */
@@ -33,7 +35,11 @@ export interface AgentTurnOptions {
 export async function runAgentTurn(opts: AgentTurnOptions): Promise<string> {
   const { agentId, fallbackModel, taskContent, requestId, generationOptions, onChunk, systemPromptOverride } = opts
 
-  const cfg = getAgentConfig(agentId)
+  // No agentId → bare-model turn: skip agent/skill config resolution entirely rather than
+  // passing a sentinel through getAgentConfig. cfg stays null, and the fallbacks below already
+  // handle a null cfg gracefully (they were written for "agent config unavailable", which this
+  // now legitimately is, not just a defensive fallback for the impossible case).
+  const cfg = agentId ? getAgentConfig(agentId) : null
   const agentModel = typeof cfg?.model === 'string' && cfg.model !== 'default' ? cfg.model : fallbackModel
   const { provider, model } = getProviderForAgent(agentModel)
   const apiKey = getApiKey(provider)
