@@ -28,14 +28,13 @@ export const AUTOMATED_WORKFLOW_SPEC_CLOSE_TAG = '</automated-workflow-spec>'
 
 const AUTOMATED_WORKFLOW_GENERATOR_SYSTEM_PROMPT = `You are an expert workflow planner for Nexy.
 
-Your job is to turn a project goal into an automated delegation workflow: a sequence of steps, each run by an
-agent, that the user can execute either one step at a time with a review checkpoint after each step, or all the
-way through automatically.
+Your job is to turn a goal into an automated delegation workflow: a sequence of steps that the user can execute
+either one step at a time with a review checkpoint after each step, or all the way through automatically.
 
 Requirements:
 - Produce a short assistant response that explains the plan.
 - Then emit JSON wrapped in <automated-workflow-spec>...</automated-workflow-spec> tags.
-- Each step should be a bounded, self-contained task an agent can complete in one turn.
+- Each step should be a bounded, self-contained task that can be completed in one turn.
 - Prefer 2-6 steps.
 - Every step must include:
   - id
@@ -43,8 +42,12 @@ Requirements:
   - summary
   - prompt
   - expectedOutput
-- Include agentId only when the provided project context contains a matching agent id.
-- Include agentName when you assign a step to a project agent.
+- Each step is fulfilled by EITHER an agent OR a model directly — never both, never neither:
+  - If the project context lists a matching agent, prefer assigning that step to an agent: include agentId and
+    agentName. That agent's own configured skills apply automatically — you never need to think about skills.
+  - Otherwise (no project, or no suitable agent), include a "model" field naming a specific model instead of
+    agentId/agentName. A model-only step runs as a plain, capable assistant with no skill augmentation — that is
+    expected and fine, not a limitation to work around.
 - dependsOnStepIds is optional.
 - assumptions should be short and concrete.
 
@@ -63,6 +66,14 @@ JSON shape:
       "prompt": "Prompt text to send",
       "expectedOutput": "What the step should produce",
       "dependsOnStepIds": []
+    },
+    {
+      "id": "step-2",
+      "title": "Draft the announcement",
+      "summary": "No suitable agent for this step, so it runs via a bare model",
+      "model": "optional-model-id",
+      "prompt": "Prompt text to send",
+      "expectedOutput": "What the step should produce"
     }
   ]
 }`
@@ -70,9 +81,9 @@ JSON shape:
 let _automatedWorkflowGeneratorModel: string | null = null
 
 interface ProjectWorkflowContext {
-  projectId: string
+  projectId: string | null
   projectName: string
-  config: ProjectConfig
+  config: ProjectConfig | null
   agents: Array<{
     agentId: string
     agentName: string
@@ -118,7 +129,14 @@ export function setAutomatedWorkflowGeneratorModel(modelId: string | null): void
   _automatedWorkflowGeneratorModel = modelId || null
 }
 
-function loadProjectWorkflowContext(projectId: string): ProjectWorkflowContext {
+function loadProjectWorkflowContext(projectId: string | null): ProjectWorkflowContext {
+  // A project-less plan has no project/agents context at all — no project_agents row can exist
+  // for a project that doesn't exist, so this naturally (and correctly) biases the generator
+  // toward model-mode steps, without any special-casing in the prompt itself.
+  if (!projectId) {
+    return { projectId: null, projectName: '(no project)', config: null, agents: [] }
+  }
+
   const db = getDatabase()
   const projectRow = db.prepare('SELECT id, name, config_json FROM projects WHERE id = ?').get(projectId) as {
     id: string
@@ -165,6 +183,13 @@ function substituteVariables(text: string, variables: ProjectConfig['variables']
 }
 
 function buildProjectContextBlock(project: ProjectWorkflowContext): string {
+  if (!project.config) {
+    return [
+      'This workflow has no project — it is a self-contained, standalone plan.',
+      'No project agents are available. Assign every step a "model" field instead of agentId/agentName.',
+    ].join('\n')
+  }
+
   const scopeLines = [
     ...project.config.inScope.map((rule) => `IN: ${rule.description}${rule.pathGlob ? ` (${rule.pathGlob})` : ''}`),
     ...project.config.outOfScope.map((rule) => `OUT: ${rule.description}${rule.pathGlob ? ` (${rule.pathGlob})` : ''}`),
@@ -180,7 +205,7 @@ function buildProjectContextBlock(project: ProjectWorkflowContext): string {
     `Root directory: ${project.config.rootDirectory || '(not set)'}`,
     `Project instructions: ${instructions || '(none)'}`,
     `Agents:`,
-    ...(agentLines.length > 0 ? agentLines.map((line) => `- ${line}`) : ['- (no project agents assigned)']),
+    ...(agentLines.length > 0 ? agentLines.map((line) => `- ${line}`) : ['- (no project agents assigned — assign steps a "model" field instead)']),
     `Scope:`,
     ...(scopeLines.length > 0 ? scopeLines.map((line) => `- ${line}`) : ['- (no scope rules)']),
     `Milestones:`,
@@ -188,17 +213,17 @@ function buildProjectContextBlock(project: ProjectWorkflowContext): string {
   ].join('\n')
 }
 
-function buildProviderMessages(projectId: string, messages: AutomatedWorkflowGeneratorMessage[]): { providerMessages: ProviderMessage[]; cwd: string } {
+function buildProviderMessages(projectId: string | null, messages: AutomatedWorkflowGeneratorMessage[]): { providerMessages: ProviderMessage[]; cwd: string } {
   const project = loadProjectWorkflowContext(projectId)
   const filtered = messages[0]?.role === 'assistant' ? messages.slice(1) : messages
   const providerMessages: ProviderMessage[] = [
-    { role: 'system', content: `${AUTOMATED_WORKFLOW_GENERATOR_SYSTEM_PROMPT}\n\nProject context:\n${buildProjectContextBlock(project)}` },
+    { role: 'system', content: `${AUTOMATED_WORKFLOW_GENERATOR_SYSTEM_PROMPT}\n\nContext:\n${buildProjectContextBlock(project)}` },
     ...filtered.map((message): ProviderMessage => ({
       role: message.role,
-      content: substituteVariables(message.content, project.config.variables),
+      content: project.config ? substituteVariables(message.content, project.config.variables) : message.content,
     })),
   ]
-  const cwd = project.config.rootDirectory?.trim() || app.getPath('temp')
+  const cwd = project.config?.rootDirectory?.trim() || app.getPath('temp')
   return { providerMessages, cwd }
 }
 
@@ -222,6 +247,7 @@ export function normalizeAutomatedWorkflowSpec(raw: Record<string, unknown>): Au
         summary,
         agentId: optionalString(value.agentId),
         agentName: optionalString(value.agentName),
+        model: optionalString(value.model),
         prompt,
         expectedOutput,
         dependsOnStepIds: dependsOnStepIds && dependsOnStepIds.length > 0 ? dependsOnStepIds : undefined,
@@ -323,7 +349,7 @@ export async function runAutomatedWorkflowProviderChat(
 
 export async function runAutomatedWorkflowGeneratorChat(
   win: BrowserWindow,
-  projectId: string,
+  projectId: string | null,
   messages: AutomatedWorkflowGeneratorMessage[],
   modelOverride?: string,
 ): Promise<void> {
@@ -331,8 +357,8 @@ export async function runAutomatedWorkflowGeneratorChat(
   const sessionId = `automated-workflow-gen-${randomUUID()}`
   let accumulated = ''
 
-  const activityId = `automated-workflow-generator:${projectId}`
-  startActivity({ id: activityId, kind: 'automated-workflow-generator', projectId, label: 'Generating workflow…' })
+  const activityId = `automated-workflow-generator:${projectId ?? 'global'}`
+  startActivity({ id: activityId, kind: 'automated-workflow-generator', projectId: projectId ?? undefined, label: 'Generating workflow…' })
   try {
     const fullText = await runAutomatedWorkflowProviderChat(
       win,
@@ -369,7 +395,7 @@ export async function runAutomatedWorkflowGeneratorChat(
 }
 
 export async function runAutomatedWorkflowGeneratorChatForAndroid(
-  projectId: string,
+  projectId: string | null,
   messages: AutomatedWorkflowGeneratorMessage[],
   sessionId = `automated-workflow-gen-android-${randomUUID()}`,
   modelOverride?: string,
@@ -378,8 +404,8 @@ export async function runAutomatedWorkflowGeneratorChatForAndroid(
   const fakeWin = { isDestroyed: () => false, webContents: { send: () => {}, isDestroyed: () => false } } as unknown as BrowserWindow
   let accumulated = ''
 
-  const activityId = `automated-workflow-generator:${projectId}`
-  startActivity({ id: activityId, kind: 'automated-workflow-generator', projectId, label: 'Generating workflow…' })
+  const activityId = `automated-workflow-generator:${projectId ?? 'global'}`
+  startActivity({ id: activityId, kind: 'automated-workflow-generator', projectId: projectId ?? undefined, label: 'Generating workflow…' })
   try {
     const fullText = await runAutomatedWorkflowProviderChat(
       fakeWin,
@@ -414,7 +440,7 @@ export async function runAutomatedWorkflowGeneratorChatForAndroid(
 }
 
 export function registerAutomatedWorkflowGeneratorHandlers(win?: BrowserWindow): void {
-  safeHandle('automated-workflow-generator:chat', async (_event, projectId: string, messages: AutomatedWorkflowGeneratorMessage[], modelOverride?: string) => {
+  safeHandle('automated-workflow-generator:chat', async (_event, projectId: string | null, messages: AutomatedWorkflowGeneratorMessage[], modelOverride?: string) => {
     if (!win) throw new Error('No main window available')
     await runAutomatedWorkflowGeneratorChat(win, projectId, messages, modelOverride)
     return { started: true }

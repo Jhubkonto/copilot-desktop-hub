@@ -22,6 +22,7 @@ describe('scheduler generator', () => {
       localTime: '09:15',
       timezone: 'Europe/Berlin',
       notificationPref: 'failures_only',
+      targetType: 'chat',
     })
   })
 
@@ -55,5 +56,39 @@ describe('scheduler generator', () => {
 
   it('returns null for invalid tagged JSON', () => {
     expect(extractSpec('<schedule-spec>{ nope }</schedule-spec>')).toBeNull()
+  })
+
+  it('defaults targetType to chat when omitted', () => {
+    const spec = normalizeSpec({
+      name: 'Standalone task',
+      prompt: 'Do the thing',
+      scheduleType: 'daily',
+      localTime: '08:00',
+      timezone: 'UTC',
+    })
+    expect(spec.targetType).toBe('chat')
+  })
+
+  it('accepts an automated_workflow target with a sourceRunId and does not require a prompt', () => {
+    const spec = normalizeSpec({
+      name: 'Weekly report workflow',
+      scheduleType: 'weekly',
+      localTime: '08:00',
+      timezone: 'UTC',
+      targetType: 'automated_workflow',
+      sourceRunId: 'run-123',
+    })
+    expect(spec.targetType).toBe('automated_workflow')
+    expect(spec.sourceRunId).toBe('run-123')
+  })
+
+  it('rejects an automated_workflow target with no sourceRunId', () => {
+    expect(() => normalizeSpec({
+      name: 'Broken workflow schedule',
+      scheduleType: 'daily',
+      localTime: '08:00',
+      timezone: 'UTC',
+      targetType: 'automated_workflow',
+    })).toThrow(/sourceRunId/)
   })
 })

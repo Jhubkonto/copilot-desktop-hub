@@ -15,11 +15,12 @@ import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
 import { getCliModels } from './cli-detection'
 import type { ProviderMessage } from './provider-core-types'
-import type { ScheduleGeneratorMessage, ScheduleGeneratorSpec, ScheduleType } from '../shared/types'
+import type { AutomatedWorkflowSpec, ScheduleGeneratorMessage, ScheduleGeneratorSpec, ScheduleType } from '../shared/types'
 import { getDatabase } from './database'
 import { broadcastToMobile } from './ws-server'
 import { startActivity, endActivity } from './activity-tracker'
 import { dbCreateTask, schedulerEngine } from './scheduler-engine'
+import { getAutomatedWorkflowRun } from './automated-workflow-runs'
 
 export const SPEC_OPEN_TAG = '<schedule-spec>'
 export const SPEC_CLOSE_TAG = '</schedule-spec>'
@@ -33,7 +34,6 @@ Your job is to help the user create a scheduled AI task. Ask focused questions o
 
 Gather:
 - task name
-- prompt text that will be sent when the task runs
 - schedule type: one-time, daily, weekdays, weekly, or monthly
 - local time in HH:MM 24-hour format
 - timezone
@@ -42,6 +42,12 @@ Gather:
 - optional agentId
 - optional projectId
 - notificationPref: always, failures_only, or off
+
+This schedule fires one of two ways — ask the user which they want, plainly, don't guess:
+- A standalone task (the default): also gather "prompt" — the plain chat message sent when the task fires.
+- An existing Automated Workflow: the user names or picks a workflow they've already saved (do not author a new
+  multi-step plan in this conversation — that only happens in the Automated Workflow generator). Gather its run id
+  as "sourceRunId" and set "targetType" to "automated_workflow". Leave "prompt" empty in this case.
 
 When ready, emit a short summary followed immediately by JSON wrapped in <schedule-spec>...</schedule-spec> tags. The JSON must match:
 
@@ -55,7 +61,9 @@ When ready, emit a short summary followed immediately by JSON wrapped in <schedu
   "timezone": "Europe/Berlin",
   "agentId": null,
   "projectId": null,
-  "notificationPref": "always"
+  "notificationPref": "always",
+  "targetType": "chat",
+  "sourceRunId": null
 }`
 
 let _scheduleGeneratorModel: string | null = null
@@ -131,6 +139,7 @@ export function normalizeSpec(raw: Record<string, unknown>): ScheduleGeneratorSp
   const notificationPref = VALID_NOTIFICATION_PREFS.has(String(raw.notificationPref))
     ? raw.notificationPref as ScheduleGeneratorSpec['notificationPref']
     : 'always'
+  const targetType = raw.targetType === 'automated_workflow' ? 'automated_workflow' as const : 'chat' as const
 
   const spec: ScheduleGeneratorSpec = {
     name: String(raw.name || 'Scheduled task').trim().slice(0, 100),
@@ -139,6 +148,7 @@ export function normalizeSpec(raw: Record<string, unknown>): ScheduleGeneratorSp
     localTime,
     timezone: optionalString(raw.timezone) ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC',
     notificationPref,
+    targetType,
   }
 
   const weekday = optionalBoundedInt(raw.weekday, 0, 6)
@@ -149,9 +159,15 @@ export function normalizeSpec(raw: Record<string, unknown>): ScheduleGeneratorSp
   if (agentId) spec.agentId = agentId
   const projectId = optionalString(raw.projectId)
   if (projectId) spec.projectId = projectId
+  const sourceRunId = optionalString(raw.sourceRunId)
+  if (sourceRunId) spec.sourceRunId = sourceRunId
 
   if (!spec.name) spec.name = 'Scheduled task'
-  if (!spec.prompt) throw new Error('Schedule prompt is required')
+  if (targetType === 'automated_workflow') {
+    if (!spec.sourceRunId) throw new Error('An automated_workflow schedule requires sourceRunId (attach an existing saved workflow)')
+  } else if (!spec.prompt) {
+    throw new Error('Schedule prompt is required')
+  }
   if (scheduleType === 'weekly' && spec.weekday === undefined) spec.weekday = 1
   if (scheduleType === 'monthly' && spec.monthDay === undefined) spec.monthDay = 1
 
@@ -308,9 +324,14 @@ export async function runScheduleGeneratorChatForAndroid(
 }
 
 export async function createScheduleFromSpec(spec: ScheduleGeneratorSpec): Promise<{ taskId: string; name: string }> {
+  const isWorkflowTarget = spec.targetType === 'automated_workflow'
+  const workflowSpecs = isWorkflowTarget && spec.sourceRunId ? [buildAttachedWorkflowSpec(spec.sourceRunId)] : undefined
+
   const task = dbCreateTask({
     name: spec.name,
-    prompt: spec.prompt,
+    // A workflow-targeted schedule never sends a plain chat prompt — the attached workflow's
+    // own steps carry their own prompts.
+    prompt: isWorkflowTarget ? '' : spec.prompt,
     enabled: true,
     agentId: spec.agentId ?? null,
     projectId: spec.projectId ?? null,
@@ -320,10 +341,37 @@ export async function createScheduleFromSpec(spec: ScheduleGeneratorSpec): Promi
     monthDay: spec.monthDay ?? null,
     timezone: spec.timezone,
     notificationPref: spec.notificationPref,
+    targetType: spec.targetType ?? 'chat',
+    workflowSpecs,
   })
   schedulerEngine.scheduleTask(task)
   broadcastToMobile({ event: 'scheduler:task-updated', data: task })
   return { taskId: task.id, name: task.name }
+}
+
+/** Freezes a copy of an existing saved Automated Workflow run's spec for a schedule to attach —
+ *  see the migration-70 comment on `scheduled_task_workflows` for why this snapshots the spec
+ *  rather than only keeping a live reference to the source run. */
+function buildAttachedWorkflowSpec(sourceRunId: string): { workflowSpecJson: string; sourceRunId: string | null; confirmationMode: 'gated' | 'auto' } {
+  const run = getAutomatedWorkflowRun(sourceRunId)
+  if (!run) throw new Error(`Automated workflow run not found: ${sourceRunId}`)
+  const spec: AutomatedWorkflowSpec = {
+    title: run.title,
+    goalSummary: run.goalSummary,
+    assumptions: run.assumptions,
+    steps: run.steps.map((step) => ({
+      id: step.id,
+      title: step.title,
+      summary: step.summary,
+      agentId: step.agentId,
+      agentName: step.agentName,
+      model: step.model,
+      prompt: step.prompt,
+      expectedOutput: step.expectedOutput,
+      dependsOnStepIds: step.dependsOnStepIds,
+    })),
+  }
+  return { workflowSpecJson: JSON.stringify(spec), sourceRunId, confirmationMode: 'auto' }
 }
 
 export function registerScheduleGeneratorHandlers(win?: BrowserWindow): void {

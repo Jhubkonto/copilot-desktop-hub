@@ -158,6 +158,17 @@ describe('automated workflow generator', () => {
     ])
   })
 
+  it('parses a step-level model field as an alternative to agentId', () => {
+    const spec = normalizeAutomatedWorkflowSpec({
+      title: 'Bare-model workflow',
+      steps: [
+        { id: 'draft', title: 'Draft', prompt: 'Draft the announcement', expectedOutput: 'Draft text', model: 'gpt-6-mega' },
+      ],
+    })
+    expect(spec.steps[0].model).toBe('gpt-6-mega')
+    expect(spec.steps[0].agentId).toBeUndefined()
+  })
+
   it('rejects specs without at least one valid prompt-bearing step', () => {
     expect(() => normalizeAutomatedWorkflowSpec({
       title: 'Broken workflow',
