@@ -78,6 +78,13 @@ describe("SectionPane", () => {
     ).toBeInTheDocument();
   });
 
+  it("renders the Automated Workflows header when section is workflows", () => {
+    render(<SectionPane section="workflows" />);
+    expect(
+      screen.getByRole("heading", { name: /automated workflows/i }),
+    ).toBeInTheDocument();
+  });
+
   it("calls setSectionPane with the current section when close button is clicked", async () => {
     render(<SectionPane section="projects" />);
     const closeBtn = screen.getByRole("button", {

@@ -1,8 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 import type {
+  AutomatedWorkflowRunSummary,
+  AutomatedWorkflowSpec,
   ScheduledTask,
   ScheduledTaskCreateInput,
+  ScheduledTaskTargetType,
   ScheduledTaskUpdateInput,
   ScheduleType,
   SchedulerNotificationPref,
@@ -51,16 +54,65 @@ export function SchedulerTaskForm({ initial, onSave, onCancel }: Props) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Target: a plain chat prompt (default, unchanged behavior) or one attached Automated Workflow
+  // run (see src/roadmap-new/ — schedules can target a saved workflow instead of a chat message).
+  const [targetType, setTargetType] = useState<ScheduledTaskTargetType>(initial?.targetType ?? 'chat')
+  const [workflowOptions, setWorkflowOptions] = useState<AutomatedWorkflowRunSummary[]>([])
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(initial?.workflowSpecs[0]?.sourceRunId ?? null)
+  const [selectedRunSpec, setSelectedRunSpec] = useState<AutomatedWorkflowSpec | null>(null)
+
+  // Fetch candidates + repopulate the frozen spec for an already-attached run lazily — only once
+  // the user actually looks at this section, not on every form open.
+  useEffect(() => {
+    if (targetType !== 'automated_workflow' || workflowOptions.length > 0) return
+    window.api.schedulerListWorkflowTemplates().then((result) => {
+      if (!isApiError(result)) setWorkflowOptions(result)
+    }).catch(() => {})
+  }, [targetType, workflowOptions.length])
+
+  useEffect(() => {
+    if (!selectedRunId || selectedRunSpec) return
+    window.api.getAutomatedWorkflowRun(selectedRunId).then((detail) => {
+      if (detail && !isApiError(detail)) {
+        setSelectedRunSpec({
+          title: detail.title,
+          goalSummary: detail.goalSummary,
+          assumptions: detail.assumptions,
+          steps: detail.steps.map((s) => ({
+            id: s.id,
+            title: s.title,
+            summary: s.summary,
+            agentId: s.agentId,
+            agentName: s.agentName,
+            model: s.model,
+            prompt: s.prompt,
+            expectedOutput: s.expectedOutput,
+            dependsOnStepIds: s.dependsOnStepIds,
+          })),
+        })
+      }
+    }).catch(() => {})
+  }, [selectedRunId, selectedRunSpec])
+
+  const handleSelectWorkflow = (runId: string) => {
+    setSelectedRunId(runId || null)
+    setSelectedRunSpec(null)
+  }
+
   const handleSave = async () => {
     if (!name.trim()) { setError('Name is required'); return }
-    if (!prompt.trim()) { setError('Prompt is required'); return }
+    if (targetType === 'chat' && !prompt.trim()) { setError('Prompt is required'); return }
+    if (targetType === 'automated_workflow' && (!selectedRunId || !selectedRunSpec)) { setError('Choose a workflow to attach'); return }
     setError(null)
     setSaving(true)
     try {
+      const workflowSpecs = targetType === 'automated_workflow' && selectedRunSpec
+        ? [{ workflowSpecJson: JSON.stringify(selectedRunSpec), sourceRunId: selectedRunId, confirmationMode: 'auto' as const }]
+        : undefined
       if (initial) {
         const input: ScheduledTaskUpdateInput = {
           name: name.trim(),
-          prompt: prompt.trim(),
+          prompt: targetType === 'chat' ? prompt.trim() : '',
           scheduleType,
           localTime,
           weekday: scheduleType === 'weekly' ? weekday : null,
@@ -70,6 +122,8 @@ export function SchedulerTaskForm({ initial, onSave, onCancel }: Props) {
           projectId: projectId || null,
           model: model || null,
           notificationPref,
+          targetType,
+          workflowSpecs,
         }
         const result = await window.api.schedulerUpdate(initial.id, input)
         if (isApiError(result)) { setError(result.error); return }
@@ -78,7 +132,7 @@ export function SchedulerTaskForm({ initial, onSave, onCancel }: Props) {
       } else {
         const input: ScheduledTaskCreateInput = {
           name: name.trim(),
-          prompt: prompt.trim(),
+          prompt: targetType === 'chat' ? prompt.trim() : '',
           scheduleType,
           localTime,
           weekday: scheduleType === 'weekly' ? weekday : null,
@@ -89,6 +143,8 @@ export function SchedulerTaskForm({ initial, onSave, onCancel }: Props) {
           model: model || null,
           notificationPref,
           enabled: true,
+          targetType,
+          workflowSpecs,
         }
         const result = await window.api.schedulerCreate(input)
         if (isApiError(result)) { setError(result.error); return }
@@ -133,13 +189,51 @@ export function SchedulerTaskForm({ initial, onSave, onCancel }: Props) {
             placeholder="e.g. Daily standup summary"
             className="w-full text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400"
           />
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="What should the agent do?"
-            rows={6}
-            className="w-full text-xs rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-400 resize-none"
-          />
+
+          <div className="inline-flex rounded-md overflow-hidden border border-gray-200 dark:border-gray-700 text-[10px]">
+            {(['chat', 'automated_workflow'] as ScheduledTaskTargetType[]).map((value) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setTargetType(value)}
+                aria-pressed={targetType === value}
+                className={`px-2 py-1 font-medium transition-colors ${
+                  targetType === value
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
+              >
+                {value === 'chat' ? 'Standalone task' : 'Automated Workflow'}
+              </button>
+            ))}
+          </div>
+
+          {targetType === 'chat' ? (
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="What should the agent do?"
+              rows={6}
+              className="w-full text-xs rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-400 resize-none"
+            />
+          ) : (
+            <div className="space-y-1.5">
+              <select
+                value={selectedRunId ?? ''}
+                onChange={(e) => handleSelectWorkflow(e.target.value)}
+                className="w-full text-xs rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                aria-label="Automated workflow to attach"
+              >
+                <option value="">Select a saved workflow…</option>
+                {workflowOptions.map((run) => (
+                  <option key={run.id} value={run.id}>{run.title}{run.goalSummary ? ` — ${run.goalSummary}` : ''}</option>
+                ))}
+              </select>
+              <p className="text-[10px] text-gray-400 dark:text-gray-500">
+                Attaches a copy of that workflow's current steps — later edits to the original plan won't affect this schedule. Each firing runs the plan through automatically (no per-step review).
+              </p>
+            </div>
+          )}
         </section>
 
         <section className="space-y-3">

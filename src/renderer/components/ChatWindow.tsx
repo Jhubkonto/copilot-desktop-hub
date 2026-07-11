@@ -470,23 +470,26 @@ export function ChatWindow() {
     }).catch(() => setActiveWorkflowRun(null))
   }, [])
 
+  // Automated Workflow is a fully independent, top-level feature (not gated on the project's
+  // workflowMode setting) — a run started in any project mode must still surface here, otherwise
+  // it executes with silent, invisible progress.
   useEffect(() => {
     setDismissedWorkflowStepId(null)
-    if (!chatProjectId || chatProjectId === '__none__' || projectWorkflowMode !== 'automated-delegation') {
+    if (!chatProjectId || chatProjectId === '__none__') {
       setActiveWorkflowRun(null)
       return
     }
     loadActiveWorkflowRun(chatProjectId)
-  }, [chatProjectId, projectWorkflowMode, loadActiveWorkflowRun])
+  }, [chatProjectId, loadActiveWorkflowRun])
 
   useEffect(() => {
     const off = window.api.onAutomatedWorkflowRunsChanged(({ projectId: changedProjectId }) => {
-      if (changedProjectId === chatProjectId && projectWorkflowMode === 'automated-delegation') {
+      if (changedProjectId === chatProjectId) {
         loadActiveWorkflowRun(changedProjectId)
       }
     })
     return off
-  }, [chatProjectId, projectWorkflowMode, loadActiveWorkflowRun])
+  }, [chatProjectId, loadActiveWorkflowRun])
 
   // Steps auto-advance now, so "current" means "needs a human's attention" — running (informational
   // only), awaiting_confirmation (needs approval), or failed (needs retry/skip) — rather than

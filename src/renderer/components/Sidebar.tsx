@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, type ReactNode } from 'react'
-import { Plus, MessageSquare, FolderOpen, Bot, Wrench, Package, SquareArrowOutUpRight, Loader2, Clock, Zap } from 'lucide-react'
+import { Plus, MessageSquare, FolderOpen, Bot, Wrench, Package, SquareArrowOutUpRight, Loader2, Clock, Zap, Workflow } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import { ResizeHandle } from './ResizeHandle'
 import { Button } from './ui/primitives'
@@ -186,6 +186,13 @@ export function Sidebar() {
           onClick={() => openSectionPane('scheduled')}
           active={activeSectionPane === 'scheduled'}
           ariaLabel="Open scheduled tasks"
+        />
+        <NavButton
+          icon={<Workflow className="w-3.5 h-3.5" />}
+          label="Workflows"
+          onClick={() => openSectionPane('workflows')}
+          active={activeSectionPane === 'workflows'}
+          ariaLabel="Open automated workflows"
         />
         <hr className="border-gray-200 dark:border-gray-700/80" />
         <NavButton

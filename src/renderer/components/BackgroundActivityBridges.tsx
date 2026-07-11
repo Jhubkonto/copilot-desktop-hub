@@ -49,12 +49,17 @@ function stopActivity(kind: BackgroundActivityKind, projectId?: string) {
   state?.removeBackgroundActivity?.(id)
 }
 
-export function trackAutomatedWorkflowGeneration(projectId: string) {
-  startActivity('automated-workflow-generator', projectId)
+// projectId is nullable — a project-less (standalone) workflow generation still needs an
+// activity entry, keyed to match the main process's own id for this case exactly
+// (`automated-workflow-generator:${projectId ?? 'global'}`, see automated-workflow-generator.ts)
+// so the locally-optimistic entry created here reconciles cleanly against the server snapshot
+// instead of momentarily showing as two separate entries.
+export function trackAutomatedWorkflowGeneration(projectId: string | null) {
+  startActivity('automated-workflow-generator', projectId ?? 'global')
 }
 
-export function clearAutomatedWorkflowGeneration(projectId: string) {
-  stopActivity('automated-workflow-generator', projectId)
+export function clearAutomatedWorkflowGeneration(projectId: string | null) {
+  stopActivity('automated-workflow-generator', projectId ?? 'global')
 }
 
 export function BackgroundActivityBridges() {

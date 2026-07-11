@@ -49,4 +49,14 @@ describe('Sidebar', () => {
 
     expect(mockStore.newChat).toHaveBeenCalled()
   })
+
+  it('opens the Automated Workflows section from the sidebar', async () => {
+    mockStore = createMockAppStore()
+    setupStoreMock(useAppStore, mockStore)
+
+    render(<Sidebar />)
+    await user.click(screen.getByText('Workflows'))
+
+    expect(mockStore.openSectionPane).toHaveBeenCalledWith('workflows')
+  })
 })

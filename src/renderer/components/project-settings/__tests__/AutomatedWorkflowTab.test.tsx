@@ -146,6 +146,22 @@ describe('AutomatedWorkflowTab', () => {
     expect(screen.getByText(/Waiting on: Plan the work/)).toBeInTheDocument()
   })
 
+  it('shows a "Model: X" label instead of an agent name for a bare-model step', async () => {
+    const detail = runDetail({
+      steps: [
+        baseStep({ agentId: undefined, agentName: undefined, model: 'gpt-6-mega' }),
+      ],
+    })
+    mockApi.listAutomatedWorkflowRuns.mockResolvedValue([runSummary()])
+    mockApi.getAutomatedWorkflowRun.mockResolvedValue(detail)
+    renderTab()
+    await waitFor(() => expect(screen.getByText('Ship the feature')).toBeInTheDocument())
+    await userEvent.click(screen.getByText('Ship the feature'))
+
+    await waitFor(() => expect(screen.getByText(/Model: gpt-6-mega/)).toBeInTheDocument())
+    expect(screen.queryByText('Unassigned')).not.toBeInTheDocument()
+  })
+
   it('a running step streams live output and offers no manual action', async () => {
     const detail = runDetail({
       status: 'running',
