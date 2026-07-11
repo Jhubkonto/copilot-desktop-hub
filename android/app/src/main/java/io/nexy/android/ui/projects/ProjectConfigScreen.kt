@@ -499,7 +499,7 @@ fun ProjectConfigScreen(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(bottom = 12.dp)) {
                     Text(
-                        "Reusable values you can reference as {{key}} anywhere in this project — in your chat messages, in the project instructions above, and in the manual workflow generator. Nexy substitutes the value automatically before sending.",
+                        "Reusable values you can reference as {{key}} anywhere in this project — in your chat messages, in the project instructions above, and in the automated workflow generator. Nexy substitutes the value automatically before sending.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -577,7 +577,7 @@ fun ProjectConfigScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("Workflow mode", style = MaterialTheme.typography.bodyMedium)
                         Text(
-                            "Choose whether the project runs as a single agent, manual delegation workflow, or full orchestration.",
+                            "Choose whether the project runs as a single agent, automated delegation workflow, or full orchestration.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

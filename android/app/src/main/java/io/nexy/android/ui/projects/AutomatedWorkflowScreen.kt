@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -19,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PlayArrow
@@ -472,8 +472,10 @@ fun AutomatedWorkflowScreen(
 internal fun AutomatedWorkflowStepPreviewCard(index: Int, step: AutomatedWorkflowStepInfo) {
     val context = LocalContext.current
     val clipboardManager = context.getSystemService(ClipboardManager::class.java)
+    // Exactly one of agentName/model applies — a step is fulfilled by EITHER an agent (its own
+    // attached skills apply) OR a bare model (no skills at all). Never show both, never neither.
     val metaLine = buildString {
-        append(step.agentName ?: "Unassigned")
+        append(step.agentName ?: step.model?.let { "Model: $it" } ?: "Unassigned")
         if (step.expectedOutput.isNotBlank()) append(" · Output: ${step.expectedOutput}")
     }
     Surface(
@@ -566,8 +568,10 @@ private fun SavedWorkflowRunRow(run: AutomatedWorkflowRunInfo, onOpen: () -> Uni
     }
 }
 
+// Not private — reused by AutomatedWorkflowListScreen.kt's detail view for the global,
+// top-level run list (same package, no export needed).
 @Composable
-private fun SavedWorkflowRunDetailView(
+internal fun SavedWorkflowRunDetailView(
     modifier: Modifier = Modifier,
     run: AutomatedWorkflowRunInfo,
     stepStreamText: Map<String, String>,
@@ -601,20 +605,20 @@ private fun SavedWorkflowRunDetailView(
             }
         }
         item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                SingleChoiceSegmentedButtonRow {
-                    listOf("gated" to "Confirm each step", "auto" to "Run automatically").forEachIndexed { i, (value, label) ->
-                        SegmentedButton(
-                            selected = run.confirmationMode == value,
-                            onClick = { onModeChange(value) },
-                            shape = SegmentedButtonDefaults.itemShape(index = i, count = 2),
-                        ) {
-                            Text(label, style = MaterialTheme.typography.labelSmall)
-                        }
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                listOf("gated" to "Confirm each step", "auto" to "Run automatically").forEachIndexed { i, (value, label) ->
+                    SegmentedButton(
+                        selected = run.confirmationMode == value,
+                        onClick = { onModeChange(value) },
+                        shape = SegmentedButtonDefaults.itemShape(index = i, count = 2),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(
+                            label,
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                 }
             }
@@ -672,9 +676,20 @@ private fun AutomatedWorkflowRunStepCard(
                         color = stepStatusColor(step.status),
                     )
                 }
+                if (step.conversationId != null) {
+                    IconButton(onClick = { onOpenConversation(step.conversationId) }, modifier = Modifier.size(24.dp)) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = "Expand step in conversation",
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
             }
             Text(
-                step.agentName ?: "Unassigned",
+                // Exactly one of agentName/model applies — see AutomatedWorkflowStepPreviewCard's
+                // comment for why a step never shows both or neither.
+                step.agentName ?: step.model?.let { "Model: $it" } ?: "Unassigned",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -685,17 +700,16 @@ private fun AutomatedWorkflowRunStepCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            if (step.summary.isNotBlank() && step.status == "pending") {
-                Text(step.summary, style = MaterialTheme.typography.bodySmall)
+            if (step.status == "pending") {
+                StepContentPreview(step.summary.ifBlank { "No details yet." })
             }
 
             when (step.status) {
                 "running" -> {
                     Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.extraSmall) {
-                        Text(
+                        StepContentPreview(
                             streamingText?.takeIf(String::isNotBlank) ?: "Starting…",
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(8.dp).heightIn(max = 160.dp),
+                            modifier = Modifier.padding(8.dp),
                         )
                     }
                 }
@@ -719,7 +733,7 @@ private fun AutomatedWorkflowRunStepCard(
                 }
                 "failed" -> {
                     if (!step.error.isNullOrBlank()) {
-                        Text(step.error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        StepContentPreview(step.error, color = MaterialTheme.colorScheme.error)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         TextButton(onClick = { onRetry(step) }) { Text("Retry") }
@@ -737,7 +751,7 @@ private fun AutomatedWorkflowRunStepCard(
                         }
                         if (expanded) {
                             if (step.output.isNotBlank()) {
-                                Text(step.output, style = MaterialTheme.typography.bodySmall)
+                                StepContentPreview(step.output)
                             }
                             if (step.conversationId != null) {
                                 TextButton(onClick = { onOpenConversation(step.conversationId) }) { Text("Open conversation") }
@@ -754,6 +768,26 @@ private fun AutomatedWorkflowRunStepCard(
             }
         }
     }
+}
+
+@Composable
+private fun StepContentPreview(
+    text: String,
+    modifier: Modifier = Modifier,
+    color: androidx.compose.ui.graphics.Color = androidx.compose.ui.graphics.Color.Unspecified,
+) {
+    // Every step card reserves the same 5-line block for its body text regardless of
+    // status, so cards don't jump around in height as a step's content streams in —
+    // longer content truncates with an ellipsis rather than growing the card.
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        color = color,
+        minLines = 5,
+        maxLines = 5,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier.fillMaxWidth(),
+    )
 }
 
 @Composable

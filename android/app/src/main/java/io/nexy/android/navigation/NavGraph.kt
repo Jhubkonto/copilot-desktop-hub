@@ -29,6 +29,7 @@ import io.nexy.android.ui.skillgenerator.SkillGeneratorScreen
 import io.nexy.android.ui.chat.ChatScreen
 import io.nexy.android.ui.projects.ProjectConfigScreen
 import io.nexy.android.ui.projects.ProjectAuditScreen
+import io.nexy.android.ui.projects.AutomatedWorkflowListScreen
 import io.nexy.android.ui.projects.AutomatedWorkflowScreen
 import io.nexy.android.ui.home.ActivityFeedScreen
 import io.nexy.android.ui.home.AgentConfigScreen
@@ -197,6 +198,9 @@ fun NavGraph(
                 },
                 onOpenScheduled = {
                     navController.navigate("scheduled")
+                },
+                onOpenAutomatedWorkflows = {
+                    navController.navigate("automated-workflows?projectId=")
                 },
                 onOpenSkillGenerator = {
                     navController.navigate("skill-generator")
@@ -442,6 +446,18 @@ fun NavGraph(
         ) { backStackEntry ->
             val projectId = backStackEntry.arguments?.getString("projectId") ?: return@composable
             AutomatedWorkflowScreen(
+                projectId = projectId,
+                onBack = { navController.popBackStack() },
+                onOpenConversation = { conversationId -> navController.navigate("chat/$conversationId") },
+            )
+        }
+
+        composable(
+            route = "automated-workflows?projectId={projectId}",
+            arguments = listOf(navArgument("projectId") { type = NavType.StringType; defaultValue = "" }),
+        ) { backStackEntry ->
+            val projectId = backStackEntry.arguments?.getString("projectId")?.takeIf { it.isNotBlank() }
+            AutomatedWorkflowListScreen(
                 projectId = projectId,
                 onBack = { navController.popBackStack() },
                 onOpenConversation = { conversationId -> navController.navigate("chat/$conversationId") },

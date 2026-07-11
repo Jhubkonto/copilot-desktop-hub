@@ -25,13 +25,18 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -40,11 +45,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.WsRepository
+import io.nexy.android.data.model.AutomatedWorkflowRunInfo
+import io.nexy.android.data.model.WsEvent
 import io.nexy.android.ui.components.NexyTopAppBar
+import org.json.JSONArray
+import org.json.JSONObject
 
 private val SCHEDULE_TYPES = listOf("daily", "weekdays", "weekly", "monthly", "one-time")
 private val WEEKDAYS = listOf("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
 private val NOTIFICATION_PREFS = listOf("always", "failures_only", "off")
+private val TARGET_TYPES = listOf("chat" to "Standalone task", "automated_workflow" to "Automated Workflow")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,6 +84,66 @@ fun SchedulerTaskConfigScreen(
     var model by rememberSaveable(initial) { mutableStateOf(initial?.model ?: "") }
     var notificationPref by rememberSaveable(initial) { mutableStateOf(initial?.notificationPref ?: "failures_only") }
     var nameError by remember { mutableStateOf<String?>(null) }
+
+    // Target: a plain chat prompt (default, unchanged behavior) or one attached Automated
+    // Workflow run (see src/roadmap-new/ — schedules can target a saved workflow instead of a
+    // chat message).
+    var targetType by rememberSaveable(initial) { mutableStateOf(initial?.targetType ?: "chat") }
+    val workflowOptions = remember { mutableStateListOf<AutomatedWorkflowRunInfo>() }
+    var selectedRunId by rememberSaveable(initial) { mutableStateOf(initial?.workflowSpecs?.firstOrNull()?.sourceRunId ?: "") }
+    var selectedRunDetail by remember { mutableStateOf<AutomatedWorkflowRunInfo?>(null) }
+
+    LaunchedEffect(Unit) {
+        WsRepository.events.collect { event ->
+            when (event) {
+                is WsEvent.SchedulerWorkflowTemplates -> {
+                    workflowOptions.clear()
+                    workflowOptions.addAll(event.runs)
+                }
+                is WsEvent.AutomatedWorkflowRunDetailReady -> {
+                    if (event.run != null && event.run.id == selectedRunId) selectedRunDetail = event.run
+                }
+                else -> {}
+            }
+        }
+    }
+
+    LaunchedEffect(targetType) {
+        if (targetType == "automated_workflow" && workflowOptions.isEmpty()) {
+            WsRepository.schedulerListWorkflowTemplates()
+        }
+    }
+
+    LaunchedEffect(selectedRunId) {
+        if (selectedRunId.isNotBlank() && selectedRunDetail?.id != selectedRunId) {
+            WsRepository.getAutomatedWorkflowRun(selectedRunId)
+        }
+    }
+
+    fun buildWorkflowSpecJson(detail: AutomatedWorkflowRunInfo): String {
+        val stepsArr = JSONArray()
+        detail.steps.forEach { step ->
+            stepsArr.put(
+                JSONObject().apply {
+                    put("id", step.id)
+                    put("title", step.title)
+                    put("summary", step.summary)
+                    step.agentId?.let { put("agentId", it) }
+                    step.agentName?.let { put("agentName", it) }
+                    step.model?.let { put("model", it) }
+                    put("prompt", step.prompt)
+                    put("expectedOutput", step.expectedOutput)
+                    if (step.dependsOnStepIds.isNotEmpty()) put("dependsOnStepIds", JSONArray(step.dependsOnStepIds))
+                },
+            )
+        }
+        return JSONObject().apply {
+            put("title", detail.title)
+            put("goalSummary", detail.goalSummary)
+            put("assumptions", JSONArray(detail.assumptions))
+            put("steps", stepsArr)
+        }.toString()
+    }
 
     Scaffold(
         topBar = {
@@ -135,15 +205,46 @@ fun SchedulerTaskConfigScreen(
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
             )
 
-            OutlinedTextField(
-                value = prompt,
-                onValueChange = { prompt = it },
-                label = { Text("Prompt") },
-                modifier = Modifier.fillMaxWidth(),
-                minLines = 4,
-                maxLines = 8,
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
-            )
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                TARGET_TYPES.forEachIndexed { i, (value, label) ->
+                    SegmentedButton(
+                        selected = targetType == value,
+                        onClick = { targetType = value },
+                        shape = SegmentedButtonDefaults.itemShape(index = i, count = TARGET_TYPES.size),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                    }
+                }
+            }
+
+            if (targetType == "chat") {
+                OutlinedTextField(
+                    value = prompt,
+                    onValueChange = { prompt = it },
+                    label = { Text("Prompt") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 4,
+                    maxLines = 8,
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
+                )
+            } else {
+                DropdownField(
+                    label = "Automated workflow to attach",
+                    options = listOf("") + workflowOptions.map { it.id },
+                    selected = selectedRunId,
+                    onSelect = { selectedRunId = it; selectedRunDetail = null },
+                    display = { id ->
+                        if (id.isEmpty()) "Select a saved workflow…"
+                        else workflowOptions.firstOrNull { it.id == id }?.title ?: id
+                    },
+                )
+                Text(
+                    "Attaches a copy of that workflow's current steps — later edits to the original plan won't affect this schedule. Each firing runs the plan through automatically (no per-step review).",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
 
             DropdownField(
                 label = "Schedule type",
@@ -229,14 +330,15 @@ fun SchedulerTaskConfigScreen(
             )
 
             Spacer(Modifier.height(4.dp))
+            val workflowSelectionIncomplete = targetType == "automated_workflow" && (selectedRunId.isBlank() || selectedRunDetail == null)
             Button(
                 onClick = {
                     if (name.isBlank()) { nameError = "Name is required"; return@Button }
-                    if (!isConnected) return@Button
+                    if (!isConnected || workflowSelectionIncomplete) return@Button
 
                     val input = buildMap<String, Any?> {
                         put("name", name.trim())
-                        put("prompt", prompt.trim())
+                        put("prompt", if (targetType == "chat") prompt.trim() else "")
                         put("scheduleType", scheduleType)
                         put("localTime", localTime)
                         put("timezone", timezone)
@@ -246,6 +348,22 @@ fun SchedulerTaskConfigScreen(
                         put("projectId", projectId.ifBlank { null })
                         put("model", model.ifBlank { null })
                         put("notificationPref", notificationPref)
+                        put("targetType", targetType)
+                        if (targetType == "automated_workflow") {
+                            val detail = selectedRunDetail
+                            if (detail != null) {
+                                put(
+                                    "workflowSpecs",
+                                    listOf(
+                                        mapOf(
+                                            "workflowSpecJson" to buildWorkflowSpecJson(detail),
+                                            "sourceRunId" to selectedRunId,
+                                            "confirmationMode" to "auto",
+                                        ),
+                                    ),
+                                )
+                            }
+                        }
                         if (!isEdit) put("enabled", true)
                     }
                     if (taskId != null) viewModel.update(taskId, input)
@@ -253,7 +371,7 @@ fun SchedulerTaskConfigScreen(
                     onBack()
                 },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = isConnected,
+                enabled = isConnected && !workflowSelectionIncomplete,
             ) {
                 Text(if (isEdit) "Save changes" else "Create task")
             }

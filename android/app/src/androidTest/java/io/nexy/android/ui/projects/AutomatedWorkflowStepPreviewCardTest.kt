@@ -49,6 +49,19 @@ class AutomatedWorkflowStepPreviewCardTest {
     }
 
     @Test
+    fun showsModelBadgeWhenStepIsFulfilledByBareModelInsteadOfAgent() {
+        // A step fulfilled by a bare model (no agent) never gets skill augmentation — the UI must
+        // make that distinction visible rather than falling back to "Unassigned".
+        composeRule.setContent {
+            AutomatedWorkflowStepPreviewCard(
+                index = 0,
+                step = step.copy(agentName = null, model = "claude-sonnet-4-6"),
+            )
+        }
+        composeRule.onNodeWithText("Model: claude-sonnet-4-6 · Output: All tests green").assertIsDisplayed()
+    }
+
+    @Test
     fun copyButtonIsShownWhenPromptIsPresent() {
         composeRule.setContent {
             AutomatedWorkflowStepPreviewCard(index = 0, step = step)

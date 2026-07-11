@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.DateRange
@@ -103,6 +104,7 @@ fun HomeScreen(
     onOpenArtifacts: () -> Unit,
     onOpenSkills: () -> Unit,
     onOpenScheduled: () -> Unit,
+    onOpenAutomatedWorkflows: () -> Unit,
     onOpenSkillGenerator: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenPairingScan: () -> Unit,
@@ -472,6 +474,12 @@ fun HomeScreen(
                                 text = { Text(if (connectionState == ConnectionState.CONNECTED) "Scheduled" else "Scheduled · desktop required") },
                                 leadingIcon = { Icon(Icons.Default.DateRange, contentDescription = null) },
                                 onClick = { showOverflowMenu = false; onOpenScheduled() },
+                                enabled = connectionState == ConnectionState.CONNECTED,
+                            )
+                            DropdownMenuItem(
+                                text = { Text(if (connectionState == ConnectionState.CONNECTED) "Automated Workflows" else "Automated Workflows · desktop required") },
+                                leadingIcon = { Icon(Icons.Default.AccountTree, contentDescription = null) },
+                                onClick = { showOverflowMenu = false; onOpenAutomatedWorkflows() },
                                 enabled = connectionState == ConnectionState.CONNECTED,
                             )
                         }
