@@ -35,6 +35,25 @@ vi.mock('../ws-server', () => ({ broadcastToMobile: vi.fn() }))
 vi.mock('../logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }))
 vi.mock('../fcm-sender', () => ({ sendSchedulerRunNotification: vi.fn().mockResolvedValue(undefined) }))
 
+const workflowMocks = vi.hoisted(() => ({
+  saveSpecMock: vi.fn(),
+  findByTagMock: vi.fn(),
+  startRunMock: vi.fn(),
+  retryStepMock: vi.fn(),
+  setModeMock: vi.fn(),
+}))
+
+vi.mock('../automated-workflow-runs', () => ({
+  saveAutomatedWorkflowRunFromSpec: workflowMocks.saveSpecMock,
+  findAutomatedWorkflowRunByScheduleTag: workflowMocks.findByTagMock,
+}))
+
+vi.mock('../automated-workflow-executor', () => ({
+  startAutomatedWorkflowRun: workflowMocks.startRunMock,
+  retryAutomatedWorkflowStep: workflowMocks.retryStepMock,
+  setAutomatedWorkflowConfirmationMode: workflowMocks.setModeMock,
+}))
+
 // ─── Imports after mocks ──────────────────────────────────────────────────
 
 import { initializeBaseSchema, runMigrations } from '../database-migrations'
@@ -46,8 +65,9 @@ import {
   dbDeleteTask,
   dbSetTaskEnabled,
   dbListRuns,
+  dbSetScheduledTaskWorkflows,
 } from '../scheduler-engine'
-import type { ScheduledTaskCreateInput } from '../../shared/types'
+import type { ScheduledTaskCreateInput, AutomatedWorkflowRunDetail } from '../../shared/types'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -68,6 +88,34 @@ function initDb() {
   initializeBaseSchema(state.db)
   runMigrations(state.db)
 }
+
+function makeRunDetail(overrides: Partial<AutomatedWorkflowRunDetail> = {}): AutomatedWorkflowRunDetail {
+  return {
+    id: 'run-x',
+    projectId: null,
+    title: 'Spec',
+    goalSummary: '',
+    model: null,
+    status: 'pending',
+    confirmationMode: 'gated',
+    currentStepId: null,
+    lastError: null,
+    stepCounts: { total: 1, pending: 1, running: 0, awaitingConfirmation: 0, done: 0, failed: 0, skipped: 0 },
+    createdAt: 0,
+    updatedAt: 0,
+    assumptions: [],
+    steps: [],
+    ...overrides,
+  }
+}
+
+beforeEach(() => {
+  workflowMocks.saveSpecMock.mockReset()
+  workflowMocks.findByTagMock.mockReset()
+  workflowMocks.startRunMock.mockReset()
+  workflowMocks.retryStepMock.mockReset()
+  workflowMocks.setModeMock.mockReset()
+})
 
 // ─── Tests ────────────────────────────────────────────────────────────────
 
@@ -228,5 +276,126 @@ describe('SchedulerEngine — triggerRun', () => {
     expect(convId).toBeTruthy()
     await engine.triggerRun(task.id, 'manual')
     expect(dbGetTask(task.id)!.conversationId).toBe(convId)
+  })
+})
+
+describe('SchedulerEngine — executeWorkflowRun (target_type: automated_workflow)', () => {
+  let engine: SchedulerEngine
+
+  beforeEach(() => {
+    initDb()
+    engine = new SchedulerEngine()
+  })
+
+  afterEach(() => {
+    engine.stop()
+    state.db?.close()
+    state.db = null
+  })
+
+  function makeWorkflowTask(specCount: number, projectId: string | null = 'proj-1') {
+    const task = dbCreateTask(makeInput({ name: 'Workflow schedule', targetType: 'automated_workflow', projectId }))
+    dbSetScheduledTaskWorkflows(
+      task.id,
+      Array.from({ length: specCount }, (_, i) => ({
+        workflowSpecJson: JSON.stringify({ title: `Spec ${i}`, goalSummary: '', assumptions: [], steps: [] }),
+        sourceRunId: null,
+        confirmationMode: 'auto' as const,
+      })),
+    )
+    return task
+  }
+
+  it('spawns and sequentially completes multiple attached workflow specs, scoped to the task project', async () => {
+    const task = makeWorkflowTask(2)
+    workflowMocks.findByTagMock.mockReturnValue(null)
+    workflowMocks.saveSpecMock
+      .mockReturnValueOnce(makeRunDetail({ id: 'run-A', projectId: 'proj-1', status: 'pending' }))
+      .mockReturnValueOnce(makeRunDetail({ id: 'run-B', projectId: 'proj-1', status: 'pending' }))
+    workflowMocks.startRunMock
+      .mockResolvedValueOnce(makeRunDetail({ id: 'run-A', projectId: 'proj-1', status: 'done' }))
+      .mockResolvedValueOnce(makeRunDetail({ id: 'run-B', projectId: 'proj-1', status: 'done' }))
+
+    const run = await engine.triggerRun(task.id, 'manual')
+
+    expect(run.status).toBe('success')
+    expect(run.workflowRunIds).toEqual(['run-A', 'run-B'])
+    expect(workflowMocks.saveSpecMock).toHaveBeenCalledTimes(2)
+    expect(workflowMocks.saveSpecMock.mock.calls[0][0]).toBe('proj-1')
+    expect(workflowMocks.saveSpecMock.mock.calls[0][3]).toBeNull()
+    expect(workflowMocks.saveSpecMock.mock.calls[0][4]).toEqual({ scheduledRunId: run.id, specSortOrder: 0 })
+    expect(workflowMocks.saveSpecMock.mock.calls[1][4]).toEqual({ scheduledRunId: run.id, specSortOrder: 1 })
+  })
+
+  it('stops the batch and surfaces approval_required when a gated spec pauses at awaiting_confirmation', async () => {
+    const task = makeWorkflowTask(2)
+    workflowMocks.findByTagMock.mockReturnValue(null)
+    workflowMocks.saveSpecMock
+      .mockReturnValueOnce(makeRunDetail({ id: 'run-A', status: 'pending' }))
+    workflowMocks.startRunMock
+      .mockResolvedValueOnce(makeRunDetail({ id: 'run-A', status: 'awaiting_confirmation' }))
+
+    const run = await engine.triggerRun(task.id, 'manual')
+
+    expect(run.status).toBe('approval_required')
+    expect(run.workflowRunIds).toEqual(['run-A'])
+    // Second spec is never started — the batch stops at the first non-done run.
+    expect(workflowMocks.saveSpecMock).toHaveBeenCalledTimes(1)
+    expect(workflowMocks.startRunMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries a failed spec on the next in-process attempt without re-running an already-completed one', async () => {
+    vi.useFakeTimers()
+    const task = makeWorkflowTask(2)
+
+    workflowMocks.findByTagMock
+      .mockReturnValueOnce(null) // spec 0, attempt 1: not yet created
+      .mockReturnValueOnce(null) // spec 1, attempt 1: not yet created
+      .mockReturnValueOnce(makeRunDetail({ id: 'run-A', status: 'done' })) // spec 0, attempt 2: already done
+      .mockReturnValueOnce(makeRunDetail({
+        id: 'run-B',
+        status: 'failed',
+        lastError: 'boom',
+        steps: [{
+          id: 'solo', dbId: 'step-B', runId: 'run-B', stepIndex: 0, title: 'Solo', summary: '',
+          prompt: '', expectedOutput: '', status: 'failed', attempt: 0, output: '', error: 'boom',
+          conversationId: null, startedAt: null, completedAt: null,
+        }],
+      })) // spec 1, attempt 2: still the failed run
+
+    workflowMocks.saveSpecMock
+      .mockReturnValueOnce(makeRunDetail({ id: 'run-A', status: 'pending' }))
+      .mockReturnValueOnce(makeRunDetail({ id: 'run-B', status: 'pending' }))
+
+    workflowMocks.startRunMock
+      .mockResolvedValueOnce(makeRunDetail({ id: 'run-A', status: 'done' })) // spec 0, attempt 1
+      .mockResolvedValueOnce(makeRunDetail({ id: 'run-B', status: 'failed', lastError: 'boom' })) // spec 1, attempt 1 -> throws
+
+    workflowMocks.retryStepMock
+      .mockResolvedValueOnce(makeRunDetail({ id: 'run-B', status: 'done' })) // spec 1, attempt 2 -> retried to done
+
+    const runPromise = engine.triggerRun(task.id, 'manual')
+    await vi.advanceTimersByTimeAsync(30_000)
+    const run = await runPromise
+
+    expect(run.status).toBe('success')
+    expect(run.workflowRunIds).toEqual(['run-A', 'run-B'])
+    // Only created once each across both in-process attempts — the idempotency guard (via
+    // findAutomatedWorkflowRunByScheduleTag) prevented spec 0 from being recreated/restarted and
+    // spec 1 from being recreated (it was retried in place instead).
+    expect(workflowMocks.saveSpecMock).toHaveBeenCalledTimes(2)
+    expect(workflowMocks.retryStepMock).toHaveBeenCalledWith('run-B', 'step-B')
+    vi.useRealTimers()
+  })
+
+  it('fails the schedule run when no specs are attached', async () => {
+    const task = dbCreateTask(makeInput({ targetType: 'automated_workflow' }))
+    vi.useFakeTimers()
+    const runPromise = engine.triggerRun(task.id, 'manual')
+    await vi.advanceTimersByTimeAsync(60_000)
+    const run = await runPromise
+    expect(run.status).toBe('failed')
+    expect(run.error).toMatch(/no automated workflow attached/i)
+    vi.useRealTimers()
   })
 })

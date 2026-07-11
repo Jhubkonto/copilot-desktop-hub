@@ -161,7 +161,11 @@ function broadcastStepStream(runId: string, stepDbId: string, chunk: string): vo
   broadcastToMobile({ event: 'automated-workflow-runs:step-stream', data: { runId, stepDbId, chunk } })
 }
 
-function resolvePrimaryAgentId(projectId: string): string | null {
+function resolvePrimaryAgentId(projectId: string | null): string | null {
+  // No project_agents row can exist for a project that doesn't exist — a project-less run has
+  // no agent fallback at all, which is exactly what makes it land in model-mode (no skills) by
+  // default unless a step explicitly names a real agent.
+  if (!projectId) return null
   const row = getDatabase()
     .prepare('SELECT agent_id FROM project_agents WHERE project_id = ? ORDER BY is_primary DESC, sort_order ASC, added_at ASC LIMIT 1')
     .get(projectId) as { agent_id: string } | undefined
@@ -258,18 +262,16 @@ export async function advanceAutomatedWorkflowRun(runId: string): Promise<Automa
       break
     }
 
-    const agentId = next.agentId ?? resolvePrimaryAgentId(detail.projectId)
-    if (!agentId) {
-      const now = Date.now()
-      const message = 'No agent is available to run this step — assign an agent to the project.'
-      db.prepare('UPDATE automated_workflow_run_steps SET status = \'failed\', error = ?, completed_at = ? WHERE id = ?')
-        .run(message, now, next.dbId)
-      db.prepare('UPDATE automated_workflow_runs SET status = \'failed\', error = ?, current_step_id = NULL, updated_at = ? WHERE id = ?')
-        .run(message, now, runId)
-      detail = getAutomatedWorkflowRun(runId)!
-      notifyRunChanged(detail)
-      break
-    }
+    // Agent-or-model resolution: a step is fulfilled by EITHER a specific agent (that agent's
+    // own attached skills apply, exactly as before) OR a bare model (no skills at all, full
+    // stop — skill access is strictly agent-gated, never freely available to a bare model).
+    // Explicit step.agentId always wins. Otherwise, if the step didn't explicitly request a
+    // bare model, fall back to the project's primary agent (today's exact pre-existing
+    // behavior, unchanged). Only if neither resolves — including a project-less run, which has
+    // no primary-agent fallback at all — does the step run in model-mode.
+    const resolvedAgentId = next.agentId ?? (next.model ? null : resolvePrimaryAgentId(detail.projectId))
+    const agentId = resolvedAgentId ?? undefined
+    const stepModel = resolvedAgentId ? undefined : (next.model ?? detail.model ?? getAutomatedWorkflowGeneratorModel())
 
     const conversation = createConversationRecord(agentId, detail.projectId, `${detail.title} — ${next.title}`)
     const prompt = weaveStepPrompt(next, buildCompletedMap(detail))
@@ -290,7 +292,7 @@ export async function advanceAutomatedWorkflowRun(runId: string): Promise<Automa
     startActivity({
       id: activityId,
       kind: 'automated-workflow-run',
-      projectId: detail.projectId,
+      projectId: detail.projectId ?? undefined,
       conversationId: conversation.id,
       label: `Running step "${next.title}"…`,
     })
@@ -299,7 +301,7 @@ export async function advanceAutomatedWorkflowRun(runId: string): Promise<Automa
     try {
       output = await runAgentTurn({
         agentId,
-        fallbackModel: detail.model ?? getAutomatedWorkflowGeneratorModel(),
+        fallbackModel: stepModel ?? detail.model ?? getAutomatedWorkflowGeneratorModel(),
         taskContent: prompt,
         requestId: `automated-workflow:${runId}:${next.dbId}:${next.attempt}`,
         generationOptions: { temperature: 0.5, maxTokens: 4096 },

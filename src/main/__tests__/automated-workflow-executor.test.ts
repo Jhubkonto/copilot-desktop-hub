@@ -181,18 +181,70 @@ describe('automated-workflow-executor: gated mode', () => {
     expect(afterStart!.steps.find((s) => s.id === 'build')!.status).toBe('pending')
   })
 
-  it('fails immediately with a clear error when no agent is available', async () => {
+  it('runs a step via a bare model (no skills) when no agent is available at all', async () => {
     const { saveAutomatedWorkflowRunFromSpec } = await import('../automated-workflow-runs')
     const { startAutomatedWorkflowRun } = await import('../automated-workflow-executor')
     db.prepare("INSERT INTO projects (id, name, color, created_at, updated_at) VALUES ('proj-2', 'No agents', 'blue', 1, 1)").run()
+    runAgentTurnMock.mockResolvedValueOnce('model output')
 
     const spec = multiStepSpec({ steps: [{ id: 'solo', title: 'Solo', summary: '', prompt: 'Do it', expectedOutput: '' }] })
     const created = saveAutomatedWorkflowRunFromSpec('proj-2', spec, null, null)
     const afterStart = await startAutomatedWorkflowRun(created.id)
 
-    expect(afterStart!.status).toBe('failed')
-    expect(afterStart!.lastError).toMatch(/no agent is available/i)
-    expect(runAgentTurnMock).not.toHaveBeenCalled()
+    expect(afterStart!.status).toBe('awaiting_confirmation')
+    expect(afterStart!.steps[0].status).toBe('awaiting_confirmation')
+    expect(afterStart!.steps[0].output).toBe('model output')
+    expect(runAgentTurnMock).toHaveBeenCalledTimes(1)
+    const callArgs = runAgentTurnMock.mock.calls[0][0]
+    expect(callArgs.agentId).toBeUndefined()
+    expect(callArgs.fallbackModel).toBe('gpt-5.5')
+  })
+
+  it('runs a project-less (null project) step in model-mode using the run-level model', async () => {
+    const { saveAutomatedWorkflowRunFromSpec } = await import('../automated-workflow-runs')
+    const { startAutomatedWorkflowRun } = await import('../automated-workflow-executor')
+    runAgentTurnMock.mockResolvedValueOnce('model output')
+
+    const spec = multiStepSpec({ steps: [{ id: 'solo', title: 'Solo', summary: '', prompt: 'Do it', expectedOutput: '' }] })
+    const created = saveAutomatedWorkflowRunFromSpec(null, spec, 'run-level-model', null)
+    expect(created.projectId).toBeNull()
+    const afterStart = await startAutomatedWorkflowRun(created.id)
+
+    expect(afterStart!.projectId).toBeNull()
+    expect(afterStart!.steps[0].status).toBe('awaiting_confirmation')
+    const callArgs = runAgentTurnMock.mock.calls[0][0]
+    expect(callArgs.agentId).toBeUndefined()
+    expect(callArgs.fallbackModel).toBe('run-level-model')
+  })
+
+  it('honors an explicit step-level model even when a primary agent is available for the project', async () => {
+    const { saveAutomatedWorkflowRunFromSpec } = await import('../automated-workflow-runs')
+    const { startAutomatedWorkflowRun } = await import('../automated-workflow-executor')
+    runAgentTurnMock.mockResolvedValueOnce('model output')
+
+    // proj-1 has agent-1 seeded as primary (see beforeEach), but this step explicitly opts into
+    // a bare model, which must win over the primary-agent fallback.
+    const spec = multiStepSpec({ steps: [{ id: 'solo', title: 'Solo', summary: '', prompt: 'Do it', expectedOutput: '', model: 'gpt-6-mega' }] })
+    const created = saveAutomatedWorkflowRunFromSpec('proj-1', spec, null, null)
+    const afterStart = await startAutomatedWorkflowRun(created.id)
+
+    expect(afterStart!.steps[0].status).toBe('awaiting_confirmation')
+    const callArgs = runAgentTurnMock.mock.calls[0][0]
+    expect(callArgs.agentId).toBeUndefined()
+    expect(callArgs.fallbackModel).toBe('gpt-6-mega')
+  })
+
+  it('still uses the explicit agent path (and that agent\'s skills) when a step names an agentId, unchanged from before', async () => {
+    const { saveAutomatedWorkflowRunFromSpec } = await import('../automated-workflow-runs')
+    const { startAutomatedWorkflowRun } = await import('../automated-workflow-executor')
+    runAgentTurnMock.mockResolvedValueOnce('agent output')
+
+    const created = saveAutomatedWorkflowRunFromSpec('proj-1', multiStepSpec({ steps: [multiStepSpec().steps[0]] }), null, null)
+    const afterStart = await startAutomatedWorkflowRun(created.id)
+
+    expect(afterStart!.steps[0].status).toBe('awaiting_confirmation')
+    const callArgs = runAgentTurnMock.mock.calls[0][0]
+    expect(callArgs.agentId).toBe('agent-1')
   })
 })
 
@@ -332,5 +384,35 @@ describe('automated-workflow-executor: crash recovery', () => {
     const untouched = getAutomatedWorkflowRun(created.id)!
     expect(untouched.status).toBe('pending')
     expect(untouched.steps[0].status).toBe('pending')
+  })
+
+  it('recovers a schedule-spawned run (tagged with scheduled_run_id/spec_sort_order) identically to a manually-created one', async () => {
+    // The startup sweep keys purely on status='running' with no special-casing for how the run
+    // was created, so a schedule-spawned run should be recovered exactly like a manual one.
+    const { saveAutomatedWorkflowRunFromSpec, getAutomatedWorkflowRun } = await import('../automated-workflow-runs')
+    const { recoverStuckAutomatedWorkflowRuns } = await import('../automated-workflow-executor')
+
+    const created = saveAutomatedWorkflowRunFromSpec(
+      'proj-1',
+      multiStepSpec({ steps: [multiStepSpec().steps[0]] }),
+      null,
+      null,
+      { scheduledRunId: 'sched-run-1', specSortOrder: 0 },
+    )
+    db.prepare("UPDATE automated_workflow_run_steps SET status = 'running' WHERE run_id = ?").run(created.id)
+    db.prepare("UPDATE automated_workflow_runs SET status = 'running' WHERE id = ?").run(created.id)
+
+    recoverStuckAutomatedWorkflowRuns()
+
+    const recovered = getAutomatedWorkflowRun(created.id)!
+    expect(recovered.status).toBe('failed')
+    expect(recovered.lastError).toMatch(/closed or restarted/i)
+    expect(recovered.steps[0].status).toBe('failed')
+    expect(recovered.steps[0].error).toMatch(/closed or restarted/i)
+
+    const tagRow = db.prepare('SELECT scheduled_run_id, spec_sort_order FROM automated_workflow_runs WHERE id = ?')
+      .get(created.id) as { scheduled_run_id: string | null; spec_sort_order: number | null }
+    expect(tagRow.scheduled_run_id).toBe('sched-run-1')
+    expect(tagRow.spec_sort_order).toBe(0)
   })
 })

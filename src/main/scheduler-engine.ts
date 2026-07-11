@@ -6,7 +6,23 @@ import { dispatchChatSend } from './chat-handlers'
 import { broadcastToMobile } from './ws-server'
 import { sendSchedulerRunNotification } from './fcm-sender'
 import { log } from './logger'
-import type { ScheduledTask, ScheduledRun, ScheduledTaskCreateInput, ScheduledTaskUpdateInput } from '../shared/types'
+import {
+  saveAutomatedWorkflowRunFromSpec,
+  findAutomatedWorkflowRunByScheduleTag,
+} from './automated-workflow-runs'
+import {
+  startAutomatedWorkflowRun,
+  retryAutomatedWorkflowStep,
+  setAutomatedWorkflowConfirmationMode,
+} from './automated-workflow-executor'
+import type {
+  ScheduledTask,
+  ScheduledRun,
+  ScheduledTaskCreateInput,
+  ScheduledTaskUpdateInput,
+  ScheduledTaskWorkflowSpec,
+  AutomatedWorkflowSpec,
+} from '../shared/types'
 
 // ─────────────────────────────────────────────────────────────
 // DB helpers
@@ -31,6 +47,8 @@ function rowToTask(row: Record<string, unknown>): ScheduledTask {
     notificationPref: (row.notification_pref as ScheduledTask['notificationPref']) ?? 'failures_only',
     nextRunAt: (row.next_run_at as number | null) ?? null,
     lastRunAt: (row.last_run_at as number | null) ?? null,
+    targetType: (row.target_type as ScheduledTask['targetType']) ?? 'chat',
+    workflowSpecs: dbListScheduledTaskWorkflows(row.id as string),
     createdAt: row.created_at as number,
     updatedAt: row.updated_at as number,
   }
@@ -48,8 +66,39 @@ function rowToRun(row: Record<string, unknown>): ScheduledRun {
     conversationId: (row.conversation_id as string | null) ?? null,
     messageId: (row.message_id as string | null) ?? null,
     triggerSource: row.trigger_source as ScheduledRun['triggerSource'],
+    workflowRunIds: row.workflow_run_ids_json ? (JSON.parse(row.workflow_run_ids_json as string) as string[]) : null,
     createdAt: row.created_at as number,
   }
+}
+
+/** Attached Automated Workflow specs for a schedule, in execution order. */
+export function dbListScheduledTaskWorkflows(taskId: string): ScheduledTaskWorkflowSpec[] {
+  const rows = getDatabase()
+    .prepare('SELECT workflow_spec_json, source_run_id, confirmation_mode FROM scheduled_task_workflows WHERE task_id = ? ORDER BY sort_order ASC')
+    .all(taskId) as { workflow_spec_json: string; source_run_id: string | null; confirmation_mode: ScheduledTaskWorkflowSpec['confirmationMode'] }[]
+  return rows.map((row) => ({
+    workflowSpecJson: row.workflow_spec_json,
+    sourceRunId: row.source_run_id,
+    confirmationMode: row.confirmation_mode,
+  }))
+}
+
+/** Replaces the full set of workflow specs attached to a schedule — delete-then-reinsert within
+ *  a transaction, same pattern as `reorderSkillsForAgent`'s "set the full list" precedent in
+ *  skills.ts. */
+export function dbSetScheduledTaskWorkflows(taskId: string, specs: ScheduledTaskWorkflowSpec[]): void {
+  const db = getDatabase()
+  const now = Date.now()
+  db.transaction(() => {
+    db.prepare('DELETE FROM scheduled_task_workflows WHERE task_id = ?').run(taskId)
+    const insert = db.prepare(`
+      INSERT INTO scheduled_task_workflows (task_id, workflow_spec_json, source_run_id, confirmation_mode, sort_order, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `)
+    specs.forEach((spec, index) => {
+      insert.run(taskId, spec.workflowSpecJson, spec.sourceRunId, spec.confirmationMode, index, now)
+    })
+  })()
 }
 
 export function dbListTasks(onlyEnabled = false): ScheduledTask[] {
@@ -79,8 +128,8 @@ export function dbCreateTask(input: ScheduledTaskCreateInput): ScheduledTask {
     INSERT INTO scheduled_tasks
       (id, name, prompt, enabled, agent_id, project_id, model, schedule_type,
        local_time, weekday, month_day, timezone, tool_policy_json, notification_pref,
-       created_at, updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       target_type, created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   `).run(
     id,
     input.name,
@@ -96,9 +145,11 @@ export function dbCreateTask(input: ScheduledTaskCreateInput): ScheduledTask {
     input.timezone,
     JSON.stringify(toolPolicy),
     input.notificationPref ?? 'failures_only',
+    input.targetType ?? 'chat',
     now,
     now,
   )
+  if (input.workflowSpecs) dbSetScheduledTaskWorkflows(id, input.workflowSpecs)
   const task = dbGetTask(id)!
   // Calculate first nextRunAt
   const next = calcNextRunAt(task, now)
@@ -123,7 +174,7 @@ export function dbUpdateTask(id: string, input: ScheduledTaskUpdateInput): Sched
     UPDATE scheduled_tasks SET
       name = ?, prompt = ?, agent_id = ?, project_id = ?, model = ?,
       schedule_type = ?, local_time = ?, weekday = ?, month_day = ?,
-      timezone = ?, tool_policy_json = ?, notification_pref = ?, updated_at = ?
+      timezone = ?, tool_policy_json = ?, notification_pref = ?, target_type = ?, updated_at = ?
     WHERE id = ?
   `).run(
     input.name ?? existing.name,
@@ -138,9 +189,11 @@ export function dbUpdateTask(id: string, input: ScheduledTaskUpdateInput): Sched
     input.timezone ?? existing.timezone,
     JSON.stringify(toolPolicy),
     input.notificationPref ?? existing.notificationPref,
+    input.targetType ?? existing.targetType,
     now,
     id,
   )
+  if (input.workflowSpecs !== undefined) dbSetScheduledTaskWorkflows(id, input.workflowSpecs)
   const updated = dbGetTask(id)!
   const next = calcNextRunAt(updated, now)
   db.prepare('UPDATE scheduled_tasks SET next_run_at = ? WHERE id = ?').run(next ?? null, id)
@@ -194,13 +247,21 @@ function dbCreateRun(taskId: string, trigger: ScheduledRun['triggerSource'], sch
 function dbUpdateRunStatus(
   runId: string,
   status: ScheduledRun['status'],
-  extra: { startedAt?: number; finishedAt?: number; error?: string; conversationId?: string; messageId?: string } = {},
+  extra: {
+    startedAt?: number
+    finishedAt?: number
+    error?: string
+    conversationId?: string
+    messageId?: string
+    workflowRunIds?: string[]
+  } = {},
 ): ScheduledRun | null {
   const db = getDatabase()
   db.prepare(`
     UPDATE scheduled_runs SET status = ?, started_at = COALESCE(?, started_at),
       finished_at = COALESCE(?, finished_at), error = COALESCE(?, error),
-      conversation_id = COALESCE(?, conversation_id), message_id = COALESCE(?, message_id)
+      conversation_id = COALESCE(?, conversation_id), message_id = COALESCE(?, message_id),
+      workflow_run_ids_json = COALESCE(?, workflow_run_ids_json)
     WHERE id = ?
   `).run(
     status,
@@ -209,6 +270,7 @@ function dbUpdateRunStatus(
     extra.error ?? null,
     extra.conversationId ?? null,
     extra.messageId ?? null,
+    extra.workflowRunIds ? JSON.stringify(extra.workflowRunIds) : null,
     runId,
   )
   const row = db.prepare('SELECT * FROM scheduled_runs WHERE id = ?').get(runId) as Record<string, unknown> | undefined
@@ -405,6 +467,78 @@ export class SchedulerEngine {
   }
 
   private async executeRun(task: ScheduledTask, runId: string): Promise<ScheduledRun> {
+    if (task.targetType === 'automated_workflow') return this.executeWorkflowRun(task, runId)
+    return this.executeChatRun(task, runId)
+  }
+
+  private async executeWorkflowRun(task: ScheduledTask, runId: string): Promise<ScheduledRun> {
+    const specs = dbListScheduledTaskWorkflows(task.id)
+    if (specs.length === 0) throw new Error('Schedule has no automated workflow attached')
+
+    const spawnedRunIds: string[] = []
+    let complete = true
+
+    for (let i = 0; i < specs.length; i++) {
+      const spec = specs[i]
+      let detail = findAutomatedWorkflowRunByScheduleTag(runId, i)
+
+      if (!detail) {
+        const parsedSpec = JSON.parse(spec.workflowSpecJson) as AutomatedWorkflowSpec
+        detail = saveAutomatedWorkflowRunFromSpec(task.projectId, parsedSpec, task.model, null, {
+          scheduledRunId: runId,
+          specSortOrder: i,
+        })
+        setAutomatedWorkflowConfirmationMode(detail.id, spec.confirmationMode)
+        detail = (await startAutomatedWorkflowRun(detail.id)) ?? detail
+      } else if (detail.status === 'failed') {
+        // Retry semantics for an already-spawned run from an earlier attempt of this same
+        // scheduled_runs row — re-run just the failed step (and its already-reset dependents),
+        // not the whole spec from scratch, and never re-create/re-tag the run.
+        const failedStep = detail.steps.find((s) => s.status === 'failed')
+        detail = failedStep ? (await retryAutomatedWorkflowStep(detail.id, failedStep.dbId)) ?? detail : detail
+      } else if (detail.status === 'pending') {
+        detail = (await startAutomatedWorkflowRun(detail.id)) ?? detail
+      }
+
+      spawnedRunIds.push(detail.id)
+
+      if (detail.status === 'failed') {
+        dbUpdateRunStatus(runId, 'running', { workflowRunIds: spawnedRunIds })
+        throw new Error(detail.lastError ?? `Automated workflow "${detail.title}" failed`)
+      }
+      if (detail.status !== 'done') {
+        // Sequential batch: awaiting_confirmation (a 'gated' spec) or anything else non-terminal
+        // stops the batch here rather than starting subsequent specs while this one is still
+        // incomplete — the run overall surfaces as 'approval_required', not 'success'.
+        complete = false
+        break
+      }
+    }
+
+    const now = Date.now()
+    const finalStatus: ScheduledRun['status'] = complete ? 'success' : 'approval_required'
+    const run = dbUpdateRunStatus(runId, finalStatus, { finishedAt: now, workflowRunIds: spawnedRunIds })!
+    const db = getDatabase()
+    db.prepare('UPDATE scheduled_tasks SET last_run_at = ?, updated_at = ? WHERE id = ?').run(now, now, task.id)
+
+    pushRunUpdated(run)
+    void sendSchedulerRunNotification(getDatabase(), {
+      type: complete ? 'run-completed' : 'run-failed',
+      taskId: task.id,
+      taskName: task.name,
+      status: finalStatus === 'success' ? 'success' : 'failed',
+      conversationId: task.conversationId,
+    })
+    const refreshedTask = dbGetTask(task.id)
+    if (refreshedTask) {
+      pushTaskUpdated(refreshedTask)
+      maybeNotify(refreshedTask, finalStatus === 'success' ? 'success' : 'approval_required')
+    }
+    log.info(`[scheduler] Workflow run ${runId} finished with status ${finalStatus}`)
+    return run
+  }
+
+  private async executeChatRun(task: ScheduledTask, runId: string): Promise<ScheduledRun> {
     const db = getDatabase()
     const win = BrowserWindow.getAllWindows()[0]
     if (!win || win.webContents.isDestroyed()) {
