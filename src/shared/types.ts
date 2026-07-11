@@ -799,6 +799,10 @@ export interface ScheduleGeneratorSpec {
   agentId?: string
   projectId?: string
   notificationPref: 'always' | 'failures_only' | 'off'
+  /** Defaults to `'chat'`. `'automated_workflow'` requires `sourceRunId` — attaches an existing
+   *  saved Automated Workflow run rather than authoring a new spec inline (see src/roadmap-new/). */
+  targetType?: ScheduledTaskTargetType
+  sourceRunId?: string
 }
 
 export interface ScheduleGeneratorMessage {
@@ -810,8 +814,13 @@ export interface AutomatedWorkflowStep {
   id: string
   title: string
   summary: string
+  /** Alternative to `model`, not additional to it — a step is fulfilled by exactly one of the
+   *  two. Agent-fulfilled: that agent's own attached skills apply. */
   agentId?: string
   agentName?: string
+  /** Alternative to `agentId` — a bare-model step gets no skill augmentation at all, full stop.
+   *  Skill access is strictly agent-gated; there is no "skills available to any model" case. */
+  model?: string
   prompt: string
   expectedOutput: string
   dependsOnStepIds?: string[]
@@ -853,7 +862,9 @@ export interface AutomatedWorkflowRunStep extends AutomatedWorkflowStep {
 
 export interface AutomatedWorkflowRunSummary {
   id: string
-  projectId: string
+  /** Nullable — an Automated Workflow run is now project-optional, so it can be a truly
+   *  self-contained entity (like Skills/Scheduled tasks) rather than mandatorily project-scoped. */
+  projectId: string | null
   title: string
   goalSummary: string
   model: string | null
@@ -1372,6 +1383,20 @@ export interface ScheduledTaskToolPolicy {
   neverAllow: string[]
 }
 
+export type ScheduledTaskTargetType = 'chat' | 'automated_workflow'
+
+/** One Automated Workflow spec attached to a schedule. `workflowSpecJson` freezes a copy of the
+ *  spec at attach time (a `JSON.stringify`d `AutomatedWorkflowSpec`) so the schedule's behavior
+ *  doesn't silently change or break if `sourceRunId`'s original run is later edited or discarded —
+ *  `sourceRunId` is kept only as an optional back-link for UI convenience. `confirmationMode`
+ *  defaults to `'auto'` here (unlike everywhere else in the app, which defaults to `'gated'`) since
+ *  an unattended, timer-fired workflow has no human present to approve a gated pause. */
+export interface ScheduledTaskWorkflowSpec {
+  workflowSpecJson: string
+  sourceRunId: string | null
+  confirmationMode: AutomatedWorkflowConfirmationMode
+}
+
 export interface ScheduledTask {
   id: string
   name: string
@@ -1390,6 +1415,11 @@ export interface ScheduledTask {
   notificationPref: SchedulerNotificationPref
   nextRunAt: number | null
   lastRunAt: number | null
+  /** Defaults to `'chat'` — every existing scheduled task keeps firing a plain chat message
+   *  unchanged. `'automated_workflow'` fires the attached `workflowSpecs` instead (one or many,
+   *  run sequentially). */
+  targetType: ScheduledTaskTargetType
+  workflowSpecs: ScheduledTaskWorkflowSpec[]
   createdAt: number
   updatedAt: number
 }
@@ -1405,6 +1435,9 @@ export interface ScheduledRun {
   conversationId: string | null
   messageId: string | null
   triggerSource: ScheduledRunTrigger
+  /** Ids of every `automated_workflow_runs` row spawned by this run, in execution order. `null`
+   *  for a `targetType: 'chat'` run (or any run that hasn't spawned a workflow). */
+  workflowRunIds: string[] | null
   createdAt: number
 }
 
@@ -1422,6 +1455,8 @@ export interface ScheduledTaskCreateInput {
   timezone: string
   toolPolicy?: Partial<ScheduledTaskToolPolicy>
   notificationPref?: SchedulerNotificationPref
+  targetType?: ScheduledTaskTargetType
+  workflowSpecs?: ScheduledTaskWorkflowSpec[]
 }
 
 export interface ScheduledTaskUpdateInput {
@@ -1437,6 +1472,8 @@ export interface ScheduledTaskUpdateInput {
   timezone?: string
   toolPolicy?: Partial<ScheduledTaskToolPolicy>
   notificationPref?: SchedulerNotificationPref
+  targetType?: ScheduledTaskTargetType
+  workflowSpecs?: ScheduledTaskWorkflowSpec[]
 }
 
 // ---------------------------------------------------------------------------
@@ -1871,6 +1908,7 @@ export type IpcReturnMap = {
   'automated-workflow-generator:set-model': void
   'automated-workflow-runs:save-spec': AutomatedWorkflowRunDetail
   'automated-workflow-runs:list': AutomatedWorkflowRunSummary[]
+  'automated-workflow-runs:list-all': AutomatedWorkflowRunSummary[]
   'automated-workflow-runs:get': AutomatedWorkflowRunDetail | null
   'automated-workflow-runs:update-step-status': AutomatedWorkflowRunDetail | null
   'automated-workflow-runs:discard': boolean
@@ -1891,6 +1929,7 @@ export type IpcReturnMap = {
   'scheduler:set-enabled': ScheduledTask
   'scheduler:run-now': ScheduledRun
   'scheduler:list-runs': ScheduledRun[]
+  'scheduler:list-workflow-templates': AutomatedWorkflowRunSummary[]
   'scheduler:task-updated': void
   'scheduler:task-deleted': void
   'scheduler:run-updated': void
@@ -2263,6 +2302,7 @@ export type IpcChannels =
   | 'automated-workflow-generator:set-model'
   | 'automated-workflow-runs:save-spec'
   | 'automated-workflow-runs:list'
+  | 'automated-workflow-runs:list-all'
   | 'automated-workflow-runs:get'
   | 'automated-workflow-runs:update-step-status'
   | 'automated-workflow-runs:discard'
@@ -2282,6 +2322,7 @@ export type IpcChannels =
   | 'scheduler:set-enabled'
   | 'scheduler:run-now'
   | 'scheduler:list-runs'
+  | 'scheduler:list-workflow-templates'
   | 'scheduler:task-updated'
   | 'scheduler:task-deleted'
   | 'scheduler:run-updated'
