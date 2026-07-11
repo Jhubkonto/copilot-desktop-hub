@@ -192,6 +192,8 @@ class ScheduleGeneratorViewModel(
         monthDay?.let { payload["monthDay"] = it }
         agentId?.let { payload["agentId"] = it }
         projectId?.let { payload["projectId"] = it }
+        payload["targetType"] = targetType
+        sourceRunId?.let { payload["sourceRunId"] = it }
         return payload
     }
 }

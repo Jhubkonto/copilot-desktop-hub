@@ -758,4 +758,25 @@ describe('ws handlers', () => {
       data: { sessionId: 'mw-2', modelId: 'gpt-5.5' },
     })
   })
+
+  it('replies with every automated workflow run regardless of project for :list-all', () => {
+    const reply = sendCommand('automated-workflow-runs:list-all')
+
+    expect(reply).toHaveBeenCalledWith({ event: 'automated-workflow-runs:list-all', data: { runs: [] } })
+  })
+
+  it('treats a null/omitted projectId on :list as "project-less runs", not an error', () => {
+    const reply = sendCommand('automated-workflow-runs:list', {})
+
+    expect(reply).toHaveBeenCalledWith({
+      event: 'automated-workflow-runs:list',
+      data: { projectId: null, runs: [] },
+    })
+  })
+
+  it('replies with saved workflow runs as schedule-attachment candidates', () => {
+    const reply = sendCommand('scheduler:list-workflow-templates')
+
+    expect(reply).toHaveBeenCalledWith({ event: 'scheduler:list-workflow-templates', data: { runs: [] } })
+  })
 })

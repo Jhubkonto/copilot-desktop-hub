@@ -21,6 +21,8 @@ function makeTask(overrides: Partial<ScheduledTask> = {}): ScheduledTask {
     notificationPref: 'failures_only',
     nextRunAt: null,
     lastRunAt: null,
+    targetType: 'chat',
+    workflowSpecs: [],
     createdAt: 0,
     updatedAt: 0,
     ...overrides,

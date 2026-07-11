@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -32,6 +33,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -53,6 +55,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -72,6 +75,7 @@ import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -1264,6 +1268,13 @@ private fun PlanningSettingsSection(
     }
     val selectedModelLabel = if (model.isBlank()) "Select a model" else activeModelLabel(model, filteredModels)
 
+    // cliStatus otherwise only gets populated by visiting the chat screen or CLI settings screen
+    // first — without this, opening this section straight after connecting shows "BYOK" as the
+    // only backend option even when Claude/Codex CLI are installed on the connected desktop.
+    LaunchedEffect(Unit) {
+        WsRepository.getCliStatus()
+    }
+
     LaunchedEffect(backend, availableBackendIds) {
         if (backend !in availableBackendIds) backend = "byok"
     }
@@ -1333,17 +1344,33 @@ private fun PlanningSettingsSection(
                         }
                     }
                 }
-                OutlinedTextField(
-                    value = selectedModelLabel,
-                    onValueChange = {},
-                    label = { Text("Model") },
-                    readOnly = true,
-                    singleLine = true,
-                    trailingIcon = { Icon(Icons.Default.ExpandMore, contentDescription = null) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showModelSheet = true },
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Model", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    TextButton(
+                        onClick = {
+                            WsRepository.getCliStatus()
+                            WsRepository.send("model:list", mapOf("backend" to backend))
+                            showModelSheet = true
+                        },
+                    ) {
+                        Icon(
+                            Icons.Default.Tune,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        Text(
+                            selectedModelLabel,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(start = 4.dp).widthIn(max = 160.dp),
+                        )
+                    }
+                }
                 OutlinedTextField(
                     value = retryLimit,
                     onValueChange = { retryLimit = it.filter(Char::isDigit) },
