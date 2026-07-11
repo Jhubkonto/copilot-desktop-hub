@@ -409,13 +409,15 @@ object WsRepository : WsClient {
         _automatedWorkflowSession.value = null
     }
 
-    fun saveAutomatedWorkflowRun(projectId: String, spec: Map<String, Any>, model: String?, existingRunId: String?) {
+    fun saveAutomatedWorkflowRun(projectId: String?, spec: Map<String, Any>, model: String?, existingRunId: String?) {
         val current = _automatedWorkflowSession.value
         if (current != null) _automatedWorkflowSession.value = current.copy(saving = true)
         send(
             "automated-workflow-runs:save-spec",
             buildMap {
-                put("projectId", projectId)
+                // Omitted (not null-valued) for a project-less run — ws-handlers.ts treats a
+                // missing/non-string projectId as null either way.
+                if (projectId != null) put("projectId", projectId)
                 put("spec", spec)
                 if (model != null) put("model", model)
                 if (existingRunId != null) put("existingRunId", existingRunId)
@@ -423,8 +425,13 @@ object WsRepository : WsClient {
         )
     }
 
-    fun listAutomatedWorkflowRuns(projectId: String) {
-        send("automated-workflow-runs:list", mapOf("projectId" to projectId))
+    fun listAutomatedWorkflowRuns(projectId: String?) {
+        send("automated-workflow-runs:list", buildMap { if (projectId != null) put("projectId", projectId) })
+    }
+
+    /** Every run regardless of project — backs the global, top-level Automated Workflows screen. */
+    fun listAllAutomatedWorkflowRuns() {
+        send("automated-workflow-runs:list-all", emptyMap())
     }
 
     fun getAutomatedWorkflowRun(runId: String) {
@@ -2319,6 +2326,8 @@ object WsRepository : WsClient {
     fun schedulerSetEnabled(taskId: String, enabled: Boolean) { send("scheduler:set-enabled", mapOf("id" to taskId, "enabled" to enabled)) }
     fun schedulerRunNow(taskId: String) { send("scheduler:run-now", mapOf("id" to taskId)) }
     fun schedulerListRuns(taskId: String, limit: Int = 50) { send("scheduler:list-runs", mapOf("taskId" to taskId, "limit" to limit)) }
+    /** Candidate saved Automated Workflow runs for the "attach an existing workflow" picker. */
+    fun schedulerListWorkflowTemplates() { send("scheduler:list-workflow-templates", emptyMap()) }
     fun schedulerGeneratorStart(sessionId: String, messages: List<Map<String, String>>, modelId: String? = null) {
         val data = mutableMapOf<String, Any>("sessionId" to sessionId, "messages" to messages)
         if (modelId != null) data["model"] = modelId
@@ -2395,5 +2404,7 @@ fun ScheduleGeneratorSpec.toPayload(): Map<String, Any> {
     monthDay?.let { payload["monthDay"] = it }
     agentId?.let { payload["agentId"] = it }
     projectId?.let { payload["projectId"] = it }
+    payload["targetType"] = targetType
+    sourceRunId?.let { payload["sourceRunId"] = it }
     return payload
 }

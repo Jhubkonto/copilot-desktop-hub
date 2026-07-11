@@ -1750,6 +1750,12 @@ fun parseWsEvent(
                 WsEvent.SchedulerRunError(taskId, errorMsg)
             }
 
+            "scheduler:list-workflow-templates" -> {
+                val arr = data?.optJSONArray("runs") ?: return
+                val runs = (0 until arr.length()).map { parseAutomatedWorkflowRun(arr.getJSONObject(it)) }
+                WsEvent.SchedulerWorkflowTemplates(runs)
+            }
+
             "debrief:ready" -> {
                 val debriefObj = data?.optJSONObject("debrief") ?: return
                 val debrief = parseConversationDebrief(debriefObj)
@@ -1859,6 +1865,7 @@ fun parseWsEvent(
                         agentName = step.optString("agentName").takeIf(String::isNotBlank),
                         prompt = step.optString("prompt", ""),
                         expectedOutput = step.optString("expectedOutput", ""),
+                        model = step.optString("model").takeIf(String::isNotBlank),
                     )
                 }
                 WsEvent.AutomatedWorkflowReady(sessionId, title, goalSummary, assumptions, steps, rawSpec = jsonObjectToMap(spec))
@@ -1889,10 +1896,19 @@ fun parseWsEvent(
             }
 
             "automated-workflow-runs:list" -> {
-                val projectId = data?.optString("projectId") ?: return
+                if (data == null) return
+                // nullableString, not optString — a project-less listing's projectId is a real
+                // JSON null, which optString would otherwise silently coerce to "".
+                val projectId = data.nullableString("projectId")
                 val arr = data.optJSONArray("runs") ?: JSONArray()
                 val runs = (0 until arr.length()).map { parseAutomatedWorkflowRun(arr.getJSONObject(it)) }
                 WsEvent.AutomatedWorkflowRunsList(projectId, runs)
+            }
+
+            "automated-workflow-runs:list-all" -> {
+                val arr = data?.optJSONArray("runs") ?: return
+                val runs = (0 until arr.length()).map { parseAutomatedWorkflowRun(arr.getJSONObject(it)) }
+                WsEvent.AutomatedWorkflowRunsListAll(runs)
             }
 
             "automated-workflow-runs:detail" -> {
@@ -2255,6 +2271,7 @@ private fun parseAutomatedWorkflowRunStep(obj: JSONObject): io.nexy.android.data
         conversationId = obj.nullableString("conversationId"),
         startedAt = if (obj.isNull("startedAt")) null else obj.optLong("startedAt"),
         completedAt = if (obj.isNull("completedAt")) null else obj.optLong("completedAt"),
+        model = obj.nullableString("model"),
     )
 }
 
@@ -2266,7 +2283,11 @@ private fun parseAutomatedWorkflowRun(obj: JSONObject): io.nexy.android.data.mod
     val steps = if (stepsArr != null) (0 until stepsArr.length()).map { parseAutomatedWorkflowRunStep(stepsArr.getJSONObject(it)) } else emptyList()
     return io.nexy.android.data.model.AutomatedWorkflowRunInfo(
         id = obj.optString("id"),
-        projectId = obj.optString("projectId"),
+        // nullableString, not optString — a project-less run's JSON `projectId` is a real `null`,
+        // which optString would otherwise silently coerce to "" (indistinguishable from an
+        // actual empty-string project id, which should never happen, but is a different bug than
+        // "no project" if it ever did).
+        projectId = obj.nullableString("projectId"),
         title = obj.optString("title", ""),
         goalSummary = obj.optString("goalSummary", ""),
         model = obj.nullableString("model"),
@@ -2380,6 +2401,8 @@ private fun parseScheduleGeneratorSpec(data: JSONObject?): ScheduleGeneratorSpec
         agentId = d.nullableString("agentId"),
         projectId = d.nullableString("projectId"),
         notificationPref = d.optString("notificationPref", "always"),
+        targetType = d.optString("targetType", "chat"),
+        sourceRunId = d.nullableString("sourceRunId"),
     )
 }
 
@@ -2505,6 +2528,12 @@ private fun routeForServerActivity(id: String, kind: String, conversationId: Str
     else -> null
 }
 
+private fun parseScheduledTaskWorkflowSpec(obj: JSONObject) = io.nexy.android.data.model.ScheduledTaskWorkflowSpec(
+    workflowSpecJson = obj.optString("workflowSpecJson", "{}"),
+    sourceRunId = obj.nullableString("sourceRunId"),
+    confirmationMode = obj.optString("confirmationMode", "auto"),
+)
+
 private fun parseScheduledTask(obj: JSONObject) = ScheduledTask(
     id = obj.optString("id"),
     name = obj.optString("name"),
@@ -2524,6 +2553,10 @@ private fun parseScheduledTask(obj: JSONObject) = ScheduledTask(
     lastRunAt = if (obj.has("lastRunAt") && !obj.isNull("lastRunAt")) obj.optLong("lastRunAt") else null,
     createdAt = obj.optLong("createdAt"),
     updatedAt = obj.optLong("updatedAt"),
+    targetType = obj.optString("targetType", "chat"),
+    workflowSpecs = obj.optJSONArray("workflowSpecs")?.let { arr ->
+        (0 until arr.length()).map { parseScheduledTaskWorkflowSpec(arr.getJSONObject(it)) }
+    } ?: emptyList(),
 )
 
 private fun parseScheduledRun(obj: JSONObject) = ScheduledRun(
@@ -2538,4 +2571,7 @@ private fun parseScheduledRun(obj: JSONObject) = ScheduledRun(
     messageId = obj.nullableString("messageId"),
     triggerSource = obj.optString("triggerSource", "scheduled"),
     createdAt = obj.optLong("createdAt"),
+    workflowRunIds = obj.optJSONArray("workflowRunIds")?.let { arr ->
+        (0 until arr.length()).map { arr.getString(it) }
+    },
 )

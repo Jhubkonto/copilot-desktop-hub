@@ -274,6 +274,137 @@ class AutomatedWorkflowEventParserTest {
     }
 
     @Test
+    fun runsListParsesNullProjectIdAsNullNotEmptyString() = runTest {
+        // Regression: a project-less (standalone) run's JSON projectId is a real null. optString
+        // would silently coerce that to "", indistinguishable from a real (bogus) empty project
+        // id — nullableString must be used so global runs round-trip as projectId == null.
+        val event = parseEvent(
+            """
+            {
+              "event": "automated-workflow-runs:list",
+              "data": {
+                "projectId": null,
+                "runs": [
+                  {
+                    "id": "run-1", "projectId": null, "title": "Standalone run", "goalSummary": "G",
+                    "model": "claude-sonnet-4-6", "status": "running", "confirmationMode": "auto", "currentStepId": null,
+                    "lastError": null,
+                    "stepCounts": { "total": 1, "pending": 1, "running": 0, "awaitingConfirmation": 0, "done": 0, "failed": 0, "skipped": 0 },
+                    "createdAt": 1, "updatedAt": 2
+                  }
+                ]
+              }
+            }
+            """.trimIndent()
+        ) as WsEvent.AutomatedWorkflowRunsList
+
+        assertNull(event.projectId)
+        val run = event.runs.single()
+        assertNull(run.projectId)
+        assertEquals("claude-sonnet-4-6", run.model)
+    }
+
+    @Test
+    fun runDetailParsesStepModelAsAlternativeToAgent() = runTest {
+        // A step fulfilled by a bare model (no agent) carries `model` instead of `agentId`/
+        // `agentName` — skills never apply to a model-only step.
+        val event = parseEvent(
+            """
+            {
+              "event": "automated-workflow-runs:detail",
+              "data": {
+                "run": {
+                  "id": "run-1", "projectId": null, "title": "Ship it", "goalSummary": "G",
+                  "model": null, "status": "running", "confirmationMode": "gated", "currentStepId": "db-1",
+                  "lastError": null,
+                  "stepCounts": { "total": 1, "pending": 0, "running": 1, "awaitingConfirmation": 0, "done": 0, "failed": 0, "skipped": 0 },
+                  "createdAt": 1, "updatedAt": 2, "assumptions": [],
+                  "steps": [
+                    {
+                      "id": "s1", "dbId": "db-1", "runId": "run-1", "stepIndex": 0, "title": "Draft copy",
+                      "summary": "", "agentId": null, "agentName": null, "prompt": "p",
+                      "expectedOutput": "", "dependsOnStepIds": [], "status": "running", "attempt": 1,
+                      "output": "", "error": null, "conversationId": null, "model": "gpt-5.4",
+                      "startedAt": 10, "completedAt": null
+                    }
+                  ]
+                }
+              }
+            }
+            """.trimIndent()
+        ) as WsEvent.AutomatedWorkflowRunDetailReady
+
+        val run = requireNotNull(event.run)
+        assertNull(run.projectId)
+        val step = run.steps.single()
+        assertNull(step.agentId)
+        assertNull(step.agentName)
+        assertEquals("gpt-5.4", step.model)
+    }
+
+    @Test
+    fun runsListAllParsesRunsAcrossProjectsIncludingGlobalOnes() = runTest {
+        // Backs the global, top-level Automated Workflows list screen (dashboard 3-dot menu) —
+        // distinct from the project-scoped "automated-workflow-runs:list" event.
+        val event = parseEvent(
+            """
+            {
+              "event": "automated-workflow-runs:list-all",
+              "data": {
+                "runs": [
+                  {
+                    "id": "run-1", "projectId": "proj-1", "title": "Scoped", "goalSummary": "G",
+                    "model": null, "status": "done", "confirmationMode": "auto", "currentStepId": null,
+                    "lastError": null,
+                    "stepCounts": { "total": 1, "pending": 0, "running": 0, "awaitingConfirmation": 0, "done": 1, "failed": 0, "skipped": 0 },
+                    "createdAt": 1, "updatedAt": 2
+                  },
+                  {
+                    "id": "run-2", "projectId": null, "title": "Standalone", "goalSummary": "G",
+                    "model": "claude-sonnet-4-6", "status": "running", "confirmationMode": "auto", "currentStepId": null,
+                    "lastError": null,
+                    "stepCounts": { "total": 1, "pending": 1, "running": 0, "awaitingConfirmation": 0, "done": 0, "failed": 0, "skipped": 0 },
+                    "createdAt": 1, "updatedAt": 2
+                  }
+                ]
+              }
+            }
+            """.trimIndent()
+        ) as WsEvent.AutomatedWorkflowRunsListAll
+
+        assertEquals(listOf("proj-1", null), event.runs.map { it.projectId })
+        assertEquals(listOf("Scoped", "Standalone"), event.runs.map { it.title })
+    }
+
+    @Test
+    fun schedulerWorkflowTemplatesParsesCandidateRunsForAttachPicker() = runTest {
+        // Backs the "attach an existing workflow to this schedule" picker in
+        // SchedulerTaskForm.tsx / SchedulerTaskConfigScreen.kt.
+        val event = parseEvent(
+            """
+            {
+              "event": "scheduler:list-workflow-templates",
+              "data": {
+                "runs": [
+                  {
+                    "id": "run-1", "projectId": "proj-1", "title": "Release Prep", "goalSummary": "G",
+                    "model": null, "status": "done", "confirmationMode": "auto", "currentStepId": null,
+                    "lastError": null,
+                    "stepCounts": { "total": 2, "pending": 0, "running": 0, "awaitingConfirmation": 0, "done": 2, "failed": 0, "skipped": 0 },
+                    "createdAt": 1, "updatedAt": 2
+                  }
+                ]
+              }
+            }
+            """.trimIndent()
+        ) as WsEvent.SchedulerWorkflowTemplates
+
+        val run = event.runs.single()
+        assertEquals("run-1", run.id)
+        assertEquals("Release Prep", run.title)
+    }
+
+    @Test
     fun runsErrorParsesMessage() = runTest {
         val event = parseEvent(
             """
