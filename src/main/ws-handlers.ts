@@ -55,6 +55,7 @@ import {
 import {
   saveAutomatedWorkflowRunFromSpec,
   listAutomatedWorkflowRuns,
+  listAllAutomatedWorkflowRuns,
   getAutomatedWorkflowRun,
   updateAutomatedWorkflowRunStepStatus,
   discardAutomatedWorkflowRun,
@@ -2257,17 +2258,27 @@ export function registerWsHandlers(): void {
     // below is wrapped in try/catch-with-reply (rather than relying on the outer command
     // dispatcher's swallow-on-error) so a bad spec or a DB error surfaces to the Android client
     // instead of leaving it stuck (e.g. a permanently-disabled "Saving…" button) with no signal.
-    function notifyAutomatedWorkflowRunChanged(projectId: string, runId: string): void {
+    function notifyAutomatedWorkflowRunChanged(projectId: string | null, runId: string): void {
       BrowserWindow.getAllWindows().forEach((w) => {
         if (!w.isDestroyed()) w.webContents.send('automated-workflow-runs:changed', { projectId, runId })
       })
     }
 
     if (command === 'automated-workflow-runs:list') {
-      const projectId = typeof data.projectId === 'string' ? data.projectId : ''
-      if (!projectId) return
+      // projectId may be a real project id, or explicitly null/omitted to mean "project-less
+      // runs" — distinct from ':list-all', which returns every run regardless of project.
+      const projectId = typeof data.projectId === 'string' ? data.projectId : null
       try {
         reply({ event: 'automated-workflow-runs:list', data: { projectId, runs: listAutomatedWorkflowRuns(projectId) } })
+      } catch (err) {
+        reply({ event: 'automated-workflow-runs:error', data: { message: err instanceof Error ? err.message : String(err) } })
+      }
+      return
+    }
+
+    if (command === 'automated-workflow-runs:list-all') {
+      try {
+        reply({ event: 'automated-workflow-runs:list-all', data: { runs: listAllAutomatedWorkflowRuns() } })
       } catch (err) {
         reply({ event: 'automated-workflow-runs:error', data: { message: err instanceof Error ? err.message : String(err) } })
       }
@@ -2286,10 +2297,10 @@ export function registerWsHandlers(): void {
     }
 
     if (command === 'automated-workflow-runs:save-spec') {
-      const projectId = typeof data.projectId === 'string' ? data.projectId : ''
+      const projectId = typeof data.projectId === 'string' ? data.projectId : null
       const specRaw = data.spec
-      if (!projectId || !specRaw || typeof specRaw !== 'object') {
-        reply({ event: 'automated-workflow-runs:error', data: { message: 'Missing projectId or spec' } })
+      if (!specRaw || typeof specRaw !== 'object') {
+        reply({ event: 'automated-workflow-runs:error', data: { message: 'Missing spec' } })
         return
       }
       try {
@@ -2758,6 +2769,18 @@ export function registerWsHandlers(): void {
       const limit = typeof data.limit === 'number' ? data.limit : 50
       if (!taskId) return
       reply({ event: 'scheduler:runs', data: { taskId, runs: dbListRuns(taskId, limit) } })
+      return
+    }
+
+    // Lightweight list of existing saved Automated Workflow runs, for the "attach an existing
+    // workflow to this schedule" picker — Android has no direct DB access, so it must fetch
+    // candidates over WS rather than reading listAllAutomatedWorkflowRuns() locally.
+    if (command === 'scheduler:list-workflow-templates') {
+      try {
+        reply({ event: 'scheduler:list-workflow-templates', data: { runs: listAllAutomatedWorkflowRuns() } })
+      } catch (err) {
+        reply({ event: 'automated-workflow-runs:error', data: { message: err instanceof Error ? err.message : String(err) } })
+      }
       return
     }
 

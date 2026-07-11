@@ -582,7 +582,7 @@ const api = {
     typedInvoke('project-audit:list-files', sessionId),
   getProjectAuditDiff: (sessionId: string, relativePath: string) =>
     typedInvoke('project-audit:get-diff', sessionId, relativePath),
-  automatedWorkflowGeneratorChat: (projectId: string, messages: AutomatedWorkflowGeneratorMessage[], modelOverride?: string) =>
+  automatedWorkflowGeneratorChat: (projectId: string | null, messages: AutomatedWorkflowGeneratorMessage[], modelOverride?: string) =>
     typedInvoke('automated-workflow-generator:chat', projectId, messages, modelOverride),
   onAutomatedWorkflowGeneratorToken: (callback: (chunk: string) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, chunk: string) => callback(chunk)
@@ -606,10 +606,12 @@ const api = {
   },
   getAutomatedWorkflowGeneratorModel: () => typedInvoke('automated-workflow-generator:get-model'),
   setAutomatedWorkflowGeneratorModel: (modelId: string) => typedInvoke('automated-workflow-generator:set-model', modelId),
-  saveAutomatedWorkflowRunFromSpec: (projectId: string, spec: AutomatedWorkflowSpec, model: string | null, existingRunId?: string | null) =>
+  saveAutomatedWorkflowRunFromSpec: (projectId: string | null, spec: AutomatedWorkflowSpec, model: string | null, existingRunId?: string | null) =>
     typedInvoke('automated-workflow-runs:save-spec', projectId, spec, model, existingRunId),
-  listAutomatedWorkflowRuns: (projectId: string) =>
+  listAutomatedWorkflowRuns: (projectId: string | null) =>
     typedInvoke('automated-workflow-runs:list', projectId),
+  listAllAutomatedWorkflowRuns: () =>
+    typedInvoke('automated-workflow-runs:list-all'),
   getAutomatedWorkflowRun: (runId: string) =>
     typedInvoke('automated-workflow-runs:get', runId),
   updateAutomatedWorkflowRunStepStatus: (runId: string, stepId: string, status: AutomatedWorkflowStepStatus) =>
@@ -939,6 +941,7 @@ const api = {
   schedulerSetEnabled: (id: string, enabled: boolean) => typedInvoke('scheduler:set-enabled', id, enabled),
   schedulerRunNow: (id: string) => typedInvoke('scheduler:run-now', id),
   schedulerListRuns: (taskId: string, limit?: number) => typedInvoke('scheduler:list-runs', taskId, limit),
+  schedulerListWorkflowTemplates: () => typedInvoke('scheduler:list-workflow-templates'),
   onSchedulerTaskUpdated: (callback: (task: import('../shared/types').ScheduledTask) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, task: import('../shared/types').ScheduledTask) => callback(task)
     typedOn('scheduler:task-updated', handler)
