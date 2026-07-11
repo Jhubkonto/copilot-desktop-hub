@@ -48,7 +48,7 @@ describe('database migrations', () => {
     initializeBaseSchema(db)
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(67)
+    expect(db.pragma('user_version', { simple: true })).toBe(70)
     expect(getColumnNames(db, 'projects')).toEqual(
       expect.arrayContaining(['default_model', 'config_json'])
     )
@@ -125,6 +125,65 @@ describe('database migrations', () => {
     expect(getColumnNames(db, 'sync_desktop_changes')).toEqual(
       expect.arrayContaining(['sequence', 'device_id', 'dataset_id', 'entity_type', 'entity_version'])
     )
+    expect(getColumnNames(db, 'automated_workflow_run_steps')).toEqual(
+      expect.arrayContaining(['model'])
+    )
+    expect(getColumnNames(db, 'automated_workflow_runs')).toEqual(
+      expect.arrayContaining(['project_id', 'scheduled_run_id', 'spec_sort_order'])
+    )
+    expect(getColumnNames(db, 'scheduled_tasks')).toEqual(
+      expect.arrayContaining(['target_type'])
+    )
+    expect(getColumnNames(db, 'scheduled_task_workflows')).toEqual(
+      expect.arrayContaining(['task_id', 'workflow_spec_json', 'source_run_id', 'confirmation_mode', 'sort_order', 'created_at'])
+    )
+    expect(getColumnNames(db, 'scheduled_runs')).toEqual(
+      expect.arrayContaining(['workflow_run_ids_json'])
+    )
+  })
+
+  it('makes automated_workflow_runs.project_id nullable while preserving existing project-scoped rows (migration 69)', () => {
+    const db = createDatabase()
+    initializeBaseSchema(db)
+    const migrationsUpTo67 = MIGRATIONS.filter((migration) => migration.version <= 67)
+    runMigrations(db, migrationsUpTo67)
+    db.prepare(
+      `INSERT INTO projects (id, name, color, created_at, updated_at) VALUES ('proj-1', 'Test Project', 'blue', 1, 1)`,
+    ).run()
+    db.prepare(
+      `INSERT INTO automated_workflow_runs (id, project_id, title, created_at, updated_at)
+       VALUES ('run-1', 'proj-1', 'Existing run', 1, 1)`,
+    ).run()
+
+    runMigrations(db)
+
+    expect(db.pragma('user_version', { simple: true })).toBe(70)
+    expect(db.prepare('SELECT project_id FROM automated_workflow_runs WHERE id = ?').get('run-1'))
+      .toEqual({ project_id: 'proj-1' })
+    expect(() => {
+      db.prepare(
+        `INSERT INTO automated_workflow_runs (id, project_id, title, created_at, updated_at)
+         VALUES ('run-2', NULL, 'Project-less run', 1, 1)`,
+      ).run()
+    }).not.toThrow()
+    expect(db.prepare('SELECT project_id FROM automated_workflow_runs WHERE id = ?').get('run-2'))
+      .toEqual({ project_id: null })
+  })
+
+  it('defaults existing scheduled_tasks rows to target_type=chat (migration 70)', () => {
+    const db = createDatabase()
+    initializeBaseSchema(db)
+    const migrationsUpTo69 = MIGRATIONS.filter((migration) => migration.version <= 69)
+    runMigrations(db, migrationsUpTo69)
+    db.prepare(
+      `INSERT INTO scheduled_tasks (id, name, schedule_type, local_time, created_at, updated_at)
+       VALUES ('task-1', 'Existing task', 'daily', '09:00', 1, 1)`,
+    ).run()
+
+    runMigrations(db)
+
+    expect(db.prepare('SELECT target_type FROM scheduled_tasks WHERE id = ?').get('task-1'))
+      .toEqual({ target_type: 'chat' })
   })
 
   it('renames legacy self_heal_* tables to remote_edit_* left behind by an in-place migration edit', () => {
@@ -176,7 +235,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(67)
+    expect(db.pragma('user_version', { simple: true })).toBe(70)
     const tableNames = (
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>
     ).map((row) => row.name)
@@ -213,7 +272,7 @@ describe('database migrations', () => {
       runMigrations(db)
       runMigrations(db)
     }).not.toThrow()
-    expect(db.pragma('user_version', { simple: true })).toBe(67)
+    expect(db.pragma('user_version', { simple: true })).toBe(70)
   })
 
   it('only runs pending migrations for a partial upgrade', () => {
@@ -267,7 +326,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(67)
+    expect(db.pragma('user_version', { simple: true })).toBe(70)
     expect(getColumnNames(db, 'messages')).toEqual(
       expect.arrayContaining(['is_edited', 'previous_content', 'context_snapshot'])
     )
@@ -330,7 +389,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(67)
+    expect(db.pragma('user_version', { simple: true })).toBe(70)
     expect(() => insertMessageWithRole(db, 'tool-call')).not.toThrow()
     expect(
       db.prepare("SELECT COUNT(*) AS count FROM messages WHERE role = ?").get('assistant')
@@ -445,7 +504,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(67)
+    expect(db.pragma('user_version', { simple: true })).toBe(70)
     expect(getColumnNames(db, 'error_reports')).toEqual(
       expect.arrayContaining(['request_type', 'request_origin', 'workspace_root', 'project_id', 'custom_type_label']),
     )

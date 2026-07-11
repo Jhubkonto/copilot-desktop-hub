@@ -1226,6 +1226,87 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
       DROP TABLE IF EXISTS manual_workflow_runs;
     `,
   },
+  {
+    // Steps gain an optional model column, an alternative to agent_id (not additional to it) —
+    // per the corrected domain-model hierarchy (src/roadmap-new/), a step is fulfilled by
+    // EITHER a specific agent (that agent's own attached skills apply, exactly as before) OR a
+    // bare model (no skills at all, full stop — skills are strictly agent-gated, never freely
+    // available to a bare model). Nullable, mirrors agent_id exactly; the executor picks
+    // whichever is populated (see automated-workflow-executor.ts's resolution order).
+    version: 68,
+    sql: "ALTER TABLE automated_workflow_run_steps ADD COLUMN model TEXT",
+  },
+  {
+    // Automated Workflow becomes project-optional, so it can be a truly self-contained,
+    // top-level entity like Skills/Scheduled rather than mandatorily tied to a project (see
+    // src/roadmap-new/ hierarchy roadmap). Also adds scheduled_run_id/spec_sort_order now
+    // (unused until the scheduler-to-workflow linkage lands) to avoid a second table-swap
+    // later — cheap to bundle here since this table is already being rebuilt for the
+    // project_id change. SQLite has no ALTER COLUMN, so this rebuilds the table — same pattern
+    // as migrations 47/49/65/66/67. Plain TEXT project_id (no FOREIGN KEY ... REFERENCES),
+    // matching migration 67's existing precedent for this exact table.
+    version: 69,
+    sql: `
+      DROP TABLE IF EXISTS automated_workflow_runs_v69;
+      CREATE TABLE automated_workflow_runs_v69 (
+        id TEXT PRIMARY KEY,
+        project_id TEXT,
+        title TEXT NOT NULL,
+        goal_summary TEXT NOT NULL DEFAULT '',
+        assumptions_json TEXT NOT NULL DEFAULT '[]',
+        model TEXT,
+        status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'awaiting_confirmation', 'failed', 'done', 'cancelled')) DEFAULT 'pending',
+        confirmation_mode TEXT NOT NULL CHECK (confirmation_mode IN ('gated', 'auto')) DEFAULT 'gated',
+        current_step_id TEXT,
+        error TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        started_at INTEGER,
+        completed_at INTEGER,
+        scheduled_run_id TEXT,
+        spec_sort_order INTEGER
+      );
+      INSERT OR IGNORE INTO automated_workflow_runs_v69
+        (id, project_id, title, goal_summary, assumptions_json, model, status, confirmation_mode, current_step_id, error, created_at, updated_at, started_at, completed_at)
+        SELECT id, project_id, title, goal_summary, assumptions_json, model, status, confirmation_mode, current_step_id, error, created_at, updated_at, started_at, completed_at
+        FROM automated_workflow_runs;
+      DROP TABLE automated_workflow_runs;
+      ALTER TABLE automated_workflow_runs_v69 RENAME TO automated_workflow_runs;
+      CREATE INDEX IF NOT EXISTS idx_automated_workflow_runs_project_updated
+        ON automated_workflow_runs(project_id, updated_at DESC);
+    `,
+  },
+  {
+    // Lets a schedule target one or many Automated Workflow runs instead of only a plain chat
+    // message (src/roadmap-new/ hierarchy roadmap). target_type defaults to 'chat' so every
+    // existing scheduled task keeps its current behavior completely unchanged.
+    // scheduled_task_workflows freezes a copy of the spec at attach time (workflow_spec_json)
+    // rather than only keeping a source_run_id reference, so a schedule's behavior doesn't
+    // silently change or break if its source run is later edited or discarded; source_run_id
+    // is kept as an optional back-link for UI convenience only. confirmation_mode on an
+    // attached spec defaults to 'auto', not the 'gated' default used everywhere else in this
+    // app — an unattended, timer-fired workflow has no human present to approve a gated pause,
+    // so 'auto' is the only default that makes sense here (a 'gated' spec is still legal; it
+    // surfaces via the 'approval_required' scheduled_runs status, present in that column's
+    // CHECK constraint since migration 39 but never actually produced until now).
+    version: 70,
+    sql: `
+      ALTER TABLE scheduled_tasks ADD COLUMN target_type TEXT NOT NULL DEFAULT 'chat'
+        CHECK (target_type IN ('chat', 'automated_workflow'));
+      CREATE TABLE IF NOT EXISTS scheduled_task_workflows (
+        task_id            TEXT NOT NULL REFERENCES scheduled_tasks(id) ON DELETE CASCADE,
+        workflow_spec_json TEXT NOT NULL,
+        source_run_id      TEXT,
+        confirmation_mode  TEXT NOT NULL CHECK (confirmation_mode IN ('gated', 'auto')) DEFAULT 'auto',
+        sort_order         INTEGER NOT NULL DEFAULT 0,
+        created_at         INTEGER NOT NULL,
+        PRIMARY KEY (task_id, sort_order)
+      );
+      CREATE INDEX IF NOT EXISTS idx_scheduled_task_workflows_task
+        ON scheduled_task_workflows(task_id, sort_order);
+      ALTER TABLE scheduled_runs ADD COLUMN workflow_run_ids_json TEXT;
+    `,
+  },
 ];
 
 
@@ -1353,7 +1434,7 @@ export function initializeBaseSchema(db: Database.Database): void {
 
     CREATE TABLE IF NOT EXISTS automated_workflow_runs (
       id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
+      project_id TEXT,
       title TEXT NOT NULL,
       goal_summary TEXT NOT NULL DEFAULT '',
       assumptions_json TEXT NOT NULL DEFAULT '[]',
@@ -1365,7 +1446,9 @@ export function initializeBaseSchema(db: Database.Database): void {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       started_at INTEGER,
-      completed_at INTEGER
+      completed_at INTEGER,
+      scheduled_run_id TEXT,
+      spec_sort_order INTEGER
     );
     CREATE INDEX IF NOT EXISTS idx_automated_workflow_runs_project_updated
       ON automated_workflow_runs(project_id, updated_at DESC);
@@ -1379,6 +1462,7 @@ export function initializeBaseSchema(db: Database.Database): void {
       summary TEXT NOT NULL DEFAULT '',
       agent_id TEXT,
       agent_name TEXT,
+      model TEXT,
       prompt TEXT NOT NULL,
       expected_output TEXT NOT NULL DEFAULT '',
       depends_on_step_ids_json TEXT NOT NULL DEFAULT '[]',
@@ -1531,12 +1615,26 @@ export function initializeBaseSchema(db: Database.Database): void {
       notification_pref TEXT NOT NULL DEFAULT 'failures_only' CHECK (notification_pref IN ('always', 'failures_only', 'off')),
       next_run_at INTEGER,
       last_run_at INTEGER,
+      target_type TEXT NOT NULL DEFAULT 'chat' CHECK (target_type IN ('chat', 'automated_workflow')),
       created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
       updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
     );
 
     CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_enabled
       ON scheduled_tasks(enabled, next_run_at);
+
+    CREATE TABLE IF NOT EXISTS scheduled_task_workflows (
+      task_id            TEXT NOT NULL REFERENCES scheduled_tasks(id) ON DELETE CASCADE,
+      workflow_spec_json TEXT NOT NULL,
+      source_run_id      TEXT,
+      confirmation_mode  TEXT NOT NULL CHECK (confirmation_mode IN ('gated', 'auto')) DEFAULT 'auto',
+      sort_order         INTEGER NOT NULL DEFAULT 0,
+      created_at         INTEGER NOT NULL,
+      PRIMARY KEY (task_id, sort_order)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scheduled_task_workflows_task
+      ON scheduled_task_workflows(task_id, sort_order);
 
     CREATE TABLE IF NOT EXISTS scheduled_runs (
       id TEXT PRIMARY KEY,
@@ -1549,6 +1647,7 @@ export function initializeBaseSchema(db: Database.Database): void {
       conversation_id TEXT,
       message_id TEXT,
       trigger_source TEXT NOT NULL CHECK (trigger_source IN ('scheduled', 'manual')) DEFAULT 'scheduled',
+      workflow_run_ids_json TEXT,
       created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
       UNIQUE(task_id, scheduled_at)
     );
