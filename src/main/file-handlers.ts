@@ -193,6 +193,57 @@ export function listDirectoryEntries(
   return result
 }
 
+export interface FsRemoteEntry extends DirectoryEntry {
+  // Absolute path, joined server-side with the platform's own separator — the remote (Android)
+  // caller must never construct this itself, since it has no idea if the desktop is Windows or
+  // POSIX underneath.
+  fullPath: string
+}
+
+export interface FsRemoteListResult {
+  entries: FsRemoteEntry[]
+  truncated: boolean
+  error?: string
+}
+
+const FS_REMOTE_LIST_LIMIT = 2000
+
+// Depth-1 only (unlike the local `fs:list-directory` IPC channel's depth=3 default) — this
+// is called over the WebSocket by the Android remote workspace explorer, which lazily
+// re-requests on each folder tap rather than pre-fetching a deep tree over the network.
+export function listDirectoryEntriesForRemote(path: string): FsRemoteListResult {
+  if (!path || !existsSync(path)) {
+    return { entries: [], truncated: false, error: 'Directory not found' }
+  }
+  try {
+    if (!statSync(path).isDirectory()) {
+      return { entries: [], truncated: false, error: 'Not a directory' }
+    }
+    readdirSync(path)
+  } catch {
+    // listDirectoryEntries() below silently swallows unreadable dirs into `[]` — probe
+    // readdirSync directly first so a permissions error can be told apart from a real empty dir.
+    return { entries: [], truncated: false, error: 'Could not read this folder' }
+  }
+  const entries = listDirectoryEntries(path, 1, '').map((entry) => ({ ...entry, fullPath: join(path, entry.relativePath) }))
+  const truncated = entries.length > FS_REMOTE_LIST_LIMIT
+  return { entries: entries.slice(0, FS_REMOTE_LIST_LIMIT), truncated }
+}
+
+export function getFsStartRoots(): { home: string; recents: string[] } {
+  const db = getDatabase()
+  const row = db
+    .prepare("SELECT value FROM settings WHERE key = 'recent_directories'")
+    .get() as { value: string } | undefined
+  let recents: string[] = []
+  try {
+    recents = row ? JSON.parse(row.value) : []
+  } catch {
+    recents = []
+  }
+  return { home: app.getPath('home'), recents }
+}
+
 export function getWorkingDirectory(): string {
   const db = getDatabase();
   const row = db
