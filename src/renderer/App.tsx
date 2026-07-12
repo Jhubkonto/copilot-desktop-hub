@@ -87,6 +87,7 @@ export default function App() {
   const loadConversations = useAppStore((s) => s.loadConversations)
   const handleConversationCompleted = useAppStore((s) => s.handleConversationCompleted)
   const handleConversationIncompleted = useAppStore((s) => s.handleConversationIncompleted)
+  const handleConversationRated = useAppStore((s) => s.handleConversationRated)
 
   const hydrate = useAppStore((s) => s.hydrate)
 
@@ -192,8 +193,11 @@ export default function App() {
     const unsub2 = window.api.onConversationIncompleted((data) => {
       handleConversationIncompleted(data.conversationId)
     })
-    return () => { unsub1(); unsub2() }
-  }, [handleConversationCompleted, handleConversationIncompleted])
+    const unsub3 = window.api.onConversationRated((data) => {
+      handleConversationRated(data.conversationId, data.rating?.rating ?? null)
+    })
+    return () => { unsub1(); unsub2(); unsub3() }
+  }, [handleConversationCompleted, handleConversationIncompleted, handleConversationRated])
 
   // Zoom: Ctrl+scroll and Ctrl+Plus/Minus/0
   useEffect(() => {
