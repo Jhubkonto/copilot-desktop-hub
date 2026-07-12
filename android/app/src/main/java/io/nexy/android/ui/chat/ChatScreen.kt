@@ -45,6 +45,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
@@ -142,6 +143,27 @@ fun ChatCompletedBadge() {
     }
 }
 
+/** Passive "N/5" star readout shown in the chat header once a conversation has been rated —
+ * mutation happens via ConversationActionsSheet, mirroring how ChatCompletedBadge is a
+ * read-only indicator for the /complete slash command's state. */
+@Composable
+fun ChatRatingBadge(rating: Int) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        Icon(
+            Icons.Default.Star,
+            contentDescription = null,
+            modifier = Modifier.size(12.dp),
+            tint = Color(0xFFF59E0B),
+        )
+        Text(
+            "$rating/5",
+            maxLines = 1,
+            style = MaterialTheme.typography.labelSmall,
+            color = Color(0xFFF59E0B),
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ChatScreen(
@@ -192,6 +214,7 @@ fun ChatScreen(
     val effectiveMode by WsRepository.effectiveMode.collectAsState()
     val conversation = conversations.find { it.id == conversationId }
     val isCompleted = conversation?.completed_at != null
+    val conversationRating = conversation?.rating
     val title = conversation?.title?.ifBlank { null } ?: "Chat"
     val chatThinkingEffortOverride = conversation?.thinking_effort_override
     val chatFullAutoApproveOverride = conversation?.full_auto_approve_override
@@ -212,15 +235,17 @@ fun ChatScreen(
     var activeWorkflowRun by remember { mutableStateOf<io.nexy.android.data.model.AutomatedWorkflowRunInfo?>(null) }
     var dismissedWorkflowStepId by remember { mutableStateOf<String?>(null) }
 
-    // Keyed on connectionState too — not just statusProjectId/chatProjectWorkflowMode — so a
-    // reconnect re-fetches instead of leaving the banner showing whatever state it had before
-    // the phone disconnected (a run can fully progress through several auto-executed steps
-    // while disconnected). Mirrors RemoteEditReportDetailScreen.kt's established pattern.
-    LaunchedEffect(statusProjectId, chatProjectWorkflowMode, connectionState) {
+    // Keyed on connectionState too — not just statusProjectId — so a reconnect re-fetches
+    // instead of leaving the banner showing whatever state it had before the phone disconnected
+    // (a run can fully progress through several auto-executed steps while disconnected). Mirrors
+    // RemoteEditReportDetailScreen.kt's established pattern. Not gated on workflowMode: Automated
+    // Workflow is a fully independent, top-level feature, so a run started in any project mode
+    // must still surface here, otherwise it executes with silent, invisible progress.
+    LaunchedEffect(statusProjectId, connectionState) {
         dismissedWorkflowStepId = null
-        if (!statusProjectId.isNullOrBlank() && chatProjectWorkflowMode == "automated-delegation" && connectionState == ConnectionState.CONNECTED) {
+        if (!statusProjectId.isNullOrBlank() && connectionState == ConnectionState.CONNECTED) {
             WsRepository.listAutomatedWorkflowRuns(statusProjectId)
-        } else if (chatProjectWorkflowMode != "automated-delegation") {
+        } else if (statusProjectId.isNullOrBlank()) {
             activeWorkflowRun = null
         }
     }
@@ -572,7 +597,7 @@ fun ChatScreen(
                 }
                 is io.nexy.android.data.model.WsEvent.AutomatedWorkflowRunDetailReady -> {
                     val run = event.run
-                    if (run != null && run.projectId == statusProjectId && chatProjectWorkflowMode == "automated-delegation") {
+                    if (run != null && run.projectId == statusProjectId) {
                         activeWorkflowRun = run
                     }
                 }
@@ -596,7 +621,11 @@ fun ChatScreen(
         val chatProjectId = conversation?.project_id ?: projectId
         if (connectionState != ConnectionState.CONNECTED) {
             scope.launch { snackbarHostState.showSnackbar("Not connected to desktop") }
-        } else if (!chatProjectId.isNullOrBlank()) {
+        } else if (chatProjectId.isNullOrBlank()) {
+            // no-op: entry point is already hidden when there's no project
+        } else if (projects.find { it.id == chatProjectId }?.rootDirectory.isNullOrBlank()) {
+            scope.launch { snackbarHostState.showSnackbar("Code changes require this project to have a configured workspace") }
+        } else {
             onOpenRemoteEditWithPrefill?.invoke(msg.text, chatProjectId)
         }
     }
@@ -976,6 +1005,9 @@ fun ChatScreen(
                         if (isCompleted) {
                             ChatCompletedBadge()
                         }
+                        if (conversationRating != null) {
+                            ChatRatingBadge(conversationRating)
+                        }
                     }
                 },
                 onBack = onBack,
@@ -1109,6 +1141,17 @@ fun ChatScreen(
                     NexyConnectionBanner(connectionState, lastError)
                 }
 
+                // Placed as a normal (non-floating) banner, flush above the workflow step
+                // banner below it — previously this floated in an overlay Box aligned to the
+                // top of the whole screen, which put it directly on top of (rather than above)
+                // the workflow banner whenever both were visible at once.
+                InReplyToBanner(
+                    listState = listState,
+                    renderItems = renderItems,
+                    lazyHeaderOffset = lazyHeaderOffset,
+                    onScrollToRequest = { itemIdx -> scope.launch { handleScrollToRequest(itemIdx) } },
+                )
+
                 val bannerRun = activeWorkflowRun
                 val bannerStep = currentWorkflowStep
                 // Keyed on status+attempt, not just the step's stable logical id: a retried step
@@ -1149,7 +1192,7 @@ fun ChatScreen(
                                     Text("Skip", style = MaterialTheme.typography.labelSmall)
                                 }
                             }
-                            TextButton(onClick = { onOpenAutomatedWorkflow?.invoke(bannerRun.projectId) }) {
+                            TextButton(onClick = { bannerRun.projectId?.let { onOpenAutomatedWorkflow?.invoke(it) } }) {
                                 Text("View", style = MaterialTheme.typography.labelSmall)
                             }
                             IconButton(onClick = { dismissedWorkflowStepId = bannerStepKey }, modifier = Modifier.size(28.dp)) {
@@ -1388,6 +1431,7 @@ fun ChatScreen(
                                             msg.text.isNotBlank() &&
                                             onOpenRemoteEditWithPrefill != null &&
                                             !chatProjectId.isNullOrBlank() &&
+                                            !projects.find { it.id == chatProjectId }?.rootDirectory.isNullOrBlank() &&
                                             connectionState == ConnectionState.CONNECTED
                                         ) {
                                             { investigateMessage = msg }
@@ -1431,13 +1475,6 @@ fun ChatScreen(
                 }
             }
             // Scroll-to-bottom button shown whenever the user is scrolled above the bottom
-            InReplyToBanner(
-                listState = listState,
-                renderItems = renderItems,
-                lazyHeaderOffset = lazyHeaderOffset,
-                modifier = Modifier.align(Alignment.TopCenter),
-                onScrollToRequest = { itemIdx -> scope.launch { handleScrollToRequest(itemIdx) } },
-            )
             AnimatedVisibility(
                 visible = hasInitiallyScrolled && !isAtBottom,
                 modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp),

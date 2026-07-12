@@ -4,6 +4,7 @@ import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,6 +18,8 @@ import androidx.compose.material.icons.filled.Compress
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -32,6 +35,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -55,6 +61,8 @@ fun ConversationActionsSheet(
     val state by vm.state.collectAsState()
     val context = LocalContext.current
     val conversations by WsRepository.conversations.collectAsState()
+    var showRatingPicker by remember { mutableStateOf(false) }
+    val currentRating = conversations.firstOrNull { it.id == conversationId }?.rating
 
     LaunchedEffect(conversationId, conversations) {
         vm.initPin(conversations, conversationId)
@@ -184,6 +192,36 @@ fun ConversationActionsSheet(
                 loading = state.isPinning,
                 onClick = { vm.togglePin(conversationId) },
             )
+
+            ActionRow(
+                icon = Icons.Default.Star,
+                label = if (currentRating != null) "Rated $currentRating/5" else "Rate conversation",
+                sublabel = "Tell Nexy how this conversation went",
+                loading = false,
+                onClick = { showRatingPicker = !showRatingPicker },
+            )
+            if (showRatingPicker) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    for (star in 1..5) {
+                        Icon(
+                            imageVector = if (currentRating != null && star <= currentRating) Icons.Default.Star else Icons.Default.StarBorder,
+                            contentDescription = "$star star${if (star == 1) "" else "s"}",
+                            tint = MaterialTheme.colorScheme.tertiary,
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clickable {
+                                    WsRepository.setConversationRating(conversationId, star)
+                                    showRatingPicker = false
+                                },
+                        )
+                    }
+                }
+            }
 
             ActionRow(
                 icon = Icons.Default.Compress,

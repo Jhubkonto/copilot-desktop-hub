@@ -17,6 +17,7 @@ data class Conversation(
     val completed_at: Long? = null,
     val thinking_effort_override: String? = null,
     val full_auto_approve_override: Boolean? = null,
+    val rating: Int? = null,
 )
 
 data class ModelOption(
