@@ -27,9 +27,11 @@ import io.nexy.android.data.WsRepository
 import io.nexy.android.ui.agentgenerator.AgentGeneratorScreen
 import io.nexy.android.ui.skillgenerator.SkillGeneratorScreen
 import io.nexy.android.ui.chat.ChatScreen
+import io.nexy.android.ui.fileexplorer.FileExplorerScreen
 import io.nexy.android.ui.projects.ProjectConfigScreen
 import io.nexy.android.ui.projects.ProjectAuditScreen
 import io.nexy.android.ui.projects.AutomatedWorkflowListScreen
+import io.nexy.android.ui.ratings.RatingsScreen
 import io.nexy.android.ui.projects.AutomatedWorkflowScreen
 import io.nexy.android.ui.home.ActivityFeedScreen
 import io.nexy.android.ui.home.AgentConfigScreen
@@ -201,6 +203,9 @@ fun NavGraph(
                 },
                 onOpenAutomatedWorkflows = {
                     navController.navigate("automated-workflows?projectId=")
+                },
+                onOpenRatings = {
+                    navController.navigate("ratings")
                 },
                 onOpenSkillGenerator = {
                     navController.navigate("skill-generator")
@@ -437,6 +442,20 @@ fun NavGraph(
                 onOpenWiki = { navController.navigate("wiki/${Uri.encode(projectId)}") },
                 onOpenArtifacts = { navController.navigate("artifacts?artifactId=") },
                 onOpenAutomatedWorkflow = { navController.navigate("automated-workflow/${Uri.encode(projectId)}") },
+                onOpenFileExplorer = { navController.navigate("file-explorer?projectId=${Uri.encode(projectId)}") },
+            )
+        }
+
+        composable(
+            route = "file-explorer?projectId={projectId}",
+            arguments = listOf(navArgument("projectId") { type = NavType.StringType; defaultValue = "" }),
+        ) {
+            FileExplorerScreen(
+                onBack = { navController.popBackStack() },
+                onFolderSelected = { path ->
+                    WsRepository.pendingSelectedDirectory.value = path
+                    navController.popBackStack()
+                },
             )
         }
 
@@ -452,6 +471,16 @@ fun NavGraph(
             )
         }
 
+        // Standalone (project-less) generation entry point — reached from the global Automated
+        // Workflows list's "New" action, additive to the project-nested route above.
+        composable(route = "automated-workflow-generate") {
+            AutomatedWorkflowScreen(
+                projectId = null,
+                onBack = { navController.popBackStack() },
+                onOpenConversation = { conversationId -> navController.navigate("chat/$conversationId") },
+            )
+        }
+
         composable(
             route = "automated-workflows?projectId={projectId}",
             arguments = listOf(navArgument("projectId") { type = NavType.StringType; defaultValue = "" }),
@@ -459,6 +488,18 @@ fun NavGraph(
             val projectId = backStackEntry.arguments?.getString("projectId")?.takeIf { it.isNotBlank() }
             AutomatedWorkflowListScreen(
                 projectId = projectId,
+                onBack = { navController.popBackStack() },
+                onNewWorkflow = {
+                    navController.navigate(
+                        if (projectId != null) "automated-workflow/${Uri.encode(projectId)}" else "automated-workflow-generate",
+                    )
+                },
+                onOpenConversation = { conversationId -> navController.navigate("chat/$conversationId") },
+            )
+        }
+
+        composable(route = "ratings") {
+            RatingsScreen(
                 onBack = { navController.popBackStack() },
                 onOpenConversation = { conversationId -> navController.navigate("chat/$conversationId") },
             )

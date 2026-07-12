@@ -112,6 +112,7 @@ fun ProjectConfigScreen(
     onOpenArtifacts: () -> Unit = {},
     onOpenAudit: () -> Unit = {},
     onOpenAutomatedWorkflow: () -> Unit = {},
+    onOpenFileExplorer: () -> Unit = {},
 ) {
     val projects by WsRepository.projects.collectAsState()
     val allAgents by WsRepository.agents.collectAsState()
@@ -222,6 +223,17 @@ fun ProjectConfigScreen(
                     projectAgents.addAll(event.agents)
                 }
                 else -> {}
+            }
+        }
+    }
+
+    // Picked up after returning from the remote file explorer (see WsRepository.pendingSelectedDirectory)
+    // — just fills the field; the user still reviews and taps Save like any other edit here.
+    LaunchedEffect(Unit) {
+        WsRepository.pendingSelectedDirectory.collect { picked ->
+            if (picked != null) {
+                rootDirectory = picked
+                WsRepository.pendingSelectedDirectory.value = null
             }
         }
     }
@@ -485,6 +497,11 @@ fun ProjectConfigScreen(
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    if (!desktopDisconnected) {
+                        TextButton(onClick = onOpenFileExplorer, enabled = !saving) {
+                            Text("Browse desktop files…")
+                        }
+                    }
                 }
             }
 

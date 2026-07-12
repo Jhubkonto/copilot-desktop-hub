@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountTree
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.DateRange
@@ -105,6 +106,7 @@ fun HomeScreen(
     onOpenSkills: () -> Unit,
     onOpenScheduled: () -> Unit,
     onOpenAutomatedWorkflows: () -> Unit,
+    onOpenRatings: () -> Unit,
     onOpenSkillGenerator: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenPairingScan: () -> Unit,
@@ -480,6 +482,12 @@ fun HomeScreen(
                                 text = { Text(if (connectionState == ConnectionState.CONNECTED) "Automated Workflows" else "Automated Workflows · desktop required") },
                                 leadingIcon = { Icon(Icons.Default.AccountTree, contentDescription = null) },
                                 onClick = { showOverflowMenu = false; onOpenAutomatedWorkflows() },
+                                enabled = connectionState == ConnectionState.CONNECTED,
+                            )
+                            DropdownMenuItem(
+                                text = { Text(if (connectionState == ConnectionState.CONNECTED) "Ratings" else "Ratings · desktop required") },
+                                leadingIcon = { Icon(Icons.Default.Star, contentDescription = null) },
+                                onClick = { showOverflowMenu = false; onOpenRatings() },
                                 enabled = connectionState == ConnectionState.CONNECTED,
                             )
                         }
