@@ -1307,6 +1307,45 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
       ALTER TABLE scheduled_runs ADD COLUMN workflow_run_ids_json TEXT;
     `,
   },
+  {
+    // Conversation rating & analytics system (src/roadmap-new/conversation-rating-system-roadmap.md).
+    // conversation_tool_calls/conversation_skill_invocations are structured, queryable capture logs
+    // that back the rating's frozen context_snapshot_json — replacing the previous state where "what
+    // was used in this conversation" only existed as unstructured JSON inside message rows, or wasn't
+    // recorded at all (skill usage). conversation_ratings is one row per conversation; re-rating
+    // overwrites via the UNIQUE(conversation_id) constraint rather than accumulating a history.
+    version: 71,
+    sql: `
+      CREATE TABLE IF NOT EXISTS conversation_tool_calls (
+        id              TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+        tool_name       TEXT NOT NULL,
+        server_name     TEXT,
+        success         INTEGER NOT NULL,
+        created_at      INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_conversation_tool_calls_conv ON conversation_tool_calls(conversation_id);
+
+      CREATE TABLE IF NOT EXISTS conversation_skill_invocations (
+        id              TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+        skill_id        TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+        agent_id        TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+        created_at      INTEGER NOT NULL,
+        UNIQUE(conversation_id, skill_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS conversation_ratings (
+        id                     TEXT PRIMARY KEY,
+        conversation_id        TEXT NOT NULL UNIQUE REFERENCES conversations(id) ON DELETE CASCADE,
+        rating                 INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+        note                   TEXT,
+        context_snapshot_json  TEXT NOT NULL,
+        created_at             INTEGER NOT NULL,
+        updated_at             INTEGER NOT NULL
+      );
+    `,
+  },
 ];
 
 
@@ -1490,6 +1529,35 @@ export function initializeBaseSchema(db: Database.Database): void {
       config_json TEXT NOT NULL,
       created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
       updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+
+    CREATE TABLE IF NOT EXISTS conversation_tool_calls (
+      id              TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      tool_name       TEXT NOT NULL,
+      server_name     TEXT,
+      success         INTEGER NOT NULL,
+      created_at      INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_conversation_tool_calls_conv ON conversation_tool_calls(conversation_id);
+
+    CREATE TABLE IF NOT EXISTS conversation_skill_invocations (
+      id              TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      skill_id        TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+      agent_id        TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+      created_at      INTEGER NOT NULL,
+      UNIQUE(conversation_id, skill_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS conversation_ratings (
+      id                     TEXT PRIMARY KEY,
+      conversation_id        TEXT NOT NULL UNIQUE REFERENCES conversations(id) ON DELETE CASCADE,
+      rating                 INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+      note                   TEXT,
+      context_snapshot_json  TEXT NOT NULL,
+      created_at             INTEGER NOT NULL,
+      updated_at             INTEGER NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS mcp_servers (
