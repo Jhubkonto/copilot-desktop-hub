@@ -74,6 +74,78 @@ export interface DebriefArtifactResult {
   versionId: string
 }
 
+// ---------------------------------------------------------------------------
+// Conversation Ratings
+// ---------------------------------------------------------------------------
+
+/**
+ * Frozen at rating time (see messages.context_snapshot for the precedent) so a historical
+ * rating stays meaningful even after the source agent/skill is renamed or deleted, or the
+ * project's workflowMode later changes.
+ */
+export interface ConversationRatingSnapshot {
+  agentId: string | null
+  agentName: string | null
+  model: string | null
+  backend: string | null
+  projectId: string | null
+  projectName: string | null
+  workflowMode: 'single-agent' | 'automated-delegation' | 'orchestrated' | null
+  toolNames: string[]
+  serverNames: string[]
+  skillIds: string[]
+  skillNames: string[]
+  keywords: string[]
+}
+
+export interface ConversationRating {
+  id: string
+  conversationId: string
+  rating: number
+  note: string | null
+  snapshot: ConversationRatingSnapshot
+  createdAt: number
+  updatedAt: number
+}
+
+/** Denormalized row for the RatingsPane/RatingsScreen table — one row per rated conversation. */
+export interface ConversationRatingListItem {
+  id: string
+  conversationId: string
+  conversationTitle: string
+  projectId: string | null
+  projectName: string | null
+  rating: number
+  note: string | null
+  agentName: string | null
+  model: string | null
+  toolNames: string[]
+  skillNames: string[]
+  createdAt: number
+  updatedAt: number
+}
+
+export interface RatingAggregate {
+  label: string
+  average: number
+  count: number
+}
+
+export interface RatingTrendPoint {
+  date: string
+  average: number
+  count: number
+}
+
+export interface ConversationRatingStats {
+  averageByAgent: RatingAggregate[]
+  averageByModel: RatingAggregate[]
+  averageBySkill: RatingAggregate[]
+  averageByServer: RatingAggregate[]
+  averageByProject: RatingAggregate[]
+  trend: RatingTrendPoint[]
+}
+
 export type BackgroundActivityKind =
   | 'project-generator'
   | 'agent-generator'
@@ -316,6 +388,9 @@ export interface ProjectConfig extends ProjectOrchestrationConfig {
   // null means "use the built-in npm typecheck/lint/test/build default" — see
   // DEFAULT_VERIFY_COMMANDS in shared/code-changes.ts.
   verifyCommands: RemoteEditVerifyCommandConfig[] | null
+  // Opt-in, off by default: surfaces past highly-rated conversations from this project as an
+  // additive "similar past strategies" context block (conversation-rating-system-roadmap.md §3.4).
+  strategyRetrievalEnabled: boolean
 }
 
 export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
@@ -334,6 +409,7 @@ export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
   outOfScope: [],
   milestones: [],
   verifyCommands: null,
+  strategyRetrievalEnabled: false,
 }
 
 export interface McpServerConfig {
@@ -1029,6 +1105,7 @@ export interface ConversationRow {
   completed_at: number | null
   thinking_effort_override: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null
   full_auto_approve_override: number | null
+  rating: number | null
 }
 
 export interface MessageRow {
@@ -1791,6 +1868,12 @@ export type IpcReturnMap = {
   'conversation:generate-quiz': QuizArtifactResult
   'conversation:start-quiz-generation': { artifactId: string }
   'conversation:get-quiz': QuizArtifactResult | null
+  // Ratings
+  'rating:submit': ConversationRating
+  'rating:get': ConversationRating | null
+  'rating:delete': boolean
+  'rating:list': ConversationRatingListItem[]
+  'rating:get-stats': ConversationRatingStats
   // Activity
   'activity:list': BackgroundActivity[]
   'activity:changed': void
@@ -2200,6 +2283,12 @@ export type IpcChannels =
   | 'conversation:generate-quiz'
   | 'conversation:start-quiz-generation'
   | 'conversation:get-quiz'
+  | 'rating:submit'
+  | 'rating:get'
+  | 'rating:delete'
+  | 'rating:list'
+  | 'rating:get-stats'
+  | 'rating:updated'
   | 'activity:list'
   | 'activity:changed'
   | 'activity:dismiss'
