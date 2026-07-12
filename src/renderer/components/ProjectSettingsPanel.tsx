@@ -75,6 +75,7 @@ export function ProjectSettingsPanel(props: Props) {
   const [instructions, setInstructions] = useState(cfg?.instructions ?? '')
   const [rootDirectory, setRootDirectory] = useState(cfg?.rootDirectory ?? '')
   const [codingWorkspace, setCodingWorkspace] = useState(cfg?.codingWorkspace ?? false)
+  const [strategyRetrievalEnabled, setStrategyRetrievalEnabled] = useState(cfg?.strategyRetrievalEnabled ?? false)
   const [inspectedWorkspaceInfo, setInspectedWorkspaceInfo] = useState<ProjectConfig['workspaceInfo']>(cfg?.workspaceInfo ?? null)
   const [instructionMode, setInstructionMode] = useState<ProjectConfig['instructionMode']>(cfg?.instructionMode ?? 'prepend')
   const [instructionsEnabled, setInstructionsEnabled] = useState(cfg?.instructionsEnabled ?? true)
@@ -229,6 +230,12 @@ export function ProjectSettingsPanel(props: Props) {
     const next = !codingWorkspace
     setCodingWorkspace(next)
     immediateSave({ codingWorkspace: next })
+  }
+
+  const handleStrategyRetrievalToggle = () => {
+    const next = !strategyRetrievalEnabled
+    setStrategyRetrievalEnabled(next)
+    immediateSave({ strategyRetrievalEnabled: next })
   }
 
   const handleAddVariable = () => {
@@ -452,6 +459,7 @@ export function ProjectSettingsPanel(props: Props) {
             color={color}
             rootDirectory={rootDirectory}
             codingWorkspace={codingWorkspace}
+            strategyRetrievalEnabled={strategyRetrievalEnabled}
             workspaceInfo={inspectedWorkspaceInfo ?? projectConfig.workspaceInfo}
             instructions={instructions}
             instructionMode={instructionMode}
@@ -470,6 +478,7 @@ export function ProjectSettingsPanel(props: Props) {
             onEnabledToggle={handleEnabledToggle}
             onBrowseDir={handleBrowseDir}
             onCodingWorkspaceToggle={handleCodingWorkspaceToggle}
+            onStrategyRetrievalToggle={handleStrategyRetrievalToggle}
             onSetShowModeDropdown={setShowModeDropdown}
             onAddVariable={handleAddVariable}
             onRemoveVariable={handleRemoveVariable}

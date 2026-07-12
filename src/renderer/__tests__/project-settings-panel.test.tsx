@@ -25,6 +25,7 @@ const BASE_CONFIG: ProjectConfig = {
   outOfScope: [],
   milestones: [],
   verifyCommands: null,
+  strategyRetrievalEnabled: false,
 }
 
 const PROJECT = { id: 'proj-1', name: 'My Project', color: 'blue', created_at: 0, default_model: null }
@@ -97,6 +98,19 @@ describe('ProjectSettingsPanel — tabs', () => {
     expect(mockStore.updateProjectConfig).toHaveBeenLastCalledWith(
       'proj-1',
       expect.objectContaining({ verifyCommands: expect.arrayContaining([expect.objectContaining({ command: 'pnpm typecheck' })]) }),
+    )
+  })
+
+  it('k-7: toggling "Surface similar past strategies" persists the change', async () => {
+    render(<ProjectSettingsPanel projectId="proj-1" onClose={vi.fn()} />)
+    const toggle = screen.getByRole('switch', { name: /enable similar past strategies/i })
+    expect(toggle).toHaveAttribute('aria-checked', 'false')
+
+    await user.click(toggle)
+
+    expect(mockStore.updateProjectConfig).toHaveBeenLastCalledWith(
+      'proj-1',
+      expect.objectContaining({ strategyRetrievalEnabled: true }),
     )
   })
 })
@@ -239,8 +253,9 @@ describe('ProjectSettingsPanel — automated workflow mode', () => {
     expect(screen.getByText(/generate a delegation plan/i)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /open workflow tab/i }))
 
-    expect(screen.getByText(/automated delegation execution plan/i)).toBeInTheDocument()
-    await user.type(screen.getByPlaceholderText(/describe the project goal/i), 'Plan a release')
+    expect(screen.getByText('Automated Workflow')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /start a new workflow/i }))
+    await user.type(screen.getByPlaceholderText(/describe the goal/i), 'Plan a release')
     await user.click(screen.getByRole('button', { name: /generate workflow/i }))
 
     expect(api.automatedWorkflowGeneratorChat).toHaveBeenCalledWith('proj-1', [
@@ -311,6 +326,9 @@ describe('ProjectSettingsPanel — automated workflow mode', () => {
 
     render(<ProjectSettingsPanel projectId="proj-1" initialTab="workflow" onClose={vi.fn()} />)
 
+    // The generator's spec-ready listener only exists while its modal is open.
+    await user.click(screen.getByRole('button', { name: /start a new workflow/i }))
+
     onSpecReady({
       title: 'Release workflow',
       goalSummary: 'Ship safely',
@@ -328,13 +346,16 @@ describe('ProjectSettingsPanel — automated workflow mode', () => {
       ],
     })
 
+    // "Use this plan" commits the generated (already-saved) run and closes the modal.
+    await user.click(await screen.findByRole('button', { name: /use this plan/i }))
+
     expect(await screen.findByText(/release workflow/i)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /start workflow/i }))
 
     expect(api.startAutomatedWorkflowRun).toHaveBeenCalledWith('run-1')
   })
 
-  it('shows backend availability warning when automated mode has no configured backend', () => {
+  it('shows backend availability warning when automated mode has no configured backend', async () => {
     mockStore = createMockAppStore({
       authState: { authenticated: false, mode: 'none', user: null, cliInstalled: false, clis: { claude: false, codex: false } },
       projects: [PROJECT],
@@ -361,6 +382,8 @@ describe('ProjectSettingsPanel — automated workflow mode', () => {
     render(<ProjectSettingsPanel projectId="proj-1" initialTab="workflow" onClose={vi.fn()} />)
 
     expect(screen.getByText(/no provider or supported cli backend is configured/i)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /start a new workflow/i }))
+
     expect(screen.getByRole('button', { name: /generate workflow/i })).toBeDisabled()
   })
 })

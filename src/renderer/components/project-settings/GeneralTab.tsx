@@ -41,6 +41,7 @@ interface Props {
   color: string
   rootDirectory: string
   codingWorkspace: boolean
+  strategyRetrievalEnabled: boolean
   workspaceInfo: ProjectConfig['workspaceInfo']
   instructions: string
   instructionMode: ProjectConfig['instructionMode']
@@ -59,6 +60,7 @@ interface Props {
   onEnabledToggle: () => void
   onBrowseDir: () => void
   onCodingWorkspaceToggle: () => void
+  onStrategyRetrievalToggle: () => void
   onSetShowModeDropdown: (v: boolean) => void
   onAddVariable: () => void
   onRemoveVariable: (idx: number) => void
@@ -66,12 +68,12 @@ interface Props {
 }
 
 export function GeneralTab({
-  isDraft, name, color, rootDirectory, codingWorkspace, workspaceInfo,
+  isDraft, name, color, rootDirectory, codingWorkspace, strategyRetrievalEnabled, workspaceInfo,
   instructions, instructionMode, instructionsEnabled,
   variables, varErrors, showModeDropdown, hasVarErrors,
   onSetName, onSetColor, onNameBlur, onConfirm,
   onInstructionsChange, onRootDirChange, onModeChange, onEnabledToggle, onBrowseDir, onCodingWorkspaceToggle,
-  onSetShowModeDropdown, onAddVariable, onRemoveVariable, onVarChange,
+  onStrategyRetrievalToggle, onSetShowModeDropdown, onAddVariable, onRemoveVariable, onVarChange,
 }: Props) {
   const selectedModeLabel = INSTRUCTION_MODES.find((m) => m.value === instructionMode)?.label ?? instructionMode
   const highlightParts = resolveVarHighlights(instructions, variables)
@@ -295,6 +297,29 @@ export function GeneralTab({
           >
             <Plus className="w-3.5 h-3.5" />
             Add variable
+          </button>
+        </div>
+      </div>
+
+      {/* Similar past strategies (rating-based LLM retrieval) */}
+      <div className="mt-4 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2.5">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-medium text-gray-700 dark:text-gray-200">Surface similar past strategies</p>
+            <p className="mt-1 text-[10px] text-gray-500 dark:text-gray-400">
+              When enabled, chats in this project are told about highly-rated past conversations that used similar
+              agents, models, tools, or skills. Off by default.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onStrategyRetrievalToggle}
+            className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors ${strategyRetrievalEnabled ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+            aria-label={strategyRetrievalEnabled ? 'Disable similar past strategies' : 'Enable similar past strategies'}
+            role="switch"
+            aria-checked={strategyRetrievalEnabled}
+          >
+            <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${strategyRetrievalEnabled ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
           </button>
         </div>
       </div>
