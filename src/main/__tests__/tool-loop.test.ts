@@ -1,10 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockCallMcpTool, mockServers } = vi.hoisted(() => ({
-  mockCallMcpTool: vi.fn(),
-  mockServers: new Map<string, { config: { name: string } }>()
-}))
+const { mockCallMcpTool, mockServers, mockDbRun, mockDbPrepare } = vi.hoisted(() => {
+  const run = vi.fn()
+  return {
+    mockCallMcpTool: vi.fn(),
+    mockServers: new Map<string, { config: { name: string } }>(),
+    mockDbRun: run,
+    mockDbPrepare: vi.fn().mockReturnValue({ run }),
+  }
+})
 
+vi.mock('electron', () => ({ app: { isPackaged: false } }))
+vi.mock('../database', () => ({ getDatabase: vi.fn().mockReturnValue({ prepare: mockDbPrepare }) }))
 vi.mock('../mcp', () => ({
   callMcpTool: mockCallMcpTool,
   servers: mockServers
@@ -268,6 +275,38 @@ describe('runProviderMcpToolLoop', () => {
     expect(webContents.send).toHaveBeenCalledWith('chat:tool-call-event', expect.objectContaining({
       conversationId: 'conversation-42'
     }))
+    expect(mockDbPrepare).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO conversation_tool_calls'))
+    expect(mockDbRun).toHaveBeenCalledWith(
+      expect.any(String),
+      'conversation-42',
+      'click',
+      'Browser Server',
+      1,
+      expect.any(Number),
+    )
+  })
+
+  it('does not insert a conversation_tool_calls row when conversationId is null', async () => {
+    const caller: ModelToolCaller = vi.fn()
+      .mockResolvedValueOnce({
+        content: null,
+        toolCalls: [{ id: 'call-1', name: 'server-1__click', arguments: { target: 'submit' } }]
+      })
+      .mockResolvedValueOnce({ content: 'finished', toolCalls: [] })
+
+    const webContents = makeWebContents()
+    await runProviderMcpToolLoop(
+      caller,
+      [{ role: 'user', content: 'click submit' }],
+      toolDefs,
+      toolMap,
+      'agent-1',
+      null,
+      webContents,
+      vi.fn()
+    )
+
+    expect(mockDbRun).not.toHaveBeenCalled()
   })
 
   it('uses the optional tool-finished callback instead of direct UI emission', async () => {

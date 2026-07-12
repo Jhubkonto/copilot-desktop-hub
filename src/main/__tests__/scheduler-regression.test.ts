@@ -72,6 +72,15 @@ function makeWebContents() {
 // ─── Tool-loop regression ─────────────────────────────────────────────────
 
 describe('tool-loop regression — scheduler toolPolicy does not affect normal runs', () => {
+  beforeEach(() => {
+    initDb()
+  })
+
+  afterEach(() => {
+    state.db?.close()
+    state.db = null
+  })
+
   it('runs normally when no toolPolicy is provided', async () => {
     callerMock
       .mockResolvedValueOnce({ content: 'Hello!', toolCalls: [] })

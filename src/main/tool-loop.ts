@@ -1,3 +1,6 @@
+import { randomUUID } from 'crypto'
+
+import { getDatabase } from './database'
 import { callMcpTool, servers } from './mcp'
 import { broadcastToMobile } from './ws-server'
 import type { ProviderNonStreamResult, ToolChoice, ToolDefinition } from './provider-types'
@@ -151,6 +154,13 @@ export async function runProviderMcpToolLoop(
     onActivity?.(event)
   }
   const sendToolFinished = (event: ToolLoopToolFinishedEvent) => {
+    if (event.conversationId) {
+      getDatabase()
+        .prepare(
+          'INSERT INTO conversation_tool_calls (id, conversation_id, tool_name, server_name, success, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        )
+        .run(randomUUID(), event.conversationId, event.toolName, event.serverName ?? null, event.success ? 1 : 0, Date.now())
+    }
     if (onToolFinished) {
       onToolFinished(event)
       return
