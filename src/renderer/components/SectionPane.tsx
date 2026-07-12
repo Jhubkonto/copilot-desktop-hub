@@ -12,8 +12,9 @@ import { SkillsPane } from './section-pane/SkillsPane'
 import { ScheduledPane } from './section-pane/ScheduledPane'
 import { AutomatedWorkflowsPane } from './section-pane/AutomatedWorkflowsPane'
 import { ArtifactsPane } from './section-pane/ArtifactsPane'
+import { RatingsPane } from './section-pane/RatingsPane'
 
-type SectionType = 'projects' | 'agents' | 'chats' | 'skills' | 'scheduled' | 'workflows' | 'artifacts'
+type SectionType = 'projects' | 'agents' | 'chats' | 'skills' | 'scheduled' | 'workflows' | 'artifacts' | 'ratings'
 
 const SECTION_LABELS: Record<SectionType, string> = {
   projects: 'Projects',
@@ -23,6 +24,7 @@ const SECTION_LABELS: Record<SectionType, string> = {
   scheduled: 'Scheduled',
   workflows: 'Automated Workflows',
   artifacts: 'Artifacts',
+  ratings: 'Ratings',
 }
 
 interface SectionPaneProps {
@@ -111,6 +113,7 @@ export function SectionPane({ section }: SectionPaneProps) {
         {section === 'scheduled' && <ScheduledPane />}
         {section === 'workflows' && <AutomatedWorkflowsPane />}
         {section === 'artifacts' && <ArtifactsPane />}
+        {section === 'ratings' && <RatingsPane />}
       </div>
 
       <ResizeHandle

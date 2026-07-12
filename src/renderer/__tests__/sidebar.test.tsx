@@ -59,4 +59,14 @@ describe('Sidebar', () => {
 
     expect(mockStore.openSectionPane).toHaveBeenCalledWith('workflows')
   })
+
+  it('opens the Ratings section from the sidebar', async () => {
+    mockStore = createMockAppStore()
+    setupStoreMock(useAppStore, mockStore)
+
+    render(<Sidebar />)
+    await user.click(screen.getByText('Ratings'))
+
+    expect(mockStore.openSectionPane).toHaveBeenCalledWith('ratings')
+  })
 })

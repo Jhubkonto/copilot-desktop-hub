@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, type ReactNode } from 'react'
-import { Plus, MessageSquare, FolderOpen, Bot, Wrench, Package, SquareArrowOutUpRight, Loader2, Clock, Zap, Workflow } from 'lucide-react'
+import { Plus, MessageSquare, FolderOpen, Bot, Wrench, Package, SquareArrowOutUpRight, Loader2, Clock, Star, Zap, Workflow } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import { ResizeHandle } from './ResizeHandle'
 import { Button } from './ui/primitives'
@@ -202,6 +202,13 @@ export function Sidebar() {
           badgeCount={newArtifactCount}
           active={activeSectionPane === 'artifacts'}
           ariaLabel={`Open Artifacts${newArtifactCount > 0 ? ` (${newArtifactCount} new)` : ''}`}
+        />
+        <NavButton
+          icon={<Star className="w-3.5 h-3.5" />}
+          label="Ratings"
+          onClick={() => openSectionPane('ratings')}
+          active={activeSectionPane === 'ratings'}
+          ariaLabel="Open ratings"
         />
       </div>
 

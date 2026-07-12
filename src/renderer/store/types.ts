@@ -12,6 +12,7 @@ export interface Conversation {
   completed_at?: number | null
   thinking_effort_override?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null
   full_auto_approve_override?: number | null
+  rating?: number | null
 }
 
 export interface Project {
@@ -77,5 +78,5 @@ export type {
 export { DEFAULT_PROJECT_CONFIG } from '../../shared/types'
 
 export type Theme = 'light' | 'dark'
-export type ActiveSectionPane = 'projects' | 'agents' | 'chats' | 'skills' | 'scheduled' | 'workflows' | 'artifacts' | null
+export type ActiveSectionPane = 'projects' | 'agents' | 'chats' | 'skills' | 'scheduled' | 'workflows' | 'artifacts' | 'ratings' | null
 export type ProjectSettingsTab = 'general' | 'scope' | 'milestones' | 'team' | 'workflow' | 'verify' | 'changes' | 'wiki' | 'artifacts'
