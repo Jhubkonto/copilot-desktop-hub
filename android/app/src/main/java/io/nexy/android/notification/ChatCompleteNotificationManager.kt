@@ -10,13 +10,14 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import io.nexy.android.MainActivity
+import io.nexy.android.data.PreferenceStore
 
 object ChatCompleteNotificationManager {
 
     private const val CHANNEL_ID = "chat_complete"
     private var nextId = 3000
 
-    fun show(context: Context, conversationId: String, title: String) {
+    fun show(context: Context, conversationId: String, title: String, summary: String? = null) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
@@ -36,14 +37,39 @@ object ChatCompleteNotificationManager {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_popup_reminder)
             .setContentTitle("Response ready")
             .setContentText(title)
             .setContentIntent(openIntent)
             .setAutoCancel(true)
-            .build()
 
+        val preferenceStore = PreferenceStore.getInstance(context)
+        val readAloudEnabled = preferenceStore.let { prefs ->
+            val isEnabled = context.getSharedPreferences("nexy_preferences", Context.MODE_PRIVATE)
+                .getBoolean("read_aloud_enabled", false)
+            isEnabled
+        }
+
+        if (readAloudEnabled && !summary.isNullOrBlank()) {
+            val listenIntent = PendingIntent.getBroadcast(
+                context,
+                (conversationId + ":listen").hashCode(),
+                Intent(context, ReadAloudActionReceiver::class.java).apply {
+                    action = "io.nexy.android.ACTION_LISTEN_SUMMARY"
+                    putExtra("conversationId", conversationId)
+                    putExtra("summary", summary)
+                },
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            builder.addAction(
+                android.R.drawable.ic_media_play,
+                "Listen",
+                listenIntent,
+            )
+        }
+
+        val notification = builder.build()
         nm.notify(nextId++, notification)
     }
 

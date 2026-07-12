@@ -766,6 +766,22 @@ describe('ws handlers', () => {
     })
   })
 
+  it('persists rootDirectory in project config when updated from mobile', () => {
+    state.projectConfigJson = '{"instructions":"","orchestrationEnabled":false}'
+
+    sendCommand('project:update-config', { id: 'proj-1', rootDirectory: '/home/user/my-project' })
+
+    expect(state.broadcastToMobile).toHaveBeenCalledWith({
+      event: 'project:config-updated',
+      data: {
+        id: 'proj-1',
+        config: expect.objectContaining({
+          rootDirectory: '/home/user/my-project',
+        }),
+      },
+    })
+  })
+
   it('starts the automated workflow generator for mobile consumers', () => {
     sendCommand('automated-workflow-generator:start', {
       projectId: 'proj-1',

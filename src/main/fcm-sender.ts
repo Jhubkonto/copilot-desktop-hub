@@ -1,10 +1,21 @@
 import { safeStorage } from 'electron'
 import { GoogleAuth } from 'google-auth-library'
+import { randomUUID } from 'crypto'
 import type Database from 'better-sqlite3'
+import {
+  DEFAULT_PROVIDER_MODEL,
+  getProviderForAgent,
+  getApiKey,
+  sendProviderNonStreaming,
+} from './providers'
+import type { ProviderMessage } from './providers'
+import { ClaudeAdapter } from './cli-adapters/claude'
 
 const FCM_SA_KEY = 'fcm_service_account'
 const FCM_SA_ENCRYPTED_KEY = 'fcm_service_account_encrypted'
 const FCM_SCOPES = ['https://www.googleapis.com/auth/firebase.messaging']
+const SPOKEN_SUMMARY_HEAD = 4000
+const SPOKEN_SUMMARY_HARD_LIMIT = 40_000
 
 let cachedAuth: GoogleAuth | null = null
 let cachedSaJson: string | null = null
@@ -69,6 +80,76 @@ function getAuth(saJson: string): GoogleAuth {
   cachedAuth = new GoogleAuth({ credentials: JSON.parse(saJson), scopes: FCM_SCOPES })
   cachedSaJson = saJson
   return cachedAuth
+}
+
+const SPOKEN_SUMMARY_SYSTEM_PROMPT = `You are a brief summary assistant for spoken delivery. Analyze this AI chat conversation and return ONLY a 1-2 sentence summary in plain English. This summary will be read aloud by text-to-speech, so:
+- Use simple, natural language
+- Avoid markdown, symbols, technical jargon where possible
+- Use contractions (it's, you'll) for a natural spoken tone
+- Keep it concise — aim for under 20 words total if possible
+Return only the summary text, nothing else.`
+
+export async function generateSpokenSummary(db: Database.Database, conversationId: string, projectId: string | null): Promise<string | null> {
+  try {
+    const rows = db.prepare(
+      "SELECT role, content FROM messages WHERE conversation_id = ? AND role IN ('user', 'assistant') ORDER BY timestamp ASC"
+    ).all(conversationId) as { role: string; content: string }[]
+
+    if (rows.length === 0) return null
+
+    const transcript = rows
+      .map((r) => `${r.role === 'user' ? 'User' : 'Assistant'}: ${r.content}`)
+      .join('\n\n')
+
+    const truncatedTranscript = transcript.length <= SPOKEN_SUMMARY_HARD_LIMIT
+      ? transcript
+      : transcript.slice(0, SPOKEN_SUMMARY_HEAD) + '\n\n[... conversation truncated ...]\n\n' + transcript.slice(-(SPOKEN_SUMMARY_HARD_LIMIT - SPOKEN_SUMMARY_HEAD))
+
+    const userContent = `Here is the conversation to summarize:\n\n${truncatedTranscript}`
+
+    let extractionProvider = DEFAULT_PROVIDER_MODEL
+    if (projectId) {
+      const agentRow = db.prepare(
+        'SELECT a.config_json FROM project_agents pa JOIN agents a ON pa.agent_id = a.id WHERE pa.project_id = ? AND pa.is_primary = 1 LIMIT 1'
+      ).get(projectId) as { config_json: string } | undefined
+      try {
+        const cfg = JSON.parse(agentRow?.config_json ?? '{}') as Record<string, unknown>
+        if (typeof cfg.model === 'string' && cfg.model) extractionProvider = cfg.model
+      } catch { /* use default */ }
+    }
+
+    const { provider, model: resolvedModel } = getProviderForAgent(extractionProvider)
+    const apiKey = getApiKey(provider)
+
+    let summary: string | null = null
+    if (apiKey) {
+      const messages: ProviderMessage[] = [
+        { role: 'system', content: SPOKEN_SUMMARY_SYSTEM_PROMPT },
+        { role: 'user', content: userContent },
+      ]
+      const result = await sendProviderNonStreaming(provider, apiKey, resolvedModel, messages, {
+        maxTokens: 200,
+        temperature: 0.3,
+      })
+      summary = (result.content ?? '').trim()
+    } else if (ClaudeAdapter.isAvailable()) {
+      summary = await ClaudeAdapter.send(
+        null as never,
+        {
+          systemPrompt: SPOKEN_SUMMARY_SYSTEM_PROMPT,
+          messages: [{ role: 'user', content: userContent }],
+          cwd: '',
+          model: 'default',
+          conversationId: randomUUID(),
+        },
+        () => {},
+      )
+      summary = summary.trim()
+    }
+    return summary || null
+  } catch {
+    return null
+  }
 }
 
 export async function sendRemoteEditNotification(
@@ -288,7 +369,7 @@ export async function sendIpChangedPush(
 
 export async function sendChatCompleteNotification(
   db: Database.Database,
-  payload: { conversationId: string; title: string },
+  payload: { conversationId: string; title: string; summary?: string },
 ): Promise<void> {
   const saJson = loadFcmServiceAccountJson(db)
   if (!saJson) return
@@ -313,14 +394,18 @@ export async function sendChatCompleteNotification(
 
   await Promise.allSettled(
     tokens.map(async ({ device_id, fcm_token }) => {
+      const data: Record<string, string> = {
+        type: 'chat:complete',
+        conversationId: payload.conversationId,
+        title: payload.title,
+      }
+      if (payload.summary) {
+        data.summary = payload.summary
+      }
       const body = JSON.stringify({
         message: {
           token: fcm_token,
-          data: {
-            type: 'chat:complete',
-            conversationId: payload.conversationId,
-            title: payload.title,
-          },
+          data,
         },
       })
 

@@ -9,14 +9,17 @@ import androidx.lifecycle.viewModelScope
 import io.nexy.android.data.ConnectionState
 import io.nexy.android.data.EffectiveConnectionMode
 import io.nexy.android.data.PairedServerProfile
+import io.nexy.android.data.PreferenceStore
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.AndroidUpdateManifest
 import io.nexy.android.data.model.ModelListSource
 import io.nexy.android.data.model.ModelOption
 import io.nexy.android.ui.theme.ThemePreference
 import io.nexy.android.ui.theme.ThemePreferenceStore
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -41,6 +44,8 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     val serverVersion: StateFlow<String?> = WsRepository.serverVersion
     val androidUpdateManifest: StateFlow<AndroidUpdateManifest?> = WsRepository.androidUpdateManifest
     val themePreference: StateFlow<ThemePreference> = ThemePreferenceStore.themePreference
+    private val preferencesFlow: Flow<Boolean> = PreferenceStore.getInstance(app).getReadAloudEnabled()
+    val readAloudEnabled: StateFlow<Boolean> = preferencesFlow.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Lazily, false)
     private val _notificationDiagnostics = MutableStateFlow(readNotificationDiagnostics(app))
     val notificationDiagnostics: StateFlow<NotificationDiagnostics> = _notificationDiagnostics
     private val _updateInstallState = MutableStateFlow(UpdateInstallState())
@@ -124,6 +129,10 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setPreferStandaloneMode(prefer: Boolean) {
         WsRepository.setPreferStandaloneMode(prefer, getApplication())
+    }
+
+    fun setReadAloudEnabled(enabled: Boolean) {
+        PreferenceStore.getInstance(getApplication()).setReadAloudEnabled(enabled)
     }
 
     fun disconnect() {

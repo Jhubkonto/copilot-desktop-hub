@@ -20,7 +20,7 @@ import { ensureMcpServersReady, getAvailableMcpTools, getMcpServerConfigsForCli,
 import { requestApproval } from './tools'
 import { getAdapter } from './cli-adapters/registry'
 import { broadcastToMobile, isMobileInForeground } from './ws-server'
-import { sendChatCompleteNotification } from './fcm-sender'
+import { sendChatCompleteNotification, generateSpokenSummary } from './fcm-sender'
 import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
 import { getCliModels } from './cli-detection'
@@ -270,9 +270,14 @@ export async function dispatchChatSend(
     clearActiveChatTurn(conversationId, turnEmitter.turnId)
     sendActivity({ state: 'complete', label: 'Complete' })
     const db = getDatabase()
-    const convTitle = (db.prepare('SELECT title FROM conversations WHERE id = ?').get(conversationId) as { title: string } | undefined)?.title ?? 'Chat'
+    const convRow = db.prepare('SELECT title, project_id FROM conversations WHERE id = ?').get(conversationId) as { title: string; project_id: string | null } | undefined
+    const convTitle = convRow?.title ?? 'Chat'
+    const projectId = convRow?.project_id ?? null
     if (!isMobileInForeground()) {
-      void sendChatCompleteNotification(db, { conversationId, title: convTitle })
+      void (async () => {
+        const summary = await generateSpokenSummary(db, conversationId, projectId)
+        void sendChatCompleteNotification(db, { conversationId, title: convTitle, summary: summary ?? undefined })
+      })()
     }
   }
 

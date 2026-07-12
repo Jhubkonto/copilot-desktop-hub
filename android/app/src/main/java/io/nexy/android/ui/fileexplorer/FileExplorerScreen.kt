@@ -31,6 +31,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -39,6 +42,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.FsEntry
 import io.nexy.android.ui.components.NexyConnectionBanner
+import io.nexy.android.ui.components.NexySearchField
 import io.nexy.android.ui.components.NexyTopAppBar
 
 /** Shows the tail of a long path (the part nearest the leaf), since that's what identifies
@@ -58,6 +62,7 @@ fun FileExplorerScreen(
     val state by vm.state.collectAsState()
     val connectionState by WsRepository.connectionState.collectAsState()
     val lastError by WsRepository.lastError.collectAsState()
+    var searchQuery by remember { mutableStateOf("") }
 
     Scaffold(
         topBar = {
@@ -119,6 +124,15 @@ fun FileExplorerScreen(
                     }
                 }
                 HorizontalDivider()
+                NexySearchField(
+                    query = searchQuery,
+                    onQueryChange = { searchQuery = it },
+                    placeholder = "Search files…",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+                HorizontalDivider()
             }
 
             when {
@@ -135,20 +149,35 @@ fun FileExplorerScreen(
                 state.entries.isEmpty() -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("This folder is empty", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    if (state.truncated) {
-                        item {
-                            Surface(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.fillMaxWidth()) {
-                                Text(
-                                    "Showing the first 2000 items in this folder — narrow your search by opening a subfolder.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    modifier = Modifier.padding(12.dp),
-                                )
+                else -> {
+                    val filtered = if (searchQuery.isBlank()) {
+                        state.entries
+                    } else {
+                        state.entries.filter { it.name.contains(searchQuery, ignoreCase = true) }
+                    }
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        if (state.truncated && searchQuery.isBlank()) {
+                            item {
+                                Surface(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.fillMaxWidth()) {
+                                    Text(
+                                        "Showing the first 2000 items in this folder — narrow your search by opening a subfolder or using the search bar.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.padding(12.dp),
+                                    )
+                                }
                             }
                         }
-                    }
-                    items(state.entries) { entry ->
-                        EntryRow(entry = entry, onOpen = { vm.open(entry.fullPath) })
+                        if (filtered.isEmpty() && searchQuery.isNotBlank()) {
+                            item {
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Text("No files match \"$searchQuery\"", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        } else {
+                            items(filtered) { entry ->
+                                EntryRow(entry = entry, onOpen = { vm.open(entry.fullPath) })
+                            }
+                        }
                     }
                 }
             }

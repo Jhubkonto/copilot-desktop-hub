@@ -42,6 +42,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.foundation.background
@@ -60,6 +61,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
@@ -210,8 +212,16 @@ fun ProjectConfigScreen(
                     loadedWorkflowMode = workflowMode
                     loadedMaxDelegationDepth = maxDelegationDepth
                     loadedShowTeamActivity = showTeamActivity
-                    if (isNew) WsRepository.pendingHighlightProjectId.value = projectId
-                    onBack()
+                    if (isNew) {
+                        WsRepository.pendingHighlightProjectId.value = projectId
+                        onBack()
+                    } else {
+                        scope.launch {
+                            snackbarHostState.showSnackbar("Settings saved", duration = SnackbarDuration.Short)
+                            delay(500)
+                            onBack()
+                        }
+                    }
                 }
                 is WsEvent.ProjectConfigChanged -> if (event.id == projectId && loaded && !hasUnsavedChanges) {
                     // Config changed on another connected client (e.g. desktop). Safe to

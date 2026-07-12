@@ -25,6 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -677,6 +678,46 @@ fun RemoteDesktopHelpSection() {
                 title = "How reconnection works",
                 body = "When disconnected, Nexy retries with exponential backoff (1 s → 2 s → 4 s → … → 30 s), then switches to slow polling every 60 seconds indefinitely. In polling mode it also listens for the desktop's mDNS broadcast to reconnect automatically if the IP changed. You can also tap \"Wake it up\" in the banner on the home screen to send a magic packet.",
             )
+        }
+    }
+
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+}
+
+@Composable
+fun ReadAloudSection(
+    readAloudEnabled: Boolean,
+    onReadAloudEnabledChanged: (Boolean) -> Unit,
+) {
+    SettingsSectionHeader("Read Aloud")
+
+    Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onReadAloudEnabledChanged(!readAloudEnabled) },
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "Offer to read chat summaries aloud",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        "When a chat completes, get an option to hear a spoken summary",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = readAloudEnabled, onCheckedChange = onReadAloudEnabledChanged)
+            }
         }
     }
 

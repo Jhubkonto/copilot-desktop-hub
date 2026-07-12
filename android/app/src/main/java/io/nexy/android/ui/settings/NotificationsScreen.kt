@@ -28,6 +28,7 @@ fun NotificationsScreen(
     vm: SettingsViewModel = viewModel(),
 ) {
     val notificationDiagnostics by vm.notificationDiagnostics.collectAsState()
+    val readAloudEnabled by vm.readAloudEnabled.collectAsState()
     var refreshed by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { vm.refreshNotificationDiagnostics() }
@@ -62,6 +63,10 @@ fun NotificationsScreen(
                     refreshed = true
                 },
                 refreshed = refreshed,
+            )
+            ReadAloudSection(
+                readAloudEnabled = readAloudEnabled,
+                onReadAloudEnabledChanged = { vm.setReadAloudEnabled(it) },
             )
         }
     }
