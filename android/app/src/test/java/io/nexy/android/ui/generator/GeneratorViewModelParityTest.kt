@@ -546,6 +546,9 @@ class GeneratorViewModelParityTest {
             scheduledRuns = MutableStateFlow(emptyMap()),
             currentDebrief = MutableStateFlow(null),
             completedConversationIds = MutableStateFlow(emptySet()),
+            currentRating = MutableStateFlow(null),
+            ratingsList = MutableStateFlow(emptyList()),
+            ratingStats = MutableStateFlow(null),
         )
         testScheduler.advanceUntilIdle()
         return events.replayCache.lastOrNull() ?: throw AssertionError("No websocket event parsed from: $raw")

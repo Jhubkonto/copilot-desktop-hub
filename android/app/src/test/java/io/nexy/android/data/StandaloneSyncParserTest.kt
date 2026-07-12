@@ -102,6 +102,9 @@ class StandaloneSyncParserTest {
             scheduledRuns = MutableStateFlow<Map<String, List<ScheduledRun>>>(emptyMap()),
             currentDebrief = MutableStateFlow<ConversationDebrief?>(null),
             completedConversationIds = MutableStateFlow(emptySet()),
+            currentRating = MutableStateFlow(null),
+            ratingsList = MutableStateFlow(emptyList()),
+            ratingStats = MutableStateFlow(null),
         )
         testScheduler.runCurrent()
         job.cancel()
