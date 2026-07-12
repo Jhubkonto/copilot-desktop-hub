@@ -217,6 +217,7 @@ export function useChatWindowActions({
 
         const projectConfig = useAppStore.getState().projectConfigs[projectId]
         const workspaceRoot = projectConfig?.rootDirectory?.trim() || null
+        if (!workspaceRoot) return { error: 'Code changes require this project to have a configured workspace.' }
 
         const captured = await window.api.captureErrorReport({
           title: opts.description.slice(0, 80) || 'Code change from chat',

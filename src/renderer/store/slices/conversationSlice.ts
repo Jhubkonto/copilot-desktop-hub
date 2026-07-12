@@ -8,6 +8,7 @@ export interface ConversationSlice {
   currentConversationId: string | null
   conversationsLoading: boolean
   completedConversationIds: string[]
+  conversationRatings: Record<string, number>
   loadConversations: () => Promise<void>
   selectConversation: (id: string | null) => void
   deleteConversation: (id: string) => Promise<void>
@@ -17,6 +18,9 @@ export interface ConversationSlice {
   markConversationIncomplete: (id: string) => Promise<void>
   handleConversationCompleted: (conversationId: string) => void
   handleConversationIncompleted: (conversationId: string) => void
+  submitConversationRating: (id: string, rating: number, note?: string | null) => Promise<void>
+  clearConversationRating: (id: string) => Promise<void>
+  handleConversationRated: (conversationId: string, rating: number | null) => void
 }
 
 export const createConversationSlice: StateCreator<
@@ -29,6 +33,7 @@ export const createConversationSlice: StateCreator<
   currentConversationId: null,
   conversationsLoading: false,
   completedConversationIds: [],
+  conversationRatings: {},
 
   loadConversations: async () => {
     set((s) => {
@@ -44,6 +49,9 @@ export const createConversationSlice: StateCreator<
           s.completedConversationIds = result
             .filter((c) => c.completed_at != null)
             .map((c) => c.id)
+          s.conversationRatings = Object.fromEntries(
+            result.filter((c) => c.rating != null).map((c) => [c.id, c.rating as number]),
+          )
         })
       }
     } catch {
@@ -53,6 +61,46 @@ export const createConversationSlice: StateCreator<
         s.conversationsLoading = false
       })
     }
+  },
+
+  submitConversationRating: async (id, rating, note) => {
+    const previous = get().conversationRatings[id]
+    set((s) => {
+      s.conversationRatings[id] = rating
+    })
+    try {
+      const result = await window.api.submitConversationRating(id, rating, note)
+      if (isApiError(result)) throw new Error(result.error)
+    } catch {
+      set((s) => {
+        if (previous == null) delete s.conversationRatings[id]
+        else s.conversationRatings[id] = previous
+      })
+      get().addToast('Failed to submit rating', 'error')
+    }
+  },
+
+  clearConversationRating: async (id) => {
+    const previous = get().conversationRatings[id]
+    set((s) => {
+      delete s.conversationRatings[id]
+    })
+    try {
+      const result = await window.api.deleteConversationRating(id)
+      if (isApiError(result)) throw new Error(result.error)
+    } catch {
+      set((s) => {
+        if (previous != null) s.conversationRatings[id] = previous
+      })
+      get().addToast('Failed to clear rating', 'error')
+    }
+  },
+
+  handleConversationRated: (conversationId, rating) => {
+    set((s) => {
+      if (rating == null) delete s.conversationRatings[conversationId]
+      else s.conversationRatings[conversationId] = rating
+    })
   },
 
   markConversationComplete: async (id) => {

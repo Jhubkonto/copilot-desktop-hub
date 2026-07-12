@@ -80,7 +80,11 @@ export function registerConversationHandlers(): void {
 
   safeHandle("conversation:list", () => {
     return db
-      .prepare("SELECT * FROM conversations WHERE archived = 0 ORDER BY updated_at DESC")
+      .prepare(
+        `SELECT c.*, cr.rating as rating FROM conversations c
+         LEFT JOIN conversation_ratings cr ON cr.conversation_id = c.id
+         WHERE c.archived = 0 ORDER BY c.updated_at DESC`,
+      )
       .all();
   });
 
