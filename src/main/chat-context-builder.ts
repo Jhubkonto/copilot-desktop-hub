@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { basename, relative, resolve, isAbsolute } from 'path'
 import { nativeImage } from 'electron'
@@ -11,6 +12,9 @@ import { insertWikiEntry } from './wiki-handlers'
 import { requestApproval } from './tools'
 import { inferProjectAuditTarget, recordProjectAuditChange } from './project-audit'
 import { computeLineDiff } from './remote-edit/fix-agent'
+import { getSkillConfigsForAgent } from './skills'
+import { extractKeywords } from './rating-handlers'
+import { findSimilarRatedStrategies } from './rating-retrieval'
 import type { ToolDefinition } from './provider-types'
 import { debugLog } from './debug-mode'
 
@@ -183,6 +187,16 @@ export async function buildChatContext(
 
   const effectiveAgentId = agentId ?? convRow?.agent_id ?? null
   if (effectiveAgentId) {
+    const invokedSkills = getSkillConfigsForAgent(effectiveAgentId)
+    if (invokedSkills.length > 0) {
+      const insertSkillInvocation = db.prepare(
+        'INSERT OR IGNORE INTO conversation_skill_invocations (id, conversation_id, skill_id, agent_id, created_at) VALUES (?, ?, ?, ?, ?)',
+      )
+      for (const skill of invokedSkills) {
+        insertSkillInvocation.run(randomUUID(), conversationId, skill.id, effectiveAgentId, Date.now())
+      }
+    }
+
     const agentCfg = getAgentConfig(effectiveAgentId)
     if (agentCfg?.systemPrompt) {
       let systemPromptText = agentCfg.systemPrompt as string
@@ -309,6 +323,29 @@ export async function buildChatContext(
         case 'standalone':
           augmentedContent = `${projectBlock}\n\n${content}`
           break
+      }
+    }
+
+    if (projCfg.strategyRetrievalEnabled) {
+      const similarStrategies = findSimilarRatedStrategies({
+        agentId: effectiveAgentId,
+        model: options.conversationModel ?? null,
+        projectId: convProjectId,
+        keywords: extractKeywords(content),
+      })
+      if (similarStrategies.length > 0) {
+        const strategyLines = similarStrategies.map((s) => {
+          const agent = s.snapshot.agentName ? ` using ${s.snapshot.agentName}` : ''
+          const tools = s.snapshot.toolNames.length > 0 ? ` — tools: ${s.snapshot.toolNames.join(', ')}` : ''
+          const note = s.note ? ` — note: "${s.note}"` : ''
+          return `- Rated ${s.rating}/5${agent}${tools}${note}`
+        })
+        const strategyBlock =
+          `[Similar Past Strategies]\n` +
+          `These past conversations in this project were rated highly for similar work:\n` +
+          `${strategyLines.join('\n')}\n` +
+          `[/Similar Past Strategies]`
+        augmentedContent = `${strategyBlock}\n\n${augmentedContent}`
       }
     }
 
