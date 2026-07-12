@@ -1484,3 +1484,46 @@ describe("ChatWindow — Directory Context Indicator (R.2)", () => {
     expect(screen.queryByLabelText(/File structure context active/i)).not.toBeInTheDocument();
   });
 });
+
+describe("ChatWindow — Rating widget", () => {
+  it("submits a rating when a star is clicked in the actions menu", async () => {
+    mockApi.getMessages.mockResolvedValue([
+      { id: "m1", role: "user", content: "Hello", timestamp: 1000 },
+    ]);
+    mockStore = createMockAppStore({
+      authState: { authenticated: true, user: null },
+      currentConversationId: "conv-1",
+    });
+    setupStoreMock(useAppStore, mockStore);
+
+    render(<ChatWindow />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Hello")).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: /more options/i }));
+    await userEvent.click(screen.getByRole("button", { name: /rate conversation/i }));
+    await userEvent.click(screen.getByRole("radio", { name: "4 stars" }));
+
+    expect(mockStore.submitConversationRating).toHaveBeenCalledWith("conv-1", 4);
+  });
+
+  it("shows the current rating as a badge when the conversation has been rated", async () => {
+    mockApi.getMessages.mockResolvedValue([
+      { id: "m1", role: "user", content: "Hello", timestamp: 1000 },
+    ]);
+    mockStore = createMockAppStore({
+      authState: { authenticated: true, user: null },
+      currentConversationId: "conv-1",
+      conversationRatings: { "conv-1": 5 },
+    });
+    setupStoreMock(useAppStore, mockStore);
+
+    render(<ChatWindow />);
+
+    await waitFor(() => {
+      expect(screen.getByText("5/5")).toBeInTheDocument();
+    });
+  });
+});

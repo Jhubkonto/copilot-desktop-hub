@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/exhaustive-deps -- chat/actions are aggregate hook objects; individual members are stable. */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { shouldFollowAnimatedGrowth } from '../chat-scroll-policy'
-import { CheckCircle, ChevronDown, ChevronRight, Download, ListChecks, Loader2, Lock, MoreHorizontal, Pin, PinOff, Sparkles, Upload, Users, X, Zap } from 'lucide-react'
+import { CheckCircle, ChevronDown, ChevronRight, Download, ListChecks, Loader2, Lock, MoreHorizontal, Pin, PinOff, Sparkles, Star, Upload, Users, X, Zap } from 'lucide-react'
 import { getAvailableModelIds, getModelLabel, modelIdSupportsTools } from '../../shared/models'
 import { isApiError, type AgentConfig, type ArtifactPromotionRequest, type AvailableModelEntry, type AvailableModelGroup, type ConversationExportPackFormat, type AutomatedWorkflowRunDetail, type AutomatedWorkflowRunStep, type WikiCandidate } from '../../shared/types'
 import type { ContextRef, ToastType } from '../hooks/chat-types'
@@ -118,6 +118,7 @@ export function ChatWindow() {
   const [isExporting, setIsExporting] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
   const [showActionsMenu, setShowActionsMenu] = useState(false)
+  const [menuRatingOpen, setMenuRatingOpen] = useState(false)
   const [menuExportOpen, setMenuExportOpen] = useState(false)
   const [menuContinueOpen, setMenuContinueOpen] = useState(false)
   const [continueModel, setContinueModel] = useState<string>('default')
@@ -139,6 +140,8 @@ export function ChatWindow() {
   const completedConversationIds = useAppStore((state) => state.completedConversationIds)
   const markConversationCompleteFn = useAppStore((state) => state.markConversationComplete)
   const markConversationIncompleteFn = useAppStore((state) => state.markConversationIncomplete)
+  const conversationRatings = useAppStore((state) => state.conversationRatings)
+  const submitConversationRatingFn = useAppStore((state) => state.submitConversationRating)
   const handleVoiceText = useCallback((text: string) => {
     setInput((current) => current.trim() ? `${current.trimEnd()} ${text}` : text)
     requestAnimationFrame(() => inputRef.current?.focus())
@@ -1531,12 +1534,20 @@ export function ChatWindow() {
       {workflowStepBanner}
 
       <div className="relative flex flex-col flex-1 min-h-0">
-        {conversationId && completedConversationIds.includes(conversationId) && !chat.isGenerating && (
-          <div className="absolute left-4 top-4 z-10">
-            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-emerald-200 dark:border-emerald-800 bg-emerald-50/95 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 text-[11px] font-medium shadow-sm">
-              <CheckCircle className="w-3 h-3" />
-              Completed
-            </span>
+        {conversationId && !chat.isGenerating && (completedConversationIds.includes(conversationId) || conversationRatings[conversationId] != null) && (
+          <div className="absolute left-4 top-4 z-10 flex items-center gap-1.5">
+            {completedConversationIds.includes(conversationId) && (
+              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-emerald-200 dark:border-emerald-800 bg-emerald-50/95 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 text-[11px] font-medium shadow-sm">
+                <CheckCircle className="w-3 h-3" />
+                Completed
+              </span>
+            )}
+            {conversationRatings[conversationId] != null && (
+              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-amber-200 dark:border-amber-800 bg-amber-50/95 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 text-[11px] font-medium shadow-sm">
+                <Star className="w-3 h-3 fill-current" />
+                {conversationRatings[conversationId]}/5
+              </span>
+            )}
           </div>
         )}
         {(conversationId || chat.messages.length > 0) && !chat.isGenerating && (
@@ -1547,6 +1558,7 @@ export function ChatWindow() {
                 setShowActionsMenu(false)
                 setMenuExportOpen(false)
                 setMenuContinueOpen(false)
+                setMenuRatingOpen(false)
               }}
               align="right"
               width="w-64"
@@ -1586,9 +1598,48 @@ export function ChatWindow() {
                   </button>
                 )}
 
+                {conversationId && chat.messages.length > 0 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => { setMenuExportOpen(false); setMenuContinueOpen(false); setMenuRatingOpen((v) => !v) }}
+                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                    >
+                      <Star className="w-3.5 h-3.5" />
+                      <span className="flex-1">
+                        {conversationRatings[conversationId] != null ? `Rated ${conversationRatings[conversationId]}/5` : 'Rate conversation'}
+                      </span>
+                      {menuRatingOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                    </button>
+                    {menuRatingOpen && (
+                      <div className="flex items-center gap-1 px-2 py-1.5 ml-5 mb-1" role="radiogroup" aria-label="Rate this conversation">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <button
+                            key={star}
+                            type="button"
+                            role="radio"
+                            aria-checked={conversationRatings[conversationId] === star}
+                            aria-label={`${star} star${star === 1 ? '' : 's'}`}
+                            onClick={() => {
+                              void submitConversationRatingFn(conversationId, star)
+                              setMenuRatingOpen(false)
+                              setShowActionsMenu(false)
+                            }}
+                            className="p-0.5 text-amber-500 hover:scale-110 transition-transform"
+                          >
+                            <Star
+                              className={`w-4 h-4 ${conversationRatings[conversationId] != null && star <= conversationRatings[conversationId] ? 'fill-current' : ''}`}
+                            />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+
                 <button
                   type="button"
-                  onClick={() => { setMenuContinueOpen(false); setMenuExportOpen((v) => !v) }}
+                  onClick={() => { setMenuContinueOpen(false); setMenuRatingOpen(false); setMenuExportOpen((v) => !v) }}
                   disabled={isExporting || !conversationId || chat.messages.length === 0}
                   className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >
@@ -1628,6 +1679,7 @@ export function ChatWindow() {
                       type="button"
                       onClick={() => {
                         setMenuExportOpen(false)
+                        setMenuRatingOpen(false)
                         if (menuContinueOpen) setMenuContinueOpen(false)
                         else handleOpenContinueWith()
                       }}
