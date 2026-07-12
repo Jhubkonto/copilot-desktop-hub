@@ -79,7 +79,9 @@ private enum class AutomatedWorkflowView { Workspace, List, Detail }
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AutomatedWorkflowScreen(
-    projectId: String,
+    // null generates a standalone, project-less workflow — mirrors desktop's project-optional
+    // Automated Workflow runs.
+    projectId: String?,
     onBack: () -> Unit,
     onOpenConversation: (String) -> Unit = {},
 ) {
@@ -604,36 +606,60 @@ internal fun SavedWorkflowRunDetailView(
                 }
             }
         }
-        item {
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                listOf("gated" to "Confirm each step", "auto" to "Run automatically").forEachIndexed { i, (value, label) ->
-                    SegmentedButton(
-                        selected = run.confirmationMode == value,
-                        onClick = { onModeChange(value) },
-                        shape = SegmentedButtonDefaults.itemShape(index = i, count = 2),
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text(
-                            label,
-                            style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+        if (run.status == "pending") {
+            item {
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    listOf("gated" to "Confirm each step", "auto" to "Run automatically").forEachIndexed { i, (value, label) ->
+                        SegmentedButton(
+                            selected = run.confirmationMode == value,
+                            onClick = { onModeChange(value) },
+                            shape = SegmentedButtonDefaults.itemShape(index = i, count = 2),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(
+                                label,
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
             }
-        }
-        if (run.status == "pending") {
+            item {
+                Text(
+                    "Choose how each step should run, then press Start. Each step's output appears below and also lives in its own conversation.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             item {
                 Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
                     Text("Start workflow")
                 }
             }
+        } else {
+            item {
+                Text(
+                    if (run.confirmationMode == "auto") "Ran automatically" else "Ran with step-by-step confirmation",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         if (runInProgress) {
             item {
                 TextButton(onClick = onAbort) { Text("Abort run") }
+            }
+        }
+        if (run.status == "done" || run.status == "failed" || run.status == "cancelled") {
+            item {
+                Text(
+                    "This run has finished. To do this again, generate a new workflow from the list.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
         itemsIndexed(run.steps) { _, step ->

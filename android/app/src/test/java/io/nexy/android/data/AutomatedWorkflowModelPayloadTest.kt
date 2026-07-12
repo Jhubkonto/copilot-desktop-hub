@@ -60,6 +60,43 @@ class AutomatedWorkflowModelPayloadTest {
     }
 
     @Test
+    fun startPayloadOmitsProjectIdKeyWhenNull() {
+        // A standalone (project-less) workflow generation must omit the key entirely, not send a
+        // literal null — mirrors the model field's own omit-when-unset convention, and lets
+        // ws-handlers.ts's existing "missing/blank projectId means global" handling apply.
+        val payload = WsRepository.buildAutomatedWorkflowStartPayload(
+            projectId = null,
+            sessionId = "session-1",
+            initialMessage = "Ship the release",
+            model = null,
+        )
+        assertFalse(payload.containsKey("projectId"))
+    }
+
+    @Test
+    fun startPayloadIncludesProjectIdWhenSet() {
+        val payload = WsRepository.buildAutomatedWorkflowStartPayload(
+            projectId = "proj-1",
+            sessionId = "session-1",
+            initialMessage = "Ship the release",
+            model = null,
+        )
+        assertEquals("proj-1", payload["projectId"])
+    }
+
+    @Test
+    fun messagePayloadOmitsProjectIdKeyWhenNull() {
+        val history = listOf(WsRepository.AutomatedWorkflowChatMessage("user", "Ship the release"))
+        val payload = WsRepository.buildAutomatedWorkflowMessagePayload(
+            projectId = null,
+            sessionId = "session-1",
+            history = history,
+            model = null,
+        )
+        assertFalse(payload.containsKey("projectId"))
+    }
+
+    @Test
     fun messagePayloadMapsHistoryEntries() {
         val history = listOf(
             WsRepository.AutomatedWorkflowChatMessage("user", "Ship the release"),
