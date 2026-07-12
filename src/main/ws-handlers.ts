@@ -77,6 +77,13 @@ import { CodexAdapter } from './cli-adapters/codex'
 import { insertWikiEntry, extractWikiLearningsForWs } from './wiki-handlers'
 import { generateDebriefForWs, getDebriefForWs, markCompleteForWs, markIncompleteForWs } from './debrief-handlers'
 import { generateQuizForWs, getQuizForWs, getQuizByArtifactIdForWs } from './quiz-handlers'
+import {
+  submitRatingForConversation,
+  getRatingForConversation,
+  deleteRatingForConversation,
+  listRatings,
+  getRatingStats,
+} from './rating-handlers'
 import { getActivitySnapshot, endActivity } from './activity-tracker'
 import { getMcpServersWithStatus, getMcpServerStatus, addMcpServer, updateMcpServer, removeMcpServer, restartMcpServer, listMcpTools, listMcpToolsForAgent } from './mcp'
 import {
@@ -88,7 +95,8 @@ import {
 import { buildConversationExportPack, forkConversation, importConversationExport, getConversationCompressionPreview, prepareConversationCompressionSummary, saveConversationCompressionSummary } from './conversation-handlers'
 import type { ContextInspectorSnapshot, CodeChangeRequestType, RemoteEditInvestigationSettings } from '../shared/types'
 import { getProjectAuditDiff, getRemoteEditAuditDiff, listProjectAuditFiles, listProjectAuditSessions } from './project-audit'
-import { parseProjectConfig } from './project-handlers'
+import { parseProjectConfig, detectProjectWorkspaceMetadata } from './project-handlers'
+import { listDirectoryEntriesForRemote, getFsStartRoots } from './file-handlers'
 import {
   createSkillConfig,
   deleteSkillConfig,
@@ -744,10 +752,12 @@ export function registerWsHandlers(): void {
             json_extract(a.config_json, '$.icon') AS agent_icon,
             c.project_id,
             p.name AS project_name,
+            cr.rating AS rating,
             (SELECT content FROM messages WHERE conversation_id = c.id ORDER BY timestamp DESC LIMIT 1) AS last_message
           FROM conversations c
           LEFT JOIN agents a ON c.agent_id = a.id
           LEFT JOIN projects p ON c.project_id = p.id
+          LEFT JOIN conversation_ratings cr ON cr.conversation_id = c.id
           WHERE c.archived = 0
           ORDER BY c.pinned DESC, c.updated_at DESC
           LIMIT 50
@@ -953,8 +963,23 @@ export function registerWsHandlers(): void {
       if (Array.isArray(data.outOfScope)) patch.outOfScope = data.outOfScope
       if (Array.isArray(data.milestones)) patch.milestones = data.milestones
       const merged = { ...current, ...patch }
+      if (typeof patch.rootDirectory === 'string') {
+        merged.workspaceInfo = detectProjectWorkspaceMetadata(patch.rootDirectory)
+      }
       db.prepare('UPDATE projects SET config_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(merged), Date.now(), id)
       broadcastToMobile({ event: 'project:config-updated', data: { id, config: parseProjectConfig(JSON.stringify(merged)) } })
+      return
+    }
+
+    if (command === 'fs:list-directory') {
+      const path = typeof data.path === 'string' ? data.path : ''
+      const result = listDirectoryEntriesForRemote(path)
+      reply({ event: 'fs:list-directory', data: { path, ...result } })
+      return
+    }
+
+    if (command === 'fs:get-start-roots') {
+      reply({ event: 'fs:get-start-roots', data: getFsStartRoots() })
       return
     }
 
@@ -2198,12 +2223,10 @@ export function registerWsHandlers(): void {
     }
 
     if (command === 'automated-workflow-generator:start' || command === 'automated-workflow-generator:message') {
-      const projectId = typeof data.projectId === 'string' ? data.projectId.trim() : ''
-      if (!projectId) {
-        const sessionId = typeof data.sessionId === 'string' ? data.sessionId : undefined
-        broadcastToMobile({ event: 'automated-workflow-generator:error', data: { sessionId, message: 'Missing projectId' } })
-        return
-      }
+      // Project-optional, mirroring automated-workflow-runs:list/save-spec — a missing or blank
+      // projectId means a standalone (global) workflow, not an error. An actual empty string is
+      // never a valid project id, so trimming to '' and treating it as null is safe either way.
+      const projectId = typeof data.projectId === 'string' && data.projectId.trim() ? data.projectId.trim() : null
       const rawMessages = Array.isArray(data.messages) ? data.messages : []
       const messages: AutomatedWorkflowGeneratorMessage[] = rawMessages
         .filter((m): m is Record<string, unknown> => typeof m === 'object' && m !== null)
@@ -2820,6 +2843,46 @@ export function registerWsHandlers(): void {
       if (ok) {
         reply({ event: 'debrief:conversation-incompleted', data: { conversationId } })
       }
+      return
+    }
+
+    if (command === 'conversation:set-rating') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+      const rating = typeof data.rating === 'number' ? data.rating : NaN
+      const note = typeof data.note === 'string' ? data.note : null
+      if (!conversationId || !Number.isInteger(rating)) return
+      try {
+        const result = submitRatingForConversation(conversationId, rating, note)
+        reply({ event: 'rating:updated', data: { conversationId, rating: result } })
+      } catch (err) {
+        reply({ event: 'rating:error', data: { message: err instanceof Error ? err.message : String(err) } })
+      }
+      return
+    }
+
+    if (command === 'conversation:get-rating') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+      if (!conversationId) return
+      const rating = getRatingForConversation(conversationId)
+      reply({ event: 'rating:loaded', data: { conversationId, rating } })
+      return
+    }
+
+    if (command === 'conversation:delete-rating') {
+      const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+      if (!conversationId) return
+      const ok = deleteRatingForConversation(conversationId)
+      if (ok) reply({ event: 'rating:updated', data: { conversationId, rating: null } })
+      return
+    }
+
+    if (command === 'conversation:list-ratings') {
+      reply({ event: 'rating:list-loaded', data: { ratings: listRatings() } })
+      return
+    }
+
+    if (command === 'conversation:rating-stats') {
+      reply({ event: 'rating:stats-loaded', data: { stats: getRatingStats() } })
       return
     }
 

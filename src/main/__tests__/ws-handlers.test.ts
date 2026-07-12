@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ProjectEditSession, ProjectTouchedFile, RemoteEditStagedFileDiff } from '../../shared/types'
+import type {
+  ConversationRating,
+  ConversationRatingListItem,
+  ConversationRatingStats,
+  ProjectEditSession,
+  ProjectTouchedFile,
+  RemoteEditStagedFileDiff,
+} from '../../shared/types'
 
 const state = vi.hoisted(() => {
   let commandHandler: ((command: string, data: Record<string, unknown>, reply: (event: unknown) => void) => void) | null = null
@@ -23,6 +30,13 @@ const state = vi.hoisted(() => {
     (reportId: string) => { appliedFiles: string[]; backupPaths: string[] } | { error: string } | null
   >(() => null)
   const markStagedFileReviewed = vi.fn<(reportId: string, relativePath: string) => boolean>(() => false)
+  const submitRatingForConversation = vi.fn<(conversationId: string, rating: number, note?: string | null) => ConversationRating>()
+  const getRatingForConversation = vi.fn<(conversationId: string) => ConversationRating | null>()
+  const deleteRatingForConversation = vi.fn<(conversationId: string) => boolean>()
+  const listRatings = vi.fn<() => ConversationRatingListItem[]>(() => [])
+  const getRatingStats = vi.fn<() => ConversationRatingStats>(() => ({
+    averageByAgent: [], averageByModel: [], averageBySkill: [], averageByServer: [], averageByProject: [], trend: [],
+  }))
 
   return {
     get commandHandler() { return commandHandler },
@@ -43,6 +57,11 @@ const state = vi.hoisted(() => {
     deleteErrorReport,
     applyStagedPatchToWorkspace,
     markStagedFileReviewed,
+    submitRatingForConversation,
+    getRatingForConversation,
+    deleteRatingForConversation,
+    listRatings,
+    getRatingStats,
     get projectConfigJson() { return projectConfigJson },
     set projectConfigJson(value) { projectConfigJson = value },
     get errorReportRows() { return errorReportRows },
@@ -184,6 +203,14 @@ vi.mock('../remote-edit-handlers', () => ({
   markStagedFileReviewed: state.markStagedFileReviewed,
 }))
 
+vi.mock('../rating-handlers', () => ({
+  submitRatingForConversation: state.submitRatingForConversation,
+  getRatingForConversation: state.getRatingForConversation,
+  deleteRatingForConversation: state.deleteRatingForConversation,
+  listRatings: state.listRatings,
+  getRatingStats: state.getRatingStats,
+}))
+
 import { registerWsHandlers, registerApprovalResolver } from '../ws-handlers'
 import { retrieveAuthMode } from '../auth'
 import { getAndroidUpdateManifest } from '../android-handlers'
@@ -226,6 +253,15 @@ describe('ws handlers', () => {
     state.applyStagedPatchToWorkspace.mockReset()
     state.applyStagedPatchToWorkspace.mockReturnValue(null)
     state.markStagedFileReviewed.mockReset()
+    state.submitRatingForConversation.mockReset()
+    state.getRatingForConversation.mockReset()
+    state.deleteRatingForConversation.mockReset()
+    state.listRatings.mockReset()
+    state.listRatings.mockReturnValue([])
+    state.getRatingStats.mockReset()
+    state.getRatingStats.mockReturnValue({
+      averageByAgent: [], averageByModel: [], averageBySkill: [], averageByServer: [], averageByProject: [], trend: [],
+    })
     state.markStagedFileReviewed.mockReturnValue(true)
     state.errorReportRows = []
     vi.mocked(retrieveAuthMode).mockReturnValue('byok')
@@ -749,6 +785,20 @@ describe('ws handlers', () => {
     )
   })
 
+  it('starts the automated workflow generator for a project-less (standalone) mobile run', () => {
+    sendCommand('automated-workflow-generator:start', {
+      messages: [{ role: 'user', content: 'Plan a standalone workflow' }],
+      sessionId: 'mw-global-1',
+    })
+
+    expect(state.runAutomatedWorkflowGeneratorChatForAndroid).toHaveBeenCalledWith(
+      null,
+      [{ role: 'user', content: 'Plan a standalone workflow' }],
+      'mw-global-1',
+      undefined,
+    )
+  })
+
   it('updates the mobile automated workflow generator model', () => {
     sendCommand('automated-workflow-generator:set-model', { sessionId: 'mw-2', modelId: 'gpt-5.4-mini' })
 
@@ -778,5 +828,76 @@ describe('ws handlers', () => {
     const reply = sendCommand('scheduler:list-workflow-templates')
 
     expect(reply).toHaveBeenCalledWith({ event: 'scheduler:list-workflow-templates', data: { runs: [] } })
+  })
+
+  describe('conversation ratings', () => {
+    it('sets a rating and replies with the updated result', () => {
+      const rating = {
+        id: 'r1', conversationId: 'conv-1', rating: 5, note: 'great',
+        snapshot: {
+          agentId: null, agentName: null, model: null, backend: null, projectId: null, projectName: null,
+          workflowMode: null, toolNames: [], serverNames: [], skillIds: [], skillNames: [], keywords: [],
+        },
+        createdAt: 1, updatedAt: 1,
+      } satisfies ConversationRating
+      state.submitRatingForConversation.mockReturnValue(rating)
+
+      const reply = sendCommand('conversation:set-rating', { conversationId: 'conv-1', rating: 5, note: 'great' })
+
+      expect(state.submitRatingForConversation).toHaveBeenCalledWith('conv-1', 5, 'great')
+      expect(reply).toHaveBeenCalledWith({ event: 'rating:updated', data: { conversationId: 'conv-1', rating } })
+    })
+
+    it('ignores a set-rating command with a non-integer rating', () => {
+      sendCommand('conversation:set-rating', { conversationId: 'conv-1', rating: 3.5 })
+      expect(state.submitRatingForConversation).not.toHaveBeenCalled()
+    })
+
+    it('replies with an error event when submitRatingForConversation throws', () => {
+      state.submitRatingForConversation.mockImplementation(() => { throw new Error('rating must be an integer between 1 and 5') })
+
+      const reply = sendCommand('conversation:set-rating', { conversationId: 'conv-1', rating: 9 })
+
+      expect(reply).toHaveBeenCalledWith({ event: 'rating:error', data: { message: 'rating must be an integer between 1 and 5' } })
+    })
+
+    it('fetches a rating for a conversation', () => {
+      state.getRatingForConversation.mockReturnValue(null)
+      const reply = sendCommand('conversation:get-rating', { conversationId: 'conv-1' })
+
+      expect(state.getRatingForConversation).toHaveBeenCalledWith('conv-1')
+      expect(reply).toHaveBeenCalledWith({ event: 'rating:loaded', data: { conversationId: 'conv-1', rating: null } })
+    })
+
+    it('deletes a rating and replies only on success', () => {
+      state.deleteRatingForConversation.mockReturnValue(false)
+      let reply = sendCommand('conversation:delete-rating', { conversationId: 'conv-1' })
+      expect(reply).not.toHaveBeenCalled()
+
+      state.deleteRatingForConversation.mockReturnValue(true)
+      reply = sendCommand('conversation:delete-rating', { conversationId: 'conv-1' })
+      expect(reply).toHaveBeenCalledWith({ event: 'rating:updated', data: { conversationId: 'conv-1', rating: null } })
+    })
+
+    it('lists all ratings', () => {
+      const rows = [{
+        id: 'r1', conversationId: 'conv-1', conversationTitle: 'Chat', projectId: null, projectName: null,
+        rating: 4, note: null, agentName: null, model: null, toolNames: [], skillNames: [], createdAt: 1, updatedAt: 1,
+      }] satisfies ConversationRatingListItem[]
+      state.listRatings.mockReturnValue(rows)
+
+      const reply = sendCommand('conversation:list-ratings')
+
+      expect(reply).toHaveBeenCalledWith({ event: 'rating:list-loaded', data: { ratings: rows } })
+    })
+
+    it('returns rating stats', () => {
+      const stats = { averageByAgent: [{ label: 'Agent', average: 4, count: 2 }], averageByModel: [], averageBySkill: [], averageByServer: [], averageByProject: [], trend: [] }
+      state.getRatingStats.mockReturnValue(stats)
+
+      const reply = sendCommand('conversation:rating-stats')
+
+      expect(reply).toHaveBeenCalledWith({ event: 'rating:stats-loaded', data: { stats } })
+    })
   })
 })
