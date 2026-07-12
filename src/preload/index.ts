@@ -988,6 +988,21 @@ const api = {
   getQuiz: (conversationId: string) =>
     typedInvoke('conversation:get-quiz', conversationId),
 
+  // Ratings
+  submitConversationRating: (conversationId: string, rating: number, note?: string | null) =>
+    typedInvoke('rating:submit', conversationId, rating, note),
+  getConversationRating: (conversationId: string) =>
+    typedInvoke('rating:get', conversationId),
+  deleteConversationRating: (conversationId: string) =>
+    typedInvoke('rating:delete', conversationId),
+  listConversationRatings: () => typedInvoke('rating:list'),
+  getConversationRatingStats: () => typedInvoke('rating:get-stats'),
+  onConversationRated: (callback: (data: { conversationId: string; rating: import('../shared/types').ConversationRating | null }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { conversationId: string; rating: import('../shared/types').ConversationRating | null }) => callback(data)
+    typedOn('rating:updated', handler)
+    return () => typedOff('rating:updated', handler)
+  },
+
   // Activity feed
   getActivityList: () => typedInvoke('activity:list'),
   onActivityChanged: (callback: (activities: BackgroundActivity[]) => void) => {
