@@ -82,18 +82,24 @@ function renderTab() {
 }
 
 describe('AutomatedWorkflowTab', () => {
-  it('explains the automated-delegation purpose', async () => {
+  it('explains the automated workflow purpose', async () => {
     renderTab()
     await waitFor(() => expect(mockApi.listAutomatedWorkflowRuns).toHaveBeenCalledWith('proj-1'))
 
-    expect(screen.getByText('Automated delegation execution plan')).toBeInTheDocument()
+    expect(screen.getByText('Automated Workflow')).toBeInTheDocument()
   })
 
-  it('shows the chat generator directly when there are no existing runs', async () => {
+  it('opens the generator modal (not an inline chat) when "Start a new workflow" is clicked', async () => {
     renderTab()
     await waitFor(() => expect(mockApi.listAutomatedWorkflowRuns).toHaveBeenCalled())
 
-    expect(screen.getByPlaceholderText(/describe the project goal/i)).toBeInTheDocument()
+    expect(screen.getByText('No workflows yet for this project')).toBeInTheDocument()
+    expect(screen.queryByPlaceholderText(/describe the goal/i)).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /start a new workflow/i }))
+
+    expect(screen.getByRole('dialog', { name: /generate automated workflow/i })).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/describe the goal/i)).toBeInTheDocument()
   })
 
   it('shows a resumable runs list on mount when runs already exist', async () => {
@@ -268,14 +274,19 @@ describe('AutomatedWorkflowTab', () => {
     expect(screen.getByText(/1\. Plan the work/)).toBeInTheDocument()
   })
 
-  it('"Discard" removes the run from the list', async () => {
+  it('"Discard" opens an in-app confirmation dialog and removes the run from the list on confirm', async () => {
     mockApi.listAutomatedWorkflowRuns.mockResolvedValue([runSummary()])
     mockApi.discardAutomatedWorkflowRun.mockResolvedValue(true)
-    window.confirm = vi.fn(() => true)
     renderTab()
     await waitFor(() => expect(screen.getByText('Ship the feature')).toBeInTheDocument())
 
     await userEvent.click(screen.getByRole('button', { name: /discard workflow plan/i }))
+
+    // In-app modal, not window.confirm() — asserts the dialog itself rendered.
+    expect(await screen.findByRole('button', { name: /^discard workflow$/i })).toBeInTheDocument()
+    expect(mockApi.discardAutomatedWorkflowRun).not.toHaveBeenCalled()
+
+    await userEvent.click(screen.getByRole('button', { name: /^discard workflow$/i }))
 
     await waitFor(() => expect(mockApi.discardAutomatedWorkflowRun).toHaveBeenCalledWith('run-1'))
     await waitFor(() => expect(screen.queryByText('Ship the feature')).not.toBeInTheDocument())
