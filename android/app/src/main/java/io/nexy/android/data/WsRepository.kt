@@ -7,6 +7,9 @@ import io.nexy.android.data.model.AgentFullConfig
 import io.nexy.android.data.model.ScheduledTask
 import io.nexy.android.data.model.ScheduledRun
 import io.nexy.android.data.model.ConversationDebrief
+import io.nexy.android.data.model.ConversationRating
+import io.nexy.android.data.model.ConversationRatingListItem
+import io.nexy.android.data.model.ConversationRatingStats
 import io.nexy.android.data.model.AgentKnowledgeFile
 import io.nexy.android.data.model.AgentMcpServerTrust
 import io.nexy.android.data.model.AgentMcpToolOverride
@@ -164,6 +167,11 @@ object WsRepository : WsClient {
     val pendingHighlightProjectId = MutableStateFlow<String?>(null)
     val pendingHighlightAgentId = MutableStateFlow<String?>(null)
 
+    // One-shot result set by FileExplorerScreen when the user picks a workspace folder,
+    // consumed by the project config screen that launched it (no savedStateHandle result-passing
+    // convention exists in this codebase — this mirrors the pendingHighlight* pattern above).
+    val pendingSelectedDirectory = MutableStateFlow<String?>(null)
+
     // Emits requestIds resolved via notification (approve or reject) so HomeViewModel
     // can clear the in-app approval dialog immediately, before the tool finishes.
     val approvalResolvedViaNotification = MutableSharedFlow<String>(extraBufferCapacity = 4)
@@ -197,6 +205,15 @@ object WsRepository : WsClient {
 
     private val _completedConversationIds = MutableStateFlow<Set<String>>(emptySet())
     val completedConversationIds: StateFlow<Set<String>> = _completedConversationIds
+
+    private val _currentRating = MutableStateFlow<ConversationRating?>(null)
+    val currentRating: StateFlow<ConversationRating?> = _currentRating
+
+    private val _ratingsList = MutableStateFlow<List<ConversationRatingListItem>>(emptyList())
+    val ratingsList: StateFlow<List<ConversationRatingListItem>> = _ratingsList
+
+    private val _ratingStats = MutableStateFlow<ConversationRatingStats?>(null)
+    val ratingStats: StateFlow<ConversationRatingStats?> = _ratingStats
 
     private val _profiles = MutableStateFlow<List<PairedServerProfile>>(emptyList())
     val profiles: StateFlow<List<PairedServerProfile>> = _profiles
@@ -289,7 +306,9 @@ object WsRepository : WsClient {
 
     data class AutomatedWorkflowSession(
         val sessionId: String,
-        val projectId: String = "",
+        // null generates a standalone, project-less workflow — mirrors desktop's project-optional
+        // Automated Workflow runs.
+        val projectId: String? = null,
         val title: String = "",
         val goalSummary: String = "",
         val assumptions: String = "",
@@ -350,30 +369,32 @@ object WsRepository : WsClient {
     // of real logic here (an explicit `null` must be omitted, not sent as a literal null, so the
     // desktop's own default-model resolution kicks in).
     internal fun buildAutomatedWorkflowStartPayload(
-        projectId: String,
+        projectId: String?,
         sessionId: String,
         initialMessage: String,
         model: String?,
     ): Map<String, Any> = buildMap {
-        put("projectId", projectId)
+        // Omitted (not null-valued) for a project-less workflow — ws-handlers.ts treats a
+        // missing/non-string projectId as null either way.
+        if (projectId != null) put("projectId", projectId)
         put("sessionId", sessionId)
         put("messages", listOf(mapOf("role" to "user", "content" to initialMessage)))
         if (model != null) put("model", model)
     }
 
     internal fun buildAutomatedWorkflowMessagePayload(
-        projectId: String,
+        projectId: String?,
         sessionId: String,
         history: List<AutomatedWorkflowChatMessage>,
         model: String?,
     ): Map<String, Any> = buildMap {
-        put("projectId", projectId)
+        if (projectId != null) put("projectId", projectId)
         put("sessionId", sessionId)
         put("messages", history.map { mapOf("role" to it.role, "content" to it.content) })
         if (model != null) put("model", model)
     }
 
-    fun startAutomatedWorkflowGeneration(projectId: String, initialMessage: String, model: String? = null): String {
+    fun startAutomatedWorkflowGeneration(projectId: String?, initialMessage: String, model: String? = null): String {
         val sessionId = java.util.UUID.randomUUID().toString()
         _automatedWorkflowSession.value = AutomatedWorkflowSession(
             sessionId = sessionId,
@@ -490,16 +511,19 @@ object WsRepository : WsClient {
             // Per-project id (matches desktop's activity-tracker.ts: automated-workflow-generator
             // is keyed by project so two projects generating concurrently get separate activity
             // entries, and so this local-optimistic registration reconciles by id with the
-            // server-confirmed snapshot entry instead of leaving a duplicate/orphaned one).
+            // server-confirmed snapshot entry instead of leaving a duplicate/orphaned one). A
+            // project-less session is keyed "...:global", mirroring desktop's
+            // `projectId ?? 'global'` activity id, and routes to the standalone generator screen
+            // instead of a project-nested one.
             var registeredActivityId: String? = null
             _automatedWorkflowSession.collect { session ->
                 if (session?.isLoading == true) {
-                    val activityId = "automated-workflow-generator:${session.projectId}"
+                    val activityId = "automated-workflow-generator:${session.projectId ?: "global"}"
                     registeredActivityId = activityId
                     BackgroundActivityTracker.register(
                         activityId,
                         "Generating workflow…",
-                        "automated-workflow/${android.net.Uri.encode(session.projectId)}",
+                        session.projectId?.let { "automated-workflow/${android.net.Uri.encode(it)}" } ?: "automated-workflow-generate",
                     )
                 } else {
                     registeredActivityId?.let { BackgroundActivityTracker.unregister(it) }
@@ -1092,6 +1116,9 @@ object WsRepository : WsClient {
             scheduledRuns = _scheduledRuns,
             currentDebrief = _currentDebrief,
             completedConversationIds = _completedConversationIds,
+            currentRating = _currentRating,
+            ratingsList = _ratingsList,
+            ratingStats = _ratingStats,
             pairedServerStore = pairedServerStore,
         )
     }
@@ -2089,6 +2116,9 @@ object WsRepository : WsClient {
     }
     fun exportArtifact(versionId: String) { send("artifact:export", mapOf("versionId" to versionId)) }
 
+    fun listDirectory(path: String) { send("fs:list-directory", mapOf("path" to path)) }
+    fun getFsStartRoots() { send("fs:get-start-roots", emptyMap()) }
+
     fun getProjectConfig(id: String) { send("project:get-config", mapOf("id" to id)) }
     fun updateProjectConfig(id: String, config: ProjectSettingsConfig) {
         send("project:update-config", buildProjectConfigPayload(id, config))
@@ -2359,6 +2389,20 @@ object WsRepository : WsClient {
     fun getDebrief(conversationId: String) { send("conversation:get-debrief", mapOf("conversationId" to conversationId)) }
     fun markConversationComplete(conversationId: String) { send("conversation:mark-complete", mapOf("conversationId" to conversationId)) }
     fun markConversationIncomplete(conversationId: String) { send("conversation:mark-incomplete", mapOf("conversationId" to conversationId)) }
+
+    // ─── Ratings ────────────────────────────────────────────────────────────────
+
+    fun setConversationRating(conversationId: String, rating: Int, note: String? = null) {
+        send("conversation:set-rating", buildMap {
+            put("conversationId", conversationId)
+            put("rating", rating)
+            if (note != null) put("note", note)
+        })
+    }
+    fun getConversationRating(conversationId: String) { send("conversation:get-rating", mapOf("conversationId" to conversationId)) }
+    fun deleteConversationRating(conversationId: String) { send("conversation:delete-rating", mapOf("conversationId" to conversationId)) }
+    fun listConversationRatings() { send("conversation:list-ratings", emptyMap()) }
+    fun getConversationRatingStats() { send("conversation:rating-stats", emptyMap()) }
 
     // ─── Quiz ────────────────────────────────────────────────────────────────────
     // Quiz now persists its questions as a versioned artifact (desktop Phase 2) instead of a

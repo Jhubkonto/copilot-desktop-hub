@@ -6,6 +6,15 @@ data class RemoteEditStagedFileEntry(
     val reviewed: Boolean,
 )
 
+/** One child of a remotely-browsed desktop directory (see WsEvent.FsDirectoryListing).
+ *  [fullPath] is joined server-side with the desktop's own path separator — never construct
+ *  it client-side, since Android has no idea whether the desktop is Windows or POSIX. */
+data class FsEntry(
+    val name: String,
+    val fullPath: String,
+    val isDirectory: Boolean,
+)
+
 sealed class WsEvent {
     data class Connected(
         val version: String,
@@ -360,6 +369,12 @@ sealed class WsEvent {
     data class DebriefError(val message: String) : WsEvent()
     data class DebriefConversationCompleted(val conversationId: String, val completedAt: Long) : WsEvent()
     data class DebriefConversationIncompleted(val conversationId: String) : WsEvent()
+    // Ratings
+    data class RatingUpdated(val conversationId: String, val rating: ConversationRating?) : WsEvent()
+    data class RatingLoaded(val conversationId: String, val rating: ConversationRating?) : WsEvent()
+    data class RatingError(val message: String) : WsEvent()
+    data class RatingListLoaded(val ratings: List<ConversationRatingListItem>) : WsEvent()
+    data class RatingStatsLoaded(val stats: ConversationRatingStats) : WsEvent()
     // Quiz
     data class QuizReady(val questions: List<QuizQuestion>, val artifactId: String? = null, val versionId: String? = null, val conversationId: String? = null) : WsEvent()
     data class QuizLoaded(val conversationId: String, val questions: List<QuizQuestion>?, val artifactId: String? = null, val versionId: String? = null) : WsEvent()
@@ -405,6 +420,15 @@ sealed class WsEvent {
      *  see ws-handlers.ts's try/catch-with-reply — so the UI can surface it instead of a
      *  permanently-stuck "Saving…" button with no explanation. */
     data class AutomatedWorkflowRunsError(val message: String) : WsEvent()
+    // Remote workspace file explorer — depth-1 per request, re-fetched lazily on each folder tap
+    // rather than pre-fetched deep, to keep WS payloads small (see fs:list-directory on desktop).
+    data class FsDirectoryListing(
+        val path: String,
+        val entries: List<FsEntry>,
+        val truncated: Boolean,
+        val error: String?,
+    ) : WsEvent()
+    data class FsStartRoots(val home: String, val recents: List<String>) : WsEvent()
 }
 
 data class BuildRecord(

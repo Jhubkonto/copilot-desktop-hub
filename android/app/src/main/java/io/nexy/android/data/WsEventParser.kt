@@ -51,6 +51,7 @@ import io.nexy.android.data.model.BuildRecord
 import io.nexy.android.data.model.PreflightCheck
 import io.nexy.android.data.model.AndroidPublishManifest
 import io.nexy.android.data.model.ModelListSource
+import io.nexy.android.data.model.FsEntry
 import io.nexy.android.data.model.ModelOption
 import io.nexy.android.data.model.Project
 import io.nexy.android.data.model.ProjectAuditDiff
@@ -71,6 +72,12 @@ import io.nexy.android.data.model.SkillTools
 import io.nexy.android.data.model.RemoteEditStagedFileEntry
 import io.nexy.android.data.model.WsEvent
 import io.nexy.android.data.model.ConversationDebrief
+import io.nexy.android.data.model.ConversationRating
+import io.nexy.android.data.model.ConversationRatingListItem
+import io.nexy.android.data.model.ConversationRatingSnapshot
+import io.nexy.android.data.model.ConversationRatingStats
+import io.nexy.android.data.model.RatingAggregate
+import io.nexy.android.data.model.RatingTrendPoint
 import io.nexy.android.data.model.QuizQuestion
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -106,6 +113,9 @@ fun parseWsEvent(
     scheduledRuns: MutableStateFlow<Map<String, List<ScheduledRun>>>,
     currentDebrief: MutableStateFlow<ConversationDebrief?>,
     completedConversationIds: MutableStateFlow<Set<String>>,
+    currentRating: MutableStateFlow<ConversationRating?>,
+    ratingsList: MutableStateFlow<List<ConversationRatingListItem>>,
+    ratingStats: MutableStateFlow<ConversationRatingStats?>,
 ) {
     try {
         val obj = JSONObject(text)
@@ -1789,6 +1799,39 @@ fun parseWsEvent(
                 WsEvent.DebriefConversationIncompleted(conversationId)
             }
 
+            "rating:updated" -> {
+                val conversationId = data?.optString("conversationId") ?: return
+                val rating = data.optJSONObject("rating")?.let { parseConversationRating(it) }
+                currentRating.value = rating
+                conversations.value = conversations.value.map {
+                    if (it.id == conversationId) it.copy(rating = rating?.rating) else it
+                }
+                WsEvent.RatingUpdated(conversationId, rating)
+            }
+
+            "rating:loaded" -> {
+                val conversationId = data?.optString("conversationId") ?: return
+                val rating = data.optJSONObject("rating")?.let { parseConversationRating(it) }
+                currentRating.value = rating
+                WsEvent.RatingLoaded(conversationId, rating)
+            }
+
+            "rating:error" -> WsEvent.RatingError(data?.optString("message") ?: "Unknown error")
+
+            "rating:list-loaded" -> {
+                val arr = data?.optJSONArray("ratings") ?: return
+                val list = (0 until arr.length()).map { parseConversationRatingListItem(arr.getJSONObject(it)) }
+                ratingsList.value = list
+                WsEvent.RatingListLoaded(list)
+            }
+
+            "rating:stats-loaded" -> {
+                val statsObj = data?.optJSONObject("stats") ?: return
+                val stats = parseConversationRatingStats(statsObj)
+                ratingStats.value = stats
+                WsEvent.RatingStatsLoaded(stats)
+            }
+
             "quiz:ready" -> {
                 val arr = data?.optJSONArray("questions") ?: return
                 val questions = (0 until arr.length()).map { parseQuizQuestion(arr.getJSONObject(it)) }
@@ -1931,6 +1974,32 @@ fun parseWsEvent(
             "automated-workflow-runs:error" -> {
                 val message = data?.optString("message") ?: return
                 WsEvent.AutomatedWorkflowRunsError(message)
+            }
+
+            "fs:list-directory" -> {
+                val path = data?.optString("path") ?: ""
+                val entriesArray = data?.optJSONArray("entries") ?: JSONArray()
+                val entries = (0 until entriesArray.length()).map { i ->
+                    val e = entriesArray.getJSONObject(i)
+                    FsEntry(
+                        name = e.optString("name"),
+                        fullPath = e.optString("fullPath"),
+                        isDirectory = e.optString("type") == "dir",
+                    )
+                }
+                WsEvent.FsDirectoryListing(
+                    path = path,
+                    entries = entries,
+                    truncated = data?.optBoolean("truncated", false) ?: false,
+                    error = data?.nullableString("error"),
+                )
+            }
+
+            "fs:get-start-roots" -> {
+                val home = data?.optString("home") ?: ""
+                val recentsArray = data?.optJSONArray("recents") ?: JSONArray()
+                val recents = (0 until recentsArray.length()).map { recentsArray.getString(it) }
+                WsEvent.FsStartRoots(home, recents)
             }
 
             else -> return
@@ -2481,6 +2550,7 @@ private fun parseConversationArray(arr: JSONArray): List<Conversation> =
             completed_at = if (row.has("completed_at") && !row.isNull("completed_at")) row.optLong("completed_at") else null,
             thinking_effort_override = row.nullableString("thinking_effort_override"),
             full_auto_approve_override = if (row.has("full_auto_approve_override") && !row.isNull("full_auto_approve_override")) row.optInt("full_auto_approve_override") != 0 else null,
+            rating = if (row.has("rating") && !row.isNull("rating")) row.optInt("rating") else null,
         )
     }
 
@@ -2497,6 +2567,77 @@ private fun parseConversationDebrief(obj: JSONObject): ConversationDebrief {
         mentalModel = obj.optString("mentalModel"),
         generatedAt = obj.optLong("generatedAt", 0L),
         createdAt = obj.optLong("createdAt", 0L),
+    )
+}
+
+private fun JSONObject.optStringList(key: String): List<String> {
+    val arr = optJSONArray(key) ?: return emptyList()
+    return (0 until arr.length()).map { arr.optString(it) }
+}
+
+private fun parseConversationRatingSnapshot(obj: JSONObject): ConversationRatingSnapshot = ConversationRatingSnapshot(
+    agentId = obj.nullableString("agentId"),
+    agentName = obj.nullableString("agentName"),
+    model = obj.nullableString("model"),
+    backend = obj.nullableString("backend"),
+    projectId = obj.nullableString("projectId"),
+    projectName = obj.nullableString("projectName"),
+    workflowMode = obj.nullableString("workflowMode"),
+    toolNames = obj.optStringList("toolNames"),
+    serverNames = obj.optStringList("serverNames"),
+    skillIds = obj.optStringList("skillIds"),
+    skillNames = obj.optStringList("skillNames"),
+    keywords = obj.optStringList("keywords"),
+)
+
+private fun parseConversationRating(obj: JSONObject): ConversationRating = ConversationRating(
+    id = obj.optString("id"),
+    conversationId = obj.optString("conversationId"),
+    rating = obj.optInt("rating", 0),
+    note = obj.nullableString("note"),
+    snapshot = obj.optJSONObject("snapshot")?.let { parseConversationRatingSnapshot(it) }
+        ?: parseConversationRatingSnapshot(JSONObject()),
+    createdAt = obj.optLong("createdAt", 0L),
+    updatedAt = obj.optLong("updatedAt", 0L),
+)
+
+private fun parseConversationRatingListItem(obj: JSONObject): ConversationRatingListItem = ConversationRatingListItem(
+    id = obj.optString("id"),
+    conversationId = obj.optString("conversationId"),
+    conversationTitle = obj.optString("conversationTitle"),
+    projectId = obj.nullableString("projectId"),
+    projectName = obj.nullableString("projectName"),
+    rating = obj.optInt("rating", 0),
+    note = obj.nullableString("note"),
+    agentName = obj.nullableString("agentName"),
+    model = obj.nullableString("model"),
+    toolNames = obj.optStringList("toolNames"),
+    skillNames = obj.optStringList("skillNames"),
+    createdAt = obj.optLong("createdAt", 0L),
+    updatedAt = obj.optLong("updatedAt", 0L),
+)
+
+private fun parseRatingAggregateList(arr: JSONArray?): List<RatingAggregate> {
+    if (arr == null) return emptyList()
+    return (0 until arr.length()).map { i ->
+        val obj = arr.getJSONObject(i)
+        RatingAggregate(label = obj.optString("label"), average = obj.optDouble("average", 0.0), count = obj.optInt("count", 0))
+    }
+}
+
+private fun parseConversationRatingStats(obj: JSONObject): ConversationRatingStats {
+    val trendArr = obj.optJSONArray("trend")
+    val trend = if (trendArr != null) (0 until trendArr.length()).map { i ->
+        val t = trendArr.getJSONObject(i)
+        RatingTrendPoint(date = t.optString("date"), average = t.optDouble("average", 0.0), count = t.optInt("count", 0))
+    } else emptyList()
+    return ConversationRatingStats(
+        averageByAgent = parseRatingAggregateList(obj.optJSONArray("averageByAgent")),
+        averageByModel = parseRatingAggregateList(obj.optJSONArray("averageByModel")),
+        averageBySkill = parseRatingAggregateList(obj.optJSONArray("averageBySkill")),
+        averageByServer = parseRatingAggregateList(obj.optJSONArray("averageByServer")),
+        averageByProject = parseRatingAggregateList(obj.optJSONArray("averageByProject")),
+        trend = trend,
     )
 }
 
