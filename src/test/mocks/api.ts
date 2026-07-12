@@ -600,6 +600,27 @@ export function createMockApi() {
     startQuizGeneration: vi.fn().mockResolvedValue({ artifactId: 'quiz-artifact-1' }),
     getQuiz: vi.fn().mockResolvedValue(null),
 
+    // Ratings
+    submitConversationRating: vi.fn().mockResolvedValue({
+      id: 'rating-1',
+      conversationId: 'conv-1',
+      rating: 5,
+      note: null,
+      snapshot: {
+        agentId: null, agentName: null, model: null, backend: null, projectId: null, projectName: null,
+        workflowMode: null, toolNames: [], serverNames: [], skillIds: [], skillNames: [], keywords: [],
+      },
+      createdAt: 1000,
+      updatedAt: 1000,
+    }),
+    getConversationRating: vi.fn().mockResolvedValue(null),
+    deleteConversationRating: vi.fn().mockResolvedValue(true),
+    listConversationRatings: vi.fn().mockResolvedValue([]),
+    getConversationRatingStats: vi.fn().mockResolvedValue({
+      averageByAgent: [], averageByModel: [], averageBySkill: [], averageByServer: [], averageByProject: [], trend: [],
+    }),
+    onConversationRated: vi.fn().mockReturnValue(() => {}),
+
     // Activity feed
     getActivityList: vi.fn().mockResolvedValue([]),
     onActivityChanged: vi.fn().mockReturnValue(() => {}),
