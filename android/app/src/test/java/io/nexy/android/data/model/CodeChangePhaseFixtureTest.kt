@@ -39,6 +39,24 @@ class CodeChangePhaseFixtureTest {
     }
 
     @Test
+    fun draft_whenInvestigationFailed() {
+        // TS: `report.status === 'open' && report.investigation_root_cause === 'investigation_failed'`
+        // This occurs when a plan attempt fails and reverts status to 'open' for retry, but investigation_markdown
+        // is still populated with the failure doc. Without this branch, the phase would wrongly read as INVESTIGATING.
+        assertEquals(
+            CodeChangeRequestPhase.DRAFT,
+            deriveCodeChangePhase(
+                fixStatus = "none",
+                status = "open",
+                hasInvestigationMarkdown = true,
+                verificationStatus = null,
+                committed = false,
+                investigationRootCause = "investigation_failed",
+            ),
+        )
+    }
+
+    @Test
     fun patchReady_whenStatusInvestigated() {
         // TS: `report.fix_status === 'staging' || report.status === 'investigated'`
         assertEquals(

@@ -98,6 +98,7 @@ import io.nexy.android.data.model.ErrorReport
 import io.nexy.android.data.model.RemoteEditInvestigationSettings
 import io.nexy.android.data.model.RemoteEditStagedFileEntry
 import io.nexy.android.data.model.WsEvent
+import io.nexy.android.data.model.codeChangeRequestTypeLabel
 import io.nexy.android.data.model.deriveCodeChangePhase
 import io.nexy.android.ui.components.FileLeafRow
 import io.nexy.android.ui.components.FileTreeNode
@@ -667,6 +668,7 @@ fun RemoteEditReportDetailScreen(
     var showRollbackDialog by remember { mutableStateOf(false) }
     var investigationActivity by remember(reportId) { mutableStateOf<List<WsEvent.RemoteEditInvestigationActivity>>(emptyList()) }
     var investigationOutput by remember(reportId) { mutableStateOf("") }
+    var verificationActivity by remember(reportId) { mutableStateOf<List<WsEvent.RemoteEditVerificationEvent>>(emptyList()) }
 
     fun startInvestigation(notes: String? = null) {
         if (disconnected) {
@@ -707,6 +709,13 @@ fun RemoteEditReportDetailScreen(
                     investigationRunning = false
                     investigationActivity = emptyList()
                     investigationOutput = ""
+                    vm.refresh(report?.projectId.orEmpty())
+                }
+                event is WsEvent.RemoteEditVerificationEvent && event.reportId == reportId -> {
+                    verificationActivity = (verificationActivity + event).takeLast(50)
+                }
+                event is WsEvent.RemoteEditVerificationDone && event.reportId == reportId -> {
+                    verificationActivity = emptyList()
                     vm.refresh(report?.projectId.orEmpty())
                 }
                 event is WsEvent.RemoteEditFixDone && event.reportId == reportId -> {
@@ -783,7 +792,18 @@ fun RemoteEditReportDetailScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             NexyTopAppBar(
-                titleContent = { Text(report?.title ?: "Change request") },
+                titleContent = {
+                    Column {
+                        Text(report?.title ?: "Change request")
+                        report?.let { r ->
+                            Text(
+                                codeChangeRequestTypeLabel(r.requestType, r.customTypeLabel),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                },
                 onBack = onBack,
                 actions = {
                     IconButton(onClick = { showDeleteDialog = true }) {
@@ -1176,6 +1196,32 @@ fun RemoteEditReportDetailScreen(
                     enabled = verificationRunning == null,
                     modifier = Modifier.fillMaxWidth(),
                 )
+
+                // Live verification progress feed
+                if (verificationRunning == reportId && verificationActivity.isNotEmpty()) {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Running verification…", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            verificationActivity.takeLast(6).forEach { event ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.Top,
+                                ) {
+                                    Text("▸", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = event.label.takeIf { it.isNotBlank() } ?: event.command ?: "Verifying…",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = if (event.status == "success") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 latestVerificationRun?.let { run ->
                     Text(
                         text = "Last run: ${run.status}${run.error?.let { " — $it" } ?: ""}",

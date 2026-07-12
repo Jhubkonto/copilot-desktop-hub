@@ -36,3 +36,12 @@ fun codeChangeRequestTypeLabel(requestType: CodeChangeRequestType, customTypeLab
     if (requestType == CodeChangeRequestType.CUSTOM && !customTypeLabel.isNullOrBlank()) return customTypeLabel
     return CODE_CHANGE_REQUEST_TYPE_LABELS.getValue(requestType)
 }
+
+fun codeChangeRequestTypeLabel(requestTypeString: String, customTypeLabel: String?): String {
+    val requestType = try {
+        CodeChangeRequestType.valueOf(requestTypeString.uppercase())
+    } catch (e: Exception) {
+        CodeChangeRequestType.EDIT
+    }
+    return codeChangeRequestTypeLabel(requestType, customTypeLabel)
+}

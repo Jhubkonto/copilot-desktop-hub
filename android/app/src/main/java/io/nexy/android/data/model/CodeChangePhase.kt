@@ -48,6 +48,7 @@ fun deriveCodeChangePhase(
     hasInvestigationMarkdown: Boolean,
     verificationStatus: String?,
     committed: Boolean,
+    investigationRootCause: String? = null,
 ): CodeChangeRequestPhase {
     if (committed) return CodeChangeRequestPhase.COMMITTED
     if (verificationStatus == "success") return CodeChangeRequestPhase.READY_TO_COMMIT
@@ -59,6 +60,7 @@ fun deriveCodeChangePhase(
     if (fixStatus == "applying") return CodeChangeRequestPhase.READY_TO_APPLY
     if (fixStatus == "staged") return CodeChangeRequestPhase.PATCH_READY
     if (fixStatus == "staging" || status == "investigated") return CodeChangeRequestPhase.PATCH_READY
+    if (status == "open" && investigationRootCause == "investigation_failed") return CodeChangeRequestPhase.DRAFT
     if (status == "investigating" || hasInvestigationMarkdown) return CodeChangeRequestPhase.INVESTIGATING
     return CodeChangeRequestPhase.DRAFT
 }
@@ -73,4 +75,5 @@ fun deriveCodeChangePhase(
     hasInvestigationMarkdown = !report.investigationMarkdown.isNullOrBlank(),
     verificationStatus = verificationStatus,
     committed = committed,
+    investigationRootCause = report.investigationRootCause,
 )

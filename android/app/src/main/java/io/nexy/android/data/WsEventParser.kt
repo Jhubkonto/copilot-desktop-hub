@@ -727,6 +727,8 @@ fun parseWsEvent(
                         investigationAffectedFiles = affectedFiles,
                         createdAt = r.optLong("created_at", 0L),
                         projectId = r.nullableString("project_id"),
+                        requestType = r.optString("request_type", "edit"),
+                        customTypeLabel = r.nullableString("custom_type_label"),
                     )
                 }
                 WsRepository.sendLog("RemoteEdit", "self-heal:reports received: ${list.size} reports; ids=${list.take(5).map { it.id }}")
@@ -1877,7 +1879,7 @@ fun parseWsEvent(
 
             "settings:value" -> {
                 val key = data?.optString("key") ?: return
-                val value = data.optString("value", null).takeIf { it != null }
+                val value = data.optString("value").takeIf { it.isNotEmpty() }
                 WsEvent.SettingValue(key, value)
             }
             "provider:key-handoff-request" -> {

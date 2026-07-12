@@ -573,6 +573,8 @@ data class ErrorReport(
     val investigationAffectedFiles: List<String> = emptyList(),
     val createdAt: Long,
     val projectId: String? = null,
+    val requestType: String = "edit",
+    val customTypeLabel: String? = null,
 )
 
 data class RemoteEditVerificationRun(

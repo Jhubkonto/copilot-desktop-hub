@@ -189,6 +189,9 @@ fun NavGraph(
                 onOpenProjectGenerator = {
                     navController.navigate("project-generator")
                 },
+                onOpenCodeChanges = { projectId ->
+                    navController.navigate("project-code-changes/${Uri.encode(projectId)}")
+                },
                 onOpenAgentGenerator = {
                     navController.navigate("agent-generator")
                 },
