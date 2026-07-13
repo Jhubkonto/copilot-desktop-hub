@@ -34,6 +34,8 @@ import {
   revisePlan,
   pushCurrentCommit,
   getRevisionHistory,
+  startCodeChangeConversation,
+  getReportForConversation,
 } from './code-change/step-flow'
 import { discoverReposInWorkspace, listRepoFiles } from './code-change/repo-discovery'
 import { runProjectGeneratorChatForAndroid, createProjectFromSpec, getProjectGeneratorAgentSummaries, getProjectGeneratorModel } from './project-generator'
@@ -576,6 +578,39 @@ export function registerWsHandlers(): void {
     }
 
     // Code Changes (6-step wizard orchestration)
+    if (command === 'code-change:start') {
+      try {
+        const projectId = typeof data.projectId === 'string' ? data.projectId : ''
+        const workspaceRoot = typeof data.workspaceRoot === 'string' ? data.workspaceRoot : ''
+        const repoRelativePath = typeof data.repoRelativePath === 'string' ? data.repoRelativePath : ''
+        if (!projectId || !workspaceRoot) {
+          reply({ event: 'code-change:error', data: { error: 'Missing projectId or workspaceRoot' } })
+          return
+        }
+        debugLog('ws', `code-change:start projectId=${projectId} repoRelativePath=${repoRelativePath}`)
+        const result = startCodeChangeConversation(projectId, workspaceRoot, repoRelativePath)
+        reply({ event: 'code-change:started', data: result })
+      } catch (error) {
+        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+      }
+      return
+    }
+
+    if (command === 'code-change:get-report-for-conversation') {
+      try {
+        const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+        if (!conversationId) {
+          reply({ event: 'code-change:error', data: { error: 'Missing conversationId' } })
+          return
+        }
+        const report = getReportForConversation(conversationId)
+        reply({ event: 'code-change:report', data: { report } })
+      } catch (error) {
+        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+      }
+      return
+    }
+
     if (command === 'code-change:submit-description') {
       try {
         const win = BrowserWindow.getAllWindows()[0]
@@ -584,12 +619,13 @@ export function registerWsHandlers(): void {
           return
         }
         const reportId = typeof data.reportId === 'string' ? data.reportId : ''
+        const description = typeof data.description === 'string' ? data.description : undefined
         if (!reportId) {
           reply({ event: 'code-change:error', data: { error: 'Missing reportId' } })
           return
         }
         debugLog('ws', `code-change:submit-description reportId=${reportId}`)
-        void submitDescription(win, reportId).then(() => {
+        void submitDescription(win, reportId, description).then(() => {
           reply({ event: 'code-change:submitted', data: { reportId } })
         }).catch((error) => {
           reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
