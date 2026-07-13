@@ -19,7 +19,43 @@ import {
   pushRemoteEditFix,
 } from '../remote-edit/git-ops'
 import { broadcastToMobile } from '../ws-server'
+import { createConversationRecord } from '../conversation-handlers'
+import { createErrorReport } from '../error-report-handlers'
 import type { ErrorReportEntry } from '../../shared/types'
+
+/**
+ * Creates a dedicated project-scoped conversation for a new Code Changes request
+ * (the "chat-hijack" entry point) plus its backing `error_reports` row, targeting
+ * one repo under the project's workspace.
+ */
+export function startCodeChangeConversation(
+  projectId: string,
+  workspaceRoot: string,
+  repoRelativePath: string,
+): { conversationId: string; reportId: string } {
+  const conversation = createConversationRecord(null, projectId, 'Code Change')
+  getDatabase()
+    .prepare("UPDATE conversations SET kind = 'code-change' WHERE id = ?")
+    .run(conversation.id)
+
+  const result = createErrorReport({
+    title: 'Code Change',
+    description: 'Pending description',
+    includeLog: false,
+    includeScreenshot: false,
+    requestType: 'edit',
+    origin: 'chat',
+    projectId,
+    conversationId: conversation.id,
+    workspaceRoot,
+  })
+
+  getDatabase()
+    .prepare('UPDATE error_reports SET repo_relative_path = ? WHERE id = ?')
+    .run(repoRelativePath, result.reportId)
+
+  return { conversationId: conversation.id, reportId: result.reportId }
+}
 
 /**
  * Updates the step column for a code change request.
@@ -45,6 +81,8 @@ export function advanceStep(reportId: string, nextStep: 'describe' | 'plan-revie
 export async function submitDescription(
   win: BrowserWindow,
   reportId: string,
+  description?: string,
+  revisionNotes?: string,
 ): Promise<void> {
   const report = getDatabase()
     .prepare('SELECT * FROM error_reports WHERE id = ?')
@@ -52,6 +90,12 @@ export async function submitDescription(
 
   if (!report) throw new Error(`Report ${reportId} not found`)
   if (report.step !== 'describe') throw new Error(`Cannot submit description from step ${report.step}`)
+
+  if (description?.trim()) {
+    getDatabase()
+      .prepare('UPDATE error_reports SET title = ?, description = ?, updated_at = ? WHERE id = ?')
+      .run(description.trim().slice(0, 80) || 'Code change', description.trim(), Date.now(), reportId)
+  }
 
   try {
     const result = await runInvestigation(win, reportId, {
@@ -68,7 +112,7 @@ export async function submitDescription(
           data: { reportId, activity },
         })
       },
-    })
+    }, revisionNotes)
 
     if (result.status === 'done') {
       // Investigation succeeded; move to plan-review for user confirmation
@@ -237,8 +281,8 @@ export async function revisePlan(
     // Return to describe step to re-run planning
     advanceStep(reportId, 'describe')
 
-    // Re-run investigation with revision notes
-    await submitDescription(win, reportId)
+    // Re-run investigation with revision notes (description text is unchanged on a revise)
+    await submitDescription(win, reportId, undefined, revisionNotes)
   } catch (error) {
     advanceStep(reportId, 'attention')
     broadcastToMobile({
@@ -318,6 +362,18 @@ async function generateCommitMessage(reportId: string): Promise<string> {
     // Fallback to simple message
     return `fix: ${title}`
   }
+}
+
+/**
+ * Look up the code change request backing a given (dedicated) conversation.
+ * Used by clients that only know the conversation id (e.g. when re-opening
+ * a code-change conversation) and need to resolve its reportId/step.
+ */
+export function getReportForConversation(conversationId: string): ErrorReportEntry | null {
+  const report = getDatabase()
+    .prepare('SELECT * FROM error_reports WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 1')
+    .get(conversationId) as ErrorReportEntry | undefined
+  return report ?? null
 }
 
 /**

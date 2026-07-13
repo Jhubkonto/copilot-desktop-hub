@@ -11,7 +11,8 @@ import {
   revisePlan,
   pushCurrentCommit,
   getRevisionHistory,
-  advanceStep,
+  startCodeChangeConversation,
+  getReportForConversation,
 } from './code-change/step-flow'
 import { getDatabase } from './database'
 import type { ErrorReportEntry } from '../shared/types'
@@ -20,11 +21,19 @@ export function registerCodeChangeHandlers(mainWindow?: BrowserWindow): void {
   if (!mainWindow) return
 
   /**
+   * Step 1 entry point: creates a dedicated project-scoped conversation
+   * for a new Code Changes request, targeting one repo under the workspace.
+   */
+  safeHandle('code-change:start', (_event, projectId: string, workspaceRoot: string, repoRelativePath: string) => {
+    return startCodeChangeConversation(projectId, workspaceRoot, repoRelativePath)
+  })
+
+  /**
    * Step 2→3: Submit the natural-language description.
    * Invokes the planner, lands on `plan-review` on success or `attention` on failure.
    */
-  safeHandle('code-change:submit-description', async (_event, reportId: string) => {
-    await submitDescription(mainWindow, reportId)
+  safeHandle('code-change:submit-description', async (_event, reportId: string, description?: string) => {
+    await submitDescription(mainWindow, reportId, description)
   })
 
   /**
@@ -97,5 +106,13 @@ export function registerCodeChangeHandlers(mainWindow?: BrowserWindow): void {
       .prepare('SELECT * FROM error_reports WHERE id = ?')
       .get(reportId) as ErrorReportEntry | undefined
     return report || null
+  })
+
+  /**
+   * Resolve the report backing a dedicated code-change conversation.
+   * Used when a client only has the conversation id (e.g. reopening the conversation).
+   */
+  safeHandle('code-change:get-report-for-conversation', (_event, conversationId: string) => {
+    return getReportForConversation(conversationId)
   })
 }
