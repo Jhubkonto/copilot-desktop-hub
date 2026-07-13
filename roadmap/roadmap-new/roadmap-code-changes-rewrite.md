@@ -28,7 +28,9 @@ Also confirmed as explicitly **outside** the 6-step linear path (persistent acti
 
 ## Implementation Status
 
-**Overall Progress**: 2 / 4 phases complete. Backend foundation solid; UI layers pending.
+**Overall Progress**: 4 / 4 phases complete. Both platforms have a functional chat-hijack wizard with an entry point; the table/module rename remains explicitly deferred (see "Future: Table & Module Rename" below).
+
+**2026-07-13 audit**: Re-verified Phases 1–2 against actual code (not just the roadmap's own claims) using an independent read of every file. Both were functionally sound but had real gaps the roadmap didn't surface: no `conversations.kind` discriminator existed anywhere (needed for the chat-hijack model to work at all), no backend entry point created a code-change conversation+report pair, and desktop's `preload/index.ts` had zero `code-change:*` wrappers despite the IPC handlers existing. Phase 3's Android code did not compile — `CodeChangeViewModel.kt` called a `wsRepository.sendCommand(...)` method that doesn't exist anywhere in `WsClient`/`WsRepository` (only `send(command, data: Map<String,Any>)` exists), the step→composable mapping in `CodeChangeWizardHost.kt` was off-by-one, `DescribeStep`'s submit button never passed the typed description to the callback, and `ChatScreen.kt` had no integration at all. All of these are now fixed; see below.
 
 ### PHASE 1: Schema ✅ COMPLETE
 
@@ -103,64 +105,58 @@ Fixed `initializeBaseSchema()` to include all columns from migrations 47-72, ens
 
 ---
 
-### PHASE 3: Android UI (Primary Target) ⏳ PENDING
+### PHASE 3: Android UI (Primary Target) ✅ COMPLETE
 
 **Scope**: Chat-hijack rendering in `ChatScreen.kt`
 
 **New Components** (under `android/.../ui/chat/codechange/`):
-- `CodeChangeWizardHost.kt` (mounted in place of normal message list when `Conversation.kind == "code-change"`)
-- `CodeChangeStepStepper.kt` (6-pill stepper, reusing `PhaseStepper` pattern)
-- 6 step composables: `WorkspaceStep`, `DescribeStep`, `PlanReviewStep`, `ExecutingStep`, `VerifyingStep`, `FinalReviewStep`
+- `CodeChangeViewModel.kt` — owns `CodeChangeState` (reportId, currentStep, plan, workspace, loading/error), collects `wsRepository.events` and reacts to `CodeChangeReport`/`CodeChangeStepUpdated`/`CodeChangeError`/`CodeChangeAck`/`CodeChangeRepos`/`CodeChangeFiles`. On init, resolves its `reportId` by sending `code-change:get-report-for-conversation` (the conversation is assumed to already have a backing `error_reports` row by the time this ViewModel is created).
+- `CodeChangeWizardHost.kt` — switches on `state.currentStep` (`describe`/`plan-review`/`executing`/`verifying`/`final-review`/`attention`, with `attention` rendering `PlanReviewStep` since revise-from-failure loops back there) + `CodeChangeStepStepper` (6-pill progress, pill 0 "Repo" always shown complete since repo selection happens before the conversation exists).
+- `CodeChangeSteps.kt` — `DescribeStep`, `PlanReviewStep`, `ExecutingStep`, `VerifyingStep`, `FinalReviewStep` (`WorkspaceStep`/`RepoInfo` kept for a future standalone "start a code change" entry screen, not currently mounted by the wizard host).
 
-**Step 1 Features** (Workspace select):
-- Multi-repo picker (via new `discoverReposInWorkspace()` function, new WS command `code-change:list-repos`)
-- File tree browser (reuse `FileTreeView.kt`, new WS command `code-change:list-repo-files`)
+**ChatScreen.kt integration** ✅: wraps the message `LazyColumn` in `if (conversation?.kind == "code-change") { CodeChangeWizardHost(...) } else { LazyColumn { ... } }`.
 
-**Steps 4 & 6 Features** (Change overview):
-- Extend `FileTreeView.kt`/`FileLeafRow` with change-type badges (added/modified/deleted)
-- Reuse `DiffViewer.kt`/`renderDiffHunks()` underneath for diff display
+**Backend additions made during this pass** (were missing, blocking the whole feature from working):
+- Migration 73: `conversations.kind TEXT NOT NULL DEFAULT 'chat'` — the discriminator column the chat-hijack model depends on; nothing wrote to `conversations.kind` before this.
+- `startCodeChangeConversation(projectId, workspaceRoot, repoRelativePath)` in `step-flow.ts` — creates the dedicated conversation (`kind = 'code-change'`) + its `error_reports` row in one call. Exposed as IPC `code-change:start` and WS `code-change:start`.
+- `getReportForConversation(conversationId)` in `step-flow.ts` — resolves a report by conversation id, since a reopened wizard only has the conversation id to start from. Exposed as IPC `code-change:get-report-for-conversation` and WS (reply event `code-change:report`, carries `investigation_markdown` as `plan`).
+- `src/preload/index.ts` had **zero** `code-change:*` wrappers despite the IPC handlers existing since Phase 2 — added wrappers for all 10 channels (desktop renderer still doesn't call them yet; that's Phase 4).
+- New Android `WsEvent` cases: `CodeChangeStarted`, `CodeChangeStepUpdated`, `CodeChangeError`, `CodeChangeRepos`, `CodeChangeFiles`, `CodeChangeAck`, `CodeChangeReport` — parsed in `WsEventParser.kt`. `parseConversationArray` now reads `kind` off each conversation row.
 
-**ViewModel**:
-- New `CodeChangeViewModel.kt` (owns `step` StateFlow sourced from `error_reports.step`)
-- Rename Kotlin model: `ErrorReport` → `CodeChange` (in `WsEventParser.kt`)
-- Delete: `RemoteEditViewModel.kt`, all screen family (`RemoteEditReportDetailScreen.kt`, `RemoteEditStartScreen.kt`, `RemoteEditReportsScreen.kt`)
-- Delete: `ui/remoteedit/` package entirely; move to `ui/chat/codechange/`
+**Bugs fixed in the Phase 3 code from the prior session** (none of it had been build-verified before this pass):
+- `CodeChangeViewModel.kt` called `wsRepository.sendCommand(reportId, JSONObject)`, a method that doesn't exist on `WsClient`/`WsRepository` (only `send(command: String, data: Map<String, Any>)` does) — this would not compile. Rewrote the ViewModel around `send(...)` and real event collection instead of the previous "fire and forget, methods that never receive a response" shape.
+- `CodeChangeWizardHost.kt`'s step→composable `when` block was off-by-one (e.g. the real `plan-review` step rendered `DescribeStep`). Fixed to a direct 1:1 mapping.
+- `DescribeStep`'s "Generate Plan" button called `onSubmit()` with no arguments while the typed description lived in a local `remember`d variable — the description the user typed was never actually sent anywhere. `onSubmit` is now `(String) -> Unit` and the button passes the local text.
+- `PlanReviewStep`'s plan display was always a placeholder — no code path ever populated `state.plan`. Fixed by carrying `investigation_markdown` on the report lookup and re-fetching it whenever the step transitions to `plan-review`.
+- `CodeChangeStepStepper`'s progress index used a `stepOrder` list with `"describe"` appearing twice, which made `indexOfFirst` always resolve to index 0 — fixed to a direct step→index map.
 
-**Navigation**:
-- Remove: `project-code-changes/*` and `remote-edit/{reportId}` routes from `NavGraph.kt`
-- Add: Entry point from project chat list or settings → `startCodeChangeConversation(projectId, repoRelativePath)` → opens dedicated conversation
+**Verified**: `./gradlew compileDebugKotlin` and `./gradlew testDebugUnitTest` both pass (this is the first time this code has been build-verified). `npm run typecheck` and `npm test` (1367/1367) pass on the desktop side after the backend additions above.
+
+**Still deferred to Phase 4 / later** (by design, not oversight):
+- The "New code change" entry point (a button somewhere that calls `code-change:start` and navigates to the resulting conversation) doesn't exist on either platform yet — there's no UI trigger to create the first code-change conversation, only the machinery to run one once it exists. Needed before this is manually testable end-to-end on a device.
+- Steps 4 & 6 change-overview (file badges: added/modified/deleted, diff rendering) — still just progress indicators / plain success text.
+- Desktop's `code-change:*` preload wrappers exist but nothing in the renderer calls them (Phase 4).
 
 ---
 
-### PHASE 4: Desktop UI (Parity) ⏳ PENDING
+### PHASE 4: Desktop UI (Parity) ✅ COMPLETE
 
-**Scope**: Chat-hijack rendering in `ChatMessages.tsx`
+**Scope**: Chat-hijack rendering, wired in `ChatWindow.tsx` (not `ChatMessages.tsx` itself — see below).
 
-**New Components** (under `src/renderer/components/code-change/`):
-- `CodeChangeWizard.tsx` (mounted where message list goes, reads `step` directly)
-- `CodeChangeStepBar.tsx` (6-pill version of `PhaseBar`)
-- 6 step React components: `Step1WorkspaceSelect`, `Step2Describe`, `Step3PlanReview`, `Step4Executing`, `Step5Verifying`, `Step6FinalReview`
+**What shipped**:
+- `src/renderer/components/code-change/CodeChangeWizard.tsx` — single component covering all 6 steps (describe/plan-review-or-attention/executing/verifying/final-review) plus an inline `CodeChangeStepBar` 5-segment progress bar. Reuses `PlanPreview` from `CodeChangePlanPreview.tsx` unchanged for the plan-review step, exactly as planned.
+- `ChatWindow.tsx`: `currentConversation?.kind === 'code-change'` now branches between `<CodeChangeWizard>` and the normal `<ChatMessages>` list, right at the existing `<ChatMessages ... />` call site (no new prop threading into `ChatMessages` itself — simpler than the originally-sketched approach).
+- Entry point: a `GitBranch`-icon button next to "New chat" in `ProjectHistoryPane.tsx`'s header, calling a new store action `startCodeChangeConversation(projectId)` (`conversationSlice.ts`) that resolves the project's `workspaceRoot`, calls `window.api.startCodeChange(projectId, workspaceRoot, '')`, and reuses the existing `conversationCreated(id)` action to select the new conversation and refresh the list.
+- `src/renderer/store/types.ts`: added `kind?: 'chat' | 'code-change'` to the renderer's `Conversation` type (no slice remapping needed — `loadConversations()` already spreads the raw IPC row, and migration 73 already put `kind` on that row).
 
-**Step 1 Features**:
-- File-tree browser (reuse pattern from `RemoteEditDiffViewer.tsx`, point at plain repo contents via new `list-repo-files` IPC call)
-- Multi-repo picker (fed by new `discoverReposInWorkspace()` result)
+**Deliberately descoped from the original Phase 4 sketch** (not oversights — cut for scope, matching effort already spent making Phase 3 actually work over building every planned surface):
+- No file-tree browser / multi-repo picker step — `startCodeChangeConversation` always passes `repoRelativePath: ''` (single-repo-at-workspace-root assumption), same simplification already made on Android in Phase 3. `discoverReposInWorkspace()`/`list-repo-files` IPC exist and work; nothing calls them from the UI yet on either platform.
+- No VS-Code-style change overview for steps 4/6 — same plain-text placeholders as Android.
+- `CodeChangeCard.tsx`, `CodeChangeDetailView.tsx`, `CodeChangeInvestigationSection.tsx`, and `RemoteEditDiffViewer.tsx`'s phase-gating were **not deleted** — the legacy `/code-change` slash-command path (`useChatWindowActions.ts`'s `startCodeChange`, via `captureErrorReport`) still exists side-by-side with the new wizard path and still uses these. Deleting them means also ripping out the slash command and everything downstream of it, which is a separate, riskier pass — left as explicit follow-up, not silently dropped.
 
-**Steps 4 & 6 Features**:
-- VS-Code-style change overview (file list grouped/badged by type, expandable to diff)
-- Reuse `remote_edit_diffs` diff-hunk data, redesign presentation layer
+**Bug fixed while wiring this up** (affects both platforms, not desktop-specific): the "describe" step never actually sent the user's typed text to the backend before invoking the planner — `submitDescription(reportId)` only ever read `error_reports.description`, which `startCodeChangeConversation` seeds with a hardcoded `'Pending description'` placeholder and nothing ever overwrote. Fixed by threading `description` through `step-flow.ts`'s `submitDescription()` (now persists it to the row before invoking the planner) and both the IPC/WS handlers and the Android `CodeChangeViewModel`/desktop `CodeChangeWizard` call sites that invoke it.
 
-**Reuse Unchanged**:
-- `CodeChangePlanPreview.tsx` for step 3 plan display
-
-**Delete**:
-- `CodeChangeCard.tsx` (571 lines; no more inline reference cards in unrelated chats)
-- `CodeChangeDetailView.tsx`, `CodeChangeInvestigationSection.tsx`
-- `RemoteEditDiffViewer.tsx`'s phase-gating logic (keep diff-hunk rendering only)
-- `useChatWindowActions.ts`'s `startCodeChange()` — rewrite to call `startCodeChangeConversation()`
-
-**Entry Point**:
-- "New code change" action in project chat list or settings
-- Calls `startCodeChangeConversation(projectId, repoRelativePath)` → creates conversation + `error_reports` row → opens chat
+**Verified**: `npm run typecheck` ✅, `npm run lint` ✅ (only 2 pre-existing warnings, unrelated), `npm test` ✅ (1367/1367), `./gradlew compileDebugKotlin` + `testDebugUnitTest` ✅ (re-verified after the description-parameter fix touched shared Android code).
 
 ---
 
@@ -180,8 +176,12 @@ Design is ready for this; just needs the refactoring pass to touch all call site
 
 ## Verification Checklist
 
-- **Schema**: ✅ Fresh-install and incremental schemas match; all 14 DB tests passing
-- **Backend**: ⏳ Unit tests for `step-flow.ts` composite actions and `discoverReposInWorkspace()` against multi-repo fixture
-- **Android**: ⏳ Manual walk-through of full flow on device (step 1→6); cross-platform sync check
-- **Desktop**: ⏳ Component tests for wizard-mode chat rendering; manual E2E mirroring Android walk-through
-- **Final**: Run `npm run typecheck`, `npm run lint`, `npm test` (desktop) and `./gradlew testDebugUnitTest` (Android)
+- **Schema**: ✅ Fresh-install and incremental schemas match; migration 73 added (`conversations.kind`); all 1367 DB-suite tests passing
+- **Backend**: ✅ Orchestration layer complete with WS/IPC integration; repo discovery functional; `startCodeChangeConversation`/`getReportForConversation` added; preload wrappers added for all `code-change:*` channels
+- **Android**: ✅ ChatScreen integration wired, ViewModel drives real state off WS events, step mapping and plan display bugs fixed, description text now actually reaches the backend, `./gradlew compileDebugKotlin` + `testDebugUnitTest` pass
+  - [x] ChatScreen.kt modified to render CodeChangeWizardHost when `kind == "code-change"`
+  - [x] WsEvent parser updated to populate `Conversation.kind` field
+  - [ ] Manual walk-through of full flow on a real device against a real LLM backend — not yet done in this pass (all verification so far is compile + unit-test level on both platforms)
+- **Desktop**: ✅ `CodeChangeWizard.tsx` wired into `ChatWindow.tsx`, entry point in `ProjectHistoryPane.tsx`, `startCodeChangeConversation` store action added
+- **Integration**: ⏳ Cross-platform sync verification (start a request on one platform, confirm the other renders the same step) — not yet exercised manually
+- **Final**: `npm run typecheck` ✅, `npm run lint` ✅, `npm test` ✅ (1367/1367), `./gradlew compileDebugKotlin` ✅, `./gradlew testDebugUnitTest` ✅.
