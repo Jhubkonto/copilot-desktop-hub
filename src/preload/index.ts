@@ -180,6 +180,22 @@ const api = {
     typedOn('remote-edit:recovery-event', handler)
     return () => typedOff('remote-edit:recovery-event', handler)
   },
+
+  // Code Changes (6-step wizard)
+  startCodeChange: (projectId: string, workspaceRoot: string, repoRelativePath: string) =>
+    typedInvoke('code-change:start', projectId, workspaceRoot, repoRelativePath),
+  submitCodeChangeDescription: (reportId: string, description: string) =>
+    typedInvoke('code-change:submit-description', reportId, description),
+  acceptCodeChangePlan: (reportId: string) => typedInvoke('code-change:accept-plan', reportId),
+  reviseCodeChangePlan: (reportId: string, revisionNotes: string) =>
+    typedInvoke('code-change:revise-plan', reportId, revisionNotes),
+  getCodeChangePlanRevisions: (reportId: string) => typedInvoke('code-change:get-plan-revisions', reportId),
+  listCodeChangeRepos: (workspaceRoot: string) => typedInvoke('code-change:list-repos', workspaceRoot),
+  listCodeChangeRepoFiles: (repoRoot: string) => typedInvoke('code-change:list-repo-files', repoRoot),
+  pushCodeChange: (reportId: string) => typedInvoke('code-change:git-push', reportId),
+  getCodeChangeReport: (reportId: string) => typedInvoke('code-change:get-report', reportId),
+  getCodeChangeReportForConversation: (conversationId: string) =>
+    typedInvoke('code-change:get-report-for-conversation', conversationId),
   onErrorLogEntry: (callback: (entry: ErrorLogEntry) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, entry: ErrorLogEntry) => callback(entry)
     typedOn('errors:new', handler)

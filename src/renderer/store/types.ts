@@ -13,6 +13,7 @@ export interface Conversation {
   thinking_effort_override?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null
   full_auto_approve_override?: number | null
   rating?: number | null
+  kind?: 'chat' | 'code-change'
 }
 
 export interface Project {

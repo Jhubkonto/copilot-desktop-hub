@@ -1933,6 +1933,7 @@ export type IpcReturnMap = {
   'remote-edit:get-history': RemoteEditHistoryEntry[]
   'remote-edit:get-history-for-report': RemoteEditHistoryEntry | null
   // Code Changes (6-step wizard orchestration)
+  'code-change:start': { conversationId: string; reportId: string }
   'code-change:submit-description': void
   'code-change:accept-plan': void
   'code-change:revise-plan': void
@@ -1947,6 +1948,7 @@ export type IpcReturnMap = {
   'code-change:list-repo-files': string[]
   'code-change:git-push': void
   'code-change:get-report': ErrorReportEntry | null
+  'code-change:get-report-for-conversation': ErrorReportEntry | null
   // Deeplink (push-only)
   'deeplink:open-agent': void
   'deeplink:open-chat': void
@@ -2354,6 +2356,7 @@ export type IpcChannels =
   | 'remote-edit:recovery-event'
   | 'remote-edit:get-history'
   | 'remote-edit:get-history-for-report'
+  | 'code-change:start'
   | 'code-change:submit-description'
   | 'code-change:accept-plan'
   | 'code-change:revise-plan'
@@ -2362,6 +2365,7 @@ export type IpcChannels =
   | 'code-change:list-repo-files'
   | 'code-change:git-push'
   | 'code-change:get-report'
+  | 'code-change:get-report-for-conversation'
   | 'deeplink:open-agent'
   | 'deeplink:open-chat'
   | 'file:add-recent-dir'
