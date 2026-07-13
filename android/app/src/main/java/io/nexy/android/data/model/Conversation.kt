@@ -18,6 +18,7 @@ data class Conversation(
     val thinking_effort_override: String? = null,
     val full_auto_approve_override: Boolean? = null,
     val rating: Int? = null,
+    val kind: String? = null, // 'chat' (default) or 'code-change' for wizard mode
 )
 
 data class ModelOption(

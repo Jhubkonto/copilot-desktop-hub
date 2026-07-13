@@ -329,6 +329,55 @@ fun parseWsEvent(
                 reportId = data?.optString("reportId") ?: "",
             )
 
+            "code-change:started" -> WsEvent.CodeChangeStarted(
+                conversationId = data?.optString("conversationId") ?: "",
+                reportId = data?.optString("reportId") ?: "",
+            )
+
+            "code-change:step-updated" -> WsEvent.CodeChangeStepUpdated(
+                reportId = data?.optString("reportId") ?: "",
+                step = data?.optString("step") ?: "describe",
+            )
+
+            "code-change:error" -> WsEvent.CodeChangeError(
+                reportId = data?.nullableString("reportId"),
+                error = data?.optString("error") ?: "Unknown error",
+            )
+
+            "code-change:repos" -> {
+                val reposArr = data?.optJSONArray("repos")
+                val repos = if (reposArr != null) (0 until reposArr.length()).mapNotNull { i ->
+                    val row = reposArr.optJSONObject(i) ?: return@mapNotNull null
+                    WsEvent.CodeChangeRepoWire(
+                        relativePath = row.optString("relativePath"),
+                        branch = row.optString("branch"),
+                    )
+                } else emptyList()
+                WsEvent.CodeChangeRepos(repos)
+            }
+
+            "code-change:files" -> {
+                val filesArr = data?.optJSONArray("files")
+                val files = if (filesArr != null) (0 until filesArr.length()).map { filesArr.optString(it) } else emptyList()
+                WsEvent.CodeChangeFiles(files)
+            }
+
+            "code-change:submitted", "code-change:accepted", "code-change:revised",
+            "code-change:pushed", "code-change:completed" -> WsEvent.CodeChangeAck(
+                reportId = data?.optString("reportId") ?: "",
+                kind = event,
+            )
+
+            "code-change:report" -> {
+                val report = data?.optJSONObject("report")
+                WsEvent.CodeChangeReport(
+                    reportId = report?.nullableString("id"),
+                    step = report?.nullableString("step"),
+                    repoRelativePath = report?.nullableString("repo_relative_path"),
+                    plan = report?.nullableString("investigation_markdown"),
+                )
+            }
+
             "error-report:error" -> WsEvent.ErrorReportError(
                 message = data?.optString("message") ?: "Unable to capture report",
             )
@@ -2553,6 +2602,7 @@ private fun parseConversationArray(arr: JSONArray): List<Conversation> =
             thinking_effort_override = row.nullableString("thinking_effort_override"),
             full_auto_approve_override = if (row.has("full_auto_approve_override") && !row.isNull("full_auto_approve_override")) row.optInt("full_auto_approve_override") != 0 else null,
             rating = if (row.has("rating") && !row.isNull("rating")) row.optInt("rating") else null,
+            kind = row.nullableString("kind"),
         )
     }
 

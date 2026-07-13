@@ -14,6 +14,7 @@ import java.util.Locale
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import io.nexy.android.ui.chat.codechange.CodeChangeWizardHost
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -1202,6 +1203,11 @@ fun ChatScreen(
                     }
                 }
 
+                if (conversation?.kind == "code-change") {
+                    Box(modifier = Modifier.weight(1f)) {
+                        CodeChangeWizardHost(conversation = conversation, wsRepository = WsRepository)
+                    }
+                } else {
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
@@ -1472,6 +1478,7 @@ fun ChatScreen(
                             )
                         }
                     }
+                }
                 }
             }
             // Scroll-to-bottom button shown whenever the user is scrolled above the bottom

@@ -188,6 +188,14 @@ sealed class WsEvent {
         val error: String?,
     ) : WsEvent()
     data class RemoteEditActiveCodeChangesChanged(val countsByProjectId: Map<String, Int>) : WsEvent()
+    data class CodeChangeStarted(val conversationId: String, val reportId: String) : WsEvent()
+    data class CodeChangeStepUpdated(val reportId: String, val step: String) : WsEvent()
+    data class CodeChangeError(val reportId: String?, val error: String) : WsEvent()
+    data class CodeChangeRepoWire(val relativePath: String, val branch: String)
+    data class CodeChangeRepos(val repos: List<CodeChangeRepoWire>) : WsEvent()
+    data class CodeChangeFiles(val files: List<String>) : WsEvent()
+    data class CodeChangeAck(val reportId: String, val kind: String) : WsEvent()
+    data class CodeChangeReport(val reportId: String?, val step: String?, val repoRelativePath: String?, val plan: String?) : WsEvent()
     data class ConversationModelUpdated(val conversationId: String, val model: String?) : WsEvent()
     data class ConversationModeUpdated(val conversationId: String, val thinkingEffortOverride: String?, val fullAutoApproveOverride: Boolean?) : WsEvent()
     data class ConversationCreated(
