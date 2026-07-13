@@ -17,6 +17,7 @@ import { CONTEXT_INSPECTOR_MAX_TOKENS, estimateRefTokens, estimateTokens } from 
 import type { ContextInspectorSnapshot, ProjectConfig } from '../../shared/types'
 import { ChatComposer } from './chat/ChatComposer'
 import { ChatMessages } from './chat/ChatMessages'
+import { CodeChangeWizard } from './code-change/CodeChangeWizard'
 import { DropdownPanel } from './DropdownPanel'
 import { PromptLibraryModal } from './PromptLibraryModal'
 import { SaveToWikiModal } from './SaveToWikiModal'
@@ -1797,6 +1798,9 @@ export function ChatWindow() {
             </DropdownPanel>
           </div>
         )}
+        {currentConversation?.kind === 'code-change' ? (
+          <CodeChangeWizard conversation={currentConversation} />
+        ) : (
         <ChatMessages
           messages={chat.messages}
           isLoadingMessages={chat.isLoadingMessages}
@@ -1834,6 +1838,7 @@ export function ChatWindow() {
           }}
           liveTurnState={chat.liveTurnState}
         />
+        )}
         {isUserScrolledUp && (
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
             <button
