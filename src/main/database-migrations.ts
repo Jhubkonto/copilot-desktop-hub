@@ -1371,6 +1371,12 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
       DELETE FROM error_reports;
     `,
   },
+  {
+    version: 73,
+    sql: `
+      ALTER TABLE conversations ADD COLUMN kind TEXT NOT NULL DEFAULT 'chat';
+    `,
+  },
 ];
 
 
