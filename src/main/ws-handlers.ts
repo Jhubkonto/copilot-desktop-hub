@@ -28,6 +28,14 @@ import { runFix, emitFixEvent } from './remote-edit/fix-agent'
 import { emitVerificationEvent, runVerification } from './remote-edit/verifier'
 import { commitRemoteEditFix, prepareRemoteEditCommit, pushRemoteEditFix } from './remote-edit/git-ops'
 import { getRecoveryRuns, prepareReload, rollbackHeal } from './remote-edit/recovery'
+import {
+  submitDescription,
+  acceptPlanAndExecute,
+  revisePlan,
+  pushCurrentCommit,
+  getRevisionHistory,
+} from './code-change/step-flow'
+import { discoverReposInWorkspace, listRepoFiles } from './code-change/repo-discovery'
 import { runProjectGeneratorChatForAndroid, createProjectFromSpec, getProjectGeneratorAgentSummaries, getProjectGeneratorModel } from './project-generator'
 import { runAgentGeneratorChatForAndroid, createAgentFromSpec, getAgentGeneratorModel } from './agent-generator'
 import { runSkillGeneratorChatForAndroid, createSkillFromSpec, getSkillGeneratorModel } from './skill-generator'
@@ -563,6 +571,155 @@ export function registerWsHandlers(): void {
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err)
         reply({ event: 'self-heal:apply-result', data: { reportId, error: errorMsg } })
+      }
+      return
+    }
+
+    // Code Changes (6-step wizard orchestration)
+    if (command === 'code-change:submit-description') {
+      try {
+        const win = BrowserWindow.getAllWindows()[0]
+        if (!win) {
+          reply({ event: 'code-change:error', data: { error: 'No active window' } })
+          return
+        }
+        const reportId = typeof data.reportId === 'string' ? data.reportId : ''
+        if (!reportId) {
+          reply({ event: 'code-change:error', data: { error: 'Missing reportId' } })
+          return
+        }
+        debugLog('ws', `code-change:submit-description reportId=${reportId}`)
+        void submitDescription(win, reportId).then(() => {
+          reply({ event: 'code-change:submitted', data: { reportId } })
+        }).catch((error) => {
+          reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+        })
+      } catch (error) {
+        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+      }
+      return
+    }
+
+    if (command === 'code-change:accept-plan') {
+      try {
+        const win = BrowserWindow.getAllWindows()[0]
+        if (!win) {
+          reply({ event: 'code-change:error', data: { error: 'No active window' } })
+          return
+        }
+        const reportId = typeof data.reportId === 'string' ? data.reportId : ''
+        if (!reportId) {
+          reply({ event: 'code-change:error', data: { error: 'Missing reportId' } })
+          return
+        }
+        debugLog('ws', `code-change:accept-plan reportId=${reportId}`)
+        void acceptPlanAndExecute(win, reportId).then(() => {
+          reply({ event: 'code-change:accepted', data: { reportId } })
+        }).catch((error) => {
+          reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+        })
+      } catch (error) {
+        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+      }
+      return
+    }
+
+    if (command === 'code-change:revise-plan') {
+      try {
+        const win = BrowserWindow.getAllWindows()[0]
+        if (!win) {
+          reply({ event: 'code-change:error', data: { error: 'No active window' } })
+          return
+        }
+        const reportId = typeof data.reportId === 'string' ? data.reportId : ''
+        const revisionNotes = typeof data.revisionNotes === 'string' ? data.revisionNotes : ''
+        if (!reportId) {
+          reply({ event: 'code-change:error', data: { error: 'Missing reportId' } })
+          return
+        }
+        debugLog('ws', `code-change:revise-plan reportId=${reportId}`)
+        void revisePlan(win, reportId, revisionNotes).then(() => {
+          reply({ event: 'code-change:revised', data: { reportId } })
+        }).catch((error) => {
+          reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+        })
+      } catch (error) {
+        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+      }
+      return
+    }
+
+    if (command === 'code-change:get-plan-revisions') {
+      try {
+        const reportId = typeof data.reportId === 'string' ? data.reportId : ''
+        if (!reportId) {
+          reply({ event: 'code-change:error', data: { error: 'Missing reportId' } })
+          return
+        }
+        const revisions = getRevisionHistory(reportId)
+        reply({ event: 'code-change:revisions', data: { reportId, revisions } })
+      } catch (error) {
+        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+      }
+      return
+    }
+
+    if (command === 'code-change:list-repos') {
+      try {
+        const workspaceRoot = typeof data.workspaceRoot === 'string' ? data.workspaceRoot : ''
+        if (!workspaceRoot) {
+          reply({ event: 'code-change:error', data: { error: 'Missing workspaceRoot' } })
+          return
+        }
+        debugLog('ws', `code-change:list-repos workspaceRoot=${workspaceRoot}`)
+        void discoverReposInWorkspace(workspaceRoot).then((repos) => {
+          reply({
+            event: 'code-change:repos',
+            data: { repos: repos.map(r => ({ relativePath: r.relativePath, branch: r.branch })) },
+          })
+        }).catch((error) => {
+          reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+        })
+      } catch (error) {
+        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+      }
+      return
+    }
+
+    if (command === 'code-change:list-repo-files') {
+      try {
+        const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
+        if (!repoRoot) {
+          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot' } })
+          return
+        }
+        debugLog('ws', `code-change:list-repo-files repoRoot=${repoRoot}`)
+        void listRepoFiles(repoRoot).then((files) => {
+          reply({ event: 'code-change:files', data: { files } })
+        }).catch((error) => {
+          reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+        })
+      } catch (error) {
+        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+      }
+      return
+    }
+
+    if (command === 'code-change:push') {
+      try {
+        const reportId = typeof data.reportId === 'string' ? data.reportId : ''
+        if (!reportId) {
+          reply({ event: 'code-change:error', data: { error: 'Missing reportId' } })
+          return
+        }
+        debugLog('ws', `code-change:push reportId=${reportId}`)
+        void pushCurrentCommit(reportId).then(() => {
+          reply({ event: 'code-change:pushed', data: { reportId } })
+        }).catch((error) => {
+          reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+        })
+      } catch (error) {
+        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
       }
       return
     }

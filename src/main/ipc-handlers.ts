@@ -26,6 +26,7 @@ import { registerErrorReportHandlers } from './error-report-handlers'
 import { registerRemoteEditHandlers } from './remote-edit-handlers'
 import { registerRemoteEditGitHandlers } from './remote-edit/git-ops'
 import { registerRemoteEditRecoveryHandlers } from './remote-edit/recovery'
+import { registerCodeChangeHandlers } from './code-change-handlers'
 import { registerProjectGeneratorHandlers } from './project-generator'
 import { registerAgentGeneratorHandlers } from './agent-generator'
 import { registerArtifactHandlers } from './artifacts'
@@ -75,6 +76,7 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   registerRemoteEditHandlers(mainWindow)
   registerRemoteEditGitHandlers(mainWindow)
   registerRemoteEditRecoveryHandlers(mainWindow)
+  registerCodeChangeHandlers(mainWindow)
   registerSystemHandlers()
   registerBuildHandlers(mainWindow)
   registerAndroidHandlers(mainWindow)

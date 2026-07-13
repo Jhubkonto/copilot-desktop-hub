@@ -777,6 +777,8 @@ export interface ErrorReportEntry {
   project_id?: string | null
   custom_type_label?: string | null
   conversation_id?: string | null
+  step?: 'describe' | 'plan-review' | 'executing' | 'verifying' | 'final-review' | 'attention'
+  repo_relative_path?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -1930,6 +1932,21 @@ export type IpcReturnMap = {
   'remote-edit:recovery-event': void
   'remote-edit:get-history': RemoteEditHistoryEntry[]
   'remote-edit:get-history-for-report': RemoteEditHistoryEntry | null
+  // Code Changes (6-step wizard orchestration)
+  'code-change:submit-description': void
+  'code-change:accept-plan': void
+  'code-change:revise-plan': void
+  'code-change:get-plan-revisions': Array<{
+    revision_number: number
+    revision_notes: string | null
+    plan_markdown: string
+    outcome: string
+    created_at: number
+  }>
+  'code-change:list-repos': Array<{ relativePath: string; branch: string }>
+  'code-change:list-repo-files': string[]
+  'code-change:git-push': void
+  'code-change:get-report': ErrorReportEntry | null
   // Deeplink (push-only)
   'deeplink:open-agent': void
   'deeplink:open-chat': void
@@ -2337,6 +2354,14 @@ export type IpcChannels =
   | 'remote-edit:recovery-event'
   | 'remote-edit:get-history'
   | 'remote-edit:get-history-for-report'
+  | 'code-change:submit-description'
+  | 'code-change:accept-plan'
+  | 'code-change:revise-plan'
+  | 'code-change:get-plan-revisions'
+  | 'code-change:list-repos'
+  | 'code-change:list-repo-files'
+  | 'code-change:git-push'
+  | 'code-change:get-report'
   | 'deeplink:open-agent'
   | 'deeplink:open-chat'
   | 'file:add-recent-dir'

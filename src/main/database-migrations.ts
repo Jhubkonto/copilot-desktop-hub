@@ -1346,6 +1346,31 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
       );
     `,
   },
+  {
+    version: 72,
+    sql: `
+      ALTER TABLE error_reports ADD COLUMN step TEXT NOT NULL DEFAULT 'describe'
+        CHECK (step IN ('describe', 'plan-review', 'executing', 'verifying', 'final-review', 'attention'));
+      ALTER TABLE error_reports ADD COLUMN repo_relative_path TEXT NOT NULL DEFAULT '';
+
+      CREATE TABLE IF NOT EXISTS code_change_plan_revisions (
+        id TEXT PRIMARY KEY,
+        report_id TEXT NOT NULL,
+        revision_number INTEGER NOT NULL,
+        revision_notes TEXT,
+        plan_markdown TEXT NOT NULL,
+        affected_files TEXT NOT NULL DEFAULT '[]',
+        outcome TEXT NOT NULL CHECK (outcome IN ('accepted', 'superseded', 'execution-failed', 'verification-failed')),
+        created_at INTEGER NOT NULL
+      );
+
+      DELETE FROM remote_edit_diffs;
+      DELETE FROM remote_edit_verification_runs;
+      DELETE FROM remote_edit_recovery_runs;
+      DELETE FROM remote_edit_history;
+      DELETE FROM error_reports;
+    `,
+  },
 ];
 
 
@@ -1408,7 +1433,7 @@ export function initializeBaseSchema(db: Database.Database): void {
       description TEXT NOT NULL DEFAULT '',
       screenshot_path TEXT,
       log_snapshot TEXT,
-      status TEXT NOT NULL CHECK (status IN ('open', 'investigating', 'investigated', 'fixed', 'rejected')) DEFAULT 'open',
+      status TEXT NOT NULL CHECK (status IN ('open', 'investigating', 'investigated', 'completed', 'rejected')) DEFAULT 'open',
       app_version TEXT,
       platform TEXT,
       os_version TEXT,
@@ -1424,12 +1449,22 @@ export function initializeBaseSchema(db: Database.Database): void {
       fix_started_at INTEGER,
       fix_completed_at INTEGER,
       fix_error TEXT,
+      request_type TEXT CHECK (request_type IN ('edit', 'refactor', 'bugfix', 'feature', 'investigation', 'custom')),
+      request_origin TEXT CHECK (request_origin IN ('chat', 'android', 'manual', 'build-failure', 'legacy-bug-report')),
+      workspace_root TEXT,
+      project_id TEXT,
+      custom_type_label TEXT,
+      conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
+      step TEXT NOT NULL DEFAULT 'describe' CHECK (step IN ('describe', 'plan-review', 'executing', 'verifying', 'final-review', 'attention')),
+      repo_relative_path TEXT NOT NULL DEFAULT '',
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
 
     CREATE INDEX IF NOT EXISTS idx_error_reports_status_created
       ON error_reports(status, created_at);
+    CREATE INDEX IF NOT EXISTS idx_error_reports_conversation
+      ON error_reports(conversation_id);
 
     CREATE TABLE IF NOT EXISTS remote_edit_diffs (
       report_id     TEXT NOT NULL,
@@ -1470,6 +1505,42 @@ export function initializeBaseSchema(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_remote_edit_recovery_report
       ON remote_edit_recovery_runs(report_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS remote_edit_history (
+      id TEXT PRIMARY KEY,
+      report_id TEXT NOT NULL,
+      report_title TEXT NOT NULL DEFAULT '',
+      investigation_model TEXT,
+      investigation_backend TEXT,
+      investigation_rounds INTEGER NOT NULL DEFAULT 0,
+      fix_applied_at INTEGER,
+      verification_passed INTEGER NOT NULL DEFAULT 0,
+      verification_failed_step TEXT,
+      committed INTEGER NOT NULL DEFAULT 0,
+      commit_sha TEXT,
+      pushed INTEGER NOT NULL DEFAULT 0,
+      reloaded INTEGER NOT NULL DEFAULT 0,
+      rolled_back INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'investigating',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_remote_edit_history_created
+      ON remote_edit_history(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_remote_edit_history_report
+      ON remote_edit_history(report_id);
+
+    CREATE TABLE IF NOT EXISTS code_change_plan_revisions (
+      id TEXT PRIMARY KEY,
+      report_id TEXT NOT NULL,
+      revision_number INTEGER NOT NULL,
+      revision_notes TEXT,
+      plan_markdown TEXT NOT NULL,
+      affected_files TEXT NOT NULL DEFAULT '[]',
+      outcome TEXT NOT NULL CHECK (outcome IN ('accepted', 'superseded', 'execution-failed', 'verification-failed')),
+      created_at INTEGER NOT NULL
+    );
 
     CREATE TABLE IF NOT EXISTS automated_workflow_runs (
       id TEXT PRIMARY KEY,

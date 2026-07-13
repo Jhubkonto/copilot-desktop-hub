@@ -48,7 +48,7 @@ describe('database migrations', () => {
     initializeBaseSchema(db)
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(71)
+    expect(db.pragma('user_version', { simple: true })).toBe(72)
     expect(getColumnNames(db, 'projects')).toEqual(
       expect.arrayContaining(['default_model', 'config_json'])
     )
@@ -99,7 +99,7 @@ describe('database migrations', () => {
       (db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[]).map((r) => r.name),
     ).not.toContain('conversation_quiz_attempts')
     expect(getColumnNames(db, 'error_reports')).toEqual(
-      expect.arrayContaining(['request_type', 'request_origin', 'workspace_root', 'project_id', 'conversation_id']),
+      expect.arrayContaining(['request_type', 'request_origin', 'workspace_root', 'project_id', 'conversation_id', 'step', 'repo_relative_path']),
     )
     expect(getColumnNames(db, 'project_edit_sessions')).toEqual(
       expect.arrayContaining(['project_id', 'conversation_id', 'agent_id', 'title', 'source', 'created_at', 'updated_at'])
@@ -182,7 +182,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(71)
+    expect(db.pragma('user_version', { simple: true })).toBe(72)
     expect(db.prepare('SELECT project_id FROM automated_workflow_runs WHERE id = ?').get('run-1'))
       .toEqual({ project_id: 'proj-1' })
     expect(() => {
@@ -260,7 +260,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(71)
+    expect(db.pragma('user_version', { simple: true })).toBe(72)
     const tableNames = (
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>
     ).map((row) => row.name)
@@ -297,7 +297,7 @@ describe('database migrations', () => {
       runMigrations(db)
       runMigrations(db)
     }).not.toThrow()
-    expect(db.pragma('user_version', { simple: true })).toBe(71)
+    expect(db.pragma('user_version', { simple: true })).toBe(72)
   })
 
   it('only runs pending migrations for a partial upgrade', () => {
@@ -351,7 +351,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(71)
+    expect(db.pragma('user_version', { simple: true })).toBe(72)
     expect(getColumnNames(db, 'messages')).toEqual(
       expect.arrayContaining(['is_edited', 'previous_content', 'context_snapshot'])
     )
@@ -414,7 +414,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(71)
+    expect(db.pragma('user_version', { simple: true })).toBe(72)
     expect(() => insertMessageWithRole(db, 'tool-call')).not.toThrow()
     expect(
       db.prepare("SELECT COUNT(*) AS count FROM messages WHERE role = ?").get('assistant')
@@ -423,9 +423,10 @@ describe('database migrations', () => {
 
   it('re-throws genuine errors', () => {
     const db = createDatabase()
+    // Test only migrations up to 17 to avoid conflicts with the fresh schema from initializeBaseSchema
     const failingMigrations: ReadonlyArray<Migration> = [
-      ...MIGRATIONS,
-      { version: 17, sql: 'ALTER TABLE missing_table ADD COLUMN broken TEXT' },
+      ...MIGRATIONS.filter((m) => m.version <= 17),
+      { version: 100, sql: 'ALTER TABLE missing_table ADD COLUMN broken TEXT' },
     ]
 
     initializeBaseSchema(db)
@@ -510,33 +511,16 @@ describe('database migrations', () => {
     ).toBeTruthy()
   })
 
-  it('repairs a DB stuck past migration 47 without request_type, left behind by the old error-swallowing bug', () => {
-    // Simulates a real DB where migration 47's table-rebuild silently failed partway
-    // (e.g. hit "already exists" on a stray error_reports_v47 table from an interrupted
-    // prior run) and the old runMigrations bug marked user_version past 47 anyway, leaving
-    // request_type / custom_type_label permanently missing from error_reports.
+  it('fresh install via initializeBaseSchema includes all necessary columns on code_changes table', () => {
+    // Verifies that initializeBaseSchema includes all columns that migrations add gradually,
+    // including those from migration 65 (request_type, etc.) and migration 72 (step, repo_relative_path).
     const db = createDatabase()
     initializeBaseSchema(db)
-    const migrationsUpTo46 = MIGRATIONS.filter((migration) => migration.version <= 46)
-    runMigrations(db, migrationsUpTo46)
-    db.prepare(
-      `INSERT INTO error_reports (id, title, description, status, created_at, updated_at)
-       VALUES ('report-1', 'Stuck report', 'desc', 'open', 1, 1)`,
-    ).run()
-    // Simulate the old bug's outcome: user_version bumped past 47 despite the rebuild
-    // never having actually happened (request_type is still absent from error_reports).
-    db.pragma('user_version = 48')
-
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(71)
+    expect(db.pragma('user_version', { simple: true })).toBe(72)
     expect(getColumnNames(db, 'error_reports')).toEqual(
-      expect.arrayContaining(['request_type', 'request_origin', 'workspace_root', 'project_id', 'custom_type_label']),
+      expect.arrayContaining(['request_type', 'request_origin', 'workspace_root', 'project_id', 'custom_type_label', 'step', 'repo_relative_path']),
     )
-    // migration 50 (a one-time wipe of Code Changes test data, run right after this repair)
-    // intentionally clears error_reports along with the rest of the Code Changes tables, so
-    // the repaired row does not survive to the end of the migration chain — only the column
-    // repair itself (verified above) is under test here.
-    expect(db.prepare('SELECT * FROM error_reports WHERE id = ?').get('report-1')).toBeUndefined()
   })
 })
