@@ -37,9 +37,7 @@ import type {
   RemoteEditVerificationDone,
   RemoteEditVerificationEvent,
   RemoteEditVerificationRun,
-  RemoteEditGitCommitResult,
   RemoteEditGitEvent,
-  RemoteEditGitPrepareResult,
   RemoteEditGitPushResult,
   RemoteEditGitStatus,
   RemoteEditRecoveryEvent,
@@ -142,7 +140,6 @@ describe('preload IPC return types', () => {
   })
 
   it('remote-edit verification APIs are typed', () => {
-    expectTypeOf<ReturnType<ElectronAPI['startVerification']>>().toEqualTypeOf<Promise<{ reportId: string; runId: string }>>()
     expectTypeOf<ReturnType<ElectronAPI['getVerificationRuns']>>().toEqualTypeOf<Promise<RemoteEditVerificationRun[]>>()
     expectTypeOf<Parameters<ElectronAPI['onVerificationEvent']>[0]>().toEqualTypeOf<(event: RemoteEditVerificationEvent) => void>()
     expectTypeOf<Parameters<ElectronAPI['onVerificationDone']>[0]>().toEqualTypeOf<(result: RemoteEditVerificationDone) => void>()
@@ -150,8 +147,6 @@ describe('preload IPC return types', () => {
 
   it('remote-edit git APIs are typed', () => {
     expectTypeOf<ReturnType<ElectronAPI['getRemoteEditGitStatus']>>().toEqualTypeOf<Promise<RemoteEditGitStatus>>()
-    expectTypeOf<ReturnType<ElectronAPI['prepareRemoteEditCommit']>>().toEqualTypeOf<Promise<RemoteEditGitPrepareResult>>()
-    expectTypeOf<ReturnType<ElectronAPI['commitRemoteEditFix']>>().toEqualTypeOf<Promise<RemoteEditGitCommitResult>>()
     expectTypeOf<ReturnType<ElectronAPI['pushRemoteEditFix']>>().toEqualTypeOf<Promise<RemoteEditGitPushResult>>()
     expectTypeOf<Parameters<ElectronAPI['onRemoteEditGitEvent']>[0]>().toEqualTypeOf<(event: RemoteEditGitEvent) => void>()
   })

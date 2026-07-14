@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, act, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, act, waitFor, fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChatWindow } from "../../renderer/components/ChatWindow";
 import { setupMockApi, type MockApi } from "../../test/mocks/api";
@@ -816,10 +816,16 @@ describe("ChatWindow — Slash Commands", () => {
     await user.type(textarea, "/models");
     await user.click(screen.getByLabelText("Send message"));
 
-    await waitFor(() => {
-      expect(screen.getByText(/Available models:/)).toBeInTheDocument();
-      expect(screen.getByText(/\* Global default/)).toBeInTheDocument();
+    const systemMessage = await waitFor(() => {
+      const el = screen.getByText(/Available models:/).closest('[data-message-role="system"]');
+      expect(el).toBeTruthy();
+      return el as HTMLElement;
     });
+    // System messages now render through the markdown pipeline (see MessageBubble.tsx) so a
+    // leading "* " list marker becomes a real <li> bullet rather than literal text, and "Global
+    // default" also appears elsewhere on the page (the model picker) — scope to this message's
+    // own container rather than a page-wide text query.
+    expect(within(systemMessage).getByText(/Global default/)).toBeInTheDocument();
   });
 
   it("executes /model and sets conversation model", async () => {

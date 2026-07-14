@@ -19,7 +19,8 @@ beforeEach(() => {
       updateAgent: vi.fn().mockResolvedValue(true),
       setConversationModel: vi.fn().mockResolvedValue(true),
       setTheme: vi.fn().mockResolvedValue(true),
-      saveTextFile: vi.fn().mockResolvedValue('C:\\conversation.md')
+      saveTextFile: vi.fn().mockResolvedValue('C:\\conversation.md'),
+      getCodeChangeReportForConversation: vi.fn().mockResolvedValue(null),
     },
     configurable: true,
     writable: true
@@ -41,6 +42,7 @@ function createContext(): SlashCommandContext {
     conversationModel: null,
     theme: 'light',
     pushSystemMessage: vi.fn(),
+    pushPersistentMessage: vi.fn().mockResolvedValue(undefined),
     newChat: vi.fn(),
     logout: vi.fn().mockResolvedValue(undefined),
     setInput: vi.fn(),
@@ -54,7 +56,16 @@ function createContext(): SlashCommandContext {
     markComplete: vi.fn().mockResolvedValue(undefined),
     markIncomplete: vi.fn().mockResolvedValue(undefined),
     startArtifactGeneration: vi.fn().mockResolvedValue({ ok: true }),
-    startCodeChange: vi.fn().mockResolvedValue({ reportId: 'report-1' }),
+    codeChangeSubmitDescription: vi.fn().mockResolvedValue({ reportId: 'report-1' }),
+    codeChangeGetStatus: vi.fn().mockResolvedValue({ report: null, gitRepo: { ok: false } }),
+    codeChangeExecute: vi.fn().mockResolvedValue({ ok: true }),
+    codeChangePush: vi.fn().mockResolvedValue({ ok: true }),
+    codeChangeUndo: vi.fn().mockResolvedValue({ rolledBack: true }),
+    codeChangeListBranches: vi.fn().mockResolvedValue({ current: 'main', local: ['main'], remote: [] }),
+    codeChangeCheckoutBranch: vi.fn().mockResolvedValue({ ok: true }),
+    codeChangeNewBranch: vi.fn().mockResolvedValue({ ok: true }),
+    codeChangeFetch: vi.fn().mockResolvedValue({ ok: true }),
+    codeChangeMergeBranch: vi.fn().mockResolvedValue({ ok: true, conflicted: false, summary: 'up to date' }),
   }
 }
 
@@ -136,21 +147,49 @@ describe('slash-commands', () => {
   it('sc-14: /code-change with no description shows usage and does not create a request', async () => {
     const ctx = createContext()
     await expect(executeSlashCommand('/code-change', ctx)).resolves.toBe('handled')
-    expect(ctx.startCodeChange).not.toHaveBeenCalled()
+    expect(ctx.codeChangeSubmitDescription).not.toHaveBeenCalled()
     expect(ctx.pushSystemMessage).toHaveBeenCalledWith(expect.stringContaining('Usage'))
   })
 
   it('sc-15: /code-change <description> creates the request', async () => {
     const ctx = createContext()
     await expect(executeSlashCommand('/code-change fix the login bug', ctx)).resolves.toBe('handled')
-    expect(ctx.startCodeChange).toHaveBeenCalledWith({ description: 'fix the login bug' })
+    expect(ctx.codeChangeSubmitDescription).toHaveBeenCalledWith('fix the login bug')
   })
 
-  it('sc-16: /code-change surfaces an error via pushSystemMessage on failure', async () => {
+  it('sc-16: /code-change surfaces an error via pushPersistentMessage on failure', async () => {
     const ctx = createContext()
-    ctx.startCodeChange = vi.fn().mockResolvedValue({ error: 'requires this conversation to be in a project' })
+    ctx.codeChangeSubmitDescription = vi.fn().mockResolvedValue({ error: 'requires this conversation to be in a project' })
     await expect(executeSlashCommand('/code-change fix it', ctx)).resolves.toBe('handled')
-    expect(ctx.pushSystemMessage).toHaveBeenCalledWith(expect.stringContaining('requires this conversation to be in a project'))
+    expect(ctx.pushPersistentMessage).toHaveBeenCalledWith(expect.stringContaining('requires this conversation to be in a project'))
+  })
+
+  it('sc-17: /code-status reports when there is no code change yet', async () => {
+    const ctx = createContext()
+    await expect(executeSlashCommand('/code-status', ctx)).resolves.toBe('handled')
+    expect(ctx.pushSystemMessage).toHaveBeenCalledWith(expect.stringContaining('No code change'))
+  })
+
+  it('sc-18: /code-branch lists branches', async () => {
+    const ctx = createContext()
+    await expect(executeSlashCommand('/code-branch', ctx)).resolves.toBe('handled')
+    expect(ctx.codeChangeListBranches).toHaveBeenCalledWith(undefined)
+    expect(ctx.pushSystemMessage).toHaveBeenCalledWith(expect.stringContaining('main'))
+  })
+
+  it('sc-19: /code-checkout with no branch shows usage', async () => {
+    const ctx = createContext()
+    await expect(executeSlashCommand('/code-checkout', ctx)).resolves.toBe('handled')
+    expect(ctx.codeChangeCheckoutBranch).not.toHaveBeenCalled()
+    expect(ctx.pushSystemMessage).toHaveBeenCalledWith(expect.stringContaining('Usage'))
+  })
+
+  it('sc-20: /help <filter> only prints matching commands', async () => {
+    const ctx = createContext()
+    await expect(executeSlashCommand('/help code', ctx)).resolves.toBe('handled')
+    const msg = (ctx.pushSystemMessage as ReturnType<typeof vi.fn>).mock.calls[0][0] as string
+    expect(msg).toContain('/code-change')
+    expect(msg).not.toContain('/debrief')
   })
 })
 
