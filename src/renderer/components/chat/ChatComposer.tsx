@@ -21,6 +21,10 @@ interface ChatComposerProps {
   authenticated: boolean
   isOnline: boolean
   isGenerating: boolean
+  /** A slash command (e.g. /code-execute) is running an await that can take a while — unlike
+   * isGenerating this has no in-flight stream to cancel, so it disables sending without
+   * swapping to the Stop-generation button. */
+  isRunningCommand?: boolean
   rateLimitRemainingSec: number
   conversationId: string | null
   effectiveModel: string
@@ -84,6 +88,7 @@ export function ChatComposer({
   authenticated,
   isOnline,
   isGenerating,
+  isRunningCommand = false,
   rateLimitRemainingSec,
   conversationId,
   effectiveModel,
@@ -407,12 +412,14 @@ export function ChatComposer({
                     type="button"
                     onClick={onSend}
                     disabled={
+                      isRunningCommand ||
                       ((!input.trim() && pendingImages.length === 0 && pendingAttachments.length === 0) ||
                         !isOnline ||
                         !authenticated ||
                         rateLimitRemainingSec > 0)
                     }
                     className={`p-1.5 rounded-md flex items-center justify-center transition-colors ${
+                      !isRunningCommand &&
                       (input.trim() || pendingImages.length > 0 || pendingAttachments.length > 0) &&
                       isOnline &&
                       authenticated &&
@@ -420,9 +427,10 @@ export function ChatComposer({
                         ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-300'
                         : 'bg-transparent text-gray-400 dark:text-gray-500 cursor-not-allowed'
                     }`}
-                    aria-label="Send message"
+                    aria-label={isRunningCommand ? 'Running command…' : 'Send message'}
+                    title={isRunningCommand ? 'A command is still running…' : undefined}
                   >
-                    <SendHorizontal className="w-4 h-4" />
+                    {isRunningCommand ? <Loader2 className="w-4 h-4 animate-spin" /> : <SendHorizontal className="w-4 h-4" />}
                   </button>
                 )}
               </div>

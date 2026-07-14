@@ -17,6 +17,11 @@ export interface UiSlice {
   showOnboarding: boolean
   pendingArtifactGeneration: { title: string; kind: string; startedAt: number } | null
   pendingArtifactAttach: { artifactId: string; versionId?: string } | null
+  /** Text to drop into the composer of whichever conversation mounts next — used by entry
+   * points outside the chat window (e.g. the project row's code-change button) that want to
+   * prefill a slash command in a freshly-opened chat rather than sending anything themselves. */
+  pendingComposerPrefill: string | null
+  setPendingComposerPrefill: (text: string | null) => void
   updateAvailable: { version: string } | null
   updateDownloaded: boolean
   activeSectionPane: ActiveSectionPane
@@ -90,6 +95,7 @@ export const createUiSlice: StateCreator<
   showOnboarding: false,
   pendingArtifactGeneration: null,
   pendingArtifactAttach: null,
+  pendingComposerPrefill: null,
   updateAvailable: null,
   updateDownloaded: false,
   activeSectionPane: null,
@@ -198,6 +204,12 @@ export const createUiSlice: StateCreator<
   clearPendingArtifactAttach: () => {
     set((s) => {
       s.pendingArtifactAttach = null
+    })
+  },
+
+  setPendingComposerPrefill: (text) => {
+    set((s) => {
+      s.pendingComposerPrefill = text
     })
   },
 

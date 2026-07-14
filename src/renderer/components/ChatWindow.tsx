@@ -17,7 +17,6 @@ import { CONTEXT_INSPECTOR_MAX_TOKENS, estimateRefTokens, estimateTokens } from 
 import type { ContextInspectorSnapshot, ProjectConfig } from '../../shared/types'
 import { ChatComposer } from './chat/ChatComposer'
 import { ChatMessages } from './chat/ChatMessages'
-import { CodeChangeWizard } from './code-change/CodeChangeWizard'
 import { DropdownPanel } from './DropdownPanel'
 import { PromptLibraryModal } from './PromptLibraryModal'
 import { SaveToWikiModal } from './SaveToWikiModal'
@@ -100,8 +99,16 @@ export function ChatWindow() {
   const [isPinning, setIsPinning] = useState(false)
 
   const availableGroups = useAppStore((state) => state.availableModelGroups)
+  const pendingComposerPrefill = useAppStore((state) => state.pendingComposerPrefill)
+  const setPendingComposerPrefill = useAppStore((state) => state.setPendingComposerPrefill)
   const [pendingModel, setPendingModel] = useState<string | null>(null)
   const [input, setInput] = useState('')
+
+  useEffect(() => {
+    if (!pendingComposerPrefill) return
+    setInput(pendingComposerPrefill)
+    setPendingComposerPrefill(null)
+  }, [pendingComposerPrefill, setPendingComposerPrefill])
   const [showContextInspector, setShowContextInspector] = useState(false)
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [projectRootDir, setProjectRootDir] = useState<string | null>(null)
@@ -1309,6 +1316,7 @@ export function ChatWindow() {
       authenticated={isReady}
       isOnline={isOnline}
       isGenerating={chat.isGenerating}
+      isRunningCommand={actions.isExecutingSlashCommand}
       rateLimitRemainingSec={rateLimitRemainingSec}
       conversationId={conversationId}
       effectiveModel={effectiveModel}
@@ -1798,9 +1806,6 @@ export function ChatWindow() {
             </DropdownPanel>
           </div>
         )}
-        {currentConversation?.kind === 'code-change' ? (
-          <CodeChangeWizard conversation={currentConversation} />
-        ) : (
         <ChatMessages
           messages={chat.messages}
           isLoadingMessages={chat.isLoadingMessages}
@@ -1818,12 +1823,7 @@ export function ChatWindow() {
           onSaveToWiki={chatProjectId && chatProjectId !== '__none__' ? handleSaveToWiki : undefined}
           onPromoteArtifact={handleOpenArtifactPromotion}
           onCreateCodeChange={(messageId, content) => void handleCreateCodeChange(messageId, content)}
-          onCodeChangeDeleted={(messageId) => {
-            chat.setMessages((prev) => prev.filter((message) => message.id !== messageId))
-          }}
           canCreateCodeChange={Boolean(chatProjectId && chatProjectId !== '__none__')}
-          codeChangeModel={effectiveModel}
-          codeChangeBackend={chatAgentBackend === 'claude-cli' || chatAgentBackend === 'codex-cli' ? chatAgentBackend : 'byok'}
           wikiMessageIds={wikiMessageIds}
           onRegenerate={chat.handleRegenerate}
           onEdit={handleEditMessage}
@@ -1838,7 +1838,6 @@ export function ChatWindow() {
           }}
           liveTurnState={chat.liveTurnState}
         />
-        )}
         {isUserScrolledUp && (
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
             <button

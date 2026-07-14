@@ -14,8 +14,7 @@ export function ProjectHistoryPane() {
   const selectConversation = useAppStore((s) => s.selectConversation)
   const deleteConversation = useAppStore((s) => s.deleteConversation)
   const newChat = useAppStore((s) => s.newChat)
-  const startCodeChangeConversation = useAppStore((s) => s.startCodeChangeConversation)
-  const addToast = useAppStore((s) => s.addToast)
+  const setPendingComposerPrefill = useAppStore((s) => s.setPendingComposerPrefill)
   const unreadConversationIds = useAppStore((s) => s.unreadConversationIds)
   const completedConversationIds = useAppStore((s) => s.completedConversationIds)
   const markConversationComplete = useAppStore((s) => s.markConversationComplete)
@@ -49,6 +48,9 @@ export function ProjectHistoryPane() {
         }`}
       >
         {isPinned(conv) && <Pin className="w-3 h-3 text-gray-400 shrink-0 mt-0.5" />}
+        {conv.kind === 'code-change' && (
+          <span title="Code change"><GitBranch className="w-3 h-3 text-blue-500 shrink-0 mt-0.5" /></span>
+        )}
         {isCompleted ? (
           <span title="Complete"><CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" /></span>
         ) : isUnread ? (
@@ -129,13 +131,12 @@ export function ProjectHistoryPane() {
         {historyProjectId && historyProjectId !== '__none__' && (
           <button
             onClick={() => {
-              void startCodeChangeConversation(historyProjectId).then((result) => {
-                if ('error' in result) addToast(result.error, 'error')
-              })
+              newChat({ projectId: historyProjectId })
+              setPendingComposerPrefill('/code-change ')
             }}
             className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 px-2 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors shrink-0"
             aria-label="New code change"
-            title="Start a new Code Changes wizard for this project"
+            title="Start a code change: describe the change you want in the composer"
           >
             <GitBranch className="w-3.5 h-3.5" />
           </button>

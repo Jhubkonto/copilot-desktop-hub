@@ -346,7 +346,16 @@ export function MessageBubbleBase({
             </div>
           )}
 
-          <div className="whitespace-pre-wrap break-words">{isUser ? stripInjectedBlocks(content) : content}</div>
+          {isUser || isError ? (
+            <div className="whitespace-pre-wrap break-words">{isUser ? stripInjectedBlocks(content) : content}</div>
+          ) : (
+            // System messages (/help, /usage, /code-plan, /code-status, ...) are frequently
+            // markdown-formatted (bold labels, bullet lists, headers) — rendering them as plain
+            // whitespace-pre-wrap text left every '**label**'/'- item'/'## heading' visible as
+            // literal characters instead of formatted, the exact "raw markdown dumped in the UI"
+            // complaint that motivated retiring the old wizard in the first place.
+            <MarkdownRenderer content={content} />
+          )}
           {isUser && isEdited && (
             <div className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">edited</div>
           )}

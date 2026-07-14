@@ -14,7 +14,6 @@ export interface ConversationSlice {
   deleteConversation: (id: string) => Promise<void>
   conversationCreated: (id: string) => Promise<void>
   newChat: (opts?: { projectId?: string | null; agentId?: string | null }) => void
-  startCodeChangeConversation: (projectId: string) => Promise<{ conversationId: string; reportId: string } | { error: string }>
   markConversationComplete: (id: string) => Promise<void>
   markConversationIncomplete: (id: string) => Promise<void>
   handleConversationCompleted: (conversationId: string) => void
@@ -185,20 +184,5 @@ export const createConversationSlice: StateCreator<
       s.activeProjectId = projectId
       s.activeAgentId = resolvedAgentId
     })
-  },
-
-  startCodeChangeConversation: async (projectId) => {
-    const workspaceRoot = get().projectConfigs[projectId]?.rootDirectory?.trim() || null
-    if (!workspaceRoot) {
-      return { error: 'Code changes require this project to have a configured workspace.' }
-    }
-    try {
-      const result = await window.api.startCodeChange(projectId, workspaceRoot, '')
-      if (isApiError(result)) return { error: result.error }
-      await get().conversationCreated(result.conversationId)
-      return result
-    } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Failed to start code change' }
-    }
   },
 })

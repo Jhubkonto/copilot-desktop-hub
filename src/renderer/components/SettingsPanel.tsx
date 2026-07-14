@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Settings, Shield, Terminal, BookOpen, Smartphone, Wrench } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
 import { getAvailableModelIds } from '../../shared/models'
-import { isApiError, type AdbDevice, type AndroidBuildCommandName, type AndroidSigningConfig, type AndroidUpdateManifest, type AndroidWorkspaceInfo, type BuildCommandName, type BuildRecord, type BuildStatus, type LocalUpdateFeed, type PreflightCheck, type PromptLibraryEntry, type PromptLibraryInput, type PromptLibraryVersion, type PublishedEntry, type WorkspaceInfo, type WsUrlProfile } from '../../shared/types'
+import type { AdbDevice, AndroidBuildCommandName, AndroidSigningConfig, AndroidUpdateManifest, AndroidWorkspaceInfo, BuildCommandName, BuildRecord, BuildStatus, LocalUpdateFeed, PreflightCheck, PromptLibraryEntry, PromptLibraryInput, PromptLibraryVersion, PublishedEntry, WorkspaceInfo, WsUrlProfile } from '../../shared/types'
 import { extractPromptVariables } from '../../shared/prompt-variables'
 import { ModalShell } from './ui/primitives'
 import { GeneralTab } from './settings/GeneralTab'
@@ -90,9 +90,10 @@ export function SettingsPanel() {
   const toggleTheme = useAppStore((s) => s.toggleTheme)
   const setShowSettings = useAppStore((s) => s.setShowSettings)
   const setShowMcpPanel = useAppStore((s) => s.setShowMcpPanel)
-  const selectConversation = useAppStore((s) => s.selectConversation)
-  const loadConversations = useAppStore((s) => s.loadConversations)
   const addToast = useAppStore((s) => s.addToast)
+  const newChat = useAppStore((s) => s.newChat)
+  const setPendingComposerPrefill = useAppStore((s) => s.setPendingComposerPrefill)
+  const projectConfigs = useAppStore((s) => s.projectConfigs)
   const setGlobalDefaultModel = useAppStore((s) => s.setGlobalDefaultModel)
   const catalogModels = useAppStore((s) => s.catalogModels)
   const availableModelGroups = useAppStore((s) => s.availableModelGroups)
@@ -590,48 +591,19 @@ export function SettingsPanel() {
     try {
       const report = formatBuildFailureReport(record)
 
-      // Resolve a conversation to post the code-change card into: reuse the project's most
-      // recently updated conversation if one exists, otherwise create one — Code Changes no
-      // longer has a standalone screen, so this is the only place the result can go.
-      const projectConversations = conversations
-        .filter((c) => c.project_id)
-        .sort((a, b) => b.updated_at - a.updated_at)
-
-      const captured = await window.api.captureErrorReport({
-        title: report.title,
-        description: report.description,
-        includeLog: true,
-        includeScreenshot: false,
-        requestType: 'bugfix',
-        origin: 'build-failure',
-        workspaceRoot: record.workspacePath,
-      })
-      const created = await window.api.getErrorReport(captured.reportId)
-      if (!created?.project_id) {
+      const projectId = Object.entries(projectConfigs)
+        .find(([, config]) => config.rootDirectory?.trim() === record.workspacePath)?.[0]
+      if (!projectId) {
         addToast("This build's workspace isn't linked to a known project — the request wasn't opened.", 'error')
         return
       }
 
-      let targetConversation = projectConversations.find((c) => c.project_id === created.project_id) ?? null
-      if (!targetConversation) {
-        const row = await window.api.createConversation(undefined, created.project_id)
-        await window.api.renameConversation(row.id, 'Build fix')
-        targetConversation = { ...row, title: 'Build fix' }
-      }
-
-      const content = `__code-change-ref:${JSON.stringify({ reportId: captured.reportId })}`
-      const inserted = await window.api.insertConversationMessage(targetConversation.id, 'system', content)
-      if (isApiError(inserted)) {
-        addToast('Code change request created, but failed to post it into chat', 'error')
-        return
-      }
-
-      await loadConversations()
-      selectConversation(targetConversation.id)
+      newChat({ projectId })
+      const plainDescription = `${report.title}\n\n${report.description}`.replace(/\s+/g, ' ').trim()
+      setPendingComposerPrefill(`/code-change ${plainDescription}`)
       setShowSettings(false)
-      addToast('Code change request created from build failure', 'success')
     } catch {
-      addToast('Failed to create code change request from build failure', 'error')
+      addToast('Failed to open a code change request from build failure', 'error')
     } finally {
       setRemoteEditReportingBuildId(null)
     }

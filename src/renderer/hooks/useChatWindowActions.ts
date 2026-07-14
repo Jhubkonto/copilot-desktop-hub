@@ -1,9 +1,8 @@
 /* eslint-disable react-hooks/exhaustive-deps -- callbacks use stable store functions and refs across conversations. */
-import { useCallback, useMemo, useRef, type Dispatch, type MutableRefObject, type RefObject, type SetStateAction } from 'react'
+import { useCallback, useMemo, useRef, useState, type Dispatch, type MutableRefObject, type RefObject, type SetStateAction } from 'react'
 import { getModelLabel } from '../../shared/models'
 import type { AgentConfig, CatalogModel } from '../../shared/types'
 import type { Theme } from '../store/types'
-import { useAppStore } from '../store/app-store'
 import {
   executeSlashCommand,
   transformCodeSlashCommand,
@@ -170,8 +169,13 @@ export function useChatWindowActions({
   const pendingCliModelRef = useRef<string | null>(null)
   const pendingCliBackendRef = useRef<'claude-cli' | 'codex-cli' | null>(null)
   // Slash commands (e.g. /debrief, /quiz) run an async IPC round-trip before clearing the
-  // composer, so isGenerating alone doesn't block a second Enter press mid-flight.
+  // composer, so isGenerating alone doesn't block a second Enter press mid-flight. The ref is
+  // the synchronous re-entrancy guard (state updates aren't visible synchronously); the state
+  // mirror exists purely so the composer can show the same busy affordance it already shows for
+  // isGenerating — some commands (/code-change, /code-execute) can run for a long time, and
+  // without this the composer looked idle while actually silently ignoring input.
   const executingSlashCommandRef = useRef(false)
+  const [isExecutingSlashCommand, setIsExecutingSlashCommand] = useState(false)
 
   // Kicks off /debrief or /quiz generation and immediately attaches a durable chat card
   // referencing the artifact (created up front with status 'generating'). The actual LLM
@@ -206,35 +210,40 @@ export function useChatWindowActions({
     [conversationId, chatProjectId, setMessages],
   )
 
-  const startCodeChange = useCallback(
-    async (opts: { description: string }): Promise<{ reportId: string } | { error: string }> => {
-      if (!conversationId) return { error: 'No active conversation.' }
+  // Resolves which git repo a code-change/git-housekeeping command should target, given an
+  // optional repo path argument the user typed. The renderer never deals in raw workspace
+  // roots — it only knows projectId + an optional repo argument, and the main process
+  // resolves the rest (including "which repo, if the workspace has more than one").
+  const resolveCodeChangeRepoOrMessage = useCallback(
+    async (repoArg?: string): Promise<{ repoRoot: string; relativePath: string } | { error: string }> => {
       const projectId = chatProjectId && chatProjectId !== '__none__' ? chatProjectId : null
-      if (!projectId) return { error: 'Code changes require this conversation to be in a project.' }
-      try {
-        const existing = await window.api.findActiveCodeChangeForConversation(conversationId)
-        if (existing) return { reportId: existing.id }
+      if (!projectId) return { error: 'This action requires the conversation to be in a project.' }
+      const result = await window.api.resolveCodeChangeRepo(projectId, repoArg)
+      if (hasIpcError(result)) return result
+      if (result.ok) return { repoRoot: result.repoRoot, relativePath: result.relativePath }
+      if (result.reason === 'ambiguous') {
+        const candidates = result.candidates ?? []
+        return {
+          error: `Multiple git repos found in this workspace: ${candidates.join(', ')}. Re-run this command with the repo path added as the last argument, e.g. "${candidates[0]}".`,
+        }
+      }
+      return { error: "No git repository was found under this project's workspace. Run 'git init' in the folder you want to work in, then try again." }
+    },
+    [chatProjectId],
+  )
 
-        const projectConfig = useAppStore.getState().projectConfigs[projectId]
-        const workspaceRoot = projectConfig?.rootDirectory?.trim() || null
-        if (!workspaceRoot) return { error: 'Code changes require this project to have a configured workspace.' }
-
-        const captured = await window.api.captureErrorReport({
-          title: opts.description.slice(0, 80) || 'Code change from chat',
-          description: opts.description,
-          includeLog: false,
-          includeScreenshot: false,
-          requestType: 'edit',
-          origin: 'chat',
-          workspaceRoot,
-          projectId,
-          conversationId,
-        })
-        if (hasIpcError(captured)) return { error: captured.error }
-
-        const content = `__code-change-ref:${JSON.stringify({ reportId: captured.reportId })}`
-        const inserted = await window.api.insertConversationMessage(conversationId, 'system', content)
-        if (hasIpcError(inserted)) return { error: inserted.error }
+  // Code-change commands like /code-execute can run for a long time (a real LLM/fix/verify
+  // cycle, not a quick local op). ctx.pushSystemMessage only ever appends to this render's
+  // local `messages` state — if the user switches to a different conversation before the await
+  // resolves, that completion text would silently land in whichever conversation happens to be
+  // open when it finishes, and vanish on next reload since it was never persisted. This persists
+  // the message against the conversation the command was actually run against, and only mirrors
+  // it into the live view if that conversation is still the one on screen.
+  const appendPersistedSystemMessage = useCallback(
+    async (targetConversationId: string, content: string) => {
+      const inserted = await window.api.insertConversationMessage(targetConversationId, 'system', content)
+      if (hasIpcError(inserted)) return
+      if (activeConversationRef.current === targetConversationId) {
         setMessages((prev) => [...prev, {
           id: inserted.id,
           role: inserted.role as ChatMessage['role'],
@@ -242,13 +251,142 @@ export function useChatWindowActions({
           timestamp: inserted.timestamp,
           model: inserted.model ?? null,
         }])
-
-        return { reportId: captured.reportId }
-      } catch (error) {
-        return { error: error instanceof Error ? error.message : 'Failed to create code change' }
       }
     },
-    [conversationId, chatProjectId, setMessages],
+    [setMessages, activeConversationRef],
+  )
+
+  const getCurrentCodeChangeReportId = useCallback(async (): Promise<string | { error: string }> => {
+    if (!conversationId) return { error: 'No active conversation.' }
+    try {
+      const report = await window.api.getCodeChangeReportForConversation(conversationId)
+      if (hasIpcError(report)) return report
+      if (!report) return { error: 'No code change in this conversation yet. Run /code-change first.' }
+      return report.id
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : 'Failed to look up code change report' }
+    }
+  }, [conversationId])
+
+  const codeChangeSubmitDescription = useCallback(
+    async (description: string, repoArg?: string): Promise<{ reportId: string } | { error: string }> => {
+      if (!conversationId) return { error: 'No active conversation. Send a message first, then create a code change.' }
+      const projectId = chatProjectId && chatProjectId !== '__none__' ? chatProjectId : null
+      if (!projectId) return { error: 'Code changes require this conversation to be in a project.' }
+      try {
+        const result = await window.api.submitCodeChangeDescription(conversationId, projectId, description, repoArg)
+        return result
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Failed to submit code change description' }
+      }
+    },
+    [conversationId, chatProjectId],
+  )
+
+  const codeChangeGetStatus = useCallback(async () => {
+    if (!conversationId) return { error: 'No active conversation.' as const }
+    try {
+      return await window.api.getCodeChangeStatus(conversationId)
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : 'Failed to fetch code change status' }
+    }
+  }, [conversationId])
+
+  const codeChangeExecute = useCallback(async () => {
+    const reportId = await getCurrentCodeChangeReportId()
+    if (typeof reportId !== 'string') return reportId
+    try {
+      await window.api.acceptCodeChangePlan(reportId)
+      return { ok: true as const }
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : 'Failed to execute the plan' }
+    }
+  }, [getCurrentCodeChangeReportId])
+
+  const codeChangePush = useCallback(async () => {
+    const reportId = await getCurrentCodeChangeReportId()
+    if (typeof reportId !== 'string') return reportId
+    try {
+      await window.api.pushCodeChange(reportId)
+      return { ok: true as const }
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : 'Failed to push' }
+    }
+  }, [getCurrentCodeChangeReportId])
+
+  const codeChangeUndo = useCallback(async () => {
+    const reportId = await getCurrentCodeChangeReportId()
+    if (typeof reportId !== 'string') return reportId
+    try {
+      return await window.api.undoCodeChange(reportId)
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : 'Failed to undo' }
+    }
+  }, [getCurrentCodeChangeReportId])
+
+  const codeChangeListBranches = useCallback(
+    async (repoArg?: string) => {
+      const resolved = await resolveCodeChangeRepoOrMessage(repoArg)
+      if ('error' in resolved) return resolved
+      try {
+        return await window.api.listCodeChangeBranches(resolved.repoRoot)
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Failed to list branches' }
+      }
+    },
+    [resolveCodeChangeRepoOrMessage],
+  )
+
+  const codeChangeCheckoutBranch = useCallback(
+    async (branchName: string, repoArg?: string) => {
+      const resolved = await resolveCodeChangeRepoOrMessage(repoArg)
+      if ('error' in resolved) return resolved
+      try {
+        return await window.api.checkoutCodeChangeBranch(resolved.repoRoot, branchName)
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Failed to check out branch' }
+      }
+    },
+    [resolveCodeChangeRepoOrMessage],
+  )
+
+  const codeChangeNewBranch = useCallback(
+    async (branchName: string, fromRef?: string, repoArg?: string) => {
+      const resolved = await resolveCodeChangeRepoOrMessage(repoArg)
+      if ('error' in resolved) return resolved
+      try {
+        return await window.api.newCodeChangeBranch(resolved.repoRoot, branchName, fromRef)
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Failed to create branch' }
+      }
+    },
+    [resolveCodeChangeRepoOrMessage],
+  )
+
+  const codeChangeFetch = useCallback(
+    async (remote?: string, repoArg?: string) => {
+      const resolved = await resolveCodeChangeRepoOrMessage(repoArg)
+      if ('error' in resolved) return resolved
+      try {
+        return await window.api.fetchCodeChangeRepo(resolved.repoRoot, remote)
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Failed to fetch' }
+      }
+    },
+    [resolveCodeChangeRepoOrMessage],
+  )
+
+  const codeChangeMergeBranch = useCallback(
+    async (sourceBranch: string, repoArg?: string) => {
+      const resolved = await resolveCodeChangeRepoOrMessage(repoArg)
+      if ('error' in resolved) return resolved
+      try {
+        return await window.api.mergeCodeChangeBranch(resolved.repoRoot, sourceBranch)
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Failed to merge' }
+      }
+    },
+    [resolveCodeChangeRepoOrMessage],
   )
 
   const slashCommandCtx = useMemo<SlashCommandContext>(
@@ -262,6 +400,17 @@ export function useChatWindowActions({
       catalogModels,
       theme,
       pushSystemMessage,
+      // Falls back to the ephemeral (unpersisted) path when there's no conversation to persist
+      // against — e.g. a code-change command erroring out with "No active conversation" itself
+      // has no conversationId to attach to, and silently no-opping here would swallow that very
+      // error message instead of showing it.
+      pushPersistentMessage: (content: string) => {
+        if (!conversationId) {
+          pushSystemMessage(content)
+          return Promise.resolve()
+        }
+        return appendPersistedSystemMessage(conversationId, content)
+      },
       newChat,
       logout,
       setInput,
@@ -275,7 +424,16 @@ export function useChatWindowActions({
       markComplete: () => (conversationId ? markConversationComplete(conversationId) : Promise.resolve()),
       markIncomplete: () => (conversationId ? markConversationIncomplete(conversationId) : Promise.resolve()),
       startArtifactGeneration,
-      startCodeChange,
+      codeChangeSubmitDescription,
+      codeChangeGetStatus,
+      codeChangeExecute,
+      codeChangePush,
+      codeChangeUndo,
+      codeChangeListBranches,
+      codeChangeCheckoutBranch,
+      codeChangeNewBranch,
+      codeChangeFetch,
+      codeChangeMergeBranch,
     }),
     [
       conversationId,
@@ -287,6 +445,7 @@ export function useChatWindowActions({
       catalogModels,
       theme,
       pushSystemMessage,
+      appendPersistedSystemMessage,
       newChat,
       logout,
       setInput,
@@ -299,7 +458,16 @@ export function useChatWindowActions({
       markConversationComplete,
       markConversationIncomplete,
       startArtifactGeneration,
-      startCodeChange,
+      codeChangeSubmitDescription,
+      codeChangeGetStatus,
+      codeChangeExecute,
+      codeChangePush,
+      codeChangeUndo,
+      codeChangeListBranches,
+      codeChangeCheckoutBranch,
+      codeChangeNewBranch,
+      codeChangeFetch,
+      codeChangeMergeBranch,
     ],
   )
 
@@ -380,11 +548,13 @@ export function useChatWindowActions({
         content = transformed
       } else {
         executingSlashCommandRef.current = true
+        setIsExecutingSlashCommand(true)
         let outcome: Awaited<ReturnType<typeof executeSlashCommand>>
         try {
           outcome = await executeSlashCommand(content, slashCommandCtx)
         } finally {
           executingSlashCommandRef.current = false
+          setIsExecutingSlashCommand(false)
         }
         if (outcome === 'handled') {
           setInput('')
@@ -885,5 +1055,6 @@ export function useChatWindowActions({
     handleSetCliBackendAndModel,
     handleStop,
     handleKeyDown,
+    isExecutingSlashCommand,
   }
 }
