@@ -31,13 +31,21 @@ import { getRecoveryRuns, prepareReload, rollbackHeal } from './remote-edit/reco
 import {
   submitDescription,
   acceptPlanAndExecute,
-  revisePlan,
   pushCurrentCommit,
+  undoCodeChange,
   getRevisionHistory,
-  startCodeChangeConversation,
   getReportForConversation,
+  getReportSummary,
 } from './code-change/step-flow'
 import { discoverReposInWorkspace, listRepoFiles } from './code-change/repo-discovery'
+import {
+  listBranches,
+  checkoutBranch,
+  createBranch,
+  fetchRepo,
+  mergeBranch,
+  getChangedFiles,
+} from './code-change/git-manager'
 import { runProjectGeneratorChatForAndroid, createProjectFromSpec, getProjectGeneratorAgentSummaries, getProjectGeneratorModel } from './project-generator'
 import { runAgentGeneratorChatForAndroid, createAgentFromSpec, getAgentGeneratorModel } from './agent-generator'
 import { runSkillGeneratorChatForAndroid, createSkillFromSpec, getSkillGeneratorModel } from './skill-generator'
@@ -211,7 +219,7 @@ function requestInspectorSnapshotFromRenderer(conversationId: string | null): Pr
 }
 
 export function registerWsHandlers(): void {
-  setWsCommandHandler((command, data, reply) => {
+  setWsCommandHandler(async (command, data, reply) => {
     if (command === 'ping') return
 
     debugLog('ws', `command: ${command}`)
@@ -577,25 +585,7 @@ export function registerWsHandlers(): void {
       return
     }
 
-    // Code Changes (6-step wizard orchestration)
-    if (command === 'code-change:start') {
-      try {
-        const projectId = typeof data.projectId === 'string' ? data.projectId : ''
-        const workspaceRoot = typeof data.workspaceRoot === 'string' ? data.workspaceRoot : ''
-        const repoRelativePath = typeof data.repoRelativePath === 'string' ? data.repoRelativePath : ''
-        if (!projectId || !workspaceRoot) {
-          reply({ event: 'code-change:error', data: { error: 'Missing projectId or workspaceRoot' } })
-          return
-        }
-        debugLog('ws', `code-change:start projectId=${projectId} repoRelativePath=${repoRelativePath}`)
-        const result = startCodeChangeConversation(projectId, workspaceRoot, repoRelativePath)
-        reply({ event: 'code-change:started', data: result })
-      } catch (error) {
-        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
-      }
-      return
-    }
-
+    // Code Changes (independent slash-command actions, no wizard/step gating)
     if (command === 'code-change:get-report-for-conversation') {
       try {
         const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
@@ -611,6 +601,21 @@ export function registerWsHandlers(): void {
       return
     }
 
+    if (command === 'code-change:get-status') {
+      try {
+        const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+        if (!conversationId) {
+          reply({ event: 'code-change:error', data: { error: 'Missing conversationId' } })
+          return
+        }
+        const summary = await getReportSummary(conversationId)
+        reply({ event: 'code-change:status', data: summary })
+      } catch (error) {
+        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+      }
+      return
+    }
+
     if (command === 'code-change:submit-description') {
       try {
         const win = BrowserWindow.getAllWindows()[0]
@@ -618,15 +623,17 @@ export function registerWsHandlers(): void {
           reply({ event: 'code-change:error', data: { error: 'No active window' } })
           return
         }
-        const reportId = typeof data.reportId === 'string' ? data.reportId : ''
-        const description = typeof data.description === 'string' ? data.description : undefined
-        if (!reportId) {
-          reply({ event: 'code-change:error', data: { error: 'Missing reportId' } })
+        const conversationId = typeof data.conversationId === 'string' ? data.conversationId : ''
+        const projectId = typeof data.projectId === 'string' ? data.projectId : ''
+        const description = typeof data.description === 'string' ? data.description : ''
+        const repoRelativePath = typeof data.repoRelativePath === 'string' ? data.repoRelativePath : undefined
+        if (!conversationId || !projectId || !description) {
+          reply({ event: 'code-change:error', data: { error: 'Missing conversationId, projectId, or description' } })
           return
         }
-        debugLog('ws', `code-change:submit-description reportId=${reportId}`)
-        void submitDescription(win, reportId, description).then(() => {
-          reply({ event: 'code-change:submitted', data: { reportId } })
+        debugLog('ws', `code-change:submit-description conversationId=${conversationId}`)
+        submitDescription(win, conversationId, projectId, description, { repoRelativePath }).then((result) => {
+          reply({ event: 'code-change:submitted', data: result })
         }).catch((error) => {
           reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
         })
@@ -651,31 +658,6 @@ export function registerWsHandlers(): void {
         debugLog('ws', `code-change:accept-plan reportId=${reportId}`)
         void acceptPlanAndExecute(win, reportId).then(() => {
           reply({ event: 'code-change:accepted', data: { reportId } })
-        }).catch((error) => {
-          reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
-        })
-      } catch (error) {
-        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
-      }
-      return
-    }
-
-    if (command === 'code-change:revise-plan') {
-      try {
-        const win = BrowserWindow.getAllWindows()[0]
-        if (!win) {
-          reply({ event: 'code-change:error', data: { error: 'No active window' } })
-          return
-        }
-        const reportId = typeof data.reportId === 'string' ? data.reportId : ''
-        const revisionNotes = typeof data.revisionNotes === 'string' ? data.revisionNotes : ''
-        if (!reportId) {
-          reply({ event: 'code-change:error', data: { error: 'Missing reportId' } })
-          return
-        }
-        debugLog('ws', `code-change:revise-plan reportId=${reportId}`)
-        void revisePlan(win, reportId, revisionNotes).then(() => {
-          reply({ event: 'code-change:revised', data: { reportId } })
         }).catch((error) => {
           reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
         })
@@ -711,7 +693,7 @@ export function registerWsHandlers(): void {
         void discoverReposInWorkspace(workspaceRoot).then((repos) => {
           reply({
             event: 'code-change:repos',
-            data: { repos: repos.map(r => ({ relativePath: r.relativePath, branch: r.branch })) },
+            data: { repos: repos.map(r => ({ relativePath: r.relativePath, branch: r.branch, dirty: r.dirty })) },
           })
         }).catch((error) => {
           reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
@@ -741,6 +723,24 @@ export function registerWsHandlers(): void {
       return
     }
 
+    if (command === 'code-change:list-changed-files') {
+      try {
+        const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
+        if (!repoRoot) {
+          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot' } })
+          return
+        }
+        void getChangedFiles(repoRoot).then((files) => {
+          reply({ event: 'code-change:changed-files', data: { files } })
+        }).catch((error) => {
+          reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+        })
+      } catch (error) {
+        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+      }
+      return
+    }
+
     if (command === 'code-change:push') {
       try {
         const reportId = typeof data.reportId === 'string' ? data.reportId : ''
@@ -754,6 +754,106 @@ export function registerWsHandlers(): void {
         }).catch((error) => {
           reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
         })
+      } catch (error) {
+        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+      }
+      return
+    }
+
+    if (command === 'code-change:undo') {
+      try {
+        const reportId = typeof data.reportId === 'string' ? data.reportId : ''
+        if (!reportId) {
+          reply({ event: 'code-change:error', data: { error: 'Missing reportId' } })
+          return
+        }
+        void undoCodeChange(reportId).then((result) => {
+          reply({ event: 'code-change:undone', data: result })
+        }).catch((error) => {
+          reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+        })
+      } catch (error) {
+        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+      }
+      return
+    }
+
+    // --- Git housekeeping (backs the Android /code panel) ---
+
+    if (command === 'code-change:list-branches') {
+      try {
+        const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
+        if (!repoRoot) {
+          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot' } })
+          return
+        }
+        const branches = await listBranches(repoRoot)
+        reply({ event: 'code-change:branches', data: branches })
+      } catch (error) {
+        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+      }
+      return
+    }
+
+    if (command === 'code-change:checkout-branch') {
+      try {
+        const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
+        const branchName = typeof data.branchName === 'string' ? data.branchName : ''
+        if (!repoRoot || !branchName) {
+          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot or branchName' } })
+          return
+        }
+        const result = await checkoutBranch(repoRoot, branchName)
+        reply({ event: 'code-change:checked-out', data: result })
+      } catch (error) {
+        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+      }
+      return
+    }
+
+    if (command === 'code-change:new-branch') {
+      try {
+        const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
+        const branchName = typeof data.branchName === 'string' ? data.branchName : ''
+        const fromRef = typeof data.fromRef === 'string' ? data.fromRef : undefined
+        if (!repoRoot || !branchName) {
+          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot or branchName' } })
+          return
+        }
+        const result = await createBranch(repoRoot, branchName, fromRef)
+        reply({ event: 'code-change:branch-created', data: result })
+      } catch (error) {
+        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+      }
+      return
+    }
+
+    if (command === 'code-change:fetch') {
+      try {
+        const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
+        const remote = typeof data.remote === 'string' ? data.remote : undefined
+        if (!repoRoot) {
+          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot' } })
+          return
+        }
+        const result = await fetchRepo(repoRoot, remote)
+        reply({ event: 'code-change:fetched', data: result })
+      } catch (error) {
+        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+      }
+      return
+    }
+
+    if (command === 'code-change:merge-branch') {
+      try {
+        const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
+        const sourceBranch = typeof data.sourceBranch === 'string' ? data.sourceBranch : ''
+        if (!repoRoot || !sourceBranch) {
+          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot or sourceBranch' } })
+          return
+        }
+        const result = await mergeBranch(repoRoot, sourceBranch)
+        reply({ event: 'code-change:merged', data: result })
       } catch (error) {
         reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
       }
@@ -941,6 +1041,7 @@ export function registerWsHandlers(): void {
             c.completed_at,
             c.thinking_effort_override,
             c.full_auto_approve_override,
+            c.kind,
             json_extract(a.config_json, '$.name') AS agent_name,
             json_extract(a.config_json, '$.icon') AS agent_icon,
             c.project_id,
