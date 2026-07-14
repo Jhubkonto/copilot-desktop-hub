@@ -171,20 +171,6 @@ export function createErrorReport(input: ErrorReportCaptureInput): ErrorReportCa
   return { reportId: id, screenshotPath, createdAt: now }
 }
 
-const NON_TERMINAL_STATUSES = ['open', 'investigating', 'investigated']
-
-/** Finds a still-in-progress code change request already linked to this conversation, if any,
- * so /code-change can reuse it instead of creating a duplicate on repeated invocation. */
-export function findActiveCodeChangeForConversation(conversationId: string): ErrorReportEntry | null {
-  const row = getDatabase()
-    .prepare(
-      `SELECT * FROM error_reports WHERE conversation_id = ? AND status IN (${NON_TERMINAL_STATUSES.map(() => '?').join(',')})
-       ORDER BY created_at DESC LIMIT 1`
-    )
-    .get(conversationId, ...NON_TERMINAL_STATUSES) as Record<string, unknown> | undefined
-  return row ? rowToErrorReport(row) : null
-}
-
 export function deleteErrorReport(reportId: string): boolean {
   if (!reportId) return false
 
@@ -234,9 +220,4 @@ export function registerErrorReportHandlers(): void {
   })
 
   safeHandle('error-report:delete', (_event, id: string) => deleteErrorReport(id))
-
-  safeHandle('error-report:find-active-for-conversation', (_event, conversationId: string) => {
-    if (!conversationId) return null
-    return findActiveCodeChangeForConversation(conversationId)
-  })
 }

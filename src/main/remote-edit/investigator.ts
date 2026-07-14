@@ -39,18 +39,29 @@ interface InvestigationCallbacks {
  * created). `workspace_root` is a per-request snapshot kept for requests without a linked
  * project (build-failure/Android origin). `process.cwd()` is a last-resort fallback that should
  * not normally be reached.
+ *
+ * `repo_relative_path` (set by `resolveCodeChangeRepo` in step-flow.ts) is joined in when present
+ * — a project's workspace root is just the folder the user pointed the project at, which may not
+ * itself be a git repo even when one or more repos exist underneath it. Without this join, every
+ * consumer of this path (investigation file reads, fix-agent writes, verifier commands, and every
+ * git command in git-ops.ts) would operate against the bare workspace root regardless of which
+ * repo was actually resolved, silently reading/writing/committing in the wrong directory — or
+ * failing outright if the root itself isn't a repo.
  */
 export function getWorkspacePathForReport(reportId: string): string {
   const report = getDatabase()
-    .prepare('SELECT workspace_root, project_id FROM error_reports WHERE id = ?')
-    .get(reportId) as { workspace_root: string | null; project_id: string | null } | undefined
+    .prepare('SELECT workspace_root, project_id, repo_relative_path FROM error_reports WHERE id = ?')
+    .get(reportId) as { workspace_root: string | null; project_id: string | null; repo_relative_path: string | null } | undefined
 
+  let base: string
   if (report?.project_id) {
     const projectRoot = getProjectRootDirectory(report.project_id)
-    if (projectRoot) return projectRoot
+    base = projectRoot ?? report.workspace_root ?? process.cwd()
+  } else {
+    base = report?.workspace_root ?? process.cwd()
   }
-  if (report?.workspace_root) return report.workspace_root
-  return process.cwd()
+
+  return report?.repo_relative_path ? path.join(base, report.repo_relative_path) : base
 }
 
 export function resolveInsideWorkspace(workspacePath: string, requestedPath: unknown): string {

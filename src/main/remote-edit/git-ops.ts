@@ -267,39 +267,6 @@ function emitGitEvent(win: BrowserWindow | undefined, event: RemoteEditGitEvent)
 export function registerRemoteEditGitHandlers(mainWindow?: BrowserWindow): void {
   safeHandle('remote-edit:git-status', (_event, reportId?: string) => getRemoteEditGitStatus(reportId))
 
-  safeHandle('remote-edit:git-prepare-commit', async (_event, reportId: string) => {
-    const result = await prepareRemoteEditCommit(reportId)
-    emitGitEvent(mainWindow, {
-      reportId,
-      type: 'prepare',
-      label: result.canCommit ? 'Ready to commit code changes' : result.reason ?? 'Unable to prepare commit',
-      status: result.status,
-      error: result.reason,
-      authRequired: result.authRequired,
-      authHelp: result.authHelp,
-    })
-    return result
-  })
-
-  safeHandle('remote-edit:git-commit', async (_event, reportId: string, message: string) => {
-    emitGitEvent(mainWindow, { reportId, type: 'commit', label: 'Committing code changes' })
-    const result = await commitRemoteEditFix(reportId, message)
-    emitGitEvent(mainWindow, {
-      reportId,
-      type: 'commit',
-      label: result.committed ? `Committed ${result.commitSha ?? ''}`.trim() : result.error ?? 'Commit failed',
-      status: result.status,
-      commitSha: result.commitSha,
-      error: result.error,
-      authRequired: result.authRequired,
-      authHelp: result.authHelp,
-    })
-    if (result.committed) {
-      updateHistoryEntry(reportId, { committed: true, commitSha: result.commitSha ?? null, status: 'committed' })
-    }
-    return result
-  })
-
   safeHandle('remote-edit:git-push', async (_event, reportId: string) => {
     emitGitEvent(mainWindow, { reportId, type: 'push', label: 'Pushing code changes' })
     const result = await pushRemoteEditFix(reportId)
