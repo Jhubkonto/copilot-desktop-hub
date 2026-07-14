@@ -49,12 +49,6 @@ function createDatabase() {
   return database
 }
 
-function invoke<T>(channel: string, ...args: unknown[]): T {
-  const handler = safeHandlers.get(channel)
-  if (!handler) throw new Error(`No handler for ${channel}`)
-  return handler({}, ...args) as T
-}
-
 describe('remote-edit fix staging', () => {
   const workspacePath = path.join(testRoot.value, 'workspace')
   const sourcePath = path.join(workspacePath, 'src', 'example.ts')
@@ -169,9 +163,9 @@ describe('remote-edit fix staging', () => {
     expect(readFileSync(stagedPath, 'utf8')).toBe('export const value = 2')
     expect(db.prepare('SELECT COUNT(*) AS count FROM remote_edit_diffs WHERE report_id = ?').get('report-1')).toEqual({ count: 1 })
 
-    const { registerRemoteEditHandlers } = await import('../remote-edit-handlers')
-    registerRemoteEditHandlers()
-    const applied = invoke<{ appliedFiles: string[]; backupPaths: string[] } | null>('remote-edit:commit-to-workspace', 'report-1')
+    const { applyStagedPatchToWorkspace } = await import('../remote-edit-handlers')
+    const applyResult = applyStagedPatchToWorkspace('report-1')
+    const applied = applyResult && 'error' in applyResult ? null : applyResult
 
     expect(applied?.appliedFiles).toEqual(['src/example.ts'])
     expect(readFileSync(sourcePath, 'utf8')).toBe('export const value = 2')

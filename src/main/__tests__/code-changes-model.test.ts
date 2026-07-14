@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ErrorReportEntry } from '../../shared/types'
 import {
-  deriveCodeChangePhase,
   toCodeChangeRequest,
   toCodeChangesWorkspaceBinding,
 } from '../../shared/code-changes'
@@ -47,23 +46,6 @@ describe('code changes compatibility model', () => {
       updatedAt: 200,
       legacyReport: legacy,
     })
-  })
-
-  it('derives guided phases from patch and verification state', () => {
-    expect(deriveCodeChangePhase(report(), null, false)).toBe('draft')
-    expect(deriveCodeChangePhase(report({ status: 'investigated' }), null, false)).toBe('patch-ready')
-    expect(deriveCodeChangePhase(report({ fix_status: 'staged' }), null, false)).toBe('patch-ready')
-    expect(deriveCodeChangePhase(report({ fix_status: 'applied' }), null, false)).toBe('applied')
-    expect(deriveCodeChangePhase(report(), null, true)).toBe('committed')
-  })
-
-  it('reverts to draft after a failed plan, even though investigation_markdown is populated with the failure doc', () => {
-    const failed = report({
-      status: 'open',
-      investigation_markdown: '# Planning failed\n\nNo provider configured.',
-      investigation_root_cause: 'investigation_failed',
-    })
-    expect(deriveCodeChangePhase(failed, null, false)).toBe('draft')
   })
 
   it('prefers persisted request metadata over compatibility defaults', () => {

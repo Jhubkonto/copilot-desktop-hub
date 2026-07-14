@@ -87,6 +87,8 @@ export function createMockAppStore(overrides: Record<string, unknown> = {}) {
     deleteConversation: vi.fn(),
     conversationCreated: vi.fn(),
     newChat: vi.fn(),
+    pendingComposerPrefill: null,
+    setPendingComposerPrefill: vi.fn(),
     loadAgents: vi.fn(),
     selectAgent: vi.fn(),
     setHistoryAgentId: vi.fn(),

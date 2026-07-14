@@ -284,10 +284,9 @@ describe('remote-edit handlers', () => {
         app_version, platform, os_version, fix_status, fix_staged_files, created_at, updated_at
       ) VALUES ('report-1', 'Change', '', NULL, NULL, 'investigated', NULL, NULL, NULL, 'staged', ?, 1, 1)`,
     ).run(JSON.stringify(staged))
-    const { registerRemoteEditHandlers } = await import('../remote-edit-handlers')
-    registerRemoteEditHandlers()
+    const { markStagedFileReviewed } = await import('../remote-edit-handlers')
 
-    const result = invoke<boolean>('remote-edit:mark-file-reviewed', 'report-1', 'src/App.tsx')
+    const result = markStagedFileReviewed('report-1', 'src/App.tsx')
 
     expect(result).toBe(true)
     const row = db.prepare('SELECT fix_staged_files FROM error_reports WHERE id = ?').get('report-1') as { fix_staged_files: string }
@@ -297,10 +296,9 @@ describe('remote-edit handlers', () => {
   })
 
   it('returns false when marking an unknown file or report as reviewed', async () => {
-    const { registerRemoteEditHandlers } = await import('../remote-edit-handlers')
-    registerRemoteEditHandlers()
+    const { markStagedFileReviewed } = await import('../remote-edit-handlers')
 
-    expect(invoke('remote-edit:mark-file-reviewed', 'missing-report', 'src/App.tsx')).toBe(false)
+    expect(markStagedFileReviewed('missing-report', 'src/App.tsx')).toBe(false)
   })
 
   it('exposes the persisted history entry for a report over IPC, the source of truth CodeChangeCard uses for the Committed phase', async () => {

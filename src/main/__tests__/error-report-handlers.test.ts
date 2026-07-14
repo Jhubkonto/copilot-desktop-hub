@@ -223,7 +223,7 @@ describe('error report handlers', () => {
     db = createDatabase()
   })
 
-  describe('conversation_id linkage and error-report:find-active-for-conversation', () => {
+  describe('conversation_id linkage', () => {
     it('persists conversation_id when provided and returns it via error-report:get', async () => {
       const { registerErrorReportHandlers } = await import('../error-report-handlers')
       registerErrorReportHandlers()
@@ -241,47 +241,5 @@ describe('error report handlers', () => {
       expect(fetched?.conversation_id).toBe('conv-42')
     })
 
-    it('finds a non-terminal request already linked to the conversation', async () => {
-      const { registerErrorReportHandlers } = await import('../error-report-handlers')
-      registerErrorReportHandlers()
-
-      db.prepare("INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv-1', 'Test', 1, 1)").run()
-      const created = invoke<{ reportId: string }>('error-report:capture', {
-        title: 'Fix the bug',
-        includeLog: false,
-        includeScreenshot: false,
-        origin: 'chat',
-        conversationId: 'conv-1',
-      })
-
-      const found = invoke<{ id: string } | null>('error-report:find-active-for-conversation', 'conv-1')
-      expect(found?.id).toBe(created.reportId)
-    })
-
-    it('returns null when the only request for the conversation is terminal (fixed/rejected)', async () => {
-      const { registerErrorReportHandlers } = await import('../error-report-handlers')
-      registerErrorReportHandlers()
-
-      db.prepare("INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv-2', 'Test', 1, 1)").run()
-      const created = invoke<{ reportId: string }>('error-report:capture', {
-        title: 'Already done',
-        includeLog: false,
-        includeScreenshot: false,
-        origin: 'chat',
-        conversationId: 'conv-2',
-      })
-      db.prepare("UPDATE error_reports SET status = 'completed' WHERE id = ?").run(created.reportId)
-
-      const found = invoke<{ id: string } | null>('error-report:find-active-for-conversation', 'conv-2')
-      expect(found).toBeNull()
-    })
-
-    it('returns null for a conversation with no linked request', async () => {
-      const { registerErrorReportHandlers } = await import('../error-report-handlers')
-      registerErrorReportHandlers()
-
-      const found = invoke<{ id: string } | null>('error-report:find-active-for-conversation', 'no-such-conv')
-      expect(found).toBeNull()
-    })
   })
 })
