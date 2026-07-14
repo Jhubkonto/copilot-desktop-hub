@@ -2,6 +2,9 @@ package io.nexy.android.navigation
 
 import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
+import io.nexy.android.data.model.WsEvent
 import androidx.compose.runtime.Composable
 import androidx.navigation.NavController
 import androidx.navigation.NavDestination
@@ -27,6 +30,7 @@ import io.nexy.android.data.WsRepository
 import io.nexy.android.ui.agentgenerator.AgentGeneratorScreen
 import io.nexy.android.ui.skillgenerator.SkillGeneratorScreen
 import io.nexy.android.ui.chat.ChatScreen
+import io.nexy.android.ui.codepanel.CodePanelScreen
 import io.nexy.android.ui.fileexplorer.FileExplorerScreen
 import io.nexy.android.ui.projects.ProjectConfigScreen
 import io.nexy.android.ui.projects.ProjectAuditScreen
@@ -40,9 +44,6 @@ import io.nexy.android.ui.home.HomeScreen
 import io.nexy.android.ui.home.ScopedChatHistoryScreen
 import io.nexy.android.ui.pairing.PairingScreen
 import io.nexy.android.ui.pairing.PairingStartScreen
-import io.nexy.android.ui.remoteedit.RemoteEditReportDetailScreen
-import io.nexy.android.ui.remoteedit.RemoteEditReportsScreen
-import io.nexy.android.ui.remoteedit.RemoteEditStartScreen
 import io.nexy.android.ui.artifacts.ArtifactsScreen
 import io.nexy.android.ui.projectgenerator.ProjectGeneratorScreen
 import io.nexy.android.ui.prompts.PromptsScreen
@@ -93,6 +94,20 @@ fun NavGraph(
             }
             navController.navigate("home") {
                 popUpTo("pairing") { inclusive = true }
+            }
+        }
+    }
+
+    // Code Changes no longer hijacks a dedicated conversation — /code-change and friends run
+    // against whatever conversation the user is already in. This listener only surfaces errors
+    // that don't otherwise reach a chat screen (e.g. the project icon button firing before any
+    // conversation is open).
+    val context = LocalContext.current
+    LaunchedEffect(navController) {
+        WsRepository.events.collect { event ->
+            when (event) {
+                is WsEvent.CodeChangeError -> Toast.makeText(context, event.error, Toast.LENGTH_LONG).show()
+                else -> {}
             }
         }
     }
@@ -190,7 +205,7 @@ fun NavGraph(
                     navController.navigate("project-generator")
                 },
                 onOpenCodeChanges = { projectId ->
-                    navController.navigate("project-code-changes/${Uri.encode(projectId)}")
+                    navController.navigate("code-panel/${Uri.encode(projectId)}")
                 },
                 onOpenAgentGenerator = {
                     navController.navigate("agent-generator")
@@ -309,12 +324,11 @@ fun NavGraph(
                     navController.navigate("quiz/${Uri.encode(cid)}?artifactId=${Uri.encode(artifactId)}")
                 },
                 onOpenFork = { forkedId -> navController.navigate("chat/$forkedId") },
-                onOpenRemoteEditWithPrefill = { prefill, projectIdForPrefill ->
-                    navController.navigate(
-                        "project-code-changes/${Uri.encode(projectIdForPrefill)}/new?prefill=${Uri.encode(prefill)}",
-                    )
-                },
-                onOpenCodeChange = { reportId -> navController.navigate("remote-edit/${Uri.encode(reportId)}") },
+                // No-op body: ChatScreen now prefills its own composer in place with
+                // "/code-change <text>" instead of navigating away — this callback being
+                // non-null only gates whether the "Create code change" menu item is shown.
+                onOpenRemoteEditWithPrefill = { _, _ -> },
+                onOpenCodePanel = { pid -> navController.navigate("code-panel/${Uri.encode(pid)}") },
                 onOpenAutomatedWorkflow = { workflowProjectId -> navController.navigate("automated-workflow/${Uri.encode(workflowProjectId)}") },
                 onNewChat = { newAgentId, newProjectId ->
                     val newConversationId = java.util.UUID.randomUUID().toString()
@@ -594,44 +608,23 @@ fun NavGraph(
         }
 
         composable(
-            route = "project-code-changes/{projectId}",
+            route = "code-panel/{projectId}",
             arguments = listOf(navArgument("projectId") { type = NavType.StringType }),
-        ) { backStackEntry ->
-            val projectId = backStackEntry.arguments?.getString("projectId") ?: return@composable
-            RemoteEditReportsScreen(
+        ) { backStack ->
+            val projectId = backStack.arguments?.getString("projectId") ?: ""
+            CodePanelScreen(
                 projectId = projectId,
                 onBack = { navController.popBackStack() },
-                onOpenReport = { id -> navController.navigate("remote-edit/$id") },
-                onNewRequest = { navController.navigate("project-code-changes/${Uri.encode(projectId)}/new") },
-            )
-        }
-
-        composable(
-            route = "project-code-changes/{projectId}/new?prefill={prefill}",
-            arguments = listOf(
-                navArgument("projectId") { type = NavType.StringType },
-                navArgument("prefill") {
-                    type = NavType.StringType
-                    defaultValue = ""
+                // "Resolve with AI in chat": the panel already kicked off the /code-change
+                // investigation itself (see CodePanelViewModel.resolveConflictsWithAi) before
+                // calling this, so navigating here just opens the conversation it's now running in
+                // — no prefill plumbing needed on the chat route.
+                onOpenChatForConflictResolution = { conversationId, projectIdForChat ->
+                    navController.navigate(
+                        "chat/$conversationId?projectId=${Uri.encode(projectIdForChat)}",
+                    )
                 },
-            ),
-        ) { backStackEntry ->
-            val projectId = backStackEntry.arguments?.getString("projectId") ?: return@composable
-            val prefill = backStackEntry.arguments?.getString("prefill") ?: ""
-            RemoteEditStartScreen(
-                projectId = projectId,
-                prefillDescription = prefill,
-                onBack = { navController.popBackStack() },
-                onReportCreated = { reportId -> navController.navigate("remote-edit/$reportId") },
             )
-        }
-
-        composable(
-            route = "remote-edit/{reportId}",
-            arguments = listOf(navArgument("reportId") { type = NavType.StringType }),
-        ) { backStackEntry ->
-            val reportId = backStackEntry.arguments?.getString("reportId") ?: return@composable
-            RemoteEditReportDetailScreen(reportId = reportId, onBack = { navController.popBackStack() })
         }
 
         composable(

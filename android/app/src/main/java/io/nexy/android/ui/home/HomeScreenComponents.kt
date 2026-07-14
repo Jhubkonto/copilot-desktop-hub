@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Article
+import androidx.compose.material.icons.automirrored.filled.CallSplit
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -134,6 +135,14 @@ fun ConversationRow(
                             Icon(
                                 Icons.Default.PushPin,
                                 contentDescription = null,
+                                modifier = Modifier.size(11.dp),
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                        if (conv.kind == "code-change") {
+                            Icon(
+                                Icons.AutoMirrored.Filled.CallSplit,
+                                contentDescription = "Code change",
                                 modifier = Modifier.size(11.dp),
                                 tint = MaterialTheme.colorScheme.primary,
                             )
