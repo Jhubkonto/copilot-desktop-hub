@@ -4,7 +4,6 @@ import io.nexy.android.data.model.HistoryMessage
 import org.json.JSONObject
 
 private const val ARTIFACT_REF_PREFIX = "__artifact-ref:"
-private const val CODE_CHANGE_REF_PREFIX = "__code-change-ref:"
 
 private fun parseArtifactRef(content: String): ArtifactRef? = runCatching {
     val json = JSONObject(content.removePrefix(ARTIFACT_REF_PREFIX))
@@ -14,10 +13,6 @@ private fun parseArtifactRef(content: String): ArtifactRef? = runCatching {
         kind = if (json.has("kind") && !json.isNull("kind")) json.getString("kind") else null,
         conversationId = if (json.has("conversationId") && !json.isNull("conversationId")) json.getString("conversationId") else null,
     )
-}.getOrNull()
-
-private fun parseCodeChangeRef(content: String): CodeChangeRef? = runCatching {
-    CodeChangeRef(reportId = JSONObject(content.removePrefix(CODE_CHANGE_REF_PREFIX)).getString("reportId"))
 }.getOrNull()
 
 private val INJECTED_BLOCK_RE = Regex("""\[[A-Za-z][^\]]*]\n[\s\S]*?\[/[A-Za-z][^\]]*]\n*""")
@@ -60,11 +55,6 @@ internal fun HistoryMessage.toChatMessage(): ChatMessage {
     if (role == "system" && content.startsWith(ARTIFACT_REF_PREFIX)) {
         parseArtifactRef(content)?.let { ref ->
             return ChatMessage(id = id, text = "", isUser = false, isStreaming = false, timestamp = timestamp, artifactRef = ref)
-        }
-    }
-    if (role == "system" && content.startsWith(CODE_CHANGE_REF_PREFIX)) {
-        parseCodeChangeRef(content)?.let { ref ->
-            return ChatMessage(id = id, text = "", isUser = false, isStreaming = false, timestamp = timestamp, codeChangeRef = ref)
         }
     }
 

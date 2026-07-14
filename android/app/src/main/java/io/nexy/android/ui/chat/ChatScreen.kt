@@ -14,7 +14,6 @@ import java.util.Locale
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
-import io.nexy.android.ui.chat.codechange.CodeChangeWizardHost
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -180,7 +179,7 @@ fun ChatScreen(
     onOpenQuiz: ((String, String) -> Unit)? = null,
     onOpenFork: ((String) -> Unit)? = null,
     onOpenRemoteEditWithPrefill: ((String, String) -> Unit)? = null,
-    onOpenCodeChange: ((String) -> Unit)? = null,
+    onOpenCodePanel: ((String) -> Unit)? = null,
     onOpenAutomatedWorkflow: ((String) -> Unit)? = null,
     onNewChat: ((String?, String?) -> Unit)? = null,
     vm: ChatViewModel = viewModel(
@@ -266,6 +265,16 @@ fun ChatScreen(
     var editingMessageId by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(draftFromVm) {
         if (input.isBlank() && draftFromVm.isNotBlank()) input = draftFromVm
+    }
+    // Consumes a prefill left by an entry point outside chat (e.g. the /code panel's "Resolve
+    // with AI in chat" action) that navigated here wanting a command prefilled rather than
+    // firing it itself before this screen — and this screen's ChatViewModel — existed.
+    LaunchedEffect(conversationId) {
+        WsRepository.pendingComposerPrefill?.let { prefill ->
+            WsRepository.pendingComposerPrefill = null
+            input = prefill
+            vm.setDraft(prefill)
+        }
     }
     val listState = rememberLazyListState()
     var shouldAutoFollow by remember { mutableStateOf(true) }
@@ -627,7 +636,11 @@ fun ChatScreen(
         } else if (projects.find { it.id == chatProjectId }?.rootDirectory.isNullOrBlank()) {
             scope.launch { snackbarHostState.showSnackbar("Code changes require this project to have a configured workspace") }
         } else {
-            onOpenRemoteEditWithPrefill?.invoke(msg.text, chatProjectId)
+            // Prefill in place rather than navigating away — /code-change now runs against
+            // whichever conversation the user is already in, there's no separate screen to open.
+            val plainContent = msg.text.replace(Regex("\\s+"), " ").trim()
+            input = "/code-change $plainContent"
+            vm.setDraft(input)
         }
     }
 
@@ -1075,9 +1088,12 @@ fun ChatScreen(
                 onSend = {
                     val chatProjectId = conversation?.project_id ?: projectId
                     val chatAgentId = conversation?.agent_id ?: agentId
-                    if (editingMessageId == null && vm.trySlashCommand(input, chatProjectId) {
-                            onNewChat?.invoke(chatAgentId, chatProjectId)
-                        }) {
+                    if (editingMessageId == null && vm.trySlashCommand(
+                            input,
+                            chatProjectId,
+                            onNewChat = { onNewChat?.invoke(chatAgentId, chatProjectId) },
+                            onOpenCodePanel = { pid -> onOpenCodePanel?.invoke(pid) },
+                        )) {
                         input = ""
                         vm.setDraft("")
                     } else {
@@ -1203,11 +1219,6 @@ fun ChatScreen(
                     }
                 }
 
-                if (conversation?.kind == "code-change") {
-                    Box(modifier = Modifier.weight(1f)) {
-                        CodeChangeWizardHost(conversation = conversation, wsRepository = WsRepository)
-                    }
-                } else {
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
@@ -1232,8 +1243,7 @@ fun ChatScreen(
                                 is ChatRenderItem.LiveThinking -> 3
                                 is ChatRenderItem.LiveActivity -> 4
                                 is ChatRenderItem.ArtifactCard -> 5
-                                is ChatRenderItem.CodeChangeCard -> 6
-                                is ChatRenderItem.ThinkingBlockItem -> 7
+                                is ChatRenderItem.ThinkingBlockItem -> 6
                             }
                         },
                     ) { item ->
@@ -1313,13 +1323,6 @@ fun ChatScreen(
                                     onOpenDebrief = { onOpenDebrief?.invoke(targetConversationId) },
                                     onOpenQuiz = { onOpenQuiz?.invoke(targetConversationId, item.ref.artifactId) },
                                     onOpenArtifact = { onOpenArtifacts?.invoke(item.ref.artifactId) },
-                                )
-                            }
-                            is ChatRenderItem.CodeChangeCard -> {
-                                CodeChangeRefBubble(
-                                    ref = item.ref,
-                                    projectId = statusProjectId,
-                                    onOpen = { onOpenCodeChange?.invoke(item.ref.reportId) },
                                 )
                             }
                             is ChatRenderItem.UserMessage -> {
@@ -1478,7 +1481,6 @@ fun ChatScreen(
                             )
                         }
                     }
-                }
                 }
             }
             // Scroll-to-bottom button shown whenever the user is scrolled above the bottom

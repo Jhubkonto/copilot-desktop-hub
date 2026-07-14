@@ -95,10 +95,8 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.foundation.BorderStroke
 import io.nexy.android.data.WsRepository
-import io.nexy.android.data.model.CODE_CHANGE_PHASE_LABELS
 import io.nexy.android.data.model.ThinkingBlock
 import io.nexy.android.data.model.WsEvent
-import io.nexy.android.data.model.deriveCodeChangePhase
 import io.nexy.android.ui.theme.Blue100
 import io.nexy.android.ui.theme.Blue400
 import io.nexy.android.ui.theme.Blue500
@@ -1167,64 +1165,3 @@ fun ArtifactRefBubble(
     }
 }
 
-/**
- * Inline chat card for a `__code-change-ref:` sentinel message. Deep-links into the existing
- * RemoteEditReportDetailScreen for the full investigate/diff/apply/verify/commit flow rather
- * than natively reimplementing desktop's inline CodeChangeCard, but styled to match it — bordered
- * purple card with the report's real title and current phase once fetched. `projectId` lets it
- * opportunistically hydrate the report from `WsRepository.errorReports` if it isn't loaded yet.
- */
-@Composable
-fun CodeChangeRefBubble(ref: CodeChangeRef, projectId: String?, onOpen: () -> Unit) {
-    val errorReports by WsRepository.errorReports.collectAsState()
-    val report = errorReports.find { it.id == ref.reportId }
-
-    LaunchedEffect(ref.reportId, projectId) {
-        if (report == null && !projectId.isNullOrBlank()) {
-            WsRepository.refreshReports(projectId)
-        }
-    }
-
-    val phaseLabel = report?.let { CODE_CHANGE_PHASE_LABELS[deriveCodeChangePhase(it)] }
-
-    val isDark = LocalNexyColors.current.isDark
-    val bubbleColor = if (isDark) Purple950.copy(alpha = 0.3f) else Purple50
-    val borderColor = if (isDark) Purple900.copy(alpha = 0.6f) else Purple200
-    val accentColor = if (isDark) Purple400 else Purple500
-    val titleColor = if (isDark) Purple400 else Purple700
-
-    Surface(
-        onClick = onOpen,
-        shape = RoundedCornerShape(10.dp),
-        color = bubbleColor,
-        border = BorderStroke(1.dp, borderColor),
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Icon(Icons.Default.Difference, contentDescription = null, modifier = Modifier.size(18.dp), tint = accentColor)
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    report?.title ?: "View code change",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Medium,
-                    color = titleColor,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (phaseLabel != null) {
-                    Text(phaseLabel, style = MaterialTheme.typography.labelSmall, color = accentColor)
-                }
-            }
-            Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = accentColor,
-            )
-        }
-    }
-}
