@@ -35,6 +35,7 @@ data class ConversationEntity(
     val pinned: Boolean = false,
     val archived: Boolean = false,
     val completedAt: Long? = null,
+    val kind: String? = null,
     val deleted: Boolean = false,
     val localVersion: Long = 0,
     val remoteVersion: Long = 0,

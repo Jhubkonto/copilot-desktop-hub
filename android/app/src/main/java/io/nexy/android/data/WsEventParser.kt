@@ -329,16 +329,6 @@ fun parseWsEvent(
                 reportId = data?.optString("reportId") ?: "",
             )
 
-            "code-change:started" -> WsEvent.CodeChangeStarted(
-                conversationId = data?.optString("conversationId") ?: "",
-                reportId = data?.optString("reportId") ?: "",
-            )
-
-            "code-change:step-updated" -> WsEvent.CodeChangeStepUpdated(
-                reportId = data?.optString("reportId") ?: "",
-                step = data?.optString("step") ?: "describe",
-            )
-
             "code-change:error" -> WsEvent.CodeChangeError(
                 reportId = data?.nullableString("reportId"),
                 error = data?.optString("error") ?: "Unknown error",
@@ -351,6 +341,7 @@ fun parseWsEvent(
                     WsEvent.CodeChangeRepoWire(
                         relativePath = row.optString("relativePath"),
                         branch = row.optString("branch"),
+                        dirty = row.optBoolean("dirty", false),
                     )
                 } else emptyList()
                 WsEvent.CodeChangeRepos(repos)
@@ -362,19 +353,123 @@ fun parseWsEvent(
                 WsEvent.CodeChangeFiles(files)
             }
 
-            "code-change:submitted", "code-change:accepted", "code-change:revised",
-            "code-change:pushed", "code-change:completed" -> WsEvent.CodeChangeAck(
+            "code-change:changed-files" -> {
+                val filesArr = data?.optJSONArray("files")
+                val files = if (filesArr != null) (0 until filesArr.length()).map { filesArr.optString(it) } else emptyList()
+                WsEvent.CodeChangeChangedFiles(files)
+            }
+
+            "code-change:submitted", "code-change:accepted", "code-change:pushed", "code-change:completed" -> WsEvent.CodeChangeAck(
                 reportId = data?.optString("reportId") ?: "",
                 kind = event,
             )
 
+            "code-change:undone" -> WsEvent.CodeChangeUndone(
+                rolledBack = data?.optBoolean("rolledBack", false) ?: false,
+                error = data?.nullableString("error"),
+            )
+
             "code-change:report" -> {
                 val report = data?.optJSONObject("report")
+                val affectedFiles = report?.nullableString("investigation_affected_files")?.let { raw ->
+                    runCatching { JSONArray(raw) }.getOrNull()?.let { arr -> (0 until arr.length()).map { arr.optString(it) } }
+                } ?: emptyList()
                 WsEvent.CodeChangeReport(
                     reportId = report?.nullableString("id"),
                     step = report?.nullableString("step"),
                     repoRelativePath = report?.nullableString("repo_relative_path"),
                     plan = report?.nullableString("investigation_markdown"),
+                    title = report?.nullableString("title"),
+                    description = report?.nullableString("description"),
+                    confidence = report?.nullableString("investigation_confidence"),
+                    rootCause = report?.nullableString("investigation_root_cause"),
+                    affectedFiles = affectedFiles,
+                )
+            }
+
+            // Overloaded server-side: an execute/verify/commit progress tick ({reportId, status})
+            // or the code-change:get-status reply ({report, gitRepo}) — disambiguated by the
+            // presence of a "report" key so callers get a single unambiguous event type each.
+            "code-change:status" -> {
+                if (data?.has("report") == true) {
+                    val report = data.optJSONObject("report")
+                    val gitRepo = data.optJSONObject("gitRepo")
+                    WsEvent.CodeChangeStatusResult(
+                        reportId = report?.nullableString("id"),
+                        step = report?.nullableString("step"),
+                        repoRelativePath = report?.nullableString("repo_relative_path"),
+                        title = report?.nullableString("title"),
+                        gitRepoOk = gitRepo?.optBoolean("ok", false) ?: false,
+                        gitRepoRelativePath = gitRepo?.nullableString("relativePath"),
+                        gitRepoReason = gitRepo?.nullableString("reason"),
+                    )
+                } else {
+                    WsEvent.CodeChangeStatusProgress(
+                        reportId = data?.optString("reportId") ?: "",
+                        status = data?.optString("status") ?: "",
+                    )
+                }
+            }
+
+            "code-change:warning" -> WsEvent.CodeChangeWarning(
+                reportId = data?.optString("reportId") ?: "",
+                warning = data?.optString("warning") ?: "",
+            )
+
+            "code-change:investigation-chunk" -> WsEvent.CodeChangeInvestigationChunk(
+                reportId = data?.optString("reportId") ?: "",
+                chunk = data?.optString("chunk") ?: "",
+            )
+
+            "code-change:investigation-activity" -> {
+                val activity = data?.optJSONObject("activity")
+                WsEvent.CodeChangeInvestigationActivity(
+                    reportId = data?.optString("reportId") ?: "",
+                    type = activity?.optString("type") ?: "status",
+                    label = activity?.optString("label") ?: "",
+                )
+            }
+
+            "code-change:branches" -> {
+                val localArr = data?.optJSONArray("local")
+                val remoteArr = data?.optJSONArray("remote")
+                WsEvent.CodeChangeBranches(
+                    current = data?.optString("current") ?: "",
+                    local = if (localArr != null) (0 until localArr.length()).map { localArr.optString(it) } else emptyList(),
+                    remote = if (remoteArr != null) (0 until remoteArr.length()).map { remoteArr.optString(it) } else emptyList(),
+                )
+            }
+
+            "code-change:checked-out" -> WsEvent.CodeChangeCheckedOut(
+                ok = data?.optBoolean("ok", false) ?: false,
+                error = data?.nullableString("error"),
+            )
+
+            "code-change:branch-created" -> WsEvent.CodeChangeBranchCreated(
+                ok = data?.optBoolean("ok", false) ?: false,
+                error = data?.nullableString("error"),
+            )
+
+            "code-change:fetched" -> WsEvent.CodeChangeFetched(
+                ok = data?.optBoolean("ok", false) ?: false,
+                error = data?.nullableString("error"),
+            )
+
+            "code-change:merged" -> {
+                val filesArr = data?.optJSONArray("conflictedFiles")
+                val files = if (filesArr != null) (0 until filesArr.length()).mapNotNull { i ->
+                    val row = filesArr.optJSONObject(i) ?: return@mapNotNull null
+                    WsEvent.CodeChangeMergeConflictFile(
+                        relativePath = row.optString("relativePath"),
+                        content = row.optString("content"),
+                    )
+                } else emptyList()
+                WsEvent.CodeChangeMerged(
+                    ok = data?.optBoolean("ok", false) ?: false,
+                    conflicted = data?.optBoolean("conflicted", false) ?: false,
+                    conflictedFiles = files,
+                    error = data?.nullableString("error"),
+                    summary = data?.nullableString("summary"),
                 )
             }
 
@@ -429,6 +524,13 @@ fun parseWsEvent(
                 label = data?.optString("label") ?: "",
                 commitSha = data?.nullableString("commitSha"),
                 error = data?.nullableString("error"),
+            )
+
+            "self-heal:reload-prepare-result" -> WsEvent.CodeChangeReloadPrepareResult(
+                reportId = data?.optString("reportId") ?: "",
+                recoveryId = data?.optJSONObject("recovery")?.nullableString("id"),
+                canReload = data?.optBoolean("canReload", false) ?: false,
+                reason = data?.nullableString("reason"),
             )
 
             "self-heal:recovery-event" -> WsEvent.RemoteEditRecoveryEvent(

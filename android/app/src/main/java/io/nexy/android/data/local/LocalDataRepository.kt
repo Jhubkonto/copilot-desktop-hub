@@ -807,6 +807,7 @@ class LocalDataRepository private constructor(
                 pinned = row.optInt("pinned", 0) != 0,
                 archived = row.optInt("archived", 0) != 0,
                 completedAt = row.nullableLong("completed_at"),
+                kind = row.nullableString("kind"),
                 remoteVersion = remoteVersion,
             )
             if (current?.syncStatus == SyncStatus.PENDING) {
@@ -1451,6 +1452,7 @@ private fun ConversationEntity.toModel() = Conversation(
     pinned = pinned,
     archived = archived,
     completed_at = completedAt,
+    kind = kind,
 )
 
 private fun Conversation.toEntity(remoteVersion: Long) = ConversationEntity(
@@ -1468,6 +1470,7 @@ private fun Conversation.toEntity(remoteVersion: Long) = ConversationEntity(
     pinned = pinned,
     archived = archived,
     completedAt = completed_at,
+    kind = kind,
     remoteVersion = remoteVersion,
 )
 

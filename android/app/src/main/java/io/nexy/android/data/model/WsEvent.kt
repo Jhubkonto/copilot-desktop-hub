@@ -188,14 +188,58 @@ sealed class WsEvent {
         val error: String?,
     ) : WsEvent()
     data class RemoteEditActiveCodeChangesChanged(val countsByProjectId: Map<String, Int>) : WsEvent()
-    data class CodeChangeStarted(val conversationId: String, val reportId: String) : WsEvent()
-    data class CodeChangeStepUpdated(val reportId: String, val step: String) : WsEvent()
     data class CodeChangeError(val reportId: String?, val error: String) : WsEvent()
-    data class CodeChangeRepoWire(val relativePath: String, val branch: String)
+    data class CodeChangeRepoWire(val relativePath: String, val branch: String, val dirty: Boolean = false)
     data class CodeChangeRepos(val repos: List<CodeChangeRepoWire>) : WsEvent()
     data class CodeChangeFiles(val files: List<String>) : WsEvent()
+    /** Fires for the code-change:submitted/accepted/pushed/completed replies — every one of the
+     *  independent slash commands (/code-change, /code-execute, /code-push) resolves to one of
+     *  these "kind" values rather than its own class, mirroring how the backend collapsed the old
+     *  step-machine into flat one-shot replies. */
     data class CodeChangeAck(val reportId: String, val kind: String) : WsEvent()
-    data class CodeChangeReport(val reportId: String?, val step: String?, val repoRelativePath: String?, val plan: String?) : WsEvent()
+    data class CodeChangeReport(
+        val reportId: String?,
+        val step: String?,
+        val repoRelativePath: String?,
+        val plan: String?,
+        val title: String?,
+        val description: String?,
+        val confidence: String?,
+        val rootCause: String?,
+        val affectedFiles: List<String> = emptyList(),
+    ) : WsEvent()
+    data class CodeChangeReloadPrepareResult(val reportId: String, val recoveryId: String?, val canReload: Boolean, val reason: String?) : WsEvent()
+    data class CodeChangeUndone(val rolledBack: Boolean, val error: String?) : WsEvent()
+    /** code-change:status is overloaded server-side: it's both a lightweight execute/verify/commit
+     *  progress broadcast ({reportId, status}) and the reply to code-change:get-status
+     *  ({report, gitRepo}). WsEventParser disambiguates on the presence of a "report" key and
+     *  emits one of these two distinct events so callers never have to re-derive which shape it is. */
+    data class CodeChangeStatusProgress(val reportId: String, val status: String) : WsEvent()
+    data class CodeChangeStatusResult(
+        val reportId: String?,
+        val step: String?,
+        val repoRelativePath: String?,
+        val title: String?,
+        val gitRepoOk: Boolean,
+        val gitRepoRelativePath: String?,
+        val gitRepoReason: String?,
+    ) : WsEvent()
+    data class CodeChangeWarning(val reportId: String, val warning: String) : WsEvent()
+    data class CodeChangeInvestigationChunk(val reportId: String, val chunk: String) : WsEvent()
+    data class CodeChangeInvestigationActivity(val reportId: String, val type: String, val label: String) : WsEvent()
+    data class CodeChangeChangedFiles(val files: List<String>) : WsEvent()
+    data class CodeChangeBranches(val current: String, val local: List<String>, val remote: List<String>) : WsEvent()
+    data class CodeChangeCheckedOut(val ok: Boolean, val error: String?) : WsEvent()
+    data class CodeChangeBranchCreated(val ok: Boolean, val error: String?) : WsEvent()
+    data class CodeChangeFetched(val ok: Boolean, val error: String?) : WsEvent()
+    data class CodeChangeMergeConflictFile(val relativePath: String, val content: String)
+    data class CodeChangeMerged(
+        val ok: Boolean,
+        val conflicted: Boolean,
+        val conflictedFiles: List<CodeChangeMergeConflictFile>,
+        val error: String?,
+        val summary: String?,
+    ) : WsEvent()
     data class ConversationModelUpdated(val conversationId: String, val model: String?) : WsEvent()
     data class ConversationModeUpdated(val conversationId: String, val thinkingEffortOverride: String?, val fullAutoApproveOverride: Boolean?) : WsEvent()
     data class ConversationCreated(

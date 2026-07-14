@@ -252,6 +252,13 @@ object WsRepository : WsClient {
 
     val activelyViewedConversationId = MutableStateFlow<String?>(null)
 
+    /** Text to drop into the composer of whichever conversation screen mounts next — used by
+     * entry points outside chat (the /code panel's "Resolve with AI in chat" action) that
+     * navigate to a brand-new conversation and want the user's own /code-change send to run
+     * there, rather than firing the WS command themselves before any ChatViewModel exists to
+     * react to its completion. Mirrors desktop's pendingComposerPrefill store field. */
+    var pendingComposerPrefill: String? = null
+
     private val _completedWhileAwayIds = MutableStateFlow<Set<String>>(emptySet())
     val completedWhileAwayIds: StateFlow<Set<String>> = _completedWhileAwayIds
     fun clearCompletedAway(id: String) { _completedWhileAwayIds.value = _completedWhileAwayIds.value - id }
@@ -1918,6 +1925,71 @@ object WsRepository : WsClient {
     fun refreshActiveCodeChanges() {
         send("self-heal:get-active-code-changes", emptyMap())
     }
+
+    // --- Code Changes: independent slash-command actions (no wizard/step gating) ---
+    // Mirrors desktop's collapsed step-flow — each of these is a standalone request against
+    // whatever report is attached to the current conversation, not a step in a forced sequence.
+    fun submitCodeChangeDescription(
+        conversationId: String,
+        projectId: String,
+        description: String,
+        repoRelativePath: String? = null,
+    ) {
+        sendLog("CodeChange", "submitCodeChangeDescription: conversationId=$conversationId projectId=$projectId")
+        val payload = mutableMapOf<String, Any>(
+            "conversationId" to conversationId,
+            "projectId" to projectId,
+            "description" to description,
+        )
+        if (!repoRelativePath.isNullOrBlank()) payload["repoRelativePath"] = repoRelativePath
+        send("code-change:submit-description", payload)
+    }
+    fun acceptCodeChangePlan(reportId: String) {
+        sendLog("CodeChange", "acceptCodeChangePlan: reportId=$reportId")
+        send("code-change:accept-plan", mapOf("reportId" to reportId))
+    }
+    fun pushCodeChange(reportId: String) {
+        sendLog("CodeChange", "pushCodeChange: reportId=$reportId")
+        send("code-change:push", mapOf("reportId" to reportId))
+    }
+    fun undoCodeChange(reportId: String) {
+        sendLog("CodeChange", "undoCodeChange: reportId=$reportId")
+        send("code-change:undo", mapOf("reportId" to reportId))
+    }
+    fun getCodeChangeReportForConversation(conversationId: String) {
+        send("code-change:get-report-for-conversation", mapOf("conversationId" to conversationId))
+    }
+    fun getCodeChangeStatus(conversationId: String) {
+        send("code-change:get-status", mapOf("conversationId" to conversationId))
+    }
+
+    // --- Code Changes: git housekeeping (backs the Android /code panel) ---
+    fun listCodeChangeRepos(workspaceRoot: String) {
+        send("code-change:list-repos", mapOf("workspaceRoot" to workspaceRoot))
+    }
+    fun listCodeChangeChangedFiles(repoRoot: String) {
+        send("code-change:list-changed-files", mapOf("repoRoot" to repoRoot))
+    }
+    fun listCodeChangeBranches(repoRoot: String) {
+        send("code-change:list-branches", mapOf("repoRoot" to repoRoot))
+    }
+    fun checkoutCodeChangeBranch(repoRoot: String, branchName: String) {
+        send("code-change:checkout-branch", mapOf("repoRoot" to repoRoot, "branchName" to branchName))
+    }
+    fun createCodeChangeBranch(repoRoot: String, branchName: String, fromRef: String? = null) {
+        val payload = mutableMapOf<String, Any>("repoRoot" to repoRoot, "branchName" to branchName)
+        if (!fromRef.isNullOrBlank()) payload["fromRef"] = fromRef
+        send("code-change:new-branch", payload)
+    }
+    fun fetchCodeChangeRepo(repoRoot: String, remote: String? = null) {
+        val payload = mutableMapOf<String, Any>("repoRoot" to repoRoot)
+        if (!remote.isNullOrBlank()) payload["remote"] = remote
+        send("code-change:fetch", payload)
+    }
+    fun mergeCodeChangeBranch(repoRoot: String, sourceBranch: String) {
+        send("code-change:merge-branch", mapOf("repoRoot" to repoRoot, "sourceBranch" to sourceBranch))
+    }
+
     fun createRemoteEditReport(
         title: String,
         description: String,
@@ -2001,6 +2073,10 @@ object WsRepository : WsClient {
     fun requestRemoteEditRollback(recoveryId: String) {
         sendLog("RemoteEdit", "requestRemoteEditRollback: recoveryId=$recoveryId")
         send("self-heal:request-rollback", mapOf("recoveryId" to recoveryId))
+    }
+    fun prepareRemoteEditReload(reportId: String) {
+        sendLog("RemoteEdit", "prepareRemoteEditReload: reportId=$reportId")
+        send("self-heal:prepare-reload", mapOf("reportId" to reportId))
     }
     fun createProject(name: String, color: String) { send("project:create", mapOf("name" to name, "color" to color)) }
     fun renameProject(id: String, name: String) { send("project:rename", mapOf("id" to id, "name" to name)) }
