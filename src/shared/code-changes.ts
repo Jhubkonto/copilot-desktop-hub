@@ -1,12 +1,10 @@
 import type {
   CodeChangeRequest,
   CodeChangeRequestOrigin,
-  CodeChangeRequestPhase,
   CodeChangeRequestType,
   CodeChangesWorkspaceBinding,
   ErrorReportEntry,
   ProjectWorkspaceMetadata,
-  RemoteEditVerificationRun,
   RemoteEditVerifyCommandConfig,
 } from './types'
 
@@ -57,38 +55,6 @@ export function toCodeChangesWorkspaceBinding(
   }
 }
 
-export function deriveCodeChangePhase(
-  report: ErrorReportEntry,
-  verificationRun: RemoteEditVerificationRun | null,
-  committed: boolean,
-): CodeChangeRequestPhase {
-  if (committed) return 'committed'
-  if (verificationRun?.status === 'success') return 'ready-to-commit'
-  if (verificationRun?.status === 'failed' || report.fix_status === 'failed' || report.status === 'rejected') {
-    return 'needs-attention'
-  }
-  if (verificationRun?.status === 'running') return 'verifying'
-  if (report.fix_status === 'applied') return 'applied'
-  if (report.fix_status === 'applying') return 'ready-to-apply'
-  if (report.fix_status === 'staged') return 'patch-ready'
-  if (report.fix_status === 'staging' || report.status === 'investigated') return 'patch-ready'
-  if (report.status === 'open' && report.investigation_root_cause === 'investigation_failed') return 'draft'
-  if (report.status === 'investigating' || report.investigation_markdown) return 'investigating'
-  return 'draft'
-}
-
-export const CODE_CHANGE_PHASE_LABELS: Record<CodeChangeRequestPhase, string> = {
-  draft: 'Draft',
-  investigating: 'Planning',
-  'patch-ready': 'Patch ready',
-  'ready-to-apply': 'Ready to apply',
-  applied: 'Applied',
-  verifying: 'Verifying',
-  'ready-to-commit': 'Ready to commit',
-  committed: 'Committed',
-  'needs-attention': 'Needs attention',
-}
-
 export const CODE_CHANGE_REQUEST_TYPE_LABELS: Record<CodeChangeRequestType, string> = {
   edit: 'Edit',
   refactor: 'Refactor',
@@ -112,16 +78,4 @@ export function hasWorkspaceMismatch(
 ): boolean {
   if (!requestWorkspaceRoot || !currentWorkspaceRoot) return false
   return requestWorkspaceRoot !== currentWorkspaceRoot
-}
-
-export const CODE_CHANGE_PHASE_GUIDANCE: Record<CodeChangeRequestPhase, string> = {
-  draft: 'Plan the files and approach for this change.',
-  investigating: 'Review the plan before generating a patch.',
-  'patch-ready': 'Review every staged file before applying changes.',
-  'ready-to-apply': 'Apply the reviewed patch to the connected workspace.',
-  applied: 'Run verification against the changed workspace.',
-  verifying: 'Verification is running against the connected workspace.',
-  'ready-to-commit': 'Review the repository state and create a commit.',
-  committed: 'The change has been committed and can be pushed when needed.',
-  'needs-attention': 'Review the failure details, revise the request, and retry.',
 }

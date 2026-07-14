@@ -316,17 +316,6 @@ export type ProjectTouchedFileStatus = 'modified' | 'created' | 'deleted'
 
 export type CodeChangeRequestType = 'edit' | 'refactor' | 'bugfix' | 'feature' | 'investigation' | 'custom'
 export type CodeChangeRequestOrigin = 'chat' | 'android' | 'manual' | 'build-failure' | 'legacy-bug-report'
-export type CodeChangeRequestPhase =
-  | 'draft'
-  | 'investigating'
-  | 'patch-ready'
-  | 'ready-to-apply'
-  | 'applied'
-  | 'verifying'
-  | 'ready-to-commit'
-  | 'committed'
-  | 'needs-attention'
-
 export interface CodeChangesWorkspaceBinding {
   rootDirectory: string
   isGitRepo: boolean
@@ -1894,7 +1883,6 @@ export type IpcReturnMap = {
   'error-report:delete': boolean | ApiError
   'error-report:get': ErrorReportEntry | null
   'error-report:list': ErrorReportEntry[]
-  'error-report:find-active-for-conversation': ErrorReportEntry | null
   // Self-heal investigation
   'remote-edit:get-investigation-settings': RemoteEditInvestigationSettings
   'remote-edit:set-report-status': ErrorReportEntry | null
@@ -1907,22 +1895,15 @@ export type IpcReturnMap = {
   'remote-edit:get-active-code-changes': Record<string, number>
   'remote-edit:active-code-changes-changed': void
   // Self-heal fix staging
-  'remote-edit:start-fix': { reportId: string }
-  'remote-edit:commit-to-workspace': { appliedFiles: string[]; backupPaths: string[] } | null
-  'remote-edit:revert-staged-file': boolean
-  'remote-edit:mark-file-reviewed': boolean
   'remote-edit:get-staged-diff': RemoteEditStagedFileDiff | null
   'remote-edit:fix-event': void
   'remote-edit:fix-done': void
   // Self-heal verification
-  'remote-edit:start-verification': { reportId: string; runId: string }
   'remote-edit:get-verification-runs': RemoteEditVerificationRun[]
   'remote-edit:verification-event': void
   'remote-edit:verification-done': void
   // Self-heal git flow
   'remote-edit:git-status': RemoteEditGitStatus
-  'remote-edit:git-prepare-commit': RemoteEditGitPrepareResult
-  'remote-edit:git-commit': RemoteEditGitCommitResult
   'remote-edit:git-push': RemoteEditGitPushResult
   'remote-edit:git-event': void
   // Self-heal recovery/reload
@@ -1932,11 +1913,9 @@ export type IpcReturnMap = {
   'remote-edit:recovery-event': void
   'remote-edit:get-history': RemoteEditHistoryEntry[]
   'remote-edit:get-history-for-report': RemoteEditHistoryEntry | null
-  // Code Changes (6-step wizard orchestration)
-  'code-change:start': { conversationId: string; reportId: string }
-  'code-change:submit-description': void
+  // Code Changes (independent slash-command actions, no wizard/step gating)
+  'code-change:submit-description': { reportId: string }
   'code-change:accept-plan': void
-  'code-change:revise-plan': void
   'code-change:get-plan-revisions': Array<{
     revision_number: number
     revision_notes: string | null
@@ -1944,11 +1923,31 @@ export type IpcReturnMap = {
     outcome: string
     created_at: number
   }>
-  'code-change:list-repos': Array<{ relativePath: string; branch: string }>
+  'code-change:list-repos': Array<{ relativePath: string; branch: string; dirty: boolean }>
   'code-change:list-repo-files': string[]
+  'code-change:list-changed-files': string[]
   'code-change:git-push': void
+  'code-change:undo': { rolledBack: boolean; error?: string }
   'code-change:get-report': ErrorReportEntry | null
   'code-change:get-report-for-conversation': ErrorReportEntry | null
+  'code-change:get-status': {
+    report: ErrorReportEntry | null
+    gitRepo: { ok: boolean; relativePath?: string; reason?: string }
+  }
+  'code-change:resolve-repo':
+    | { ok: true; repoRoot: string; relativePath: string }
+    | { ok: false; reason: 'no-repo' | 'ambiguous'; candidates?: string[] }
+  'code-change:list-branches': { current: string; local: string[]; remote: string[] }
+  'code-change:checkout-branch': { ok: boolean; error?: string }
+  'code-change:new-branch': { ok: boolean; error?: string }
+  'code-change:fetch': { ok: boolean; error?: string }
+  'code-change:merge-branch': {
+    ok: boolean
+    conflicted: boolean
+    conflictedFiles?: Array<{ relativePath: string; content: string }>
+    error?: string
+    summary?: string
+  }
   // Deeplink (push-only)
   'deeplink:open-agent': void
   'deeplink:open-chat': void
@@ -2323,7 +2322,6 @@ export type IpcChannels =
   | 'error-report:delete'
   | 'error-report:get'
   | 'error-report:list'
-  | 'error-report:find-active-for-conversation'
   | 'remote-edit:get-investigation-settings'
   | 'remote-edit:set-report-status'
   | 'remote-edit:set-investigation-settings'
@@ -2334,20 +2332,13 @@ export type IpcChannels =
   | 'remote-edit:get-active-investigation'
   | 'remote-edit:get-active-code-changes'
   | 'remote-edit:active-code-changes-changed'
-  | 'remote-edit:start-fix'
-  | 'remote-edit:commit-to-workspace'
-  | 'remote-edit:revert-staged-file'
-  | 'remote-edit:mark-file-reviewed'
   | 'remote-edit:get-staged-diff'
   | 'remote-edit:fix-event'
   | 'remote-edit:fix-done'
-  | 'remote-edit:start-verification'
   | 'remote-edit:get-verification-runs'
   | 'remote-edit:verification-event'
   | 'remote-edit:verification-done'
   | 'remote-edit:git-status'
-  | 'remote-edit:git-prepare-commit'
-  | 'remote-edit:git-commit'
   | 'remote-edit:git-push'
   | 'remote-edit:git-event'
   | 'remote-edit:prepare-reload'
@@ -2356,16 +2347,23 @@ export type IpcChannels =
   | 'remote-edit:recovery-event'
   | 'remote-edit:get-history'
   | 'remote-edit:get-history-for-report'
-  | 'code-change:start'
   | 'code-change:submit-description'
   | 'code-change:accept-plan'
-  | 'code-change:revise-plan'
   | 'code-change:get-plan-revisions'
   | 'code-change:list-repos'
   | 'code-change:list-repo-files'
+  | 'code-change:list-changed-files'
   | 'code-change:git-push'
+  | 'code-change:undo'
   | 'code-change:get-report'
   | 'code-change:get-report-for-conversation'
+  | 'code-change:get-status'
+  | 'code-change:resolve-repo'
+  | 'code-change:list-branches'
+  | 'code-change:checkout-branch'
+  | 'code-change:new-branch'
+  | 'code-change:fetch'
+  | 'code-change:merge-branch'
   | 'deeplink:open-agent'
   | 'deeplink:open-chat'
   | 'file:add-recent-dir'

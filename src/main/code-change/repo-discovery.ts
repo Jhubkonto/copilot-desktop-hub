@@ -39,7 +39,6 @@ export async function discoverReposInWorkspace(rootDirectory: string): Promise<R
         if (dirCount > maxDirs) break
 
         const fullPath = path.join(dir, entry.name)
-        const relativePath = path.relative(rootDirectory, fullPath)
 
         // Check if this is a .git file or directory
         if (entry.name === '.git') {
@@ -48,8 +47,15 @@ export async function discoverReposInWorkspace(rootDirectory: string): Promise<R
             const isDir = entry.isDirectory()
 
             if (isDir || entry.isFile()) {
+              // The repo's relative path is relative to its containing folder, not to the .git
+              // entry itself — `path.relative(rootDirectory, fullPath)` would incorrectly include
+              // the trailing "/.git" component (e.g. "frontend/.git" instead of "frontend"), which
+              // callers that round-trip this value back through `path.join(workspaceRoot, ...)`
+              // (resolving which repo a code-change/git command targets) would resolve to a path
+              // inside the git internals directory instead of the repo root.
+              const repoRelativePath = path.relative(rootDirectory, dir)
               // Resolve the actual repo info
-              const descriptor = await getRepoInfo(fullPath, rootDirectory, relativePath)
+              const descriptor = await getRepoInfo(fullPath, rootDirectory, repoRelativePath)
               if (descriptor) {
                 repos.push(descriptor)
               }

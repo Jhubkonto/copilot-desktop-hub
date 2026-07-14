@@ -1,8 +1,10 @@
 /**
- * Code Changes orchestration layer: composite actions that advance through the 6-step wizard.
- * Each action owns a multi-step sequence and updates the `step` column atomically.
+ * Code Changes orchestration layer: independent actions invoked directly by slash commands
+ * (desktop) or the WS equivalents (Android). No conversation is hijacked and no fixed step
+ * order is enforced — each action only checks the data precondition it actually needs.
  */
 
+import path from 'path'
 import type { BrowserWindow } from 'electron'
 import { getDatabase } from '../database'
 import {
@@ -18,48 +20,77 @@ import {
   commitRemoteEditFix,
   pushRemoteEditFix,
 } from '../remote-edit/git-ops'
+import { prepareReload, rollbackHeal } from '../remote-edit/recovery'
 import { broadcastToMobile } from '../ws-server'
-import { createConversationRecord } from '../conversation-handlers'
 import { createErrorReport } from '../error-report-handlers'
+import { getProjectRootDirectory, detectProjectWorkspaceMetadata } from '../project-handlers'
+import { discoverReposInWorkspace } from './repo-discovery'
 import type { ErrorReportEntry } from '../../shared/types'
 
+export type ResolveRepoResult =
+  | { ok: true; repoRoot: string; relativePath: string }
+  | { ok: false; reason: 'no-repo' | 'ambiguous'; candidates?: string[] }
+
 /**
- * Creates a dedicated project-scoped conversation for a new Code Changes request
- * (the "chat-hijack" entry point) plus its backing `error_reports` row, targeting
- * one repo under the project's workspace.
+ * Resolves which git repo under a project's workspace an action should target.
+ *
+ * A project's `workspace_root` is just the folder the user pointed the project at — it is
+ * not guaranteed to itself be a git repo, even when one or more repos exist underneath it
+ * (e.g. a workspace root containing `frontend/` and `backend/` as two separately-initialized
+ * repos, with the root itself never `git init`'d). So this walks the workspace for any repo
+ * anywhere underneath it rather than checking the root directory alone.
  */
-export function startCodeChangeConversation(
-  projectId: string,
+export async function resolveCodeChangeRepo(
   workspaceRoot: string,
-  repoRelativePath: string,
-): { conversationId: string; reportId: string } {
-  const conversation = createConversationRecord(null, projectId, 'Code Change')
-  getDatabase()
-    .prepare("UPDATE conversations SET kind = 'code-change' WHERE id = ?")
-    .run(conversation.id)
+  repoRelativePath?: string,
+): Promise<ResolveRepoResult> {
+  if (repoRelativePath) {
+    const candidateRoot = path.join(workspaceRoot, repoRelativePath)
+    const metadata = detectProjectWorkspaceMetadata(candidateRoot)
+    if (!metadata?.isGitRepo) {
+      return { ok: false, reason: 'no-repo' }
+    }
+    return { ok: true, repoRoot: metadata.repoRoot ?? candidateRoot, relativePath: repoRelativePath }
+  }
 
-  const result = createErrorReport({
-    title: 'Code Change',
-    description: 'Pending description',
-    includeLog: false,
-    includeScreenshot: false,
-    requestType: 'edit',
-    origin: 'chat',
-    projectId,
-    conversationId: conversation.id,
-    workspaceRoot,
-  })
+  const repos = await discoverReposInWorkspace(workspaceRoot)
+  if (repos.length === 0) {
+    return { ok: false, reason: 'no-repo' }
+  }
+  if (repos.length === 1) {
+    return { ok: true, repoRoot: repos[0].repoRoot, relativePath: repos[0].relativePath }
+  }
+  return { ok: false, reason: 'ambiguous', candidates: repos.map((r) => r.relativePath) }
+}
 
-  getDatabase()
-    .prepare('UPDATE error_reports SET repo_relative_path = ? WHERE id = ?')
-    .run(repoRelativePath, result.reportId)
-
-  return { conversationId: conversation.id, reportId: result.reportId }
+async function resolveRepoOrThrow(
+  workspaceRoot: string,
+  repoRelativePath?: string,
+): Promise<{ repoRoot: string; relativePath: string }> {
+  const result = await resolveCodeChangeRepo(workspaceRoot, repoRelativePath)
+  if (!result.ok) {
+    if (result.reason === 'ambiguous') {
+      throw new Error(
+        `Multiple git repos found in this workspace: ${result.candidates!.join(', ')}. Specify which one and try again.`,
+      )
+    }
+    if (repoRelativePath) {
+      // The user (or an earlier report) named a specific repo path — the workspace may well have
+      // other valid repos, so the generic "nothing found anywhere" message would be misleading.
+      throw new Error(
+        `"${repoRelativePath}" isn't a git repository under this project's workspace. Check the path and try again.`,
+      )
+    }
+    throw new Error(
+      "No git repository was found under this project's workspace. Initialize one (git init) in the folder you want to work in, then try again.",
+    )
+  }
+  return { repoRoot: result.repoRoot, relativePath: result.relativePath }
 }
 
 /**
- * Updates the step column for a code change request.
- * Single point of truth for step transitions.
+ * Updates the step column for a code change request. Purely descriptive status now (surfaced
+ * by /code-status) — it is no longer used to gate which actions are callable.
  */
 export function advanceStep(reportId: string, nextStep: 'describe' | 'plan-review' | 'executing' | 'verifying' | 'final-review' | 'attention'): void {
   const now = Date.now()
@@ -67,58 +98,107 @@ export function advanceStep(reportId: string, nextStep: 'describe' | 'plan-revie
     .prepare('UPDATE error_reports SET step = ?, updated_at = ? WHERE id = ?')
     .run(nextStep, now, reportId)
 
-  // Broadcast step change to mobile clients
   broadcastToMobile({
     event: 'code-change:step-updated',
     data: { reportId, step: nextStep },
   })
 }
 
+function snapshotPlanRevision(report: ErrorReportEntry): void {
+  if (!report.investigation_markdown) return
+  getDatabase()
+    .prepare(`
+      INSERT INTO code_change_plan_revisions (
+        id, report_id, revision_number, revision_notes,
+        plan_markdown, affected_files, outcome, created_at
+      ) SELECT
+        lower(hex(randomblob(16))), ?,
+        COALESCE((SELECT MAX(revision_number) FROM code_change_plan_revisions WHERE report_id = ?), 0) + 1,
+        ?, ?, ?, 'superseded', ?
+    `)
+    .run(
+      report.id,
+      report.id,
+      report.investigation_revision_notes || '',
+      report.investigation_markdown || '',
+      report.investigation_affected_files || '[]',
+      Date.now(),
+    )
+}
+
 /**
- * Step 2→3: User submits a natural-language description.
- * Invokes the planner (investigator), lands on `plan-review`.
+ * Creates (or reuses the existing) code change report for this conversation and runs the
+ * investigation against the given description. Re-running this on a conversation that already
+ * has a report is not a distinct "revise" action — it just snapshots the previous plan into
+ * revision history and re-investigates with the new text.
  */
 export async function submitDescription(
   win: BrowserWindow,
-  reportId: string,
-  description?: string,
-  revisionNotes?: string,
-): Promise<void> {
-  const report = getDatabase()
-    .prepare('SELECT * FROM error_reports WHERE id = ?')
-    .get(reportId) as ErrorReportEntry | undefined
+  conversationId: string,
+  projectId: string,
+  description: string,
+  opts: { repoRelativePath?: string; revisionNotes?: string } = {},
+): Promise<{ reportId: string }> {
+  const workspaceRoot = getProjectRootDirectory(projectId)
+  if (!workspaceRoot) {
+    throw new Error('This project does not have a configured workspace.')
+  }
 
-  if (!report) throw new Error(`Report ${reportId} not found`)
-  if (report.step !== 'describe') throw new Error(`Cannot submit description from step ${report.step}`)
+  const db = getDatabase()
+  const existingReport = db
+    .prepare('SELECT * FROM error_reports WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 1')
+    .get(conversationId) as ErrorReportEntry | undefined
 
-  if (description?.trim()) {
-    getDatabase()
-      .prepare('UPDATE error_reports SET title = ?, description = ?, updated_at = ? WHERE id = ?')
-      .run(description.trim().slice(0, 80) || 'Code change', description.trim(), Date.now(), reportId)
+  const resolved = await resolveRepoOrThrow(
+    workspaceRoot,
+    opts.repoRelativePath ?? existingReport?.repo_relative_path,
+  )
+
+  let reportId: string
+  const trimmedDescription = description.trim()
+
+  if (!existingReport) {
+    const result = createErrorReport({
+      title: trimmedDescription.slice(0, 80) || 'Code change',
+      description: trimmedDescription,
+      includeLog: false,
+      includeScreenshot: false,
+      requestType: 'edit',
+      origin: 'chat',
+      projectId,
+      conversationId,
+      workspaceRoot,
+    })
+    reportId = result.reportId
+    db.prepare('UPDATE error_reports SET repo_relative_path = ? WHERE id = ?').run(resolved.relativePath, reportId)
+  } else {
+    reportId = existingReport.id
+    snapshotPlanRevision(existingReport)
+    db.prepare(
+      'UPDATE error_reports SET title = ?, description = ?, repo_relative_path = ?, updated_at = ? WHERE id = ?',
+    ).run(
+      trimmedDescription.slice(0, 80) || 'Code change',
+      trimmedDescription,
+      resolved.relativePath,
+      Date.now(),
+      reportId,
+    )
+    advanceStep(reportId, 'describe')
   }
 
   try {
     const result = await runInvestigation(win, reportId, {
       onChunk: (chunk: string) => {
-        // Stream investigation progress to clients
-        broadcastToMobile({
-          event: 'code-change:investigation-chunk',
-          data: { reportId, chunk },
-        })
+        broadcastToMobile({ event: 'code-change:investigation-chunk', data: { reportId, chunk } })
       },
       onActivity: (activity) => {
-        broadcastToMobile({
-          event: 'code-change:investigation-activity',
-          data: { reportId, activity },
-        })
+        broadcastToMobile({ event: 'code-change:investigation-activity', data: { reportId, activity } })
       },
-    }, revisionNotes)
+    }, opts.revisionNotes)
 
     if (result.status === 'done') {
-      // Investigation succeeded; move to plan-review for user confirmation
       advanceStep(reportId, 'plan-review')
     } else {
-      // Investigation failed; move to attention state for user to revise
       advanceStep(reportId, 'attention')
       broadcastToMobile({
         event: 'code-change:error',
@@ -133,13 +213,13 @@ export async function submitDescription(
     })
     throw error
   }
+
+  return { reportId }
 }
 
 /**
- * Step 3→4→5→6: User accepts the plan. Composite action chains:
- *   accept plan → generate patch (execute) → apply patch → verify.
- * On success: advances through executing → verifying → final-review, auto-commits.
- * On failure: returns to attention state with error, user can revise from step 3.
+ * Runs the current plan: generate the patch, apply it, verify it, and auto-commit.
+ * Only precondition: a plan (investigation) must already exist for this report.
  */
 export async function acceptPlanAndExecute(
   win: BrowserWindow,
@@ -150,17 +230,12 @@ export async function acceptPlanAndExecute(
     .get(reportId) as ErrorReportEntry | undefined
 
   if (!report) throw new Error(`Report ${reportId} not found`)
-  if (report.step !== 'plan-review') throw new Error(`Cannot accept plan from step ${report.step}`)
+  if (!report.investigation_markdown) throw new Error('No plan yet — run /code-change first.')
 
   try {
-    // Step 3→4: Start execution
     advanceStep(reportId, 'executing')
-    broadcastToMobile({
-      event: 'code-change:status',
-      data: { reportId, status: 'Generating patch...' },
-    })
+    broadcastToMobile({ event: 'code-change:status', data: { reportId, status: 'Generating patch...' } })
 
-    // Run patch generation (fix-agent)
     const fixResult = await runFix(win, reportId, {
       onEvent: () => {
         // Events are emitted via broadcastToMobile by fix-agent itself
@@ -176,14 +251,9 @@ export async function acceptPlanAndExecute(
       return
     }
 
-    // Step 4→5: Move to verification
     advanceStep(reportId, 'verifying')
-    broadcastToMobile({
-      event: 'code-change:status',
-      data: { reportId, status: 'Verifying changes...' },
-    })
+    broadcastToMobile({ event: 'code-change:status', data: { reportId, status: 'Verifying changes...' } })
 
-    // Run verification
     const verifyResult = await runVerification(reportId, () => {
       // Events are emitted via broadcastToMobile by verifier itself
     })
@@ -197,20 +267,12 @@ export async function acceptPlanAndExecute(
       return
     }
 
-    // Step 5→6: Auto-commit and move to final-review
     advanceStep(reportId, 'final-review')
-    broadcastToMobile({
-      event: 'code-change:status',
-      data: { reportId, status: 'Creating commit...' },
-    })
+    broadcastToMobile({ event: 'code-change:status', data: { reportId, status: 'Creating commit...' } })
 
-    // Generate commit message via LLM
     const commitMessage = await generateCommitMessage(reportId)
-
-    // Auto-commit
     const commitResult = await commitRemoteEditFix(reportId, commitMessage)
     if (!commitResult.committed) {
-      // Commit failed but we still move to final-review (user can review and manually commit)
       broadcastToMobile({
         event: 'code-change:warning',
         data: { reportId, warning: `Could not auto-commit: ${commitResult.error ?? 'Unknown error'}` },
@@ -232,70 +294,9 @@ export async function acceptPlanAndExecute(
 }
 
 /**
- * Step 3 (loop-back): User revises the plan with additional notes.
- * Snapshots current plan to `code_change_plan_revisions`, re-invokes planner, returns to plan-review.
- */
-export async function revisePlan(
-  win: BrowserWindow,
-  reportId: string,
-  revisionNotes: string,
-): Promise<void> {
-  const report = getDatabase()
-    .prepare('SELECT * FROM error_reports WHERE id = ?')
-    .get(reportId) as ErrorReportEntry | undefined
-
-  if (!report) throw new Error(`Report ${reportId} not found`)
-  if (report.step !== 'plan-review' && report.step !== 'attention') {
-    throw new Error(`Cannot revise plan from step ${report.step}`)
-  }
-
-  const db = getDatabase()
-
-  try {
-    // Snapshot the current plan to revision history
-    if (report.investigation_markdown) {
-      const revisionStmt = db.prepare(`
-        INSERT INTO code_change_plan_revisions (
-          id, report_id, revision_number, revision_notes,
-          plan_markdown, affected_files, outcome, created_at
-        ) SELECT
-          lower(hex(randomblob(16))), ?,
-          COALESCE((SELECT MAX(revision_number) FROM code_change_plan_revisions WHERE report_id = ?), 0) + 1,
-          ?,
-          ?, ?,
-          CASE WHEN ? = 'attention' THEN 'execution-failed' ELSE 'superseded' END,
-          ?
-        WHERE 1=1
-      `)
-      revisionStmt.run(
-        reportId,
-        reportId,
-        report.investigation_revision_notes || '',
-        report.investigation_markdown || '',
-        report.investigation_affected_files || '[]',
-        report.step,
-        Date.now(),
-      )
-    }
-
-    // Return to describe step to re-run planning
-    advanceStep(reportId, 'describe')
-
-    // Re-run investigation with revision notes (description text is unchanged on a revise)
-    await submitDescription(win, reportId, undefined, revisionNotes)
-  } catch (error) {
-    advanceStep(reportId, 'attention')
-    broadcastToMobile({
-      event: 'code-change:error',
-      data: { reportId, error: error instanceof Error ? error.message : 'Unknown error during revision' },
-    })
-    throw error
-  }
-}
-
-/**
- * Step 6: Push the committed changes to the remote.
- * Manual action, available only in final-review.
+ * Pushes whatever has been committed for this report. No step precondition — git itself is
+ * the source of truth (e.g. it errors with "nothing to push" if there's no commit yet), so
+ * that real error surfaces to the user instead of an artificial gate short-circuiting it.
  */
 export async function pushCurrentCommit(reportId: string): Promise<void> {
   const report = getDatabase()
@@ -303,22 +304,15 @@ export async function pushCurrentCommit(reportId: string): Promise<void> {
     .get(reportId) as ErrorReportEntry | undefined
 
   if (!report) throw new Error(`Report ${reportId} not found`)
-  if (report.step !== 'final-review') throw new Error(`Cannot push from step ${report.step}`)
 
   try {
     const result = await pushRemoteEditFix(reportId)
     if (!result.pushed) {
-      broadcastToMobile({
-        event: 'code-change:error',
-        data: { reportId, error: result.error ?? 'Push failed' },
-      })
+      broadcastToMobile({ event: 'code-change:error', data: { reportId, error: result.error ?? 'Push failed' } })
       throw new Error(result.error ?? 'Push failed')
     }
 
-    broadcastToMobile({
-      event: 'code-change:pushed',
-      data: { reportId, message: 'Changes pushed successfully' },
-    })
+    broadcastToMobile({ event: 'code-change:pushed', data: { reportId, message: 'Changes pushed successfully' } })
   } catch (error) {
     broadcastToMobile({
       event: 'code-change:error',
@@ -326,6 +320,18 @@ export async function pushCurrentCommit(reportId: string): Promise<void> {
     })
     throw error
   }
+}
+
+/**
+ * Undoes the most recent applied fix for this report by restoring the pre-fix file backups,
+ * reusing the existing recovery plumbing (prepare + rollback) as-is.
+ */
+export async function undoCodeChange(reportId: string): Promise<{ rolledBack: boolean; error?: string }> {
+  const prepared = await prepareReload(reportId)
+  if (!prepared.canReload || !prepared.recovery) {
+    return { rolledBack: false, error: prepared.reason ?? 'Nothing to undo' }
+  }
+  return rollbackHeal(prepared.recovery.id)
 }
 
 /**
@@ -342,16 +348,13 @@ async function generateCommitMessage(reportId: string): Promise<string> {
   const title = report.title || 'Code changes'
 
   try {
-    // Try to generate a meaningful message using the investigation markdown
     const markdown = report.investigation_markdown || ''
     const frontMatterMatch = /^---\n([\s\S]*?)\n---\n?/.exec(markdown)
     const frontMatter = frontMatterMatch?.[1] ?? ''
 
-    // Extract affected files to provide context
     const affectedFilesMatch = /affected_files:\s*\[(.*?)\]/s.exec(frontMatter)
     const affectedFiles = affectedFilesMatch?.[1] ? affectedFilesMatch[1].split(',').map(f => f.trim().replace(/^['"]|['"]$/g, '')) : []
 
-    // Generate a brief, conventional commit message
     let message = `feat: ${title}`
     if (affectedFiles.length > 0 && affectedFiles.length <= 3) {
       message += `\n\nAffected files:\n${affectedFiles.map(f => `- ${f}`).join('\n')}`
@@ -359,21 +362,38 @@ async function generateCommitMessage(reportId: string): Promise<string> {
 
     return message
   } catch {
-    // Fallback to simple message
     return `fix: ${title}`
   }
 }
 
 /**
- * Look up the code change request backing a given (dedicated) conversation.
- * Used by clients that only know the conversation id (e.g. when re-opening
- * a code-change conversation) and need to resolve its reportId/step.
+ * Look up the code change request attached to a conversation, if any.
  */
 export function getReportForConversation(conversationId: string): ErrorReportEntry | null {
   const report = getDatabase()
     .prepare('SELECT * FROM error_reports WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 1')
     .get(conversationId) as ErrorReportEntry | undefined
   return report ?? null
+}
+
+/**
+ * Backs /code-status: the current report plus a fresh check that its resolved repo is still
+ * a valid git repo (it may have been deleted/moved since the report was created).
+ */
+export async function getReportSummary(conversationId: string): Promise<{
+  report: ErrorReportEntry | null
+  gitRepo: { ok: boolean; relativePath?: string; reason?: string }
+}> {
+  const report = getReportForConversation(conversationId)
+  if (!report || !report.workspace_root) return { report, gitRepo: { ok: false } }
+
+  const resolved = await resolveCodeChangeRepo(report.workspace_root, report.repo_relative_path)
+  return {
+    report,
+    gitRepo: resolved.ok
+      ? { ok: true, relativePath: resolved.relativePath }
+      : { ok: false, reason: resolved.reason },
+  }
 }
 
 /**
