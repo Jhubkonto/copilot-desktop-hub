@@ -1929,7 +1929,7 @@ export type IpcReturnMap = {
   }>
   'code-change:list-repos': Array<{ relativePath: string; branch: string; dirty: boolean }>
   'code-change:list-repo-files': string[]
-  'code-change:list-changed-files': string[]
+  'code-change:list-changed-files': Array<{ relativePath: string; staged: boolean }>
   'code-change:git-push': void
   'code-change:undo': { rolledBack: boolean; error?: string }
   'code-change:get-report': ErrorReportEntry | null
@@ -1974,6 +1974,8 @@ export type IpcReturnMap = {
   'code-change:push-branch': { ok: boolean; error?: string }
   'code-change:commit': { ok: boolean; error?: string }
   'code-change:discard-file': { ok: boolean; error?: string }
+  'code-change:stage-files': { ok: boolean; error?: string }
+  'code-change:unstage-files': { ok: boolean; error?: string }
   'code-change:stash': { ok: boolean; error?: string }
   'code-change:stash-pop': { ok: boolean; error?: string }
   'code-change:stash-count': number
@@ -2402,6 +2404,8 @@ export type IpcChannels =
   | 'code-change:push-branch'
   | 'code-change:commit'
   | 'code-change:discard-file'
+  | 'code-change:stage-files'
+  | 'code-change:unstage-files'
   | 'code-change:stash'
   | 'code-change:stash-pop'
   | 'code-change:stash-count'

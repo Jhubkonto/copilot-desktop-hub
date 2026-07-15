@@ -213,6 +213,10 @@ const api = {
     typedInvoke('code-change:commit', repoRoot, message, files),
   discardCodeChangeFile: (repoRoot: string, relativePath: string) =>
     typedInvoke('code-change:discard-file', repoRoot, relativePath),
+  stageCodeChangeFiles: (repoRoot: string, relativePaths: string[]) =>
+    typedInvoke('code-change:stage-files', repoRoot, relativePaths),
+  unstageCodeChangeFiles: (repoRoot: string, relativePaths: string[]) =>
+    typedInvoke('code-change:unstage-files', repoRoot, relativePaths),
   stashCodeChanges: (repoRoot: string, message?: string) => typedInvoke('code-change:stash', repoRoot, message),
   stashPopCodeChanges: (repoRoot: string) => typedInvoke('code-change:stash-pop', repoRoot),
   getCodeChangeStashCount: (repoRoot: string) => typedInvoke('code-change:stash-count', repoRoot),
