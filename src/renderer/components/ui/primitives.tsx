@@ -9,6 +9,7 @@ import {
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from 'react'
+import { createPortal } from 'react-dom'
 import { CheckCircle, X } from 'lucide-react'
 
 const FOCUSABLE_SELECTOR =
@@ -85,7 +86,11 @@ export function ModalShell({
   const panelRef = useRef<HTMLDivElement>(null)
   useFocusTrap(panelRef)
 
-  return (
+  // Portal to document.body so `fixed inset-0` always escapes the viewport regardless of
+  // whether an ancestor (e.g. a message-enter animation with a lingering transform from
+  // animation-fill-mode: both) has created a CSS containing block that would otherwise
+  // scope this "fixed" backdrop to that ancestor's bounds instead of the window.
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       data-testid="modal-backdrop"
@@ -130,7 +135,8 @@ export function ModalShell({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 

@@ -95,6 +95,22 @@ body {
   animation: message-enter 200ms ease-out both;
 }
 
+/* ── Streaming text reveal fade ── */
+@keyframes stream-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.stream-fade-in {
+  animation: stream-fade-in 260ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stream-fade-in {
+    animation: none;
+  }
+}
+
 /* ── Shimmer skeleton ── */
 @keyframes shimmer {
   from { background-position: -400px 0; }
