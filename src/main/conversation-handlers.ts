@@ -18,6 +18,7 @@ import {
   prepareConversationCompressionSummary,
   saveConversationCompressionSummary,
 } from "./conversation-compression";
+import { broadcastConversationMessages } from "./chat-handlers";
 import { parseConversationExport } from "./conversation-serialization";
 
 export {
@@ -159,6 +160,11 @@ export function registerConversationHandlers(): void {
         "INSERT INTO messages (id, conversation_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)",
       ).run(id, conversationId, role, content, now);
       db.prepare("UPDATE conversations SET updated_at = ? WHERE id = ?").run(now, conversationId);
+      // The caller that invoked this (e.g. a delayed code-change result) may have switched away
+      // from this conversation between starting the command and this insert landing — this
+      // notifies every window so whichever one currently has it open picks the message up live
+      // instead of only showing it after the user navigates away and back.
+      broadcastConversationMessages(conversationId);
       return db.prepare("SELECT * FROM messages WHERE id = ?").get(id);
     },
   );
