@@ -46,6 +46,17 @@ import {
   fetchRepo,
   mergeBranch,
   getChangedFiles,
+  initRepo,
+  detectGitCredentials,
+  pullRepo,
+  pushRepo,
+  commitChanges,
+  discardFileChanges,
+  stashChanges,
+  stashPop,
+  getStashCount,
+  deleteBranch,
+  getFileDiff,
 } from './code-change/git-manager'
 import { runProjectGeneratorChatForAndroid, createProjectFromSpec, getProjectGeneratorAgentSummaries, getProjectGeneratorModel } from './project-generator'
 import { runAgentGeneratorChatForAndroid, createAgentFromSpec, getAgentGeneratorModel } from './agent-generator'
@@ -876,6 +887,181 @@ export function registerWsHandlers(): void {
         }
         const result = await mergeBranch(repoRoot, sourceBranch)
         reply({ event: 'code-change:merged', data: result })
+      } catch (error) {
+        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+      }
+      return
+    }
+
+    if (command === 'code-change:init-repo') {
+      try {
+        const workspaceRoot = typeof data.workspaceRoot === 'string' ? data.workspaceRoot : ''
+        const relativePath = typeof data.relativePath === 'string' ? data.relativePath : undefined
+        if (!workspaceRoot) {
+          reply({ event: 'code-change:error', data: { error: 'Missing workspaceRoot' } })
+          return
+        }
+        const targetDir = relativePath ? pathModule.join(workspaceRoot, relativePath) : workspaceRoot
+        const result = await initRepo(targetDir)
+        reply({ event: 'code-change:repo-initialized', data: result })
+      } catch (error) {
+        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+      }
+      return
+    }
+
+    if (command === 'code-change:detect-credentials') {
+      try {
+        const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
+        if (!repoRoot) {
+          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot' } })
+          return
+        }
+        const result = await detectGitCredentials(repoRoot)
+        reply({ event: 'code-change:credentials', data: result })
+      } catch (error) {
+        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+      }
+      return
+    }
+
+    if (command === 'code-change:pull') {
+      try {
+        const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
+        const remote = typeof data.remote === 'string' ? data.remote : undefined
+        if (!repoRoot) {
+          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot' } })
+          return
+        }
+        const result = await pullRepo(repoRoot, remote)
+        reply({ event: 'code-change:pulled', data: result })
+      } catch (error) {
+        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+      }
+      return
+    }
+
+    if (command === 'code-change:push-branch') {
+      try {
+        const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
+        if (!repoRoot) {
+          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot' } })
+          return
+        }
+        const result = await pushRepo(repoRoot)
+        reply({ event: 'code-change:branch-pushed', data: result })
+      } catch (error) {
+        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+      }
+      return
+    }
+
+    if (command === 'code-change:commit') {
+      try {
+        const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
+        const message = typeof data.message === 'string' ? data.message : ''
+        if (!repoRoot || !message) {
+          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot or message' } })
+          return
+        }
+        const result = await commitChanges(repoRoot, message)
+        reply({ event: 'code-change:committed', data: result })
+      } catch (error) {
+        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+      }
+      return
+    }
+
+    if (command === 'code-change:discard-file') {
+      try {
+        const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
+        const relativePath = typeof data.relativePath === 'string' ? data.relativePath : ''
+        if (!repoRoot || !relativePath) {
+          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot or relativePath' } })
+          return
+        }
+        const result = await discardFileChanges(repoRoot, relativePath)
+        reply({ event: 'code-change:file-discarded', data: { ...result, relativePath } })
+      } catch (error) {
+        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+      }
+      return
+    }
+
+    if (command === 'code-change:stash') {
+      try {
+        const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
+        const message = typeof data.message === 'string' ? data.message : undefined
+        if (!repoRoot) {
+          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot' } })
+          return
+        }
+        const result = await stashChanges(repoRoot, message)
+        reply({ event: 'code-change:stashed', data: result })
+      } catch (error) {
+        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+      }
+      return
+    }
+
+    if (command === 'code-change:stash-pop') {
+      try {
+        const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
+        if (!repoRoot) {
+          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot' } })
+          return
+        }
+        const result = await stashPop(repoRoot)
+        reply({ event: 'code-change:stash-popped', data: result })
+      } catch (error) {
+        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+      }
+      return
+    }
+
+    if (command === 'code-change:stash-count') {
+      try {
+        const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
+        if (!repoRoot) {
+          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot' } })
+          return
+        }
+        const count = await getStashCount(repoRoot)
+        reply({ event: 'code-change:stash-count', data: { count } })
+      } catch (error) {
+        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+      }
+      return
+    }
+
+    if (command === 'code-change:delete-branch') {
+      try {
+        const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
+        const branchName = typeof data.branchName === 'string' ? data.branchName : ''
+        const deleteRemote = data.deleteRemote === true
+        const force = data.force === true
+        if (!repoRoot || !branchName) {
+          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot or branchName' } })
+          return
+        }
+        const result = await deleteBranch(repoRoot, branchName, { deleteRemote, force })
+        reply({ event: 'code-change:branch-deleted', data: { ...result, branchName } })
+      } catch (error) {
+        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+      }
+      return
+    }
+
+    if (command === 'code-change:file-diff') {
+      try {
+        const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
+        const relativePath = typeof data.relativePath === 'string' ? data.relativePath : ''
+        if (!repoRoot || !relativePath) {
+          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot or relativePath' } })
+          return
+        }
+        const result = await getFileDiff(repoRoot, relativePath)
+        reply({ event: 'code-change:file-diff', data: { ...result, relativePath } })
       } catch (error) {
         reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
       }

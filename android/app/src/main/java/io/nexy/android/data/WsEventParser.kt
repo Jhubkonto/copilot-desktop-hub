@@ -473,6 +473,87 @@ fun parseWsEvent(
                 )
             }
 
+            "code-change:repo-initialized" -> WsEvent.CodeChangeRepoInitialized(
+                ok = data?.optBoolean("ok", false) ?: false,
+                error = data?.nullableString("error"),
+            )
+
+            "code-change:credentials" -> {
+                val methodsArr = data?.optJSONArray("methods")
+                val methods = if (methodsArr != null) (0 until methodsArr.length()).mapNotNull { i ->
+                    val row = methodsArr.optJSONObject(i) ?: return@mapNotNull null
+                    WsEvent.CodeChangeCredentialMethod(
+                        label = row.optString("label"),
+                        detail = row.optString("detail"),
+                    )
+                } else emptyList()
+                WsEvent.CodeChangeCredentials(
+                    remoteUrl = data?.nullableString("remoteUrl"),
+                    host = data?.nullableString("host"),
+                    methods = methods,
+                )
+            }
+
+            "code-change:pulled" -> {
+                val filesArr = data?.optJSONArray("conflictedFiles")
+                val files = if (filesArr != null) (0 until filesArr.length()).mapNotNull { i ->
+                    val row = filesArr.optJSONObject(i) ?: return@mapNotNull null
+                    WsEvent.CodeChangeMergeConflictFile(
+                        relativePath = row.optString("relativePath"),
+                        content = row.optString("content"),
+                    )
+                } else emptyList()
+                WsEvent.CodeChangePulled(
+                    ok = data?.optBoolean("ok", false) ?: false,
+                    conflicted = data?.optBoolean("conflicted", false) ?: false,
+                    conflictedFiles = files,
+                    error = data?.nullableString("error"),
+                    summary = data?.nullableString("summary"),
+                )
+            }
+
+            "code-change:branch-pushed" -> WsEvent.CodeChangeBranchPushed(
+                ok = data?.optBoolean("ok", false) ?: false,
+                error = data?.nullableString("error"),
+            )
+
+            "code-change:committed" -> WsEvent.CodeChangeCommitted(
+                ok = data?.optBoolean("ok", false) ?: false,
+                error = data?.nullableString("error"),
+            )
+
+            "code-change:file-discarded" -> WsEvent.CodeChangeFileDiscarded(
+                ok = data?.optBoolean("ok", false) ?: false,
+                error = data?.nullableString("error"),
+                relativePath = data?.optString("relativePath") ?: "",
+            )
+
+            "code-change:stashed" -> WsEvent.CodeChangeStashed(
+                ok = data?.optBoolean("ok", false) ?: false,
+                error = data?.nullableString("error"),
+            )
+
+            "code-change:stash-popped" -> WsEvent.CodeChangeStashPopped(
+                ok = data?.optBoolean("ok", false) ?: false,
+                error = data?.nullableString("error"),
+            )
+
+            "code-change:stash-count" -> WsEvent.CodeChangeStashCount(
+                count = data?.optInt("count", 0) ?: 0,
+            )
+
+            "code-change:branch-deleted" -> WsEvent.CodeChangeBranchDeleted(
+                ok = data?.optBoolean("ok", false) ?: false,
+                error = data?.nullableString("error"),
+                branchName = data?.optString("branchName") ?: "",
+            )
+
+            "code-change:file-diff" -> WsEvent.CodeChangeFileDiff(
+                diff = data?.optString("diff") ?: "",
+                binary = data?.optBoolean("binary", false) ?: false,
+                relativePath = data?.optString("relativePath") ?: "",
+            )
+
             "error-report:error" -> WsEvent.ErrorReportError(
                 message = data?.optString("message") ?: "Unable to capture report",
             )

@@ -240,6 +240,28 @@ sealed class WsEvent {
         val error: String?,
         val summary: String?,
     ) : WsEvent()
+    data class CodeChangeRepoInitialized(val ok: Boolean, val error: String?) : WsEvent()
+    data class CodeChangeCredentialMethod(val label: String, val detail: String)
+    data class CodeChangeCredentials(
+        val remoteUrl: String?,
+        val host: String?,
+        val methods: List<CodeChangeCredentialMethod>,
+    ) : WsEvent()
+    data class CodeChangePulled(
+        val ok: Boolean,
+        val conflicted: Boolean,
+        val conflictedFiles: List<CodeChangeMergeConflictFile>,
+        val error: String?,
+        val summary: String?,
+    ) : WsEvent()
+    data class CodeChangeBranchPushed(val ok: Boolean, val error: String?) : WsEvent()
+    data class CodeChangeCommitted(val ok: Boolean, val error: String?) : WsEvent()
+    data class CodeChangeFileDiscarded(val ok: Boolean, val error: String?, val relativePath: String) : WsEvent()
+    data class CodeChangeStashed(val ok: Boolean, val error: String?) : WsEvent()
+    data class CodeChangeStashPopped(val ok: Boolean, val error: String?) : WsEvent()
+    data class CodeChangeStashCount(val count: Int) : WsEvent()
+    data class CodeChangeBranchDeleted(val ok: Boolean, val error: String?, val branchName: String) : WsEvent()
+    data class CodeChangeFileDiff(val diff: String, val binary: Boolean, val relativePath: String) : WsEvent()
     data class ConversationModelUpdated(val conversationId: String, val model: String?) : WsEvent()
     data class ConversationModeUpdated(val conversationId: String, val thinkingEffortOverride: String?, val fullAutoApproveOverride: Boolean?) : WsEvent()
     data class ConversationCreated(

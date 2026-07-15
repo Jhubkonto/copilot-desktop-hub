@@ -1989,6 +1989,48 @@ object WsRepository : WsClient {
     fun mergeCodeChangeBranch(repoRoot: String, sourceBranch: String) {
         send("code-change:merge-branch", mapOf("repoRoot" to repoRoot, "sourceBranch" to sourceBranch))
     }
+    fun initCodeChangeRepo(workspaceRoot: String, relativePath: String? = null) {
+        val payload = mutableMapOf<String, Any>("workspaceRoot" to workspaceRoot)
+        if (!relativePath.isNullOrBlank()) payload["relativePath"] = relativePath
+        send("code-change:init-repo", payload)
+    }
+    fun detectCodeChangeCredentials(repoRoot: String) {
+        send("code-change:detect-credentials", mapOf("repoRoot" to repoRoot))
+    }
+    fun pullCodeChangeRepo(repoRoot: String, remote: String? = null) {
+        val payload = mutableMapOf<String, Any>("repoRoot" to repoRoot)
+        if (!remote.isNullOrBlank()) payload["remote"] = remote
+        send("code-change:pull", payload)
+    }
+    fun pushCodeChangeBranch(repoRoot: String) {
+        send("code-change:push-branch", mapOf("repoRoot" to repoRoot))
+    }
+    fun commitCodeChangeFiles(repoRoot: String, message: String) {
+        send("code-change:commit", mapOf("repoRoot" to repoRoot, "message" to message))
+    }
+    fun discardCodeChangeFile(repoRoot: String, relativePath: String) {
+        send("code-change:discard-file", mapOf("repoRoot" to repoRoot, "relativePath" to relativePath))
+    }
+    fun stashCodeChanges(repoRoot: String, message: String? = null) {
+        val payload = mutableMapOf<String, Any>("repoRoot" to repoRoot)
+        if (!message.isNullOrBlank()) payload["message"] = message
+        send("code-change:stash", payload)
+    }
+    fun stashPopCodeChanges(repoRoot: String) {
+        send("code-change:stash-pop", mapOf("repoRoot" to repoRoot))
+    }
+    fun getCodeChangeStashCount(repoRoot: String) {
+        send("code-change:stash-count", mapOf("repoRoot" to repoRoot))
+    }
+    fun deleteCodeChangeBranch(repoRoot: String, branchName: String, deleteRemote: Boolean = false, force: Boolean = false) {
+        send(
+            "code-change:delete-branch",
+            mapOf("repoRoot" to repoRoot, "branchName" to branchName, "deleteRemote" to deleteRemote, "force" to force),
+        )
+    }
+    fun getCodeChangeFileDiff(repoRoot: String, relativePath: String) {
+        send("code-change:file-diff", mapOf("repoRoot" to repoRoot, "relativePath" to relativePath))
+    }
 
     fun createRemoteEditReport(
         title: String,
