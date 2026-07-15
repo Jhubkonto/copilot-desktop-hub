@@ -91,6 +91,7 @@ import {
   getAutomatedWorkflowRun,
   updateAutomatedWorkflowRunStepStatus,
   discardAutomatedWorkflowRun,
+  runAutomatedWorkflowTemplateAgain,
 } from './automated-workflow-runs'
 import {
   startAutomatedWorkflowRun,
@@ -2970,6 +2971,19 @@ export function registerWsHandlers(): void {
       if (!runId) { reply({ event: 'automated-workflow-runs:error', data: { message: 'Missing runId' } }); return }
       try {
         const detail = abortAutomatedWorkflowRun(runId)
+        reply({ event: 'automated-workflow-runs:detail', data: { run: detail } })
+      } catch (err) {
+        reply({ event: 'automated-workflow-runs:error', data: { message: err instanceof Error ? err.message : String(err) } })
+      }
+      return
+    }
+
+    if (command === 'automated-workflow-runs:run-again') {
+      const templateId = typeof data.templateId === 'string' ? data.templateId : ''
+      if (!templateId) { reply({ event: 'automated-workflow-runs:error', data: { message: 'Missing templateId' } }); return }
+      try {
+        const detail = runAutomatedWorkflowTemplateAgain(templateId)
+        broadcastToMobile({ event: 'automated-workflow-runs:detail', data: { run: detail } })
         reply({ event: 'automated-workflow-runs:detail', data: { run: detail } })
       } catch (err) {
         reply({ event: 'automated-workflow-runs:error', data: { message: err instanceof Error ? err.message : String(err) } })

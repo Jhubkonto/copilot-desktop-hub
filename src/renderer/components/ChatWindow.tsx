@@ -1221,11 +1221,11 @@ export function ChatWindow() {
   const contextBar = (
     <div className="border-b border-gray-200 dark:border-gray-700/80 bg-gray-50 dark:bg-gray-800/50">
     <div
-      className="flex items-center gap-2 px-4 h-9"
+      className="flex flex-wrap items-center gap-2 px-4 py-1.5"
       aria-label="Chat context"
     >
       <span
-        className="inline-flex items-center gap-1 px-2 rounded-full text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 select-none"
+        className="inline-flex items-center gap-1 px-2 rounded-full text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 select-none whitespace-nowrap"
         style={{ lineHeight: '20px' }}
         aria-label="Project context"
       >
@@ -1241,7 +1241,7 @@ export function ChatWindow() {
 
       {chatProject && workflowModeInfo && (
         <span
-          className="inline-flex items-center gap-1 px-2 rounded-full text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 select-none"
+          className="inline-flex items-center gap-1 px-2 rounded-full text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 select-none whitespace-nowrap"
           style={{ lineHeight: '20px' }}
           title={workflowModeInfo.title}
           aria-label={`Workflow mode: ${workflowModeInfo.label}`}
@@ -1252,7 +1252,7 @@ export function ChatWindow() {
       )}
 
       <span
-        className="inline-flex items-center gap-1 px-2 rounded-full text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 select-none"
+        className="inline-flex items-center gap-1 px-2 rounded-full text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 select-none whitespace-nowrap"
         style={{ lineHeight: '20px' }}
         aria-label="Agent context"
       >
@@ -1267,7 +1267,7 @@ export function ChatWindow() {
       </span>
 
       <span
-        className={`inline-flex items-center px-2 rounded-full text-xs font-medium border select-none ${backendChip.cls}`}
+        className={`inline-flex items-center px-2 rounded-full text-xs font-medium border select-none whitespace-nowrap ${backendChip.cls}`}
         style={{ lineHeight: '20px' }}
         title="Active backend for this conversation"
       >
@@ -1275,7 +1275,7 @@ export function ChatWindow() {
       </span>
       {lockModelToAgentBackend && (
         <span
-          className="inline-flex items-center gap-1 px-2 rounded-full text-xs font-medium bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 text-amber-700 dark:text-amber-300 select-none"
+          className="inline-flex items-center gap-1 px-2 rounded-full text-xs font-medium bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 text-amber-700 dark:text-amber-300 select-none whitespace-nowrap"
           style={{ lineHeight: '20px' }}
           title={`This chat is locked to ${backendChip.label} by the selected agent's Chat Backend setting.`}
           aria-label={`Chat backend locked by agent settings to ${backendChip.label}`}
@@ -1288,7 +1288,7 @@ export function ChatWindow() {
       <div className="ml-auto flex items-center gap-2">
         {projectRootDir && (
           <span
-            className="inline-flex items-center gap-1 px-2 rounded-full text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400"
+            className="inline-flex items-center gap-1 px-2 rounded-full text-xs font-medium bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 whitespace-nowrap"
             style={{ lineHeight: '20px' }}
             title={`File structure context active: ${projectRootDir}`}
             aria-label={`File structure context active: ${projectRootDir}`}
