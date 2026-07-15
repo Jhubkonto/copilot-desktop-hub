@@ -40,6 +40,11 @@ export async function listBranches(repoRoot: string): Promise<BranchList> {
       .split('\n')
       .map((line) => line.replace(/^\*?\s*/, '').trim())
       .filter((line) => line.length > 0 && !line.includes('->'))
+      // Claude Code's EnterWorktree tool checks out a real branch named "worktree-<slug>" for
+      // each agent worktree it creates under .claude/worktrees/ — internal session scratch
+      // branches, not something a user managing their project's own branches would ever want to
+      // see/checkout/merge here (same reasoning as excluding .claude/ from repo discovery).
+      .filter((branch) => !branch.startsWith('worktree-'))
   return { current, local: parse(localRaw), remote: parse(remoteRaw) }
 }
 

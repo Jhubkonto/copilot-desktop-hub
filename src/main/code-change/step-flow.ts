@@ -70,8 +70,10 @@ async function resolveRepoOrThrow(
   const result = await resolveCodeChangeRepo(workspaceRoot, repoRelativePath)
   if (!result.ok) {
     if (result.reason === 'ambiguous') {
+      const candidates = result.candidates!
       throw new Error(
-        `Multiple git repos found in this workspace: ${result.candidates!.join(', ')}. Specify which one and try again.`,
+        `Multiple git repos found in this workspace: ${candidates.join(', ')}. Put the one you want in brackets at ` +
+          `the start of the command, e.g. "/code-change [${candidates[0]}] <description>".`,
       )
     }
     if (repoRelativePath) {
@@ -145,6 +147,22 @@ export async function submitDescription(
   }
 
   const db = getDatabase()
+
+  // A conversation row is normally created lazily on its first *normal* chat message
+  // (chat-handlers.ts's dispatchChatSend) — but /code-change is designed to work as the very
+  // first action in any conversation, including a brand-new one where no chat message has ever
+  // been sent. Without this, error_reports and (once the plan lands) the messages insert both
+  // reference a conversation_id that doesn't exist yet — the messages insert has a real FOREIGN
+  // KEY constraint, so it crashed the whole app with an unhandled SqliteError the first time a
+  // user tried /code-change as their opening message in a fresh chat window.
+  const existingConversation = db.prepare('SELECT id FROM conversations WHERE id = ?').get(conversationId) as { id: string } | undefined
+  if (!existingConversation) {
+    const now = Date.now()
+    db.prepare(
+      'INSERT INTO conversations (id, agent_id, project_id, title, cli_backend, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    ).run(conversationId, null, projectId, description.slice(0, 80), null, now, now)
+  }
+
   const existingReport = db
     .prepare('SELECT * FROM error_reports WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 1')
     .get(conversationId) as ErrorReportEntry | undefined
@@ -374,6 +392,34 @@ export function getReportForConversation(conversationId: string): ErrorReportEnt
     .prepare('SELECT * FROM error_reports WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 1')
     .get(conversationId) as ErrorReportEntry | undefined
   return report ?? null
+}
+
+/**
+ * `investigation_markdown` is generated with a leading YAML front-matter block (confidence,
+ * root_cause, affected_files) — showing it raw would be exactly the "clunky, raw YAML dumped
+ * into the UI" complaint that motivated retiring the old wizard. The same three values are
+ * already parsed into their own report columns, so this formats a clean summary from those
+ * instead of re-displaying the YAML block. Mirrors formatPlanMessage in slash-commands.ts
+ * (renderer-only, not importable from main) — used here so the Android/WS path can persist the
+ * same clean plan text server-side instead of dumping raw markdown.
+ */
+export function formatPlanMessage(report: ErrorReportEntry): string {
+  const body = report.investigation_markdown
+    ? report.investigation_markdown.replace(/^---\n[\s\S]*?\n---\n?/, '').trim()
+    : ''
+  const metaLines: string[] = []
+  if (report.investigation_confidence) metaLines.push(`Confidence: ${report.investigation_confidence}`)
+  if (report.investigation_root_cause) metaLines.push(`Root cause: ${report.investigation_root_cause}`)
+  let affectedFiles: string[] = []
+  try {
+    const parsed = JSON.parse(report.investigation_affected_files || '[]')
+    if (Array.isArray(parsed)) affectedFiles = parsed.filter((f): f is string => typeof f === 'string')
+  } catch {
+    // Malformed/legacy affected_files JSON — omit rather than show a parse error.
+  }
+  if (affectedFiles.length > 0) metaLines.push(`Affected files: ${affectedFiles.join(', ')}`)
+  const meta = metaLines.length > 0 ? metaLines.map((line) => `- ${line}`).join('\n') : ''
+  return [meta, body].filter(Boolean).join('\n\n').trim()
 }
 
 /**

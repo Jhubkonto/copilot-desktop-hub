@@ -82,6 +82,13 @@ export async function discoverReposInWorkspace(rootDirectory: string): Promise<R
             'out',
             '.turbo',
             '.git', // Already handled above
+            // Claude Code's own tooling directory — agent worktrees created under
+            // .claude/worktrees/* are real git worktrees (each with its own .git file), but
+            // they're internal session scratch space, not a repo of the user's project. Without
+            // this exclusion, a lingering agent worktree makes an otherwise single-repo workspace
+            // look ambiguous and blocks /code-change with a disambiguation prompt the user has no
+            // real way to resolve (worktree paths aren't something they'd ever intentionally target).
+            '.claude',
           ]
           if (!skip.includes(entry.name)) {
             await scan(fullPath, depth + 1)
