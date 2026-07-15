@@ -355,8 +355,14 @@ fun parseWsEvent(
 
             "code-change:changed-files" -> {
                 val filesArr = data?.optJSONArray("files")
-                val files = if (filesArr != null) (0 until filesArr.length()).map { filesArr.optString(it) } else emptyList()
-                WsEvent.CodeChangeChangedFiles(files)
+                val files = if (filesArr != null) (0 until filesArr.length()).mapNotNull { i ->
+                    val row = filesArr.optJSONObject(i) ?: return@mapNotNull null
+                    WsEvent.ChangedFileInfo(
+                        relativePath = row.optString("relativePath"),
+                        staged = row.optBoolean("staged", false),
+                    )
+                } else emptyList()
+                WsEvent.CodeChangeChangedFiles(files, seq = data?.optInt("seq", 0) ?: 0)
             }
 
             "code-change:submitted", "code-change:accepted", "code-change:pushed", "code-change:completed" -> WsEvent.CodeChangeAck(
@@ -437,6 +443,7 @@ fun parseWsEvent(
                     current = data?.optString("current") ?: "",
                     local = if (localArr != null) (0 until localArr.length()).map { localArr.optString(it) } else emptyList(),
                     remote = if (remoteArr != null) (0 until remoteArr.length()).map { remoteArr.optString(it) } else emptyList(),
+                    seq = data?.optInt("seq", 0) ?: 0,
                 )
             }
 
@@ -552,6 +559,17 @@ fun parseWsEvent(
                 diff = data?.optString("diff") ?: "",
                 binary = data?.optBoolean("binary", false) ?: false,
                 relativePath = data?.optString("relativePath") ?: "",
+                seq = data?.optInt("seq", 0) ?: 0,
+            )
+
+            "code-change:staged" -> WsEvent.CodeChangeStaged(
+                ok = data?.optBoolean("ok", false) ?: false,
+                error = data?.nullableString("error"),
+            )
+
+            "code-change:unstaged" -> WsEvent.CodeChangeUnstaged(
+                ok = data?.optBoolean("ok", false) ?: false,
+                error = data?.nullableString("error"),
             )
 
             "error-report:error" -> WsEvent.ErrorReportError(

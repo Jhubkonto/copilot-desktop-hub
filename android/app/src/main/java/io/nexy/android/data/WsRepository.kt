@@ -1967,11 +1967,11 @@ object WsRepository : WsClient {
     fun listCodeChangeRepos(workspaceRoot: String) {
         send("code-change:list-repos", mapOf("workspaceRoot" to workspaceRoot))
     }
-    fun listCodeChangeChangedFiles(repoRoot: String) {
-        send("code-change:list-changed-files", mapOf("repoRoot" to repoRoot))
+    fun listCodeChangeChangedFiles(repoRoot: String, seq: Int = 0) {
+        send("code-change:list-changed-files", mapOf("repoRoot" to repoRoot, "seq" to seq))
     }
-    fun listCodeChangeBranches(repoRoot: String) {
-        send("code-change:list-branches", mapOf("repoRoot" to repoRoot))
+    fun listCodeChangeBranches(repoRoot: String, seq: Int = 0) {
+        send("code-change:list-branches", mapOf("repoRoot" to repoRoot, "seq" to seq))
     }
     fun checkoutCodeChangeBranch(repoRoot: String, branchName: String) {
         send("code-change:checkout-branch", mapOf("repoRoot" to repoRoot, "branchName" to branchName))
@@ -2028,8 +2028,14 @@ object WsRepository : WsClient {
             mapOf("repoRoot" to repoRoot, "branchName" to branchName, "deleteRemote" to deleteRemote, "force" to force),
         )
     }
-    fun getCodeChangeFileDiff(repoRoot: String, relativePath: String) {
-        send("code-change:file-diff", mapOf("repoRoot" to repoRoot, "relativePath" to relativePath))
+    fun getCodeChangeFileDiff(repoRoot: String, relativePath: String, seq: Int = 0) {
+        send("code-change:file-diff", mapOf("repoRoot" to repoRoot, "relativePath" to relativePath, "seq" to seq))
+    }
+    fun stageCodeChangeFiles(repoRoot: String, relativePaths: List<String>) {
+        send("code-change:stage-files", mapOf("repoRoot" to repoRoot, "relativePaths" to relativePaths))
+    }
+    fun unstageCodeChangeFiles(repoRoot: String, relativePaths: List<String>) {
+        send("code-change:unstage-files", mapOf("repoRoot" to repoRoot, "relativePaths" to relativePaths))
     }
 
     fun createRemoteEditReport(
