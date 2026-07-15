@@ -459,20 +459,27 @@ fun NavGraph(
                 onOpenWiki = { navController.navigate("wiki/${Uri.encode(projectId)}") },
                 onOpenArtifacts = { navController.navigate("artifacts?artifactId=") },
                 onOpenAutomatedWorkflow = { navController.navigate("automated-workflow/${Uri.encode(projectId)}") },
-                onOpenFileExplorer = { navController.navigate("file-explorer?projectId=${Uri.encode(projectId)}") },
+                onOpenFileExplorer = { startPath ->
+                    navController.navigate("file-explorer?projectId=${Uri.encode(projectId)}&startPath=${Uri.encode(startPath)}")
+                },
             )
         }
 
         composable(
-            route = "file-explorer?projectId={projectId}",
-            arguments = listOf(navArgument("projectId") { type = NavType.StringType; defaultValue = "" }),
-        ) {
+            route = "file-explorer?projectId={projectId}&startPath={startPath}",
+            arguments = listOf(
+                navArgument("projectId") { type = NavType.StringType; defaultValue = "" },
+                navArgument("startPath") { type = NavType.StringType; defaultValue = "" },
+            ),
+        ) { backStackEntry ->
+            val startPath = backStackEntry.arguments?.getString("startPath").orEmpty()
             FileExplorerScreen(
                 onBack = { navController.popBackStack() },
                 onFolderSelected = { path ->
                     WsRepository.pendingSelectedDirectory.value = path
                     navController.popBackStack()
                 },
+                initialPath = startPath,
             )
         }
 
