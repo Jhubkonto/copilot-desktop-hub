@@ -401,6 +401,22 @@ export function useChat({
     }
   }, [markConversationGenerating])
 
+  // A message can land in this conversation from outside the current render entirely — e.g. a
+  // /code-change plan finishing while the investigation ran in the background, well after the
+  // slash command's own await returned. Without this, that result was only ever visible after
+  // navigating away from the conversation and back (the next mount re-fetches from the DB);
+  // this makes it show up live if the conversation is already open when it lands.
+  useEffect(() => {
+    const unsubscribeMessagesUpdated = window.api.onMessagesUpdated(({ conversationId: updatedId }) => {
+      if (updatedId === activeConversationRef.current) {
+        reloadMessagesRef.current()
+      }
+    })
+    return () => {
+      unsubscribeMessagesUpdated()
+    }
+  }, [])
+
   // liveTurnState is already scoped to the active conversationId (useChatLiveTurn drops
   // events for any other conversation), so a turn belonging to a background conversation
   // never reaches it. This raw, unfiltered subscription is the one place that still needs

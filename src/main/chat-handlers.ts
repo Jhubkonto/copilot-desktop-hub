@@ -25,6 +25,7 @@ import { ClaudeAdapter } from './cli-adapters/claude'
 import { CodexAdapter } from './cli-adapters/codex'
 import { getCliModels } from './cli-detection'
 import { retrieveAuthMode } from './auth'
+import { resolveEffectiveBackend } from './backend-routing'
 import { applyRollingContextCompression } from './context-compression'
 import { getAgentConfig } from './agents'
 import { isFullAutoApprove } from './agentic-policy'
@@ -61,13 +62,23 @@ function persistAssistantMessage(
   return msgId
 }
 
-function broadcastConversationMessages(conversationId: string): void {
+/** Notifies both Android (full message list, its existing sync shape) and any desktop window
+ *  that has this conversation open (a lightweight "refetch if you care" ping — reloadMessages in
+ *  useChat.ts already knows how to re-fetch from the DB, no need to duplicate that payload shape
+ *  here) that this conversation's messages changed from outside whatever renderer/device
+ *  originated the change. Exported for callers outside normal chat dispatch — e.g. a
+ *  code-change plan landing while the investigation ran in the background — that also insert
+ *  messages directly into the DB and need the same live-refresh. */
+export function broadcastConversationMessages(conversationId: string): void {
   const db = getDatabase()
   const rows = db.prepare(
     `SELECT id, role, content, model, attachments, timestamp, thinking_blocks FROM messages
        WHERE conversation_id = ? ORDER BY timestamp ASC`,
   ).all(conversationId)
   broadcastToMobile({ event: 'conversation:messages', data: { conversationId, messages: rows } })
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send('chat:messages-updated', { conversationId })
+  }
 }
 
 type ChatSendOptions = {
@@ -603,33 +614,13 @@ export async function dispatchChatSend(
     : []
   const agentHasAssignedMcpServers = assignedAgentMcpServerIds.length > 0
   const byokKeyForModel = getApiKey(providerName)
-  // A model in the OpenRouter cache is BYOK unless the agent explicitly forces a CLI backend.
-  // This still prevents stale conversation cli_backend values from hijacking provider chats.
-  const selectedModelIsOpenRouter = getOpenRouterModels().includes(selectedModel)
-  let fallbackCliBackend: 'claude-cli' | 'codex-cli' | undefined
-  // An explicit cliBackend request (e.g. from the Android WS path) always wins,
-  // regardless of auth mode or BYOK key availability.
-  if (cliBackend === 'codex-cli' && CodexAdapter.isAvailable()) {
-    fallbackCliBackend = 'codex-cli'
-  } else if (cliBackend === 'claude-cli' && ClaudeAdapter.isAvailable()) {
-    fallbackCliBackend = 'claude-cli'
-  } else if (agentBackend === 'codex-cli' && CodexAdapter.isAvailable()) {
-    // Agent-level forced backend constrains routing for the whole conversation.
-    fallbackCliBackend = 'codex-cli'
-  } else if (agentBackend === 'claude-cli' && ClaudeAdapter.isAvailable()) {
-    fallbackCliBackend = 'claude-cli'
-  } else if (!selectedModelIsOpenRouter && convRow?.cli_backend === 'codex-cli' && CodexAdapter.isAvailable()) {
-    // User explicitly picked a Codex CLI model in this conversation.
-    fallbackCliBackend = 'codex-cli'
-  } else if (!selectedModelIsOpenRouter && convRow?.cli_backend === 'claude-cli' && ClaudeAdapter.isAvailable()) {
-    fallbackCliBackend = 'claude-cli'
-  } else if (retrieveAuthMode() === 'none') {
-    // No explicit backend — fall back to CLI only when there's no BYOK key.
-    if (!byokKeyForModel) {
-      if (ClaudeAdapter.isAvailable()) fallbackCliBackend = 'claude-cli'
-      else if (CodexAdapter.isAvailable()) fallbackCliBackend = 'codex-cli'
-    }
-  }
+  const fallbackCliBackend = resolveEffectiveBackend({
+    cliBackend,
+    agentBackend,
+    convCliBackend: convRow?.cli_backend,
+    selectedModel,
+    providerName,
+  })
   const effectiveBackend = fallbackCliBackend ?? agentBackend
   debugLog('chat', `routing: authMode=${retrieveAuthMode()} byokKey=${byokKeyForModel ? 'yes' : 'no'} agentBackend=${agentBackend ?? 'none'} fallbackCli=${fallbackCliBackend ?? 'none'} effectiveBackend=${effectiveBackend ?? 'byok'}`)
 
