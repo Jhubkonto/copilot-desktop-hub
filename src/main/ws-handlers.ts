@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto'
 import { safeHandle } from './safe-handle'
 import { getDatabase } from './database'
 import { abortActiveStream, PROVIDERS, getOpenRouterModels, isProviderConfigured } from './providers'
-import { dispatchChatSend } from './chat-handlers'
+import { dispatchChatSend, broadcastConversationMessages } from './chat-handlers'
 import { debugLog } from './debug-mode'
 import { getCliModels } from './cli-detection'
 import { getCachedCatalog } from './model-catalog'
@@ -36,6 +36,7 @@ import {
   getRevisionHistory,
   getReportForConversation,
   getReportSummary,
+  formatPlanMessage,
 } from './code-change/step-flow'
 import { discoverReposInWorkspace, listRepoFiles } from './code-change/repo-discovery'
 import {
@@ -633,6 +634,27 @@ export function registerWsHandlers(): void {
         }
         debugLog('ws', `code-change:submit-description conversationId=${conversationId}`)
         submitDescription(win, conversationId, projectId, description, { repoRelativePath }).then((result) => {
+          // Persists the plan as a real message here rather than relying on the Android client
+          // still being connected to react to the 'code-change:submitted' event below — the
+          // investigation can run for minutes, during which the app very plausibly backgrounds
+          // or the user navigates away, and a ChatViewModel instance that isn't alive to catch
+          // that event would otherwise mean the plan is never shown anywhere. Desktop doesn't
+          // need this: its /code-change slash command awaits this same call directly within the
+          // renderer that started it, so it already reliably shows the result itself — adding a
+          // second copy here would just duplicate that message for desktop.
+          const report = getReportForConversation(conversationId)
+          if (report?.investigation_markdown) {
+            const db = getDatabase()
+            const now = Date.now()
+            db.prepare('INSERT INTO messages (id, conversation_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)')
+              .run(randomUUID(), conversationId, 'system', `**Plan ready:**\n\n${formatPlanMessage(report)}`, now)
+            db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(now, conversationId)
+            // Covers both live-refresh cases: Android's existing conversation:messages sync, and
+            // any desktop window that has this same conversation open right now (e.g. viewing the
+            // same account from both devices) picking it up via chat:messages-updated instead of
+            // only seeing it after navigating away and back.
+            broadcastConversationMessages(conversationId)
+          }
           reply({ event: 'code-change:submitted', data: result })
         }).catch((error) => {
           reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
