@@ -75,6 +75,8 @@ function createContext(): SlashCommandContext {
     codeChangeStash: vi.fn().mockResolvedValue({ ok: true }),
     codeChangeStashPop: vi.fn().mockResolvedValue({ ok: true }),
     codeChangeDeleteBranch: vi.fn().mockResolvedValue({ ok: true }),
+    codeChangeStageFiles: vi.fn().mockResolvedValue({ ok: true }),
+    codeChangeUnstageFiles: vi.fn().mockResolvedValue({ ok: true }),
   }
 }
 
