@@ -173,7 +173,15 @@ export interface ChangedFileEntry {
  * distinct from `repo-discovery.ts`'s `listRepoFiles` which returns every tracked file.
  */
 export async function getChangedFiles(repoRoot: string): Promise<ChangedFileEntry[]> {
-  const output = await git(['status', '--porcelain'], repoRoot).catch(() => '')
+  // Deliberately not using the shared `git()` helper here — its whole-string `.trim()` eats the
+  // leading status-column space of the *first* line only (e.g. " M foo.kt\n M bar.kt".trim() ==
+  // "M foo.kt\n M bar.kt"), which shifted that one line's status/path parsing below by a
+  // character and made the first changed file wrongly look staged with a mangled, non-existent
+  // path (so its diff came back empty). Every other line is unaffected since trim only strips
+  // the very start/end of the whole string — this is why only the first entry was ever wrong.
+  const output = await execFileAsync('git', ['status', '--porcelain'], { cwd: repoRoot, timeout: 15000 })
+    .then((r) => r.stdout)
+    .catch(() => '')
   return output
     .split('\n')
     .filter((line) => line.length > 0)
