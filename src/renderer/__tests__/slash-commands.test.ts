@@ -154,7 +154,13 @@ describe('slash-commands', () => {
   it('sc-15: /code-change <description> creates the request', async () => {
     const ctx = createContext()
     await expect(executeSlashCommand('/code-change fix the login bug', ctx)).resolves.toBe('handled')
-    expect(ctx.codeChangeSubmitDescription).toHaveBeenCalledWith('fix the login bug')
+    expect(ctx.codeChangeSubmitDescription).toHaveBeenCalledWith('fix the login bug', undefined)
+  })
+
+  it('sc-15b: /code-change [repo] <description> passes the bracketed repo hint separately', async () => {
+    const ctx = createContext()
+    await expect(executeSlashCommand('/code-change [frontend] fix the login bug', ctx)).resolves.toBe('handled')
+    expect(ctx.codeChangeSubmitDescription).toHaveBeenCalledWith('fix the login bug', 'frontend')
   })
 
   it('sc-16: /code-change surfaces an error via pushPersistentMessage on failure', async () => {

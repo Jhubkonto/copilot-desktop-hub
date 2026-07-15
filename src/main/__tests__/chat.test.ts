@@ -72,6 +72,7 @@ vi.mock('../database', () => ({
 vi.mock('electron', () => ({
   BrowserWindow: {
     fromWebContents: () => ({ webContents: { send: state.send, isDestroyed: () => false } }),
+    getAllWindows: () => [],
   },
 }))
 

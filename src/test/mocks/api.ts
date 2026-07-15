@@ -49,6 +49,7 @@ export function createMockApi() {
     getActiveInvestigation: vi.fn().mockResolvedValue({ running: false, activity: [], output: '' }),
     getActiveCodeChanges: vi.fn().mockResolvedValue({}),
     onActiveCodeChangesChanged: vi.fn().mockReturnValue(() => {}),
+    onMessagesUpdated: vi.fn().mockReturnValue(() => {}),
     onInvestigationActivity: vi.fn().mockReturnValue(() => {}),
     onInvestigationChunk: vi.fn().mockReturnValue(() => {}),
     onInvestigationDone: vi.fn().mockReturnValue(() => {}),
