@@ -458,6 +458,7 @@ export function createMockApi() {
     skipAutomatedWorkflowStep: vi.fn().mockResolvedValue(null),
     abortAutomatedWorkflowRun: vi.fn().mockResolvedValue(null),
     setAutomatedWorkflowConfirmationMode: vi.fn().mockResolvedValue(null),
+    runAutomatedWorkflowFromTemplate: vi.fn().mockResolvedValue(null),
     onAutomatedWorkflowStepStream: vi.fn().mockReturnValue(() => {}),
     listWikiEntries: vi.fn().mockResolvedValue([]),
     createWikiEntry: vi.fn().mockResolvedValue({
