@@ -103,6 +103,7 @@ function makeRunDetail(overrides: Partial<AutomatedWorkflowRunDetail> = {}): Aut
     stepCounts: { total: 1, pending: 1, running: 0, awaitingConfirmation: 0, done: 0, failed: 0, skipped: 0 },
     createdAt: 0,
     updatedAt: 0,
+    templateId: null,
     assumptions: [],
     steps: [],
     ...overrides,

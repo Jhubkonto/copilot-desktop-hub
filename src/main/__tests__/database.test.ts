@@ -48,7 +48,7 @@ describe('database migrations', () => {
     initializeBaseSchema(db)
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(74)
+    expect(db.pragma('user_version', { simple: true })).toBe(75)
     expect(getColumnNames(db, 'projects')).toEqual(
       expect.arrayContaining(['default_model', 'config_json'])
     )
@@ -129,7 +129,10 @@ describe('database migrations', () => {
       expect.arrayContaining(['model'])
     )
     expect(getColumnNames(db, 'automated_workflow_runs')).toEqual(
-      expect.arrayContaining(['project_id', 'scheduled_run_id', 'spec_sort_order'])
+      expect.arrayContaining(['project_id', 'scheduled_run_id', 'spec_sort_order', 'template_id'])
+    )
+    expect(getColumnNames(db, 'automated_workflow_templates')).toEqual(
+      expect.arrayContaining(['id', 'project_id', 'title', 'goal_summary', 'assumptions_json', 'steps_json', 'model', 'source_run_id', 'created_at', 'updated_at'])
     )
     expect(getColumnNames(db, 'scheduled_tasks')).toEqual(
       expect.arrayContaining(['target_type'])
@@ -182,7 +185,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(74)
+    expect(db.pragma('user_version', { simple: true })).toBe(75)
     expect(db.prepare('SELECT project_id FROM automated_workflow_runs WHERE id = ?').get('run-1'))
       .toEqual({ project_id: 'proj-1' })
     expect(() => {
@@ -209,6 +212,43 @@ describe('database migrations', () => {
 
     expect(db.prepare('SELECT target_type FROM scheduled_tasks WHERE id = ?').get('task-1'))
       .toEqual({ target_type: 'chat' })
+  })
+
+  it('does not crash calling initializeBaseSchema again against a pre-migration-75 database on a simulated app restart', () => {
+    // Reproduces a real startup sequence (initializeSchema() calls initializeBaseSchema(db) then
+    // runMigrations(db) unconditionally, every single launch, not just on first install). A
+    // database created before migration 75 already has automated_workflow_runs without a
+    // template_id column — CREATE TABLE IF NOT EXISTS in initializeBaseSchema is then a no-op on
+    // that pre-existing table, so any statement in that same base-schema batch that assumes
+    // template_id already exists (e.g. an index on it) crashes the whole app on startup instead
+    // of leaving the column to be added by migration 75's own ALTER TABLE, which runs right after.
+    const db = createDatabase()
+    initializeBaseSchema(db)
+    const migrationsUpTo74 = MIGRATIONS.filter((migration) => migration.version <= 74)
+    runMigrations(db, migrationsUpTo74)
+    expect(getColumnNames(db, 'automated_workflow_runs')).not.toContain('template_id')
+
+    expect(() => initializeBaseSchema(db)).not.toThrow()
+    expect(() => runMigrations(db)).not.toThrow()
+
+    expect(getColumnNames(db, 'automated_workflow_runs')).toContain('template_id')
+    expect(db.pragma('user_version', { simple: true })).toBe(75)
+  })
+
+  it('describes automated_workflow_templates and the widened automated_workflow_runs identically on a fresh install vs. an incrementally-migrated install (migration 75)', () => {
+    const freshDb = createDatabase()
+    initializeBaseSchema(freshDb)
+    runMigrations(freshDb)
+
+    const incrementalDb = createDatabase()
+    initializeBaseSchema(incrementalDb)
+    const migrationsUpTo74 = MIGRATIONS.filter((migration) => migration.version <= 74)
+    runMigrations(incrementalDb, migrationsUpTo74)
+    runMigrations(incrementalDb)
+
+    for (const table of ['automated_workflow_templates', 'automated_workflow_runs']) {
+      expect(getColumnNames(incrementalDb, table).sort()).toEqual(getColumnNames(freshDb, table).sort())
+    }
   })
 
   it('renames legacy self_heal_* tables to remote_edit_* left behind by an in-place migration edit', () => {
@@ -260,7 +300,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(74)
+    expect(db.pragma('user_version', { simple: true })).toBe(75)
     const tableNames = (
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>
     ).map((row) => row.name)
@@ -297,7 +337,7 @@ describe('database migrations', () => {
       runMigrations(db)
       runMigrations(db)
     }).not.toThrow()
-    expect(db.pragma('user_version', { simple: true })).toBe(74)
+    expect(db.pragma('user_version', { simple: true })).toBe(75)
   })
 
   it('only runs pending migrations for a partial upgrade', () => {
@@ -351,7 +391,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(74)
+    expect(db.pragma('user_version', { simple: true })).toBe(75)
     expect(getColumnNames(db, 'messages')).toEqual(
       expect.arrayContaining(['is_edited', 'previous_content', 'context_snapshot'])
     )
@@ -414,7 +454,7 @@ describe('database migrations', () => {
 
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(74)
+    expect(db.pragma('user_version', { simple: true })).toBe(75)
     expect(() => insertMessageWithRole(db, 'tool-call')).not.toThrow()
     expect(
       db.prepare("SELECT COUNT(*) AS count FROM messages WHERE role = ?").get('assistant')
@@ -518,7 +558,7 @@ describe('database migrations', () => {
     initializeBaseSchema(db)
     runMigrations(db)
 
-    expect(db.pragma('user_version', { simple: true })).toBe(74)
+    expect(db.pragma('user_version', { simple: true })).toBe(75)
     expect(getColumnNames(db, 'error_reports')).toEqual(
       expect.arrayContaining(['request_type', 'request_origin', 'workspace_root', 'project_id', 'custom_type_label', 'step', 'repo_relative_path']),
     )

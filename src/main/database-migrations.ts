@@ -1383,6 +1383,36 @@ export const MIGRATIONS: ReadonlyArray<Migration> = [
       DELETE FROM messages WHERE role = 'system' AND content GLOB '__code-change-ref:*';
     `,
   },
+  {
+    // Automated Workflow gains a template concept, decoupled from run (execution) history —
+    // a generated plan is no longer single-use. automated_workflow_templates stores only the
+    // spec shape (title/goalSummary/assumptions/steps), a strict subset of what already flows
+    // through saveAutomatedWorkflowRunFromSpec, so "run again" is just: load template -> build
+    // an AutomatedWorkflowSpec -> call the existing save-spec path with a null run id. Plain
+    // TEXT project_id/template_id (no FOREIGN KEY ... REFERENCES), matching migration 67/69's
+    // established precedent for this table family.
+    version: 75,
+    sql: `
+      CREATE TABLE IF NOT EXISTS automated_workflow_templates (
+        id TEXT PRIMARY KEY,
+        project_id TEXT,
+        title TEXT NOT NULL,
+        goal_summary TEXT NOT NULL DEFAULT '',
+        assumptions_json TEXT NOT NULL DEFAULT '[]',
+        steps_json TEXT NOT NULL DEFAULT '[]',
+        model TEXT,
+        source_run_id TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_automated_workflow_templates_project_updated
+        ON automated_workflow_templates(project_id, updated_at DESC);
+
+      ALTER TABLE automated_workflow_runs ADD COLUMN template_id TEXT;
+      CREATE INDEX IF NOT EXISTS idx_automated_workflow_runs_template
+        ON automated_workflow_runs(template_id);
+    `,
+  },
 ];
 
 
@@ -1570,10 +1600,35 @@ export function initializeBaseSchema(db: Database.Database): void {
       started_at INTEGER,
       completed_at INTEGER,
       scheduled_run_id TEXT,
-      spec_sort_order INTEGER
+      spec_sort_order INTEGER,
+      template_id TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_automated_workflow_runs_project_updated
       ON automated_workflow_runs(project_id, updated_at DESC);
+    -- idx_automated_workflow_runs_template is deliberately NOT created here — this whole
+    -- CREATE TABLE is a no-op on any pre-existing (pre-migration-75) database, since
+    -- CREATE TABLE IF NOT EXISTS skips a table that already exists without adding new columns
+    -- to it. Indexing template_id here would crash initializeBaseSchema() on every existing
+    -- install with "no such column: template_id", since this whole function runs unconditionally
+    -- on every startup, before runMigrations() gets a chance to actually add the column via
+    -- migration 75. Migration 75 creates this exact index itself (via runMigrations(), which
+    -- always replays after initializeBaseSchema for both fresh and existing databases), so
+    -- nothing is lost by leaving it out here.
+
+    CREATE TABLE IF NOT EXISTS automated_workflow_templates (
+      id TEXT PRIMARY KEY,
+      project_id TEXT,
+      title TEXT NOT NULL,
+      goal_summary TEXT NOT NULL DEFAULT '',
+      assumptions_json TEXT NOT NULL DEFAULT '[]',
+      steps_json TEXT NOT NULL DEFAULT '[]',
+      model TEXT,
+      source_run_id TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_automated_workflow_templates_project_updated
+      ON automated_workflow_templates(project_id, updated_at DESC);
 
     CREATE TABLE IF NOT EXISTS automated_workflow_run_steps (
       id TEXT PRIMARY KEY,
