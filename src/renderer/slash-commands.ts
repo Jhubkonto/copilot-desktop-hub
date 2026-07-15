@@ -77,7 +77,7 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   { name: '/quiz', usage: '/quiz [model]', description: 'Quiz yourself on this session (generates a debrief first if needed)' },
   { name: '/complete', usage: '/complete', description: 'Mark this conversation complete' },
   { name: '/incomplete', usage: '/incomplete', description: 'Mark this conversation incomplete' },
-  { name: '/code-change', usage: '/code-change <description>', description: 'Describe a change; the AI investigates and proposes a plan' },
+  { name: '/code-change', usage: '/code-change [repo] <description>', description: 'Describe a change; the AI investigates and proposes a plan. Add [repo] first if this workspace has more than one git repo' },
   { name: '/code-plan', usage: '/code-plan', description: 'Show the current code change plan for this conversation' },
   { name: '/code-execute', usage: '/code-execute', description: 'Run the current plan: apply the fix, verify it, and commit' },
   { name: '/code-push', usage: '/code-push', description: 'Push the committed code change to the remote' },
@@ -587,11 +587,22 @@ export async function executeSlashCommand(
     }
     case '/code-change': {
       if (!argText) {
-        ctx.pushSystemMessage('Usage: /code-change <description of the change you want>')
+        ctx.pushSystemMessage('Usage: /code-change [repo] <description of the change you want>')
+        return 'handled'
+      }
+      // Unlike /code-branch etc. (where the whole remaining arg text IS the repo path),
+      // /code-change's argument is a free-form description — a trailing "[repo]" convention
+      // would be ambiguous against prose that happens to end in brackets, so the repo hint (only
+      // needed when the workspace has more than one repo) goes in brackets at the START instead.
+      const repoMatch = /^\[([^\]]+)\]\s*(.*)$/s.exec(argText)
+      const description = repoMatch ? repoMatch[2].trim() : argText
+      const repoArg = repoMatch ? repoMatch[1].trim() : undefined
+      if (!description) {
+        ctx.pushSystemMessage('Usage: /code-change [repo] <description of the change you want>')
         return 'handled'
       }
       ctx.pushSystemMessage('Investigating and drafting a plan…')
-      const result = await ctx.codeChangeSubmitDescription(argText)
+      const result = await ctx.codeChangeSubmitDescription(description, repoArg)
       if ('error' in result) {
         await ctx.pushPersistentMessage(`Failed to create code change: ${result.error}`)
         return 'handled'

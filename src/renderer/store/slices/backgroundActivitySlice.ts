@@ -103,7 +103,18 @@ export const createBackgroundActivitySlice: StateCreator<
       }
       return
     }
-    if (activity.kind === 'chat' || activity.kind === 'debrief-generation' || activity.kind === 'quiz-generation' || activity.kind === 'orchestration' || activity.kind === 'automated-workflow-run') {
+    if (
+      activity.kind === 'chat' ||
+      activity.kind === 'debrief-generation' ||
+      activity.kind === 'quiz-generation' ||
+      activity.kind === 'orchestration' ||
+      activity.kind === 'automated-workflow-run' ||
+      // Code Changes runs entirely inside a normal conversation via slash commands now (no
+      // dedicated wizard/tab) — opening the conversation it's running in is the right target,
+      // same as any other conversation-scoped background activity. This used to open Project
+      // Settings' "Changes" tab, a leftover from the wizard-era design that tab no longer backs.
+      activity.kind === 'remote-edit'
+    ) {
       if (activity.conversationId) {
         get().selectConversation(activity.conversationId)
       }
@@ -113,14 +124,6 @@ export const createBackgroundActivitySlice: StateCreator<
       get().setSettingsInitialTab('developer')
       get().setShowSettings(true)
       return
-    }
-    if (activity.kind === 'remote-edit') {
-      if (activity.projectId) {
-        set((s) => {
-          s.activeSectionPane = 'projects'
-        })
-        get().openEditProject(activity.projectId, 'changes')
-      }
     }
   },
 })
