@@ -17,6 +17,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import io.nexy.android.ui.chat.ChatAutoScrollEffect
+import io.nexy.android.ui.chat.rememberChatAutoScrollState
+import io.nexy.android.ui.chat.rememberRevealedText
+import io.nexy.android.ui.chat.rememberStreamFadeAlpha
+import io.nexy.android.ui.chat.streamFade
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Tune
@@ -186,7 +191,11 @@ fun ScheduleGeneratorScreen(
 
 @Composable
 private fun ChatPhase(uiState: ScheduleGeneratorUiState, modifier: Modifier = Modifier) {
+    val autoScroll = rememberChatAutoScrollState()
+    ChatAutoScrollEffect(autoScroll, uiState.messages.size to uiState.streamingText)
+
     LazyColumn(
+        state = autoScroll.listState,
         modifier = modifier.fillMaxWidth(),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -200,9 +209,13 @@ private fun ChatPhase(uiState: ScheduleGeneratorUiState, modifier: Modifier = Mo
         }
         if (uiState.streamingText.isNotBlank()) {
             item {
+                val fullText = uiState.streamingText.replace(Regex("<schedule-spec>[\\s\\S]*?</schedule-spec>"), "").trim()
+                val displayText = rememberRevealedText(fullText)
+                val fadeAlpha = rememberStreamFadeAlpha(displayText.length)
                 Text(
-                    uiState.streamingText.replace(Regex("<schedule-spec>[\\s\\S]*?</schedule-spec>"), "").trim(),
+                    displayText,
                     style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.streamFade(fadeAlpha),
                 )
             }
         } else if (uiState.isLoading) {

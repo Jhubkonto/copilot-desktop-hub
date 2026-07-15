@@ -18,9 +18,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import io.nexy.android.ui.chat.ChatAutoScrollEffect
+import io.nexy.android.ui.chat.rememberChatAutoScrollState
+import io.nexy.android.ui.chat.rememberRevealedText
+import io.nexy.android.ui.chat.rememberStreamFadeAlpha
+import io.nexy.android.ui.chat.streamFade
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
@@ -364,13 +368,9 @@ private fun ChatPhase(
     uiState: ArtifactGeneratorUiState,
     modifier: Modifier = Modifier,
 ) {
-    val listState = rememberLazyListState()
-
-    LaunchedEffect(uiState.messages.size, uiState.streamingText) {
-        if (uiState.messages.size > 1 || uiState.streamingText.isNotBlank()) {
-            listState.animateScrollToItem(listState.layoutInfo.totalItemsCount.coerceAtLeast(1) - 1)
-        }
-    }
+    val autoScroll = rememberChatAutoScrollState()
+    val listState = autoScroll.listState
+    ChatAutoScrollEffect(autoScroll, uiState.messages.size to uiState.streamingText)
 
     Column(modifier = modifier.fillMaxSize()) {
         LazyColumn(
@@ -407,6 +407,8 @@ private fun ChatPhase(
 @Composable
 private fun ChatBubble(role: String, text: String, streaming: Boolean = false) {
     val isUser = role == "user"
+    val displayText = if (streaming) rememberRevealedText(text) else text
+    val fadeAlpha = if (streaming) rememberStreamFadeAlpha(displayText.length) else 1f
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
@@ -417,9 +419,9 @@ private fun ChatBubble(role: String, text: String, streaming: Boolean = false) {
             modifier = Modifier.fillMaxWidth(0.85f),
         ) {
             Text(
-                text = text + if (streaming) "▍" else "",
+                text = displayText + if (streaming) "▍" else "",
                 style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(12.dp),
+                modifier = Modifier.padding(12.dp).streamFade(fadeAlpha),
                 color = if (isUser) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }

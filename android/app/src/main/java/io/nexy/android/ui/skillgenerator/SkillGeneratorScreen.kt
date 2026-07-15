@@ -16,9 +16,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import io.nexy.android.ui.chat.ChatAutoScrollEffect
+import io.nexy.android.ui.chat.rememberChatAutoScrollState
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -364,13 +365,9 @@ private fun ChatPhase(
     uiState: SkillGeneratorUiState,
     modifier: Modifier = Modifier,
 ) {
-    val listState = rememberLazyListState()
-
-    LaunchedEffect(uiState.messages.size, uiState.streamingText) {
-        if (uiState.messages.size > 1 || uiState.streamingText.isNotBlank()) {
-            listState.animateScrollToItem(listState.layoutInfo.totalItemsCount.coerceAtLeast(1) - 1)
-        }
-    }
+    val autoScroll = rememberChatAutoScrollState()
+    val listState = autoScroll.listState
+    ChatAutoScrollEffect(autoScroll, uiState.messages.size to uiState.streamingText)
 
     Column(modifier = modifier.fillMaxSize()) {
         LazyColumn(
