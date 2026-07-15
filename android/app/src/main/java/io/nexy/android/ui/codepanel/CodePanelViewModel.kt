@@ -31,6 +31,14 @@ data class CodePanelConflict(
     val error: String?,
 )
 
+/** Detect-only summary of which already-configured auth (provider CLI / SSH agent / credential
+ *  helper) would be used to push/fetch this repo's remote — Nexy never stores a secret itself. */
+data class CodePanelCredentials(
+    val remoteUrl: String?,
+    val host: String?,
+    val methods: List<String>,
+)
+
 data class CodePanelState(
     val workspaceRoot: String? = null,
     val repos: List<CodePanelRepo> = emptyList(),
@@ -43,6 +51,13 @@ data class CodePanelState(
     val actionMessage: String? = null,
     val error: String? = null,
     val conflict: CodePanelConflict? = null,
+    val credentials: CodePanelCredentials? = null,
+    val isInitializingRepo: Boolean = false,
+    val stashCount: Int = 0,
+    val diffFile: String? = null,
+    val diffText: String? = null,
+    val diffBinary: Boolean = false,
+    val isLoadingDiff: Boolean = false,
 )
 
 /**
@@ -138,12 +153,109 @@ class CodePanelViewModel(
                 }
                 if (event.ok && !event.conflicted) refreshRepoDetail()
             }
+            is WsEvent.CodeChangeRepoInitialized -> {
+                _state.value = if (event.ok) {
+                    _state.value.copy(actionMessage = "Repository initialized.", isInitializingRepo = false)
+                } else {
+                    _state.value.copy(error = event.error ?: "Failed to initialize repository.", isInitializingRepo = false)
+                }
+                if (event.ok) workspaceRoot?.let { root ->
+                    _state.value = _state.value.copy(isLoadingRepos = true)
+                    wsRepository.listCodeChangeRepos(root)
+                }
+            }
+            is WsEvent.CodeChangeCredentials -> {
+                _state.value = _state.value.copy(
+                    credentials = CodePanelCredentials(
+                        remoteUrl = event.remoteUrl,
+                        host = event.host,
+                        methods = event.methods.map { "${it.label}: ${it.detail}" },
+                    ),
+                )
+            }
+            is WsEvent.CodeChangePulled -> {
+                _state.value = when {
+                    event.conflicted -> _state.value.copy(
+                        conflict = CodePanelConflict(
+                            conflictedFiles = event.conflictedFiles.map { it.relativePath },
+                            error = event.error,
+                        ),
+                        isActionInProgress = false,
+                    )
+                    event.ok -> _state.value.copy(actionMessage = "Pulled latest changes.", conflict = null, isActionInProgress = false)
+                    else -> _state.value.copy(error = event.error ?: "Pull failed.", isActionInProgress = false)
+                }
+                if (event.ok && !event.conflicted) refreshRepoDetail()
+            }
+            is WsEvent.CodeChangeBranchPushed -> {
+                _state.value = if (event.ok) {
+                    _state.value.copy(actionMessage = "Pushed.", isActionInProgress = false)
+                } else {
+                    _state.value.copy(error = event.error ?: "Push failed.", isActionInProgress = false)
+                }
+            }
+            is WsEvent.CodeChangeCommitted -> {
+                _state.value = if (event.ok) {
+                    _state.value.copy(actionMessage = "Committed.", isActionInProgress = false)
+                } else {
+                    _state.value.copy(error = event.error ?: "Commit failed.", isActionInProgress = false)
+                }
+                if (event.ok) refreshRepoDetail()
+            }
+            is WsEvent.CodeChangeFileDiscarded -> {
+                _state.value = if (event.ok) {
+                    _state.value.copy(actionMessage = "Discarded changes to ${event.relativePath}.", isActionInProgress = false)
+                } else {
+                    _state.value.copy(error = event.error ?: "Failed to discard changes.", isActionInProgress = false)
+                }
+                if (event.ok) refreshRepoDetail()
+            }
+            is WsEvent.CodeChangeStashed -> {
+                _state.value = if (event.ok) {
+                    _state.value.copy(actionMessage = "Stashed current changes.", isActionInProgress = false)
+                } else {
+                    _state.value.copy(error = event.error ?: "Stash failed.", isActionInProgress = false)
+                }
+                if (event.ok) {
+                    refreshRepoDetail()
+                    selectedRepoRoot?.let { wsRepository.getCodeChangeStashCount(it) }
+                }
+            }
+            is WsEvent.CodeChangeStashPopped -> {
+                _state.value = if (event.ok) {
+                    _state.value.copy(actionMessage = "Restored the most recent stash.", isActionInProgress = false)
+                } else {
+                    _state.value.copy(error = event.error ?: "Stash pop failed.", isActionInProgress = false)
+                }
+                if (event.ok) {
+                    refreshRepoDetail()
+                    selectedRepoRoot?.let { wsRepository.getCodeChangeStashCount(it) }
+                }
+            }
+            is WsEvent.CodeChangeStashCount -> {
+                _state.value = _state.value.copy(stashCount = event.count)
+            }
+            is WsEvent.CodeChangeBranchDeleted -> {
+                _state.value = if (event.ok) {
+                    _state.value.copy(actionMessage = "Deleted branch ${event.branchName}.", isActionInProgress = false)
+                } else {
+                    _state.value.copy(error = event.error ?: "Failed to delete branch.", isActionInProgress = false)
+                }
+                if (event.ok) refreshRepoDetail()
+            }
+            is WsEvent.CodeChangeFileDiff -> {
+                if (event.relativePath == _state.value.diffFile) {
+                    _state.value = _state.value.copy(diffText = event.diff, diffBinary = event.binary, isLoadingDiff = false)
+                }
+            }
             is WsEvent.CodeChangeError -> {
                 _state.value = _state.value.copy(
                     error = event.error,
                     isLoadingRepos = false,
                     isLoadingRepoDetail = false,
                     isActionInProgress = false,
+                    isLoadingDiff = false,
+                    isInitializingRepo = false,
                 )
             }
             else -> Unit
@@ -168,9 +280,24 @@ class CodePanelViewModel(
             changedFiles = emptyList(),
             conflict = null,
             error = null,
+            credentials = null,
+            stashCount = 0,
+            diffFile = null,
+            diffText = null,
         )
         wsRepository.listCodeChangeBranches(repoRoot)
         wsRepository.listCodeChangeChangedFiles(repoRoot)
+        wsRepository.detectCodeChangeCredentials(repoRoot)
+        wsRepository.getCodeChangeStashCount(repoRoot)
+    }
+
+    /** Closes the empty-state dead end: lets the user create a repo right from the panel instead
+     *  of switching to a terminal. `relativePath` is blank for "init at the workspace root". */
+    fun initRepo(relativePath: String? = null) {
+        val root = workspaceRoot ?: return
+        if (_state.value.isInitializingRepo) return
+        _state.value = _state.value.copy(isInitializingRepo = true)
+        wsRepository.initCodeChangeRepo(root, relativePath)
     }
 
     fun closeRepoDetail() {
@@ -180,6 +307,10 @@ class CodePanelViewModel(
             branches = null,
             changedFiles = emptyList(),
             conflict = null,
+            credentials = null,
+            stashCount = 0,
+            diffFile = null,
+            diffText = null,
         )
         // The repo list's branch/dirty summary was snapshotted when it was first loaded — refresh
         // it so checking out or merging in the detail view is reflected once the user backs out,
@@ -219,6 +350,68 @@ class CodePanelViewModel(
         val repoRoot = selectedRepoRoot ?: return
         _state.value = _state.value.copy(isActionInProgress = true)
         wsRepository.mergeCodeChangeBranch(repoRoot, sourceBranch)
+    }
+
+    fun pull() {
+        if (_state.value.isActionInProgress) return
+        val repoRoot = selectedRepoRoot ?: return
+        _state.value = _state.value.copy(isActionInProgress = true)
+        wsRepository.pullCodeChangeRepo(repoRoot)
+    }
+
+    fun pushBranch() {
+        if (_state.value.isActionInProgress) return
+        val repoRoot = selectedRepoRoot ?: return
+        _state.value = _state.value.copy(isActionInProgress = true)
+        wsRepository.pushCodeChangeBranch(repoRoot)
+    }
+
+    fun commit(message: String) {
+        if (_state.value.isActionInProgress || message.isBlank()) return
+        val repoRoot = selectedRepoRoot ?: return
+        _state.value = _state.value.copy(isActionInProgress = true)
+        wsRepository.commitCodeChangeFiles(repoRoot, message)
+    }
+
+    fun discardFile(relativePath: String) {
+        if (_state.value.isActionInProgress) return
+        val repoRoot = selectedRepoRoot ?: return
+        _state.value = _state.value.copy(isActionInProgress = true)
+        wsRepository.discardCodeChangeFile(repoRoot, relativePath)
+    }
+
+    fun stash() {
+        if (_state.value.isActionInProgress) return
+        val repoRoot = selectedRepoRoot ?: return
+        _state.value = _state.value.copy(isActionInProgress = true)
+        wsRepository.stashCodeChanges(repoRoot)
+    }
+
+    fun stashPop() {
+        if (_state.value.isActionInProgress) return
+        val repoRoot = selectedRepoRoot ?: return
+        _state.value = _state.value.copy(isActionInProgress = true)
+        wsRepository.stashPopCodeChanges(repoRoot)
+    }
+
+    fun deleteBranch(branchName: String, deleteRemote: Boolean = false, force: Boolean = false) {
+        if (_state.value.isActionInProgress) return
+        val repoRoot = selectedRepoRoot ?: return
+        _state.value = _state.value.copy(isActionInProgress = true)
+        wsRepository.deleteCodeChangeBranch(repoRoot, branchName, deleteRemote, force)
+    }
+
+    /** Opens the diff view for a changed file — mirrors the repo-detail drill-down (state field +
+     *  a WS round-trip), not a separate navigation route, so back behaves consistently with the
+     *  rest of this screen. */
+    fun openDiff(relativePath: String) {
+        val repoRoot = selectedRepoRoot ?: return
+        _state.value = _state.value.copy(diffFile = relativePath, diffText = null, diffBinary = false, isLoadingDiff = true)
+        wsRepository.getCodeChangeFileDiff(repoRoot, relativePath)
+    }
+
+    fun closeDiff() {
+        _state.value = _state.value.copy(diffFile = null, diffText = null, diffBinary = false, isLoadingDiff = false)
     }
 
     /** "Resolve with AI in chat": navigates to a brand-new conversation with "/code-change
