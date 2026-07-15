@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -109,6 +110,10 @@ fun AutomatedWorkflowScreen(
     val savedRuns = remember { mutableStateListOf<AutomatedWorkflowRunInfo>() }
     var activeRun by remember { mutableStateOf<AutomatedWorkflowRunInfo?>(null) }
     var discardTarget by remember { mutableStateOf<String?>(null) }
+    // Set when "Run again" is tapped — the reply is a normal AutomatedWorkflowRunDetailReady for
+    // a brand-new run id, so it's matched back here by templateId rather than by run id (which
+    // wouldn't exist yet client-side) to know when to navigate into the freshly spawned run.
+    var pendingRunAgainTemplateId by remember { mutableStateOf<String?>(null) }
     val stepStreamText by WsRepository.automatedWorkflowStepStreamText.collectAsState()
 
     // Mirrors the TopAppBar's onBack step-back logic below — without this, the system/gesture
@@ -159,6 +164,10 @@ fun AutomatedWorkflowScreen(
                             WsRepository.pruneAutomatedWorkflowStepStreamText(
                                 run.steps.filter { it.status == "running" }.map { it.dbId }.toSet(),
                             )
+                        } else if (pendingRunAgainTemplateId != null && run.templateId == pendingRunAgainTemplateId) {
+                            pendingRunAgainTemplateId = null
+                            activeRun = run
+                            view = AutomatedWorkflowView.Detail
                         }
                     }
                 }
@@ -291,13 +300,21 @@ fun AutomatedWorkflowScreen(
                         onRetry = { step -> WsRepository.retryAutomatedWorkflowStep(run.id, step.dbId) },
                         onSkip = { step -> WsRepository.skipAutomatedWorkflowStep(run.id, step.dbId) },
                         onOpenConversation = onOpenConversation,
+                        onRunAgain = { templateId ->
+                            pendingRunAgainTemplateId = templateId
+                            WsRepository.runAgainAutomatedWorkflow(templateId)
+                        },
                     )
                 }
             }
             AutomatedWorkflowView.Workspace -> Column(modifier = Modifier.fillMaxSize().padding(padding)) {
                 NexyStepIndicator(
-                    steps = listOf("Describe", "Plan"),
-                    currentStep = if (session == null) 0 else 1,
+                    steps = listOf("Describe", "Review", "Saved"),
+                    currentStep = when {
+                        session == null -> 0
+                        activeSession?.savedRunId == null -> 1
+                        else -> 2
+                    },
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
@@ -324,12 +341,12 @@ fun AutomatedWorkflowScreen(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Text(
-                                "Describe the workflow you want to generate — the assistant will propose a goal, assumptions, and a step-by-step plan with agent assignments.",
+                                "Describe the workflow you want to generate — the assistant will propose a goal, assumptions, and a step-by-step plan. Each step is assigned to one of your agents (that agent's own skills apply) or a plain model, whichever fits best.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             Text(
-                                "Once a plan comes back you can save it — saved plans sync to the desktop app and back. Each step then runs automatically with its assigned agent, either pausing for your review after each one or running straight through, depending on the mode you choose.",
+                                "Once a plan comes back, tap Save — it syncs to the desktop app and stays saved until you're ready, with no time limit. When you do start it, each step runs in its own conversation, either pausing for your review after each one or running straight through automatically, depending on the mode you choose. A saved plan can also be repeated later via \"Run again\" without describing the goal again.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -596,6 +613,7 @@ internal fun SavedWorkflowRunDetailView(
     onRetry: (AutomatedWorkflowRunStepData) -> Unit,
     onSkip: (AutomatedWorkflowRunStepData) -> Unit,
     onOpenConversation: (String) -> Unit,
+    onRunAgain: (String) -> Unit = {},
 ) {
     val byStepKey = run.steps.associateBy { it.id }
     fun isSatisfied(key: String) = byStepKey[key]?.status.let { it == "done" || it == "skipped" }
@@ -666,12 +684,29 @@ internal fun SavedWorkflowRunDetailView(
             }
         }
         if (run.status == "done" || run.status == "failed" || run.status == "cancelled") {
-            item {
-                Text(
-                    "This run has finished. To do this again, generate a new workflow from the list.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            val templateId = run.templateId
+            if (templateId != null) {
+                item {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "This run has finished.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        TextButton(onClick = { onRunAgain(templateId) }) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp).padding(end = 2.dp))
+                            Text("Run again")
+                        }
+                    }
+                }
+            } else {
+                item {
+                    Text(
+                        "This run has finished. To do this again, generate a new workflow from the list.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
         itemsIndexed(run.steps) { _, step ->

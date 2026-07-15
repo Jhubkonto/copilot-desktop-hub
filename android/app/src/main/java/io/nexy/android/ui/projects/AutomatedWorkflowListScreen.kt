@@ -18,8 +18,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -52,9 +57,20 @@ import io.nexy.android.data.WsRepository
 import io.nexy.android.data.model.AutomatedWorkflowRunInfo
 import io.nexy.android.data.model.WsEvent
 import io.nexy.android.ui.components.NexyConfirmDialog
+import io.nexy.android.ui.components.NexyEmptyState
 import io.nexy.android.ui.components.NexyTopAppBar
 
 private enum class WorkflowFilter { ALL, GLOBAL }
+
+// The 4-stage flow shown in the info banner below — "Run it whenever you're ready" is deliberate:
+// a saved plan sits as "Pending" indefinitely until Start is pressed, so this must not read as
+// "review and run happen back-to-back."
+private val WORKFLOW_STAGES: List<Pair<ImageVector, String>> = listOf(
+    Icons.Default.Edit to "Describe your goal",
+    Icons.Default.Description to "Review the generated plan",
+    Icons.Default.PlayArrow to "Run it whenever you're ready — step-by-step or automatic",
+    Icons.Default.Refresh to "Reuse it later with \"Run again\" — no need to re-describe the goal",
+)
 
 /**
  * Global, top-level browse/manage surface for Automated Workflow runs — reached from the
@@ -81,6 +97,9 @@ fun AutomatedWorkflowListScreen(
     var filter by remember { mutableStateOf(WorkflowFilter.ALL) }
     var discardTarget by remember { mutableStateOf<AutomatedWorkflowRunInfo?>(null) }
     var showInfo by remember { mutableStateOf(false) }
+    // Set when "Run again" is tapped — matched back by templateId (not run id, which doesn't
+    // exist client-side yet) to know when to navigate into the freshly spawned run.
+    var pendingRunAgainTemplateId by remember { mutableStateOf<String?>(null) }
 
     // Mirrors the TopAppBar's `onBack = { if (activeRun != null) activeRun = null else onBack() }`
     // below — without this, system/gesture back exits the whole screen even while viewing a run's
@@ -123,6 +142,9 @@ fun AutomatedWorkflowListScreen(
                         WsRepository.pruneAutomatedWorkflowStepStreamText(
                             run.steps.filter { it.status == "running" }.map { it.dbId }.toSet(),
                         )
+                    } else if (pendingRunAgainTemplateId != null && run.templateId == pendingRunAgainTemplateId) {
+                        pendingRunAgainTemplateId = null
+                        activeRun = run
                     }
                 }
                 is WsEvent.AutomatedWorkflowRunDiscarded -> if (event.ok) {
@@ -184,6 +206,10 @@ fun AutomatedWorkflowListScreen(
                 onRetry = { step -> WsRepository.retryAutomatedWorkflowStep(run.id, step.dbId) },
                 onSkip = { step -> WsRepository.skipAutomatedWorkflowStep(run.id, step.dbId) },
                 onOpenConversation = onOpenConversation,
+                onRunAgain = { templateId ->
+                    pendingRunAgainTemplateId = templateId
+                    WsRepository.runAgainAutomatedWorkflow(templateId)
+                },
             )
         } else {
             Column(modifier = Modifier.fillMaxSize().padding(padding)) {
@@ -193,14 +219,28 @@ fun AutomatedWorkflowListScreen(
                         color = MaterialTheme.colorScheme.secondaryContainer,
                         shape = MaterialTheme.shapes.medium,
                     ) {
-                        Text(
-                            "Generating a plan creates one workflow run — a single execution, not a reusable template. " +
-                                "Each step runs via an agent (its own skills apply) or a bare model (no skills), in its " +
-                                "own dedicated conversation. Tap \"Open conversation\" on any step to see its full " +
-                                "transcript. To do the same thing again, generate a new plan.",
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(12.dp),
-                        )
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                WORKFLOW_STAGES.forEach { (icon, label) ->
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                                        Text(label, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text("Good to know", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    "• Each step runs in its own dedicated conversation, not the project's main chat — open it via \"Open conversation\" once the step starts.\n" +
+                                        "• Gated mode pauses for your approval after every step; automatic mode advances immediately and only pauses if a step fails.\n" +
+                                        "• The planner assigns each step to an agent (that agent's own skills apply) or a plain model — this isn't editable after the plan is generated.\n" +
+                                        "• A workflow's project — or lack of one — is fixed when you generate it and can't be changed afterward.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
                     }
                 }
                 SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -219,17 +259,16 @@ fun AutomatedWorkflowListScreen(
 
                 val filtered = if (filter == WorkflowFilter.GLOBAL) runs.filter { it.projectId == null } else runs
                 if (filtered.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(
-                                if (filter == WorkflowFilter.GLOBAL) "No standalone (project-less) workflows yet" else "No automated workflows yet",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            TextButton(onClick = onNewWorkflow) {
-                                Text("Start a new workflow")
-                            }
-                        }
+                    Column(
+                        modifier = Modifier.fillMaxSize().padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        NexyEmptyState(
+                            title = if (filter == WorkflowFilter.GLOBAL) "No standalone (project-less) workflows yet" else "No automated workflows yet",
+                            detail = "Describe a goal, review the plan, then run it whenever you're ready.",
+                            action = { TextButton(onClick = onNewWorkflow) { Text("Start a new workflow") } },
+                        )
                     }
                 } else {
                     LazyColumn(
