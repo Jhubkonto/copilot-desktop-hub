@@ -22,6 +22,9 @@ import { createPromptedToolCaller, injectPromptedToolSystemPrompt } from './prom
 import { getProjectRootDirectory } from '../project-handlers'
 import { getCachedCatalog } from '../model-catalog'
 import { resolveToolsSupported } from '../../shared/models'
+import { getAgentConfig } from '../agents'
+import { resolveEffectiveBackend, resolveEffectiveModelForRouting, inferCliBackendFromModel } from '../backend-routing'
+import { debugLog } from '../debug-mode'
 
 const execFileAsync = promisify(execFile)
 const MAX_FILE_CHARS = 32000
@@ -440,20 +443,96 @@ export function recoverStuckInvestigations(): void {
   }
 }
 
-export function loadInvestigationSettings(): RemoteEditInvestigationSettings {
+/**
+ * Falls back to `reportId`'s own conversation's backend/model instead of a hardcoded
+ * byok/gpt-5-mini default that's completely disconnected from whatever the user is actually
+ * chatting with. The old wizard UI used to default investigation settings to the conversation's
+ * own backend/model this same way, but that wiring was lost when the wizard was removed in favor
+ * of slash commands, silently orphaning `remote_edit_backend`/`remote_edit_model` with no way to
+ * reach them (no UI calls setInvestigationSettings anymore either).
+ *
+ * Whether to use this fallback is decided by whether the saved settings would actually *work*,
+ * not merely whether a `remote_edit_backend` row exists — a row can exist and still be stale,
+ * unusable data (e.g. left over from the old wizard's last save before it was removed: 'byok' +
+ * 'default', pointing at OpenAI with no key ever configured for it, permanently broken with no UI
+ * left to fix it). Checking "exists" alone made real explicit settings indistinguishable from
+ * that kind of stale leftover, which defeated the fallback in exactly the case it exists for.
+ */
+export function loadInvestigationSettings(reportId?: string): RemoteEditInvestigationSettings {
   const rows = getDatabase()
     .prepare("SELECT key, value FROM settings WHERE key IN ('remote_edit_backend', 'remote_edit_model', 'remote_edit_retry_limit', 'remote_edit_auto_approve_tools')")
     .all() as { key: string; value: string }[]
   const settings = Object.fromEntries(rows.map((row) => [row.key, row.value]))
-  const backend = settings.remote_edit_backend === 'claude-cli' || settings.remote_edit_backend === 'codex-cli'
+
+  const explicitBackend = settings.remote_edit_backend === 'claude-cli' || settings.remote_edit_backend === 'codex-cli'
     ? settings.remote_edit_backend
     : 'byok'
+  const explicitModel = settings.remote_edit_model || 'gpt-5-mini'
+  const explicitWorks = backendActuallyWorks(explicitBackend, explicitModel)
+
+  let fallbackBackend: string | undefined
+  let fallbackModel: string | null = null
+  if (!explicitWorks && reportId) {
+    const row = getDatabase()
+      .prepare(
+        `SELECT c.agent_id as agent_id, c.model as model, c.cli_backend as cli_backend
+         FROM error_reports r JOIN conversations c ON c.id = r.conversation_id
+         WHERE r.id = ?`,
+      )
+      .get(reportId) as { agent_id: string | null; model: string | null; cli_backend: string | null } | undefined
+    if (row) {
+      // Mirrors chat-handlers.ts's own routing exactly — the conversation's actual backend is
+      // frequently a runtime-only decision that's never persisted to the conversations row (an
+      // auth-mode/no-BYOK-key CLI fallback, or — for a brand-new conversation with zero messages
+      // ever sent, like a /code-change run as someone's very first action — Android's ws-handlers.ts
+      // inferring the CLI backend from the global default_model setting since conversations.model
+      // hasn't been populated yet either). Re-deriving both rather than trusting the raw columns
+      // is what makes this fallback actually work in those (very common) cases.
+      const agentCfg = row.agent_id ? getAgentConfig(row.agent_id) : null
+      const agentBackend = typeof agentCfg?.backend === 'string' ? agentCfg.backend : undefined
+      const effectiveModel = resolveEffectiveModelForRouting(row.model)
+      const inferredCliBackend = inferCliBackendFromModel(effectiveModel)
+      fallbackModel = effectiveModel ?? row.model
+      const selectedModel = effectiveModel || 'gpt-5-mini'
+      const { provider: providerName } = getProviderForAgent(selectedModel)
+      fallbackBackend = resolveEffectiveBackend({
+        cliBackend: inferredCliBackend,
+        agentBackend,
+        convCliBackend: row.cli_backend,
+        selectedModel,
+        providerName,
+      })
+      debugLog(
+        'code-change',
+        `investigation settings fallback: reportId=${reportId} explicitBackend=${explicitBackend} explicitWorks=false convModel=${row.model ?? 'none'} ` +
+          `effectiveModel=${effectiveModel ?? 'none'} agentBackend=${agentBackend ?? 'none'} ` +
+          `convCliBackend=${row.cli_backend ?? 'none'} inferredCliBackend=${inferredCliBackend ?? 'none'} ` +
+          `-> backend=${fallbackBackend ?? 'byok'} model=${fallbackModel ?? 'gpt-5-mini'}`,
+      )
+    }
+  } else {
+    debugLog('code-change', `investigation settings: using ${explicitWorks ? 'working' : 'unfixable'} explicit backend=${explicitBackend} model=${explicitModel}`)
+  }
+
+  const rawBackend = explicitWorks ? explicitBackend : fallbackBackend
+  const backend = rawBackend === 'claude-cli' || rawBackend === 'codex-cli' ? rawBackend : 'byok'
+  const rawModel = explicitWorks ? explicitModel : fallbackModel
   return {
     backend,
-    model: settings.remote_edit_model || 'gpt-5-mini',
+    model: rawModel || explicitModel,
     retryLimit: Math.max(0, Math.min(Number.parseInt(settings.remote_edit_retry_limit || '1', 10) || 1, 5)),
     autoApproveTools: settings.remote_edit_auto_approve_tools === 'true',
   }
+}
+
+/** Whether `backend` can actually service a request right now — a CLI backend needs that CLI
+ *  installed/available; 'byok' needs an API key for whatever provider `model` resolves to. */
+function backendActuallyWorks(backend: string, model: string): boolean {
+  if (backend === 'claude-cli' || backend === 'codex-cli') {
+    return getAdapter(backend)?.isAvailable() ?? false
+  }
+  const { provider } = getProviderForAgent(model)
+  return !!getApiKey(provider)
 }
 
 export function saveInvestigationSettings(input: RemoteEditInvestigationSettings): RemoteEditInvestigationSettings {
@@ -481,8 +560,14 @@ export async function runInvestigation(
   revisionNotes?: string,
 ): Promise<RemoteEditInvestigationResult> {
   const activityId = `remote-edit:${reportId}`
-  const projectRow = getDatabase().prepare('SELECT project_id FROM error_reports WHERE id = ?').get(reportId) as { project_id: string | null } | undefined
-  startActivity({ id: activityId, kind: 'remote-edit', label: 'Investigating code change…', projectId: projectRow?.project_id ?? undefined })
+  const reportRow = getDatabase().prepare('SELECT project_id, conversation_id FROM error_reports WHERE id = ?').get(reportId) as { project_id: string | null; conversation_id: string | null } | undefined
+  startActivity({
+    id: activityId,
+    kind: 'remote-edit',
+    label: 'Investigating code change…',
+    projectId: reportRow?.project_id ?? undefined,
+    conversationId: reportRow?.conversation_id ?? undefined,
+  })
   try {
     return await runInvestigationInner(win, reportId, callbacks, revisionNotes)
   } finally {
@@ -498,7 +583,8 @@ async function runInvestigationInner(
 ): Promise<RemoteEditInvestigationResult> {
   const report = readReport(reportId)
   const isBugfix = BUGFIX_REQUEST_TYPES.has(report.request_type)
-  const settings = loadInvestigationSettings()
+  const settings = loadInvestigationSettings(reportId)
+  debugLog('code-change', `investigation dispatch: reportId=${reportId} backend=${settings.backend} model=${settings.model}`)
   const workspacePath = getWorkspacePathForReport(reportId)
   const startedAt = Date.now()
   if (revisionNotes?.trim()) {

@@ -20,6 +20,7 @@ import type {
 } from '../../shared/types'
 import { getWorkspacePathForReport, resolveInsideWorkspace, loadInvestigationSettings } from './investigator'
 import { parseAffectedFilesFromFrontMatter } from './yaml'
+import { debugLog } from '../debug-mode'
 
 const MAX_FILE_CHARS = 32000
 
@@ -255,8 +256,14 @@ export async function runFix(
   callbacks: FixCallbacks,
 ): Promise<RemoteEditFixDone> {
   const activityId = `remote-edit:${reportId}`
-  const projectRow = getDatabase().prepare('SELECT project_id FROM error_reports WHERE id = ?').get(reportId) as { project_id: string | null } | undefined
-  startActivity({ id: activityId, kind: 'remote-edit', label: 'Applying code change…', projectId: projectRow?.project_id ?? undefined })
+  const reportRow = getDatabase().prepare('SELECT project_id, conversation_id FROM error_reports WHERE id = ?').get(reportId) as { project_id: string | null; conversation_id: string | null } | undefined
+  startActivity({
+    id: activityId,
+    kind: 'remote-edit',
+    label: 'Applying code change…',
+    projectId: reportRow?.project_id ?? undefined,
+    conversationId: reportRow?.conversation_id ?? undefined,
+  })
   try {
     return await runFixInner(win, reportId, callbacks)
   } finally {
@@ -299,7 +306,8 @@ async function runFixInner(
     description: String(row.description ?? ''),
     investigation_markdown: markdown,
   }
-  const settings = loadInvestigationSettings()
+  const settings = loadInvestigationSettings(reportId)
+  debugLog('code-change', `fix dispatch: reportId=${reportId} backend=${settings.backend} model=${settings.model}`)
   const messages = buildFixPrompt(report, affectedFiles, workspacePath)
 
   // --- LLM call (no tools — all context is in-prompt) ---

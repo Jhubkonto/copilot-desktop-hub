@@ -7,6 +7,7 @@ import { startActivity, endActivity } from '../activity-tracker'
 import { parseProjectConfig } from '../project-handlers'
 import { DEFAULT_VERIFY_COMMANDS } from '../../shared/code-changes'
 import { getWorkspacePathForReport, loadInvestigationSettings } from './investigator'
+import { debugLog } from '../debug-mode'
 import type {
   RemoteEditVerificationDone,
   RemoteEditVerificationEvent,
@@ -174,8 +175,14 @@ export async function runVerification(
   reinvestigate?: () => Promise<void>,
 ): Promise<RemoteEditVerificationDone> {
   const activityId = `remote-edit:${reportId}`
-  const projectRow = getDatabase().prepare('SELECT project_id FROM error_reports WHERE id = ?').get(reportId) as { project_id: string | null } | undefined
-  startActivity({ id: activityId, kind: 'remote-edit', label: 'Verifying code change…', projectId: projectRow?.project_id ?? undefined })
+  const reportRow = getDatabase().prepare('SELECT project_id, conversation_id FROM error_reports WHERE id = ?').get(reportId) as { project_id: string | null; conversation_id: string | null } | undefined
+  startActivity({
+    id: activityId,
+    kind: 'remote-edit',
+    label: 'Verifying code change…',
+    projectId: reportRow?.project_id ?? undefined,
+    conversationId: reportRow?.conversation_id ?? undefined,
+  })
   try {
     return await runVerificationInner(reportId, emit, initialRunId, reinvestigate)
   } finally {
@@ -190,7 +197,8 @@ async function runVerificationInner(
   reinvestigate?: () => Promise<void>,
 ): Promise<RemoteEditVerificationDone> {
   const workspacePath = getWorkspacePathForReport(reportId)
-  const settings = loadInvestigationSettings()
+  const settings = loadInvestigationSettings(reportId)
+  debugLog('code-change', `verify dispatch: reportId=${reportId} backend=${settings.backend} model=${settings.model}`)
   const verifyCommands = resolveVerifyCommands(reportId)
 
   const run: RemoteEditVerificationRun = {
