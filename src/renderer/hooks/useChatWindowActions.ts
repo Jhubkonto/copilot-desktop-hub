@@ -227,7 +227,7 @@ export function useChatWindowActions({
           error: `Multiple git repos found in this workspace: ${candidates.join(', ')}. Re-run this command with the repo path added as the last argument, e.g. "${candidates[0]}".`,
         }
       }
-      return { error: "No git repository was found under this project's workspace. Run 'git init' in the folder you want to work in, then try again." }
+      return { error: "No git repository was found under this project's workspace. Run /code-init [path] to create one, then try again." }
     },
     [chatProjectId],
   )
@@ -389,6 +389,127 @@ export function useChatWindowActions({
     [resolveCodeChangeRepoOrMessage],
   )
 
+  // Deliberately does not go through resolveCodeChangeRepoOrMessage — that helper's whole job is
+  // resolving an *existing* repo, which is exactly what's missing here. This is the action that
+  // gets the user unstuck when resolution fails with "no-repo".
+  const codeChangeInitRepo = useCallback(
+    async (relativePath?: string) => {
+      if (!chatProjectId || chatProjectId === '__none__') {
+        return { error: 'This action requires the conversation to be in a project.' }
+      }
+      try {
+        return await window.api.initCodeChangeRepo(chatProjectId, relativePath)
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Failed to initialize repository' }
+      }
+    },
+    [chatProjectId],
+  )
+
+  const codeChangeDetectCredentials = useCallback(
+    async (repoArg?: string) => {
+      const resolved = await resolveCodeChangeRepoOrMessage(repoArg)
+      if ('error' in resolved) return resolved
+      try {
+        return await window.api.detectCodeChangeCredentials(resolved.repoRoot)
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Failed to detect git credentials' }
+      }
+    },
+    [resolveCodeChangeRepoOrMessage],
+  )
+
+  const codeChangePull = useCallback(
+    async (repoArg?: string) => {
+      const resolved = await resolveCodeChangeRepoOrMessage(repoArg)
+      if ('error' in resolved) return resolved
+      try {
+        return await window.api.pullCodeChangeRepo(resolved.repoRoot)
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Failed to pull' }
+      }
+    },
+    [resolveCodeChangeRepoOrMessage],
+  )
+
+  const codeChangePushBranch = useCallback(
+    async (repoArg?: string) => {
+      const resolved = await resolveCodeChangeRepoOrMessage(repoArg)
+      if ('error' in resolved) return resolved
+      try {
+        return await window.api.pushCodeChangeBranch(resolved.repoRoot)
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Failed to push' }
+      }
+    },
+    [resolveCodeChangeRepoOrMessage],
+  )
+
+  const codeChangeCommit = useCallback(
+    async (message: string, repoArg?: string) => {
+      const resolved = await resolveCodeChangeRepoOrMessage(repoArg)
+      if ('error' in resolved) return resolved
+      try {
+        return await window.api.commitCodeChangeFiles(resolved.repoRoot, message)
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Failed to commit' }
+      }
+    },
+    [resolveCodeChangeRepoOrMessage],
+  )
+
+  const codeChangeDiscardFile = useCallback(
+    async (relativePath: string, repoArg?: string) => {
+      const resolved = await resolveCodeChangeRepoOrMessage(repoArg)
+      if ('error' in resolved) return resolved
+      try {
+        return await window.api.discardCodeChangeFile(resolved.repoRoot, relativePath)
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Failed to discard changes' }
+      }
+    },
+    [resolveCodeChangeRepoOrMessage],
+  )
+
+  const codeChangeStash = useCallback(
+    async (message?: string, repoArg?: string) => {
+      const resolved = await resolveCodeChangeRepoOrMessage(repoArg)
+      if ('error' in resolved) return resolved
+      try {
+        return await window.api.stashCodeChanges(resolved.repoRoot, message)
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Failed to stash' }
+      }
+    },
+    [resolveCodeChangeRepoOrMessage],
+  )
+
+  const codeChangeStashPop = useCallback(
+    async (repoArg?: string) => {
+      const resolved = await resolveCodeChangeRepoOrMessage(repoArg)
+      if ('error' in resolved) return resolved
+      try {
+        return await window.api.stashPopCodeChanges(resolved.repoRoot)
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Failed to pop stash' }
+      }
+    },
+    [resolveCodeChangeRepoOrMessage],
+  )
+
+  const codeChangeDeleteBranch = useCallback(
+    async (branchName: string, repoArg?: string) => {
+      const resolved = await resolveCodeChangeRepoOrMessage(repoArg)
+      if ('error' in resolved) return resolved
+      try {
+        return await window.api.deleteCodeChangeBranch(resolved.repoRoot, branchName)
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Failed to delete branch' }
+      }
+    },
+    [resolveCodeChangeRepoOrMessage],
+  )
+
   const slashCommandCtx = useMemo<SlashCommandContext>(
     () => ({
       conversationId,
@@ -434,6 +555,15 @@ export function useChatWindowActions({
       codeChangeNewBranch,
       codeChangeFetch,
       codeChangeMergeBranch,
+      codeChangeInitRepo,
+      codeChangeDetectCredentials,
+      codeChangePull,
+      codeChangePushBranch,
+      codeChangeCommit,
+      codeChangeDiscardFile,
+      codeChangeStash,
+      codeChangeStashPop,
+      codeChangeDeleteBranch,
     }),
     [
       conversationId,
@@ -468,6 +598,15 @@ export function useChatWindowActions({
       codeChangeNewBranch,
       codeChangeFetch,
       codeChangeMergeBranch,
+      codeChangeInitRepo,
+      codeChangeDetectCredentials,
+      codeChangePull,
+      codeChangePushBranch,
+      codeChangeCommit,
+      codeChangeDiscardFile,
+      codeChangeStash,
+      codeChangeStashPop,
+      codeChangeDeleteBranch,
     ],
   )
 

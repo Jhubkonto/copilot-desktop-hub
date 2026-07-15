@@ -88,6 +88,15 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   { name: '/code-newbranch', usage: '/code-newbranch <name> [from] [repo]', description: 'Create and check out a new branch' },
   { name: '/code-fetch', usage: '/code-fetch [remote] [repo]', description: 'Fetch the latest state from the remote' },
   { name: '/code-merge', usage: '/code-merge <branch> [repo]', description: 'Merge a branch into the current one; conflicts get an AI-proposed resolution to review' },
+  { name: '/code-init', usage: '/code-init [path]', description: 'Initialize a new git repo in the workspace (or a subfolder of it) when none exists yet' },
+  { name: '/code-creds', usage: '/code-creds [repo]', description: 'Show which already-configured git auth (CLI/SSH/credential helper) would be used to push this repo' },
+  { name: '/code-pull', usage: '/code-pull [repo]', description: 'Fetch and merge the current branch\'s upstream; conflicts get an AI-proposed resolution to review' },
+  { name: '/code-git-push', usage: '/code-git-push [repo]', description: 'Push the current branch (plain git push, not tied to a code-change plan)' },
+  { name: '/code-commit', usage: '/code-commit [repo] <message>', description: 'Stage and commit all changed files in the repo with the given message' },
+  { name: '/code-discard', usage: '/code-discard <file> [repo]', description: 'Discard uncommitted changes to a single file, reverting it to its last-committed state' },
+  { name: '/code-stash', usage: '/code-stash [repo] [message]', description: 'Shelve all current changes so the working tree is clean' },
+  { name: '/code-stash-pop', usage: '/code-stash-pop [repo]', description: 'Restore the most recently stashed changes' },
+  { name: '/code-delete-branch', usage: '/code-delete-branch <branch> [repo]', description: 'Delete a local branch (fails if unmerged, unless the branch has already been merged)' },
 ]
 
 function hasIpcError(result: unknown): result is { error: string } {
@@ -246,6 +255,30 @@ export interface SlashCommandContext {
     | { ok: boolean; conflicted: boolean; conflictedFiles?: Array<{ relativePath: string; content: string }>; error?: string; summary?: string }
     | { error: string }
   >
+  /** `git init` a workspace (or subfolder) that has no repo yet — unlike the others above, this
+   *  doesn't take a repoArg to resolve, since resolving an existing repo is exactly what failed. */
+  codeChangeInitRepo: (relativePath?: string) => Promise<{ ok: boolean; error?: string } | { error: string }>
+  /** Detect-only: reports which already-configured auth (provider CLI / SSH agent / credential
+   *  helper) would be used to push/fetch this repo's remote. Never stores or returns a secret. */
+  codeChangeDetectCredentials: (repoArg?: string) => Promise<
+    | {
+        remoteUrl: string | null
+        host: string | null
+        protocol: 'ssh' | 'https' | null
+        methods: Array<{ type: string; label: string; detail: string; available: boolean }>
+      }
+    | { error: string }
+  >
+  codeChangePull: (repoArg?: string) => Promise<
+    | { ok: boolean; conflicted: boolean; conflictedFiles?: Array<{ relativePath: string; content: string }>; error?: string; summary?: string }
+    | { error: string }
+  >
+  codeChangePushBranch: (repoArg?: string) => Promise<{ ok: boolean; error?: string } | { error: string }>
+  codeChangeCommit: (message: string, repoArg?: string) => Promise<{ ok: boolean; error?: string } | { error: string }>
+  codeChangeDiscardFile: (relativePath: string, repoArg?: string) => Promise<{ ok: boolean; error?: string } | { error: string }>
+  codeChangeStash: (message?: string, repoArg?: string) => Promise<{ ok: boolean; error?: string } | { error: string }>
+  codeChangeStashPop: (repoArg?: string) => Promise<{ ok: boolean; error?: string } | { error: string }>
+  codeChangeDeleteBranch: (branchName: string, repoArg?: string) => Promise<{ ok: boolean; error?: string } | { error: string }>
 }
 
 export async function executeSlashCommand(
@@ -764,6 +797,141 @@ export async function executeSlashCommand(
         )
       } else {
         ctx.pushSystemMessage(`Merge failed: ${result.error ?? 'unknown error'}`)
+      }
+      return 'handled'
+    }
+    case '/code-init': {
+      const [relativePath] = rest
+      const result = await ctx.codeChangeInitRepo(relativePath)
+      if ('error' in result || !result.ok) {
+        ctx.pushSystemMessage(`Failed to initialize repository: ${('error' in result && result.error) || 'unknown error'}`)
+      } else {
+        ctx.pushSystemMessage(
+          `Initialized a git repo in ${relativePath || '(workspace root)'}. Run /code-change to start describing a change there.`,
+        )
+      }
+      return 'handled'
+    }
+    case '/code-creds': {
+      const result = await ctx.codeChangeDetectCredentials(argText || undefined)
+      if ('error' in result) {
+        ctx.pushSystemMessage(result.error)
+        return 'handled'
+      }
+      if (!result.remoteUrl) {
+        ctx.pushSystemMessage('This repo has no `origin` remote configured, so there\'s nothing to detect credentials for yet.')
+        return 'handled'
+      }
+      const lines = [
+        `**Git auth for ${result.host ?? result.remoteUrl}**`,
+        ...(result.methods.length > 0
+          ? result.methods.map((m) => `- ${m.label}: ${m.detail}`)
+          : ['- Nothing detected. Push/fetch may prompt for credentials, or fail until you sign in with your provider\'s CLI or configure a credential helper.']),
+      ]
+      ctx.pushSystemMessage(lines.join('\n'))
+      return 'handled'
+    }
+    case '/code-pull': {
+      const [repoArg] = rest
+      const result = await ctx.codeChangePull(repoArg)
+      if ('error' in result) {
+        ctx.pushSystemMessage(`Pull failed: ${result.error}`)
+        return 'handled'
+      }
+      if (result.ok) {
+        ctx.pushSystemMessage(['Pulled latest changes.', result.summary?.trim()].filter(Boolean).join('\n\n'))
+        return 'handled'
+      }
+      if (result.conflicted) {
+        const files = (result.conflictedFiles ?? []).map((f) => f.relativePath)
+        ctx.pushSystemMessage(
+          [
+            'Pulling produced conflicts in:',
+            ...files.map((f) => `- ${f}`),
+            '',
+            `Run \`/code-change Resolve git merge conflicts in: ${files.join(', ')}\` to get an AI-proposed resolution to review, then /code-execute to apply it.`,
+          ].join('\n'),
+        )
+      } else {
+        ctx.pushSystemMessage(`Pull failed: ${result.error ?? 'unknown error'}`)
+      }
+      return 'handled'
+    }
+    case '/code-git-push': {
+      const [repoArg] = rest
+      const result = await ctx.codeChangePushBranch(repoArg)
+      if ('error' in result || !result.ok) {
+        ctx.pushSystemMessage(`Push failed: ${('error' in result && result.error) || 'unknown error'}`)
+      } else {
+        ctx.pushSystemMessage('Pushed.')
+      }
+      return 'handled'
+    }
+    case '/code-commit': {
+      // Same bracket-prefix convention as /code-change — the message is free text and could
+      // itself contain anything, so the optional repo hint goes in brackets at the start.
+      const repoMatch = /^\[([^\]]+)\]\s*(.*)$/s.exec(argText)
+      const message = (repoMatch ? repoMatch[2] : argText).trim()
+      const repoArg = repoMatch ? repoMatch[1].trim() : undefined
+      if (!message) {
+        ctx.pushSystemMessage('Usage: /code-commit [repo] <message>')
+        return 'handled'
+      }
+      const result = await ctx.codeChangeCommit(message, repoArg)
+      if ('error' in result || !result.ok) {
+        ctx.pushSystemMessage(`Commit failed: ${('error' in result && result.error) || 'unknown error'}`)
+      } else {
+        ctx.pushSystemMessage(`Committed: "${message}"`)
+      }
+      return 'handled'
+    }
+    case '/code-discard': {
+      const [filePath, repoArg] = rest
+      if (!filePath) {
+        ctx.pushSystemMessage('Usage: /code-discard <file> [repo]')
+        return 'handled'
+      }
+      const result = await ctx.codeChangeDiscardFile(filePath, repoArg)
+      if ('error' in result || !result.ok) {
+        ctx.pushSystemMessage(`Failed to discard changes to ${filePath}: ${('error' in result && result.error) || 'unknown error'}`)
+      } else {
+        ctx.pushSystemMessage(`Discarded changes to ${filePath}.`)
+      }
+      return 'handled'
+    }
+    case '/code-stash': {
+      const repoMatch = /^\[([^\]]+)\]\s*(.*)$/s.exec(argText)
+      const message = (repoMatch ? repoMatch[2] : argText).trim() || undefined
+      const repoArg = repoMatch ? repoMatch[1].trim() : undefined
+      const result = await ctx.codeChangeStash(message, repoArg)
+      if ('error' in result || !result.ok) {
+        ctx.pushSystemMessage(`Stash failed: ${('error' in result && result.error) || 'unknown error'}`)
+      } else {
+        ctx.pushSystemMessage('Stashed current changes.')
+      }
+      return 'handled'
+    }
+    case '/code-stash-pop': {
+      const [repoArg] = rest
+      const result = await ctx.codeChangeStashPop(repoArg)
+      if ('error' in result || !result.ok) {
+        ctx.pushSystemMessage(`Stash pop failed: ${('error' in result && result.error) || 'unknown error'}`)
+      } else {
+        ctx.pushSystemMessage('Restored the most recent stash.')
+      }
+      return 'handled'
+    }
+    case '/code-delete-branch': {
+      const [branchName, repoArg] = rest
+      if (!branchName) {
+        ctx.pushSystemMessage('Usage: /code-delete-branch <branch> [repo]')
+        return 'handled'
+      }
+      const result = await ctx.codeChangeDeleteBranch(branchName, repoArg)
+      if ('error' in result || !result.ok) {
+        ctx.pushSystemMessage(`Failed to delete ${branchName}: ${('error' in result && result.error) || 'unknown error'}`)
+      } else {
+        ctx.pushSystemMessage(`Deleted branch ${branchName}.`)
       }
       return 'handled'
     }
