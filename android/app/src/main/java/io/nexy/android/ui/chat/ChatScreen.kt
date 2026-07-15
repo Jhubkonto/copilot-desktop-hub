@@ -35,9 +35,12 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -1153,67 +1156,62 @@ fun ChatScreen(
             modifier = Modifier.fillMaxSize().padding(padding),
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
+            // Height (px) of the in-flow banners below (connection + workflow step), measured so
+            // the floating InReplyToBanner overlay can sit just beneath them without overlapping.
+            var topBannersHeightPx by remember { mutableStateOf(0) }
+
             Column(modifier = Modifier.fillMaxSize()) {
-                if (connectionBanner) {
-                    NexyConnectionBanner(connectionState, lastError)
-                }
+                Column(modifier = Modifier.onGloballyPositioned { topBannersHeightPx = it.size.height }) {
+                    if (connectionBanner) {
+                        NexyConnectionBanner(connectionState, lastError)
+                    }
 
-                // Placed as a normal (non-floating) banner, flush above the workflow step
-                // banner below it — previously this floated in an overlay Box aligned to the
-                // top of the whole screen, which put it directly on top of (rather than above)
-                // the workflow banner whenever both were visible at once.
-                InReplyToBanner(
-                    listState = listState,
-                    renderItems = renderItems,
-                    lazyHeaderOffset = lazyHeaderOffset,
-                    onScrollToRequest = { itemIdx -> scope.launch { handleScrollToRequest(itemIdx) } },
-                )
-
-                val bannerRun = activeWorkflowRun
-                val bannerStep = currentWorkflowStep
-                // Keyed on status+attempt, not just the step's stable logical id: a retried step
-                // keeps the same id, so dismissing a failed-step banner must not permanently
-                // silence it once that same step fails again on a later attempt.
-                val bannerStepKey = bannerStep?.let { "${it.id}:${it.status}:${it.attempt}" }
-                if (bannerRun != null && bannerStep != null && bannerStepKey != dismissedWorkflowStepId) {
-                    val gated = bannerRun.confirmationMode == "gated"
-                    Surface(color = MaterialTheme.colorScheme.primaryContainer) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            val statusSuffix = when (bannerStep.status) {
-                                "running" -> " — running…"
-                                "awaiting_confirmation" -> if (gated) " — ready for your review" else " — advancing automatically…"
-                                "failed" -> " — failed" + (bannerStep.error?.let { ": $it" } ?: "")
-                                else -> ""
-                            }
-                            Text(
-                                "${bannerRun.title} — Step ${bannerStep.stepIndex + 1} of ${bannerRun.steps.size}: ${bannerStep.title}$statusSuffix",
-                                style = MaterialTheme.typography.labelSmall,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
-                            if (bannerStep.status == "awaiting_confirmation" && gated) {
-                                TextButton(onClick = { WsRepository.confirmAutomatedWorkflowStep(bannerRun.id, bannerStep.dbId) }) {
-                                    Text("Approve", style = MaterialTheme.typography.labelSmall)
+                    val bannerRun = activeWorkflowRun
+                    val bannerStep = currentWorkflowStep
+                    // Keyed on status+attempt, not just the step's stable logical id: a retried step
+                    // keeps the same id, so dismissing a failed-step banner must not permanently
+                    // silence it once that same step fails again on a later attempt.
+                    val bannerStepKey = bannerStep?.let { "${it.id}:${it.status}:${it.attempt}" }
+                    if (bannerRun != null && bannerStep != null && bannerStepKey != dismissedWorkflowStepId) {
+                        val gated = bannerRun.confirmationMode == "gated"
+                        Surface(color = MaterialTheme.colorScheme.primaryContainer) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                val statusSuffix = when (bannerStep.status) {
+                                    "running" -> " — running…"
+                                    "awaiting_confirmation" -> if (gated) " — ready for your review" else " — advancing automatically…"
+                                    "failed" -> " — failed" + (bannerStep.error?.let { ": $it" } ?: "")
+                                    else -> ""
                                 }
-                            }
-                            if (bannerStep.status == "failed") {
-                                TextButton(onClick = { WsRepository.retryAutomatedWorkflowStep(bannerRun.id, bannerStep.dbId) }) {
-                                    Text("Retry", style = MaterialTheme.typography.labelSmall)
+                                Text(
+                                    "${bannerRun.title} — Step ${bannerStep.stepIndex + 1} of ${bannerRun.steps.size}: ${bannerStep.title}$statusSuffix",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                if (bannerStep.status == "awaiting_confirmation" && gated) {
+                                    TextButton(onClick = { WsRepository.confirmAutomatedWorkflowStep(bannerRun.id, bannerStep.dbId) }) {
+                                        Text("Approve", style = MaterialTheme.typography.labelSmall)
+                                    }
                                 }
-                                TextButton(onClick = { WsRepository.skipAutomatedWorkflowStep(bannerRun.id, bannerStep.dbId) }) {
-                                    Text("Skip", style = MaterialTheme.typography.labelSmall)
+                                if (bannerStep.status == "failed") {
+                                    TextButton(onClick = { WsRepository.retryAutomatedWorkflowStep(bannerRun.id, bannerStep.dbId) }) {
+                                        Text("Retry", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                    TextButton(onClick = { WsRepository.skipAutomatedWorkflowStep(bannerRun.id, bannerStep.dbId) }) {
+                                        Text("Skip", style = MaterialTheme.typography.labelSmall)
+                                    }
                                 }
-                            }
-                            TextButton(onClick = { bannerRun.projectId?.let { onOpenAutomatedWorkflow?.invoke(it) } }) {
-                                Text("View", style = MaterialTheme.typography.labelSmall)
-                            }
-                            IconButton(onClick = { dismissedWorkflowStepId = bannerStepKey }, modifier = Modifier.size(28.dp)) {
-                                Icon(Icons.Default.Close, contentDescription = "Dismiss workflow step banner", modifier = Modifier.size(14.dp))
+                                TextButton(onClick = { bannerRun.projectId?.let { onOpenAutomatedWorkflow?.invoke(it) } }) {
+                                    Text("View", style = MaterialTheme.typography.labelSmall)
+                                }
+                                IconButton(onClick = { dismissedWorkflowStepId = bannerStepKey }, modifier = Modifier.size(28.dp)) {
+                                    Icon(Icons.Default.Close, contentDescription = "Dismiss workflow step banner", modifier = Modifier.size(14.dp))
+                                }
                             }
                         }
                     }
@@ -1483,6 +1481,21 @@ fun ChatScreen(
                     }
                 }
             }
+            // Floating overlay, not in-flow: an in-flow banner here previously resized the
+            // Column's weighted LazyColumn area every time this scroll-position-driven banner
+            // mounted/unmounted, which shifted the visible items and read as a jitter right as
+            // the user scrolled past the point where the banner's target crossed the viewport
+            // edge. Offsetting by topBannersHeightPx keeps it below the connection/workflow
+            // banners instead of stacking on top of them (the reason it was made in-flow before).
+            InReplyToBanner(
+                listState = listState,
+                renderItems = renderItems,
+                lazyHeaderOffset = lazyHeaderOffset,
+                onScrollToRequest = { itemIdx -> scope.launch { handleScrollToRequest(itemIdx) } },
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .offset { IntOffset(0, topBannersHeightPx) },
+            )
             // Scroll-to-bottom button shown whenever the user is scrolled above the bottom
             AnimatedVisibility(
                 visible = hasInitiallyScrolled && !isAtBottom,
@@ -1528,6 +1541,16 @@ private fun InReplyToBanner(
                 .map { it.index - lazyHeaderOffset }
                 .filter { ri -> ri >= 0 && ri < renderItems.size && renderItems[ri] is ChatRenderItem.AssistantMessage }
                 .firstOrNull() ?: return@derivedStateOf null
+            // Never show the banner for the latest exchange — while the user scrolls down
+            // through the final turn to reach the true bottom of the conversation, this
+            // condition would otherwise flip true/false on nearly every scroll frame as the
+            // preceding user message crosses the viewport's top edge, and the banner
+            // appearing/disappearing shrinks and grows the LazyColumn's available height out
+            // from under an in-progress drag, which was stranding users mid-scroll unable to
+            // reach the bottom. There's also no value in "in reply to" for the message you
+            // just sent — it's the one on screen.
+            val lastAssistantRenderIdx = renderItems.indexOfLast { it is ChatRenderItem.AssistantMessage }
+            if (topAssistantRenderIdx == lastAssistantRenderIdx) return@derivedStateOf null
             // Find the preceding user message
             val precedingUserRenderIdx = (topAssistantRenderIdx - 1 downTo 0)
                 .firstOrNull { renderItems[it] is ChatRenderItem.UserMessage } ?: return@derivedStateOf null

@@ -1,15 +1,32 @@
 package io.nexy.android.ui.chat
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.OpenInFull
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -18,6 +35,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.material3.Text
 import io.nexy.android.data.model.ThinkingBlock
 import io.nexy.android.ui.theme.Gray400
@@ -92,22 +111,93 @@ fun CodexToolActionLine(msg: ChatMessage, inProgress: Boolean) {
             val cleanedResult = remember(msg.toolResult) { stripAnsiEscapes(msg.toolResult) }
             val clipboard = LocalClipboardManager.current
             val interactionSource = remember { MutableInteractionSource() }
-            Text(
-                "└ " + cleanedResult,
-                fontSize = 11.sp,
-                fontFamily = FontFamily.Monospace,
-                color = if (!msg.toolSuccess) (if (isDark) Red400 else Red600) else Gray500,
-                maxLines = RESULT_VISIBLE_LINES,
-                overflow = TextOverflow.Ellipsis,
+            var showFullscreen by remember { mutableStateOf(false) }
+            val resultColor = if (!msg.toolSuccess) (if (isDark) Red400 else Red600) else Gray500
+            Row(
+                modifier = Modifier.padding(start = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Text(
+                    "└ " + cleanedResult,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = resultColor,
+                    maxLines = RESULT_VISIBLE_LINES,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .combinedClickable(
+                            interactionSource = interactionSource,
+                            indication = null,
+                            onClick = {},
+                            onLongClick = { clipboard.setText(AnnotatedString(cleanedResult)) },
+                        ),
+                )
+                IconButton(onClick = { showFullscreen = true }, modifier = Modifier.size(20.dp)) {
+                    Icon(
+                        Icons.Default.OpenInFull,
+                        contentDescription = "View full tool call result",
+                        modifier = Modifier.size(12.dp),
+                        tint = Gray400,
+                    )
+                }
+            }
+            if (showFullscreen) {
+                CodexToolResultFullscreenDialog(
+                    content = cleanedResult,
+                    contentColor = resultColor,
+                    onDismiss = { showFullscreen = false },
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Full-screen reader for a Codex tool call's complete, untruncated (but ANSI-cleaned) result —
+ * the inline line caps at [RESULT_VISIBLE_LINES] rendered lines, so this is the desktop hover
+ * tooltip's touch equivalent (CodexActionLine.tsx's `title` attribute has no touch analogue).
+ */
+@Composable
+private fun CodexToolResultFullscreenDialog(
+    content: String,
+    contentColor: androidx.compose.ui.graphics.Color,
+    onDismiss: () -> Unit,
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .statusBarsPadding()
+                .navigationBarsPadding(),
+        ) {
+            SelectionContainer(
                 modifier = Modifier
-                    .padding(start = 16.dp)
-                    .combinedClickable(
-                        interactionSource = interactionSource,
-                        indication = null,
-                        onClick = {},
-                        onLongClick = { clipboard.setText(AnnotatedString(cleanedResult)) },
-                    ),
-            )
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+            ) {
+                Text(
+                    content,
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    lineHeight = 18.sp,
+                    color = contentColor,
+                )
+            }
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(8.dp),
+            ) {
+                Icon(Icons.Default.Close, contentDescription = "Close")
+            }
         }
     }
 }

@@ -29,7 +29,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -271,16 +270,9 @@ fun TypingDots(dotColor: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
     }
 }
 
-// Cap on the reasoning viewport — roughly six lines. Short content sizes to itself;
-// once content exceeds this height it scrolls within the window instead of the bubble
-// growing further, so the surrounding layout never shifts unboundedly while reasoning
-// streams in, and stays exactly the same size once done — no auto-collapse, so there's
-// no jarring shrink right as the answer arrives.
-private val THINKING_VIEWPORT_MAX_HEIGHT = 120.dp
-
-// Generous upper bound on how much of a settled block's text the inline card actually lays
-// out — see the comment at inlineDisplayContent below for why this exists at all.
-private const val THINKING_INLINE_PREVIEW_CHARS = 1200
+// Inline card is hard-capped to this many lines (with ellipsis overflow) regardless of
+// content length or streaming state; the fullscreen dialog is the only way to read past it.
+private const val THINKING_INLINE_MAX_LINES = 3
 
 @Composable
 fun ThinkingHistoryBubble(
@@ -292,28 +284,6 @@ fun ThinkingHistoryBubble(
     var showFullscreen by remember { mutableStateOf(false) }
     val totalChars = blocks.sumOf { it.content.length }
     val combinedContent = remember(blocks) { blocks.joinToString("\n\n") { it.content } }
-    // The inline card's viewport is capped at THINKING_VIEWPORT_MAX_HEIGHT (~6 lines) and, for
-    // a settled block, never scrolls past its initial position 0 (touch-scroll is disabled
-    // below; live blocks alone auto-scroll to their tail via the LaunchedEffect that follows).
-    // So only the first ~120dp of text is ever visible in the card regardless of how long the
-    // full block is — laying out the entire string anyway wastes text-measurement work that
-    // scales with content length, which is exactly what makes scrolling past large reasoning
-    // blocks (often legacy ones from before a turn's reasoning was split into several smaller
-    // phase blocks) visibly janky. The full, untruncated text is still one tap away via the
-    // fullscreen view. Live blocks are excluded: truncating to the first N characters there
-    // would defeat the tail-following auto-scroll below, and a still-streaming block isn't
-    // what's implicated in this jitter anyway.
-    val inlineDisplayContent = if (!isLive && combinedContent.length > THINKING_INLINE_PREVIEW_CHARS) {
-        combinedContent.take(THINKING_INLINE_PREVIEW_CHARS) + "…"
-    } else {
-        combinedContent
-    }
-    val scrollState = rememberScrollState()
-
-    // Keep the viewport scrolled to the latest reasoning text as it streams in.
-    LaunchedEffect(combinedContent, isLive, collapsed) {
-        if (isLive && !collapsed) scrollState.scrollTo(scrollState.maxValue)
-    }
 
     // Fade in on first appearance — this bubble is often nested inline inside an
     // AssistantMessage item rather than its own lazy item, so it doesn't get the
@@ -382,24 +352,15 @@ fun ThinkingHistoryBubble(
                 SelectionContainer(
                     modifier = Modifier
                         .padding(vertical = 4.dp)
-                        .heightIn(max = THINKING_VIEWPORT_MAX_HEIGHT)
-                        // Touch-driven scroll disabled: this viewport is nested inside the
-                        // outer LazyColumn, and Compose gives a nested scrollable first claim
-                        // on drag gestures — a finger's drag path crossing this box mid-scroll
-                        // would partially intercept the gesture before handing the remainder
-                        // back to the list, producing a stutter every time you scroll past a
-                        // reasoning block. `enabled = false` only blocks touch input; the
-                        // auto-scroll-to-latest-text LaunchedEffect above still drives
-                        // scrollState programmatically while live. Reading a long completed
-                        // block past the 120dp cap now goes through the fullscreen view instead.
-                        .verticalScroll(scrollState, enabled = false)
                         .fillMaxWidth(),
                 ) {
                     Text(
-                        inlineDisplayContent,
+                        combinedContent,
                         fontSize = 13.sp,
                         lineHeight = 20.sp,
                         color = contentTextColor,
+                        maxLines = THINKING_INLINE_MAX_LINES,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -416,10 +377,9 @@ fun ThinkingHistoryBubble(
 }
 
 /**
- * Full-screen reader for a reasoning block's complete text. The inline viewport caps at
- * [THINKING_VIEWPORT_MAX_HEIGHT] and no longer accepts touch-scroll (see the comment at its
- * `verticalScroll` call site), so this is the only way to read a long completed block past
- * that cap — mirrors CodeBlockWebView's fullscreen dialog for the same reason and UX.
+ * Full-screen reader for a reasoning block's complete text. The inline card caps at
+ * [THINKING_INLINE_MAX_LINES] lines with ellipsis overflow, so this is the only way to read
+ * a long block past that cap — mirrors CodeBlockWebView's fullscreen dialog for the same reason and UX.
  */
 @Composable
 private fun ThinkingFullscreenDialog(
@@ -553,8 +513,14 @@ fun MessageBubble(
                                                     // streaming ended. Plain text is set directly while
                                                     // streaming to avoid re-parsing markdown on every chunk;
                                                     // Markwon only parses once the message settles.
+                                                    // While streaming, revealedText trails the raw accumulated
+                                                    // chunk (rememberRevealedText) instead of snapping straight
+                                                    // to it, and fadeAlpha gives newly-revealed text a soft
+                                                    // fade-in rather than popping to full opacity.
+                                                    val revealedText = if (msg.isStreaming) rememberRevealedText(segment.markdown) else segment.markdown
+                                                    val fadeAlpha = if (msg.isStreaming) rememberStreamFadeAlpha(revealedText.length) else 1f
                                                     AndroidView(
-                                                        modifier = Modifier.fillMaxWidth(),
+                                                        modifier = Modifier.fillMaxWidth().streamFade(fadeAlpha),
                                                         factory = { ctx ->
                                                             TextView(ctx).also { tv ->
                                                                 tv.setTextColor(textColorArgb)
@@ -565,7 +531,7 @@ fun MessageBubble(
                                                         update = { tv ->
                                                             tv.setTextColor(textColorArgb)
                                                             if (msg.isStreaming) {
-                                                                tv.text = segment.markdown
+                                                                tv.text = revealedText
                                                             } else {
                                                                 markwon.setMarkdown(tv, segment.markdown)
                                                             }
