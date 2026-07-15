@@ -30,6 +30,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -58,12 +59,18 @@ private fun String.displayTail(maxLength: Int = 40): String {
 fun FileExplorerScreen(
     onBack: () -> Unit,
     onFolderSelected: (String) -> Unit,
+    initialPath: String = "",
     vm: FileExplorerViewModel = viewModel(),
 ) {
     val state by vm.state.collectAsState()
     val connectionState by WsRepository.connectionState.collectAsState()
     val lastError by WsRepository.lastError.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
+
+    // Jump straight into the project's already-configured root directory (if any) instead of
+    // showing the home/recents chooser first — falls back to the chooser only if that path
+    // turns out not to exist (see FileExplorerViewModel.openInitial).
+    LaunchedEffect(Unit) { vm.openInitial(initialPath) }
 
     // `history` is a breadcrumb stack the user drills into via folder taps, with no NavGraph
     // route per level — without this, system/gesture back exits the whole screen from any depth
