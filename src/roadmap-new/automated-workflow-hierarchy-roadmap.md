@@ -1,6 +1,6 @@
 # Nexy Domain Model — Hierarchy & Automated Workflow Restructure Roadmap
 
-Status: **planning document**. No code has been changed as part of producing this document — it is a research report plus a phased implementation roadmap for future work. All file:line citations reflect the codebase at the time of writing.
+Status: **research/design source doc — the roadmap it describes has been fully implemented.** This document itself is unchanged from when it was written (all file:line citations below reflect the codebase at that time), but the 9-phase roadmap in §5 was carried out in full; see `src/roadmap-archive/00-overview-and-sequencing.md` and the accompanying phase files for implementation notes, file/line changes, and verification results. Kept here (not archived) because it's the source research/hierarchy doc the phase files depend on, not a phase itself.
 
 ## 1. Why this document exists
 

@@ -26,6 +26,19 @@ A provider-agnostic native AI workspace — locally-first, with custom agents, m
 - Agent and skill generators: structured conversation-driven wizards that emit a full spec and create the resource
 - Agent export/import (JSON)
 
+### Automated Workflows & Scheduling
+
+**How it works:**
+
+1. **Describe your goal** in a chat-style generator, project-scoped or fully standalone (global) — the planner assigns each step to one of your existing agents (that agent's own skills apply) or a plain model, whichever fits the step best.
+2. **Review the generated plan** before anything runs. A plan is saved the moment it's generated and stays "Pending" indefinitely — reviewing it doesn't commit you to running it right away.
+3. **Run it whenever you're ready**, step-by-step (gated: pause for your approval after every step) or fully automatic (advance immediately, only pausing on failure). Each step executes in its own dedicated conversation — never the project's main chat — with per-step retry, skip, and run-level abort.
+4. **Reuse it later** via "Run again" on a finished run, no need to re-describe the goal to the AI — every generated plan is saved as a reusable template independent of its run history.
+
+- Scheduled tasks: one-time or recurring (daily/weekdays/weekly/monthly) triggers that fire a plain chat message or drive one or more attached Automated Workflows, with crash-safe timer rehydration, missed-run catch-up, and retry with backoff
+- A workflow's project scope (or lack of one) is fixed at creation — there's no way to move a standalone workflow into a project, or vice versa, afterward
+- Fully synchronized between desktop and the Android companion over the paired WebSocket connection — generate, review, run, and manage workflows from either device
+
 ### Projects & Knowledge
 
 - Project workspaces with per-project agent config, orchestration settings, scope rules, milestones, and workspace variables
