@@ -114,7 +114,7 @@ fun ProjectConfigScreen(
     onOpenArtifacts: () -> Unit = {},
     onOpenAudit: () -> Unit = {},
     onOpenAutomatedWorkflow: () -> Unit = {},
-    onOpenFileExplorer: () -> Unit = {},
+    onOpenFileExplorer: (String) -> Unit = {},
 ) {
     val projects by WsRepository.projects.collectAsState()
     val allAgents by WsRepository.agents.collectAsState()
@@ -508,7 +508,7 @@ fun ProjectConfigScreen(
                         modifier = Modifier.fillMaxWidth(),
                     )
                     if (!desktopDisconnected) {
-                        TextButton(onClick = onOpenFileExplorer, enabled = !saving) {
+                        TextButton(onClick = { onOpenFileExplorer(rootDirectory) }, enabled = !saving) {
                             Text("Browse desktop files…")
                         }
                     }
