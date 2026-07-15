@@ -161,16 +161,56 @@ export async function pullRepo(repoRoot: string, remote = 'origin'): Promise<Mer
   return runMergeLikeCommand(repoRoot, ['pull', remote])
 }
 
+export interface ChangedFileEntry {
+  relativePath: string
+  /** True when the index (X column of `git status --porcelain`) already has this file's changes
+   *  staged — i.e. `git commit` alone (no `git add`) would include it. */
+  staged: boolean
+}
+
 /**
  * Files with uncommitted changes (staged or not) in the repo — the "changed files" view,
  * distinct from `repo-discovery.ts`'s `listRepoFiles` which returns every tracked file.
  */
-export async function getChangedFiles(repoRoot: string): Promise<string[]> {
+export async function getChangedFiles(repoRoot: string): Promise<ChangedFileEntry[]> {
   const output = await git(['status', '--porcelain'], repoRoot).catch(() => '')
   return output
     .split('\n')
-    .map((line) => line.slice(3).trim())
     .filter((line) => line.length > 0)
+    .map((line) => {
+      // Porcelain v1: columns 0-1 are XY status, column 2 is a space, path starts at column 3.
+      // A rename/copy line reads "R  old/path -> new/path" — only the new path is a real,
+      // diff/add-able location, so that's what's surfaced here.
+      const statusX = line[0]
+      const rawPath = line.slice(3).trim()
+      const relativePath = rawPath.includes(' -> ') ? rawPath.split(' -> ')[1] : rawPath
+      return { relativePath, staged: statusX !== ' ' && statusX !== '?' }
+    })
+}
+
+/** Stages the given files (`git add`) without committing — the explicit "Stage" action,
+ *  distinct from `commitChanges`, which only auto-stages everything as a convenience fallback
+ *  when nothing has been staged yet. */
+export async function stageFiles(repoRoot: string, relativePaths: string[]): Promise<{ ok: boolean; error?: string }> {
+  if (relativePaths.length === 0) return { ok: true }
+  try {
+    await git(['add', '--', ...relativePaths], repoRoot)
+    return { ok: true }
+  } catch (error) {
+    return { ok: false, error: extractGitError(error) }
+  }
+}
+
+/** Reverses `stageFiles` — moves the given files back out of the index without discarding their
+ *  working-tree edits (`git reset` for compatibility with older git than `restore --staged`). */
+export async function unstageFiles(repoRoot: string, relativePaths: string[]): Promise<{ ok: boolean; error?: string }> {
+  if (relativePaths.length === 0) return { ok: true }
+  try {
+    await git(['reset', '--', ...relativePaths], repoRoot)
+    return { ok: true }
+  } catch (error) {
+    return { ok: false, error: extractGitError(error) }
+  }
 }
 
 /**
@@ -319,7 +359,14 @@ export async function commitChanges(
     if (files && files.length > 0) {
       await git(['add', '--', ...files], repoRoot)
     } else {
-      await git(['add', '-A'], repoRoot)
+      // No explicit file list — if the user already staged something with the "Stage" action,
+      // commit exactly that instead of blowing it away with `add -A` (which would silently
+      // stage everything else too). Only fall back to "stage everything" when nothing has been
+      // staged yet, preserving the old one-tap "just commit it all" convenience.
+      const alreadyStaged = (await getChangedFiles(repoRoot)).some((f) => f.staged)
+      if (!alreadyStaged) {
+        await git(['add', '-A'], repoRoot)
+      }
     }
     await git(['commit', '-m', message], repoRoot)
     return { ok: true }
@@ -416,16 +463,26 @@ export async function getFileDiff(repoRoot: string, relativePath: string): Promi
     }
   }
 
+  // A huge (rather than git's default 3-line) context means the unified diff effectively always
+  // includes the whole file, unchanged lines and all — so the mobile viewer never has to hide
+  // part of the file behind a collapsed hunk boundary the user would need a separate "expand"
+  // affordance to reveal. Scrolling (see DiffSection in CodePanelScreen.kt) is enough on its own.
+  // This also means the diff output is now roughly the size of the whole file, not just a few
+  // lines of context — Node's execFile defaults to a 1MB stdout cap, which a full-context diff
+  // of anything but a small file blows past; a silent overflow there looks identical to "no
+  // changes" instead of an error, so it needs a much larger explicit maxBuffer here.
+  const fullContextArgs = ['diff', '--unified=100000']
+  const maxBuffer = 64 * 1024 * 1024
   try {
-    const diff = await execFileAsync('git', ['diff', 'HEAD', '--', relativePath], { cwd: repoRoot, timeout: 15000 })
+    const diff = await execFileAsync('git', [...fullContextArgs, 'HEAD', '--', relativePath], { cwd: repoRoot, timeout: 15000, maxBuffer })
     return { diff: diff.stdout, binary: /^Binary files /m.test(diff.stdout) }
   } catch {
     // No HEAD yet (brand-new repo, no commits) — diff against git's well-known empty tree hash.
     try {
       const diff = await execFileAsync(
         'git',
-        ['diff', '4b825dc642cb6eb9a060e54bf8d69288fbee4904', '--', relativePath],
-        { cwd: repoRoot, timeout: 15000 },
+        [...fullContextArgs, '4b825dc642cb6eb9a060e54bf8d69288fbee4904', '--', relativePath],
+        { cwd: repoRoot, timeout: 15000, maxBuffer },
       )
       return { diff: diff.stdout, binary: /^Binary files /m.test(diff.stdout) }
     } catch {

@@ -35,6 +35,8 @@ import {
   getStashCount,
   deleteBranch,
   getFileDiff,
+  stageFiles,
+  unstageFiles,
 } from './code-change/git-manager'
 import path from 'path'
 import { discoverReposInWorkspace, listRepoFiles } from './code-change/repo-discovery'
@@ -206,5 +208,13 @@ export function registerCodeChangeHandlers(mainWindow?: BrowserWindow): void {
 
   safeHandle('code-change:file-diff', async (_event, repoRoot: string, relativePath: string) => {
     return getFileDiff(repoRoot, relativePath)
+  })
+
+  safeHandle('code-change:stage-files', async (_event, repoRoot: string, relativePaths: string[]) => {
+    return stageFiles(repoRoot, relativePaths)
+  })
+
+  safeHandle('code-change:unstage-files', async (_event, repoRoot: string, relativePaths: string[]) => {
+    return unstageFiles(repoRoot, relativePaths)
   })
 }

@@ -57,6 +57,8 @@ import {
   getStashCount,
   deleteBranch,
   getFileDiff,
+  stageFiles,
+  unstageFiles,
 } from './code-change/git-manager'
 import { runProjectGeneratorChatForAndroid, createProjectFromSpec, getProjectGeneratorAgentSummaries, getProjectGeneratorModel } from './project-generator'
 import { runAgentGeneratorChatForAndroid, createAgentFromSpec, getAgentGeneratorModel } from './agent-generator'
@@ -759,12 +761,18 @@ export function registerWsHandlers(): void {
     if (command === 'code-change:list-changed-files') {
       try {
         const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
+        // Echoed back verbatim — the WS protocol has no built-in request/reply correlation, so
+        // async requests fired close together (e.g. a stage action's refresh landing right after
+        // the initial repo-selection load) can resolve out of order. The client only trusts the
+        // reply matching the most recent `seq` it sent, dropping older ones instead of letting a
+        // slow stale reply clobber fresher state.
+        const seq = typeof data.seq === 'number' ? data.seq : 0
         if (!repoRoot) {
           reply({ event: 'code-change:error', data: { error: 'Missing repoRoot' } })
           return
         }
         void getChangedFiles(repoRoot).then((files) => {
-          reply({ event: 'code-change:changed-files', data: { files } })
+          reply({ event: 'code-change:changed-files', data: { files, seq } })
         }).catch((error) => {
           reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
         })
@@ -816,12 +824,14 @@ export function registerWsHandlers(): void {
     if (command === 'code-change:list-branches') {
       try {
         const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
+        // See the matching comment on 'code-change:list-changed-files' — same stale-reply guard.
+        const seq = typeof data.seq === 'number' ? data.seq : 0
         if (!repoRoot) {
           reply({ event: 'code-change:error', data: { error: 'Missing repoRoot' } })
           return
         }
         const branches = await listBranches(repoRoot)
-        reply({ event: 'code-change:branches', data: branches })
+        reply({ event: 'code-change:branches', data: { ...branches, seq } })
       } catch (error) {
         reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
       }
@@ -1056,12 +1066,46 @@ export function registerWsHandlers(): void {
       try {
         const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
         const relativePath = typeof data.relativePath === 'string' ? data.relativePath : ''
+        // See the matching comment on 'code-change:list-changed-files' — same stale-reply guard.
+        const seq = typeof data.seq === 'number' ? data.seq : 0
         if (!repoRoot || !relativePath) {
           reply({ event: 'code-change:error', data: { error: 'Missing repoRoot or relativePath' } })
           return
         }
         const result = await getFileDiff(repoRoot, relativePath)
-        reply({ event: 'code-change:file-diff', data: { ...result, relativePath } })
+        reply({ event: 'code-change:file-diff', data: { ...result, relativePath, seq } })
+      } catch (error) {
+        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+      }
+      return
+    }
+
+    if (command === 'code-change:stage-files') {
+      try {
+        const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
+        const relativePaths = Array.isArray(data.relativePaths) ? data.relativePaths.filter((p): p is string => typeof p === 'string') : []
+        if (!repoRoot || relativePaths.length === 0) {
+          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot or relativePaths' } })
+          return
+        }
+        const result = await stageFiles(repoRoot, relativePaths)
+        reply({ event: 'code-change:staged', data: result })
+      } catch (error) {
+        reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
+      }
+      return
+    }
+
+    if (command === 'code-change:unstage-files') {
+      try {
+        const repoRoot = typeof data.repoRoot === 'string' ? data.repoRoot : ''
+        const relativePaths = Array.isArray(data.relativePaths) ? data.relativePaths.filter((p): p is string => typeof p === 'string') : []
+        if (!repoRoot || relativePaths.length === 0) {
+          reply({ event: 'code-change:error', data: { error: 'Missing repoRoot or relativePaths' } })
+          return
+        }
+        const result = await unstageFiles(repoRoot, relativePaths)
+        reply({ event: 'code-change:unstaged', data: result })
       } catch (error) {
         reply({ event: 'code-change:error', data: { error: error instanceof Error ? error.message : String(error) } })
       }
