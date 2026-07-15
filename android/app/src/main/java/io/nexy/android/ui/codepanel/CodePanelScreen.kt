@@ -3,6 +3,8 @@ package io.nexy.android.ui.codepanel
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -10,20 +12,28 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.CallSplit
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -36,9 +46,16 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nexy.android.ui.components.NexyEmptyState
+import io.nexy.android.ui.components.NexyGhostButton
+import io.nexy.android.ui.components.NexyListRow
+import io.nexy.android.ui.components.NexyPrimaryButton
+import io.nexy.android.ui.components.NexySecondaryButton
+import io.nexy.android.ui.components.NexyStatusBadge
 import io.nexy.android.ui.components.NexyTopAppBar
 import kotlinx.coroutines.launch
 
@@ -49,6 +66,10 @@ import kotlinx.coroutines.launch
  * awkward on a phone, so this trades typed commands for taps. The AI workflow itself
  * (/code-change, /code-execute, ...) stays in normal chat on both platforms — this screen is
  * purely for git bookkeeping and to kick off "resolve with AI" when a merge conflicts.
+ *
+ * Built from the same shared components other screens use (NexyListRow, NexyStatusBadge,
+ * NexyPrimaryButton/NexySecondaryButton/NexyGhostButton) rather than ad-hoc Row/TextButton, so
+ * this reads as part of the app instead of a bare prototype screen.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -125,10 +146,9 @@ private fun RepoListSection(state: CodePanelState, onSelectRepo: (String) -> Uni
             title = "No git repos found",
             detail = "Nothing under this project's workspace looks like a git repository yet.",
         )
-        else -> LazyColumn(contentPadding = PaddingValues(16.dp)) {
+        else -> LazyColumn(contentPadding = PaddingValues(vertical = 8.dp)) {
             items(state.repos, key = { it.relativePath }) { repo ->
                 RepoRow(repo = repo, onClick = { onSelectRepo(repo.relativePath) })
-                Spacer(modifier = Modifier.height(8.dp))
             }
         }
     }
@@ -136,31 +156,47 @@ private fun RepoListSection(state: CodePanelState, onSelectRepo: (String) -> Uni
 
 @Composable
 private fun RepoRow(repo: CodePanelRepo, onClick: () -> Unit) {
-    Surface(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        shape = MaterialTheme.shapes.medium,
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Column {
+    NexyListRow(
+        title = repo.relativePath.ifBlank { "(workspace root)" },
+        onClick = onClick,
+        leading = {
+            Icon(
+                Icons.AutoMirrored.Filled.CallSplit,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+        subtitleContent = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    text = repo.relativePath.ifBlank { "(workspace root)" },
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-                Text(
-                    text = "Branch: ${repo.branch}${if (repo.dirty) " · uncommitted changes" else ""}",
+                    text = repo.branch,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
                 )
+                if (repo.dirty) {
+                    NexyStatusBadge(
+                        label = "uncommitted",
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                    )
+                }
             }
-        }
-    }
+        },
+        trailing = {
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+    )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun RepoDetailSection(
     vm: CodePanelViewModel,
@@ -172,10 +208,21 @@ private fun RepoDetailSection(
 
     LazyColumn(contentPadding = PaddingValues(16.dp)) {
         item {
-            Text(
-                text = "Current branch: ${state.branches?.current ?: "…"}",
-                style = MaterialTheme.typography.titleMedium,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = state.branches?.current ?: "…",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                NexyStatusBadge(
+                    label = "current",
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = "Fetch latest remote refs, checkout or create a branch, or merge another branch into this one.",
@@ -187,43 +234,68 @@ private fun RepoDetailSection(
                 val branches = state.branches ?: return@remember 0
                 (branches.local + branches.remote).distinct().count { it != branches.current }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = { vm.fetch() }, enabled = !state.isActionInProgress) { Text("Fetch") }
-                TextButton(onClick = { newBranchDialogOpen = true }, enabled = !state.isActionInProgress) { Text("New branch") }
-                TextButton(
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                NexySecondaryButton(
+                    text = "Fetch",
+                    onClick = { vm.fetch() },
+                    enabled = !state.isActionInProgress,
+                    leadingIcon = Icons.Default.Sync,
+                )
+                NexySecondaryButton(
+                    text = "New branch",
+                    onClick = { newBranchDialogOpen = true },
+                    enabled = !state.isActionInProgress,
+                    leadingIcon = Icons.Default.Add,
+                )
+                NexySecondaryButton(
+                    text = "Merge…",
                     onClick = { mergeDialogOpen = true },
                     enabled = !state.isActionInProgress && mergeCandidateCount > 0,
-                ) { Text("Merge…") }
+                    leadingIcon = Icons.AutoMirrored.Filled.CallSplit,
+                )
             }
             if (state.isActionInProgress) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(modifier = Modifier.height(16.dp).width(16.dp))
+                    CircularProgressIndicator(modifier = Modifier.height(16.dp).width(16.dp), strokeWidth = 2.dp)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Working…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+            HorizontalDivider(modifier = Modifier.padding(top = 16.dp))
         }
 
         if (state.conflict != null) {
             item {
-                Card(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Merge conflict", style = MaterialTheme.typography.titleSmall)
-                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            "Conflicting files:\n" + state.conflict.conflictedFiles.joinToString("\n") { "• $it" },
-                            style = MaterialTheme.typography.bodySmall,
+                            "Merge conflict",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
                         )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        state.conflict.conflictedFiles.forEach { path ->
+                            Text(
+                                "• $path",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                fontFamily = FontFamily.Monospace,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             "No automatic resolution runs here — send these files to chat and the AI will propose a fix you review, same as /code-change.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
                         )
                         Spacer(modifier = Modifier.height(8.dp))
-                        TextButton(onClick = onResolveWithAi) { Text("Resolve with AI in chat") }
+                        NexyPrimaryButton(text = "Resolve with AI in chat", onClick = onResolveWithAi)
                     }
                 }
             }
@@ -232,16 +304,16 @@ private fun RepoDetailSection(
         item {
             Text("Branches", style = MaterialTheme.typography.titleSmall)
             Text(
-                "Tap Checkout to switch branches locally.",
+                "Tap a branch to check it out locally.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))
         }
         val branches = state.branches
         if (branches == null) {
             item {
-                Row(horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
+                Row(horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
                     CircularProgressIndicator()
                 }
             }
@@ -262,14 +334,19 @@ private fun RepoDetailSection(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))
         }
         if (state.changedFiles.isEmpty()) {
-            item { Text("No uncommitted changes.", style = MaterialTheme.typography.bodySmall) }
-        } else {
-            items(state.changedFiles) { file ->
-                Text(file, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 4.dp))
+            item {
+                Text(
+                    "No uncommitted changes.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
             }
+        } else {
+            items(state.changedFiles, key = { it }) { file -> ChangedFileRow(path = file) }
         }
     }
 
@@ -290,19 +367,51 @@ private fun RepoDetailSection(
 
 @Composable
 private fun BranchRow(name: String, isCurrent: Boolean, onCheckout: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = if (isCurrent) "$name (current)" else name,
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        if (!isCurrent) {
-            TextButton(onClick = onCheckout) { Text("Checkout") }
-        }
-    }
+    NexyListRow(
+        title = name,
+        leading = {
+            Icon(
+                Icons.AutoMirrored.Filled.CallSplit,
+                contentDescription = null,
+                tint = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+        },
+        trailing = {
+            if (isCurrent) {
+                NexyStatusBadge(
+                    label = "current",
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            } else {
+                NexyGhostButton(text = "Checkout", onClick = onCheckout)
+            }
+        },
+    )
+}
+
+/** Splits a relative path into a bold filename with its directory as a dimmed, truncated
+ *  subtitle — reads much better than one long monospace line for deeply nested paths, and
+ *  naturally fixes the "whole path gets clipped instead of truncated" case for long paths. */
+@Composable
+private fun ChangedFileRow(path: String) {
+    val separatorIndex = path.lastIndexOf('/')
+    val fileName = if (separatorIndex >= 0) path.substring(separatorIndex + 1) else path
+    val directory = if (separatorIndex >= 0) path.substring(0, separatorIndex) else null
+
+    NexyListRow(
+        title = fileName,
+        subtitle = directory,
+        leading = {
+            Icon(
+                Icons.Default.Description,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+        },
+    )
 }
 
 @Composable
@@ -320,9 +429,7 @@ private fun NewBranchDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit) {
             )
         },
         confirmButton = {
-            TextButton(onClick = { if (name.isNotBlank()) onCreate(name.trim()) }, enabled = name.isNotBlank()) {
-                Text("Create")
-            }
+            NexyPrimaryButton(text = "Create", onClick = { if (name.isNotBlank()) onCreate(name.trim()) }, enabled = name.isNotBlank())
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
@@ -341,6 +448,9 @@ private fun MergeBranchDialog(branches: CodePanelBranches, onDismiss: () -> Unit
                         branch,
                         modifier = Modifier.fillMaxWidth().clickable { onMerge(branch) }.padding(vertical = 12.dp),
                         style = MaterialTheme.typography.bodyMedium,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
