@@ -84,7 +84,7 @@ async function resolveRepoOrThrow(
       )
     }
     throw new Error(
-      "No git repository was found under this project's workspace. Initialize one (git init) in the folder you want to work in, then try again.",
+      "No git repository was found under this project's workspace. Run /code-init [path] to create one, then try again.",
     )
   }
   return { repoRoot: result.repoRoot, relativePath: result.relativePath }

@@ -24,7 +24,19 @@ import {
   fetchRepo,
   mergeBranch,
   getChangedFiles,
+  initRepo,
+  detectGitCredentials,
+  pullRepo,
+  pushRepo,
+  commitChanges,
+  discardFileChanges,
+  stashChanges,
+  stashPop,
+  getStashCount,
+  deleteBranch,
+  getFileDiff,
 } from './code-change/git-manager'
+import path from 'path'
 import { discoverReposInWorkspace, listRepoFiles } from './code-change/repo-discovery'
 import { getDatabase } from './database'
 import type { ErrorReportEntry } from '../shared/types'
@@ -140,5 +152,59 @@ export function registerCodeChangeHandlers(mainWindow?: BrowserWindow): void {
 
   safeHandle('code-change:merge-branch', async (_event, repoRoot: string, sourceBranch: string) => {
     return mergeBranch(repoRoot, sourceBranch)
+  })
+
+  /** `git init` a workspace (or subfolder) that has no repo yet. Takes a projectId, not a raw
+   *  path, mirroring `code-change:resolve-repo` — the renderer never needs to know the
+   *  workspace root directly. */
+  safeHandle('code-change:init-repo', async (_event, projectId: string, relativePath?: string) => {
+    const workspaceRoot = getProjectRootDirectory(projectId)
+    if (!workspaceRoot) return { ok: false as const, error: 'This project has no workspace folder configured.' }
+    const targetDir = relativePath ? path.join(workspaceRoot, relativePath) : workspaceRoot
+    return initRepo(targetDir)
+  })
+
+  /** Detect (never store) which already-configured auth this machine would use to push/fetch. */
+  safeHandle('code-change:detect-credentials', async (_event, repoRoot: string) => {
+    return detectGitCredentials(repoRoot)
+  })
+
+  safeHandle('code-change:pull', async (_event, repoRoot: string, remote?: string) => {
+    return pullRepo(repoRoot, remote)
+  })
+
+  safeHandle('code-change:push-branch', async (_event, repoRoot: string) => {
+    return pushRepo(repoRoot)
+  })
+
+  safeHandle('code-change:commit', async (_event, repoRoot: string, message: string, files?: string[]) => {
+    return commitChanges(repoRoot, message, files)
+  })
+
+  safeHandle('code-change:discard-file', async (_event, repoRoot: string, relativePath: string) => {
+    return discardFileChanges(repoRoot, relativePath)
+  })
+
+  safeHandle('code-change:stash', async (_event, repoRoot: string, message?: string) => {
+    return stashChanges(repoRoot, message)
+  })
+
+  safeHandle('code-change:stash-pop', async (_event, repoRoot: string) => {
+    return stashPop(repoRoot)
+  })
+
+  safeHandle('code-change:stash-count', async (_event, repoRoot: string) => {
+    return getStashCount(repoRoot)
+  })
+
+  safeHandle(
+    'code-change:delete-branch',
+    async (_event, repoRoot: string, branchName: string, options?: { deleteRemote?: boolean; force?: boolean }) => {
+      return deleteBranch(repoRoot, branchName, options)
+    },
+  )
+
+  safeHandle('code-change:file-diff', async (_event, repoRoot: string, relativePath: string) => {
+    return getFileDiff(repoRoot, relativePath)
   })
 }
