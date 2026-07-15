@@ -1952,6 +1952,33 @@ export type IpcReturnMap = {
     error?: string
     summary?: string
   }
+  'code-change:init-repo': { ok: boolean; error?: string }
+  'code-change:detect-credentials': {
+    remoteUrl: string | null
+    host: string | null
+    protocol: 'ssh' | 'https' | null
+    methods: Array<{
+      type: 'gh-cli' | 'glab-cli' | 'tea-cli' | 'ssh-key' | 'credential-helper'
+      label: string
+      detail: string
+      available: boolean
+    }>
+  }
+  'code-change:pull': {
+    ok: boolean
+    conflicted: boolean
+    conflictedFiles?: Array<{ relativePath: string; content: string }>
+    error?: string
+    summary?: string
+  }
+  'code-change:push-branch': { ok: boolean; error?: string }
+  'code-change:commit': { ok: boolean; error?: string }
+  'code-change:discard-file': { ok: boolean; error?: string }
+  'code-change:stash': { ok: boolean; error?: string }
+  'code-change:stash-pop': { ok: boolean; error?: string }
+  'code-change:stash-count': number
+  'code-change:delete-branch': { ok: boolean; error?: string }
+  'code-change:file-diff': { diff: string; binary: boolean }
   // Deeplink (push-only)
   'deeplink:open-agent': void
   'deeplink:open-chat': void
@@ -2369,6 +2396,17 @@ export type IpcChannels =
   | 'code-change:new-branch'
   | 'code-change:fetch'
   | 'code-change:merge-branch'
+  | 'code-change:init-repo'
+  | 'code-change:detect-credentials'
+  | 'code-change:pull'
+  | 'code-change:push-branch'
+  | 'code-change:commit'
+  | 'code-change:discard-file'
+  | 'code-change:stash'
+  | 'code-change:stash-pop'
+  | 'code-change:stash-count'
+  | 'code-change:delete-branch'
+  | 'code-change:file-diff'
   | 'deeplink:open-agent'
   | 'deeplink:open-chat'
   | 'file:add-recent-dir'

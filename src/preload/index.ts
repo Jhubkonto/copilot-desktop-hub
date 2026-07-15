@@ -204,6 +204,22 @@ const api = {
   fetchCodeChangeRepo: (repoRoot: string, remote?: string) => typedInvoke('code-change:fetch', repoRoot, remote),
   mergeCodeChangeBranch: (repoRoot: string, sourceBranch: string) =>
     typedInvoke('code-change:merge-branch', repoRoot, sourceBranch),
+  initCodeChangeRepo: (projectId: string, relativePath?: string) =>
+    typedInvoke('code-change:init-repo', projectId, relativePath),
+  detectCodeChangeCredentials: (repoRoot: string) => typedInvoke('code-change:detect-credentials', repoRoot),
+  pullCodeChangeRepo: (repoRoot: string, remote?: string) => typedInvoke('code-change:pull', repoRoot, remote),
+  pushCodeChangeBranch: (repoRoot: string) => typedInvoke('code-change:push-branch', repoRoot),
+  commitCodeChangeFiles: (repoRoot: string, message: string, files?: string[]) =>
+    typedInvoke('code-change:commit', repoRoot, message, files),
+  discardCodeChangeFile: (repoRoot: string, relativePath: string) =>
+    typedInvoke('code-change:discard-file', repoRoot, relativePath),
+  stashCodeChanges: (repoRoot: string, message?: string) => typedInvoke('code-change:stash', repoRoot, message),
+  stashPopCodeChanges: (repoRoot: string) => typedInvoke('code-change:stash-pop', repoRoot),
+  getCodeChangeStashCount: (repoRoot: string) => typedInvoke('code-change:stash-count', repoRoot),
+  deleteCodeChangeBranch: (repoRoot: string, branchName: string, options?: { deleteRemote?: boolean; force?: boolean }) =>
+    typedInvoke('code-change:delete-branch', repoRoot, branchName, options),
+  getCodeChangeFileDiff: (repoRoot: string, relativePath: string) =>
+    typedInvoke('code-change:file-diff', repoRoot, relativePath),
   onErrorLogEntry: (callback: (entry: ErrorLogEntry) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, entry: ErrorLogEntry) => callback(entry)
     typedOn('errors:new', handler)
