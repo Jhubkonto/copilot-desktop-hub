@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { Brain, ChevronDown, ChevronRight, Loader2, Maximize2 } from 'lucide-react'
 import { ModalShell } from '../ui/primitives'
+import { StreamingFadeText } from './StreamingFadeText'
 
 interface ThinkingBlockProps {
   content: string
@@ -8,27 +9,11 @@ interface ThinkingBlockProps {
   label?: string
 }
 
-// Cap on the reasoning viewport — roughly four lines (13px text, leading-relaxed ≈ 21px/line).
-// Short content sizes to itself; once content exceeds this height it scrolls within the window
-// instead of the bubble growing further, so the surrounding layout never shifts unboundedly while
-// reasoning streams in, and stays exactly the same size once done — no auto-collapse, so there's
-// no jarring shrink right as the answer arrives. The fullscreen viewer below (mirrors Android's
-// ThinkingFullscreenDialog) is the only way to read a long completed block past this cap.
-const VIEWPORT_CLASS = 'max-h-[5.25rem]'
-
 export function ThinkingBlock({ content, done, label = 'Reasoning' }: ThinkingBlockProps) {
   const [collapsed, setCollapsed] = useState(false)
   const [showFullscreen, setShowFullscreen] = useState(false)
-  const contentRef = useRef<HTMLPreElement | null>(null)
 
   const charCount = content.length
-
-  // Keep the viewport scrolled to the latest reasoning text as it streams in.
-  useEffect(() => {
-    const el = contentRef.current
-    if (!el || done || collapsed) return
-    el.scrollTop = el.scrollHeight
-  }, [content, done, collapsed])
 
   const handleToggle = () => {
     if (content.length === 0) return
@@ -78,11 +63,8 @@ export function ThinkingBlock({ content, done, label = 'Reasoning' }: ThinkingBl
       {content.length > 0 && (
         <div className={`grid transition-[grid-template-rows] duration-200 ease-out ${collapsed ? 'grid-rows-[0fr]' : 'grid-rows-[1fr]'}`}>
           <div className="overflow-hidden">
-            <pre
-              ref={contentRef}
-              className={`${VIEWPORT_CLASS} overflow-y-auto whitespace-pre-wrap py-1 text-[13px] leading-relaxed text-gray-600 dark:text-gray-400`}
-            >
-              {content}
+            <pre className="line-clamp-3 whitespace-pre-wrap py-1 text-[13px] leading-relaxed text-gray-600 dark:text-gray-400">
+              <StreamingFadeText text={content} />
             </pre>
           </div>
         </div>

@@ -22,6 +22,10 @@ interface ChatMessagesProps {
   isGenerating: boolean
   liveTeamActivity: TeamActivityStep[]
   streamingContent: string
+  /** True while streamed text is still being revealed (useStreamingQueue) — drives a subtle
+   *  fade/breathing effect on the live text so new tokens feel like they're settling in rather
+   *  than popping to full opacity. */
+  isDraining?: boolean
   cliCost?: CliCostSummary | null
   generationStartedAt: number | null
   loadingFailed: boolean
@@ -110,6 +114,7 @@ export function ChatMessagesBase({
   isGenerating,
   liveTeamActivity,
   streamingContent,
+  isDraining = false,
   cliCost,
   generationStartedAt,
   loadingFailed,
@@ -595,7 +600,7 @@ export function ChatMessagesBase({
               if (item.type === 'live-assistant-text') {
                 if (!isGenerating) return null
                 return (
-                  <div key={item.id} className="message-enter text-sm text-gray-900 dark:text-gray-100">
+                  <div className={`message-enter text-sm text-gray-900 dark:text-gray-100 transition-opacity duration-150 ease-out ${isDraining ? 'opacity-95' : 'opacity-100'}`} key={item.id}>
                     <MarkdownRenderer content={throttledStreamingContent} />
                     <span className="animate-pulse text-gray-400">▊</span>
                   </div>

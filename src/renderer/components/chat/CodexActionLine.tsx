@@ -3,6 +3,7 @@
 // this mirrors that instead of the boxed ThinkingBlock/ToolCallBlock cards used for
 // every other backend, so a Codex turn reads like Codex's own CLI session.
 import { stripAnsiEscapes } from '../../../shared/ansi'
+import { StreamingFadeText } from './StreamingFadeText'
 
 const RESULT_PREVIEW_LINES = 3
 const RESULT_PREVIEW_CHARS = 240
@@ -47,7 +48,7 @@ export function CodexActionLine(props: CodexActionLineProps) {
     return (
       <div className="flex items-start gap-1.5 text-xs">
         <span className="mt-px shrink-0 text-gray-400 dark:text-gray-500">•</span>
-        <span className="min-w-0 whitespace-pre-wrap text-gray-600 dark:text-gray-400">{props.content}</span>
+        <span className="min-w-0 whitespace-pre-wrap text-gray-600 dark:text-gray-400"><StreamingFadeText text={props.content} /></span>
       </div>
     )
   }
@@ -57,9 +58,12 @@ export function CodexActionLine(props: CodexActionLineProps) {
   const verb = inProgress ? 'Running' : success ? 'Ran' : 'Failed:'
   const cleanedResult = result ? stripAnsiEscapes(result) : result
   const { preview, hiddenLineCount } = cleanedResult ? buildPreview(cleanedResult) : { preview: '', hiddenLineCount: 0 }
+  // Full, untruncated content shown on hover via the native title tooltip — the preview
+  // below is capped for layout, this lets the user read the whole tool call without a click.
+  const fullContent = [`${verb} ${toolName}${arg ? ` ${arg}` : ''}`, cleanedResult].filter(Boolean).join('\n\n')
 
   return (
-    <div className="text-xs font-mono">
+    <div className="text-xs font-mono" title={fullContent}>
       <div className="flex items-start gap-1.5">
         <span className="mt-px shrink-0 text-gray-400 dark:text-gray-500">•</span>
         <span className="min-w-0 truncate">
@@ -72,7 +76,7 @@ export function CodexActionLine(props: CodexActionLineProps) {
       {preview && (
         <div className={`whitespace-pre-wrap pl-4 text-[11px] leading-relaxed ${success ? 'text-gray-500 dark:text-gray-500' : 'text-red-600 dark:text-red-400'}`}>
           <span className="text-gray-400 dark:text-gray-600">{'└ '}</span>
-          {preview}
+          <StreamingFadeText text={preview} />
           {hiddenLineCount > 0 && <span className="text-gray-400 dark:text-gray-600"> (+{hiddenLineCount} more line{hiddenLineCount === 1 ? '' : 's'})</span>}
         </div>
       )}

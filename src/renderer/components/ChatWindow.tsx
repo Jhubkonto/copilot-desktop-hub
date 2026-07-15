@@ -1,11 +1,11 @@
 /* eslint-disable react-hooks/exhaustive-deps -- chat/actions are aggregate hook objects; individual members are stable. */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
-import { shouldFollowAnimatedGrowth } from '../chat-scroll-policy'
 import { CheckCircle, ChevronDown, ChevronRight, Download, ListChecks, Loader2, Lock, MoreHorizontal, Pin, PinOff, Sparkles, Star, Upload, Users, X, Zap } from 'lucide-react'
 import { getAvailableModelIds, getModelLabel, modelIdSupportsTools } from '../../shared/models'
 import { isApiError, type AgentConfig, type ArtifactPromotionRequest, type AvailableModelEntry, type AvailableModelGroup, type ConversationExportPackFormat, type AutomatedWorkflowRunDetail, type AutomatedWorkflowRunStep, type WikiCandidate } from '../../shared/types'
 import type { ContextRef, ToastType } from '../hooks/chat-types'
 import { useAtMenu } from '../hooks/useAtMenu'
+import { useAutoScroll } from '../hooks/useAutoScroll'
 import { useChat } from '../hooks/useChat'
 import { useChatWindowActions } from '../hooks/useChatWindowActions'
 import { useFileInput } from '../hooks/useFileInput'
@@ -116,8 +116,6 @@ export function ChatWindow() {
   const [activeWorkflowRun, setActiveWorkflowRun] = useState<AutomatedWorkflowRunDetail | null>(null)
   const [dismissedWorkflowStepId, setDismissedWorkflowStepId] = useState<string | null>(null)
   const [inputPanelHeight, setInputPanelHeight] = useState<number | null>(null)
-  const [hasUnreadBelow, setHasUnreadBelow] = useState(false)
-  const [isUserScrolledUp, setIsUserScrolledUp] = useState(false)
   const [clipboardRef, setClipboardRef] = useState<ContextRef | null>(null)
   const [promptInstructionRef, setPromptInstructionRef] = useState<ContextRef | null>(null)
   const [wikiMessageIds, setWikiMessageIds] = useState<Set<string>>(new Set())
@@ -158,31 +156,7 @@ export function ChatWindow() {
   const { voiceState, toggleVoice, cancelVoice } = useVoiceInput(handleVoiceText, handleVoiceError)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const scrollContainerRef = useRef<HTMLDivElement>(null)
-  // The scrollable container itself never changes size (overflow-y-auto, fixed height),
-  // so a ResizeObserver on it wouldn't see content growth — observe the inner content
-  // column instead, whose natural height grows as messages/streamed text/tool blocks
-  // are appended (see the ResizeObserver-based auto-follow effect below).
-  const contentContainerRef = useRef<HTMLDivElement>(null)
-  const isUserScrolledUpRef = useRef(false)
-  // Set immediately before a programmatic scroll and cleared a frame later. Content
-  // growing taller between the scrollTo() call and the browser's resulting scroll
-  // event can make the container look momentarily short of the bottom by the
-  // SCROLL_BOTTOM_THRESHOLD check — without this guard that misfire latches
-  // isUserScrolledUpRef permanently true, silently breaking auto-follow for the
-  // rest of the generation since nothing else resets it except the user manually
-  // scrolling back down themselves.
-  const isProgrammaticScrollRef = useRef(false)
-  // Set while a manual "scroll to request" jump is in flight so the generation
-  // auto-follow effect doesn't fight it and drag the view back to the bottom.
-  const suppressAutoFollowUntilRef = useRef(0)
   const prevGeneratingRef = useRef(false)
-  const prevMessagesLengthRef = useRef(0)
-  // Single threshold for "is the view at the bottom", shared by scrollToBottom's
-  // corrective-jump check and handleScrollContainerScroll's at-bottom classification.
-  // They must agree — see scrollToBottom's comment for why a mismatch causes a
-  // visible pause-then-jump.
-  const SCROLL_BOTTOM_THRESHOLD = 80
   const modelPickerRef = useRef<HTMLButtonElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const inputPanelResizeRef = useRef<{ startY: number; startHeight: number } | null>(null)
@@ -676,152 +650,42 @@ export function ChatWindow() {
     void chat.attachArtifact(artifactId, versionId)
   }, [pendingArtifactAttach, conversationId, clearPendingArtifactAttach, chat.attachArtifact])
 
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
-    const el = scrollContainerRef.current
-    if (!el) return
-    // Skip the programmatic scroll entirely if we're already at (or essentially at) the
-    // bottom — e.g. right after the user manually scrolled there themselves. Calling
-    // scrollTo() again here would re-animate over their own scroll gesture and read as
-    // a jarring correction at the exact moment they reach the bottom. Uses the same
-    // SCROLL_BOTTOM_THRESHOLD as handleScrollContainerScroll's at-bottom check below —
-    // a mismatch here previously let a manual scroll/click land just inside the "at
-    // bottom" zone while still outside this narrower epsilon, so a subsequent auto-follow
-    // effect would issue one last corrective scrollTo() a tick later: a visible
-    // pause-then-jump right as the user reached the end of the chat.
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-    if (distanceFromBottom > SCROLL_BOTTOM_THRESHOLD) {
-      isProgrammaticScrollRef.current = true
-      el.scrollTo({ top: el.scrollHeight, behavior })
-      // Cleared a frame later rather than synchronously — the resulting native scroll
-      // event(s) can land a tick after this call, especially with behavior: 'smooth'.
-      requestAnimationFrame(() => {
-        isProgrammaticScrollRef.current = false
-      })
-    }
-    isUserScrolledUpRef.current = false
-    setIsUserScrolledUp(false)
-    setHasUnreadBelow(false)
-    if (conversationId) markConversationRead(conversationId)
-  }, [conversationId, markConversationRead])
-
-  const handleScrollContainerScroll = useCallback(() => {
-    const el = scrollContainerRef.current
-    if (!el) return
-    // A scroll event immediately following our own programmatic scrollTo() can read
-    // as "short of the bottom" if content grew taller in the interim — don't let that
-    // misclassify as the user having scrolled up (see isProgrammaticScrollRef).
-    if (isProgrammaticScrollRef.current) return
-    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - SCROLL_BOTTOM_THRESHOLD
-    isUserScrolledUpRef.current = !atBottom
-    setIsUserScrolledUp(!atBottom)
-    if (atBottom) {
-      setHasUnreadBelow(false)
-      if (conversationId) markConversationRead(conversationId)
-    }
-  }, [conversationId, markConversationRead])
-
-  // NOTE: this can't be used to *gate* whether an in-flight streaming effect should
-  // attempt to follow — right when new content is appended, the container's scrollHeight
-  // has already grown but hasn't been scrolled to catch up yet, so a fresh measurement at
-  // that exact instant reads "not near bottom" even for a user who was sitting right at
-  // the bottom a moment ago (that's what isUserScrolledUpRef, updated only by real scroll
-  // events reflecting position *before* the update, is for). It's only meaningful once
-  // content has actually settled — e.g. at turn completion, below.
-  const isNearBottom = useCallback(() => {
-    const el = scrollContainerRef.current
-    if (!el) return true
-    return el.scrollTop + el.clientHeight >= el.scrollHeight - SCROLL_BOTTOM_THRESHOLD
-  }, [])
+  const {
+    scrollContainerRef,
+    contentContainerRef,
+    isUserScrolledUp,
+    hasUnreadBelow,
+    scrollToBottom,
+    handleScrollContainerScroll,
+    suppressAutoFollow,
+  } = useAutoScroll({
+    isGenerating: chat.isGenerating,
+    contentSignal: `${chat.messages.length}:${chat.streamingContent.length}:${chat.liveTeamActivity.length}`,
+    resetKey: conversationId,
+    onNewContentWhileScrolledUp: () => {
+      if (conversationId) markConversationUnread(conversationId)
+    },
+    onAtBottomChange: (atBottom) => {
+      if (atBottom && conversationId) markConversationRead(conversationId)
+    },
+  })
 
   // Suppresses the generation auto-follow effects for a short window so a manual
   // "scroll to request" jump isn't immediately dragged back to the bottom.
   const handleNavigateToRequest = useCallback(() => {
-    suppressAutoFollowUntilRef.current = Date.now() + 2000
-  }, [])
-
-  // Auto-scroll only when the user is at the bottom, driven by a ResizeObserver on the
-  // content column rather than guessing how many animation frames a given change (streamed
-  // text, a mounting tool-call/thinking block, its CSS grid-rows transition, syntax
-  // highlighting, images loading) takes to actually land in layout. A fixed rAF count
-  // previously either fired too early (reading a stale, too-short scrollHeight and leaving
-  // the view behind — the exact "user left behind after the response arrived" bug) or was
-  // tuned per-case for each source of growth. ResizeObserver fires exactly when the
-  // observed box's size changes, however that change happened, so it can't race ahead of
-  // or lag behind the real content growth.
-  useEffect(() => {
-    const content = contentContainerRef.current
-    if (!content) return
-    const observer = new ResizeObserver(() => {
-      if (isUserScrolledUpRef.current) return
-      if (Date.now() < suppressAutoFollowUntilRef.current) return
-      if (shouldFollowAnimatedGrowth(isUserScrolledUpRef.current)) scrollToBottom('auto')
-    })
-    observer.observe(content)
-    return () => observer.disconnect()
-  }, [scrollToBottom])
-
-  // Track new content arriving while user is scrolled up → mark unread
-  useEffect(() => {
-    const newMessages = chat.messages.length > prevMessagesLengthRef.current
-    const hasStreaming = chat.streamingContent !== ''
-    const hasTeamActivity = chat.liveTeamActivity.length > 0
-    if (isUserScrolledUpRef.current && (newMessages || hasStreaming || hasTeamActivity)) {
-      setHasUnreadBelow(true)
-      if (conversationId) markConversationUnread(conversationId)
-    }
-    prevMessagesLengthRef.current = chat.messages.length
-  }, [chat.messages, chat.streamingContent, chat.liveTeamActivity, conversationId, markConversationUnread])
-
-  // Force scroll to bottom whenever a new generation begins (user just sent a message,
-  // or regenerate just removed the previous — potentially very tall — assistant message).
-  // Double rAF: a single rAF can still read scrollHeight from before the message-list
-  // change has actually been painted, landing on a stale, too-tall "bottom".
-  useEffect(() => {
-    if (!chat.isGenerating) return
-    const raf1 = requestAnimationFrame(() => {
-      requestAnimationFrame(() => scrollToBottom('auto'))
-    })
-    return () => cancelAnimationFrame(raf1)
-  }, [chat.isGenerating, scrollToBottom])
-
-  // Safety net when generation *ends*: content is now stable (nothing else about to grow
-  // and shift the "bottom" out from under us), so a fresh measurement is trustworthy here
-  // in a way it isn't mid-stream (see isNearBottom's comment above). This catches drift
-  // accumulated during the turn — e.g. isUserScrolledUpRef having been transiently wrong
-  // for one of the streaming-follow effects above — without needing to trust that ref for
-  // this one decision. Still skips entirely if the user is genuinely scrolled away reading
-  // history: isNearBottom reflects their real current position, not a stale flag.
-  useEffect(() => {
-    if (chat.isGenerating) return
-    const raf1 = requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (isNearBottom()) scrollToBottom('auto')
-      })
-    })
-    return () => cancelAnimationFrame(raf1)
-  }, [chat.isGenerating, scrollToBottom, isNearBottom])
-
-  // Reset scroll state on conversation switch
-  useEffect(() => {
-    prevMessagesLengthRef.current = 0
-    isUserScrolledUpRef.current = false
-    setIsUserScrolledUp(false)
-    setHasUnreadBelow(false)
-    if (conversationId) markConversationRead(conversationId)
-    // Defer so the new messages have rendered before scrolling
-    requestAnimationFrame(() => scrollToBottom('auto'))
-  }, [conversationId, scrollToBottom, markConversationRead])
+    suppressAutoFollow()
+  }, [suppressAutoFollow])
 
   // Completion notification — only for successful responses (not stopped/errored)
   useEffect(() => {
-    if (prevGeneratingRef.current && !chat.isGenerating && isUserScrolledUpRef.current) {
+    if (prevGeneratingRef.current && !chat.isGenerating && isUserScrolledUp) {
       const lastMsg = chat.messages[chat.messages.length - 1]
       if (lastMsg && !lastMsg.isError && !lastMsg.isStopped) {
         addToast('Response complete ✓', 'success')
       }
     }
     prevGeneratingRef.current = chat.isGenerating
-  }, [chat.isGenerating, chat.messages, addToast])
+  }, [chat.isGenerating, chat.messages, isUserScrolledUp, addToast])
 
   const handleCopy = useCallback(async (content: string) => {
     try {
@@ -1812,6 +1676,7 @@ export function ChatWindow() {
           isGenerating={chat.isGenerating}
           liveTeamActivity={chat.liveTeamActivity}
           streamingContent={chat.displayedContent}
+          isDraining={chat.isDraining}
           generationStartedAt={chat.generationStartedAt}
           loadingFailed={chat.loadingFailed}
           messagesEndRef={messagesEndRef}
