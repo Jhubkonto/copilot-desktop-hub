@@ -1,5 +1,6 @@
 package io.nexy.android.ui.artifactgenerator
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -122,6 +123,10 @@ fun ArtifactGeneratorScreen(
         vm.dismissError()
     }
 
+    // The toolbar's onBack below now steps out of SPEC_REVIEW back to CHAT instead of always
+    // exiting the screen; this catches the system/gesture back button the same way.
+    BackHandler(enabled = uiState.phase == ArtifactGenPhase.SPEC_REVIEW) { vm.backToChat() }
+
     if (confirmReset) {
         NexyConfirmDialog(
             title = "Start over?",
@@ -141,7 +146,7 @@ fun ArtifactGeneratorScreen(
         topBar = {
             NexyTopAppBar(
                 titleContent = { Text("Artifact Generator", style = MaterialTheme.typography.titleMedium) },
-                onBack = onBack,
+                onBack = if (uiState.phase == ArtifactGenPhase.SPEC_REVIEW) { { vm.backToChat() } } else onBack,
                 actions = {
                     TextButton(onClick = { WsRepository.send("model:list", emptyMap()); showModelSheet = true }) {
                         Icon(

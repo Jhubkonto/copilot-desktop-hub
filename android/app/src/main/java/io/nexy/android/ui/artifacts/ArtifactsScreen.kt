@@ -3,6 +3,7 @@ package io.nexy.android.ui.artifacts
 import android.content.Context
 import android.content.Intent
 import android.util.Base64
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -151,6 +152,11 @@ fun ArtifactsScreen(
         shareArtifactFiles(context, pack)
         vm.clearExport()
     }
+
+    // Without this, system/gesture back exits the whole Artifacts screen even while viewing a
+    // single artifact's detail, instead of returning to the list first (mirrors the detail
+    // screen's own `onBack = { vm.clearSelection() }` below).
+    BackHandler(enabled = selected != null) { vm.clearSelection() }
 
     if (selected != null) {
         ArtifactDetailScreen(

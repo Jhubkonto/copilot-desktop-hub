@@ -1,5 +1,6 @@
 package io.nexy.android.ui.skillgenerator
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -123,6 +124,10 @@ fun SkillGeneratorScreen(
         vm.dismissError()
     }
 
+    // The toolbar's onBack below now steps out of SPEC_REVIEW back to CHAT instead of always
+    // exiting the screen; this catches the system/gesture back button the same way.
+    BackHandler(enabled = uiState.phase == SkillGenPhase.SPEC_REVIEW) { vm.backToChat() }
+
     if (confirmReset) {
         NexyConfirmDialog(
             title = "Start over?",
@@ -142,7 +147,7 @@ fun SkillGeneratorScreen(
         topBar = {
             NexyTopAppBar(
                 titleContent = { Text("Skill Generator", style = MaterialTheme.typography.titleMedium) },
-                onBack = onBack,
+                onBack = if (uiState.phase == SkillGenPhase.SPEC_REVIEW) { { vm.backToChat() } } else onBack,
                 actions = {
                     TextButton(onClick = { WsRepository.send("model:list", emptyMap()); showModelSheet = true }) {
                         Icon(

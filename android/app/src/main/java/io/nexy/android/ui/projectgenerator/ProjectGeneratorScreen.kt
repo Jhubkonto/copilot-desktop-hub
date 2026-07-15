@@ -1,5 +1,6 @@
 package io.nexy.android.ui.projectgenerator
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -123,6 +124,10 @@ fun ProjectGeneratorScreen(
         vm.dismissError()
     }
 
+    // The toolbar's onBack below now steps out of SPEC_REVIEW back to CHAT instead of always
+    // exiting the screen; this catches the system/gesture back button the same way.
+    BackHandler(enabled = uiState.phase == ProjectGenPhase.SPEC_REVIEW) { vm.backToChat() }
+
     if (confirmReset) {
         NexyConfirmDialog(
             title = "Start over?",
@@ -142,7 +147,7 @@ fun ProjectGeneratorScreen(
         topBar = {
             NexyTopAppBar(
                 titleContent = { Text("Project Generator", style = MaterialTheme.typography.titleMedium) },
-                onBack = onBack,
+                onBack = if (uiState.phase == ProjectGenPhase.SPEC_REVIEW) { { vm.backToChat() } } else onBack,
                 actions = {
                     TextButton(onClick = { WsRepository.send("model:list", emptyMap()); showModelSheet = true }) {
                         Icon(
