@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { X, Send, Loader2, Sparkles, Pencil, BookOpen, ImageIcon } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
+import { useAutoScroll } from '../hooks/useAutoScroll'
+import { StreamingFadeText } from './chat/StreamingFadeText'
 import type { AgentGeneratorSpec, AgentGeneratorMessage, AvailableModelGroup, AvailableModelEntry } from '../../shared/types'
 import { PromptLibraryModal } from './PromptLibraryModal'
 import { ModelPicker } from './chat/ModelPicker'
@@ -181,7 +183,7 @@ function ChatBubble({ role, content, images }: { role: 'user' | 'assistant'; con
         <Sparkles className="w-3 h-3 text-white" />
       </div>
       <div className="max-w-[85%] bg-gray-100 dark:bg-gray-800 rounded-2xl rounded-tl-sm px-3 py-2 text-sm text-gray-800 dark:text-gray-100 whitespace-pre-wrap">
-        {displayContent}
+        <StreamingFadeText text={displayContent} />
       </div>
     </div>
   )
@@ -338,15 +340,15 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
   const [createdAgentName, setCreatedAgentName] = useState<string | null>(null)
   const [isDone, setIsDone] = useState(false)
 
-  const chatEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const modelPickerRef = useRef<HTMLButtonElement>(null)
   const streamingTextRef = useRef('')
   const isCreating = creationStep >= 0
 
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, streamingText])
+  const { scrollContainerRef, contentContainerRef, handleScrollContainerScroll } = useAutoScroll({
+    isGenerating: isStreaming,
+    contentSignal: `${messages.length}:${streamingText.length}`,
+  })
 
   useEffect(() => {
     window.api.listAvailableModels().then(setAvailableGroups).catch(() => {})
@@ -555,25 +557,26 @@ export function AgentGeneratorModal({ onClose }: { onClose: () => void }) {
           {/* Right: chat (62%) */}
           <div className="flex flex-col flex-1 min-w-0 relative">
                 {/* Messages */}
-                <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-                  {messages.map((msg, i) => (
-                    <ChatBubble key={i} role={msg.role} content={msg.content} images={msg.images} />
-                  ))}
-                  {isStreaming && streamingText && (
-                    <ChatBubble role="assistant" content={streamingText} />
-                  )}
-                  {isStreaming && !streamingText && (
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0">
-                        <Sparkles className="w-3 h-3 text-white" />
+                <div ref={scrollContainerRef} onScroll={handleScrollContainerScroll} className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+                  <div ref={contentContainerRef} className="space-y-3">
+                    {messages.map((msg, i) => (
+                      <ChatBubble key={i} role={msg.role} content={msg.content} images={msg.images} />
+                    ))}
+                    {isStreaming && streamingText && (
+                      <ChatBubble role="assistant" content={streamingText} />
+                    )}
+                    {isStreaming && !streamingText && (
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0">
+                          <Sparkles className="w-3 h-3 text-white" />
+                        </div>
+                        <div className="flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-800 rounded-2xl rounded-tl-sm">
+                          <Loader2 className="w-3 h-3 text-indigo-400 animate-spin shrink-0" />
+                          <span className="text-xs text-gray-500 dark:text-gray-400">Generating agent spec…</span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-800 rounded-2xl rounded-tl-sm">
-                        <Loader2 className="w-3 h-3 text-indigo-400 animate-spin shrink-0" />
-                        <span className="text-xs text-gray-500 dark:text-gray-400">Generating agent spec…</span>
-                      </div>
-                    </div>
-                  )}
-                  <div ref={chatEndRef} />
+                    )}
+                  </div>
                 </div>
 
                 {/* Input / spec footer */}

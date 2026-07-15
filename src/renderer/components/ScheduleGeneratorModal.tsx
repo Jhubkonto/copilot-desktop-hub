@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { BookOpen, CalendarClock, Loader2, Pencil, Send, Sparkles, X } from 'lucide-react'
 import { useAppStore } from '../store/app-store'
+import { useAutoScroll } from '../hooks/useAutoScroll'
+import { StreamingFadeText } from './chat/StreamingFadeText'
 import type { AvailableModelEntry, AvailableModelGroup, ScheduleGeneratorMessage, ScheduleGeneratorSpec, ScheduledTaskCreateInput, ScheduleType } from '../../shared/types'
 import { ModelPicker } from './chat/ModelPicker'
 import { PromptLibraryModal } from './PromptLibraryModal'
@@ -99,7 +101,7 @@ function ChatBubble({ role, content }: { role: 'user' | 'assistant'; content: st
         <Sparkles className="w-3 h-3 text-white" />
       </div>
       <div className="max-w-[85%] bg-gray-100 dark:bg-gray-800 rounded-2xl rounded-tl-sm px-3 py-2 text-sm text-gray-800 dark:text-gray-100 whitespace-pre-wrap">
-        {displayContent}
+        <StreamingFadeText text={displayContent} />
       </div>
     </div>
   )
@@ -238,13 +240,16 @@ export function ScheduleGeneratorModal({ onClose }: { onClose: () => void }) {
   const [showPromptLibrary, setShowPromptLibrary] = useState(false)
   const [creationStep, setCreationStep] = useState<string | null>(null)
   const [creationError, setCreationError] = useState<string | null>(null)
-  const chatEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const modelPickerRef = useRef<HTMLButtonElement>(null)
   const streamingTextRef = useRef('')
   const requestInFlightRef = useRef(false)
 
-  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, streamingText])
+  const { scrollContainerRef, contentContainerRef, handleScrollContainerScroll } = useAutoScroll({
+    isGenerating: isStreaming,
+    contentSignal: `${messages.length}:${streamingText.length}`,
+  })
+
   useEffect(() => { window.api.listAvailableModels().then(setAvailableGroups).catch(() => {}) }, [])
   useEffect(() => { saveSession({ messages, spec }) }, [messages, spec])
 
@@ -375,21 +380,22 @@ export function ScheduleGeneratorModal({ onClose }: { onClose: () => void }) {
               <EditForm spec={editSpec} onChange={setEditSpec} onConfirm={() => void handleCreate(editSpec)} onCancel={() => setIsEditing(false)} />
             ) : (
               <>
-                <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-                  {messages.map((msg, i) => <ChatBubble key={i} role={msg.role} content={msg.content} />)}
-                  {isStreaming && streamingText && <ChatBubble role="assistant" content={streamingText} />}
-                  {isStreaming && !streamingText && (
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-full bg-indigo-500 flex items-center justify-center shrink-0">
-                        <Sparkles className="w-3 h-3 text-white" />
+                <div ref={scrollContainerRef} onScroll={handleScrollContainerScroll} className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+                  <div ref={contentContainerRef} className="space-y-3">
+                    {messages.map((msg, i) => <ChatBubble key={i} role={msg.role} content={msg.content} />)}
+                    {isStreaming && streamingText && <ChatBubble role="assistant" content={streamingText} />}
+                    {isStreaming && !streamingText && (
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-full bg-indigo-500 flex items-center justify-center shrink-0">
+                          <Sparkles className="w-3 h-3 text-white" />
+                        </div>
+                        <div className="flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-800 rounded-2xl rounded-tl-sm">
+                          <Loader2 className="w-3 h-3 text-indigo-400 animate-spin shrink-0" />
+                          <span className="text-xs text-gray-500 dark:text-gray-400">Generating schedule spec...</span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-800 rounded-2xl rounded-tl-sm">
-                        <Loader2 className="w-3 h-3 text-indigo-400 animate-spin shrink-0" />
-                        <span className="text-xs text-gray-500 dark:text-gray-400">Generating schedule spec...</span>
-                      </div>
-                    </div>
-                  )}
-                  <div ref={chatEndRef} />
+                    )}
+                  </div>
                 </div>
                 <div className="border-t border-gray-100 dark:border-gray-800">
                   {spec && !isStreaming && (
