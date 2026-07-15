@@ -24,8 +24,8 @@ val MOBILE_SLASH_COMMANDS: List<SlashCommandDef> = listOf(
     SlashCommandDef("/incomplete", "/incomplete", "Mark this conversation incomplete"),
     SlashCommandDef(
         "/code-change",
-        "/code-change <description>",
-        "Investigate a code change and propose a plan for this project's repo",
+        "/code-change [repo] <description>",
+        "Investigate a code change and propose a plan. Add [repo] first if this workspace has more than one git repo",
     ),
     SlashCommandDef(
         "/code-plan",

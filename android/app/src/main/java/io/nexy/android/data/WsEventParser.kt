@@ -2810,16 +2810,21 @@ private fun parseQuizQuestion(obj: JSONObject): QuizQuestion {
 
 /** Mirrors desktop's openBackgroundActivity kind-dispatch (backgroundActivitySlice.ts) — maps a
  *  server-tracked activity kind to the Android nav route that shows it. Returns null for kinds
- *  with no reachable Android destination. `id` is `<kind>:<reportId>` for remote-edit items. */
+ *  with no reachable Android destination. */
 private fun routeForServerActivity(id: String, kind: String, conversationId: String?, projectId: String?): String? = when (kind) {
-    "chat", "debrief-generation", "quiz-generation", "orchestration", "automated-workflow-run" -> conversationId?.let { "chat/$it" }
+    // Code Changes runs entirely inside a normal conversation via slash commands now (no
+    // dedicated wizard/screen) — "chat/$conversationId" is the right target, same as any other
+    // conversation-scoped activity above. This used to route to "remote-edit/{reportId}", a
+    // screen that was deleted along with the wizard; navigating there crashed the app since
+    // that destination no longer exists in NavGraph.
+    "chat", "debrief-generation", "quiz-generation", "orchestration", "automated-workflow-run", "remote-edit" ->
+        conversationId?.let { "chat/$it" }
     "project-generator" -> "project-generator"
     "agent-generator" -> "agent-generator"
     "skill-generator" -> "skill-generator"
     "scheduler-generator" -> "scheduled/generator"
     "automated-workflow-generator" -> projectId?.let { "automated-workflow/${android.net.Uri.encode(it)}" }
     "build" -> "settings/build-dashboard"
-    "remote-edit" -> "remote-edit/${android.net.Uri.encode(id.removePrefix("remote-edit:"))}"
     else -> null
 }
 

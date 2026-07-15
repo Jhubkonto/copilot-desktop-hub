@@ -707,7 +707,15 @@ class ChatViewModel(
                             "code-change:submitted" -> if (awaitingCodeChangeSubmit) {
                                 awaitingCodeChangeSubmit = false
                                 codeChangeReportId = event.reportId
-                                _slashCommandMessage.value = "Plan ready — run /code-plan to view it or /code-execute to apply it."
+                                // The plan itself is persisted as a message server-side (see
+                                // ws-handlers.ts's code-change:submit-description handler) rather
+                                // than sent only via this event — the investigation can run for
+                                // minutes, during which this ViewModel instance may no longer be
+                                // alive to react (app backgrounded, user navigated away), so this
+                                // Snackbar is just a best-effort nudge for whoever's still
+                                // watching, not the only place the result appears. Run /code-plan
+                                // to re-view it later if needed.
+                                _slashCommandMessage.value = "Plan ready — run /code-execute to apply it."
                             }
                             "code-change:accepted", "code-change:completed" -> if (awaitingCodeChangeAccept) {
                                 awaitingCodeChangeAccept = false
@@ -962,16 +970,23 @@ class ChatViewModel(
                 WsRepository.generateQuiz(conversationId, projectId, argText.ifBlank { null })
             }
             "/code-change" -> {
+                // A trailing "[repo]" (as the git-housekeeping commands use) would be ambiguous
+                // against free-form description text that happens to end in brackets, so the
+                // optional repo hint — only needed when the workspace has more than one git repo
+                // — goes in brackets at the START instead: "/code-change [repo] <description>".
+                val repoMatch = Regex("^\\[([^\\]]+)\\]\\s*(.*)$", RegexOption.DOT_MATCHES_ALL).find(argText)
+                val description = repoMatch?.groupValues?.get(2)?.trim() ?: argText
+                val repoArg = repoMatch?.groupValues?.get(1)?.trim()
                 if (isCodeChangeBusy()) {
                     _slashCommandMessage.value = "A code change command is still running — wait for it to finish first."
                 } else if (projectId.isNullOrBlank()) {
                     _slashCommandMessage.value = "Code changes require this conversation to be in a project."
-                } else if (argText.isBlank()) {
-                    _slashCommandMessage.value = "Usage: /code-change <description of the change you want>"
+                } else if (description.isBlank()) {
+                    _slashCommandMessage.value = "Usage: /code-change [repo] <description of the change you want>"
                 } else {
                     awaitingCodeChangeSubmit = true
                     _slashCommandMessage.value = "Investigating code change…"
-                    WsRepository.submitCodeChangeDescription(conversationId, projectId, argText)
+                    WsRepository.submitCodeChangeDescription(conversationId, projectId, description, repoArg)
                 }
             }
             "/code-plan" -> {
