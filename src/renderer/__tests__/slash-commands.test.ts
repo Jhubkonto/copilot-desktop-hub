@@ -66,6 +66,15 @@ function createContext(): SlashCommandContext {
     codeChangeNewBranch: vi.fn().mockResolvedValue({ ok: true }),
     codeChangeFetch: vi.fn().mockResolvedValue({ ok: true }),
     codeChangeMergeBranch: vi.fn().mockResolvedValue({ ok: true, conflicted: false, summary: 'up to date' }),
+    codeChangeInitRepo: vi.fn().mockResolvedValue({ ok: true }),
+    codeChangeDetectCredentials: vi.fn().mockResolvedValue({ remoteUrl: null, host: null, protocol: null, methods: [] }),
+    codeChangePull: vi.fn().mockResolvedValue({ ok: true, conflicted: false, summary: 'up to date' }),
+    codeChangePushBranch: vi.fn().mockResolvedValue({ ok: true }),
+    codeChangeCommit: vi.fn().mockResolvedValue({ ok: true }),
+    codeChangeDiscardFile: vi.fn().mockResolvedValue({ ok: true }),
+    codeChangeStash: vi.fn().mockResolvedValue({ ok: true }),
+    codeChangeStashPop: vi.fn().mockResolvedValue({ ok: true }),
+    codeChangeDeleteBranch: vi.fn().mockResolvedValue({ ok: true }),
   }
 }
 
