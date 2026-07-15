@@ -1,5 +1,6 @@
 package io.nexy.android.ui.projects
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -80,6 +81,11 @@ fun AutomatedWorkflowListScreen(
     var filter by remember { mutableStateOf(WorkflowFilter.ALL) }
     var discardTarget by remember { mutableStateOf<AutomatedWorkflowRunInfo?>(null) }
     var showInfo by remember { mutableStateOf(false) }
+
+    // Mirrors the TopAppBar's `onBack = { if (activeRun != null) activeRun = null else onBack() }`
+    // below — without this, system/gesture back exits the whole screen even while viewing a run's
+    // detail, instead of returning to the run list first.
+    BackHandler(enabled = activeRun != null) { activeRun = null }
 
     fun refresh() {
         if (projectId.isNullOrBlank()) WsRepository.listAllAutomatedWorkflowRuns() else WsRepository.listAutomatedWorkflowRuns(projectId)

@@ -2,6 +2,7 @@ package io.nexy.android.ui.projects
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -109,6 +110,17 @@ fun AutomatedWorkflowScreen(
     var activeRun by remember { mutableStateOf<AutomatedWorkflowRunInfo?>(null) }
     var discardTarget by remember { mutableStateOf<String?>(null) }
     val stepStreamText by WsRepository.automatedWorkflowStepStreamText.collectAsState()
+
+    // Mirrors the TopAppBar's onBack step-back logic below — without this, the system/gesture
+    // back button skips past Detail/List and exits the screen in one tap instead of stepping
+    // back one internal view at a time.
+    BackHandler(enabled = view != AutomatedWorkflowView.Workspace) {
+        when (view) {
+            AutomatedWorkflowView.Detail -> { activeRun = null; view = AutomatedWorkflowView.List }
+            AutomatedWorkflowView.List -> view = AutomatedWorkflowView.Workspace
+            AutomatedWorkflowView.Workspace -> Unit
+        }
+    }
 
     // Discard any workflow session left over from a different project.
     LaunchedEffect(projectId) {

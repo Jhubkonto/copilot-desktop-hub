@@ -1,5 +1,6 @@
 package io.nexy.android.ui.schedulegenerator
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -99,6 +100,10 @@ fun ScheduleGeneratorScreen(
         viewModel.dismissError()
     }
 
+    // The toolbar's onBack below now steps out of SPEC_REVIEW back to CHAT instead of always
+    // exiting the screen; this catches the system/gesture back button the same way.
+    BackHandler(enabled = uiState.phase == ScheduleGenPhase.SPEC_REVIEW) { viewModel.backToChat() }
+
     if (confirmReset) {
         NexyConfirmDialog(
             title = "Start over?",
@@ -118,7 +123,7 @@ fun ScheduleGeneratorScreen(
         topBar = {
             NexyTopAppBar(
                 titleContent = { Text("Schedule Generator", style = MaterialTheme.typography.titleMedium) },
-                onBack = onBack,
+                onBack = if (uiState.phase == ScheduleGenPhase.SPEC_REVIEW) { { viewModel.backToChat() } } else onBack,
                 actions = {
                     TextButton(onClick = {
                         WsRepository.send("model:list", emptyMap())

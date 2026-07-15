@@ -1,5 +1,6 @@
 package io.nexy.android.ui.settings
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.KeyboardOptions
@@ -369,6 +370,10 @@ private fun McpAddWizard(
 
     val (previewCommand, previewArgs) = buildCommandAndArgs()
     val previewFull = if (previewCommand.isBlank()) "" else (listOf(previewCommand) + previewArgs).joinToString(" ")
+
+    // Without this, system/gesture back dismisses the whole sheet (losing the in-progress form)
+    // from any step instead of stepping back one wizard page like the sheet's own "Back" button.
+    BackHandler(enabled = step > 0) { step -= 1 }
 
     val step2Valid = when (selectedType) {
         McpAddType.Npm -> name.isNotBlank() && npmPackage.isNotBlank()
