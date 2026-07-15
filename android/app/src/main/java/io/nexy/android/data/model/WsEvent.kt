@@ -750,6 +750,9 @@ data class AutomatedWorkflowRunInfo(
     val updatedAt: Long,
     val assumptions: List<String> = emptyList(),
     val steps: List<AutomatedWorkflowRunStepData> = emptyList(),
+    // Back-link to the reusable spec this run was created from — null for runs created before
+    // templates existed. Lets a terminal run offer "Run again" without re-describing the goal.
+    val templateId: String? = null,
 ) {
     data class StepCounts(
         val total: Int,

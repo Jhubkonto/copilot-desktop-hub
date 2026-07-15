@@ -505,6 +505,13 @@ object WsRepository : WsClient {
         send("automated-workflow-runs:set-confirmation-mode", mapOf("runId" to runId, "mode" to mode))
     }
 
+    /** Creates a fresh `pending` run from a terminal run's saved template, bypassing the AI
+     *  generator entirely — replies with the same automated-workflow-runs:detail/:error events
+     *  as :start/:save-spec, so no new WsEvent parse case is needed. */
+    fun runAgainAutomatedWorkflow(templateId: String) {
+        send("automated-workflow-runs:run-again", mapOf("templateId" to templateId))
+    }
+
     private val pendingCommands = mutableListOf<Pair<String, Map<String, Any>>>()
 
     init {

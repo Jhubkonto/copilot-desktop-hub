@@ -2629,6 +2629,7 @@ private fun parseAutomatedWorkflowRun(obj: JSONObject): io.nexy.android.data.mod
         updatedAt = obj.optLong("updatedAt", 0L),
         assumptions = assumptions,
         steps = steps,
+        templateId = obj.nullableString("templateId"),
     )
 }
 
