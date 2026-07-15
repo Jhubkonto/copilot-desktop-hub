@@ -97,6 +97,8 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   { name: '/code-stash', usage: '/code-stash [repo] [message]', description: 'Shelve all current changes so the working tree is clean' },
   { name: '/code-stash-pop', usage: '/code-stash-pop [repo]', description: 'Restore the most recently stashed changes' },
   { name: '/code-delete-branch', usage: '/code-delete-branch <branch> [repo]', description: 'Delete a local branch (fails if unmerged, unless the branch has already been merged)' },
+  { name: '/code-stage', usage: '/code-stage <file> [repo]', description: 'Stage a changed file so it will be included in the next commit' },
+  { name: '/code-unstage', usage: '/code-unstage <file> [repo]', description: 'Unstage a file without discarding its changes' },
 ]
 
 function hasIpcError(result: unknown): result is { error: string } {
@@ -279,6 +281,8 @@ export interface SlashCommandContext {
   codeChangeStash: (message?: string, repoArg?: string) => Promise<{ ok: boolean; error?: string } | { error: string }>
   codeChangeStashPop: (repoArg?: string) => Promise<{ ok: boolean; error?: string } | { error: string }>
   codeChangeDeleteBranch: (branchName: string, repoArg?: string) => Promise<{ ok: boolean; error?: string } | { error: string }>
+  codeChangeStageFiles: (relativePaths: string[], repoArg?: string) => Promise<{ ok: boolean; error?: string } | { error: string }>
+  codeChangeUnstageFiles: (relativePaths: string[], repoArg?: string) => Promise<{ ok: boolean; error?: string } | { error: string }>
 }
 
 export async function executeSlashCommand(
@@ -896,6 +900,34 @@ export async function executeSlashCommand(
         ctx.pushSystemMessage(`Failed to discard changes to ${filePath}: ${('error' in result && result.error) || 'unknown error'}`)
       } else {
         ctx.pushSystemMessage(`Discarded changes to ${filePath}.`)
+      }
+      return 'handled'
+    }
+    case '/code-stage': {
+      const [filePath, repoArg] = rest
+      if (!filePath) {
+        ctx.pushSystemMessage('Usage: /code-stage <file> [repo]')
+        return 'handled'
+      }
+      const result = await ctx.codeChangeStageFiles([filePath], repoArg)
+      if ('error' in result || !result.ok) {
+        ctx.pushSystemMessage(`Failed to stage ${filePath}: ${('error' in result && result.error) || 'unknown error'}`)
+      } else {
+        ctx.pushSystemMessage(`Staged ${filePath}.`)
+      }
+      return 'handled'
+    }
+    case '/code-unstage': {
+      const [filePath, repoArg] = rest
+      if (!filePath) {
+        ctx.pushSystemMessage('Usage: /code-unstage <file> [repo]')
+        return 'handled'
+      }
+      const result = await ctx.codeChangeUnstageFiles([filePath], repoArg)
+      if ('error' in result || !result.ok) {
+        ctx.pushSystemMessage(`Failed to unstage ${filePath}: ${('error' in result && result.error) || 'unknown error'}`)
+      } else {
+        ctx.pushSystemMessage(`Unstaged ${filePath}.`)
       }
       return 'handled'
     }

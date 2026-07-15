@@ -471,6 +471,32 @@ export function useChatWindowActions({
     [resolveCodeChangeRepoOrMessage],
   )
 
+  const codeChangeStageFiles = useCallback(
+    async (relativePaths: string[], repoArg?: string) => {
+      const resolved = await resolveCodeChangeRepoOrMessage(repoArg)
+      if ('error' in resolved) return resolved
+      try {
+        return await window.api.stageCodeChangeFiles(resolved.repoRoot, relativePaths)
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Failed to stage files' }
+      }
+    },
+    [resolveCodeChangeRepoOrMessage],
+  )
+
+  const codeChangeUnstageFiles = useCallback(
+    async (relativePaths: string[], repoArg?: string) => {
+      const resolved = await resolveCodeChangeRepoOrMessage(repoArg)
+      if ('error' in resolved) return resolved
+      try {
+        return await window.api.unstageCodeChangeFiles(resolved.repoRoot, relativePaths)
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Failed to unstage files' }
+      }
+    },
+    [resolveCodeChangeRepoOrMessage],
+  )
+
   const codeChangeStash = useCallback(
     async (message?: string, repoArg?: string) => {
       const resolved = await resolveCodeChangeRepoOrMessage(repoArg)
@@ -564,6 +590,8 @@ export function useChatWindowActions({
       codeChangeStash,
       codeChangeStashPop,
       codeChangeDeleteBranch,
+      codeChangeStageFiles,
+      codeChangeUnstageFiles,
     }),
     [
       conversationId,
@@ -607,6 +635,8 @@ export function useChatWindowActions({
       codeChangeStash,
       codeChangeStashPop,
       codeChangeDeleteBranch,
+      codeChangeStageFiles,
+      codeChangeUnstageFiles,
     ],
   )
 
