@@ -39,13 +39,20 @@ data class CodePanelCredentials(
     val methods: List<String>,
 )
 
+data class CodePanelChangedFile(
+    val relativePath: String,
+    /** Already in the index — `git commit` alone (without staging first) would include it. */
+    val staged: Boolean,
+)
+
 data class CodePanelState(
     val workspaceRoot: String? = null,
     val repos: List<CodePanelRepo> = emptyList(),
     val isLoadingRepos: Boolean = false,
     val selectedRepoRelativePath: String? = null,
     val branches: CodePanelBranches? = null,
-    val changedFiles: List<String> = emptyList(),
+    val changedFiles: List<CodePanelChangedFile> = emptyList(),
+    val selectedChangedFiles: Set<String> = emptySet(),
     val isLoadingRepoDetail: Boolean = false,
     val isActionInProgress: Boolean = false,
     val actionMessage: String? = null,
@@ -75,6 +82,25 @@ class CodePanelViewModel(
     private var workspaceRoot: String? = null
     private var selectedRepoRoot: String? = null
 
+    // The WS protocol has no request/reply correlation — two async requests for the same thing
+    // fired close together (e.g. a stage action's refresh landing right after the initial repo
+    // load) can resolve out of order, letting a slow stale reply clobber fresher state. Each of
+    // these is incremented before every request and echoed back by the server; a reply is only
+    // applied if its seq still matches the latest one sent; anything older is dropped as stale.
+    private var changedFilesSeq = 0
+    private var branchesSeq = 0
+    private var diffSeq = 0
+
+    private fun requestChangedFiles(repoRoot: String) {
+        changedFilesSeq += 1
+        wsRepository.listCodeChangeChangedFiles(repoRoot, changedFilesSeq)
+    }
+
+    private fun requestBranches(repoRoot: String) {
+        branchesSeq += 1
+        wsRepository.listCodeChangeBranches(repoRoot, branchesSeq)
+    }
+
     init {
         viewModelScope.launch {
             wsRepository.projects.collect { projects ->
@@ -100,13 +126,22 @@ class CodePanelViewModel(
                 )
             }
             is WsEvent.CodeChangeBranches -> {
+                if (event.seq != branchesSeq) return
                 _state.value = _state.value.copy(
                     branches = CodePanelBranches(event.current, event.local, event.remote),
                     isLoadingRepoDetail = false,
                 )
             }
             is WsEvent.CodeChangeChangedFiles -> {
-                _state.value = _state.value.copy(changedFiles = event.files)
+                if (event.seq != changedFilesSeq) return
+                val files = event.files.map { CodePanelChangedFile(it.relativePath, it.staged) }
+                val stillPresent = files.map { it.relativePath }.toSet()
+                _state.value = _state.value.copy(
+                    changedFiles = files,
+                    // Drop any selection for files that no longer show up as changed (e.g. just
+                    // committed/discarded) instead of holding a stale, invisible selection.
+                    selectedChangedFiles = _state.value.selectedChangedFiles.filterTo(mutableSetOf()) { it in stillPresent },
+                )
             }
             is WsEvent.CodeChangeCheckedOut -> {
                 _state.value = if (event.ok) {
@@ -243,8 +278,24 @@ class CodePanelViewModel(
                 }
                 if (event.ok) refreshRepoDetail()
             }
+            is WsEvent.CodeChangeStaged -> {
+                _state.value = if (event.ok) {
+                    _state.value.copy(actionMessage = "Staged.", isActionInProgress = false, selectedChangedFiles = emptySet())
+                } else {
+                    _state.value.copy(error = event.error ?: "Failed to stage.", isActionInProgress = false)
+                }
+                if (event.ok) refreshRepoDetail()
+            }
+            is WsEvent.CodeChangeUnstaged -> {
+                _state.value = if (event.ok) {
+                    _state.value.copy(actionMessage = "Unstaged.", isActionInProgress = false, selectedChangedFiles = emptySet())
+                } else {
+                    _state.value.copy(error = event.error ?: "Failed to unstage.", isActionInProgress = false)
+                }
+                if (event.ok) refreshRepoDetail()
+            }
             is WsEvent.CodeChangeFileDiff -> {
-                if (event.relativePath == _state.value.diffFile) {
+                if (event.relativePath == _state.value.diffFile && event.seq == diffSeq) {
                     _state.value = _state.value.copy(diffText = event.diff, diffBinary = event.binary, isLoadingDiff = false)
                 }
             }
@@ -278,6 +329,7 @@ class CodePanelViewModel(
             isLoadingRepoDetail = true,
             branches = null,
             changedFiles = emptyList(),
+            selectedChangedFiles = emptySet(),
             conflict = null,
             error = null,
             credentials = null,
@@ -285,8 +337,8 @@ class CodePanelViewModel(
             diffFile = null,
             diffText = null,
         )
-        wsRepository.listCodeChangeBranches(repoRoot)
-        wsRepository.listCodeChangeChangedFiles(repoRoot)
+        requestBranches(repoRoot)
+        requestChangedFiles(repoRoot)
         wsRepository.detectCodeChangeCredentials(repoRoot)
         wsRepository.getCodeChangeStashCount(repoRoot)
     }
@@ -306,6 +358,7 @@ class CodePanelViewModel(
             selectedRepoRelativePath = null,
             branches = null,
             changedFiles = emptyList(),
+            selectedChangedFiles = emptySet(),
             conflict = null,
             credentials = null,
             stashCount = 0,
@@ -320,8 +373,8 @@ class CodePanelViewModel(
 
     fun refreshRepoDetail() {
         val repoRoot = selectedRepoRoot ?: return
-        wsRepository.listCodeChangeBranches(repoRoot)
-        wsRepository.listCodeChangeChangedFiles(repoRoot)
+        requestBranches(repoRoot)
+        requestChangedFiles(repoRoot)
     }
 
     fun fetch() {
@@ -380,6 +433,33 @@ class CodePanelViewModel(
         wsRepository.discardCodeChangeFile(repoRoot, relativePath)
     }
 
+    fun toggleFileSelection(relativePath: String) {
+        val current = _state.value.selectedChangedFiles
+        _state.value = _state.value.copy(
+            selectedChangedFiles = if (relativePath in current) current - relativePath else current + relativePath,
+        )
+    }
+
+    fun clearFileSelection() {
+        _state.value = _state.value.copy(selectedChangedFiles = emptySet())
+    }
+
+    /** Stages the current selection, or a single file when tapped directly from its row's quick
+     *  stage icon (bypassing multi-select for the common one-file case). */
+    fun stageFiles(relativePaths: Set<String> = _state.value.selectedChangedFiles) {
+        if (_state.value.isActionInProgress || relativePaths.isEmpty()) return
+        val repoRoot = selectedRepoRoot ?: return
+        _state.value = _state.value.copy(isActionInProgress = true)
+        wsRepository.stageCodeChangeFiles(repoRoot, relativePaths.toList())
+    }
+
+    fun unstageFiles(relativePaths: Set<String> = _state.value.selectedChangedFiles) {
+        if (_state.value.isActionInProgress || relativePaths.isEmpty()) return
+        val repoRoot = selectedRepoRoot ?: return
+        _state.value = _state.value.copy(isActionInProgress = true)
+        wsRepository.unstageCodeChangeFiles(repoRoot, relativePaths.toList())
+    }
+
     fun stash() {
         if (_state.value.isActionInProgress) return
         val repoRoot = selectedRepoRoot ?: return
@@ -406,8 +486,9 @@ class CodePanelViewModel(
      *  rest of this screen. */
     fun openDiff(relativePath: String) {
         val repoRoot = selectedRepoRoot ?: return
+        diffSeq += 1
         _state.value = _state.value.copy(diffFile = relativePath, diffText = null, diffBinary = false, isLoadingDiff = true)
-        wsRepository.getCodeChangeFileDiff(repoRoot, relativePath)
+        wsRepository.getCodeChangeFileDiff(repoRoot, relativePath, diffSeq)
     }
 
     fun closeDiff() {

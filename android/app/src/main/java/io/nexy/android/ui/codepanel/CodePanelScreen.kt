@@ -1,6 +1,12 @@
 package io.nexy.android.ui.codepanel
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,6 +15,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -32,6 +39,7 @@ import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -54,6 +62,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -69,6 +81,7 @@ import io.nexy.android.ui.components.NexySecondaryButton
 import io.nexy.android.ui.components.NexyStatusBadge
 import io.nexy.android.ui.components.NexyTopAppBar
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /**
  * Android-only `/code` panel: raw git housekeeping (branches, fetch/pull, push, commit, stash,
@@ -107,6 +120,13 @@ fun CodePanelScreen(
             vm.consumeError()
         }
     }
+
+    // This screen has 3 internal drill-down levels (repo list -> repo detail -> file diff) that
+    // exist entirely as ViewModel state, not separate NavGraph routes — the in-app back arrow in
+    // the TopAppBar above already steps back one level at a time, but without this, the system/
+    // gesture back button skips straight past all of it and pops the whole screen in one go.
+    BackHandler(enabled = state.diffFile != null) { vm.closeDiff() }
+    BackHandler(enabled = state.diffFile == null && state.selectedRepoRelativePath != null) { vm.closeRepoDetail() }
 
     val diffFile = state.diffFile
     val fileName = diffFile?.substringAfterLast('/')
@@ -162,6 +182,40 @@ fun CodePanelScreen(
 @Composable
 private fun SectionTitle(text: String, modifier: Modifier = Modifier) {
     Text(text, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, modifier = modifier)
+}
+
+private data class ActionButtonSpec(
+    val text: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val enabled: Boolean,
+    val onClick: () -> Unit,
+)
+
+/** Fixed 2-column grid of equal-width action buttons — replaces a `FlowRow`, whose natural
+ *  per-item wrapping left some rows with two buttons and others with three, at whatever width
+ *  each button's own text happened to need. Every row here has exactly two equal-width slots
+ *  (a blank spacer fills the second slot on a trailing odd button), so the whole grid reads as
+ *  one uniform block instead of a ragged row of mismatched pill sizes. */
+@Composable
+private fun ActionButtonGrid(buttons: List<ActionButtonSpec>, modifier: Modifier = Modifier) {
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        buttons.chunked(2).forEach { pair ->
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                pair.forEach { button ->
+                    NexySecondaryButton(
+                        text = button.text,
+                        onClick = button.onClick,
+                        enabled = button.enabled,
+                        leadingIcon = button.icon,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                if (pair.size == 1) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
 }
 
 /** Consistent card container for grouped content (actions, branches, changed files) — gives the
@@ -303,58 +357,21 @@ private fun RepoDetailSection(
                 Column(modifier = Modifier.padding(16.dp)) {
                     SectionTitle("Actions")
                     Spacer(modifier = Modifier.height(10.dp))
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        NexySecondaryButton(
-                            text = "Fetch",
-                            onClick = { vm.fetch() },
-                            enabled = !state.isActionInProgress,
-                            leadingIcon = Icons.Default.Sync,
-                        )
-                        NexySecondaryButton(
-                            text = "Pull",
-                            onClick = { vm.pull() },
-                            enabled = !state.isActionInProgress,
-                            leadingIcon = Icons.Default.ArrowDownward,
-                        )
-                        NexySecondaryButton(
-                            text = "Push",
-                            onClick = { vm.pushBranch() },
-                            enabled = !state.isActionInProgress,
-                            leadingIcon = Icons.Default.ArrowUpward,
-                        )
-                        NexySecondaryButton(
-                            text = "Commit…",
-                            onClick = { commitDialogOpen = true },
-                            enabled = !state.isActionInProgress && state.changedFiles.isNotEmpty(),
-                            leadingIcon = Icons.Default.CheckCircle,
-                        )
-                        NexySecondaryButton(
-                            text = "New branch",
-                            onClick = { newBranchDialogOpen = true },
-                            enabled = !state.isActionInProgress,
-                            leadingIcon = Icons.Default.Add,
-                        )
-                        NexySecondaryButton(
-                            text = "Merge…",
-                            onClick = { mergeDialogOpen = true },
-                            enabled = !state.isActionInProgress && mergeCandidateCount > 0,
-                            leadingIcon = Icons.AutoMirrored.Filled.CallSplit,
-                        )
-                        NexySecondaryButton(
-                            text = "Stash",
-                            onClick = { stashConfirmOpen = true },
-                            enabled = !state.isActionInProgress && state.changedFiles.isNotEmpty(),
-                            leadingIcon = Icons.Default.Inventory2,
-                        )
+                    val unstagedPaths = remember(state.changedFiles) { state.changedFiles.filterNot { it.staged }.map { it.relativePath }.toSet() }
+                    val actionButtons = buildList {
+                        add(ActionButtonSpec("Fetch", Icons.Default.Sync, !state.isActionInProgress) { vm.fetch() })
+                        add(ActionButtonSpec("Pull", Icons.Default.ArrowDownward, !state.isActionInProgress) { vm.pull() })
+                        add(ActionButtonSpec("Push", Icons.Default.ArrowUpward, !state.isActionInProgress) { vm.pushBranch() })
+                        add(ActionButtonSpec("Stage all", Icons.Default.Add, !state.isActionInProgress && unstagedPaths.isNotEmpty()) { vm.stageFiles(unstagedPaths) })
+                        add(ActionButtonSpec("Commit…", Icons.Default.CheckCircle, !state.isActionInProgress && state.changedFiles.isNotEmpty()) { commitDialogOpen = true })
+                        add(ActionButtonSpec("New branch", Icons.Default.Add, !state.isActionInProgress) { newBranchDialogOpen = true })
+                        add(ActionButtonSpec("Merge…", Icons.AutoMirrored.Filled.CallSplit, !state.isActionInProgress && mergeCandidateCount > 0) { mergeDialogOpen = true })
+                        add(ActionButtonSpec("Stash", Icons.Default.Inventory2, !state.isActionInProgress && state.changedFiles.isNotEmpty()) { stashConfirmOpen = true })
                         if (state.stashCount > 0) {
-                            NexySecondaryButton(
-                                text = "Stash pop (${state.stashCount})",
-                                onClick = { vm.stashPop() },
-                                enabled = !state.isActionInProgress,
-                                leadingIcon = Icons.Default.RestartAlt,
-                            )
+                            add(ActionButtonSpec("Stash pop (${state.stashCount})", Icons.Default.RestartAlt, !state.isActionInProgress) { vm.stashPop() })
                         }
                     }
+                    ActionButtonGrid(buttons = actionButtons)
                     if (state.isActionInProgress) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -458,7 +475,7 @@ private fun RepoDetailSection(
                     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
                         SectionTitle("Changed files")
                         Text(
-                            "Tap a file to view its diff. Files with uncommitted changes in this repo.",
+                            "Tap a file to view its diff, or the checkbox to select it for staging.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -471,11 +488,43 @@ private fun RepoDetailSection(
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                         )
                     } else {
+                        if (state.selectedChangedFiles.isNotEmpty()) {
+                            val selectedStagedCount = state.changedFiles.count { it.relativePath in state.selectedChangedFiles && it.staged }
+                            val selectedUnstagedCount = state.selectedChangedFiles.size - selectedStagedCount
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            ) {
+                                if (selectedUnstagedCount > 0) {
+                                    NexySecondaryButton(
+                                        text = "Stage selected (${state.selectedChangedFiles.size})",
+                                        onClick = { vm.stageFiles() },
+                                        enabled = !state.isActionInProgress,
+                                        leadingIcon = Icons.Default.Add,
+                                    )
+                                }
+                                if (selectedStagedCount > 0) {
+                                    NexySecondaryButton(
+                                        text = "Unstage selected (${state.selectedChangedFiles.size})",
+                                        onClick = { vm.unstageFiles() },
+                                        enabled = !state.isActionInProgress,
+                                        leadingIcon = Icons.Default.RestartAlt,
+                                    )
+                                }
+                                NexyGhostButton(text = "Clear selection", onClick = { vm.clearFileSelection() })
+                            }
+                        }
                         state.changedFiles.forEach { file ->
                             ChangedFileRow(
-                                path = file,
-                                onClick = { vm.openDiff(file) },
-                                onDiscard = { discardTarget = file },
+                                file = file,
+                                selected = file.relativePath in state.selectedChangedFiles,
+                                onToggleSelected = { vm.toggleFileSelection(file.relativePath) },
+                                onClick = { vm.openDiff(file.relativePath) },
+                                onDiscard = { discardTarget = file.relativePath },
+                                onToggleStaged = {
+                                    if (file.staged) vm.unstageFiles(setOf(file.relativePath)) else vm.stageFiles(setOf(file.relativePath))
+                                },
                             )
                         }
                     }
@@ -498,8 +547,10 @@ private fun RepoDetailSection(
         )
     }
     if (commitDialogOpen) {
+        val stagedCount = state.changedFiles.count { it.staged }
         CommitDialog(
-            fileCount = state.changedFiles.size,
+            fileCount = if (stagedCount > 0) stagedCount else state.changedFiles.size,
+            onlyStaged = stagedCount > 0,
             onDismiss = { commitDialogOpen = false },
             onCommit = { message -> vm.commit(message); commitDialogOpen = false },
         )
@@ -548,15 +599,23 @@ private fun BranchRow(name: String, isCurrent: Boolean, onCheckout: () -> Unit, 
             )
         },
         trailing = {
+            // Every row reserves the same two fixed-width slots (checkout/current + delete),
+            // regardless of which are actually populated — otherwise the current-branch badge
+            // (narrow), a plain "Checkout" button (medium), and "Checkout" + delete icon (wide)
+            // each land at a different right edge, reading as misaligned/unpolished.
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (isCurrent) {
-                    NexyStatusBadge(
-                        label = "current",
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
-                } else {
-                    NexyGhostButton(text = "Checkout", onClick = onCheckout)
+                Box(modifier = Modifier.width(104.dp), contentAlignment = Alignment.CenterEnd) {
+                    if (isCurrent) {
+                        NexyStatusBadge(
+                            label = "current",
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    } else {
+                        NexyGhostButton(text = "Checkout", onClick = onCheckout)
+                    }
+                }
+                Box(modifier = Modifier.size(32.dp), contentAlignment = Alignment.Center) {
                     if (onDelete != null) {
                         IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
                             Icon(
@@ -576,34 +635,78 @@ private fun BranchRow(name: String, isCurrent: Boolean, onCheckout: () -> Unit, 
 /** Splits a relative path into a bold filename with its directory as a dimmed, truncated
  *  subtitle — reads much better than one long monospace line for deeply nested paths, and
  *  naturally fixes the "whole path gets clipped instead of truncated" case for long paths.
- *  Tapping the row opens the diff; a trailing icon offers "discard" without needing a swipe
- *  gesture, which doesn't discover well on a first-time screen. */
+ *  Tapping the row opens the diff; the leading checkbox selects the file for the bulk stage/
+ *  unstage actions above, and the trailing icons offer a quick single-file stage/unstage toggle
+ *  plus discard, without needing a swipe gesture (which doesn't discover well on first use). */
 @Composable
-private fun ChangedFileRow(path: String, onClick: () -> Unit, onDiscard: () -> Unit) {
+private fun ChangedFileRow(
+    file: CodePanelChangedFile,
+    selected: Boolean,
+    onToggleSelected: () -> Unit,
+    onClick: () -> Unit,
+    onDiscard: () -> Unit,
+    onToggleStaged: () -> Unit,
+) {
+    val path = file.relativePath
     val separatorIndex = path.lastIndexOf('/')
     val fileName = if (separatorIndex >= 0) path.substring(separatorIndex + 1) else path
     val directory = if (separatorIndex >= 0) path.substring(0, separatorIndex) else null
 
     NexyListRow(
         title = fileName,
-        subtitle = directory,
         onClick = onClick,
         leading = {
-            Icon(
-                Icons.Default.Description,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp),
-            )
-        },
-        trailing = {
-            IconButton(onClick = onDiscard, modifier = Modifier.size(32.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = selected, onCheckedChange = { onToggleSelected() }, modifier = Modifier.size(32.dp))
                 Icon(
-                    Icons.Default.RestartAlt,
-                    contentDescription = "Discard changes",
+                    Icons.Default.Description,
+                    contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp),
+                    modifier = Modifier.size(20.dp),
                 )
+            }
+        },
+        subtitleContent = if (directory != null || file.staged) {
+            {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (directory != null) {
+                        Text(
+                            text = directory,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                    }
+                    if (file.staged) {
+                        NexyStatusBadge(
+                            label = "staged",
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
+                }
+            }
+        } else null,
+        trailing = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onToggleStaged, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        if (file.staged) Icons.Default.Close else Icons.Default.Add,
+                        contentDescription = if (file.staged) "Unstage" else "Stage",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                IconButton(onClick = onDiscard, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        Icons.Default.RestartAlt,
+                        contentDescription = "Discard changes",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
             }
         },
     )
@@ -611,7 +714,9 @@ private fun ChangedFileRow(path: String, onClick: () -> Unit, onDiscard: () -> U
 
 /** Diff view for a single changed file, reusing the same red/green unified-diff renderer
  *  ProjectAuditScreen already uses — new files (untracked in git) get a synthetic all-green diff
- *  from the server side rather than an empty view. */
+ *  from the server side rather than an empty view. A change-indicator strip runs alongside it
+ *  (see [DiffChangeIndicator]) so the user can see at a glance where the changes fall in a long
+ *  file and jump straight there, instead of scrolling blindly. */
 @Composable
 private fun DiffSection(state: CodePanelState, fileName: String) {
     when {
@@ -626,8 +731,93 @@ private fun DiffSection(state: CodePanelState, fileName: String) {
             title = "No differences",
             detail = "\"$fileName\" has no line-level changes to show.",
         )
-        else -> Column(modifier = Modifier.fillMaxSize()) {
-            NexyDiffContent(diffText = state.diffText, modifier = Modifier.fillMaxWidth())
+        else -> {
+            val diffText = state.diffText
+            val lines = remember(diffText) { diffText.lines() }
+            val scrollState = rememberScrollState()
+            Row(modifier = Modifier.fillMaxSize()) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(scrollState),
+                ) {
+                    NexyDiffContent(diffText = diffText, modifier = Modifier.fillMaxWidth())
+                }
+                DiffChangeIndicator(
+                    lines = lines,
+                    scrollState = scrollState,
+                    modifier = Modifier
+                        .width(16.dp)
+                        .fillMaxHeight(),
+                )
+            }
+        }
+    }
+}
+
+/** A minimap-style scrollbar for the diff view (mirrors the VS Code diff overview ruler): a
+ *  colored tick per added/removed line at its proportional position in the file, plus a thumb
+ *  showing the currently-visible slice. Tapping or dragging anywhere on the strip jumps the diff
+ *  scroll position to that spot, so the user can go straight to a change instead of scrolling
+ *  through unchanged context to find it. */
+@Composable
+private fun DiffChangeIndicator(
+    lines: List<String>,
+    scrollState: ScrollState,
+    modifier: Modifier = Modifier,
+) {
+    val scope = rememberCoroutineScope()
+    val trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+    val thumbColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f)
+    val addColor = Color(0xFF22C55E)
+    val removeColor = Color(0xFFEF4444)
+
+    Canvas(
+        modifier = modifier.pointerInput(Unit) {
+            fun jumpTo(y: Float) {
+                val maxScroll = scrollState.maxValue
+                if (maxScroll <= 0) return
+                val fraction = (y / size.height.toFloat()).coerceIn(0f, 1f)
+                scope.launch { scrollState.scrollTo((fraction * maxScroll).roundToInt()) }
+            }
+            detectDragGestures(
+                onDragStart = { offset -> jumpTo(offset.y) },
+                onDrag = { change, _ -> jumpTo(change.position.y) },
+            )
+        },
+    ) {
+        drawRect(color = trackColor)
+
+        if (lines.isNotEmpty()) {
+            val lineHeight = size.height / lines.size
+            val tickHeight = lineHeight.coerceAtLeast(2f)
+            lines.forEachIndexed { index, line ->
+                val color = when {
+                    line.startsWith("+") && !line.startsWith("+++") -> addColor
+                    line.startsWith("-") && !line.startsWith("---") -> removeColor
+                    else -> null
+                } ?: return@forEachIndexed
+                drawRect(
+                    color = color,
+                    topLeft = Offset(0f, index * lineHeight),
+                    size = Size(size.width, tickHeight),
+                )
+            }
+        }
+
+        // Thumb: the viewport is this Canvas's own height; the full content is that plus
+        // whatever's still scrollable (maxValue) beyond it.
+        val maxScroll = scrollState.maxValue
+        if (maxScroll > 0) {
+            val viewportHeight = size.height
+            val contentHeight = viewportHeight + maxScroll
+            val thumbHeight = (viewportHeight * viewportHeight / contentHeight).coerceAtLeast(24f)
+            val thumbTop = (scrollState.value.toFloat() / maxScroll) * (viewportHeight - thumbHeight)
+            drawRect(
+                color = thumbColor,
+                topLeft = Offset(0f, thumbTop),
+                size = Size(size.width, thumbHeight),
+            )
         }
     }
 }
@@ -654,7 +844,7 @@ private fun NewBranchDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit) {
 }
 
 @Composable
-private fun CommitDialog(fileCount: Int, onDismiss: () -> Unit, onCommit: (String) -> Unit) {
+private fun CommitDialog(fileCount: Int, onlyStaged: Boolean, onDismiss: () -> Unit, onCommit: (String) -> Unit) {
     var message by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -662,7 +852,11 @@ private fun CommitDialog(fileCount: Int, onDismiss: () -> Unit, onCommit: (Strin
         text = {
             Column {
                 Text(
-                    "Stages and commits all $fileCount changed file(s).",
+                    if (onlyStaged) {
+                        "Commits the $fileCount file(s) currently staged. Anything not staged is left alone."
+                    } else {
+                        "Nothing is staged yet, so this stages and commits all $fileCount changed file(s)."
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
