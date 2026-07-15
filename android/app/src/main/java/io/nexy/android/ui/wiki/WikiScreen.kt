@@ -1,5 +1,6 @@
 package io.nexy.android.ui.wiki
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
@@ -234,6 +235,10 @@ private fun WikiEntryScreen(
     onNavigateToConversation: ((String) -> Unit)? = null,
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
+
+    // Mirrors the TopAppBar's `onBack = if (isEditing) onCancelEdit else onBack` below — without
+    // this, system/gesture back skips straight out instead of stepping back one level at a time.
+    BackHandler { if (isEditing) onCancelEdit() else onBack() }
 
     if (showDeleteDialog) {
         NexyConfirmDialog(

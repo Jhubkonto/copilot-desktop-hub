@@ -1,5 +1,6 @@
 package io.nexy.android.ui.prompts
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -391,6 +392,10 @@ private fun PromptDetailScreen(
     onTagsChange: (String) -> Unit,
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
+
+    // Mirrors the TopAppBar's `onBack = if (isEditing) onCancelEdit else onBack` below — without
+    // this, system/gesture back skips straight out instead of stepping back one level at a time.
+    BackHandler { if (isEditing) onCancelEdit() else onBack() }
 
     if (showDeleteDialog) {
         NexyConfirmDialog(

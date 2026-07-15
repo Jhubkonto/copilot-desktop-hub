@@ -2,6 +2,7 @@ package io.nexy.android.ui.skills
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -363,6 +364,11 @@ private fun SkillDetailScreen(
     vm: SkillsViewModel,
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
+
+    // Mirrors the TopAppBar's `onBack = if (isEditing) onCancelEdit else onBack` below — without
+    // this, system/gesture back skips straight out of the detail screen (or out of edit mode
+    // and the screen in one go) instead of stepping back one level at a time.
+    BackHandler { if (isEditing) onCancelEdit() else onBack() }
 
     if (showDeleteDialog) {
         NexyConfirmDialog(

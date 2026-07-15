@@ -1,5 +1,6 @@
 package io.nexy.android.ui.fileexplorer
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -63,6 +64,11 @@ fun FileExplorerScreen(
     val connectionState by WsRepository.connectionState.collectAsState()
     val lastError by WsRepository.lastError.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
+
+    // `history` is a breadcrumb stack the user drills into via folder taps, with no NavGraph
+    // route per level — without this, system/gesture back exits the whole screen from any depth
+    // instead of going up one directory at a time the way the breadcrumb bar's own taps do.
+    BackHandler(enabled = state.history.isNotEmpty()) { vm.navigateTo(state.history.size - 2) }
 
     Scaffold(
         topBar = {
