@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -21,36 +22,40 @@ fun NexyDiffContent(
     diffText: String,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(8.dp),
-    ) {
-        diffText.lines().forEach { line ->
-            val bg = when {
-                line.startsWith("+") -> Color(0xFF22C55E).copy(alpha = 0.12f)
-                line.startsWith("-") -> Color(0xFFEF4444).copy(alpha = 0.12f)
-                line.startsWith("@@") -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f)
-                else -> Color.Transparent
-            }
-            val textColor = when {
-                line.startsWith("+") -> Color(0xFF22C55E)
-                line.startsWith("-") -> Color(0xFFEF4444)
-                line.startsWith("@@") -> MaterialTheme.colorScheme.onSecondaryContainer
-                else -> MaterialTheme.colorScheme.onSurface
-            }
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(bg),
-            ) {
-                Text(
-                    text = line,
-                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                    color = textColor,
-                    modifier = Modifier.padding(horizontal = 4.dp),
-                )
+    // SelectionContainer enables the standard Android long-press-to-select/copy gesture on the
+    // diff text — without it, Text is display-only and the content can't be copied out.
+    SelectionContainer {
+        Column(
+            modifier = modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(8.dp),
+        ) {
+            diffText.lines().forEach { line ->
+                val bg = when {
+                    line.startsWith("+") -> Color(0xFF22C55E).copy(alpha = 0.12f)
+                    line.startsWith("-") -> Color(0xFFEF4444).copy(alpha = 0.12f)
+                    line.startsWith("@@") -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f)
+                    else -> Color.Transparent
+                }
+                val textColor = when {
+                    line.startsWith("+") -> Color(0xFF22C55E)
+                    line.startsWith("-") -> Color(0xFFEF4444)
+                    line.startsWith("@@") -> MaterialTheme.colorScheme.onSecondaryContainer
+                    else -> MaterialTheme.colorScheme.onSurface
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(bg),
+                ) {
+                    Text(
+                        text = line,
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        color = textColor,
+                        modifier = Modifier.padding(horizontal = 4.dp),
+                    )
+                }
             }
         }
     }
