@@ -953,11 +953,33 @@ export interface AutomatedWorkflowRunSummary {
   }
   createdAt: number
   updatedAt: number
+  /** Back-link to the reusable spec this run was created from — null for runs created before
+   *  templates existed. Lets a terminal run offer "Run again" without re-describing the goal. */
+  templateId: string | null
 }
 
 export interface AutomatedWorkflowRunDetail extends AutomatedWorkflowRunSummary {
   assumptions: string[]
   steps: AutomatedWorkflowRunStep[]
+}
+
+/** A reusable workflow spec, decoupled from run (execution) history — created automatically
+ *  alongside a run's first generation, so a terminal run can spawn a fresh run from the same
+ *  steps via "Run again" without going back through the AI generator. */
+export interface AutomatedWorkflowTemplateSummary {
+  id: string
+  projectId: string | null
+  title: string
+  goalSummary: string
+  model: string | null
+  stepCount: number
+  createdAt: number
+  updatedAt: number
+}
+
+export interface AutomatedWorkflowTemplateDetail extends AutomatedWorkflowTemplateSummary {
+  assumptions: string[]
+  steps: AutomatedWorkflowStep[]
 }
 
 export type ArtifactKind =
@@ -2053,7 +2075,11 @@ export type IpcReturnMap = {
   'automated-workflow-runs:skip-step': AutomatedWorkflowRunDetail | null
   'automated-workflow-runs:abort': AutomatedWorkflowRunDetail | null
   'automated-workflow-runs:set-confirmation-mode': AutomatedWorkflowRunDetail | null
+  'automated-workflow-runs:run-again': AutomatedWorkflowRunDetail | null
   'automated-workflow-runs:step-stream': void
+  'automated-workflow-templates:list': AutomatedWorkflowTemplateSummary[]
+  'automated-workflow-templates:get': AutomatedWorkflowTemplateDetail | null
+  'automated-workflow-templates:delete': boolean
   // Scheduler
   'scheduler:list': ScheduledTask[]
   'scheduler:get': ScheduledTask | null
@@ -2476,7 +2502,11 @@ export type IpcChannels =
   | 'automated-workflow-runs:skip-step'
   | 'automated-workflow-runs:abort'
   | 'automated-workflow-runs:set-confirmation-mode'
+  | 'automated-workflow-runs:run-again'
   | 'automated-workflow-runs:step-stream'
+  | 'automated-workflow-templates:list'
+  | 'automated-workflow-templates:get'
+  | 'automated-workflow-templates:delete'
   | 'scheduler:list'
   | 'scheduler:get'
   | 'scheduler:create'

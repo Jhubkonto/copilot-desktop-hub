@@ -679,6 +679,8 @@ const api = {
     typedInvoke('automated-workflow-runs:abort', runId),
   setAutomatedWorkflowConfirmationMode: (runId: string, mode: AutomatedWorkflowConfirmationMode) =>
     typedInvoke('automated-workflow-runs:set-confirmation-mode', runId, mode),
+  runAutomatedWorkflowFromTemplate: (templateId: string) =>
+    typedInvoke('automated-workflow-runs:run-again', templateId),
   onAutomatedWorkflowStepStream: (callback: (data: { runId: string; stepDbId: string; chunk: string }) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, data: { runId: string; stepDbId: string; chunk: string }) => callback(data)
     typedOn('automated-workflow-runs:step-stream', handler)
