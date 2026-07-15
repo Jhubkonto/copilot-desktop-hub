@@ -7,6 +7,7 @@ import type {
   AutomatedWorkflowRunSummary,
 } from '../../../shared/types'
 import { formatRelativeTime } from '../../../shared/utils'
+import { StreamingFadeText } from '../chat/StreamingFadeText'
 
 // Shared between the project-scoped AutomatedWorkflowTab.tsx and the global, top-level
 // AutomatedWorkflowsPane.tsx — both render the same run/step shapes and need identical
@@ -44,7 +45,7 @@ export function ChatBubble({ role, content }: { role: 'user' | 'assistant'; cont
   return (
     <div className="flex justify-start">
       <div className="max-w-[85%] bg-gray-100 dark:bg-gray-800 rounded-2xl rounded-tl-sm px-3 py-1.5 text-xs text-gray-800 dark:text-gray-100 whitespace-pre-wrap">
-        {displayContent}
+        <StreamingFadeText text={displayContent} />
       </div>
     </div>
   )

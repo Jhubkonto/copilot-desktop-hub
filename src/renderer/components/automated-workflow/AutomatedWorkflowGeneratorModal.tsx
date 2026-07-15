@@ -9,6 +9,7 @@ import type {
 } from '../../../shared/types'
 import { isApiError } from '../../../shared/types'
 import { useAppStore } from '../../store/app-store'
+import { useAutoScroll } from '../../hooks/useAutoScroll'
 import { ModelPicker } from '../chat/ModelPicker'
 import { VoiceInputButton } from '../chat/VoiceInputButton'
 import { DropdownPanel } from '../DropdownPanel'
@@ -61,19 +62,19 @@ export function AutomatedWorkflowGeneratorModal({
   const modelPickerRef = useRef<HTMLButtonElement>(null)
   const variablePickerRef = useRef<HTMLButtonElement>(null)
   const streamingTextRef = useRef('')
-  const chatEndRef = useRef<HTMLDivElement>(null)
   const genModelRef = useRef<string | null>(null)
   const savedRunRef = useRef<AutomatedWorkflowRunDetail | null>(null)
   genModelRef.current = genModel
   savedRunRef.current = savedRun
 
+  const { scrollContainerRef, contentContainerRef, handleScrollContainerScroll } = useAutoScroll({
+    isGenerating,
+    contentSignal: `${messages.length}:${streamingText.length}:${saving ? 1 : 0}`,
+  })
+
   useEffect(() => {
     window.api.listAvailableModels().then(setAvailableGroups).catch(() => {})
   }, [])
-
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, streamingText])
 
   useEffect(() => {
     const offToken = window.api.onAutomatedWorkflowGeneratorToken((chunk) => {
@@ -195,35 +196,40 @@ export function AutomatedWorkflowGeneratorModal({
         </div>
 
         <div className="flex-1 min-h-0 flex flex-col px-5 py-3 gap-3">
-          <div className="flex-1 min-h-0 overflow-y-auto space-y-2 rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-800/40 px-3 py-2">
-            {messages.length === 0 && !isGenerating && (
-              <div className="h-full flex flex-col items-center justify-center gap-3 text-gray-400 dark:text-gray-500 select-none px-4">
-                <p className="text-xs text-center max-w-[260px] text-gray-500 dark:text-gray-400">How it works:</p>
-                <div className="space-y-1.5 text-left w-full max-w-[280px]">
-                  {WORKFLOW_STAGES.map(({ icon: Icon, label }, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <Icon className="w-3.5 h-3.5 shrink-0 text-gray-400 dark:text-gray-500" />
-                      <span className="text-[11px] text-gray-500 dark:text-gray-400">{label}</span>
-                    </div>
-                  ))}
+          <div
+            ref={scrollContainerRef}
+            onScroll={handleScrollContainerScroll}
+            className="flex-1 min-h-0 overflow-y-auto space-y-2 rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-800/40 px-3 py-2"
+          >
+            <div ref={contentContainerRef} className="space-y-2">
+              {messages.length === 0 && !isGenerating && (
+                <div className="h-full flex flex-col items-center justify-center gap-3 text-gray-400 dark:text-gray-500 select-none px-4">
+                  <p className="text-xs text-center max-w-[260px] text-gray-500 dark:text-gray-400">How it works:</p>
+                  <div className="space-y-1.5 text-left w-full max-w-[280px]">
+                    {WORKFLOW_STAGES.map(({ icon: Icon, label }, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <Icon className="w-3.5 h-3.5 shrink-0 text-gray-400 dark:text-gray-500" />
+                        <span className="text-[11px] text-gray-500 dark:text-gray-400">{label}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
-            {messages.map((msg, i) => <ChatBubble key={i} role={msg.role} content={msg.content} />)}
-            {isGenerating && streamingText && <ChatBubble role="assistant" content={streamingText} />}
-            {isGenerating && !streamingText && (
-              <div className="flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400">
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                Generating…
-              </div>
-            )}
-            {saving && (
-              <div className="flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400">
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                Saving plan…
-              </div>
-            )}
-            <div ref={chatEndRef} />
+              )}
+              {messages.map((msg, i) => <ChatBubble key={i} role={msg.role} content={msg.content} />)}
+              {isGenerating && streamingText && <ChatBubble role="assistant" content={streamingText} />}
+              {isGenerating && !streamingText && (
+                <div className="flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Generating…
+                </div>
+              )}
+              {saving && (
+                <div className="flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Saving plan…
+                </div>
+              )}
+            </div>
           </div>
 
           {savedRun && !isGenerating && (
