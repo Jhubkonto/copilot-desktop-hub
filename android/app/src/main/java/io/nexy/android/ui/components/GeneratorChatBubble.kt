@@ -11,12 +11,17 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import io.nexy.android.ui.chat.rememberRevealedText
+import io.nexy.android.ui.chat.rememberStreamFadeAlpha
+import io.nexy.android.ui.chat.streamFade
 
 // Shared chat-message bubble for the AI generator screens (Project/Agent/Skill/Manual Workflow).
 // Previously duplicated independently across each generator screen file.
 @Composable
 fun GeneratorChatBubble(role: String, text: String, streaming: Boolean = false, isError: Boolean = false) {
     val isUser = role == "user"
+    val displayText = if (streaming) rememberRevealedText(text) else text
+    val fadeAlpha = if (streaming) rememberStreamFadeAlpha(displayText.length) else 1f
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
@@ -32,9 +37,9 @@ fun GeneratorChatBubble(role: String, text: String, streaming: Boolean = false, 
         ) {
             SelectionContainer {
                 Text(
-                    text = text + if (streaming) "▍" else "",
+                    text = displayText + if (streaming) "▍" else "",
                     style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(12.dp),
+                    modifier = Modifier.padding(12.dp).streamFade(fadeAlpha),
                     color = when {
                         isError -> MaterialTheme.colorScheme.onErrorContainer
                         isUser -> MaterialTheme.colorScheme.onPrimaryContainer
