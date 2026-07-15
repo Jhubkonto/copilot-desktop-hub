@@ -13,7 +13,7 @@ import { ModelPicker } from '../chat/ModelPicker'
 import { VoiceInputButton } from '../chat/VoiceInputButton'
 import { DropdownPanel } from '../DropdownPanel'
 import { clearAutomatedWorkflowGeneration, trackAutomatedWorkflowGeneration } from '../BackgroundActivityBridges'
-import { ChatBubble, stripSpecTags } from './AutomatedWorkflowShared'
+import { ChatBubble, stripSpecTags, WORKFLOW_STAGES } from './AutomatedWorkflowShared'
 
 interface AutomatedWorkflowGeneratorModalProps {
   /** null generates a standalone, project-less workflow; a project id scopes generation to that
@@ -143,6 +143,17 @@ export function AutomatedWorkflowGeneratorModal({
     setShowVariablePicker(false)
   }
 
+  const handleStartOver = () => {
+    clearAutomatedWorkflowGeneration(projectId)
+    setMessages([])
+    setInputText('')
+    setStreamingText('')
+    streamingTextRef.current = ''
+    setMissedSpec(false)
+    setSavedRun(null)
+    setGenModel(null)
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Generate automated workflow">
       <div className="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl flex flex-col overflow-hidden" style={{ width: 'min(720px, 96vw)', height: 'min(640px, 90vh)' }}>
@@ -153,16 +164,28 @@ export function AutomatedWorkflowGeneratorModal({
               {projectName ? `New Workflow — ${projectName}` : 'New Standalone Workflow'}
             </h2>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 shrink-0" aria-label="Close">
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            {messages.length > 0 && (
+              <button
+                type="button"
+                onClick={handleStartOver}
+                disabled={isGenerating || saving}
+                className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Start over
+              </button>
+            )}
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" aria-label="Close">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         <div className="px-5 pt-3 shrink-0 space-y-1.5">
           <p className="text-[11px] text-gray-500 dark:text-gray-400">
             {projectId
-              ? 'Describe the project goal or milestone you want the team to execute. Each step runs via an assigned agent (that agent\'s own skills apply) or a plain model of your choice.'
-              : 'Describe a goal. This plan has no project — each step runs via whichever agent or model you (or the planner) choose; steps with no agent run as a plain model with no skill augmentation.'}
+              ? 'Describe the project goal or milestone you want the team to execute. The planner assigns each step to one of the project\'s agents (that agent\'s own skills apply) or a plain model — whichever fits the step best.'
+              : 'Describe a goal. This plan has no project, but the planner can still assign steps to any of your existing agents (that agent\'s own skills apply) or a plain model — whichever fits the step best.'}
           </p>
           {!hasGeneratorBackend && (
             <p className="text-[10px] text-amber-600 dark:text-amber-400">
@@ -174,9 +197,16 @@ export function AutomatedWorkflowGeneratorModal({
         <div className="flex-1 min-h-0 flex flex-col px-5 py-3 gap-3">
           <div className="flex-1 min-h-0 overflow-y-auto space-y-2 rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-800/40 px-3 py-2">
             {messages.length === 0 && !isGenerating && (
-              <div className="h-full flex flex-col items-center justify-center gap-2 text-gray-400 dark:text-gray-500 select-none">
-                <Sparkles className="w-7 h-7 opacity-40" />
-                <p className="text-xs text-center max-w-[220px]">Describe what you want done — you'll get a step-by-step plan to review before it runs.</p>
+              <div className="h-full flex flex-col items-center justify-center gap-3 text-gray-400 dark:text-gray-500 select-none px-4">
+                <p className="text-xs text-center max-w-[260px] text-gray-500 dark:text-gray-400">How it works:</p>
+                <div className="space-y-1.5 text-left w-full max-w-[280px]">
+                  {WORKFLOW_STAGES.map(({ icon: Icon, label }, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <Icon className="w-3.5 h-3.5 shrink-0 text-gray-400 dark:text-gray-500" />
+                      <span className="text-[11px] text-gray-500 dark:text-gray-400">{label}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
             {messages.map((msg, i) => <ChatBubble key={i} role={msg.role} content={msg.content} />)}

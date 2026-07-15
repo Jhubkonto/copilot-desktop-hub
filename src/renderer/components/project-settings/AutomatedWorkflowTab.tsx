@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Sparkles, Ban, ArrowLeft, Info, MessageSquare } from 'lucide-react'
+import { Sparkles, Ban, ArrowLeft, Info, MessageSquare, RotateCcw } from 'lucide-react'
 import type {
   AutomatedWorkflowConfirmationMode,
   AutomatedWorkflowRunDetail,
@@ -14,6 +14,7 @@ import {
   ConfirmationModeToggle,
   RunListRow,
   StepCard,
+  WORKFLOW_STAGES,
 } from '../automated-workflow/AutomatedWorkflowShared'
 import { DiscardWorkflowRunDialog } from '../automated-workflow/DiscardWorkflowRunDialog'
 import { AutomatedWorkflowGeneratorModal } from '../automated-workflow/AutomatedWorkflowGeneratorModal'
@@ -135,6 +136,11 @@ export function AutomatedWorkflowTab({ projectId, members, projectConfig, onOpen
     void runAction('abort', () => window.api.abortAutomatedWorkflowRun(activeRun.id), 'Failed to abort workflow')
   }
 
+  const handleRunAgain = () => {
+    if (!activeRun?.templateId) return
+    void runAction('run-again', () => window.api.runAutomatedWorkflowFromTemplate(activeRun.templateId!), 'Failed to start a new run from this plan')
+  }
+
   const resumeRun = async (runId: string) => {
     const detail = await window.api.getAutomatedWorkflowRun(runId)
     if (detail && !isApiError(detail)) {
@@ -190,16 +196,26 @@ export function AutomatedWorkflowTab({ projectId, members, projectConfig, onOpen
       </div>
 
       {showInfo && (
-        <div className="rounded-md border border-blue-200 dark:border-blue-900/50 bg-blue-50/70 dark:bg-blue-950/20 px-3 py-2 space-y-1.5">
+        <div className="rounded-md border border-blue-200 dark:border-blue-900/50 bg-blue-50/70 dark:bg-blue-950/20 px-3 py-2 space-y-2">
           <p className="text-[10px] text-gray-700 dark:text-gray-200 font-medium flex items-center gap-1">
             <MessageSquare className="w-3 h-3" /> How Automated Workflows work
           </p>
-          <p className="text-[10px] text-gray-600 dark:text-gray-300">
-            Generating a plan creates one workflow run — a single execution, not a reusable template.
-            Each step runs via an agent (its own skills apply) or a bare model (no skills), in its own
-            dedicated conversation. Tap "Open conversation" on any step to see its full transcript.
-            To do the same thing again, generate a new plan.
-          </p>
+          <div className="space-y-1">
+            {WORKFLOW_STAGES.map(({ icon: Icon, label }, i) => (
+              <div key={i} className="flex items-center gap-1.5">
+                <Icon className="w-3 h-3 shrink-0 text-blue-500" />
+                <span className="text-[10px] text-gray-600 dark:text-gray-300">{label}</span>
+              </div>
+            ))}
+          </div>
+          <div className="pt-1 border-t border-blue-200/60 dark:border-blue-900/40 space-y-1">
+            <p className="text-[10px] text-gray-700 dark:text-gray-200 font-medium">Good to know</p>
+            <ul className="text-[10px] text-gray-600 dark:text-gray-300 list-disc pl-3.5 space-y-0.5">
+              <li>Each step runs in its own dedicated conversation, not this project's main chat — open it via "Open conversation" once the step starts.</li>
+              <li>Gated mode pauses for your approval after every step; automatic mode advances immediately and only pauses if a step fails.</li>
+              <li>The planner assigns each step to one of this project's agents (that agent's own skills apply) or a plain model — this isn't editable after the plan is generated.</li>
+            </ul>
+          </div>
         </div>
       )}
 
@@ -316,9 +332,18 @@ export function AutomatedWorkflowTab({ projectId, members, projectConfig, onOpen
             </p>
           )}
           {runIsTerminal && (
-            <p className="text-[10px] text-gray-400 dark:text-gray-500">
-              This run has finished. To do this again, generate a new workflow from the list.
-            </p>
+            activeRun.templateId ? (
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <span className="text-[10px] text-gray-400 dark:text-gray-500">This run has finished.</span>
+                <ActionButton icon={RotateCcw} disabled={busyAction !== null} onClick={handleRunAgain}>
+                  Run again
+                </ActionButton>
+              </div>
+            ) : (
+              <p className="text-[10px] text-gray-400 dark:text-gray-500">
+                This run has finished. To do this again, generate a new workflow from the list.
+              </p>
+            )
           )}
 
           <div className="space-y-2">

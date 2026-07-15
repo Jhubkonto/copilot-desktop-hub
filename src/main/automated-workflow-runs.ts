@@ -8,7 +8,10 @@ import type {
   AutomatedWorkflowRunStep,
   AutomatedWorkflowRunSummary,
   AutomatedWorkflowSpec,
+  AutomatedWorkflowStep,
   AutomatedWorkflowStepStatus,
+  AutomatedWorkflowTemplateDetail,
+  AutomatedWorkflowTemplateSummary,
 } from '../shared/types'
 
 interface RunRow {
@@ -26,6 +29,20 @@ interface RunRow {
   updated_at: number
   scheduled_run_id: string | null
   spec_sort_order: number | null
+  template_id: string | null
+}
+
+interface TemplateRow {
+  id: string
+  project_id: string | null
+  title: string
+  goal_summary: string
+  assumptions_json: string
+  steps_json: string
+  model: string | null
+  source_run_id: string | null
+  created_at: number
+  updated_at: number
 }
 
 interface StepRow {
@@ -110,6 +127,29 @@ function rowToRunSummary(row: RunRow, stepCounts: AutomatedWorkflowRunSummary['s
     stepCounts,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    templateId: row.template_id,
+  }
+}
+
+function rowToTemplateSummary(row: TemplateRow, stepCount: number): AutomatedWorkflowTemplateSummary {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    title: row.title,
+    goalSummary: row.goal_summary,
+    model: row.model,
+    stepCount,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+function parseTemplateSteps(json: string): AutomatedWorkflowStep[] {
+  try {
+    const parsed = JSON.parse(json)
+    return Array.isArray(parsed) ? (parsed as AutomatedWorkflowStep[]) : []
+  } catch {
+    return []
   }
 }
 
@@ -177,6 +217,71 @@ export function listAllAutomatedWorkflowRuns(): AutomatedWorkflowRunSummary[] {
   return rows.map((row) => rowToRunSummary(row, computeStepCounts(loadRunSteps(row.id))))
 }
 
+/** Upserts the reusable template row backing a run's spec — inside the caller's own transaction.
+ *  Passing `existingTemplateId` updates that row in place (used both by the "keep chatting to
+ *  refine" in-place-replace path, so refinement doesn't spawn a new template per regeneration,
+ *  and by `runAutomatedWorkflowTemplateAgain` to keep the template's `source_run_id`/timestamps
+ *  fresh); omitting it inserts a new template row. Returns the template id to stamp onto the run. */
+function upsertAutomatedWorkflowTemplateFromSpec(
+  db: ReturnType<typeof getDatabase>,
+  projectId: string | null,
+  spec: AutomatedWorkflowSpec,
+  model: string | null,
+  existingTemplateId?: string | null,
+): string {
+  const now = Date.now()
+  const assumptionsJson = JSON.stringify(spec.assumptions ?? [])
+  const stepsJson = JSON.stringify(spec.steps)
+
+  if (existingTemplateId) {
+    const updated = db.prepare(`
+      UPDATE automated_workflow_templates
+      SET title = ?, goal_summary = ?, assumptions_json = ?, steps_json = ?, model = ?, updated_at = ?
+      WHERE id = ?
+    `).run(spec.title, spec.goalSummary, assumptionsJson, stepsJson, model, now, existingTemplateId)
+    if (updated.changes > 0) return existingTemplateId
+  }
+
+  const id = randomUUID()
+  db.prepare(`
+    INSERT INTO automated_workflow_templates
+      (id, project_id, title, goal_summary, assumptions_json, steps_json, model, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, projectId, spec.title, spec.goalSummary, assumptionsJson, stepsJson, model, now, now)
+  return id
+}
+
+export function getAutomatedWorkflowTemplate(templateId: string): AutomatedWorkflowTemplateDetail | null {
+  const row = getDatabase()
+    .prepare('SELECT * FROM automated_workflow_templates WHERE id = ?')
+    .get(templateId) as TemplateRow | undefined
+  if (!row) return null
+  const steps = parseTemplateSteps(row.steps_json)
+  return {
+    ...rowToTemplateSummary(row, steps.length),
+    assumptions: parseJsonArray(row.assumptions_json),
+    steps,
+  }
+}
+
+export function listAutomatedWorkflowTemplates(projectId: string | null): AutomatedWorkflowTemplateSummary[] {
+  const rows = getDatabase()
+    .prepare('SELECT * FROM automated_workflow_templates WHERE project_id IS ? ORDER BY updated_at DESC')
+    .all(projectId) as TemplateRow[]
+  return rows.map((row) => rowToTemplateSummary(row, parseTemplateSteps(row.steps_json).length))
+}
+
+/** Deletes the template row only — never cascades to runs. A template is a passive spec cache;
+ *  deleting it must not delete run history, matching this feature's whole premise of decoupling
+ *  the two ("Run again" simply becomes unavailable for runs that pointed at it). */
+export function discardAutomatedWorkflowTemplate(templateId: string): boolean {
+  const db = getDatabase()
+  const row = db.prepare('SELECT id FROM automated_workflow_templates WHERE id = ?').get(templateId) as { id: string } | undefined
+  if (!row) return false
+  db.prepare('DELETE FROM automated_workflow_templates WHERE id = ?').run(templateId)
+  return true
+}
+
 /**
  * Persists a generated spec. If `existingRunId` names a run whose steps are all still
  * `pending` (or has none yet), it's replaced in place — otherwise a new run is created,
@@ -184,7 +289,11 @@ export function listAllAutomatedWorkflowRuns(): AutomatedWorkflowRunSummary[] {
  * project-less run is a fully supported, self-contained Automated Workflow (see
  * src/roadmap-new/). `scheduledRunId`/`specSortOrder` tag a run spawned by a schedule firing
  * (see scheduler-engine.ts), used only for that path's retry-idempotency guard — omitted for
- * every other (user-driven) creation path.
+ * every other (user-driven) creation path. Every call also upserts a reusable template row
+ * (see `upsertAutomatedWorkflowTemplateFromSpec`) so a terminal run can later be repeated via
+ * "Run again" without going back through the AI generator — `templateIdOverride` lets
+ * `runAutomatedWorkflowTemplateAgain` stamp its own known template id directly instead of
+ * upserting a template from a spec that was just read out of that same template.
  */
 export function saveAutomatedWorkflowRunFromSpec(
   projectId: string | null,
@@ -192,6 +301,7 @@ export function saveAutomatedWorkflowRunFromSpec(
   model: string | null,
   existingRunId?: string | null,
   scheduleTag?: { scheduledRunId: string; specSortOrder: number },
+  templateIdOverride?: string,
 ): AutomatedWorkflowRunDetail {
   const db = getDatabase()
   const now = Date.now()
@@ -208,24 +318,28 @@ export function saveAutomatedWorkflowRunFromSpec(
     const canReplaceInPlace = existing && existingSteps.every((s) => s.status === 'pending')
 
     if (existing && canReplaceInPlace) {
+      const templateId = templateIdOverride
+        ?? upsertAutomatedWorkflowTemplateFromSpec(db, projectId, spec, model, existing.template_id ?? undefined)
       db.prepare(`
         UPDATE automated_workflow_runs
         SET title = ?, goal_summary = ?, assumptions_json = ?, model = ?, status = 'pending',
-            current_step_id = NULL, error = NULL, updated_at = ?
+            current_step_id = NULL, error = NULL, updated_at = ?, template_id = ?
         WHERE id = ?
-      `).run(spec.title, spec.goalSummary, assumptionsJson, model, now, existing.id)
+      `).run(spec.title, spec.goalSummary, assumptionsJson, model, now, templateId, existing.id)
       db.prepare('DELETE FROM automated_workflow_run_steps WHERE run_id = ?').run(existing.id)
       insertSteps(existing.id, spec.steps)
       runId = existing.id
       return
     }
 
+    const templateId = templateIdOverride
+      ?? upsertAutomatedWorkflowTemplateFromSpec(db, projectId, spec, model, undefined)
     const id = randomUUID()
     db.prepare(`
       INSERT INTO automated_workflow_runs
-        (id, project_id, title, goal_summary, assumptions_json, model, status, confirmation_mode, created_at, updated_at, scheduled_run_id, spec_sort_order)
-      VALUES (?, ?, ?, ?, ?, ?, 'pending', 'gated', ?, ?, ?, ?)
-    `).run(id, projectId, spec.title, spec.goalSummary, assumptionsJson, model, now, now, scheduleTag?.scheduledRunId ?? null, scheduleTag?.specSortOrder ?? null)
+        (id, project_id, title, goal_summary, assumptions_json, model, status, confirmation_mode, created_at, updated_at, scheduled_run_id, spec_sort_order, template_id)
+      VALUES (?, ?, ?, ?, ?, ?, 'pending', 'gated', ?, ?, ?, ?, ?)
+    `).run(id, projectId, spec.title, spec.goalSummary, assumptionsJson, model, now, now, scheduleTag?.scheduledRunId ?? null, scheduleTag?.specSortOrder ?? null, templateId)
     insertSteps(id, spec.steps)
     runId = id
   })()
@@ -233,6 +347,21 @@ export function saveAutomatedWorkflowRunFromSpec(
   const detail = getAutomatedWorkflowRun(runId)
   if (!detail) throw new Error('Failed to save workflow run')
   return detail
+}
+
+/** Creates a fresh `pending` run from a saved template's spec, bypassing the AI generator
+ *  entirely — the "Run again" action on a terminal run. Always creates a brand-new run (never
+ *  the in-place-replace branch, which is only for the in-progress-generation-refinement case). */
+export function runAutomatedWorkflowTemplateAgain(templateId: string): AutomatedWorkflowRunDetail {
+  const template = getAutomatedWorkflowTemplate(templateId)
+  if (!template) throw new Error('Workflow template not found')
+  const spec: AutomatedWorkflowSpec = {
+    title: template.title,
+    goalSummary: template.goalSummary,
+    assumptions: template.assumptions,
+    steps: template.steps,
+  }
+  return saveAutomatedWorkflowRunFromSpec(template.projectId, spec, template.model, null, undefined, template.id)
 }
 
 /** Looks up a run already spawned for a given schedule firing + attached-spec position — the
@@ -318,4 +447,12 @@ export function registerAutomatedWorkflowRunHandlers(): void {
     updateAutomatedWorkflowRunStepStatus(runId, stepDbId, status))
 
   safeHandle('automated-workflow-runs:discard', (_event, runId: string) => discardAutomatedWorkflowRun(runId))
+
+  safeHandle('automated-workflow-runs:run-again', (_event, templateId: string) => runAutomatedWorkflowTemplateAgain(templateId))
+
+  safeHandle('automated-workflow-templates:list', (_event, projectId: string | null) => listAutomatedWorkflowTemplates(projectId))
+
+  safeHandle('automated-workflow-templates:get', (_event, templateId: string) => getAutomatedWorkflowTemplate(templateId))
+
+  safeHandle('automated-workflow-templates:delete', (_event, templateId: string) => discardAutomatedWorkflowTemplate(templateId))
 }

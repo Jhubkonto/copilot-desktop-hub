@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Sparkles, ArrowLeft, Ban, RefreshCw, Info, MessageSquare } from 'lucide-react'
+import { Sparkles, ArrowLeft, Ban, RefreshCw, Info, MessageSquare, RotateCcw } from 'lucide-react'
 import type {
   AutomatedWorkflowConfirmationMode,
   AutomatedWorkflowRunDetail,
@@ -13,6 +13,7 @@ import {
   ConfirmationModeToggle,
   RunListRow,
   StepCard,
+  WORKFLOW_STAGES,
 } from '../automated-workflow/AutomatedWorkflowShared'
 import { DiscardWorkflowRunDialog } from '../automated-workflow/DiscardWorkflowRunDialog'
 import { AutomatedWorkflowGeneratorModal } from '../automated-workflow/AutomatedWorkflowGeneratorModal'
@@ -124,6 +125,22 @@ export function AutomatedWorkflowsPane() {
     }
   }
 
+  const runAgainFromTemplate = async () => {
+    if (!activeRun?.templateId) return
+    setBusyAction('run-again')
+    try {
+      const result = await window.api.runAutomatedWorkflowFromTemplate(activeRun.templateId)
+      if (result && !isApiError(result)) {
+        setActiveRun(result)
+        void loadRuns()
+      }
+    } catch {
+      // best-effort — the run's own error/lastError surfaces in the detail view
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
   const confirmDiscardRun = async () => {
     if (!discardTarget) return
     const runId = discardTarget.id
@@ -187,8 +204,9 @@ export function AutomatedWorkflowsPane() {
           )}
 
           {/* Each step below runs in its own dedicated conversation (see "Open conversation" on a
-              step once it starts) — this run itself is a single, one-time execution of the plan,
-              not a reusable template. To run this plan again, generate a new one. */}
+              step once it starts) — this run itself is a single execution of the plan, but the
+              spec that produced it is kept as a reusable template, so a terminal run can be
+              repeated via "Run again" below without going back through the AI generator. */}
           {activeRun.status === 'pending' ? (
             <div className="flex items-center justify-between flex-wrap gap-2">
               <ConfirmationModeToggle
@@ -219,9 +237,18 @@ export function AutomatedWorkflowsPane() {
             </p>
           )}
           {runIsTerminal && (
-            <p className="text-[10px] text-gray-400 dark:text-gray-500">
-              This run has finished. To do this again, generate a new workflow from the list.
-            </p>
+            activeRun.templateId ? (
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <span className="text-[10px] text-gray-400 dark:text-gray-500">This run has finished.</span>
+                <ActionButton icon={RotateCcw} disabled={busyAction !== null} onClick={() => void runAgainFromTemplate()}>
+                  Run again
+                </ActionButton>
+              </div>
+            ) : (
+              <p className="text-[10px] text-gray-400 dark:text-gray-500">
+                This run has finished. To do this again, generate a new workflow from the list.
+              </p>
+            )
           )}
 
           <div className="space-y-2">
@@ -267,7 +294,7 @@ export function AutomatedWorkflowsPane() {
             aria-label="Generate a new standalone workflow"
           >
             <Sparkles className="w-3.5 h-3.5" />
-            New
+            Generate
           </button>
           <button
             onClick={loadRuns}
@@ -280,16 +307,27 @@ export function AutomatedWorkflowsPane() {
       </div>
 
       {showInfo && (
-        <div className="mx-3 mt-2 rounded-md border border-blue-200 dark:border-blue-900/50 bg-blue-50/70 dark:bg-blue-950/20 px-3 py-2 space-y-1.5">
+        <div className="mx-3 mt-2 rounded-md border border-blue-200 dark:border-blue-900/50 bg-blue-50/70 dark:bg-blue-950/20 px-3 py-2 space-y-2">
           <p className="text-[10px] text-gray-700 dark:text-gray-200 font-medium flex items-center gap-1">
             <MessageSquare className="w-3 h-3" /> How Automated Workflows work
           </p>
-          <p className="text-[10px] text-gray-600 dark:text-gray-300">
-            Generating a plan creates one workflow run — a single execution, not a reusable template.
-            Each step runs via an agent (its own skills apply) or a bare model (no skills), in its own
-            dedicated conversation. Tap "Open conversation" on any step to see its full transcript.
-            To do the same thing again, generate a new plan.
-          </p>
+          <div className="space-y-1">
+            {WORKFLOW_STAGES.map(({ icon: Icon, label }, i) => (
+              <div key={i} className="flex items-center gap-1.5">
+                <Icon className="w-3 h-3 shrink-0 text-blue-500" />
+                <span className="text-[10px] text-gray-600 dark:text-gray-300">{label}</span>
+              </div>
+            ))}
+          </div>
+          <div className="pt-1 border-t border-blue-200/60 dark:border-blue-900/40 space-y-1">
+            <p className="text-[10px] text-gray-700 dark:text-gray-200 font-medium">Good to know</p>
+            <ul className="text-[10px] text-gray-600 dark:text-gray-300 list-disc pl-3.5 space-y-0.5">
+              <li>Each step runs in its own dedicated conversation, not the project's main chat — open it via "Open conversation" once the step starts.</li>
+              <li>Gated mode pauses for your approval after every step; automatic mode advances immediately and only pauses if a step fails.</li>
+              <li>The planner assigns each step to an agent (that agent's own skills apply) or a plain model — this isn't editable after the plan is generated.</li>
+              <li>A workflow's project — or lack of one — is fixed when you generate it and can't be changed afterward.</li>
+            </ul>
+          </div>
         </div>
       )}
 
@@ -318,7 +356,7 @@ export function AutomatedWorkflowsPane() {
           </div>
         )}
         {!loading && filtered.length === 0 && (
-          <p className="text-xs text-gray-400 dark:text-gray-500 text-center py-6">
+          <p className="text-xs text-gray-400 dark:text-gray-500 text-center italic pt-8">
             {filter === 'global' ? 'No standalone (project-less) workflows yet' : 'No automated workflows yet'}
           </p>
         )}

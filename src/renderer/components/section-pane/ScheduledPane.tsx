@@ -231,7 +231,7 @@ export function ScheduledPane() {
       {/* Task list */}
       <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-1">
         {filtered.length === 0 && (
-          <p className="text-xs text-gray-400 dark:text-gray-500 text-center py-6">
+          <p className="text-xs text-gray-400 dark:text-gray-500 text-center italic pt-8">
             {filter === 'active' ? 'No active scheduled tasks' : filter === 'paused' ? 'No paused tasks' : 'No scheduled tasks'}
           </p>
         )}

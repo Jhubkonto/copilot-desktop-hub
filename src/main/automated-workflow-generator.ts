@@ -43,9 +43,10 @@ Requirements:
   - prompt
   - expectedOutput
 - Each step is fulfilled by EITHER an agent OR a model directly — never both, never neither:
-  - If the project context lists a matching agent, prefer assigning that step to an agent: include agentId and
-    agentName. That agent's own configured skills apply automatically — you never need to think about skills.
-  - Otherwise (no project, or no suitable agent), include a "model" field naming a specific model instead of
+  - If the available agents (project-attached, or the user's global agents for a standalone plan) include a
+    matching agent, prefer assigning that step to it: include agentId and agentName. That agent's own configured
+    skills apply automatically — you never need to think about skills.
+  - Otherwise (no suitable agent for this step), include a "model" field naming a specific model instead of
     agentId/agentName. A model-only step runs as a plain, capable assistant with no skill augmentation — that is
     expected and fine, not a limitation to work around.
 - dependsOnStepIds is optional.
@@ -130,11 +131,29 @@ export function setAutomatedWorkflowGeneratorModel(modelId: string | null): void
 }
 
 function loadProjectWorkflowContext(projectId: string | null): ProjectWorkflowContext {
-  // A project-less plan has no project/agents context at all — no project_agents row can exist
-  // for a project that doesn't exist, so this naturally (and correctly) biases the generator
-  // toward model-mode steps, without any special-casing in the prompt itself.
+  // A project-less plan has no project (scope, milestones, workspace) but agents are a global
+  // entity (the `agents` table has no project_id column at all) — so a standalone plan can still
+  // draw from the user's full agent library, exactly as freely as a project-scoped plan draws
+  // from its attached team. There is no technical reason to withhold agents here; the executor's
+  // agent-or-model resolution (automated-workflow-executor.ts) and runAgentTurn already work with
+  // any global agentId regardless of project.
   if (!projectId) {
-    return { projectId: null, projectName: '(no project)', config: null, agents: [] }
+    const db = getDatabase()
+    const rows = db.prepare('SELECT id, config_json, is_default FROM agents ORDER BY is_default DESC, created_at ASC').all() as Array<{
+      id: string
+      config_json: string
+      is_default: number
+    }>
+    const agents = rows.map((row) => {
+      const cfg = JSON.parse(row.config_json) as { name?: string; icon?: string }
+      return {
+        agentId: row.id,
+        agentName: cfg.name ?? 'Unnamed agent',
+        agentIcon: cfg.icon ?? '🤖',
+        isPrimary: row.is_default === 1,
+      }
+    })
+    return { projectId: null, projectName: '(no project)', config: null, agents }
   }
 
   const db = getDatabase()
@@ -184,9 +203,11 @@ function substituteVariables(text: string, variables: ProjectConfig['variables']
 
 function buildProjectContextBlock(project: ProjectWorkflowContext): string {
   if (!project.config) {
+    const agentLines = project.agents.map((agent) => `${agent.agentId} | ${agent.agentName}${agent.isPrimary ? ' [default]' : ''}`)
     return [
       'This workflow has no project — it is a self-contained, standalone plan.',
-      'No project agents are available. Assign every step a "model" field instead of agentId/agentName.',
+      'Agents available (not tied to any project — these are the user\'s global agents):',
+      ...(agentLines.length > 0 ? agentLines.map((line) => `- ${line}`) : ['- (no agents exist yet — assign steps a "model" field instead)']),
     ].join('\n')
   }
 
@@ -213,7 +234,9 @@ function buildProjectContextBlock(project: ProjectWorkflowContext): string {
   ].join('\n')
 }
 
-function buildProviderMessages(projectId: string | null, messages: AutomatedWorkflowGeneratorMessage[]): { providerMessages: ProviderMessage[]; cwd: string } {
+// Exported for testing — the seam through which project/agent context flows into the system
+// prompt sent to the planner (see automated-workflow-generator.test.ts).
+export function buildProviderMessages(projectId: string | null, messages: AutomatedWorkflowGeneratorMessage[]): { providerMessages: ProviderMessage[]; cwd: string } {
   const project = loadProjectWorkflowContext(projectId)
   const filtered = messages[0]?.role === 'assistant' ? messages.slice(1) : messages
   const providerMessages: ProviderMessage[] = [

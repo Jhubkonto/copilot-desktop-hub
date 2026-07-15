@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Loader2, Check, RotateCcw, SkipForward, MessageSquare, Ban, Trash2, Clock, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Loader2, Check, RotateCcw, SkipForward, MessageSquare, Ban, Trash2, Clock, CheckCircle2, AlertCircle, XCircle, Sparkles, Play } from 'lucide-react'
 import type {
   AutomatedWorkflowConfirmationMode,
+  AutomatedWorkflowRunStatus,
   AutomatedWorkflowRunStep,
   AutomatedWorkflowRunSummary,
 } from '../../../shared/types'
@@ -15,6 +16,17 @@ import { formatRelativeTime } from '../../../shared/utils'
 export function stripSpecTags(content: string): string {
   return content.replace(/<automated-workflow-spec>[\s\S]*?<\/automated-workflow-spec>/g, '').trim()
 }
+
+// The 4-stage flow, used identically in the generator modal's empty state and the pane/tab info
+// panels — a single source of truth for the icons/wording so the two surfaces never drift apart.
+// "Run it whenever you're ready" is deliberate: a saved plan sits as "Pending" indefinitely until
+// the user presses Start — reviewing it does not commit you to running it immediately.
+export const WORKFLOW_STAGES: { icon: typeof Check; label: string }[] = [
+  { icon: MessageSquare, label: 'Describe your goal' },
+  { icon: Sparkles, label: 'Review the generated plan' },
+  { icon: Play, label: 'Run it whenever you\'re ready — step-by-step or automatic' },
+  { icon: RotateCcw, label: 'Reuse it later with "Run again" — no need to re-describe the goal' },
+]
 
 export function ChatBubble({ role, content }: { role: 'user' | 'assistant'; content: string }) {
   const displayContent = stripSpecTags(content)
@@ -51,6 +63,26 @@ export function StepStatusBadge({ status }: { status: AutomatedWorkflowRunStep['
   const Icon = config.icon
   return (
     <span className={`flex items-center gap-1 text-[10px] font-medium shrink-0 ${config.cls}`}>
+      <Icon className={`w-3 h-3 shrink-0 ${status === 'running' ? 'animate-spin' : ''}`} />
+      {config.label}
+    </span>
+  )
+}
+
+// Icon+label, no pill background — converges RunListRow's status indicator with ScheduledPane's
+// own StatusBadge visual language instead of the colored-pill style this used to have.
+export function RunStatusBadge({ status }: { status: AutomatedWorkflowRunStatus }) {
+  const config = {
+    pending: { label: 'Pending', cls: 'text-gray-400 dark:text-gray-500', icon: Clock },
+    running: { label: 'Active', cls: 'text-blue-500', icon: Loader2 },
+    awaiting_confirmation: { label: 'Active', cls: 'text-blue-500', icon: Loader2 },
+    done: { label: 'Completed', cls: 'text-green-500', icon: CheckCircle2 },
+    failed: { label: 'Failed', cls: 'text-red-500', icon: XCircle },
+    cancelled: { label: 'Cancelled', cls: 'text-gray-400 dark:text-gray-500', icon: Ban },
+  }[status]
+  const Icon = config.icon
+  return (
+    <span className={`flex items-center gap-1 text-[9px] font-medium shrink-0 ${config.cls}`}>
       <Icon className={`w-3 h-3 shrink-0 ${status === 'running' ? 'animate-spin' : ''}`} />
       {config.label}
     </span>
@@ -303,17 +335,7 @@ export function RunListRow({
     >
       <div className="flex items-start justify-between gap-2">
         <p className="text-xs font-semibold text-gray-800 dark:text-gray-100 truncate">{run.title}</p>
-        <span
-          className={`shrink-0 text-[9px] px-1.5 py-0.5 rounded font-medium ${
-            run.status === 'done'
-              ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300'
-              : run.status === 'failed'
-                ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300'
-                : 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
-          }`}
-        >
-          {run.status === 'done' ? 'Completed' : run.status === 'failed' ? 'Failed' : 'Active'}
-        </span>
+        <RunStatusBadge status={run.status} />
       </div>
       {run.goalSummary && <p className="text-[10px] text-gray-500 dark:text-gray-400 line-clamp-1">{run.goalSummary}</p>}
       <div className="flex items-center justify-between">
