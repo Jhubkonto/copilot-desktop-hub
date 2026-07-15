@@ -39,10 +39,10 @@ vi.mock('../cli-detection', () => ({
   getCliModels: vi.fn(() => []),
 }))
 
+const { getDatabaseMock } = vi.hoisted(() => ({ getDatabaseMock: vi.fn() }))
+
 vi.mock('../database', () => ({
-  getDatabase: vi.fn(() => ({
-    prepare: vi.fn(() => ({ get: vi.fn(), all: vi.fn(() => []) })),
-  })),
+  getDatabase: getDatabaseMock,
 }))
 
 vi.mock('../ws-server', () => ({
@@ -62,6 +62,7 @@ vi.mock('../project-handlers', () => ({
 }))
 
 import {
+  buildProviderMessages,
   extractAutomatedWorkflowSpec,
   normalizeAutomatedWorkflowSpec,
   runAutomatedWorkflowProviderChat,
@@ -71,6 +72,9 @@ describe('automated workflow generator', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     getApiKeyMock.mockReturnValue(null)
+    getDatabaseMock.mockReturnValue({
+      prepare: vi.fn(() => ({ get: vi.fn(), all: vi.fn(() => []) })),
+    })
   })
 
   it('extracts an automated workflow spec from tagged assistant text', () => {
@@ -167,6 +171,32 @@ describe('automated workflow generator', () => {
     })
     expect(spec.steps[0].model).toBe('gpt-6-mega')
     expect(spec.steps[0].agentId).toBeUndefined()
+  })
+
+  it('lists the user\'s global agents as candidates for a standalone (project-less) plan, not just "no agents available"', () => {
+    getDatabaseMock.mockReturnValue({
+      prepare: vi.fn(() => ({
+        get: vi.fn(),
+        all: vi.fn(() => [
+          { id: 'agent-1', config_json: JSON.stringify({ name: 'Release Manager', icon: '🚀' }), is_default: 0 },
+          { id: 'agent-2', config_json: JSON.stringify({ name: 'General Assistant', icon: '🤖' }), is_default: 1 },
+        ]),
+      })),
+    })
+
+    const { providerMessages } = buildProviderMessages(null, [{ role: 'user', content: 'Ship the release' }])
+    const systemContent = providerMessages[0].content as string
+
+    expect(systemContent).toContain('agent-1 | Release Manager')
+    expect(systemContent).toContain('agent-2 | General Assistant [default]')
+    expect(systemContent).not.toContain('No project agents are available')
+  })
+
+  it('falls back to model-only guidance for a standalone plan when the user genuinely has no agents', () => {
+    const { providerMessages } = buildProviderMessages(null, [{ role: 'user', content: 'Ship the release' }])
+    const systemContent = providerMessages[0].content as string
+
+    expect(systemContent).toContain('no agents exist yet — assign steps a "model" field instead')
   })
 
   it('rejects specs without at least one valid prompt-bearing step', () => {

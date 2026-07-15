@@ -125,6 +125,48 @@ describe('automated workflow runs', () => {
     expect(originalStillExists?.title).toBe('Ship the feature')
   })
 
+  it('creates a template alongside a run and lets "Run again" spawn a fresh pending run from it', async () => {
+    const { saveAutomatedWorkflowRunFromSpec, updateAutomatedWorkflowRunStepStatus, runAutomatedWorkflowTemplateAgain, getAutomatedWorkflowTemplate } =
+      await import('../automated-workflow-runs')
+    const first = saveAutomatedWorkflowRunFromSpec('proj-1', sampleSpec(), 'gpt-5.5', null)
+    expect(first.templateId).toBeTruthy()
+
+    updateAutomatedWorkflowRunStepStatus(first.id, first.steps[0].dbId, 'done')
+    updateAutomatedWorkflowRunStepStatus(first.id, first.steps[1].dbId, 'done')
+
+    const again = runAutomatedWorkflowTemplateAgain(first.templateId!)
+
+    expect(again.id).not.toBe(first.id)
+    expect(again.templateId).toBe(first.templateId)
+    expect(again.status).toBe('pending')
+    expect(again.steps).toHaveLength(2)
+    expect(again.steps.every((s) => s.status === 'pending')).toBe(true)
+    expect(again.title).toBe(first.title)
+
+    const template = getAutomatedWorkflowTemplate(first.templateId!)
+    expect(template?.steps).toHaveLength(2)
+  })
+
+  it('keeps refining the same template in place while a run is still all-pending, instead of spawning a new template per regeneration', async () => {
+    const { saveAutomatedWorkflowRunFromSpec } = await import('../automated-workflow-runs')
+    const first = saveAutomatedWorkflowRunFromSpec('proj-1', sampleSpec(), null, null)
+    const refined = saveAutomatedWorkflowRunFromSpec('proj-1', sampleSpec({ title: 'Refined plan' }), null, first.id)
+
+    expect(refined.id).toBe(first.id)
+    expect(refined.templateId).toBe(first.templateId)
+    const templateCount = db.prepare('SELECT COUNT(*) AS count FROM automated_workflow_templates').get() as { count: number }
+    expect(templateCount.count).toBe(1)
+  })
+
+  it('does not delete a run\'s template when the run itself is discarded', async () => {
+    const { saveAutomatedWorkflowRunFromSpec, discardAutomatedWorkflowRun, getAutomatedWorkflowTemplate } = await import('../automated-workflow-runs')
+    const first = saveAutomatedWorkflowRunFromSpec('proj-1', sampleSpec(), null, null)
+
+    await discardAutomatedWorkflowRun(first.id)
+
+    expect(getAutomatedWorkflowTemplate(first.templateId!)).not.toBeNull()
+  })
+
   it('lists runs for a project ordered by updated_at desc with correct step counts', async () => {
     const { saveAutomatedWorkflowRunFromSpec, listAutomatedWorkflowRuns, updateAutomatedWorkflowRunStepStatus } = await import('../automated-workflow-runs')
     const older = saveAutomatedWorkflowRunFromSpec('proj-1', sampleSpec({ title: 'Older run' }), null, null)

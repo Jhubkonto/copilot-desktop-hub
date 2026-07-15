@@ -31,6 +31,7 @@ function runSummary(overrides: Partial<AutomatedWorkflowRunSummary> = {}): Autom
     stepCounts: { total: 2, pending: 2, running: 0, awaitingConfirmation: 0, done: 0, failed: 0, skipped: 0 },
     createdAt: 1000,
     updatedAt: 1000,
+    templateId: null,
     ...overrides,
   }
 }
