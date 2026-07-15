@@ -1894,6 +1894,10 @@ export type IpcReturnMap = {
   'remote-edit:get-active-investigation': RemoteEditActiveInvestigation
   'remote-edit:get-active-code-changes': Record<string, number>
   'remote-edit:active-code-changes-changed': void
+  // Pushed when a conversation's messages changed from outside the renderer that has it open
+  // (e.g. a code-change plan landing while the investigation was running in the background) —
+  // the renderer re-fetches from the DB rather than the payload carrying the messages itself.
+  'chat:messages-updated': void
   // Self-heal fix staging
   'remote-edit:get-staged-diff': RemoteEditStagedFileDiff | null
   'remote-edit:fix-event': void
@@ -2332,6 +2336,7 @@ export type IpcChannels =
   | 'remote-edit:get-active-investigation'
   | 'remote-edit:get-active-code-changes'
   | 'remote-edit:active-code-changes-changed'
+  | 'chat:messages-updated'
   | 'remote-edit:get-staged-diff'
   | 'remote-edit:fix-event'
   | 'remote-edit:fix-done'

@@ -115,6 +115,11 @@ const api = {
     typedOn('remote-edit:active-code-changes-changed', handler)
     return () => typedOff('remote-edit:active-code-changes-changed', handler)
   },
+  onMessagesUpdated: (callback: (payload: { conversationId: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: { conversationId: string }) => callback(payload)
+    typedOn('chat:messages-updated', handler)
+    return () => typedOff('chat:messages-updated', handler)
+  },
   onInvestigationActivity: (callback: (activity: RemoteEditInvestigationActivity) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, activity: RemoteEditInvestigationActivity) => callback(activity)
     typedOn('remote-edit:investigation-activity', handler)
