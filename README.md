@@ -9,7 +9,7 @@ A provider-agnostic native AI workspace — locally-first, with custom agents, m
 ### Chat & Composition
 
 - Multi-conversation chat with streaming responses and per-conversation abort
-- **No account required** — connect your own API keys (OpenAI, Anthropic, Azure, Gemini, Mistral, Groq, xAI) or point at a local CLI (Claude CLI, Codex CLI)
+- **No account required** — connect your own API keys (OpenAI, Anthropic, Azure, Gemini, Mistral, Groq, xAI) or point at a local CLI (Claude CLI, Codex CLI, Hermes CLI)
 - Agentic mode: up to 20 tool-call iterations per request with automatic inspection-step recovery
 - Slash commands and `@`-context references for model switching, context injection, and chat management
 - Screen capture overlay with rubber-band region selection and clipboard image injection
@@ -56,13 +56,16 @@ A provider-agnostic native AI workspace — locally-first, with custom agents, m
 
 - Artifact generator: create multi-file documents, code, UI, data, prompts, and plans with version history and export (markdown, raw files)
 
-### Self-Healing
+### Code Changes
 
-- Error capture with source context (main process, renderer, unhandled rejections)
-- AI-powered error investigation using an MCP tool loop (file reads, directory listing, git operations, grep)
-- Automated fix staging with multi-file diff and hunk inspection
-- Fix verification: typecheck, lint, test, and build checks before committing
-- Git integration: prepare and push fix commits, with rollback on failed verification
+Slash-command-driven, project-scoped repository editing from inside any normal chat conversation —
+no separate screen or wizard. Requires the conversation to be attached to a Project whose workspace
+contains a real git repository.
+
+- `/code-change [repo] <description>` investigates the codebase (via an MCP tool loop: file reads, directory listing, git operations, grep) and proposes a plan; `/code-plan` shows it, `/code-execute` stages the fix (multi-file diff and hunk inspection), verifies it (typecheck/lint/test/build as applicable, with rollback on failure), and commits it, `/code-push` pushes, `/code-undo` rolls back the most recent applied change, `/code-status` shows current step and repo status
+- Git housekeeping commands for branching, checkout, fetch, merge/pull with AI-proposed conflict resolution, stash, commit, discard, and credential inspection — desktop via typed `/code-*` commands, Android via a tap-driven `/code` panel
+- A failed step in the Developer settings build dashboard (typecheck/test/build/package) can open a prefilled `/code-change` request in a new chat
+- Per-project audit log of edit sessions (from chat tools, code changes, or CLI) with per-file, per-hunk diff inspection (Project Settings → Changes tab)
 
 ### Build & Deployment Pipelines
 
@@ -90,7 +93,7 @@ desktop over the authenticated WebSocket connection:
 - MCP server and CLI management
 - Global and per-agent settings, model browser, provider configuration
 - Connection diagnostics, notification diagnostics, and model availability checks
-- Self-heal report browser with detail navigation
+- Code Changes: tap-driven `/code` git panel and edit-request browser with detail navigation
 - OTA update installer: receives builds from the desktop local feed server
 - Android build dashboard
 - Appearance settings (theme)
@@ -150,7 +153,7 @@ npm install
 npm run dev
 ```
 
-This starts the Electron app with Vite HMR for the renderer. On first launch, the onboarding screen will guide you through connecting a backend: BYOK API key, Claude CLI, or Codex CLI.
+This starts the Electron app with Vite HMR for the renderer. On first launch, the onboarding screen will guide you through connecting a backend: BYOK API key, Claude CLI, Codex CLI, or Hermes CLI.
 
 ## Building for Production
 
@@ -223,7 +226,7 @@ npx electron-rebuild -f -w better-sqlite3
 Wait for Vite to finish its initial bundle — the renderer URL loads before the Vite dev server is ready on the first cold start. The window will populate automatically.
 
 **Backend unavailable**
-If chats cannot start, open Settings and verify that at least one backend is ready: a configured BYOK provider key, Claude CLI, or Codex CLI.
+If chats cannot start, open Settings and verify that at least one backend is ready: a configured BYOK provider key, Claude CLI, Codex CLI, or Hermes CLI.
 
 **Windows installer closes without installing**
 Run `Nexy Setup x.x.x.exe` as Administrator, or install to a user-owned path (e.g. `C:\Users\<you>\Apps\Nexy`) instead of `C:\Program Files\`. Alternatively run `win-unpacked\Nexy.exe` directly — no installation needed.
