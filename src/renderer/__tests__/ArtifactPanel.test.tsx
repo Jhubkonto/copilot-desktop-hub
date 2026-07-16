@@ -87,12 +87,17 @@ describe('ArtifactPanel', () => {
     expect(mockStore.closeArtifactPanel).toHaveBeenCalled()
   })
 
-  it('renders the Details, History, and Export tabs', async () => {
+  it('renders the Details and History tabs', async () => {
     render(<ArtifactPanel artifactId="art-1" />)
     await waitFor(() => screen.getByText('Test Artifact'))
     expect(screen.getByRole('button', { name: /details/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /history/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /export/i })).toBeInTheDocument()
+  })
+
+  it('shows an export button for the current version in Details tab', async () => {
+    render(<ArtifactPanel artifactId="art-1" />)
+    await waitFor(() => screen.getByText('Test Artifact'))
+    expect(screen.getByRole('button', { name: /export current version/i })).toBeInTheDocument()
   })
 
   it('shows artifact description in Details tab', async () => {

@@ -635,6 +635,7 @@ export function createMockApi() {
     artifactListVersions: vi.fn().mockResolvedValue([]),
     artifactGetVersion: vi.fn().mockResolvedValue(null),
     artifactDelete: vi.fn().mockResolvedValue({ deleted: true }),
+    artifactDeleteVersion: vi.fn().mockResolvedValue({ deleted: true }),
     artifactMoveToProject: vi.fn().mockResolvedValue({ ok: true }),
     artifactPromoteMessage: vi.fn().mockResolvedValue({ artifactId: 'art-1', versionId: 'ver-1', title: 'Artifact' }),
     artifactGetFileContent: vi.fn().mockResolvedValue({ content: '' }),
