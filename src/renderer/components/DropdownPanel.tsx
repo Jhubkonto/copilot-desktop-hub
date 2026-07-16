@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 interface DropdownPanelProps {
   open: boolean
@@ -26,6 +26,12 @@ export function DropdownPanel({
   const [above, setAbove] = useState(false)
   const [horizontalOffset, setHorizontalOffset] = useState(0)
 
+  // Callers frequently pass an inline `() => ...` for onClose, which gets a new identity on
+  // every parent re-render (e.g. on each streamed token). Keep it in a ref so the effect below
+  // only re-runs when `open` actually changes, not on every unrelated parent render.
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+
   // Measure the panel's real rendered size (not a guessed height) and clamp it back inside the
   // viewport on both axes — runs before paint so no flash to the wrong position.
   useLayoutEffect(() => {
@@ -46,14 +52,18 @@ export function DropdownPanel({
       }
       setHorizontalOffset(offset)
     }
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
     const handler = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        onClose()
+        onCloseRef.current()
       }
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
-  }, [open, onClose])
+  }, [open])
 
   return (
     <div ref={containerRef} className="relative">

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Sparkles, ArrowLeft, Ban, RefreshCw, Info, MessageSquare, RotateCcw } from 'lucide-react'
 import type {
   AutomatedWorkflowConfirmationMode,
@@ -42,8 +43,44 @@ export function AutomatedWorkflowsPane() {
   const [discardTarget, setDiscardTarget] = useState<AutomatedWorkflowRunSummary | AutomatedWorkflowRunDetail | null>(null)
   const [showGenerator, setShowGenerator] = useState(false)
   const [showInfo, setShowInfo] = useState(false)
+  const infoButtonRef = useRef<HTMLButtonElement>(null)
+  const infoPopoverRef = useRef<HTMLDivElement>(null)
+  const [infoPosition, setInfoPosition] = useState<{ top: number; left: number } | null>(null)
   const activeRunRef = useRef<AutomatedWorkflowRunDetail | null>(null)
   activeRunRef.current = activeRun
+
+  useEffect(() => {
+    if (!showInfo) return
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node
+      if (
+        infoPopoverRef.current && !infoPopoverRef.current.contains(target) &&
+        infoButtonRef.current && !infoButtonRef.current.contains(target)
+      ) {
+        setShowInfo(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showInfo])
+
+  useLayoutEffect(() => {
+    if (!showInfo || !infoButtonRef.current) { setInfoPosition(null); return }
+    const computePosition = () => {
+      const rect = infoButtonRef.current!.getBoundingClientRect()
+      const width = 320
+      const margin = 8
+      const left = Math.min(rect.left, window.innerWidth - width - margin)
+      setInfoPosition({ top: rect.bottom + margin, left: Math.max(left, margin) })
+    }
+    computePosition()
+    window.addEventListener('resize', computePosition)
+    window.addEventListener('scroll', computePosition, true)
+    return () => {
+      window.removeEventListener('resize', computePosition)
+      window.removeEventListener('scroll', computePosition, true)
+    }
+  }, [showInfo])
 
   const projectName = (projectId: string | null) =>
     projectId ? (projects.find((p) => p.id === projectId)?.name ?? 'Project') : 'Global'
@@ -281,6 +318,7 @@ export function AutomatedWorkflowsPane() {
         <span className="text-xs text-gray-400 dark:text-gray-500">{runs.length} workflow{runs.length !== 1 ? 's' : ''}</span>
         <div className="flex items-center gap-1">
           <button
+            ref={infoButtonRef}
             onClick={() => setShowInfo((v) => !v)}
             className={`p-1 rounded ${showInfo ? 'text-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
             title="How Automated Workflows work"
@@ -306,8 +344,12 @@ export function AutomatedWorkflowsPane() {
         </div>
       </div>
 
-      {showInfo && (
-        <div className="mx-3 mt-2 rounded-md border border-blue-200 dark:border-blue-900/50 bg-blue-50/70 dark:bg-blue-950/20 px-3 py-2 space-y-2">
+      {showInfo && infoPosition && createPortal(
+        <div
+          ref={infoPopoverRef}
+          style={{ position: 'fixed', top: infoPosition.top, left: infoPosition.left, width: 320 }}
+          className="z-50 rounded-md border border-blue-200 dark:border-blue-900/50 bg-blue-50/95 dark:bg-blue-950/95 backdrop-blur-sm shadow-lg px-3 py-2 space-y-2"
+        >
           <p className="text-[10px] text-gray-700 dark:text-gray-200 font-medium flex items-center gap-1">
             <MessageSquare className="w-3 h-3" /> How Automated Workflows work
           </p>
@@ -328,7 +370,8 @@ export function AutomatedWorkflowsPane() {
               <li>A workflow's project — or lack of one — is fixed when you generate it and can't be changed afterward.</li>
             </ul>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
       <div className="flex items-center gap-1 px-3 py-2 border-b border-gray-100 dark:border-gray-800">

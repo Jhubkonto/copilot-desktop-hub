@@ -280,7 +280,11 @@ export function Sidebar() {
           <div className="min-w-0">
             {(() => {
               const cliLabel = authState.cliInstalled
-                ? (authState.clis?.claude && authState.clis?.codex ? 'Claude CLI + Codex CLI' : authState.clis?.codex ? 'Codex CLI' : 'Claude CLI')
+                ? [
+                    authState.clis?.claude && 'Claude CLI',
+                    authState.clis?.codex && 'Codex CLI',
+                    authState.clis?.hermes && 'Hermes Agent',
+                  ].filter(Boolean).join(' + ') || null
                 : null
               const hasAny = cliLabel || configuredProviderLabel
               const subtitle = hasAny
