@@ -1,23 +1,21 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { X, Download, Trash2, Package, History, Info, FolderOpen, Settings } from 'lucide-react'
+import { X, Download, Trash2, Package, History, Info, FolderOpen, Settings, GitCompare } from 'lucide-react'
 import type { ArtifactRow, ArtifactVersion } from '../../shared/types'
 import { useAppStore } from '../store/app-store'
 import { ResizeHandle } from './ResizeHandle'
 import { ArtifactGeneratorModal } from './ArtifactGeneratorModal'
 import { DeleteArtifactDialog } from './DeleteArtifactDialog'
+import { ArtifactKindBadge, artifactDisplayTitle } from './artifacts/artifactDisplay'
+import { Button, ModalShell } from './ui/primitives'
 
-const SUPPORTED_EXPORT_FORMATS = ['raw-files', 'markdown', 'json'] as const
-type ExportFormat = typeof SUPPORTED_EXPORT_FORMATS[number]
-
-const KIND_LABELS: Record<string, string> = {
-  document: 'Doc', code: 'Code', ui: 'UI', data: 'Data',
-  prompt: 'Prompt', 'agent-config': 'Agent', plan: 'Plan', bundle: 'Bundle', other: 'Other',
-}
-
-function KindBadge({ kind }: { kind: string }) {
+function ArtifactStatusBadge({ status }: { status: string }) {
+  const colorClass = status === 'ready' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+    : status === 'generating' ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400'
+    : status === 'failed' ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400'
+    : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'
   return (
-    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 font-medium">
-      {KIND_LABELS[kind] ?? kind}
+    <span className={`inline-block w-16 shrink-0 truncate text-center text-[10px] px-1.5 py-0.5 rounded-full font-medium ${colorClass}`}>
+      {status}
     </span>
   )
 }
@@ -26,27 +24,29 @@ function KindBadge({ kind }: { kind: string }) {
 // Details Tab
 // ---------------------------------------------------------------------------
 
-function DetailsTab({ artifact, projects, onRevise }: {
+function DetailsTab({ artifact, projects, exporting, onRevise, onExportCurrent }: {
   artifact: ArtifactRow
   projects: { id: string; name: string }[]
+  exporting: boolean
   onRevise: () => void
+  onExportCurrent: () => void
 }) {
   const project = artifact.projectId ? projects.find((p) => p.id === artifact.projectId) : null
   const addToast = useAppStore((s) => s.addToast)
-  const [storageRoot, setStorageRoot] = useState('')
+  const [defaultRoot, setDefaultRoot] = useState('')
   const [editingRoot, setEditingRoot] = useState(false)
   const [rootInput, setRootInput] = useState('')
 
   useEffect(() => {
     window.api.artifactGeneratorGetStorageRoot()
-      .then((r) => setStorageRoot(r.path))
+      .then((r) => setDefaultRoot(r.path))
       .catch(() => {})
   }, [])
 
   const handleSaveRoot = async () => {
     try {
       await window.api.artifactGeneratorSetStorageRoot(rootInput)
-      setStorageRoot(rootInput)
+      setDefaultRoot(rootInput)
       setEditingRoot(false)
     } catch {
       addToast('Failed to save storage root', 'error')
@@ -56,13 +56,8 @@ function DetailsTab({ artifact, projects, onRevise }: {
   return (
     <div className="p-4 space-y-4 overflow-y-auto h-full">
       <div className="flex items-center gap-2 flex-wrap">
-        <KindBadge kind={artifact.kind} />
-        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
-          artifact.status === 'ready' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-          : artifact.status === 'generating' ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400'
-          : artifact.status === 'failed' ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400'
-          : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'
-        }`}>{artifact.status}</span>
+        <ArtifactKindBadge kind={artifact.kind} />
+        <ArtifactStatusBadge status={artifact.status} />
         {artifact.currentVersion && (
           <span className="text-[10px] text-gray-400">v{artifact.currentVersion.versionNumber}</span>
         )}
@@ -82,13 +77,38 @@ function DetailsTab({ artifact, projects, onRevise }: {
         </p>
       </div>
 
+      {artifact.currentVersion?.files && artifact.currentVersion.files.length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-gray-400 mb-1">
+            Files (v{artifact.currentVersion.versionNumber})
+          </p>
+          <div className="space-y-1">
+            {artifact.currentVersion.files.map((f) => (
+              <p key={f.id} className="text-[11px] font-mono text-gray-500 dark:text-gray-400 break-all">{f.relativePath}</p>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="flex items-center gap-2 pt-2">
+        <Button variant="primary" onClick={onRevise}>
+          Generate new version
+        </Button>
+        {artifact.currentVersionId && (
+          <Button variant="secondary" onClick={onExportCurrent} disabled={exporting}>
+            <Download className="w-3.5 h-3.5" />
+            {exporting ? 'Exporting…' : 'Export current version'}
+          </Button>
+        )}
+      </div>
+
       <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-3 space-y-2">
         <div className="flex items-center gap-2">
           <Settings className="w-3.5 h-3.5 text-gray-400" />
-          <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Artifact storage root</p>
+          <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Default storage location for new artifacts</p>
           <button
             type="button"
-            onClick={() => { setEditingRoot(true); setRootInput(storageRoot) }}
+            onClick={() => { setEditingRoot(true); setRootInput(defaultRoot) }}
             className="ml-auto text-[10px] text-blue-500 hover:text-blue-600"
           >
             Change
@@ -118,32 +138,60 @@ function DetailsTab({ artifact, projects, onRevise }: {
             </button>
           </div>
         ) : (
-          <p className="text-[11px] font-mono text-gray-500 dark:text-gray-400 truncate">{storageRoot || '—'}</p>
+          <p className="text-[11px] font-mono text-gray-500 dark:text-gray-400 truncate">{defaultRoot || '—'}</p>
         )}
       </div>
+    </div>
+  )
+}
 
-      {artifact.currentVersion?.files && artifact.currentVersion.files.length > 0 && (
-        <div>
-          <p className="text-[10px] uppercase tracking-wide text-gray-400 mb-1">
-            Files (v{artifact.currentVersion.versionNumber})
-          </p>
-          <div className="space-y-1">
-            {artifact.currentVersion.files.map((f) => (
-              <p key={f.id} className="text-[11px] font-mono text-gray-500 dark:text-gray-400 break-all">{f.relativePath}</p>
-            ))}
-          </div>
+// ---------------------------------------------------------------------------
+// Compare versions modal
+// ---------------------------------------------------------------------------
+
+function CompareVersionsModal({ newer, older, onClose }: {
+  newer: ArtifactVersion
+  older: ArtifactVersion
+  onClose: () => void
+}) {
+  const olderPaths = new Set((older.files ?? []).map((f) => f.relativePath))
+  const newerPaths = new Set((newer.files ?? []).map((f) => f.relativePath))
+  const added = [...newerPaths].filter((p) => !olderPaths.has(p)).sort()
+  const removed = [...olderPaths].filter((p) => !newerPaths.has(p)).sort()
+  const unchangedCount = [...newerPaths].filter((p) => olderPaths.has(p)).length
+
+  return (
+    <ModalShell
+      title={`v${older.versionNumber} → v${newer.versionNumber}`}
+      maxWidth="max-w-md"
+      height=""
+      bodyClassName="p-5 space-y-3 max-h-[60vh] overflow-y-auto"
+      onClose={onClose}
+      footer={<Button variant="secondary" onClick={onClose}>Close</Button>}
+    >
+      <p className="text-xs text-gray-500 dark:text-gray-400">
+        Compares which files exist in each version, by file path only — it doesn&apos;t check whether a file&apos;s contents changed. Use it to spot files that were added or dropped between versions.
+      </p>
+      {added.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-xs font-medium text-blue-600 dark:text-blue-400">Added</p>
+          {added.map((path) => (
+            <p key={path} className="text-[11px] font-mono px-2 py-1 rounded bg-blue-50 dark:bg-blue-900/20 text-gray-700 dark:text-gray-300 break-all">+ {path}</p>
+          ))}
         </div>
       )}
-
-      <div className="pt-2">
-        <button
-          onClick={onRevise}
-          className="text-xs px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
-        >
-          Generate new version
-        </button>
-      </div>
-    </div>
+      {removed.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-xs font-medium text-red-600 dark:text-red-400">Removed</p>
+          {removed.map((path) => (
+            <p key={path} className="text-[11px] font-mono px-2 py-1 rounded bg-red-50 dark:bg-red-900/20 text-gray-700 dark:text-gray-300 break-all">- {path}</p>
+          ))}
+        </div>
+      )}
+      {added.length === 0 && removed.length === 0 && (
+        <p className="text-xs text-gray-500 dark:text-gray-400">{unchangedCount} file(s) unchanged — no structural differences.</p>
+      )}
+    </ModalShell>
   )
 }
 
@@ -151,30 +199,46 @@ function DetailsTab({ artifact, projects, onRevise }: {
 // History Tab
 // ---------------------------------------------------------------------------
 
-function HistoryTab({ artifactId }: { artifactId: string }) {
+function HistoryTab({ artifactId, kind, onVersionDeleted }: { artifactId: string; kind: string; onVersionDeleted: () => void }) {
   const [versions, setVersions] = useState<ArtifactVersion[]>([])
   const [loading, setLoading] = useState(true)
-  const [exportMsg, setExportMsg] = useState('')
-  const [exportedPath, setExportedPath] = useState('')
+  const [exportedPath, setExportedPath] = useState<string | null>(null)
+  const [exportingId, setExportingId] = useState<string | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [compareVersions, setCompareVersions] = useState<{ newer: ArtifactVersion; older: ArtifactVersion } | null>(null)
   const addToast = useAppStore((s) => s.addToast)
 
-  useEffect(() => {
+  const loadVersions = useCallback(() => {
     setLoading(true)
-    window.api.artifactListVersions(artifactId)
+    return window.api.artifactListVersions(artifactId)
       .then(setVersions)
       .catch(() => addToast('Failed to load version history', 'error'))
       .finally(() => setLoading(false))
   }, [artifactId, addToast])
 
-  const handleExport = async (versionId: string, format: ExportFormat) => {
-    setExportMsg('')
-    setExportedPath('')
+  useEffect(() => { void loadVersions() }, [loadVersions])
+
+  const handleExport = async (versionId: string) => {
+    setExportingId(versionId)
+    setExportedPath(null)
     try {
-      const result = await window.api.artifactExport(versionId, format)
-      setExportMsg(`Exported to: ${result.exportPath}`)
+      const result = await window.api.artifactExport(versionId, 'raw-files')
       setExportedPath(result.exportPath)
     } catch {
-      setExportMsg('Export failed')
+      addToast('Export failed', 'error')
+    } finally {
+      setExportingId(null)
+    }
+  }
+
+  const handleDeleteVersion = async (versionId: string) => {
+    setConfirmDeleteId(null)
+    try {
+      await window.api.artifactDeleteVersion(versionId)
+      await loadVersions()
+      onVersionDeleted()
+    } catch {
+      addToast('Failed to delete version — it may be the artifact\'s only remaining one', 'error')
     }
   }
 
@@ -183,110 +247,105 @@ function HistoryTab({ artifactId }: { artifactId: string }) {
   }
 
   return (
-    <div className="p-4 space-y-3 overflow-y-auto h-full">
-      {versions.length === 0 ? (
-        <p className="text-xs text-gray-400 italic">No version history yet</p>
-      ) : (
-        versions.map((v) => (
-          <div key={v.id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-gray-700 dark:text-gray-300">v{v.versionNumber}</span>
-              <span className="text-[10px] text-gray-400">{new Date(v.createdAt).toLocaleDateString()}</span>
-            </div>
-            {v.files && v.files.length > 0 && (
-              <p className="text-[10px] text-gray-400">{v.files.length} file{v.files.length !== 1 ? 's' : ''}</p>
-            )}
-            <div className="flex gap-1 flex-wrap">
-              {SUPPORTED_EXPORT_FORMATS.map((fmt) => (
-                <button
-                  key={fmt}
-                  type="button"
-                  onClick={() => void handleExport(v.id, fmt)}
-                  className="text-[10px] px-1.5 py-0.5 rounded border border-gray-200 dark:border-gray-600 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
-                >
-                  {fmt}
-                </button>
-              ))}
-            </div>
-          </div>
-        ))
-      )}
-      {exportMsg && (
-        <div className="flex items-center gap-2 mt-2">
-          <p className="text-[10px] font-mono text-gray-500 truncate flex-1">{exportMsg}</p>
-          {exportedPath && (
-            <button
-              type="button"
-              onClick={() => void window.api.artifactOpenFolder(exportedPath)}
-              className="text-[10px] text-blue-500 hover:text-blue-600 shrink-0 flex items-center gap-1"
-            >
-              <FolderOpen className="w-3 h-3" />
-              Open
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Export Tab
-// ---------------------------------------------------------------------------
-
-function ExportTab({ artifact }: { artifact: ArtifactRow }) {
-  const [exportMsg, setExportMsg] = useState('')
-  const [exportedPath, setExportedPath] = useState('')
-
-  const handleExport = async (format: ExportFormat) => {
-    if (!artifact.currentVersionId) return
-    setExportMsg('')
-    setExportedPath('')
-    try {
-      const result = await window.api.artifactExport(artifact.currentVersionId, format)
-      setExportMsg(`Exported to: ${result.exportPath}`)
-      setExportedPath(result.exportPath)
-    } catch {
-      setExportMsg('Export failed')
-    }
-  }
-
-  return (
-    <div className="p-4 space-y-4 overflow-y-auto h-full">
-      <p className="text-xs text-gray-500 dark:text-gray-400">
-        Export the current version ({artifact.currentVersion ? `v${artifact.currentVersion.versionNumber}` : '—'}) in a format of your choice.
+    <div className="p-3 space-y-3 overflow-y-auto h-full">
+      <p className="px-1 text-[11px] text-gray-400 dark:text-gray-500">
+        Compare shows which files changed by path between two versions, not their content. Each version can be exported or deleted individually.
       </p>
-      {!artifact.currentVersionId ? (
-        <p className="text-xs text-gray-400 italic">No version available to export</p>
+      {versions.length === 0 ? (
+        <p className="text-xs text-gray-400 italic px-1">No version history yet</p>
       ) : (
-        <div className="flex gap-2 flex-wrap">
-          {SUPPORTED_EXPORT_FORMATS.map((fmt) => (
-            <button
-              key={fmt}
-              type="button"
-              onClick={() => void handleExport(fmt)}
-              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-            >
-              <Download className="w-3.5 h-3.5" />
-              {fmt}
-            </button>
-          ))}
+        <div className="space-y-1">
+          {versions.map((v, index) => {
+            const olderVersion = versions[index + 1]
+            return (
+              <div
+                key={v.id}
+                className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 px-2 py-1.5"
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-gray-800 dark:text-gray-100 truncate">
+                    v{v.versionNumber} · {artifactDisplayTitle(v.title, kind)}
+                  </p>
+                  <p className="text-[10px] text-gray-400 dark:text-gray-500 truncate">
+                    {v.files?.length ?? 0} file{(v.files?.length ?? 0) !== 1 ? 's' : ''} · {new Date(v.createdAt).toLocaleDateString()}
+                  </p>
+                </div>
+                {confirmDeleteId === v.id ? (
+                  <div className="flex items-center gap-1 text-[11px] shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteVersion(v.id)}
+                      className="px-2 py-0.5 rounded-md bg-red-600 text-white hover:bg-red-700"
+                    >
+                      Delete
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteId(null)}
+                      className="px-2 py-0.5 rounded-md border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    {olderVersion && (
+                      <button
+                        type="button"
+                        onClick={() => setCompareVersions({ newer: v, older: olderVersion })}
+                        className="p-1 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700"
+                        aria-label={`Compare v${v.versionNumber} with v${olderVersion.versionNumber}`}
+                        title="Compare with previous version"
+                      >
+                        <GitCompare className="w-3 h-3" />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => void handleExport(v.id)}
+                      disabled={exportingId === v.id}
+                      className="p-1 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50"
+                      aria-label={`Export version ${v.versionNumber}`}
+                      title="Export"
+                    >
+                      <Download className="w-3 h-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteId(v.id)}
+                      disabled={versions.length <= 1}
+                      className="p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-400"
+                      aria-label={`Delete version ${v.versionNumber}`}
+                      title={versions.length <= 1 ? "Can't delete an artifact's only version" : 'Delete'}
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
-      {exportMsg && (
-        <div className="flex items-center gap-2">
-          <p className="text-[10px] font-mono text-gray-500 truncate flex-1">{exportMsg}</p>
-          {exportedPath && (
-            <button
-              type="button"
-              onClick={() => void window.api.artifactOpenFolder(exportedPath)}
-              className="text-[10px] text-blue-500 hover:text-blue-600 shrink-0 flex items-center gap-1"
-            >
-              <FolderOpen className="w-3 h-3" />
-              Open folder
-            </button>
-          )}
+      {exportedPath && (
+        <div className="flex items-center gap-2 px-1">
+          <p className="text-[10px] font-mono text-gray-500 truncate flex-1">Exported to: {exportedPath}</p>
+          <button
+            type="button"
+            onClick={() => void window.api.artifactOpenFolder(exportedPath)}
+            className="text-[10px] text-blue-500 hover:text-blue-600 shrink-0 flex items-center gap-1"
+          >
+            <FolderOpen className="w-3 h-3" />
+            Open
+          </button>
         </div>
+      )}
+      {compareVersions && (
+        <CompareVersionsModal
+          newer={compareVersions.newer}
+          older={compareVersions.older}
+          onClose={() => setCompareVersions(null)}
+        />
       )}
     </div>
   )
@@ -310,10 +369,11 @@ export function ArtifactPanel({ artifactId }: { artifactId: string }) {
 
   const [artifact, setArtifact] = useState<ArtifactRow | null>(null)
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState<'details' | 'history' | 'export'>('details')
+  const [tab, setTab] = useState<'details' | 'history'>('details')
   const [width, setWidth] = useState(440)
   const [showReviseGenerator, setShowReviseGenerator] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [exportingCurrent, setExportingCurrent] = useState(false)
 
   const getMaxSize = useCallback(() => Math.min(PANEL_MAX, Math.floor(window.innerWidth * 0.45)), [])
 
@@ -339,6 +399,19 @@ export function ArtifactPanel({ artifactId }: { artifactId: string }) {
     }
   }
 
+  const handleExportCurrent = async () => {
+    if (!artifact?.currentVersionId) return
+    setExportingCurrent(true)
+    try {
+      const result = await window.api.artifactExport(artifact.currentVersionId, 'raw-files')
+      addToast(`Exported to: ${result.exportPath}`, 'success')
+    } catch {
+      addToast('Export failed', 'error')
+    } finally {
+      setExportingCurrent(false)
+    }
+  }
+
   const handleUseInChat = () => {
     if (!artifact) return
     requestArtifactAttach(artifact.id, artifact.currentVersionId ?? undefined)
@@ -347,12 +420,13 @@ export function ArtifactPanel({ artifactId }: { artifactId: string }) {
   }
 
   return (
-    <div
-      ref={panelRef}
-      style={{ width, left: 'auto', right: 0 }}
-      className="fixed inset-y-0 top-9 z-50 flex flex-col bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 shadow-2xl"
-      aria-label="Artifact details panel"
-    >
+    <div className="fixed inset-0 top-9 z-50 flex" role="dialog" aria-modal="true" aria-label="Artifact details panel">
+      <div className="flex-1 bg-black/30" onClick={closeArtifactPanel} aria-hidden="true" />
+      <div
+        ref={panelRef}
+        style={{ width }}
+        className="relative flex flex-col bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 shadow-2xl"
+      >
       <ResizeHandle
         direction="horizontal"
         containerRef={panelRef as React.RefObject<HTMLElement>}
@@ -363,20 +437,30 @@ export function ArtifactPanel({ artifactId }: { artifactId: string }) {
       />
 
       {/* Header */}
-      <div className="flex items-center justify-between px-4 h-9 border-b border-gray-200 dark:border-gray-700 shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
-          <Package className="w-3.5 h-3.5 text-purple-500 shrink-0" />
-          <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">
-            {loading ? 'Loading…' : (artifact?.title ?? 'Artifact')}
-          </h2>
+      <div className="border-b border-gray-200 dark:border-gray-700 shrink-0">
+        <div className="flex items-center justify-between px-4 h-9">
+          <div className="flex items-center gap-2 min-w-0">
+            <Package className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+            <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">
+              {loading ? 'Loading…' : (artifact ? artifactDisplayTitle(artifact.title, artifact.kind) : 'Artifact')}
+            </h2>
+          </div>
+          <button
+            onClick={closeArtifactPanel}
+            className="p-0.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors shrink-0"
+            aria-label="Close artifact panel"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
-        <button
-          onClick={closeArtifactPanel}
-          className="p-0.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-          aria-label="Close artifact panel"
-        >
-          <X className="w-4 h-4" />
-        </button>
+        {artifact?.storageRoot && (
+          <p
+            className="px-4 pb-2 -mt-1 text-[10px] font-mono text-gray-400 dark:text-gray-500 truncate"
+            title={artifact.storageRoot}
+          >
+            {artifact.storageRoot}
+          </p>
+        )}
       </div>
 
       {/* Tabs */}
@@ -384,7 +468,6 @@ export function ArtifactPanel({ artifactId }: { artifactId: string }) {
         {([
           { id: 'details', label: 'Details', Icon: Info },
           { id: 'history', label: 'History', Icon: History },
-          { id: 'export', label: 'Export', Icon: Download },
         ] as const).map(({ id, label, Icon }) => (
           <button
             key={id}
@@ -411,11 +494,18 @@ export function ArtifactPanel({ artifactId }: { artifactId: string }) {
               <DetailsTab
                 artifact={artifact}
                 projects={projects}
+                exporting={exportingCurrent}
                 onRevise={() => setShowReviseGenerator(true)}
+                onExportCurrent={() => void handleExportCurrent()}
               />
             )}
-            {tab === 'history' && <HistoryTab artifactId={artifact.id} />}
-            {tab === 'export' && <ExportTab artifact={artifact} />}
+            {tab === 'history' && (
+              <HistoryTab
+                artifactId={artifact.id}
+                kind={artifact.kind}
+                onVersionDeleted={() => window.api.artifactGet(artifactId).then((a) => setArtifact(a)).catch(() => {})}
+              />
+            )}
           </>
         ) : (
           <p className="p-4 text-xs text-gray-400">Artifact not found</p>
@@ -434,7 +524,7 @@ export function ArtifactPanel({ artifactId }: { artifactId: string }) {
           </button>
           {confirmDelete && (
             <DeleteArtifactDialog
-              artifactTitle={artifact.title}
+              artifactTitle={artifactDisplayTitle(artifact.title, artifact.kind)}
               onConfirm={() => { setConfirmDelete(false); void handleDelete() }}
               onCancel={() => setConfirmDelete(false)}
             />
@@ -461,6 +551,7 @@ export function ArtifactPanel({ artifactId }: { artifactId: string }) {
           }}
         />
       )}
+      </div>
     </div>
   )
 }

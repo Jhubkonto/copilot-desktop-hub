@@ -3,23 +3,7 @@ import { Download, Loader2, Search, Trash2, X } from 'lucide-react'
 import type { ArtifactRow } from '../../../shared/types'
 import { useAppStore } from '../../store/app-store'
 import { DeleteArtifactDialog } from '../DeleteArtifactDialog'
-
-// ---------------------------------------------------------------------------
-// KindBadge (local; also duplicated in ProjectArtifactsTab)
-// ---------------------------------------------------------------------------
-
-const KIND_LABELS: Record<string, string> = {
-  document: 'Doc', code: 'Code', ui: 'UI', data: 'Data',
-  prompt: 'Prompt', 'agent-config': 'Agent', plan: 'Plan', bundle: 'Bundle', other: 'Other',
-}
-
-function KindBadge({ kind }: { kind: string }) {
-  return (
-    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 font-medium">
-      {KIND_LABELS[kind] ?? kind}
-    </span>
-  )
-}
+import { ArtifactKindBadge, artifactDisplayTitle } from '../artifacts/artifactDisplay'
 
 function ElapsedTimer({ startedAt }: { startedAt: number }) {
   const [elapsed, setElapsed] = useState(0)
@@ -53,9 +37,9 @@ function ArtifactListItem({ artifact, onDelete, onExport, onClick }: {
       onClick={() => onClick(artifact.id)}
       className="group flex items-center gap-2 rounded-lg px-2 py-2 cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/60"
     >
-      <KindBadge kind={artifact.kind} />
+      <ArtifactKindBadge kind={artifact.kind} />
       <div className="flex-1 min-w-0">
-        <p className="text-xs font-medium text-gray-800 dark:text-gray-100 truncate">{artifact.title}</p>
+        <p className="text-xs font-medium text-gray-800 dark:text-gray-100 truncate">{artifactDisplayTitle(artifact.title, artifact.kind)}</p>
         <p className="text-[10px] text-gray-400 dark:text-gray-500 truncate">
           {artifact.status === 'generating' ? (
             <span className="text-purple-500">generating…</span>
@@ -243,7 +227,7 @@ export function ArtifactsPane() {
             {pendingGen && (
               <div className="flex items-center gap-2 rounded-lg px-2 py-2 bg-purple-50/50 dark:bg-purple-900/10 border border-purple-200 dark:border-purple-800">
                 <Loader2 className="w-3.5 h-3.5 text-purple-500 animate-spin shrink-0" />
-                <KindBadge kind={pendingGen.kind} />
+                <ArtifactKindBadge kind={pendingGen.kind} />
                 <span className="text-xs font-medium text-gray-800 dark:text-gray-200 flex-1 truncate">{pendingGen.title}</span>
                 <ElapsedTimer startedAt={pendingGen.startedAt} />
               </div>

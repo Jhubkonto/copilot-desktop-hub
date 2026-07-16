@@ -507,6 +507,43 @@ export function writeArtifactVersionForConversation(input: WriteArtifactVersionF
   return { artifactId, versionId }
 }
 
+/**
+ * Deletes a single artifact version (cascades to its files via FK). If the deleted version
+ * was the artifact's current one, promotes the next-highest remaining version to current.
+ * Refuses to delete an artifact's only version — use artifact:delete for that instead, since
+ * an artifact with zero versions has nothing to display.
+ */
+export function deleteArtifactVersion(versionId: string): { deleted: boolean; artifactId?: string } {
+  const db = getDatabase()
+  const vRow = db.prepare('SELECT * FROM artifact_versions WHERE id = ?').get(versionId) as Record<string, unknown> | undefined
+  if (!vRow) return { deleted: false }
+  const artifactId = String(vRow.artifact_id)
+
+  const { c: versionCount } = db.prepare('SELECT COUNT(*) as c FROM artifact_versions WHERE artifact_id = ?').get(artifactId) as { c: number }
+  if (versionCount <= 1) {
+    throw new Error('Cannot delete the only version of an artifact — delete the artifact instead.')
+  }
+
+  const aRow = db.prepare('SELECT * FROM artifacts WHERE id = ?').get(artifactId) as Record<string, unknown> | undefined
+  const wasCurrent = aRow?.current_version_id === versionId
+  const now = Date.now()
+
+  db.transaction(() => {
+    db.prepare('DELETE FROM artifact_versions WHERE id = ?').run(versionId)
+    if (wasCurrent) {
+      const nextRow = db.prepare(
+        'SELECT id FROM artifact_versions WHERE artifact_id = ? ORDER BY version_number DESC LIMIT 1',
+      ).get(artifactId) as { id: string } | undefined
+      db.prepare('UPDATE artifacts SET current_version_id = ?, updated_at = ? WHERE id = ?').run(nextRow?.id ?? null, now, artifactId)
+    } else {
+      db.prepare('UPDATE artifacts SET updated_at = ? WHERE id = ?').run(now, artifactId)
+    }
+  })()
+
+  broadcastArtifactUpdated(artifactId, aRow?.project_id != null ? String(aRow.project_id) : null)
+  return { deleted: true, artifactId }
+}
+
 // ---------------------------------------------------------------------------
 // Handler registration
 // ---------------------------------------------------------------------------
@@ -555,6 +592,10 @@ export function registerArtifactHandlers(): void {
     const db = getDatabase()
     const info = db.prepare('DELETE FROM artifacts WHERE id = ?').run(id)
     return { deleted: info.changes > 0 }
+  })
+
+  safeHandle('artifact:delete-version', (_event, versionId: string) => {
+    return deleteArtifactVersion(versionId)
   })
 
   safeHandle('artifact:move-to-project', (_event, artifactId: string, projectId: string | null) => {
