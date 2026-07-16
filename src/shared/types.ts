@@ -223,7 +223,7 @@ export interface AgentConfig {
   }
   memory?: string
   customCommands?: { name: string; description: string; prompt: string }[]
-  backend?: 'claude-cli' | 'codex-cli' | 'gh-copilot'
+  backend?: 'claude-cli' | 'codex-cli' | 'hermes-cli'
   /** Model to use when backend is a CLI (e.g. 'claude-sonnet-4-6' or 'gpt-4.1'). */
   cliModel?: string
   /** How much reasoning effort the model should spend. undefined/'disabled' = provider default. */
@@ -380,6 +380,10 @@ export interface ProjectConfig extends ProjectOrchestrationConfig {
   // Opt-in, off by default: surfaces past highly-rated conversations from this project as an
   // additive "similar past strategies" context block (conversation-rating-system-roadmap.md §3.4).
   strategyRetrievalEnabled: boolean
+  // Opt-in, off by default: lets the agent's run_terminal_command tool use a working directory
+  // outside this project's rootDirectory, instead of being confined to it. Widens filesystem
+  // access — can be overridden per-conversation via conversations.terminal_sandbox_override.
+  terminalSandboxBypass: boolean
 }
 
 export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
@@ -399,6 +403,7 @@ export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
   milestones: [],
   verifyCommands: null,
   strategyRetrievalEnabled: false,
+  terminalSandboxBypass: false,
 }
 
 export interface McpServerConfig {
@@ -1099,6 +1104,7 @@ export interface AuthStatus {
   clis?: {
     claude: boolean
     codex: boolean
+    hermes?: boolean
   }
 }
 
@@ -1262,6 +1268,7 @@ export interface ConversationCompressionPreview {
   retained_message_count: number
   omitted_message_count: number
   estimated_tokens_before: number
+  estimated_tokens_after: number
   target_budget: number
   strategy: string | null
   updated_at: number | null
@@ -1274,6 +1281,7 @@ export interface ConversationCompressionDraft {
   retained_message_count: number
   omitted_message_count: number
   estimated_tokens_before: number
+  estimated_tokens_after: number
   target_budget: number
   strategy: string
   sections: StructuredConversationSummary

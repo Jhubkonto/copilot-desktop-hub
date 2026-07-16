@@ -168,6 +168,11 @@ export function useChatWindowActions({
   // Stores a CLI model and backend chosen before the conversation row exists (new chat), applied on first send.
   const pendingCliModelRef = useRef<string | null>(null)
   const pendingCliBackendRef = useRef<'claude-cli' | 'codex-cli' | null>(null)
+  // Same idea for the per-chat thinking effort / auto-approve overrides picked before the
+  // conversation row exists — applied when the first message creates it.
+  const pendingThinkingEffortRef = useRef<'low' | 'medium' | 'high' | 'max' | 'disabled' | null>(null)
+  const pendingFullAutoApproveRef = useRef<boolean | null>(null)
+  const pendingTerminalSandboxRef = useRef<boolean | null>(null)
   // Slash commands (e.g. /debrief, /quiz) run an async IPC round-trip before clearing the
   // composer, so isGenerating alone doesn't block a second Enter press mid-flight. The ref is
   // the synchronous re-entrancy guard (state updates aren't visible synchronously); the state
@@ -860,6 +865,12 @@ export function useChatWindowActions({
       pendingCliModelRef.current = null
       const effectiveRequestBackend = pendingCliBackendRef.current ?? undefined
       pendingCliBackendRef.current = null
+      const effectiveThinkingEffortOverride = pendingThinkingEffortRef.current
+      pendingThinkingEffortRef.current = null
+      const effectiveFullAutoApproveOverride = pendingFullAutoApproveRef.current
+      pendingFullAutoApproveRef.current = null
+      const effectiveTerminalSandboxOverride = pendingTerminalSandboxRef.current
+      pendingTerminalSandboxRef.current = null
       const sendResult = await window.api.sendMessage(conversation, content, {
         attachments,
         images: visionImagesForSend,
@@ -870,6 +881,9 @@ export function useChatWindowActions({
         projectId: chatProjectId ?? undefined,
         contextSnapshot: contextSnapshotJson,
         displayContent: userDisplayContent,
+        thinkingEffortOverride: effectiveThinkingEffortOverride,
+        fullAutoApproveOverride: effectiveFullAutoApproveOverride,
+        terminalSandboxOverride: effectiveTerminalSandboxOverride,
       }) as unknown
       if (hasIpcError(sendResult)) throw new Error(sendResult.error)
       void loadConversations()
@@ -1071,6 +1085,25 @@ export function useChatWindowActions({
     [conversationId, loadConversations, addToast],
   )
 
+  const handleSetConversationMode = useCallback(
+    async (mode: { thinkingEffortOverride?: 'low' | 'medium' | 'high' | 'max' | 'disabled' | null; fullAutoApproveOverride?: boolean | null; terminalSandboxOverride?: boolean | null }) => {
+      if (!conversationId) {
+        if (mode.thinkingEffortOverride !== undefined) pendingThinkingEffortRef.current = mode.thinkingEffortOverride
+        if (mode.fullAutoApproveOverride !== undefined) pendingFullAutoApproveRef.current = mode.fullAutoApproveOverride
+        if (mode.terminalSandboxOverride !== undefined) pendingTerminalSandboxRef.current = mode.terminalSandboxOverride
+        return
+      }
+      try {
+        const result = await window.api.setConversationMode(conversationId, mode)
+        if (hasIpcError(result)) throw new Error(result.error)
+        await loadConversations()
+      } catch {
+        addToast('Failed to set chat mode', 'error')
+      }
+    },
+    [conversationId, loadConversations, addToast],
+  )
+
   const handleStop = useCallback(async () => {
     try {
       await window.api.stopGeneration(conversationId ?? undefined)
@@ -1220,6 +1253,7 @@ export function useChatWindowActions({
     handleRetry,
     handleEdit,
     handleSetConversationModel,
+    handleSetConversationMode,
     handleSetCliModel,
     handleSetCliBackendAndModel,
     handleStop,

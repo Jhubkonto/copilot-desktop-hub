@@ -96,6 +96,14 @@ export interface ContextSnapshot {
   estimatedTokens: number
   model: string
   timestamp: number
+  /** Filled in server-side after the send actually resolves — the fields above are only the client's guess. */
+  serverModel?: string | null
+  serverCompression?: { compressedMessageCount: number; retainedMessageCount: number } | null
+  /** Provider-reported token counts (Claude CLI, Codex CLI, OpenAI-compatible APIs incl. OpenRouter).
+   *  Unset for backends that don't expose usage (e.g. Hermes CLI in its current single-shot mode) —
+   *  the estimate above is the only number available for those. */
+  serverInputTokens?: number
+  serverOutputTokens?: number
 }
 
 export interface TeamActivityStep {

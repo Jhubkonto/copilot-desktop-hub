@@ -183,6 +183,7 @@ export function createMockApi() {
       retained_message_count: 0,
       omitted_message_count: 0,
       estimated_tokens_before: 0,
+      estimated_tokens_after: 0,
       target_budget: 0,
       strategy: null,
       updated_at: null,
@@ -194,6 +195,7 @@ export function createMockApi() {
       retained_message_count: 0,
       omitted_message_count: 0,
       estimated_tokens_before: 0,
+      estimated_tokens_after: 0,
       target_budget: 0,
       strategy: 'manual-structured-summary-plus-recent-turns',
       sections: {
@@ -214,6 +216,7 @@ export function createMockApi() {
       retained_message_count: input.retainedMessageCount,
       omitted_message_count: 0,
       estimated_tokens_before: input.estimatedTokensBefore,
+      estimated_tokens_after: input.estimatedTokensBefore,
       target_budget: input.targetBudget,
       strategy: input.strategy,
       updated_at: 1000,
