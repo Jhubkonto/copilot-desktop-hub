@@ -48,6 +48,15 @@ class ArtifactsViewModel(app: Application) : AndroidViewModel(app) {
     private val _deleting = MutableStateFlow(false)
     val deleting: StateFlow<Boolean> = _deleting.asStateFlow()
 
+    private val _deletingVersionId = MutableStateFlow<String?>(null)
+    val deletingVersionId: StateFlow<String?> = _deletingVersionId.asStateFlow()
+
+    private val _deletingArtifactId = MutableStateFlow<String?>(null)
+    val deletingArtifactId: StateFlow<String?> = _deletingArtifactId.asStateFlow()
+
+    private val _listDeleteError = MutableStateFlow<String?>(null)
+    val listDeleteError: StateFlow<String?> = _listDeleteError.asStateFlow()
+
     private val _revisioning = MutableStateFlow(false)
     val revisioning: StateFlow<Boolean> = _revisioning.asStateFlow()
 
@@ -75,12 +84,25 @@ class ArtifactsViewModel(app: Application) : AndroidViewModel(app) {
                     }
                     is WsEvent.ArtifactDeleted -> {
                         _deleting.value = false
+                        val wasListDelete = _deletingArtifactId.value == event.id
+                        _deletingArtifactId.value = null
                         if (event.deleted) {
-                            clearSelection()
+                            if (_selectedArtifact.value?.id == event.id) clearSelection()
                             refresh(pendingProjectId)
                         } else {
-                            _exportError.value = "Artifact could not be deleted."
+                            val message = "Artifact could not be deleted."
+                            if (wasListDelete) _listDeleteError.value = message else _exportError.value = message
                         }
+                    }
+                    is WsEvent.ArtifactVersionDeleted -> {
+                        _deletingVersionId.value = null
+                        if (!event.deleted) {
+                            _exportError.value = "Version could not be deleted."
+                        }
+                    }
+                    is WsEvent.ArtifactVersionDeleteError -> {
+                        _deletingVersionId.value = null
+                        _exportError.value = event.message
                     }
                     is WsEvent.ArtifactGeneratorCreated -> {
                         _revisioning.value = false
@@ -148,6 +170,7 @@ class ArtifactsViewModel(app: Application) : AndroidViewModel(app) {
         _exportError.value = null
         _exporting.value = false
         _deleting.value = false
+        _deletingVersionId.value = null
         _revisioning.value = false
     }
 
@@ -162,6 +185,22 @@ class ArtifactsViewModel(app: Application) : AndroidViewModel(app) {
         _deleting.value = true
         _exportError.value = null
         WsRepository.deleteArtifact(id)
+    }
+
+    fun deleteArtifact(id: String) {
+        if (_deletingArtifactId.value != null) return
+        _deletingArtifactId.value = id
+        _listDeleteError.value = null
+        WsRepository.deleteArtifact(id)
+    }
+
+    fun dismissListDeleteError() { _listDeleteError.value = null }
+
+    fun deleteVersion(versionId: String) {
+        if (_deletingVersionId.value != null) return
+        _deletingVersionId.value = versionId
+        _exportError.value = null
+        WsRepository.deleteArtifactVersion(versionId)
     }
 
     fun generateNewVersion() {
